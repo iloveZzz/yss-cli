@@ -1,0 +1,10 @@
+{
+  "name": "@yss/spec-api-go-bridge",
+  "version": "1.0.0-alpha.2",
+  "private": true,
+  "main": "index.cjs",
+  "type": "commonjs",
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node --test index.test.cjs" },
+  "description": "Opt-in synchronous Spec API v1 transport; legacy defaults remain unchanged."
+}

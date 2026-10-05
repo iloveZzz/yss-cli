@@ -1,0 +1,456 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/bundle"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance"
+	"github.com/iloveZzz/yss-cli/internal/project"
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"github.com/iloveZzz/yss-cli/internal/updater"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+type options struct {
+	args       []string
+	values     map[string]string
+	json       bool
+	duplicates []string
+}
+
+func parse(args []string) (options, error) {
+	o := options{values: map[string]string{}}
+	for _, a := range args {
+		if a == "--json" || a == "--json=true" {
+			o.json = true
+		}
+	}
+	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "--") {
+			o.args = append(o.args, a)
+			continue
+		}
+		a = strings.TrimPrefix(a, "--")
+		if key, value, ok := strings.Cut(a, "="); ok {
+			if _, exists := o.values[key]; exists {
+				o.duplicates = append(o.duplicates, key)
+			}
+			if boolean[key] && value != "true" && value != "false" {
+				return o, domain.Fail("ARGUMENT", "布尔参数只接受 true/false: --"+key)
+			}
+			o.values[key] = value
+			continue
+		}
+		if _, exists := o.values[a]; exists {
+			o.duplicates = append(o.duplicates, a)
+		}
+		if boolean[a] {
+			o.values[a] = "true"
+			continue
+		}
+		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") {
+			return o, domain.Fail("ARGUMENT", "参数缺少值: --"+a)
+		}
+		i++
+		o.values[a] = args[i]
+	}
+	o.json = o.values["json"] == "true"
+	if isSemanticCommand(o) && len(o.duplicates) > 0 {
+		return o, &domain.Error{Code: "ARGUMENT", Message: "重复参数: --" + o.duplicates[0], Exit: 2}
+	}
+	return o, nil
+}
+func isSemanticCommand(o options) bool {
+	if len(o.args) < 2 {
+		return false
+	}
+	group, action := o.args[0], o.args[1]
+	return action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff") || group == "project-ci" && (action == "check" || action == "verify") && o.values["scope"] != "native-go"
+}
+func semInputCode(code string) bool {
+	switch code {
+	case "ARGUMENT", "ROOT", "PATH", "IDENTITY", "LEGACY", "BASELINE", "UNPORTED", "CANCELLED", "CAPABILITY", "INPUT", "EXECUTION", "INTERNAL":
+		return true
+	}
+	return false
+}
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	o, err := parse(args)
+	command := ""
+	if len(o.args) > 0 {
+		command = o.args[0]
+	}
+	if o.values["version"] == "true" {
+		command = "version"
+	}
+	if err == nil && (command == "" || o.values["help"] == "true" || command == "help") {
+		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover migrate skills assets\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n此预发布版本保留未迁移能力的旧执行路径；使用 yss capabilities 查看覆盖。")
+		return 0
+	}
+	profile := o.values["profile"]
+	if err == nil {
+		var result any
+		result, profile, err = execute(ctx, command, o)
+		if err == nil {
+			if o.json {
+				_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "ok", Code: "OK", Result: result})
+			} else {
+				b, _ := json.MarshalIndent(result, "", "  ")
+				fmt.Fprintln(stdout, string(b))
+			}
+			return 0
+		}
+	}
+	code := "INTERNAL"
+	exit := 1
+	var de *domain.Error
+	if errors.As(err, &de) {
+		code = de.Code
+		if de.Exit != 0 {
+			exit = de.Exit
+		}
+	}
+	if isSemanticCommand(o) && semInputCode(code) {
+		exit = 2
+	}
+	var se *schema.Error
+	if errors.As(err, &se) {
+		code = se.Code
+	}
+	var result any = map[string]any{"message": err.Error()}
+	var reported interface{ ErrorResult() any }
+	if errors.As(err, &reported) {
+		result = reported.ErrorResult()
+	} else if isSemanticCommand(o) {
+		result = governance.InputFailureReport(ctx, o.values["root"], command, err)
+	}
+	if o.json {
+		_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "error", Code: code, Result: result})
+	} else {
+		if isSemanticCommand(o) {
+			b, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Fprintln(stdout, string(b))
+		}
+		fmt.Fprintln(stderr, code+": "+err.Error())
+	}
+	return exit
+}
+func execute(ctx context.Context, command string, o options) (any, string, error) {
+	profile := o.values["profile"]
+	root := o.values["root"]
+	for _, flag := range []string{"root", "target-dir"} {
+		if value, present := o.values[flag]; present && strings.TrimSpace(value) == "" {
+			return nil, profile, domain.Fail("ARGUMENT", "项目根参数不能为空: --"+flag)
+		}
+	}
+	if root == "" {
+		root = o.values["target-dir"]
+	}
+	if root == "" {
+		root = "."
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, profile, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, profile, domain.Wrap("CANCELLED", err)
+	}
+	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "recover" || command == "version" || command == "capabilities" {
+		if len(o.args) > 1 {
+			return nil, profile, domain.Fail("ARGUMENT", "不支持额外子命令或位置参数")
+		}
+	}
+	if command == "migrate" && len(o.args) > 1 {
+		if len(o.args) > 2 {
+			return nil, profile, domain.Fail("ARGUMENT", "迁移子命令参数过多")
+		}
+		switch o.args[1] {
+		case "plan":
+			o.values["plan"] = "true"
+		case "apply":
+			o.values["apply"] = "true"
+		case "status", "recover", "rollback":
+		default:
+			return nil, profile, domain.Fail("ARGUMENT", "未知迁移子命令: "+o.args[1])
+		}
+	}
+	if command == "version" || o.values["version"] == "true" {
+		return map[string]any{"version": domain.Version, "protocolVersion": domain.ProtocolVersion, "profiles": domain.Profiles}, profile, nil
+	}
+	if command == "capabilities" {
+		return capabilities(), profile, nil
+	}
+	if command == "update" {
+		if len(o.args) > 2 {
+			return nil, "", domain.Fail("ARGUMENT", "程序升级子命令参数过多")
+		}
+		for k := range o.values {
+			switch k {
+			case "json", "help", "version", "tool-root", "artifact", "sha256", "plan", "apply", "out", "plan-file":
+			default:
+				return nil, "", domain.Fail("ARGUMENT", "程序升级不接受项目参数: --"+k)
+			}
+		}
+		action := "plan"
+		if len(o.args) > 1 {
+			action = o.args[1]
+		}
+		if action == "status" || action == "recover" || action == "rollback" {
+			for k := range o.values {
+				if k != "json" && k != "tool-root" {
+					return nil, "", domain.Fail("ARGUMENT", "程序状态、恢复及回退仅接受 --tool-root 与 --json")
+				}
+			}
+			if action == "recover" {
+				r, e := updater.Recover(ctx, o.values["tool-root"])
+				return r, "", e
+			}
+			if action == "rollback" {
+				r, e := updater.Rollback(ctx, o.values["tool-root"])
+				return r, "", e
+			}
+			r, e := updater.Status(o.values["tool-root"])
+			return r, "", e
+		}
+		if action != "plan" && action != "apply" {
+			return nil, "", domain.Fail("ARGUMENT", "程序升级只支持 plan|apply|status|recover|rollback")
+		}
+		if action == "apply" || o.values["apply"] == "true" {
+			if o.values["plan-file"] == "" {
+				return nil, "", domain.Fail("PLAN_REQUIRED", "程序安装须 --apply --plan-file <已保存计划>")
+			}
+			p, e := updater.ReadPlan(o.values["plan-file"])
+			if e != nil {
+				return nil, "", e
+			}
+			toolRoot, e := filepath.Abs(o.values["tool-root"])
+			if e != nil || o.values["tool-root"] == "" || p.ToolRoot != toolRoot {
+				return nil, "", domain.Fail("PLAN", "程序升级计划与显式工具根不匹配")
+			}
+			r, e := updater.Apply(ctx, p)
+			return r, "", e
+		}
+		if o.values["artifact"] == "" || o.values["sha256"] == "" {
+			return nil, "", domain.Fail("ARGUMENT", "离线升级须指定 --artifact 与 --sha256；程序升级不迁移项目")
+		}
+		p, e := updater.Build(o.values["tool-root"], o.values["artifact"], o.values["sha256"])
+		if e != nil {
+			return nil, "", e
+		}
+		if file := o.values["out"]; file != "" {
+			if e = updater.SavePlan(p, file); e != nil {
+				return nil, "", e
+			}
+		}
+		return p, "", nil
+	}
+	if command == "recover" || command == "migrate" && len(o.args) > 1 && (o.args[1] == "rollback" || o.args[1] == "recover" || o.args[1] == "status") {
+		for k := range o.values {
+			switch k {
+			case "root", "target-dir", "profile", "json", "help", "version", "apply":
+			default:
+				return nil, profile, domain.Fail("ARGUMENT", "恢复/状态不支持参数: --"+k)
+			}
+		}
+		if e := project.CheckLegacyState(root, profile); e != nil {
+			return nil, profile, e
+		}
+		id, e := project.RecoveryIdentity(root, profile)
+		if e != nil {
+			return nil, profile, e
+		}
+		profile = id.Profile.Name
+		if e = project.CheckLegacyState(root, profile); e != nil {
+			return nil, profile, e
+		}
+		var r transaction.Result
+		switch {
+		case command == "recover" || o.args[1] == "recover":
+			r, err = transaction.Recover(root)
+		case o.args[1] == "rollback":
+			r, err = transaction.RollbackKind(root, "migrate")
+		default:
+			r, err = transaction.Status(root)
+		}
+		return r, profile, err
+	}
+	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
+		allowed := map[string]bool{}
+		for _, k := range []string{"root", "target-dir", "profile", "json", "help", "version", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file"} {
+			allowed[k] = true
+		}
+		for key := range o.values {
+			if !allowed[key] {
+				return nil, profile, domain.Fail("ARGUMENT", "此命令尚不支持参数: --"+key)
+			}
+		}
+		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
+			p, e := project.ReadPlan(o.values["plan-file"])
+			if e != nil {
+				return nil, profile, e
+			}
+			if p.Root != root || (profile != "" && profile != p.Profile) || p.Command != command {
+				return nil, profile, domain.Fail("PLAN", "计划与命令、项目根或 Profile 不匹配")
+			}
+			r, e := project.ApplyContext(ctx, p)
+			return r, p.Profile, e
+		}
+		var selection []string
+		id, e := project.Detect(root, profile, command == "init" || command == "attach")
+		if e != nil {
+			return nil, profile, e
+		}
+		profile = id.Profile.Name
+		if command == "skills" || command == "assets" {
+			if len(o.args) < 2 {
+				return nil, profile, domain.Fail("ARGUMENT", "需要 list 或 ensure 子命令")
+			}
+			b, e := bundle.Load(profile)
+			if e != nil {
+				return nil, profile, e
+			}
+			if o.args[1] == "list" {
+				if command == "assets" {
+					return b.StageRequirements, profile, nil
+				}
+				names := map[string]bool{}
+				for ref := range b.Files {
+					if strings.HasPrefix(ref, ".agents/skills/") {
+						name := strings.Split(strings.TrimPrefix(ref, ".agents/skills/"), "/")[0]
+						names[name] = true
+					}
+				}
+				list := []string{}
+				for name := range names {
+					list = append(list, name)
+				}
+				sort.Strings(list)
+				return list, profile, nil
+			}
+			if o.args[1] != "ensure" || len(o.args) < 3 {
+				return nil, profile, domain.Fail("ARGUMENT", "需要 ensure <标识>")
+			}
+			if command == "assets" {
+				for _, stage := range o.args[2:] {
+					r, ok := b.StageRequirements[stage]
+					if !ok {
+						return nil, profile, domain.Fail("ASSET", "未知阶段或 Profile 不支持按阶段补装: "+stage)
+					}
+					selection = append(selection, r.Paths...)
+					for _, s := range r.Skills {
+						for ref := range b.Files {
+							if strings.HasPrefix(ref, ".agents/skills/"+s+"/") || strings.HasPrefix(ref, ".codex/skills/"+s+"/") {
+								selection = append(selection, ref)
+							}
+						}
+					}
+				}
+			} else {
+				for _, name := range o.args[2:] {
+					if r, ok := b.SkillRequirements[name]; ok {
+						if r.UnsupportedReason != "" {
+							return nil, profile, domain.Fail("UNPORTED", r.UnsupportedReason)
+						}
+						selection = append(selection, r.Paths...)
+						for _, dep := range r.Skills {
+							for ref := range b.Files {
+								if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".codex/skills/"+dep+"/") {
+									selection = append(selection, ref)
+								}
+							}
+						}
+					}
+					prefix := ".agents/skills/" + name + "/"
+					count := 0
+					for ref := range b.Files {
+						if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".codex/skills/"+name+"/") {
+							selection = append(selection, ref)
+							count++
+						}
+					}
+					if count == 0 {
+						return nil, profile, domain.Fail("SKILL", "快照未登记 Skill: "+name)
+					}
+				}
+			}
+		}
+		vars := map[string]string{"projectName": o.values["project-name"], "businessDomain": o.values["business-domain"], "teamSize": o.values["team-size"]}
+		p, e := project.Build(root, profile, command, vars, selection)
+		if e != nil {
+			return nil, profile, e
+		}
+		if command == "doctor" {
+			checks, e := governance.Run("context", "verify", root, nil)
+			if e != nil {
+				return nil, profile, e
+			}
+			identity := map[string]any{"root": id.Root, "profile": id.Profile, "repositoryMode": id.Mode, "legacyFile": id.LegacyFile}
+			if id.Native != nil {
+				identity["native"] = map[string]any{"schemaVersion": id.Native.SchemaVersion, "protocolVersion": id.Native.ProtocolVersion, "cliVersion": id.Native.CLIVersion, "templateVersion": id.Native.TemplateVersion, "legacyCliVersion": id.Native.LegacyCLIVersion, "templateCommit": id.Native.TemplateCommit, "snapshotHash": id.Native.SnapshotHash, "manifestHash": id.Native.ManifestHash, "templateSourceState": id.Native.TemplateSourceState, "baselineDigest": id.Native.BaselineDigest, "managedFileCount": len(id.Native.Managed)}
+			}
+			return map[string]any{"identity": identity, "context": checks, "plan": p.Public(), "executionCore": func() string {
+				if id.Native == nil {
+					return "legacy"
+				}
+				return "go-hybrid"
+			}(), "stableReady": false}, profile, nil
+		}
+		if path := o.values["out"]; path != "" {
+			if e = project.SavePlan(p, path); e != nil {
+				return nil, profile, e
+			}
+		}
+		if command == "init" && o.values["plan"] != "true" {
+			r, e := project.ApplyContext(ctx, p)
+			return r, profile, e
+		}
+		if o.values["apply"] == "true" {
+			return nil, profile, domain.Fail("PLAN_REQUIRED", "非初始化写入需要 --apply --plan-file <已保存的计划>")
+		}
+		return p.Public(), profile, nil
+	}
+	action := "status"
+	if len(o.args) > 1 {
+		action = o.args[1]
+	}
+	if len(o.args) > 2 {
+		for i, a := range o.args[2:] {
+			o.values[fmt.Sprintf("arg%d", i)] = a
+		}
+	}
+	if isSemanticCommand(o) {
+		r, err := governance.RunContext(ctx, command, action, root, o.values)
+		if report, ok := r.(*governance.SemanticReport); ok && report.Profile != "" {
+			profile = report.Profile
+		}
+		return r, profile, err
+	}
+	id, err := project.Detect(root, profile, false)
+	if err != nil {
+		return nil, profile, err
+	}
+	profile = id.Profile.Name
+	if command != "context" && !isSemanticCommand(o) {
+		if _, err := governance.Run("context", "verify", root, nil); err != nil {
+			return nil, profile, err
+		}
+	}
+	r, err := governance.RunContext(ctx, command, action, root, o.values)
+	return r, profile, err
+}
+func capabilities() map[string]any {
+	return map[string]any{"stableReady": false, "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": "1.0.0-alpha.3", "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "pending": []string{"legacy-success-JSON-and-policy-parity", "legacy-JavaScript-success-API-and-plugin-consumers", "native-six-platform-runtime-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": true}
+}
+
+var _ = os.ErrNotExist

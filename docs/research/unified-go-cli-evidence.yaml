@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "profile": "technical-evidence",
+  "mode": "evidence-audited",
+  "scope": {
+    "topic": "统一 Go CLI 架构实施基线",
+    "audience": "YSS CLI 维护者",
+    "time_horizon": "2026-10-05 固定源码与预发布试用",
+    "research_questions": [
+      "共享核心边界是什么",
+      "哪些合同须保持",
+      "纯 Go 依赖有哪些语义差异"
+    ],
+    "inclusion_criteria": [
+      "固定源码",
+      "官方依赖文档",
+      "本地 fresh verification"
+    ],
+    "exclusion_criteria": [
+      "性能推测",
+      "未经运行的跨平台完成声明"
+    ]
+  },
+  "ownership": {
+    "research_owner": "yss-research",
+    "downstream_owner": "yss-cli 主控",
+    "decision_ref": "implementation-contract.md"
+  },
+  "search_log": [
+    {
+      "id": "search-local",
+      "channel": "CodeGraph 与本地文件读取",
+      "query_or_corpus": "cli-core identity/bundle/family/transaction 与 Spec public API / json-schema",
+      "searched_at": "2026-10-05",
+      "result": "results-found"
+    },
+    {
+      "id": "search-primary",
+      "channel": "web 官方 API 文档",
+      "query_or_corpus": "jsonschema v6.0.3 / go.yaml.in/yaml v3.0.5 / modernc sqlite v1.60.1",
+      "searched_at": "2026-10-05",
+      "result": "results-found"
+    }
+  ],
+  "evidence_items": [
+    {
+      "id": "evidence-core",
+      "source_level": "primary",
+      "visibility": "internal",
+      "source_class": "内部源码",
+      "source_ref": "/Users/zhudaoming/Projects/yss-spec-project-template/.template-source/cli-core/family.mjs",
+      "locator": "FAMILIES/CHECKS",
+      "stance": "support",
+      "observed_at": "2026-10-05",
+      "observation": "Design/Backend/Frontend 当前共享 CLI 核心，Profile 与家族 metadata 各自区分。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ],
+      "digest": "sha256:2a21348f54e2f8e8f81e1000e3228b3fe3e8817a78244f9866c150318fd129d0"
+    },
+    {
+      "id": "evidence-spec",
+      "source_level": "primary",
+      "visibility": "internal",
+      "source_class": "内部源码",
+      "source_ref": "/Users/zhudaoming/Projects/yss-spec-project-template/submodules/create-yss-spec/src/api/index.js",
+      "locator": "API_VERSION/module.exports",
+      "stance": "support",
+      "observed_at": "2026-10-05",
+      "observation": "Spec 还提供 API_VERSION=1 的 JavaScript 公开接口。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ],
+      "digest": "sha256:51c12311d406229c34e3fae5c8528a8e23dcd86736fb447fa00c86c4c9b96141"
+    },
+    {
+      "id": "evidence-python",
+      "source_level": "primary",
+      "visibility": "internal",
+      "source_class": "内部源码",
+      "source_ref": "/Users/zhudaoming/Projects/yss-spec-project-template/scripts/lib/json-schema.mjs",
+      "locator": "validateJsonSchemas/Python Draft202012Validator",
+      "stance": "counter",
+      "observed_at": "2026-10-05",
+      "observation": "现有治理校验链依赖 Python jsonschema/FormatChecker；换安装入口不消除解释器。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ],
+      "digest": "sha256:c2992f55adb5b4469b8dd74ed08583a89907d731ec19be815e4c5625e7146bf4"
+    },
+    {
+      "id": "evidence-tx",
+      "source_level": "primary",
+      "visibility": "internal",
+      "source_class": "内部源码",
+      "source_ref": "/Users/zhudaoming/Projects/yss-spec-project-template/.template-source/cli-core/transaction.mjs",
+      "locator": "persistent transaction journal",
+      "stance": "support",
+      "observed_at": "2026-10-05",
+      "observation": "旧实现已有持久文件事务，迁移须保留摘要与恢复合同。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ],
+      "digest": "sha256:f2fbc4642e953ce00cece2e9f9fe61b7b50f42fabed41e64d5a1902d0ae660a8"
+    },
+    {
+      "id": "evidence-schema",
+      "source_level": "primary",
+      "visibility": "public",
+      "source_class": "依赖官方文档",
+      "source_ref": "https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3",
+      "locator": "AssertFormat/UseLoader/UseRegexpEngine",
+      "stance": "support",
+      "observed_at": "2026-10-05",
+      "observation": "Go Schema 编译器提供 draft、format、loader 与 regexp 扩展接口。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ]
+    },
+    {
+      "id": "evidence-yaml",
+      "source_level": "primary",
+      "visibility": "public",
+      "source_class": "依赖官方文档",
+      "source_ref": "https://pkg.go.dev/go.yaml.in/yaml/v3@v3.0.5",
+      "locator": "Compatibility/Node",
+      "stance": "counter",
+      "observed_at": "2026-10-05",
+      "observation": "YAML 解码库的兼容行为不等于现有 JS YAML 1.2 合同，必须显式检查重复键、alias 与标量。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ]
+    },
+    {
+      "id": "evidence-sqlite",
+      "source_level": "primary",
+      "visibility": "public",
+      "source_class": "依赖官方文档",
+      "source_ref": "https://pkg.go.dev/modernc.org/sqlite@v1.60.1",
+      "locator": "Overview",
+      "stance": "support",
+      "observed_at": "2026-10-05",
+      "observation": "SQLite driver 为纯 Go 实现，可参与 CGO_ENABLED=0 构建。",
+      "limitations": [
+        "源码观察和依赖API事实不证明完成全部迁移、平台运行或性能收益"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-architecture",
+      "claim_kind": "technical-fact",
+      "statement": "四 Profile 统一到一个命令和共享核心有现成公共实现依据；Spec 公开接口须单独适配。",
+      "decision_bearing": true,
+      "evidence_refs": [
+        "evidence-core",
+        "evidence-spec"
+      ],
+      "counter_signal_refs": [
+        "evidence-python"
+      ],
+      "audit_status": "supported",
+      "confidence": "high",
+      "disposition": "publish"
+    },
+    {
+      "id": "claim-validation",
+      "claim_kind": "technical-fact",
+      "statement": "Go 依赖提供实现原生校验和存储的 API；须用差分测试证明现有语义等价，不能仅换语言宣称等价。",
+      "decision_bearing": true,
+      "evidence_refs": [
+        "evidence-schema",
+        "evidence-sqlite"
+      ],
+      "counter_signal_refs": [
+        "evidence-yaml",
+        "evidence-python"
+      ],
+      "audit_status": "supported",
+      "confidence": "high",
+      "disposition": "publish"
+    },
+    {
+      "id": "claim-transactions",
+      "claim_kind": "technical-fact",
+      "statement": "写入迁移必须保留持久事务与回滚约束，并保护业务文件和用户修改。",
+      "decision_bearing": true,
+      "evidence_refs": [
+        "evidence-tx"
+      ],
+      "counter_signal_refs": [
+        "evidence-python"
+      ],
+      "audit_status": "supported",
+      "confidence": "high",
+      "disposition": "publish"
+    }
+  ],
+  "source_gaps": [
+    {
+      "description": "尚未取得六个平台原生执行结果；治理全部动作、旧输出和消费者兼容仍须实施后验证。"
+    }
+  ],
+  "audit_summary": {
+    "status": "complete",
+    "audited_claim_ids": [
+      "claim-architecture",
+      "claim-validation",
+      "claim-transactions"
+    ],
+    "notes": [
+      "审计完成仅指本架构研究声明，不是重构完成或发布批准。"
+    ]
+  }
+}
