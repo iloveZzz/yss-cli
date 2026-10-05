@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "taskId": "go-cli-compat",
+  "workflowStatus": "ready-for-review",
+  "verificationStatus": "passed-targeted",
+  "completeCompatibility": false,
+  "stableReady": false,
+  "legacyDefaultsChanged": false,
+  "gitCommitOrPush": false,
+  "writeScope": ["internal/compat", "compat"],
+  "platformObserved": "darwin/arm64",
+  "toolchain": "go1.27.1",
+  "bridgeAndOracleNode": "v24.21.0",
+  "api": {
+    "alias": "Run(context.Context, string, []string, io.Writer, io.Writer) int",
+    "jsonStdin": "RunAPI(context.Context, string, io.Reader, io.Writer, io.Writer) int",
+    "specAPI_VERSION": 1,
+    "protocolVersion": 1,
+    "legacyExports": ["projectDoctor", "projectDiff", "templatePlan", "templateApply", "toErrorEnvelope"],
+    "nativeExtensions": ["native.run", "native.snapshot"]
+  },
+  "verification": [
+    {
+      "command": "YSS_LEGACY_SOURCE=/Users/zhudaoming/Projects/yss-spec-project-template GOTOOLCHAIN=go1.27.1 go test -count=1 -v ./internal/compat",
+      "exitCode": 0,
+      "durationSeconds": 17.530,
+      "legacyDifferentialRows": 32,
+      "oracleTestsSkipped": 0,
+      "nativePlanChanges": {"spec": 260, "design": 2276, "backend": 2780, "frontend": 4428},
+      "actualLegacySpecInitSeconds": 1.499080708,
+      "actualLegacySpecMigrationWorkflowSeconds": 4.0193955,
+      "log": "compat/verification.log"
+    },
+    {
+      "command": "GOTOOLCHAIN=go1.27.1 go vet ./internal/compat",
+      "exitCode": 0
+    },
+    {
+      "command": "GOTOOLCHAIN=go1.27.1 go build -o compat/.verification-yss ./cmd/yss",
+      "exitCode": 0,
+      "artifactSHA256": "9e353ac34c3c43d52324659eaf4b6d76f400e46d38d6740b4b9272a5f82b272a",
+      "artifactInstalled": false,
+      "artifactRemovedAfterTests": true
+    },
+    {
+      "command": "YSS_BINARY=<absolute verification binary> YSS_COMPAT_API_HELPER=1 node --test compat/spec-api/index.test.cjs",
+      "exitCode": 0,
+      "tests": 6,
+      "skipped": 0,
+      "durationSeconds": 1.5367125,
+      "actualCmdYssDispatch": true,
+      "log": "compat/js-verification.log"
+    }
+  ],
+  "nativeObserved": [
+    "four profiles real embedded init preview without target creation",
+    "Spec native init saved plan/apply/doctor/sync preview",
+    "Spec actual fixed old init and old sync JSON",
+    "actual legacy instance native diff and MIGRATION_REQUIRED refusal",
+    "actual legacy instance native migrate plan/apply/sync/whole rollback",
+    "original legacy metadata bytes preserved through migration/rollback",
+    "cross-family diff and rollback refused",
+    "recover without apply is read-only",
+    "real JavaScript synchronous subprocess and fixed snapshot provenance",
+    "missing binary and wrong executable fail with valid Error Envelope v1"
+  ],
+  "unported": [
+    "Spec successful Plan/ApplyResult/Doctor v1 and programmatic successful results",
+    "specialist successful preview/applied/healthy result contracts",
+    "default legacy init/attach/sync writes",
+    "force/prune/migrate-layout/git-init/runtime/tracker/example options",
+    "old migrate plan/archive/receipt/WAL/recovery formats",
+    "npm update/upgrade",
+    "legacy skills/assets result and runtime add semantics",
+    "plugin default execution and identity/packing contracts",
+    "compat recovery of interrupted init before a durable profile identity exists"
+  ],
+  "unobserved": [
+    "three specialist actual old init-to-native-migration write workflows",
+    "Windows/Linux runtime behavior",
+    "independent compatibility review and final-source release verification"
+  ],
+  "evidence": ["compat/README.md", "compat/input-sha256.txt", "compat/verification.log", "compat/js-verification.log"]
+}

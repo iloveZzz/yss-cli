@@ -1,0 +1,132 @@
+=== RUN   TestLegacyRejectionsAndDiscovery
+=== RUN   TestLegacyRejectionsAndDiscovery/create-yss-spec
+=== RUN   TestLegacyRejectionsAndDiscovery/create-yss-harness-design
+=== RUN   TestLegacyRejectionsAndDiscovery/create-yss-harness-backend
+=== RUN   TestLegacyRejectionsAndDiscovery/create-yss-harness-frontend
+--- PASS: TestLegacyRejectionsAndDiscovery (0.01s)
+    --- PASS: TestLegacyRejectionsAndDiscovery/create-yss-spec (0.00s)
+    --- PASS: TestLegacyRejectionsAndDiscovery/create-yss-harness-design (0.00s)
+    --- PASS: TestLegacyRejectionsAndDiscovery/create-yss-harness-backend (0.00s)
+    --- PASS: TestLegacyRejectionsAndDiscovery/create-yss-harness-frontend (0.00s)
+=== RUN   TestNativePlanAndApplyProtectFamilyAndProject
+--- PASS: TestNativePlanAndApplyProtectFamilyAndProject (9.21s)
+=== RUN   TestFourNativeReadOnlyProfilePlans
+=== RUN   TestFourNativeReadOnlyProfilePlans/create-yss-spec
+    compat_test.go:142: real spec init plan: 260 changes, target absent
+=== RUN   TestFourNativeReadOnlyProfilePlans/create-yss-harness-design
+    compat_test.go:142: real design init plan: 2276 changes, target absent
+=== RUN   TestFourNativeReadOnlyProfilePlans/create-yss-harness-backend
+    compat_test.go:142: real backend init plan: 2780 changes, target absent
+=== RUN   TestFourNativeReadOnlyProfilePlans/create-yss-harness-frontend
+    compat_test.go:142: real frontend init plan: 4428 changes, target absent
+--- PASS: TestFourNativeReadOnlyProfilePlans (1.49s)
+    --- PASS: TestFourNativeReadOnlyProfilePlans/create-yss-spec (0.37s)
+    --- PASS: TestFourNativeReadOnlyProfilePlans/create-yss-harness-design (0.17s)
+    --- PASS: TestFourNativeReadOnlyProfilePlans/create-yss-harness-backend (0.43s)
+    --- PASS: TestFourNativeReadOnlyProfilePlans/create-yss-harness-frontend (0.52s)
+=== RUN   TestSynchronousJSBridge
+--- PASS: TestSynchronousJSBridge (1.57s)
+=== RUN   TestFourLegacyEntryDifferentialContracts
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/a
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/b
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/c
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/d
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/e
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/f
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/g
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-spec/h
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/a
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/b
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/c
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/d
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/e
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/f
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/g
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/h
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/a
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/b
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/c
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/d
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/e
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/f
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/g
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/h
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/a
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/b
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/c
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/d
+    differential_test.go:67: observed exit=0 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/e
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/f
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/g
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+=== RUN   TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/h
+    differential_test.go:67: observed exit=1 JSON-or-byte parity
+--- PASS: TestFourLegacyEntryDifferentialContracts (1.19s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/a (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/b (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/c (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/d (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/e (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/f (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/g (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-spec/h (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/a (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/b (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/c (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/d (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/e (0.03s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/f (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/g (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-design/h (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/a (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/b (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/c (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/d (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/e (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/f (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/g (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-backend/h (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/a (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/b (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/c (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/d (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/e (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/f (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/g (0.04s)
+    --- PASS: TestFourLegacyEntryDifferentialContracts/create-yss-harness-frontend/h (0.04s)
+=== RUN   TestActualLegacySpecInitAndOptInNativeMigration
+    differential_test.go:86: actual legacy spec init exit 0: 1.499080708s
+    differential_test.go:146: actual legacy init/sync and explicit Go diff/migrate/apply/sync/rollback sample completed: 4.0193955s
+--- PASS: TestActualLegacySpecInitAndOptInNativeMigration (4.03s)
+PASS
+ok  	github.com/iloveZzz/yss-cli/internal/compat	17.530s

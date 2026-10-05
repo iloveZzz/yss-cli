@@ -1,0 +1,14 @@
+✔ API v1 retains synchronous export and Error Envelope contracts (0.923709ms)
+✔ missing binary throws a normalized error and cannot silently succeed (0.992834ms)
+✔ a different executable cannot silently supply a valid API result (22.831166ms)
+✔ real Go subprocess refuses uncovered legacy semantics synchronously (33.843833ms)
+✔ stable snapshot API exposes fixed-source provenance for all four profiles (1040.847792ms)
+✔ explicit native namespace uses a real Go read-only plan and errors (401.436375ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1536.7125

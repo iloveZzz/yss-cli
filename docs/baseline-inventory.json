@@ -1,0 +1,3183 @@
+{
+  "schemaVersion": 1,
+  "sourceRootRevision": "11d88fb0ae6e4213bff6b4c5af4de03fd1aa2f1c",
+  "counts": {
+    "included": 333,
+    "excludedVendorAndTemplateTests": 6,
+    "lines": 33453,
+    "runtime": {
+      "node": 327,
+      "shell-or-launcher": 1,
+      "python": 5
+    },
+    "scope": {
+      "entry-or-source-tool-needs-mapping": 129,
+      "fixture-or-test": 58,
+      "shared-library": 128,
+      "source-maintenance-independent": 18
+    }
+  },
+  "countMeaning": "code modules and launchers, not 333 independent end-user features; canonical Skills, projections and submodule code excluded from this script count",
+  "scripts": [
+    {
+      "path": "scripts/advance-maintenance-iteration",
+      "sha256": "65ac02b17b003e9fd57725e20e2cc66495bad9c296f935fa82e6de286b8d910d",
+      "bytes": 3371,
+      "lines": 51,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/api-contract-decision",
+      "sha256": "080fb7f7f187341985abb3ba8d8dfa823c17d88dbfbfb55e357f18f7b8f54a87",
+      "bytes": 1430,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/audit-legacy-backend-scaffold",
+      "sha256": "1b315575c006eaf0cc403c806e534510d1b79985ee13835f8124efb000900894",
+      "bytes": 1272,
+      "lines": 29,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/audit-yss-backend-skills",
+      "sha256": "f3477ebc67efc2c67ff8b6b98d9f75f6cb721683c7b60f700eed882d0a14d99b",
+      "bytes": 7835,
+      "lines": 132,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/backend-delivery",
+      "sha256": "51ae1dc83e6b3d1bf740d5e371eecc3268577a95e4e200927954f48254a9aabf",
+      "bytes": 3342,
+      "lines": 30,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/backend-platforms",
+      "sha256": "1a85ffb099895b2aff22fd2792817553dcc8ae1480f555ef9180d419d972b83c",
+      "bytes": 4466,
+      "lines": 83,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/backend-standards-coverage",
+      "sha256": "433dfd5435e6a7c8b53297180557e7e94ff8818559c2c61f905b5f9fbac1524d",
+      "bytes": 2051,
+      "lines": 26,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/cache-template-commit",
+      "sha256": "54abe477f4607c0d073d7d04c6fea33a638d2c03ea06e091ef8db196c82e3604",
+      "bytes": 857,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/capture-maintenance-candidate",
+      "sha256": "f507b4098d79372839b2b5a7b3986aa73532ef760c3428f98d14809c13a32d19",
+      "bytes": 945,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/check-plan-stage-coverage",
+      "sha256": "c38fcbb0fcd9fa61414543bfba67329d3e60a1716f73f52edf52466ea392b0e8",
+      "bytes": 1013,
+      "lines": 12,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/complete-backend-delivery",
+      "sha256": "543a442d32869c3e60280e84a85e5c1338a0ec4b784ba72486d2666be675efe2",
+      "bytes": 1194,
+      "lines": 17,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/contract",
+      "sha256": "287755e5c0156a6ff8d15d2b00bdb784848b17fae6c5c5a6cb6964650fe1ad9b",
+      "bytes": 3567,
+      "lines": 31,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/design-md",
+      "sha256": "eb0b05ca6ba415a7fc51cbbe277febec5b63cc02823bb34cd44226a70aaaadc3",
+      "bytes": 50,
+      "lines": 2,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/dispatch-slice-task",
+      "sha256": "4771198c366d98b5d12bb8b5d377ad6956857c9c2b1e67496c5fe3855f6a4078",
+      "bytes": 814,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/evaluate-maintenance-review-round",
+      "sha256": "bd6b24f31297b01d162a75fc849b38071fe5f78d896cac5fd99c07d755741160",
+      "bytes": 2398,
+      "lines": 37,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/export-yss-skills",
+      "sha256": "2a0ed7e29d31a463826e0ee4d93d9fb27d34cc7ae60259d8de72a350fb80d820",
+      "bytes": 213,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/feature-assets",
+      "sha256": "306db940c3dc0dbc9b141af2cce9de2361e5923c120ed2602d890f7a593fddb6",
+      "bytes": 1932,
+      "lines": 23,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-delivery/approval-fixture.mjs",
+      "sha256": "1cbb66ea4eab7726c7d54038ca17a9d77e1d7b4647652a06fa82dde391fba3ea",
+      "bytes": 7188,
+      "lines": 56,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-delivery/revision-server.mjs",
+      "sha256": "fa2d49c47b833e824ab9e015ec51f41276efa768b5f8149597c7b6b57c77f022",
+      "bytes": 647,
+      "lines": 11,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-scaffold/attach-design-prerequisites.mjs",
+      "sha256": "04293ced84d45b4440d1bee0580ceef820927d69bde3d0e55df26816a86ef871",
+      "bytes": 776,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-scaffold/design-prerequisites.mjs",
+      "sha256": "d58565492157dc0f94653d4536511b602ae0ce11a4cfbc9d1525acf6de1066be",
+      "bytes": 10566,
+      "lines": 203,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-scaffold/generate-candidate.mjs",
+      "sha256": "a9678cf9950c366b915a4ba7d4e57bc98eb26abc45cea1d98ea41028d76b4c67",
+      "bytes": 889,
+      "lines": 18,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-scaffold/platform-fixture.mjs",
+      "sha256": "332cf1dbb0ff20c013447a1eb6322be2b95d162f8f21bd0973d93b2d5923cac7",
+      "bytes": 2285,
+      "lines": 30,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-scaffold/platform-scenarios.test.mjs",
+      "sha256": "d8d7e1abc18c82ebb7171a31354427c0af50fc0a03020dbfe7a01afe6b0ff63e",
+      "bytes": 46256,
+      "lines": 509,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/architecture.test.mjs",
+      "sha256": "21000f3897438467968eba58093675a5ac53669474e89dfd4eaa4e419733714e",
+      "bytes": 6833,
+      "lines": 78,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/coverage.test.mjs",
+      "sha256": "b4a5e4161dd4fe99554e0c6a622bd87dd9bb6e83be24ad1e7c750c9686e31d31",
+      "bytes": 18243,
+      "lines": 154,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/executed-tests.test.mjs",
+      "sha256": "9b81bdc7a1d07fb42e575f60810e54f65bafd9554f23eb427d1972dbd0176d95",
+      "bytes": 1483,
+      "lines": 23,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/legacy-review-candidate.mjs",
+      "sha256": "1a992fa73e4fc93e02d66773304d2f12c24a3b9c6adbaa3dfeed7a18226c53ad",
+      "bytes": 2788,
+      "lines": 32,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/matrix.test.mjs",
+      "sha256": "2f9acfba478b19ba57de33eae7614edc217a9b9c1b377ae1b87bf9798729a639",
+      "bytes": 1349,
+      "lines": 21,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/preflight.test.mjs",
+      "sha256": "12ec2dfebc3b63e09fb9b9f80f9f7cf4deb48b87b846d7011456a2a0ecd2c10d",
+      "bytes": 3315,
+      "lines": 50,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/review.test.mjs",
+      "sha256": "656c22411b4c8cc51b01c2f5c001eb6b98dcb2bd4ee7cfb82d74977a5305b48b",
+      "bytes": 5351,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/backend-standards/terminal-fixture.mjs",
+      "sha256": "6413a82623b2d536f19e1f453080645b85f4a781ee31aec4cf674bf6f239210a",
+      "bytes": 4904,
+      "lines": 47,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/business-tickets/business-tickets.test.mjs",
+      "sha256": "cb7f09bfaee17ceb665712c8cc7242e87e3150cc7c90773ba36180e5976b2253",
+      "bytes": 13697,
+      "lines": 72,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/business-tickets/handoff.test.mjs",
+      "sha256": "df682663fbccdb51b2aad819a10942db91f6ad771dec5e33f1cc5380e64b9ee6",
+      "bytes": 9639,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/api-v2.test.mjs",
+      "sha256": "166285018a12a589c932629181d1f7583f8dcf43c0975625091f2a8bf162d89d",
+      "bytes": 7170,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/compare.mjs",
+      "sha256": "aea5a1805c01bd19d76c19620ae0cf52ac9a083e78d4e9e80f1f1e4933e584bc",
+      "bytes": 5780,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/distribution-smoke.mjs",
+      "sha256": "d907dac600d06dcaa750216d0efcc77a0a5abed3002f68c195925fca57122834",
+      "bytes": 16020,
+      "lines": 171,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/distribution.test.mjs",
+      "sha256": "f888768cd72b02052ff4c911579292c14c3d59d70637242cad4b6bba817cc40b",
+      "bytes": 2231,
+      "lines": 32,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/measure-selection.mjs",
+      "sha256": "5b831bf6b26568c251a15e06b8d772cb7c0ac6175920428818cdc4463a47bdf0",
+      "bytes": 2995,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/measure.mjs",
+      "sha256": "29333e434759718f6e22eece1b21727e1a3a1b4f1f586523e9085c5e58e0aa9d",
+      "bytes": 3063,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/phase.test.mjs",
+      "sha256": "ecff77bf50ed041f8e2a5b2099e7d97a68407fbd167482736879a6879059ca33",
+      "bytes": 1248,
+      "lines": 15,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/plugin-smoke.mjs",
+      "sha256": "a667e45ed058af6f6ca61c5f3d2b079a4169ddb11b27adaa9b51725228d13369",
+      "bytes": 2539,
+      "lines": 28,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/profile.mjs",
+      "sha256": "9c5e9f9f47ae0fd8763671c2e76cfe67493f23caaf098829a44be522d37fe73c",
+      "bytes": 3444,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/schema-rejection.test.mjs",
+      "sha256": "2e6dd9f090fdc0c065e171b4f229c6ef81cd27a254ccbf4272bb1733d7a9d167",
+      "bytes": 927,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/security.test.mjs",
+      "sha256": "cbd463acf8bf09bcdd252e3be1a1fd328eb0323383102cbc51e673a50ab717f6",
+      "bytes": 5140,
+      "lines": 57,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/views.test.mjs",
+      "sha256": "2cecea8f14205bfe5eddccc227d5dbd43e716cec92bc9d9b3035f2468f53fd3e",
+      "bytes": 4607,
+      "lines": 46,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/contract-efficiency/worker.mjs",
+      "sha256": "046e0b9c1c67eb716c9063c12f6c6524223d0eb524ffbeaf1da78f7e8e71f23e",
+      "bytes": 4654,
+      "lines": 42,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/delivery-preflight/approved-execution-fixture.mjs",
+      "sha256": "0c3fddcf2282be6181c0ac5e5567889f1a910ba62192c0dc324ea7234d3acc79",
+      "bytes": 6879,
+      "lines": 60,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/delivery-preflight/approved-execution.test.mjs",
+      "sha256": "2c2805b6597f4a11fd1f54db7b446bb860adc6315dfd8b57fb6e39fb222583f4",
+      "bytes": 8660,
+      "lines": 115,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/delivery-preflight/json-schema-framing.test.mjs",
+      "sha256": "c921fd856d7b2afea3b277c026af691d9ac2488ed479a505868d7fbd1463ac4d",
+      "bytes": 4902,
+      "lines": 54,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/existing-backend/fixture.mjs",
+      "sha256": "004e9f69ccaa2aed0975ed72de13bfa646a1d12f0cc1a5c55b6a4a5fadaf8fa7",
+      "bytes": 10860,
+      "lines": 70,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/existing-backend/scenarios.test.mjs",
+      "sha256": "9bc66117cb51b4cb08a6dad1f6d4efb015944eb42b96cf65f272d91a488e0a24",
+      "bytes": 5042,
+      "lines": 49,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/existing-ui-baseline/fixture.mjs",
+      "sha256": "c58402c137d6c9280894d3f0cfb9cac3c33b82218af30401cb798ed9aa5f4191",
+      "bytes": 9244,
+      "lines": 82,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/lifecycle-core/evidence.test.mjs",
+      "sha256": "a9b3e53b0b05f215ec111639e7d94cb50db331e6f902a0bcffba00ead42d4b7e",
+      "bytes": 2992,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/lifecycle-core/research-competitive.test.mjs",
+      "sha256": "e6c2c4b07007912c703940e793f45d89fc4b64b127a011f57093ba5e0b665ec8",
+      "bytes": 7179,
+      "lines": 103,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/lifecycle-core/research.test.mjs",
+      "sha256": "f41da380ede89807f057a4581cb24f58ea343fd211606a01554e2cbd3fe950fe",
+      "bytes": 4186,
+      "lines": 43,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/lifecycle-core/views.test.mjs",
+      "sha256": "5f6c5340818d978be8e5a567c9f46331d632f7580f0969d13415085e6fe6e2f5",
+      "bytes": 4050,
+      "lines": 41,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/maintenance-storage/scenarios.test.mjs",
+      "sha256": "aeef2ba28f882a9e66788458cacbd8228d9ea820ba77326d30c7fce4610717ec",
+      "bytes": 10169,
+      "lines": 115,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/plan-review-control/build-fixture.mjs",
+      "sha256": "0227b9af6489da97b20648a5e9554ec1969e8fed210767e5e52489e3cd3f9f71",
+      "bytes": 6861,
+      "lines": 84,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/plan-review-control/legacy-source-fixture.mjs",
+      "sha256": "70928f30e9632463f664b77d56a12a11f4de8c58622a27ce705c3e90c9b66d91",
+      "bytes": 2206,
+      "lines": 29,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/plan-review-control/source-consumption-fixture.mjs",
+      "sha256": "29cf05831204193bcc4c5dac26021c3e39388f5721ef3977fab2cac43f5825d2",
+      "bytes": 2397,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/reading-views/bundle.test.mjs",
+      "sha256": "be502841c4026e58d8aabf0cd3ba1ca40a6884c8ca70a1e864d5a2fffcdf6f3f",
+      "bytes": 11263,
+      "lines": 120,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/reading-views/fixture.mjs",
+      "sha256": "9ba7a07e1b93136a40c7cc329a095512bcbc823b187491a237041493d2ceec34",
+      "bytes": 1587,
+      "lines": 23,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/reading-views/reading.test.mjs",
+      "sha256": "455df015df2a42696755e1d86c96de54106fd3814cda64f9be4ea33acdce3c5e",
+      "bytes": 5961,
+      "lines": 74,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/cross-repo-fixture.mjs",
+      "sha256": "7fca19814a6430e1b5e1147e90f0d5ade7d3dddc28d086623dd0b05e7f8d1b84",
+      "bytes": 10601,
+      "lines": 84,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/evidence-fixture.mjs",
+      "sha256": "fd95fc8062eb86f443097b3d2ee4b1e4c56eb628b1b7f72409e9997288606124",
+      "bytes": 1805,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/measure.mjs",
+      "sha256": "8256ed848a4e3a378cad703dcb57438e4c23e1b8e396c21b43ac51505878101d",
+      "bytes": 4869,
+      "lines": 36,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/pilot-fixture.mjs",
+      "sha256": "dc5be69f0b34c7978d64a3d6fe2caa96c21603ff37572d27991b98b1f051ea80",
+      "bytes": 5971,
+      "lines": 42,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/round2.test.mjs",
+      "sha256": "8bb58514b840e651d0158ca079ad563a3e5913c7fd23f9575ae397802acf96e4",
+      "bytes": 11843,
+      "lines": 142,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/slice-contract-v3/scenarios.test.mjs",
+      "sha256": "41a1c538cbc577abedd43eb58eca520fda9915621c7d75d45d1dd7d08e785db1",
+      "bytes": 21913,
+      "lines": 249,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/stage-tracking/tracking.test.mjs",
+      "sha256": "fea4f01cd583d8867f5901904f769a51a8a6ce24cbf4149f84ca799244050b29",
+      "bytes": 17939,
+      "lines": 205,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/strategic-handoff/fixture.mjs",
+      "sha256": "c6ff34a791cedfecbfcbba8268c51ee72c0f6c27a6d7bca179714b0f9cc88347",
+      "bytes": 24361,
+      "lines": 138,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/structured-assets/assets.test.mjs",
+      "sha256": "72e39e18eb8f39b3f6a8e6072741de105e675e50a8a75f62d9b55ffa76c31ea2",
+      "bytes": 9956,
+      "lines": 127,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/user-decision/build-fixture.mjs",
+      "sha256": "43b7f09c490f1381a73985458b890585405aa288df7b8198133e27650bbd508d",
+      "bytes": 3018,
+      "lines": 38,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/fixtures/user-decision/plan-fixture.mjs",
+      "sha256": "646b99a6dd2050dabaa2df752956f8948a637cb8fd10a9cc9f003fcde09edd95",
+      "bytes": 5731,
+      "lines": 41,
+      "runtime": "node",
+      "scope": "fixture-or-test",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/generate-lifecycle-artifacts",
+      "sha256": "e7083a3a10e8fccabec27c8b29299ce914339ecbbd68c22d3d1358f88c8b2f73",
+      "bytes": 70,
+      "lines": 2,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/generate-yss-skill-boundaries",
+      "sha256": "77180bcd65d648f7fdca7ed859c8765df46550d479e7a9a49d460d0448349f25",
+      "bytes": 3179,
+      "lines": 67,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/gitworks",
+      "sha256": "1164e9dc7790a18beb70c79b17715c0bff0d23c3f434bc154c1b8473cc50852f",
+      "bytes": 4259,
+      "lines": 164,
+      "runtime": "shell-or-launcher",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/implementation-path-policy",
+      "sha256": "96cab2a3f06122d0847b3c57a997e793ccc54cc8b547db9b747a519b647e6a18",
+      "bytes": 168,
+      "lines": 6,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/inspect-maintenance-candidate",
+      "sha256": "2db099a4187196e7ead997b608613e02f2e3f4f04867813a591ee7144ea56948",
+      "bytes": 1035,
+      "lines": 15,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/inspect-plan-spec",
+      "sha256": "1f8474034bf893610fce8f4bcd91352f314ceb0473b94fdc14324d63eb508f34",
+      "bytes": 2237,
+      "lines": 32,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/inspect-skill-discovery",
+      "sha256": "6476ed8ab17ce87a160cc9ed171a17075c22a92ef56815218aa90f1a292042c2",
+      "bytes": 2061,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/instantiate-harness",
+      "sha256": "f5708ef3f25504c3847a049b6a2cbd3164fac0d6f643819756216f7f539a115a",
+      "bytes": 556,
+      "lines": 9,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/api-contract-decision.mjs",
+      "sha256": "48d1b35d017177e83b8ce72c589dd1e4d73d899dbb2b87281116f637f4ce2d1f",
+      "bytes": 8893,
+      "lines": 90,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/api-contract-decision.test.mjs",
+      "sha256": "0ff8557fa89ad45666b7f9cb95bc0086682a21d72bd001dde1803130030a5fb7",
+      "bytes": 3128,
+      "lines": 69,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approval-checkpoint-discovery.mjs",
+      "sha256": "6f16b289bd3ac9f79ec5f6683cd86463579000ed91895aa69fa658749a022717",
+      "bytes": 1382,
+      "lines": 26,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approval-consumption.mjs",
+      "sha256": "249ded1d30e9aa61b7bbc4b27e83bc7b1c57d71f6d0362fdc318736ac6765924",
+      "bytes": 2374,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approval-current.mjs",
+      "sha256": "fc984247d7114f827319e7f672ff91cd277a58611686bfe22d66be4335171fc7",
+      "bytes": 11664,
+      "lines": 112,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approval-record-io.mjs",
+      "sha256": "76c95b1893a13daf3348f4f57cc77760f4d7109404f83fd44aa7784610f5fb63",
+      "bytes": 4105,
+      "lines": 56,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approval-record.mjs",
+      "sha256": "8d20827f17cdb1466da151808345985246150847157e7e34100fe2ab5202adf8",
+      "bytes": 9829,
+      "lines": 125,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/approved-execution-context.mjs",
+      "sha256": "874d5135a445b13fa1574ba000263c8899c057e2ee9a9e8888eb384978b5eb1e",
+      "bytes": 14552,
+      "lines": 159,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/asset-command.mjs",
+      "sha256": "97a578e64090f79e298d382281f1e16247195696033ad104e512adc5559be771",
+      "bytes": 2536,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/asset-migration.mjs",
+      "sha256": "28cf89a2ce7c49190d6ab236bedc15377fd26fab1943e984c4664b2dd6dd3559",
+      "bytes": 8111,
+      "lines": 101,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/asset-transactions.mjs",
+      "sha256": "a3557291f672547630594f1de7ce75ce64bc2e3760eb6533e7c3a58ea6731439",
+      "bytes": 16416,
+      "lines": 239,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-architecture.mjs",
+      "sha256": "9d03ab2bbe62358f08d5f69103991ca7f120e333179500ab2dad01e46e23ae54",
+      "bytes": 4732,
+      "lines": 61,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-delivery-terminal.mjs",
+      "sha256": "4e74d1fd209d0f5ccec4043d408aa0cb7cb75881a909449c95ab188501ed31f7",
+      "bytes": 3684,
+      "lines": 51,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-delivery.mjs",
+      "sha256": "6b9eb53f5bc4747d0dfde164c47b43b57402c19634d5d455ce2ce3feca488a28",
+      "bytes": 14251,
+      "lines": 183,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-platform-provenance.mjs",
+      "sha256": "bd20b29f9a0e5c465cc7ceb9c2c5cca9de9d207c2f9c9a2bb613b74cff0b603b",
+      "bytes": 5116,
+      "lines": 67,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-platform-verification.mjs",
+      "sha256": "766662b390401b034896e185fb7df5f9aec25bdffa2c571f49c31433f7dd60b7",
+      "bytes": 17690,
+      "lines": 210,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-platform.mjs",
+      "sha256": "cc70160730051fb8ebf361184ab2637f2b3cd02302e73be903745c39e73e25d1",
+      "bytes": 44224,
+      "lines": 464,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-review.mjs",
+      "sha256": "ca22c37b09a8e023bbbeefbd7a04c3489b6e63f90afdd1a3371f4afca2a6a0df",
+      "bytes": 12351,
+      "lines": 141,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-scaffold-prerequisites.mjs",
+      "sha256": "a9d6af66cb45a191641da545870dd151f3e398312b71405012f0bdeaf29d3d88",
+      "bytes": 9739,
+      "lines": 124,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/backend-standards-coverage.mjs",
+      "sha256": "4a7e6848055d4aaa81ff7901f6425bdfd66de822d0794840b45ef9cfa9427783",
+      "bytes": 23415,
+      "lines": 237,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/business-ticket-lifecycle.mjs",
+      "sha256": "7e836e225f7fbed7cf9fa0b811643586846e097734fe760581bbd34793dfccf2",
+      "bytes": 2932,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/business-tickets.mjs",
+      "sha256": "5fe632ef8aa235d8203fafc2878d634b57ed72038b2aa970b4888e7b812e45a9",
+      "bytes": 21821,
+      "lines": 273,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/checkpoint-boundary.mjs",
+      "sha256": "01dfc99ad3a036124e1b44c0183ce6b36d6f997e4512ee4a0678da80b1becf13",
+      "bytes": 3687,
+      "lines": 43,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/checkpoint-commit.mjs",
+      "sha256": "2a48a0ef6cc1cfc885d12a3bd349a22a6f8c7422224c1b00ee3345a329a7c6ab",
+      "bytes": 2927,
+      "lines": 50,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/command-runner.mjs",
+      "sha256": "af5cdb58dc5ee2487f04aad8afde37776a219866cc7830a298d971e772411892",
+      "bytes": 9272,
+      "lines": 142,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/content-identity.mjs",
+      "sha256": "b0f765db70721e9caf4595db8d22cd55b5a07424b1d77e885b790d6d396dbe2e",
+      "bytes": 11308,
+      "lines": 273,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/context-contract.mjs",
+      "sha256": "047afcc55034ad8c9b382c4947702ffeba30ae623855d96f5db0f23e875e699f",
+      "bytes": 10568,
+      "lines": 204,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/context-reconciliation.mjs",
+      "sha256": "6da128cfdb69d43aa03ab8ab4c35f0f3a3c9db16e733777a64262a382e44ba53",
+      "bytes": 2648,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/contract-source.mjs",
+      "sha256": "57d271e9be9b8ccb171671be3e244c0a148da00b93bc67400d0c27c7e9148fe2",
+      "bytes": 1928,
+      "lines": 22,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/contract-views.mjs",
+      "sha256": "f88b6f5da3fea534717f58b833da3e8f1fa4d6c04f2e4ff9a754618316ef555c",
+      "bytes": 18208,
+      "lines": 183,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/decision-continuation.mjs",
+      "sha256": "fbd544e0468ef7df19e6e69e33fd39d9fd419fc785ef606ec82f45edca9b70c1",
+      "bytes": 7650,
+      "lines": 79,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/delivery-preflight.mjs",
+      "sha256": "4912a36b1ea4f868664e4bebdc5e8ad002522feab5d7f7dbb71442ceffffb40d",
+      "bytes": 25157,
+      "lines": 241,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/design-md.mjs",
+      "sha256": "bea60935e7c26896a8878e8de97c39b3af933fffcb28247ad3afed68c3a1d05c",
+      "bytes": 13091,
+      "lines": 230,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/digital-human-roles.mjs",
+      "sha256": "d7071a6db93ba537ec8a62bbd6e7e95c5600f63c466f0a48392f7ae115e8a847",
+      "bytes": 22733,
+      "lines": 440,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/drift-report.mjs",
+      "sha256": "2a5de6702835a30b1d8c0bef31e53c10cd2f82c36ed47f5d38b3ac3481084d79",
+      "bytes": 6008,
+      "lines": 110,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/execution-evidence.mjs",
+      "sha256": "976b613225195e45a45855bf6911806237e19e0e966878fa6be664bc04257327",
+      "bytes": 3848,
+      "lines": 51,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/existing-backend-architecture.mjs",
+      "sha256": "8da99daa5ca9d0f903eebbcdc43da6a9446ba70c212f82e99d07086fa853948b",
+      "bytes": 17253,
+      "lines": 144,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/existing-ui-baseline.mjs",
+      "sha256": "cd292fbb218de72fae7dae08506714cc3334f4c22a5eb4dd183fca12a9d7f6d7",
+      "bytes": 8554,
+      "lines": 86,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/export-skills.mjs",
+      "sha256": "236362125e5870c5fdf8917d91c11bc56aa71da33b66b629cf20b756b875b63b",
+      "bytes": 13429,
+      "lines": 186,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/feature-assets.mjs",
+      "sha256": "5c9937e5ce761280fc44fe7f5c98f5effe7c7fa0cdbc9af8afc412188b28822e",
+      "bytes": 18983,
+      "lines": 274,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/first-slice-architecture.mjs",
+      "sha256": "d45d01c0cc3aeff05ff58023d9120b306155f14f2875be9c57fe518e02a75d2f",
+      "bytes": 1652,
+      "lines": 23,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/first-slice-artifacts.mjs",
+      "sha256": "956cdb07a6d3df854b6f9413ef41bcc08c7b45d66b878aad6bd064968a056092",
+      "bytes": 2997,
+      "lines": 47,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/first-slice-tests.mjs",
+      "sha256": "1fc8ba26f8eaf71023e90acc56c7b14781cb321445f2320e3bba7b244c4e4e5f",
+      "bytes": 1665,
+      "lines": 24,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/frontend-delivery-boundary.mjs",
+      "sha256": "f101a277f535bb26e7751ea1f66023946b13ef2cbef1226b6545cc06cd35efdc",
+      "bytes": 5360,
+      "lines": 68,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/frontend-delivery.mjs",
+      "sha256": "13fe908a266c062c4b627bcc103ddaa6d0203ea57f9a06d6268e394d44d17dbf",
+      "bytes": 14091,
+      "lines": 145,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/git-submodule-fixtures.mjs",
+      "sha256": "9ea30d29eb29b878c3cd82345edf722b5cfdae1e9ac51eade1c565a40f3d0485",
+      "bytes": 2147,
+      "lines": 58,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/governance-io.mjs",
+      "sha256": "3d5f19b23c10bfaa544d83bb074e6f23bb1410a6d746e9f536356e81b95fcfd7",
+      "bytes": 1985,
+      "lines": 40,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/governance-layout.mjs",
+      "sha256": "379f3770cf4ec267f606c447335b444fa1442d2961e4ecd8ea5ce4fc901bda29",
+      "bytes": 3237,
+      "lines": 74,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/harness-execution-scope.mjs",
+      "sha256": "4deb32ba90d322a9d2651adea3d0072de6f151d2c3a7f43389df790012ac0af3",
+      "bytes": 4210,
+      "lines": 66,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/implementation-contract-compiler.mjs",
+      "sha256": "8ea917697708a36a5e63594a86ad321e73bdffaf89e7288ea9378642ec57aac9",
+      "bytes": 23136,
+      "lines": 377,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/implementation-path-policy.mjs",
+      "sha256": "65f96fec6b786374d2ffc341bd7e3c9e42bb6a850ebfba476c9fc574b7655ef4",
+      "bytes": 1448,
+      "lines": 32,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/json-schema.mjs",
+      "sha256": "c2992f55adb5b4469b8dd74ed08583a89907d731ec19be815e4c5625e7146bf4",
+      "bytes": 7251,
+      "lines": 120,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/legacy-backend-scaffold-audit.mjs",
+      "sha256": "7545d84b8a5bfa122d22de6a12d1c392abb311b90a909945d13112880104a10b",
+      "bytes": 4651,
+      "lines": 87,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/legacy-backend-scaffold-audit.test.mjs",
+      "sha256": "516db803694836e549543cb9982b7f1a3d07b9676e3a8a0a0e84221081891546",
+      "bytes": 3148,
+      "lines": 64,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-context-query.mjs",
+      "sha256": "7f65a8bd3d37ff6ba710eaf11d6b0078c2a1df2844cd0194e91c41c391be3654",
+      "bytes": 19589,
+      "lines": 336,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-controls.mjs",
+      "sha256": "530c1e0af64613aca5c9a3bcbaf5198882c824d781496d3ffdc5c82eb4812543",
+      "bytes": 4738,
+      "lines": 81,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-execution-scope.mjs",
+      "sha256": "59907ff74c550573a9389d49ed80007a05dec0c810948ea1e1e55cbc30d27bb2",
+      "bytes": 5537,
+      "lines": 92,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-presentation.mjs",
+      "sha256": "beb03307591ab98186d1fadcefb40f0301a7d1417a239943a75f296f13171d37",
+      "bytes": 5491,
+      "lines": 86,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-registry.mjs",
+      "sha256": "817519bf8b4c43ca5257f9d7ae41e5cbdb16c5e1a79bc5c9e9dea00fc5927b20",
+      "bytes": 15258,
+      "lines": 245,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-status.mjs",
+      "sha256": "0f0381c505e5fd2f36468e9ef83a7e70eafadeb3612870995870d4a1f0319375",
+      "bytes": 23436,
+      "lines": 232,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/lifecycle-transition.mjs",
+      "sha256": "5fbe39a0644d1a8336f9233fbbc9cd08dee9f376420c628a9035b1231da1ef12",
+      "bytes": 43378,
+      "lines": 659,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-candidate.mjs",
+      "sha256": "6fcc81d9294b63ced4687d0f35c36396d6295e62e105d67869ecfec94cc56505",
+      "bytes": 10018,
+      "lines": 154,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-counterexample.mjs",
+      "sha256": "562fd67a2fff41731529132861281e3265644169a3622044dff53930492ee7ba",
+      "bytes": 2660,
+      "lines": 32,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-intensity.mjs",
+      "sha256": "c7ab5a258404fa2ca471caa75f17b0206ceb34fa8a2266ae0f6b05524fd3f0ba",
+      "bytes": 11504,
+      "lines": 182,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-research.mjs",
+      "sha256": "7e6091dd91e3e9a028204636824188e0e75fa259e1d9436128dbe9f8ca86889e",
+      "bytes": 7165,
+      "lines": 107,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-review-workflow.mjs",
+      "sha256": "7fdecfa41137a06981416f4c6ef0413fcb8f0b6370ef9436e80eb574c8be39c2",
+      "bytes": 8375,
+      "lines": 115,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-review.mjs",
+      "sha256": "5ec1474d4f430b674d443064587d41a49ef5a4c838bdc459a3bc29297428b4f6",
+      "bytes": 18092,
+      "lines": 254,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/maintenance-storage.mjs",
+      "sha256": "7e92a98f1b653e62736058d5247df8c3f656e62e06b69d02f6681cf872fc8628",
+      "bytes": 4105,
+      "lines": 81,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/openapi-draft-validation.mjs",
+      "sha256": "d37ca46115227b8f32fdf8a394086094aac602fbdd77815762a63ad0d39c9bba",
+      "bytes": 7496,
+      "lines": 112,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-review-control.mjs",
+      "sha256": "057b337f59d50b7baf0d1c366a169b44ef7d37ac880fa182fdfd32f943811cdb",
+      "bytes": 53922,
+      "lines": 488,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-spec-entry-view.mjs",
+      "sha256": "4a7a32823179a135853d2bc67de3189ec76bf392996e6ee1dcc10eb1f108609a",
+      "bytes": 3397,
+      "lines": 48,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-spec-entry.mjs",
+      "sha256": "54199411718428ffc62c6c122e7a0c952e7979c1c49c33fd4c1daa7f7de5c976",
+      "bytes": 19366,
+      "lines": 201,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-spec-markdown.mjs",
+      "sha256": "e03fd0470e8b5089dc41a02552db3b0faa6b080d65159ae7114802bbb5c047b7",
+      "bytes": 5518,
+      "lines": 97,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-spec-quality.mjs",
+      "sha256": "7138cc9b07f2aadbd7d8a46004693412c52bce054a2fabd3fc83de65ffd3ac6a",
+      "bytes": 23847,
+      "lines": 289,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/plan-stage-coverage.mjs",
+      "sha256": "1d3766b6ad94eb1e4e204c9e6c1865281d71fd322c9c340b904a9f5e2500b218",
+      "bytes": 3721,
+      "lines": 40,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/profile-skill-sync.mjs",
+      "sha256": "c920104b3eb89b0775bdc3a884bf6550b79d42cd3136666b3148386424d01175",
+      "bytes": 21521,
+      "lines": 403,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/project-ci-install.mjs",
+      "sha256": "11303f19eca4caddc3ddcfbe0ce06482b47e7ae91b7d3f4c36fea656c875d9dd",
+      "bytes": 8924,
+      "lines": 98,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/project-governance.mjs",
+      "sha256": "aa6e361a1966512b769204b8ff5515e8424ad22e015263b94579438fc04c600b",
+      "bytes": 17431,
+      "lines": 190,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/read-only-intake.mjs",
+      "sha256": "de8db5e083bfac5d33172628411e55cd53111ea197ad34144971205a80be6dfe",
+      "bytes": 14090,
+      "lines": 167,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-adapters.mjs",
+      "sha256": "a749e7a86e0b62c720aea1da5980e7e1a6ae70620fb87056f2b89e28f44e91e9",
+      "bytes": 5171,
+      "lines": 62,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-bundle.mjs",
+      "sha256": "2aab86301d37ffb95fbbc1136bf8989411b0f594aa8246ea3df0552d952b4772",
+      "bytes": 17483,
+      "lines": 202,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-diff.mjs",
+      "sha256": "04c2ed46f6b0744d9bafe00f5b4f6cabe2da84f1c88354fcf03b31cefc19090d",
+      "bytes": 2773,
+      "lines": 29,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-markdown.mjs",
+      "sha256": "5b55e76271831f4c957f4991ba12f99e2245767ae8ab8a20188dcc0cf6b68e11",
+      "bytes": 5001,
+      "lines": 41,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-model.mjs",
+      "sha256": "0273b272f2f14b93bcb7c6240a454e38ad4b34ce94879ed94139488223d9e055",
+      "bytes": 1423,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/reading-view-policy.mjs",
+      "sha256": "5ee427b8efb3c1011438d90558626baa14fcc656c71704285481843746d62404",
+      "bytes": 1017,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/repository-mode.mjs",
+      "sha256": "1f93c512ee318ed5e3df70cc5e24ab471136a66f66d2041b0e8313a65dcde514",
+      "bytes": 1533,
+      "lines": 39,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/repository-scope-policy.mjs",
+      "sha256": "419be37886b313981f0686c9b49d99195499bcbc1acda4ef800d8d96c780196e",
+      "bytes": 18221,
+      "lines": 456,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/review-capabilities.mjs",
+      "sha256": "2cfe590a878c8618321211d3d5c5b941ee0e8222aebd5b2fdff1b4a7b50983df",
+      "bytes": 25357,
+      "lines": 247,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/review-package.mjs",
+      "sha256": "b6c5928478cb8197eab89c385dc1b312d529c1858a4a91cc34ecb1d75ee06fb2",
+      "bytes": 18096,
+      "lines": 163,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/runtime-store.mjs",
+      "sha256": "894065fb91ac05501796e8948b4015f0230deef4a72700e96c2890266310ac41",
+      "bytes": 48574,
+      "lines": 650,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/scaffold-local-database.mjs",
+      "sha256": "66d47c11698b36ff57e4f37577c6f83ea3a6590f4b9ab6862833bd991fde3662",
+      "bytes": 1785,
+      "lines": 27,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/scenario-checks.mjs",
+      "sha256": "e4ee406eaf6572994c3a7003e31e6b5f96519d803f87388f240616a243b0d96e",
+      "bytes": 56060,
+      "lines": 593,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/skill-discovery.mjs",
+      "sha256": "8a5faf0977a3b59c261368cf19670500b6e5c54d9a3b0d24f6939cc107487940",
+      "bytes": 10829,
+      "lines": 150,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/skill-governance.mjs",
+      "sha256": "4b454ae6b523838bf6e8b1f4812514d0138eb3cb9959b5bc27c720180c74489a",
+      "bytes": 10409,
+      "lines": 145,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/skill-registry.mjs",
+      "sha256": "37da340dddee41a3165bda37aa29a6eb0f8f6957bfd3cf9903d30a2956f123ac",
+      "bytes": 50826,
+      "lines": 747,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/skill-supply-chain.mjs",
+      "sha256": "06a70aae2ac40faf7c78c2d63683460accf90c6a5e3e57da099408710cf28391",
+      "bytes": 23979,
+      "lines": 332,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-applicability.mjs",
+      "sha256": "c899fd31a39e3a4237a4a21e13c5fa718b319b792b6365b23b602cf792281e1c",
+      "bytes": 1258,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-contract-preparation.mjs",
+      "sha256": "1a3923ae2c03df5369c8d55a9c4149eea4f02758ca2db3591475ae312de676ef",
+      "bytes": 31885,
+      "lines": 266,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-contract-views.mjs",
+      "sha256": "2e572b6ee93014fb145cbb286bc42f4dbebcc210288e60858e4b90f6c548fb6d",
+      "bytes": 6608,
+      "lines": 52,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-contract.mjs",
+      "sha256": "8157baae90435b3c33a2902de0ca301a988d0b8a1b8dc301c6f3f50feff0542f",
+      "bytes": 19139,
+      "lines": 240,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-execution-preflight.mjs",
+      "sha256": "5f8155944be784bfaead5c5e1ab24c40868b05917ff81fb17c25535c6a4dc181",
+      "bytes": 3041,
+      "lines": 47,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-repositories.mjs",
+      "sha256": "3658ce26cb3d4b88bff3c882a848977dcd4bc5664bcba6fc235f6c16c35f99e3",
+      "bytes": 5536,
+      "lines": 49,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/slice-task-package.mjs",
+      "sha256": "0ee64f8f3cf0ce8480ac162c522580e00d8414ac8a8f6a52de079706227727aa",
+      "bytes": 6635,
+      "lines": 67,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/source-context-snapshot.mjs",
+      "sha256": "5589b4557f445a09a64087b0f21c0ab7b8ca0cc2a8d77687c5d24733888357ec",
+      "bytes": 705,
+      "lines": 17,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/stage-tracking-migration.mjs",
+      "sha256": "af7371352821cc640d64b723d7fdb0c2b6d1c61b9f0e6a6e27caaefc820f2f82",
+      "bytes": 14173,
+      "lines": 192,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/stage-tracking.mjs",
+      "sha256": "41b8472635ccb4728162cd776f7b45b0b2a573e3239ecab9f76be0cc1f6a1cb9",
+      "bytes": 13566,
+      "lines": 189,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-feedback.mjs",
+      "sha256": "4121b6104c32f4d154ef789e2daab4a40b95cdf7a10bfa622a50c163eb1d4245",
+      "bytes": 3623,
+      "lines": 33,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-consumption.mjs",
+      "sha256": "66252b5afa76c91412312f9e338dd616a320ba68448378e8c47db6bf55c18aa4",
+      "bytes": 10411,
+      "lines": 102,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-design-targets.mjs",
+      "sha256": "7535dc763c606d36a9b02ce78bff2c49b53e196a2621245ace357d1300060a37",
+      "bytes": 1582,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-io.mjs",
+      "sha256": "e27d54a55f7a1a8f1ca2073bfea4a971d70485f7363185a4c65285021054b201",
+      "bytes": 5796,
+      "lines": 92,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-routing.mjs",
+      "sha256": "2e843a6591c3bc8d875a1d19a5858f15f5fc171292158205f5974c678c3f2807",
+      "bytes": 2406,
+      "lines": 31,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-rules.mjs",
+      "sha256": "f346ef52b6b790e37071d691e4a6443ec40f5f070760c8110fa2e8b5646c195e",
+      "bytes": 3528,
+      "lines": 37,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff-zip.py",
+      "sha256": "726a86004b4bb7a38a670c81dc0b1d115411732e418688b698b1f7d4d900e180",
+      "bytes": 2665,
+      "lines": 52,
+      "runtime": "python",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/strategic-handoff.mjs",
+      "sha256": "528ea48376dccb40c785c7073fedcddc7b53e16ef49be7960130fba8099aab55",
+      "bytes": 56374,
+      "lines": 547,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/structured-assets.mjs",
+      "sha256": "203a43bcf2e812850cb1e35c0635b43240c2473876ec1b2a2ce003ef20e0b2e9",
+      "bytes": 5178,
+      "lines": 81,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/task-package-schema.mjs",
+      "sha256": "ae16aeba04a0fef4a442c274a82d3888a089d9c86e747e67d27b11dc87c13f27",
+      "bytes": 696,
+      "lines": 11,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/task-package.mjs",
+      "sha256": "8c1522e8cc45fad082f22afd27c4c8ac71feeca4ce04dfdca48ae970b4e120b7",
+      "bytes": 22781,
+      "lines": 298,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/technical-design-boundary.mjs",
+      "sha256": "7ce54f91952eb3b1fddc0bb0e63b153316ef6016eb1f288230062e235c894a77",
+      "bytes": 3703,
+      "lines": 34,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/template-commit-cache.mjs",
+      "sha256": "b03500d85aed5fe8a99f5a1b0a1d8bf2b84db5980165140ff1c980d50bc24fa0",
+      "bytes": 3515,
+      "lines": 52,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/template-verification-runner.mjs",
+      "sha256": "a58a00a050580422b7e2b6c9d1ebc29d1a26d03aa6d14fa488c30758013d1d06",
+      "bytes": 10628,
+      "lines": 198,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/template-verification.mjs",
+      "sha256": "5bf25810770e13135180e63b420832906247197be51631682adaf99d93f71843",
+      "bytes": 7156,
+      "lines": 120,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/testing/user-decision-fixture.mjs",
+      "sha256": "42dd179f6b1599b788ccc357f477e8b4c25bc2576c5018302b2f42ad29a6aebd",
+      "bytes": 3212,
+      "lines": 33,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/ui-baseline.mjs",
+      "sha256": "d16dad62c49a4f63dbde61df7d7af82185069a4d5b3eaea6585b49166b80c095",
+      "bytes": 2193,
+      "lines": 26,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/user-decision-reuse.mjs",
+      "sha256": "a9b700cb995987c6417bcd47712e98aab558efa26c0969ce3bbf2c803fed0be9",
+      "bytes": 4046,
+      "lines": 39,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/user-decision.mjs",
+      "sha256": "bf7b9f31999d51b953e890c677e6a56d6bd8153f58fac8ba02c85c35eda2bf25",
+      "bytes": 17862,
+      "lines": 228,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/validation-phase.mjs",
+      "sha256": "5a08dc611ef1ad75786c26010ebc1cb25e34c51b0d1a41db17101ffb52daf425",
+      "bytes": 8128,
+      "lines": 72,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/verification-report.mjs",
+      "sha256": "275b5a0364b6c343f0632eb5788f93bd2be9c7bee8375b3647a91233510391fd",
+      "bytes": 3364,
+      "lines": 35,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lib/verification-selection.mjs",
+      "sha256": "603763c0becee92ef87001ca69d25d95803d042bfb1ed9b41fcf6fca4b24fc82",
+      "bytes": 6629,
+      "lines": 68,
+      "runtime": "node",
+      "scope": "shared-library",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/lifecycle-status",
+      "sha256": "8b66527cfa8ce51fd74e274c4fae2b6f2b9cad59f911837d9cdf9bdec2602e6a",
+      "bytes": 4917,
+      "lines": 52,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/maintenance-path",
+      "sha256": "e4d900a88c7d6c9c6c9c67570c6f0225f3a57a412475b8362e11cdc179940de1",
+      "bytes": 509,
+      "lines": 11,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/node-generate-lifecycle-artifacts.mjs",
+      "sha256": "007da214440a79a4e10408d34aa3a56f6d88f5460805d93f8c9350e5b5e07589",
+      "bytes": 1584,
+      "lines": 33,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/node-verify-lifecycle-registry.mjs",
+      "sha256": "8fa4550e6aa5f30b5aafef302ab66b2ba895c729934d1187e5e4b1e72a32d5df",
+      "bytes": 3843,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/plan-review-control",
+      "sha256": "bf847590ed14e0ee1a211f87a596a3e205768258e35524879b48f6cc0c0667c8",
+      "bytes": 3235,
+      "lines": 41,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/plan-spec-entry",
+      "sha256": "24fe29df4b12355f6183f5158a353857e099694fa2f59728c04aded9384158ab",
+      "bytes": 1313,
+      "lines": 21,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/preflight-delivery",
+      "sha256": "cd83fa432847207b7167cfb5434846baff7615d5f2ffc33c7e9d4779c419f68f",
+      "bytes": 826,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/prepare-maintenance-review",
+      "sha256": "7cd635d2027022282160a4100c6937cf3379ec166c508cc23fd62fc110eddfc1",
+      "bytes": 2092,
+      "lines": 28,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/prepare-read-only-intake",
+      "sha256": "ec6bbd237994218a0b93e639960c9baeb64b6bdcd0b2c27a53dbe38b611dc438",
+      "bytes": 1365,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/prepare-review-package",
+      "sha256": "57dad2d1daa259c9e03ae64462c78df21a5e5db7d57e8ae2ebdc40dfccea1e7c",
+      "bytes": 1642,
+      "lines": 8,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/project-ci",
+      "sha256": "7189fcf948163fc1c5dbdea65e6aff5bfdb7edf7aa14325cdca476738650fffb",
+      "bytes": 3231,
+      "lines": 30,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/project-ci-transition",
+      "sha256": "e74d9e776ca9b70153b31528e0f05e634144e247322d79a3bf9f2721645b8f8d",
+      "bytes": 989,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/query-lifecycle-context",
+      "sha256": "74e8f8c9e99d2b5b9e06dae470ef9317fb45b18e97620e8bb4d462e1ea5a22e1",
+      "bytes": 1513,
+      "lines": 36,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/repository-mode",
+      "sha256": "bb98d03d5a85f36f00ef5ffacad1b2cc6aaf32a565b7c6a3f7836f699a4bd8b9",
+      "bytes": 247,
+      "lines": 9,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/repository-scope-policy",
+      "sha256": "cebb510adcc1f54c76706d516a9df49cce8a5eecb6769d30546b085376c93d89",
+      "bytes": 633,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/run-read-only-intake",
+      "sha256": "29d61dbf7a9c979d8c890e8bc9fe74efbd3081a74e6e0811bf61360ac74d6831",
+      "bytes": 1256,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/run-template-verification",
+      "sha256": "11784b0d58a1c46f726761443b226c6ec0097471994d86cda1b380722dd0a154",
+      "bytes": 12568,
+      "lines": 164,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/runtime-store",
+      "sha256": "7829ca2a0b998d0dcd4d1a00c2980df0569ddb1f50f5f8c0d314803a0f15025e",
+      "bytes": 2959,
+      "lines": 40,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/slice-contract",
+      "sha256": "219edfe2ba6c13feabd565411b28822e231a9cf72cbb120181dfc736324625c1",
+      "bytes": 2486,
+      "lines": 34,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/stage-tracking",
+      "sha256": "ca7ecb00b25c7de5c56b78c865ccf25d2408980bc954bb552397cb45fe355a7b",
+      "bytes": 2071,
+      "lines": 26,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/strategic-consumer-entry",
+      "sha256": "3977c9ee654a05f084ea431ae76982229c659f14ccfac4949c640750c41cb686",
+      "bytes": 3645,
+      "lines": 47,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/strategic-feedback",
+      "sha256": "5bc5b31cc07fd29d160d3d5f25de87859ff53602384f824f1a89fa1482533272",
+      "bytes": 908,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/strategic-handoff",
+      "sha256": "888e377da9790f35f8fdf9ddc12ce16d46588fd1a64fda90edb6186ecb46f5f4",
+      "bytes": 3856,
+      "lines": 31,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/sync-harness-upgrade",
+      "sha256": "ad5ae37c3af5054e454279de390406ab79ce108d68bb467bca0a1ef4475c8330",
+      "bytes": 2453,
+      "lines": 29,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/sync-profile-skills",
+      "sha256": "ceea5cc0cb3cbbb9a6bdd1ce820656741ba056e200f9738f2d6a59b310c6f989",
+      "bytes": 2058,
+      "lines": 42,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/sync-skills",
+      "sha256": "4d2e808e69508077576a0e2a4d2b71877640ebec0c73cf31ef66df7ed2eefb09",
+      "bytes": 264,
+      "lines": 9,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/sync-strategic-handoff-tools",
+      "sha256": "31eb8438664f5345498741a1985597f86a90447a3bb0acada0329acaca7d1314",
+      "bytes": 30537,
+      "lines": 197,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/update-skill-lock",
+      "sha256": "a3ff3eec0be02152c3246c89f0c0b26285606e92c4acfb36655b26010320c28c",
+      "bytes": 231,
+      "lines": 9,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-approval-record",
+      "sha256": "0cbdddffb4d346cb9cad9326cc4a16605dff403a5eb5be02feeddff2a82a3d0c",
+      "bytes": 2074,
+      "lines": 25,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-backend-platform-matrix",
+      "sha256": "4f95b558dcf97fc9032a77106bc0e71f9833f2b94c38d6ed0a1230c9930a8347",
+      "bytes": 8047,
+      "lines": 75,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-business-language-scenarios",
+      "sha256": "1c5fa5b19c85c219a2adb99ef64ba38fdaf3205d9681f6e85be9dd532325e8ae",
+      "bytes": 4879,
+      "lines": 80,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-business-tickets",
+      "sha256": "7953f0ae426ccfd0385f543f8e03a02465a913b7d9bdc3641a77c2431bc667e0",
+      "bytes": 1263,
+      "lines": 11,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-context-contract",
+      "sha256": "1149977b5b937404f2b6de3734a31149ca99df432ea3efa5e7349aa9fba03c33",
+      "bytes": 1622,
+      "lines": 18,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-context-contract-scenarios",
+      "sha256": "ed68208dbd1eac3f9e65bfaa3e01e620cec3ed873a5917fdafcb3dbbe6e6563d",
+      "bytes": 4660,
+      "lines": 105,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-context-reconciliation",
+      "sha256": "3734954ea8d6db85f5ac9d68dda45f6c6a975c9983b78f8b103bed8035e46ca3",
+      "bytes": 1097,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-context-reconciliation-scenarios",
+      "sha256": "6ba2858f09bdd0c1d47e1d20b809c01136ff180a3e0974e295da220e31944813",
+      "bytes": 3273,
+      "lines": 69,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-delivery-preflight-scenarios",
+      "sha256": "0840f0c88f93731c4a7f09bcea69defde34bdfd4a8c1031549c7e0620abe3bc0",
+      "bytes": 15490,
+      "lines": 153,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-digital-human-roles",
+      "sha256": "3a344737ee954a655983182f4bf2adce3ec257752ba1b5502b04ec8267aa0d06",
+      "bytes": 468,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-digital-human-roles-scenarios",
+      "sha256": "c40de921c47b857bdd3bf74bfabed04668591ca287a3d44399d825f4ad8b3ef9",
+      "bytes": 6343,
+      "lines": 155,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-digital-human-task-package",
+      "sha256": "26c8d1d27af7319ef362a9760cc55b320fd9d9c1822d42f52f3ad698f3cd7d0f",
+      "bytes": 968,
+      "lines": 17,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-digital-human-task-package-scenarios",
+      "sha256": "b282d20ac5887a99f8fe76ea421030fdbf477ac5f1717d4ef1678a89c08d8949",
+      "bytes": 420,
+      "lines": 8,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-existing-backend-architecture-scenarios",
+      "sha256": "dfcf4ef5dba175aa0da2f4be62f879b12e1ae7caad20c95ca627272702f6fc5b",
+      "bytes": 381,
+      "lines": 7,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-existing-ui-baseline-scenarios",
+      "sha256": "a862b48bd0d3b70bff6e9b26c6998e95dad60d42de122f52477ccbd51dc09124",
+      "bytes": 23966,
+      "lines": 141,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-delivery",
+      "sha256": "b592aaa6bba168f4ac39f9caa89a01590357f574cc9748bcf7148b622bf3837f",
+      "bytes": 830,
+      "lines": 9,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-delivery-scenarios",
+      "sha256": "cedcd3cb4d7d2110c3c276517e9db7ef711a35d2a27206c6cdbaf576ba72120c",
+      "bytes": 21940,
+      "lines": 191,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-implementation-evidence",
+      "sha256": "630990a44c73e12df6177232ec5e02903b56c7e2579538c541e356b189990d42",
+      "bytes": 9379,
+      "lines": 99,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-implementation-evidence-scenarios",
+      "sha256": "f9e1b4481ad0af09c8f597aca58e0d05f317b4599987b3514b4580a7bbc245fb",
+      "bytes": 8334,
+      "lines": 71,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-scaffold-generator-scenarios",
+      "sha256": "f7e25b9c1a41ca809b2d620b277e1b3cc633e6b26bc69773a005598c3cde1aa1",
+      "bytes": 116,
+      "lines": 2,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-frontend-strategic-preflight",
+      "sha256": "7543e9dbe7f710bf28d4187b97f234a76d239cb3eb07d4f2921e9442c76a8dd2",
+      "bytes": 768,
+      "lines": 12,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-governance-layout",
+      "sha256": "439cebc41686f6fbe94aae8655d6ecf8d998f4a8d5a17bed0ff5eb765051df04",
+      "bytes": 732,
+      "lines": 15,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-governance-release",
+      "sha256": "d67414a5b3c60bb78b340fffcca1eb144f938f782e8c22595d38b6bff8a34988",
+      "bytes": 1454,
+      "lines": 25,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-implementation-path-scenarios",
+      "sha256": "65e1aac409e36af0fa6fba758730f91349ecde1932f200ab6e83d72b01630c1d",
+      "bytes": 1583,
+      "lines": 40,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-checkpoint",
+      "sha256": "fa7e1c90f87dddd36ff1bfaea35d607f3f9c86d6bec374f7cc340e96032f80c5",
+      "bytes": 5476,
+      "lines": 81,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-context-query-scenarios",
+      "sha256": "aafe5ec199820660f8a8400ccdcb229eeb374b6fe8c03623af7b2c0c03cc1c67",
+      "bytes": 21498,
+      "lines": 312,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-operator-scenarios",
+      "sha256": "f527e4f6d4f29c9438b114466464257b0311fe50cd5080389872c6968f9e6b57",
+      "bytes": 11827,
+      "lines": 138,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-registry",
+      "sha256": "710b60827bfd5127fdc4e3d9fe77e729ba0ee79a53ff4b194a329f09a8588f11",
+      "bytes": 67,
+      "lines": 2,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-scenarios",
+      "sha256": "ae254bf06b5581e1f2766f13d9599a72763add46cb01aeea7e18f9af03953075",
+      "bytes": 277,
+      "lines": 4,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-lifecycle-transition-scenarios",
+      "sha256": "9e5f162bc13a7cf3dbdf90658f5ac03bc1f8f267abb65a522523633a59a89e28",
+      "bytes": 27845,
+      "lines": 335,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-checkpoint",
+      "sha256": "ebd2c2ab4ba42d60f0b41377d144c216967ab078bc5a912510733bdf25c0764b",
+      "bytes": 1179,
+      "lines": 16,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-intensity-scenarios",
+      "sha256": "9a43fab0a913f23105f6b2401e33af7237e45a562c121ba08863a9a7294c7451",
+      "bytes": 11533,
+      "lines": 211,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-research",
+      "sha256": "bdd17f32873143f4af152efdf14cb13ece04d2419aeb096f4cc9988176f17a14",
+      "bytes": 920,
+      "lines": 13,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-review-record",
+      "sha256": "79b2f7bf1ccb0b7591fc6f0953e0c208ef23cf9dbc7becaf65b444814c88724f",
+      "bytes": 1025,
+      "lines": 20,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-review-workflow-scenarios",
+      "sha256": "3e802639f8f90f4b01eb5f030238f81198c5ecac193da7ffc1325aee186ffe9a",
+      "bytes": 8379,
+      "lines": 136,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-maintenance-risk-scenarios",
+      "sha256": "8003f9dacf78cfea656a0f520e473585e8506686a43ea5cd5aa89421f5a85754",
+      "bytes": 5360,
+      "lines": 44,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-matt-yss-integration-scenarios",
+      "sha256": "93fe098f6157d20d57aa921b9496a93538dc3b5297a1447ddb6b3c360deab6dc",
+      "bytes": 190,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-openapi-draft-validation-record",
+      "sha256": "fcb7382aabeb778074317d81f53d41690b3e12b21e8abccb54c43ef0048c5261",
+      "bytes": 1190,
+      "lines": 26,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-openapi-draft-validation-scenarios",
+      "sha256": "f7eb4423b3de3892639bffa73fd8191fdb902aa3d279e2afc4f92a899b132221",
+      "bytes": 3944,
+      "lines": 85,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-openapi-json-handoff-scenarios",
+      "sha256": "d166ade395c46fbe795b6f86eb29a5de5e4ff5593ef44255aabebf7736627f0d",
+      "bytes": 197,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-openapi-yaml-first-scenarios",
+      "sha256": "4f1e642eca6d7cc3a649f77e3d90668075996a6ccdba1d3fcef4fadff4f926b3",
+      "bytes": 488,
+      "lines": 12,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-plan-requirements-context-scenarios",
+      "sha256": "0c4cc8193e42e0160bd5d7a912a4bddb9c818211a0a508fc35b922fc2341985a",
+      "bytes": 1086,
+      "lines": 15,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-plan-review-control-scenarios",
+      "sha256": "f97929b6af08c4533ea1beb2fc6d6b88b828aac3598885754c31cace7952e1d8",
+      "bytes": 689,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-plan-spec-entry",
+      "sha256": "e15d4edee0f79302715eab4dabe9082702890ded809e4cbf965374c387cde6b5",
+      "bytes": 500,
+      "lines": 11,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-plan-spec-entry-scenarios",
+      "sha256": "2782209b44e382f4a3d2e1c5aa888e7aa134bd12651ff4cc2d9c3e83ce2f37dd",
+      "bytes": 15877,
+      "lines": 185,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-project-instance",
+      "sha256": "4b00c41b5125247c02f817393d4d99fe7a7897cc226242b9e5b94e51993c2af5",
+      "bytes": 3009,
+      "lines": 56,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-prototype-backend-scaffold-scenarios",
+      "sha256": "660ac33cc237b783260fffa6546358cf2ef61d70f68281871807ab75d6fc7729",
+      "bytes": 195,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-prototype-design",
+      "sha256": "008ef78850dcdc4c0b84cdfab9b65aed1bf5f6844b764fa7fa7ef6a9a1154ee0",
+      "bytes": 130,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-repository-scope-scenarios",
+      "sha256": "d73d3d69877a85862a58c8b2932f0937fd56e1f23bd8d9dc6359b56d59438627",
+      "bytes": 12052,
+      "lines": 239,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-retired-skill-ids",
+      "sha256": "075d2bcd414188d3e38886fb8e31ce80930af65b731835af8d1c2b719b2f24cf",
+      "bytes": 5922,
+      "lines": 122,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-scaffold-architecture-decision-scenarios",
+      "sha256": "efc1fe7d62d2fd7b0de0852eadba99a6b8a0b5a5d2bc161de86f521744eb6677",
+      "bytes": 4129,
+      "lines": 38,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-scaffold-architecture-decisions",
+      "sha256": "5d5270fc5c7189eefe20904a93522e5bb39ddd948f3ef8c75555307df1789ef5",
+      "bytes": 5519,
+      "lines": 66,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-scaffold-generator-scenarios",
+      "sha256": "4091c44ed7042ce752db87798f8547d6ba4eab99a3742983a903b866b8989544",
+      "bytes": 28816,
+      "lines": 684,
+      "runtime": "python",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-script-performance-scenarios",
+      "sha256": "f356ba73905daebf7e34dd798155d22bb59a45752d8fdaff5907cd3ac85e282f",
+      "bytes": 5412,
+      "lines": 56,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-skill-governance",
+      "sha256": "b6cbcb4685753b4b96d5675de5e1e0a9ff85608aa20474cd5cd9a3289bd4d4d1",
+      "bytes": 420,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-skill-registry",
+      "sha256": "5788f05bddd452ff0dc8ec095eaf0c0c2f5de41f271d7d20a36acfe5ba6035e9",
+      "bytes": 519,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-strategic-context-import",
+      "sha256": "1d5224dd2031340dc67c4581d44914af95a334dea3c240a922e2dad0a0eb0712",
+      "bytes": 4354,
+      "lines": 63,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-strategic-context-import-scenarios",
+      "sha256": "34ce5a3358cfcf2360b596d76a6ac63569e371a12a9d1b5c19a0b18f4543eab0",
+      "bytes": 8194,
+      "lines": 50,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-strategic-handoff-consumption",
+      "sha256": "9ab43edbcf48ab6677ca7389e959a557d52939455ed309e5306391aa48ef0b10",
+      "bytes": 815,
+      "lines": 10,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-strategic-handoff-package-scenarios",
+      "sha256": "23d8cc6c98af332a9a9593f542e19649542014d5269459061f9d114651ebfff4",
+      "bytes": 24265,
+      "lines": 203,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-strategic-handoff-tools-lock",
+      "sha256": "7b413ccc4ab4dc606113ec9e3f51ddac0d2045a761b18130483a70118c566d9b",
+      "bytes": 1267,
+      "lines": 17,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-subagent-task-package",
+      "sha256": "2a8356cf8e99904ce1af63ffa41bbdeca96403e0343114a386d02ce38a07b64d",
+      "bytes": 415,
+      "lines": 8,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-subagent-task-package-scenarios",
+      "sha256": "17abdd752bc589c262a40d8f7ccfd151d32b868e16ad947b9af64a6366145249",
+      "bytes": 17280,
+      "lines": 244,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-template",
+      "sha256": "284037d47d17ed2a04ffc30a8b6d4a43586805f66875dc0109aa604cd571a41e",
+      "bytes": 177,
+      "lines": 4,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-template-cache-scenarios",
+      "sha256": "ca5cb2310f0a8ebb612b09b8ed46bee7ebafdb0617343f751cbe380dbc21da52",
+      "bytes": 3426,
+      "lines": 57,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-template-candidate",
+      "sha256": "972bef79e126c67bd4e3cecef8d708cba9f15e975bf5518dbedd9c97e9c28696",
+      "bytes": 179,
+      "lines": 4,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-template-fast",
+      "sha256": "d627bd76714dabe70afaea55ddb80b568449c9f0cc6a0e5eb542d4c373da05bf",
+      "bytes": 174,
+      "lines": 4,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-template-verification-scenarios",
+      "sha256": "593d9e8aa06261e44e528f6426dc465ea9bf3f77cfc919c93c5c6a0b461dded0",
+      "bytes": 11604,
+      "lines": 205,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-upstream-skill-source",
+      "sha256": "6e473f3d36cf49c95c556ef978912191f6fce39eb6d0cdbe0801e91fc6b84bba",
+      "bytes": 4944,
+      "lines": 67,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-user-decision",
+      "sha256": "ab9c9906b7d35b79011ce11166749e3ffb79cde738817da300bc8bf8212b6e76",
+      "bytes": 1388,
+      "lines": 22,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-user-decision-scenarios",
+      "sha256": "bf50f914305afeadc1b816e5273cdc736be4a440e75f6759ff69ede64ef163c0",
+      "bytes": 16853,
+      "lines": 168,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-yss-dto-openapi-profile",
+      "sha256": "915fd5d552645ed706702f84fe1ee47f61648c34eb63208c0031f342c49521ce",
+      "bytes": 10210,
+      "lines": 119,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-yss-dto-openapi-scenarios",
+      "sha256": "adc4a2d0b7344bd581b3b0fbf15072ba042588968d21a67764e0e28828e28a59",
+      "bytes": 197,
+      "lines": 4,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-yss-implementation-contract-compiler-scenarios",
+      "sha256": "278ca3098e28a49abee390259ffc44b91829f0d24ee5b80b442c34883c76c453",
+      "bytes": 1420,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-yss-prototype-contract-scenarios",
+      "sha256": "c0ed3706a2cc1c709bd3e31cf36dc83c037871eb4be35465c8a702c957fdf0db",
+      "bytes": 177,
+      "lines": 3,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": "scripts/verify-yss-ui-scenarios",
+      "sha256": "576b7886fad253f74218b55cf1bebd006c5456e8afe11f24db8f57cf7ef3b019",
+      "bytes": 5245,
+      "lines": 73,
+      "runtime": "node",
+      "scope": "entry-or-source-tool-needs-mapping",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/benchmark-tooling.py",
+      "sha256": "d7f3e9506bfa3cc3486669cf801cb832fff867af52b8dc13aaa7740fd0d324cf",
+      "bytes": 9761,
+      "lines": 177,
+      "runtime": "python",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/cli-boundaries.mjs",
+      "sha256": "a8046302d50a3a438d1cca6329548a6bde27b43f205c1bd90c77b3667a28702b",
+      "bytes": 4477,
+      "lines": 62,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/diagnose-python-schema.mjs",
+      "sha256": "eae589132c42d4b2cb7ac8ad384df6c98b8ff887624552f946f6038467e1c85d",
+      "bytes": 4062,
+      "lines": 36,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/evidence-archive.mjs",
+      "sha256": "bf21db95915f3c7412833e29cf4814654096106bd66474d30c1c4ba3fcf328d1",
+      "bytes": 20159,
+      "lines": 388,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/lib/python-schema-probe.mjs",
+      "sha256": "6ee213257bf8648b6a2c5bc57039a6098104c24639ddd2beb1ea90c6cf23c64f",
+      "bytes": 7344,
+      "lines": 93,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/lib/schema-diagnostic-fixture.mjs",
+      "sha256": "54437bd37535b2700d825a39cedded0d7a3bf7de3d1db0ac4b3c54abf7d21c94",
+      "bytes": 3761,
+      "lines": 60,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/lib/template-release.mjs",
+      "sha256": "20639a1ad8a5c3d1904650e54622aa835c38a31766dc4cd76fc5aa925ceb14b4",
+      "bytes": 12120,
+      "lines": 170,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/measure-runtime-store.mjs",
+      "sha256": "a66fa1a03be736411ac3731f6014bc61c8711c3b7c18ce2a4ef969bb619e4fe1",
+      "bytes": 8469,
+      "lines": 104,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/replay-lifecycle-triage",
+      "sha256": "f6d133a50c2ad78a59312e19d1369c9ffc322c5b11b79b3514102da3a51e2c4d",
+      "bytes": 5901,
+      "lines": 82,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/replay-plan-clarification",
+      "sha256": "57c7f0e450039bd784ff9aaf2d8c63a2a94cde9d55dbb8a0ba80e593f09187bb",
+      "bytes": 20487,
+      "lines": 301,
+      "runtime": "python",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/run-lifecycle-cross-repo-pilot",
+      "sha256": "1c53e4f8b9d38e54786f913c8ecbecf628196c6966eaf7cd471ca811762780fb",
+      "bytes": 8658,
+      "lines": 57,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/skills-agent-eval.py",
+      "sha256": "bd38b0fca09dc42567792ec8341e8e0f544005abbaf8c7e818e752e95af9aa38",
+      "bytes": 52642,
+      "lines": 716,
+      "runtime": "python",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-cli-upgrade.mjs",
+      "sha256": "67b409e6775580460d818b22b98b924030884c64057de775391baa63f2245698",
+      "bytes": 1363,
+      "lines": 17,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-delivery-harness-distribution.mjs",
+      "sha256": "857a1a659311fa9df2ca65c9a817babad91bd74e88d411e0d865a2a4500ea3dc",
+      "bytes": 4587,
+      "lines": 57,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-runtime-distribution.mjs",
+      "sha256": "4e9255e447cb5e9f015f7886cc7ca757701ee039974a8dd8742506b7d1b48761",
+      "bytes": 5347,
+      "lines": 62,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-runtime-windows.mjs",
+      "sha256": "395479c27f3ec49ef45523236ac70369c40e23db7fcaad3429c86c29aea9317f",
+      "bytes": 19785,
+      "lines": 217,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-strategic-handoff-distribution.mjs",
+      "sha256": "0574862dd1bbe3d463f0ff87ab03e657c996e38a8a8d0f9d7996ee7893854152",
+      "bytes": 4867,
+      "lines": 65,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    },
+    {
+      "path": ".template-source/scripts/verify-template-release.mjs",
+      "sha256": "b0870d579947fbba469e700ad2eabe1a653ae15e16bc977e2eabb13a14fab60b",
+      "bytes": 1089,
+      "lines": 14,
+      "runtime": "node",
+      "scope": "source-maintenance-independent",
+      "equivalence": "not-assumed; command-level Go ports listed separately"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "scripts/vendor/markdown.mjs",
+      "sha256": "e11d4cbcc75212bac94f99cd3218395d2c3f9f87e1b2d74c008b0c0740c4f836"
+    },
+    {
+      "path": "scripts/vendor/xml.mjs",
+      "sha256": "bab9b35f123c30198a7597422ca0baa9f207c0e536b41f2c478c6fd6b7fdfc79"
+    },
+    {
+      "path": "scripts/vendor/yaml.mjs",
+      "sha256": "58c510627769ef4e75e90bcf410d63ba33e64b46bc9cfc53149839d5ccb1709b"
+    },
+    {
+      "path": ".template-source/scripts/tests/evidence-archive.test.mjs",
+      "sha256": "23b1b94a7c78d68d1b534d63d08ab74bd55c6ece8a6380549da1095f4e92de5c"
+    },
+    {
+      "path": ".template-source/scripts/tests/template-ci.test.mjs",
+      "sha256": "49d227f22a85252d55839a33e536ad956fa5ed2b6e0de601a35785f7562a3a2c"
+    },
+    {
+      "path": ".template-source/scripts/tests/test_skills_agent_eval.py",
+      "sha256": "2fbd499059cacfb3e7fbbd5e921c73b1ebfbb6cd7afedd4d0ef7246f5a187c8c"
+    }
+  ],
+  "legacyCLIConsumers": [
+    {
+      "profile": "spec",
+      "path": "submodules/create-yss-spec/package.json",
+      "sha256": "eb11df4fa9c94a1b6f3bd0866a6cb5b5a728d18dd678c8c445ff1edd19ef3e66",
+      "version": "3.5.10",
+      "name": "create-yss-spec",
+      "bin": {
+        "create-yss-spec": "bin/create-yss-spec.js"
+      },
+      "main": "src/api/index.js",
+      "exports": null,
+      "engines": {
+        "node": ">=22.13 <27"
+      },
+      "oracle": "32 discovery/rejection cases plus actual old init/migration fixtures; not all successful contracts"
+    },
+    {
+      "profile": "design",
+      "path": "submodules/create-yss-strategic-design/package.json",
+      "sha256": "b116710dcc574389e42e8d2c6634dbe3f9adcb36b057b92a76b7710905f08c1f",
+      "version": "0.8.17",
+      "name": "create-yss-harness-design",
+      "bin": {
+        "create-yss-harness-design": "bin/create-yss-harness-design.js"
+      },
+      "main": null,
+      "exports": null,
+      "engines": {
+        "node": ">=22.13 <27"
+      },
+      "oracle": "32 discovery/rejection cases plus actual old init/migration fixtures; not all successful contracts"
+    },
+    {
+      "profile": "backend",
+      "path": "submodules/create-yss-harness-backend/package.json",
+      "sha256": "96369844a1293a0b5ed16017769813a6afe06bc3e34680583e17d5475b411e20",
+      "version": "0.4.21",
+      "name": "create-yss-harness-backend",
+      "bin": {
+        "create-yss-harness-backend": "bin/create-yss-harness-backend.js"
+      },
+      "main": null,
+      "exports": null,
+      "engines": {
+        "node": ">=22.13 <27"
+      },
+      "oracle": "32 discovery/rejection cases plus actual old init/migration fixtures; not all successful contracts"
+    },
+    {
+      "profile": "frontend",
+      "path": "submodules/create-yss-harness-frontend/package.json",
+      "sha256": "9d1db95c6f4aa08391a0bac6daae0f4a9b226e39a903a3e178de141fd4b8028b",
+      "version": "0.3.21",
+      "name": "create-yss-harness-frontend",
+      "bin": {
+        "create-yss-harness-frontend": "bin/create-yss-harness-frontend.js"
+      },
+      "main": null,
+      "exports": null,
+      "engines": {
+        "node": ">=22.13 <27"
+      },
+      "oracle": "32 discovery/rejection cases plus actual old init/migration fixtures; not all successful contracts"
+    }
+  ],
+  "plugins": [
+    {
+      "path": "/Users/zhudaoming/.codex/plugins/cache/personal/yss-backend-delivery/0.3.0-dev.1+codex.20260923164747/scripts/project.mjs",
+      "sha256": "ca19fba1a5a41ee7d17f3edab79fb00528d2bdcb8acb72a8406066045ec919dc",
+      "references": [
+        {
+          "line": 58,
+          "source": "const runtime = require('./src/template/instance-runtime.js');"
+        },
+        {
+          "line": 62,
+          "source": "return action({ root: temp, pin, runtime, bin: path.join(temp, 'bin/create-yss-spec.js'), agentRuntime: prefix ? null : 'codex',"
+        }
+      ],
+      "evidenceKind": "lexical-reference; plugin execution/cutover not verified"
+    },
+    {
+      "path": "/Users/zhudaoming/.codex/plugins/cache/personal/yss-product-design/0.1.0-dev.1+codex.20260923161524/assets/cli/vendor/cli-core/cli.mjs",
+      "sha256": "2791874963c88c955907732e8eda149b5e861015bd0b418d4c63582a8c4e2406",
+      "references": [
+        {
+          "line": 110,
+          "source": "if (pkg.name === 'create-yss-harness-design' && opts.command === 'init') {"
+        }
+      ],
+      "evidenceKind": "lexical-reference; plugin execution/cutover not verified"
+    },
+    {
+      "path": "/Users/zhudaoming/.codex/plugins/cache/personal/yss-product-design/0.1.0-dev.1+codex.20260923161524/assets/cli/vendor/cli-core/tests/build.test.mjs",
+      "sha256": "0ae7a1e454c77539ac6a30561c5c6109ebe9dd9cc719a0e6b012dd7998620653",
+      "references": [
+        {
+          "line": 13,
+          "source": "fs.mkdirSync(source);put(pkg,'package.json',JSON.stringify({name:'create-yss-harness-design',version:'0.6.0'}));"
+        },
+        {
+          "line": 22,
+          "source": "cli_package: create-yss-harness-design"
+        }
+      ],
+      "evidenceKind": "lexical-reference; plugin execution/cutover not verified"
+    },
+    {
+      "path": "/Users/zhudaoming/.codex/plugins/cache/personal/yss-product-design/0.1.0-dev.1+codex.20260923161524/assets/template/scripts/lib/instance-distribution.mjs",
+      "sha256": "1732a2f9beddd5d3946abdb91be5a79e622f9fb601aa561867c10b4c8f274e17",
+      "references": [
+        {
+          "line": 131,
+          "source": "if (manifest.cli_package !== \"create-yss-harness-design\") {"
+        },
+        {
+          "line": 132,
+          "source": "fail(\"cli_package 必须为 create-yss-harness-design\");"
+        }
+      ],
+      "evidenceKind": "lexical-reference; plugin execution/cutover not verified"
+    },
+    {
+      "path": "/Users/zhudaoming/.codex/plugins/cache/personal/yss-product-design/0.1.0-dev.1+codex.20260923161524/scripts/project.mjs",
+      "sha256": "6a443519aca5cf5fb8d60fc5a79eaa13f6f33b4eef1d8e68faab5bddb8fe8f18",
+      "references": [
+        {
+          "line": 57,
+          "source": "return { pin, expected, overlay, bundleDigest, cli: safe(root, 'assets/cli/bin/create-yss-harness-design.js'), target };"
+        }
+      ],
+      "evidenceKind": "lexical-reference; plugin execution/cutover not verified"
+    }
+  ],
+  "pluginCensusBoundary": "two configured personal plugin versions, lexical inspection only; global/cache historical consumers not exhaustively scanned",
+  "stableReady": false
+}
