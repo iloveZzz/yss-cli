@@ -406,6 +406,20 @@ func contextRun(action, root string, args map[string]string) (any, error) {
 		result["referenced_terms_digest"] = digest
 		result["snapshot_validation"] = "passed"
 	}
+	selected, _ := result["terms"].([]Term)
+	refs := make([]string, 0, len(selected))
+	for _, term := range selected {
+		refs = append(refs, term.TermRef)
+	}
+	digest, err := termsDigest(selected)
+	if err != nil {
+		return nil, err
+	}
+	result["referenced_terms_digest"] = digest
+	result["context_snapshot"] = map[string]any{
+		"context_ref": result["context_ref"], "context_schema_version": result["context_schema_version"],
+		"document_digest": result["document_digest"], "referenced_terms_digest": digest, "term_refs": refs,
+	}
 	return result, nil
 }
 
