@@ -57,7 +57,14 @@ func TestContextCLIReadOnlyTemplateSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	if Run(context.Background(), []string{"context", "check", "--root", root, "--json"}, &out, &stderr) == 0 {
-		t.Fatal("缺失身份被接受")
+	if Run(context.Background(), []string{"context", "check", "--root", root, "--json"}, &out, &stderr) != 1 {
+		t.Fatal("缺失身份未返回身份错误退出码", out.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope["code"] != "IDENTITY" {
+		t.Fatal("缺失身份不能变成内部错误", envelope)
 	}
 }

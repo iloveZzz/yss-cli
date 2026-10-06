@@ -80,7 +80,7 @@ func registerGroup(group, summary, usage, options, examples, notes string, child
 }
 
 func registerGovernanceHelp() {
-	registerGroup("context", "查询或校验唯一 CONTEXT.md 及词汇快照。", "--root <目录>", projectFlags, "yss context verify --root ./demo-spec --json", governanceNotes, map[string]helpTopic{
+	registerGroup("context", "查询或校验唯一 CONTEXT.md 及词汇快照。", "--root <目录>", projectFlags, "yss context verify --root ./demo-spec --json", governanceNotes+"\n合法 schema v1 模板源可只读校验；check/verify 返回 context_snapshot，不创建批准。", map[string]helpTopic{
 		"query":  {"查询稳定词汇。", "[--id <术语ID>]", "--id / --term-refs  选择术语\n--allowed-context-ids  限定责任区", "yss context query --root ./demo-spec --json", "", true},
 		"verify": {"校验当前词汇和可选快照。", "[--snapshot <文件>]", "--snapshot / --file  待验快照\n--term-refs / --allowed-context-ids  独立消费范围", "yss context verify --root ./demo-spec --json", "", true},
 		"check":  {"校验词汇结构。", "[--file <文件>]", "--file / --snapshot  可选快照", "yss context check --root ./demo-spec --json", "", true},
