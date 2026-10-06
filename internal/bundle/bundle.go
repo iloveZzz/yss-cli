@@ -2,13 +2,11 @@ package bundle
 
 import (
 	"bytes"
-	"compress/gzip"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"io"
 	"strings"
 )
 
@@ -52,17 +50,9 @@ func Load(profile string) (*Bundle, error) {
 	if err != nil {
 		return nil, domain.Wrap("BUNDLE", err)
 	}
-	z, err := gzip.NewReader(bytes.NewReader(b))
+	raw, err := snapshots.load(profile, b)
 	if err != nil {
 		return nil, err
-	}
-	defer z.Close()
-	raw, err := io.ReadAll(io.LimitReader(z, 512*1024*1024+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) > 512*1024*1024 {
-		return nil, domain.Fail("BUNDLE", "快照超过限制")
 	}
 	var out Bundle
 	if err = json.Unmarshal(raw, &out); err != nil {

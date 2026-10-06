@@ -68,6 +68,13 @@ func semanticGitArguments(args []string) bool {
 		return false
 	}
 	switch args[0] {
+	case "log":
+		// Daily routing inspects only committed task history with a fixed,
+		// non-executable format. Never accept arbitrary log formatting/options.
+		if len(args) != 9 || args[1] != "--all" || args[2] != "--format=%H" || args[3] != "--" {
+			return false
+		}
+		return args[4] == "docs/.scratch" && args[5] == ".scratch" && args[6] == "docs/tasks" && args[7] == ".template-spec/implementation" && safefs.ValidateRef(args[8]) == nil && !strings.HasPrefix(args[8], ":")
 	case "rev-parse", "cat-file", "ls-tree", "ls-files", "status", "show", "diff":
 	case "check-ignore":
 		return len(args) == 4 && args[1] == "-q" && args[2] == "--" && !strings.ContainsAny(args[3], "\x00\r\n")

@@ -35,14 +35,27 @@ func parse(args []string) (options, error) {
 			o.json = true
 		}
 	}
-	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true, "full": true}
+	boolean := booleanOptions()
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "-h" {
+			a = "--help"
+		}
+		if a == "-V" {
+			a = "--version"
+		}
+		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") {
+			return o, argumentError("未知短参数: " + a)
+		}
 		if !strings.HasPrefix(a, "--") {
 			o.args = append(o.args, a)
 			continue
 		}
 		a = strings.TrimPrefix(a, "--")
+		key, _, _ := strings.Cut(a, "=")
+		if _, known := argumentSpecs[key]; !known {
+			return o, unknownOption(key, optionNames())
+		}
 		if key, value, ok := strings.Cut(a, "="); ok {
 			if _, exists := o.values[key]; exists {
 				o.duplicates = append(o.duplicates, key)
@@ -60,8 +73,8 @@ func parse(args []string) (options, error) {
 			o.values[a] = "true"
 			continue
 		}
-		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") {
-			return o, domain.Fail("ARGUMENT", "参数缺少值: --"+a)
+		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") || (args[i+1] == "-h" || args[i+1] == "-V") {
+			return o, argumentError("参数缺少值: --" + a + " " + argumentSpecs[a].placeholder)
 		}
 		i++
 		o.values[a] = args[i]
@@ -77,6 +90,9 @@ func isSemanticCommand(o options) bool {
 		return false
 	}
 	group, action := o.args[0], o.args[1]
+	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
+		return true
+	}
 	return action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff") || group == "project-ci" && (action == "check" || action == "verify") && o.values["scope"] != "native-go"
 }
 func semInputCode(code string) bool {
@@ -96,9 +112,19 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		command = "version"
 	}
 	if err == nil && (command == "" || o.values["help"] == "true" || command == "help") {
-		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover rollback migrate skills assets bundle\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n使用 yss capabilities 查看当前覆盖与待验收边界。")
-		return 0
+		var help string
+		help, err = renderHelp(o.args)
+		if err == nil {
+			fmt.Fprintln(stdout, help)
+			return 0
+		}
 	}
+	if err == nil {
+		err = validateArguments(command, o)
+	}
+	inputError := err != nil
+	delete(o.values, "help")
+	delete(o.values, "version")
 	profile := o.values["profile"]
 	if err == nil {
 		var result any
@@ -136,13 +162,24 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var reported interface{ ErrorResult() any }
 	if errors.As(err, &reported) {
 		result = reported.ErrorResult()
-	} else if isSemanticCommand(o) {
+	} else if isSemanticCommand(o) && !inputError {
 		result = governance.InputFailureReport(ctx, o.values["root"], command, err)
+	}
+	if code == "ARGUMENT" {
+		exit = 2
+		message := err.Error()
+		if !strings.Contains(message, "--help") {
+			message += "；查看 " + helpCommand(o.args)
+		}
+		if inputError || !isSemanticCommand(o) {
+			result = map[string]any{"message": message}
+		}
+		err = errors.New(message)
 	}
 	if o.json {
 		_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "error", Code: code, Result: result})
 	} else {
-		if isSemanticCommand(o) {
+		if isSemanticCommand(o) && !inputError {
 			b, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Fprintln(stdout, string(b))
 		}
@@ -151,6 +188,24 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return exit
 }
 func execute(ctx context.Context, command string, o options) (any, string, error) {
+	if command == "upgrade" {
+		if len(o.args) != 1 || len(o.duplicates) > 0 {
+			return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 不接受子命令、位置参数或重复参数", Exit: 2}
+		}
+		for key, value := range o.values {
+			switch key {
+			case "json", "help", "check":
+			case "to", "tool-root":
+				if strings.TrimSpace(value) == "" {
+					return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 参数不能为空: --" + key, Exit: 2}
+				}
+			default:
+				return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 不支持 --" + key + "；项目模板升级使用 yss sync", Exit: 2}
+			}
+		}
+		result, err := (updater.UpgradeClient{}).Run(ctx, updater.UpgradeRequest{Check: o.values["check"] == "true", To: o.values["to"], ToolRoot: o.values["tool-root"]})
+		return result, "", err
+	}
 	profile := o.values["profile"]
 	root := o.values["root"]
 	for _, flag := range []string{"root", "target-dir"} {
@@ -360,15 +415,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		return r, profile, err
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
-		allowed := map[string]bool{}
-		for _, k := range []string{"root", "target-dir", "profile", "json", "help", "version", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file", "binding-file", "full", "issue-tracker"} {
-			allowed[k] = true
-		}
-		for key := range o.values {
-			if !allowed[key] {
-				return nil, profile, domain.Fail("ARGUMENT", "此命令尚不支持参数: --"+key)
-			}
-		}
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 			if o.values["binding-file"] != "" || o.values["full"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
@@ -545,6 +591,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		if report, ok := r.(*governance.SemanticReport); ok && report.Profile != "" {
 			profile = report.Profile
 		}
+		if report, ok := r.(*governance.DailyReport); ok && report.Profile != "" {
+			profile = report.Profile
+		}
 		return r, profile, err
 	}
 	if command == "context" {
@@ -618,7 +667,7 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	return true, nil
 }
 func capabilities() map[string]any {
-	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist
