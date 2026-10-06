@@ -1,0 +1,295 @@
+{
+  "schemaVersion": 1,
+  "id": "backend-delivery-0.3-c48d67ec",
+  "plugin": "yss-backend-delivery",
+  "bundleDigest": "c48d67ec2908cfb91ca6d0f195d77bb8a67fadac4e738c3c1c5831732fe49d4e",
+  "cliVersion": "3.4.12",
+  "templateCommit": "327072236d45a7705f9388e977427aac46f128fb",
+  "snapshotHash": "57f3b76de6f64eac30d1d7b24a62a33cae81641e0ce2d33c31813e3d95b99382",
+  "source": {
+    "state": "committed",
+    "base_commit": "27401ad130a5d7a7c17ac7942280907f07570672",
+    "content_commit": "27401ad130a5d7a7c17ac7942280907f07570672",
+    "distribution": "development-only"
+  },
+  "files": {
+    ".agents/skills/yss-design-system/SKILL.md": {
+      "previous": {
+        "type": "file",
+        "digest": "daafb4075da9fd6487dc8e55d18f062279166099ba5b9ec25b0ae8b46d1d840a",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "3e39cd4c94bc7828368c579f2e8262c044328e9885d7ad7a01ce53425fccdced",
+        "mode": 420
+      }
+    },
+    ".agents/skills/yss-design-system/references/data-quality-theme.md": {
+      "previous": {
+        "type": "file",
+        "digest": "485fc0bb3debc18f8accf7355da07ec6161ddc6b784116e7052142adb4cbc576",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "d736e1fd7926250095651ac2bf17ff241ae6b6a7d365300db0f18774e9d46c1e",
+        "mode": 420
+      }
+    },
+    ".codex/skills/yss-design-system/SKILL.md": {
+      "previous": {
+        "type": "file",
+        "digest": "daafb4075da9fd6487dc8e55d18f062279166099ba5b9ec25b0ae8b46d1d840a",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "3e39cd4c94bc7828368c579f2e8262c044328e9885d7ad7a01ce53425fccdced",
+        "mode": 420
+      }
+    },
+    ".codex/skills/yss-design-system/references/data-quality-theme.md": {
+      "previous": {
+        "type": "file",
+        "digest": "485fc0bb3debc18f8accf7355da07ec6161ddc6b784116e7052142adb4cbc576",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "d736e1fd7926250095651ac2bf17ff241ae6b6a7d365300db0f18774e9d46c1e",
+        "mode": 420
+      }
+    },
+    "scripts/lib/skill-supply-chain.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "6f94418c3c399cb94e82a4d65ad65f78f8604d2a2e4b2ecf979ba4b346c62912",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "951599615fefedc5d5aacc3117dbae4df0e737a214ce8cd120f9603db6b87974",
+        "mode": 420
+      }
+    }
+  },
+  "bridgeFiles": {
+    ".agents/skills/yss-product-lifecycle/SKILL.md": {
+      "previous": {
+        "type": "file",
+        "digest": "4263d4f98037bb1328b80ea544bbce45da44e182a3d3945be78fd26e8d7c13ac",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "98cb44955a114b7aa9292ce706eac07d788cca603a94a16335a1a19b6cae97b3",
+        "mode": 420
+      }
+    },
+    ".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml": {
+      "previous": {
+        "type": "file",
+        "digest": "4c7f9d664109cdee8787465666e9b9dbf9cdd9edd83842cacb82bebbd6139338",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "cdee384ab5dafa68a31005dec941096d64dd60a64437a1c1d57d7cc6f92ced5a",
+        "mode": 420
+      }
+    },
+    ".codex/skills/yss-product-lifecycle/SKILL.md": {
+      "previous": {
+        "type": "file",
+        "digest": "4263d4f98037bb1328b80ea544bbce45da44e182a3d3945be78fd26e8d7c13ac",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "98cb44955a114b7aa9292ce706eac07d788cca603a94a16335a1a19b6cae97b3",
+        "mode": 420
+      }
+    },
+    ".codex/skills/yss-product-lifecycle/references/orchestration-contract.yaml": {
+      "previous": {
+        "type": "file",
+        "digest": "4c7f9d664109cdee8787465666e9b9dbf9cdd9edd83842cacb82bebbd6139338",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "cdee384ab5dafa68a31005dec941096d64dd60a64437a1c1d57d7cc6f92ced5a",
+        "mode": 420
+      }
+    },
+    "scripts/lib/approved-execution-context.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "dbbf64a893091e582f815c3951c32a34b78db4394f4fb949f7f49af7bf70fc56",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "88a8e4d44ea3b8a5099befd24a212512387149bdaa15aab6d2ca923138c98979",
+        "mode": 420
+      }
+    },
+    "scripts/lib/existing-backend-architecture.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "9b5a265f7e2c04a0e364c20bb3840bec85018d9b8a501f3bc64389a74aa3220f",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "b171a834f7dbc1c11f9d4b00a0a350d6fdec4a6601bc0cbb383f1b35a776c62c",
+        "mode": 420
+      }
+    },
+    "scripts/lib/harness-execution-scope.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "30ce91c22e5fdd1c9702c27c82a6b213f3573dfd1b5a100dde73b270181c7f2c",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "02b2905a0e4f74d6f283c96c9182efcebb50a388a87623dba7f10ba5eabe2f8c",
+        "mode": 420
+      }
+    },
+    "scripts/lib/implementation-contract-compiler.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "3dd6adc0c385b912b8d3caa9f268b4974ad8cf6badabd002ba8dcc9fd148f5f4",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "4e828f79c1996d5dfd30c06fe3a4f5600c155e93ee6a91af060e58a360fe19c1",
+        "mode": 420
+      }
+    },
+    "scripts/lib/lifecycle-execution-scope.mjs": {
+      "previous": {
+        "type": "missing"
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "59907ff74c550573a9389d49ed80007a05dec0c810948ea1e1e55cbc30d27bb2",
+        "mode": 420
+      }
+    },
+    "scripts/lib/lifecycle-transition.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "3467b60428ae80624f84037bca645d9675ff84017ce48329c0c92d932d23fa49",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "0b9703c1e491972cc0526280232fd18077d8acb786700e738022f1c43574bb12",
+        "mode": 420
+      }
+    },
+    "scripts/lib/technical-design-boundary.mjs": {
+      "previous": {
+        "type": "file",
+        "digest": "d64bbb685df7073a5b7a44138329d4270c726a94d9fec898cf06f3e948b3cca0",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "c6114c8a9fa2425bf219cfd7c1a7f7b220d71bb4085c09efe0aec8476dcb6d9d",
+        "mode": 420
+      }
+    },
+    "scripts/verify-lifecycle-checkpoint": {
+      "previous": {
+        "type": "file",
+        "digest": "f22c44eecb873b743e791ce1fc000736db35bae52eca63d7a95298371b785789",
+        "mode": 493
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "2214b7f1a9a6dbcffd2b7357e8a6d0ff2853fa01e2809fcd823048cf3fd659c2",
+        "mode": 493
+      }
+    }
+  },
+  "bridgeOrigins": {
+    "yss-plan-to-backend": "139e8c6bda1d4b2439141d20a60f6e5cf125fe9630ffd6bba3d51fa980fc8954",
+    "yss-backend-delivery": "d10798fcb407f0e3d91c02679c9f14e50d23e48bccd904e3d663d98f0652d2a8"
+  },
+  "generatedLock": {
+    "ref": "skills-lock.json",
+    "cliName": "create-yss-spec",
+    "type": "render",
+    "ownership": "generated",
+    "generatorId": "skills-lock",
+    "generatorVersion": 1,
+    "runtimes": [
+      "codex"
+    ],
+    "installedSkills": [
+      "alibaba-java-code-style",
+      "code-review",
+      "codebase-design",
+      "competitive-intelligence",
+      "domain-modeling",
+      "grilling",
+      "i-have-adhd",
+      "implementation-repo-onboarding",
+      "lombok",
+      "mapstruct",
+      "prototype-review",
+      "tdd",
+      "yss-application",
+      "yss-audit-log",
+      "yss-backend-spec-review",
+      "yss-cache",
+      "yss-ddd-scaffold-generator",
+      "yss-design-system",
+      "yss-distributed-id",
+      "yss-domain",
+      "yss-dto",
+      "yss-excel-mvc",
+      "yss-exception",
+      "yss-implementation-contract-compiler",
+      "yss-layered-mvc-scaffold-generator",
+      "yss-mybatis",
+      "yss-openapi-draft-review",
+      "yss-openapi-governance",
+      "yss-product-lifecycle",
+      "yss-prototype-stage",
+      "yss-repository",
+      "yss-research",
+      "yss-resilience4j",
+      "yss-security-algorithm",
+      "yss-skill-source-index-refresh",
+      "yss-stage-decision",
+      "yss-tactical-design",
+      "yss-technical-design",
+      "yss-up-springboot3",
+      "yss-userinfo",
+      "yss-validation",
+      "yss-web-controller"
+    ],
+    "file": {
+      "previous": {
+        "type": "file",
+        "digest": "623656c6acca0bc2584edbc201519ed24d99bc20b71cbc47d379c87e25023f55",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "2da827b0608825a0e48df764e8279ff020d505518039cfe00b6e13e6f10e173b",
+        "mode": 420
+      }
+    }
+  },
+  "cliCommit": "6b1c388932615ece9fdb496ddf776ed904767061",
+  "manifestHash": "2780e1855c9b0cb46fe056e226744817510ed50f86e9a71f8a269307789d5885",
+  "receiptCoreDigest": "0f62c8ef949213b4da6c89b9a23f1960532772201c7bd7d3053f8d5bf245c99d"
+}

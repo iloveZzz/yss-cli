@@ -87,7 +87,7 @@ func TestNativePlanAndApplyProtectFamilyAndProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, _ = invoke(t, "create-yss-spec", "--native", "doctor", "--target-dir", root, "--json")
-	if code != 0 || !bytes.Contains(out, []byte("go-hybrid")) {
+	if code != 0 || !bytes.Contains(out, []byte("go-native")) {
 		t.Fatalf("native doctor failed: %s", out)
 	}
 	code, out, _ = invoke(t, "create-yss-harness-backend", "--native", "diff", "--target-dir", root, "--json")

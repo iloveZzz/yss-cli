@@ -38,7 +38,16 @@ func TestFourProfilesInitRepeatSyncAndWholeRollback(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if id.Profile.Name != name || id.Native.CLIVersion != domain.Version || id.Native.TemplateVersion != domain.Profiles[name].LegacyVersion {
+			if id.Profile.Name != name || id.Native.CLIVersion != domain.Version || id.Native.TemplateVersion != func() string {
+				b, e := bundle.Load(name)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if b.SchemaVersion == 2 {
+					return "git:" + b.TemplateCommit
+				}
+				return domain.Profiles[name].LegacyVersion
+			}() {
 				t.Fatalf("version/profile separation failed: %+v", id.Native)
 			}
 			diff, e := Build(root, "", "diff", nil, nil)

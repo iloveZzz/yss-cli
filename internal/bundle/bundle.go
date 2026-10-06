@@ -22,27 +22,26 @@ type File struct {
 	Ownership string `json:"ownership"`
 }
 type Bundle struct {
-	SchemaVersion     int             `json:"schemaVersion"`
-	Profile           string          `json:"profile"`
-	LegacyVersion     string          `json:"legacyVersion"`
-	CLICommit         string          `json:"cliCommit"`
-	TemplateCommit    string          `json:"templateCommit"`
-	SourceState       string          `json:"sourceState"`
-	SnapshotHash      string          `json:"sourceSnapshotHash"`
-	ManifestHash      string          `json:"manifestHash"`
-	Distribution      map[string]any  `json:"distribution"`
-	Manifest          map[string]any  `json:"manifest"`
-	Initial           map[string]File `json:"initial"`
-	Files             map[string]File `json:"files"`
-	StageRequirements map[string]struct {
-		Paths  []string `json:"paths"`
-		Skills []string `json:"skills"`
-	} `json:"stageRequirements"`
-	SkillRequirements map[string]struct {
-		Paths             []string `json:"paths"`
-		Skills            []string `json:"skills"`
-		UnsupportedReason string   `json:"unsupportedReason,omitempty"`
-	} `json:"skillRequirements"`
+	Legacy            LegacyLineage          `json:"legacy,omitempty"`
+	SchemaVersion     int                    `json:"schemaVersion"`
+	TemplateVersion   string                 `json:"templateVersion,omitempty"`
+	LegacyCLICommit   string                 `json:"legacyCLICommit,omitempty"`
+	BundleHash        string                 `json:"bundleHash,omitempty"`
+	Producer          Provenance             `json:"producer,omitempty"`
+	SourcePolicy      PolicyProvenance       `json:"sourcePolicy,omitempty"`
+	Profile           string                 `json:"profile"`
+	LegacyVersion     string                 `json:"legacyVersion"`
+	CLICommit         string                 `json:"cliCommit,omitempty"`
+	TemplateCommit    string                 `json:"templateCommit"`
+	SourceState       string                 `json:"sourceState"`
+	SnapshotHash      string                 `json:"sourceSnapshotHash"`
+	ManifestHash      string                 `json:"manifestHash"`
+	Distribution      map[string]any         `json:"distribution"`
+	Manifest          map[string]any         `json:"manifest"`
+	Initial           map[string]File        `json:"initial"`
+	Files             map[string]File        `json:"files"`
+	StageRequirements map[string]Requirement `json:"stageRequirements"`
+	SkillRequirements map[string]Requirement `json:"skillRequirements"`
 }
 
 func Load(profile string) (*Bundle, error) {
@@ -69,26 +68,11 @@ func Load(profile string) (*Bundle, error) {
 	if err = json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	if out.SchemaVersion != 1 || out.Profile != profile || out.SourceState != "committed" {
-		return nil, domain.Fail("BUNDLE", "快照身份或来源不合法")
+	if err = validate(&out, profile); err != nil {
+		return nil, err
 	}
-	for ref, f := range out.Files {
-		if _, err := safefs.Path("/__yss_check__", ref); err != nil {
-			return nil, err
-		}
-		data, err := base64.StdEncoding.DecodeString(f.Data)
-		if err != nil || safefs.Digest(data) != f.Digest {
-			return nil, domain.Fail("BUNDLE", "快照摘要不一致: "+ref)
-		}
-	}
-	for ref, f := range out.Initial {
-		data, err := base64.StdEncoding.DecodeString(f.Data)
-		if err != nil || safefs.Digest(data) != f.Digest {
-			return nil, domain.Fail("BUNDLE", "初始化快照摘要不一致: "+ref)
-		}
-	}
-	if out.Initial == nil {
-		out.Initial = out.Files
+	if out.SchemaVersion == 2 && out.BundleHash != contentHash(&out) {
+		return nil, domain.Fail("BUNDLE", "Bundle 摘要不一致")
 	}
 	return &out, nil
 }
@@ -105,4 +89,62 @@ func (f File) Render(vars map[string]string) ([]byte, error) {
 		text = strings.ReplaceAll(text, token, vars[k])
 	}
 	return []byte(text), nil
+}
+
+func validate(out *Bundle, profile string) error {
+	if (out.SchemaVersion != 1 && out.SchemaVersion != 2) || out.Profile != profile || out.SourceState != "committed" {
+		return domain.Fail("BUNDLE", "快照身份或来源不合法")
+	}
+	if out.Initial == nil {
+		out.Initial = out.Files
+	}
+	var paths safefs.PathSet
+	for _, files := range []map[string]File{out.Files, out.Initial} {
+		for ref, f := range files {
+			if err := paths.Add(ref); err != nil {
+				return err
+			}
+			data, err := base64.StdEncoding.DecodeString(f.Data)
+			if err != nil || safefs.Digest(data) != f.Digest {
+				return domain.Fail("BUNDLE", "快照摘要不一致: "+ref)
+			}
+			if !stringSet([]string{"managed", "managed-customizable", "generated", "user-owned", "protected"})[f.Ownership] {
+				return domain.Fail("BUNDLE", "快照ownership不合法: "+ref)
+			}
+			if f.Mode != 0644 && f.Mode != 0755 {
+				return domain.Fail("BUNDLE", "快照权限不合法: "+ref)
+			}
+		}
+	}
+	for ref := range out.Initial {
+		if _, ok := out.Files[ref]; !ok {
+			return domain.Fail("BUNDLE", "初始化不属于完整快照: "+ref)
+		}
+	}
+	if out.SchemaVersion == 2 {
+		if out.TemplateVersion == "" || !fullCommit.MatchString(out.TemplateCommit) || out.SourcePolicy.Digest == "" {
+			return domain.Fail("BUNDLE", "v2来源身份缺失")
+		}
+	}
+	for _, req := range out.StageRequirements {
+		for _, p := range req.Paths {
+			if _, ok := out.Files[p]; !ok {
+				return domain.Fail("BUNDLE", "阶段快照缺文件: "+p)
+			}
+		}
+	}
+	for _, req := range out.SkillRequirements {
+		for _, p := range req.Paths {
+			if _, ok := out.Files[p]; !ok {
+				return domain.Fail("BUNDLE", "Skill快照缺文件: "+p)
+			}
+		}
+	}
+	return nil
+}
+
+type Requirement struct {
+	Paths             []string `json:"paths"`
+	Skills            []string `json:"skills"`
+	UnsupportedReason string   `json:"unsupportedReason,omitempty"`
 }

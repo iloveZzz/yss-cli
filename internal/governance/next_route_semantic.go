@@ -1,6 +1,9 @@
 package governance
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+)
 
 func init() {
 	registerSemanticValidator("next-route", verifyNextRouteSemantic)
@@ -80,18 +83,11 @@ func nativeNextRoutes(profile string) map[string][]string {
 }
 
 func (s *semanticSession) executionScope() (map[string]any, error) {
-	var plugin map[string]any
-	present, err := s.exists(".yss-plugin.json")
+	plugin, err := s.backendPluginBinding()
 	if err != nil {
 		return nil, err
 	}
-	if present {
-		plugin, err = s.doc(".yss-plugin.json")
-		if err != nil {
-			return nil, err
-		}
-	}
-	present, err = s.exists(".yss-execution-scope.yaml")
+	present, err := s.exists(".yss-execution-scope.yaml")
 	if err != nil {
 		return nil, err
 	}
@@ -375,4 +371,57 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 	}
 	review := semMap(state["human_review"])
 	return assertWorkUnitUserDecisionSemantic(s, current, map[string]any{"user_decisions": review["user_decisions"], "user_decision_not_applicable": review["not_applicable"]})
+}
+
+func (s *semanticSession) backendPluginBinding() (map[string]any, error) {
+	present, e := s.exists(".yss-backend-plugin.json")
+	if e != nil {
+		return nil, e
+	}
+	ref := ".yss-backend-plugin.json"
+	if !present {
+		ref = ".yss-plugin.json"
+		present, e = s.exists(ref)
+		if e != nil {
+			return nil, e
+		}
+		if !present {
+			return nil, nil
+		}
+	}
+	plugin, e := s.doc(ref)
+	if e != nil {
+		return nil, e
+	}
+	if ref == ".yss-backend-plugin.json" && (apNumber(plugin["schema_version"]) != 2 || plugin["plugin"] != "yss-backend-delivery" || plugin["execution_scope"] != "plan-to-backend") {
+		return nil, s.reject("EXECUTION_SCOPE", "native插件职责绑定无效")
+	}
+	if ref == ".yss-backend-plugin.json" {
+		legacyPresent, err := s.exists(".yss-plugin.json")
+		if err != nil {
+			return nil, err
+		}
+		lineage := semMap(plugin["legacy_binding"])
+		if legacyPresent {
+			legacy, err := s.doc(".yss-plugin.json")
+			if err != nil {
+				return nil, err
+			}
+			if !semHas([]string{"yss-plan-to-backend", "yss-backend-delivery"}, text(legacy["plugin"])) || legacy["execution_scope"] != plugin["execution_scope"] {
+				return nil, s.reject("EXECUTION_SCOPE", "历史插件与native职责绑定不一致")
+			}
+			if len(lineage) != 0 {
+				data, err := s.bytes(".yss-plugin.json")
+				if err != nil {
+					return nil, err
+				}
+				if lineage["path"] != ".yss-plugin.json" || lineage["sha256"] != safefs.Digest(data) {
+					return nil, s.reject("EXECUTION_SCOPE", "历史插件绑定原字节已漂移")
+				}
+			}
+		} else if len(lineage) != 0 {
+			return nil, s.reject("EXECUTION_SCOPE", "历史插件绑定缺失")
+		}
+	}
+	return plugin, nil
 }

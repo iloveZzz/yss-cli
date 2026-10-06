@@ -754,12 +754,21 @@ func taskSafePath(s *semanticSession, ref string, maintenance bool) error {
 
 func taskDeliveryProfile(s *semanticSession) (map[string]any, error) {
 	metadata := []string{}
+	var native map[string]any
+	if present, e := s.exists(".yss.json"); e != nil {
+		return nil, e
+	} else if present {
+		native, e = s.doc(".yss.json")
+		if e != nil {
+			return nil, e
+		}
+	}
 	for _, side := range []string{"backend", "frontend"} {
 		ok, e := s.exists(".yss-harness-" + side + ".json")
 		if e != nil {
 			return nil, e
 		}
-		if ok {
+		if ok || native["profile"] == side {
 			metadata = append(metadata, side)
 		}
 	}
@@ -782,14 +791,19 @@ func taskDeliveryProfile(s *semanticSession) (map[string]any, error) {
 	}
 	if len(metadata) == 1 {
 		side := metadata[0]
-		record, e := s.doc(".yss-harness-" + side + ".json")
-		if e != nil {
-			return nil, e
+		record := native
+		if native == nil {
+			var e error
+			record, e = s.doc(".yss-harness-" + side + ".json")
+			if e != nil {
+				return nil, e
+			}
 		}
 		expected := "harness." + side + "-delivery"
 		newIdentity := apNumber(record["metadataSchemaVersion"]) == 2 && record["schema_version"] == nil && record["profile_id"] == nil && record["profileId"] == expected && record["templateSource"] == "github:iloveZzz/yss-harness-"+side+"-agent" && apMap(profile["instantiation"])["cli_package"] == "create-yss-harness-"+side
 		oldIdentity := apNumber(record["schema_version"]) == 1 && record["metadataSchemaVersion"] == nil && record["profile_id"] == expected
-		if (!newIdentity && !oldIdentity) || profile["profile_id"] != expected {
+		nativeIdentity := native != nil && native["profileId"] == expected && apMap(profile["instantiation"])["cli_package"] == "yss" && apMap(profile["instantiation"])["metadata_file"] == ".yss.json"
+		if (!nativeIdentity && !newIdentity && !oldIdentity) || profile["profile_id"] != expected {
 			return nil, apFail(s, "TASK_SCOPE", "专职Harness metadata与profile不一致")
 		}
 	}
@@ -809,16 +823,9 @@ func enforceHarnessTaskSemanticMode(s *semanticSession, task map[string]any, com
 	if e != nil {
 		return e
 	}
-	hasPlugin, e := s.exists(".yss-plugin.json")
+	plugin, e := s.backendPluginBinding()
 	if e != nil {
 		return e
-	}
-	var plugin map[string]any
-	if hasPlugin {
-		plugin, e = s.doc(".yss-plugin.json")
-		if e != nil {
-			return e
-		}
 	}
 	if !hasScope {
 		if apContains([]string{"yss-plan-to-backend", "yss-backend-delivery"}, apText(plugin["plugin"])) {

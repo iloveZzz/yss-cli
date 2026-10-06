@@ -10,6 +10,7 @@ import (
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
 func nativeFixture(t *testing.T) (string, []byte) {
@@ -115,5 +116,32 @@ func TestReadPlanRejectsDuplicateKeysAndTrailingDocuments(t *testing.T) {
 		if _, e := ReadPlan(file); e == nil {
 			t.Fatal("ambiguous plan accepted")
 		}
+	}
+}
+
+func TestRecoveryIdentityUsesBoundMigrationArchiveWithoutGuessingLegacyProfile(t *testing.T) {
+	root := freshRoot(t)
+	_ = os.MkdirAll(root, 0755)
+	profile := domain.Profiles["spec"]
+	legacy := []byte(`{"metadataSchemaVersion":3,"templateSource":"github:iloveZzz/yss-spec-project-template","templateCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","managedFiles":{}}`)
+	_ = os.WriteFile(filepath.Join(root, profile.Metadata), legacy, 0644)
+	_ = os.WriteFile(filepath.Join(root, "yss-project.yaml"), []byte("schema_version: 1\nrepository_mode: project-instance\n"), 0644)
+	native := Metadata{SchemaVersion: 1, Profile: "spec", ProfileID: profile.ID, ProtocolVersion: 1, CLIVersion: domain.Version, TemplateVersion: profile.LegacyVersion, LegacyCLIVersion: profile.LegacyVersion, TemplateCommit: strings.Repeat("a", 40), TemplateSourceState: "committed", SnapshotHash: strings.Repeat("b", 64), ManifestHash: strings.Repeat("c", 64), Managed: map[string]Managed{}, Variables: map[string]string{}, Distribution: map[string]any{}, BaselineDigest: safefs.Digest([]byte("{}"))}
+	raw, _ := json.Marshal(native)
+	before, _ := safefs.Describe(root, profile.Metadata)
+	out, e := transaction.Apply(root, "migrate", []transaction.Operation{{Path: profile.Metadata, Data: legacy, Before: &before}, {Path: MetadataFile, Data: raw}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = os.Remove(filepath.Join(root, MetadataFile))
+	_ = os.MkdirAll(filepath.Join(root, ".template-spec/process"), 0755)
+	_ = os.WriteFile(filepath.Join(root, ".template-spec/process/harness-profile.yaml"), []byte("schema_version: 2\nprofile_id: harness.spec-template\ninstantiation:\n  cli_package: yss\n  metadata_file: .yss.json\n  native_profile: spec\n  template_source: github:iloveZzz/yss-spec-project-template\n"), 0644)
+	// Exercise the read-only archive route. The transaction is genuine; no fabricated journal.
+	if id, e := RecoveryIdentity(root, "spec"); e != nil || id.Profile.Name != "spec" {
+		t.Fatalf("bound archive identity: %v %v (%s)", id, e, out.TransactionID)
+	}
+	_ = os.WriteFile(filepath.Join(root, profile.Metadata), append(legacy, ' '), 0644)
+	if _, e := RecoveryIdentity(root, "spec"); e == nil {
+		t.Fatal("changed legacy bytes were accepted")
 	}
 }

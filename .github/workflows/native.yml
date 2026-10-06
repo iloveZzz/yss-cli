@@ -7,6 +7,9 @@ permissions:
   contents: read
 jobs:
   native:
+    defaults:
+      run:
+        working-directory: cli-source
     strategy:
       fail-fast: false
       matrix:
@@ -32,23 +35,93 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: cli-source
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
-      - run: go test -count=1 ./...
+          go-version-file: cli-source/go.mod
+          cache-dependency-path: cli-source/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python entry and install governance dependency
+        shell: bash
+        run: |
+          python3 --version
+          python3 -m pip install jsonschema==4.23.0
+      - run: go test -timeout=60m -count=1 ./...
+      - run: go vet ./...
+      - run: go mod verify
+      - name: Verify Windows AMD64 race compiler
+        if: matrix.platform == 'windows-amd64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = 'C:\mingw64\bin\gcc.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw "Required runner MinGW compiler is missing: $compiler"
+          }
+          $target = (& $compiler -dumpmachine).Trim()
+          if ($LASTEXITCODE -ne 0 -or $target -ne 'x86_64-w64-mingw32') {
+            throw "Required Windows AMD64 compiler target is unavailable: $target"
+          }
+          & $compiler --version
+          if ($LASTEXITCODE -ne 0) { throw 'MinGW compiler version command failed' }
+          $library = (& $compiler --print-file-name libsynchronization.a).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not [IO.Path]::IsPathRooted($library) -or
+              -not (Test-Path -LiteralPath $library -PathType Leaf)) {
+            throw "MinGW-w64 runtime 8 or later is required: $library"
+          }
+          Write-Output "Race compiler: $compiler; target: $target; synchronization library: $library"
+          "CC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Split-Path -Parent $compiler) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Race
-        if: runner.os != 'Windows'
-        run: go test -count=1 -race ./...
+        if: matrix.platform != 'windows-arm64'
+        env:
+          CGO_ENABLED: 1
+        run: go test -timeout=60m -count=1 -race ./...
       - name: Build native binary
         shell: bash
         env:
           CGO_ENABLED: 0
         run: go build -trimpath -o "${{ matrix.binary }}" ./cmd/yss
+      - name: Read fixed template source
+        id: template-source
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const commit = JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
+          if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed template commit required');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${commit}\n`);
+          JS
+      - name: Checkout fixed template after native build
+        uses: actions/checkout@v5
+        with:
+          repository: iloveZzz/yss-spec-project-template
+          ref: ${{ steps.template-source.outputs.commit }}
+          path: template-source
+          submodules: false
+          fetch-depth: 1
       - name: No interpreter smoke
         shell: bash
         run: go run ./tools/native-smoke "./${{ matrix.binary }}" "$RUNNER_TEMP/yss-native-smoke"
+      - name: Native cancellation and recovery
+        shell: bash
+        run: go run ./tools/native-recovery "./${{ matrix.binary }}" "$RUNNER_TEMP/yss-native-recovery"
+      - name: Native public plugin build and atomic project rollback
+        shell: bash
+        run: node tools/plugin-native-smoke.mjs --binary "./${{ matrix.binary }}" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-plugin-native-smoke"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-${{ matrix.platform }}
-          path: ${{ runner.temp }}/yss-native-smoke/*.json
+          path: |
+            ${{ runner.temp }}/yss-native-smoke/*.json
+            ${{ runner.temp }}/yss-native-recovery/report.json
+            ${{ runner.temp }}/yss-native-recovery/output-*.json
+            ${{ runner.temp }}/yss-plugin-native-smoke/report.json
+            ${{ runner.temp }}/yss-plugin-native-smoke/*.log

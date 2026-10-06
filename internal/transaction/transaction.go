@@ -34,15 +34,16 @@ type Operation struct {
 }
 
 type Result struct {
-	Status        string    `json:"status"`
-	TransactionID string    `json:"transactionId,omitempty"`
-	Kind          string    `json:"kind,omitempty"`
-	PlanDigest    string    `json:"planDigest,omitempty"`
-	BackupPath    string    `json:"backupPath,omitempty"`
-	Operations    int       `json:"operations,omitempty"`
-	Pending       []string  `json:"pending,omitempty"`
-	Preparations  []string  `json:"preparations,omitempty"`
-	Transactions  []Summary `json:"transactions,omitempty"`
+	Status             string    `json:"status"`
+	TransactionID      string    `json:"transactionId,omitempty"`
+	Kind               string    `json:"kind,omitempty"`
+	PlanDigest         string    `json:"planDigest,omitempty"`
+	BackupPath         string    `json:"backupPath,omitempty"`
+	Operations         int       `json:"operations,omitempty"`
+	Pending            []string  `json:"pending,omitempty"`
+	Preparations       []string  `json:"preparations,omitempty"`
+	SealedPreparations []string  `json:"sealedPreparations,omitempty"`
+	Transactions       []Summary `json:"transactions,omitempty"`
 }
 
 type Summary struct {
@@ -404,49 +405,58 @@ func load(root, id string) (loaded, error) {
 	default:
 		return l, fail("STATE", "未知事务阶段")
 	}
-	seen := map[string]bool{}
-	descendants := map[string]bool{}
-	var spellings safefs.PathSet
-	for _, r := range l.plan.Operations {
-		if err := guard(root, r.Path); err != nil {
-			return l, err
-		}
-		if err := spellings.Add(r.Path); err != nil {
-			return l, fail("STATE", err.Error())
-		}
-		if seen[r.Path] || descendants[r.Path] || !canonicalDescriptor(r.Before) || !canonicalDescriptor(r.After) {
-			return l, fail("STATE", "事务操作清单无效")
-		}
-		for parent := filepath.ToSlash(filepath.Dir(r.Path)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
-			if seen[parent] {
-				return l, fail("STATE", "事务操作存在父子冲突")
-			}
-			descendants[parent] = true
-		}
-		if runtime.GOOS == "windows" && (r.Before.Type == "file" && r.Before.Mode == 0444 || r.After.Type == "file" && r.After.Mode == 0444) {
-			return l, fail("UNPORTED", "Windows 只读事务恢复合同尚未验证")
-		}
-		seen[r.Path] = true
-	}
-	for ref, d := range l.plan.Guards {
-		if _, err := safefs.Path(root, ref); err != nil {
-			return l, err
-		}
-		if err := spellings.Add(ref); err != nil {
-			return l, fail("STATE", err.Error())
-		}
-		if !canonicalDescriptor(d) {
-			return l, fail("STATE", "事务只读输入摘要无效: "+ref)
-		}
-	}
-	for _, r := range l.plan.Operations {
-		if d, ok := l.plan.Guards[r.Path]; ok && !same(d, r.Before) {
-			return l, fail("STATE", "事务输入与写入基线矛盾: "+r.Path)
-		}
+	if err := validatePlan(root, id, l.plan); err != nil {
+		return l, err
 	}
 	return l, nil
 }
 
+func validatePlan(root, id string, p plan) error {
+	if p.SchemaVersion != 2 || p.Sequence == 0 || p.ID != id || p.Root != root || strings.TrimSpace(p.Kind) == "" || strings.ContainsAny(p.Kind, "\r\n\x00") {
+		return fail("STATE", "准备计划身份无效")
+	}
+	seen := map[string]bool{}
+	descendants := map[string]bool{}
+	var spellings safefs.PathSet
+	for _, r := range p.Operations {
+		if err := guard(root, r.Path); err != nil {
+			return err
+		}
+		if err := spellings.Add(r.Path); err != nil {
+			return fail("STATE", err.Error())
+		}
+		if seen[r.Path] || descendants[r.Path] || !canonicalDescriptor(r.Before) || !canonicalDescriptor(r.After) {
+			return fail("STATE", "事务操作清单无效")
+		}
+		for parent := filepath.ToSlash(filepath.Dir(r.Path)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
+			if seen[parent] {
+				return fail("STATE", "事务操作存在父子冲突")
+			}
+			descendants[parent] = true
+		}
+		if runtime.GOOS == "windows" && (r.Before.Type == "file" && r.Before.Mode == 0444 || r.After.Type == "file" && r.After.Mode == 0444) {
+			return fail("UNPORTED", "Windows 只读事务恢复合同尚未验证")
+		}
+		seen[r.Path] = true
+	}
+	for ref, d := range p.Guards {
+		if _, err := safefs.Path(root, ref); err != nil {
+			return err
+		}
+		if err := spellings.Add(ref); err != nil {
+			return fail("STATE", err.Error())
+		}
+		if !canonicalDescriptor(d) {
+			return fail("STATE", "事务只读输入摘要无效: "+ref)
+		}
+	}
+	for _, r := range p.Operations {
+		if d, ok := p.Guards[r.Path]; ok && !same(d, r.Before) {
+			return fail("STATE", "事务输入与写入基线矛盾: "+r.Path)
+		}
+	}
+	return nil
+}
 func scan(root string) ([]loaded, []string, error) {
 	p, err := safefs.Path(root, stateRef)
 	if err != nil {
@@ -460,14 +470,28 @@ func scan(root string) ([]loaded, []string, error) {
 		return nil, nil, err
 	}
 	all := []loaded{}
-	preparations := []string{}
+	preparationIDs := map[string]bool{}
+	headers := map[string]string{}
+	if _, err := preparationSeals(root); err != nil {
+		return nil, nil, err
+	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == "lock.json" || name == ".lock" || strings.Contains(name, ".writing-") {
+		if name == "lock.json" || name == ".lock" || writingName(name, "lock.json") {
+			continue
+		}
+		if strings.HasPrefix(name, ".sealed-preparation-") {
+			continue
+		}
+		if id, ok := headerID(name); ok {
+			if entry.IsDir() || headers[id] != "" {
+				return nil, nil, fail("STATE", "准备头类型无效或重复")
+			}
+			headers[id] = stateRef + "/" + name
 			continue
 		}
 		if strings.HasPrefix(name, ".preparing-") && entry.IsDir() && validID(strings.TrimPrefix(name, ".preparing-")) {
-			preparations = append(preparations, name)
+			preparationIDs[strings.TrimPrefix(name, ".preparing-")] = true
 			continue
 		}
 		if !entry.IsDir() {
@@ -479,6 +503,30 @@ func scan(root string) ([]loaded, []string, error) {
 		}
 		all = append(all, l)
 	}
+	published := map[string]loaded{}
+	for _, l := range all {
+		published[l.plan.ID] = l
+	}
+	for id, ref := range headers {
+		if l, ok := published[id]; ok {
+			if preparationIDs[id] {
+				return nil, nil, fail("STATE", "同 ID 已发布与准备状态并存")
+			}
+			if err := checkPublishedHeader(root, ref, id, l); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			preparationIDs[id] = true
+		}
+	}
+	preparations := []string{}
+	for id := range preparationIDs {
+		if _, ok := published[id]; ok {
+			return nil, nil, fail("STATE", "同 ID 已发布与准备状态并存")
+		}
+		preparations = append(preparations, ".preparing-"+id)
+	}
+	sort.Strings(preparations)
 	sequences := map[uint64]bool{}
 	for _, l := range all {
 		if sequences[l.plan.Sequence] {
@@ -539,6 +587,98 @@ func acquire(root string) (func(), error) {
 	}, nil
 }
 
+// Zero-operation apply uses the existing mutex without publishing diagnostics.
+// Opening or locking it does not change bytes, mode or directory timestamps.
+// An absent state is only a read-only snapshot and is checked again at return.
+func acquireNoOp(root string) (func(), bool, error) {
+	state, err := safefs.Path(root, stateRef)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := safeRoot(state, false); err != nil {
+		return nil, false, err
+	}
+	info, err := os.Lstat(state)
+	if os.IsNotExist(err) {
+		return func() {}, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.IsDir() {
+		return nil, false, fail("STATE", "事务状态必须是普通目录")
+	}
+	p, err := safefs.Path(root, stateRef+"/.lock")
+	if err != nil {
+		return nil, false, err
+	}
+	info, err = os.Lstat(p)
+	if os.IsNotExist(err) {
+		return nil, false, fail("STATE", "既存事务状态缺少互斥文件")
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	validMutex := func(info os.FileInfo) bool {
+		return info.Mode().IsRegular() && info.Size() == 0 && domain.FileMode(uint32(info.Mode().Perm())) == domain.FileMode(0600)
+	}
+	if !validMutex(info) {
+		return nil, false, fail("STATE", "既存事务互斥文件类型、字节或权限无效")
+	}
+	f, err := os.OpenFile(p, os.O_RDWR, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	opened, err := f.Stat()
+	if err != nil || !validMutex(opened) || !os.SameFile(info, opened) {
+		f.Close()
+		return nil, false, fail("STATE", "取得互斥前控制文件发生变化")
+	}
+	unlock, err := lockFile(f)
+	if err != nil {
+		f.Close()
+		return nil, false, err
+	}
+	release := func() { unlock(); f.Close() }
+	p, err = safefs.Path(root, stateRef+"/.lock")
+	if err != nil {
+		release()
+		return nil, false, err
+	}
+	current, err := os.Lstat(p)
+	if err != nil || !validMutex(current) || !os.SameFile(opened, current) {
+		release()
+		return nil, false, fail("STATE", "取得互斥后控制文件发生变化")
+	}
+	entries, err := os.ReadDir(state)
+	if err != nil {
+		release()
+		return nil, false, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name != "lock.json" && !writingName(name, "lock.json") {
+			continue
+		}
+		ref := stateRef + "/" + name
+		d, err := safefs.Describe(root, ref)
+		if err != nil {
+			release()
+			return nil, false, err
+		}
+		if d.Type != "file" || d.Mode != domain.FileMode(0600) {
+			release()
+			return nil, false, fail("STATE", "诊断锁资产类型或权限无效")
+		}
+		var diagnostic lockRecord
+		if err := readJSON(root, ref, &diagnostic); err != nil || diagnostic.PID <= 0 || strings.TrimSpace(diagnostic.Host) == "" || !validID(diagnostic.Token) {
+			release()
+			return nil, false, fail("STATE", "诊断锁资产不完整或来源无效")
+		}
+	}
+	return release, true, nil
+}
+
 // Apply uses an immutable plan, byte archives, and an fsynced intent WAL.
 func Apply(root, kind string, ops []Operation) (Result, error) {
 	return ApplyContext(context.Background(), root, kind, ops)
@@ -559,7 +699,7 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	if strings.TrimSpace(kind) == "" || strings.ContainsAny(kind, "\r\n\x00") {
 		return Result{}, fail("PLAN", "事务 kind 无效")
 	}
-	absolute, err := safeRoot(root, true)
+	absolute, err := safeRoot(root, len(ops) != 0)
 	if err != nil {
 		return Result{}, err
 	}
@@ -568,7 +708,13 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	if err != nil {
 		return Result{}, err
 	}
-	release, err := acquire(root)
+	var release func()
+	hadState := true
+	if len(records) == 0 {
+		release, hadState, err = acquireNoOp(root)
+	} else {
+		release, err = acquire(root)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -600,9 +746,12 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 			return Result{}, fail("PLAN", "只读输入与写入基线矛盾: "+r.Path)
 		}
 	}
-	all, _, err := scan(root)
+	all, preparations, err := scan(root)
 	if err != nil {
 		return Result{}, err
+	}
+	if isProjectTransaction(kind) && len(preparations) > 0 {
+		return Result{Status: "preparing", Preparations: preparations}, fail("INTERRUPTED", "存在未发布准备事务，先 recover --apply")
 	}
 	for _, l := range all {
 		if !terminal(l.journal.Phase) {
@@ -615,6 +764,24 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 		}
 	}
 	if len(records) == 0 {
+		if err := ctx.Err(); err != nil {
+			return Result{Status: "cancelled"}, err
+		}
+		if !hadState {
+			state, err := safefs.Path(root, stateRef)
+			if err != nil {
+				return Result{}, err
+			}
+			if _, err := safeRoot(state, false); err != nil {
+				return Result{}, err
+			}
+			if _, err := os.Lstat(state); !os.IsNotExist(err) {
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{}, fail("CONCURRENT", "只读验证期间事务状态出现")
+			}
+		}
 		return Result{Status: "unchanged"}, nil
 	}
 	sequence := uint64(1)
@@ -632,6 +799,22 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	l := loaded{base: stateRef + "/" + id, plan: plan{SchemaVersion: 2, Sequence: sequence, ID: id, Root: root, Kind: kind, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Operations: records, Guards: boundGuards}}
 	planBytes := encode(l.plan)
 	l.journal = journal{SchemaVersion: 1, ID: id, PlanDigest: safefs.Digest(planBytes), Phase: "prepared", UpdatedAt: l.plan.CreatedAt}
+	header := preparationHeader{SchemaVersion: 1, Plan: l.plan}
+	for i, r := range records {
+		if r.Path == domain.MetadataFile && r.After.Type == "file" {
+			var m struct {
+				Profile string `json:"profile"`
+			}
+			if json.Unmarshal(ops[i].Data, &m) == nil {
+				header.Profile = m.Profile
+			}
+		}
+	}
+	if isProjectTransaction(kind) {
+		if err := durable(root, headerRef(id), encode(header), 0600); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := durable(root, staging+"/plan.json", planBytes, 0600); err != nil {
 		return Result{}, err
 	}
@@ -686,6 +869,16 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	}
 	if err := syncDirectory(filepath.Dir(to)); err != nil {
 		return result(l, "pending"), err
+	}
+	if isProjectTransaction(kind) {
+		if p, e := safefs.Path(root, headerRef(id)); e != nil {
+			return result(l, "pending"), e
+		} else if e = os.Remove(p); e != nil {
+			return result(l, "pending"), e
+		}
+		if err := syncDirectory(filepath.Dir(to)); err != nil {
+			return result(l, "pending"), err
+		}
 	}
 	appliedErr := apply(ctx, root, &l)
 	if appliedErr != nil {
@@ -848,18 +1041,15 @@ func storeObject(root, base string, d domain.Descriptor, b []byte, objects map[s
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
+	if _, err := os.Lstat(p); !os.IsNotExist(err) {
+		if err != nil {
+			return err
+		}
+		return fail("STATE", "准备 object 已存在，拒绝覆盖")
 	}
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	// Only a fully written, mode-set and fsynced object receives the digest
+	// name. A killed producer's .writing-ID bytes remain unpublished evidence.
+	if err := durable(root, ref, b, 0600); err != nil {
 		return err
 	}
 	objects[d.Digest] = true
@@ -894,7 +1084,12 @@ func tempCheck(root, base string, i int, r record, role string, d domain.Descrip
 	if actual.Type == "missing" {
 		return nil
 	}
-	if d.Type != "file" || !same(actual, d) {
+	// replace creates the temporary at 0600, writes the exact immutable blob,
+	// then applies its final mode. SIGKILL between Write and Chmod preserves a
+	// complete producer blob at its initial mode. Every other byte or mode is
+	// still a conflict; target Before/After validation is independent and strict.
+	initialMode := domain.FileMode(0600)
+	if d.Type != "file" || actual.Type != "file" || actual.Digest != d.Digest || (actual.Mode != d.Mode && actual.Mode != initialMode) {
 		return fail("RECOVERY_FAILED", "事务临时文件含未知修改，保留: "+ref)
 	}
 	return nil
@@ -1202,11 +1397,11 @@ func ArchivedFile(root, ref string) ([]byte, error) {
 	if len(pending) == 1 {
 		selected = &pending[0]
 	} else {
-		for i := len(all) - 1; i >= 0; i-- {
-			if all[i].journal.Phase == "committed" {
-				selected = &all[i]
-				break
-			}
+		// A restored init has no installed identity. Its most recent verified
+		// archive still identifies repeated recovery; never search past a later
+		// rolled-back transaction into an older candidate.
+		if len(all) > 0 {
+			selected = &all[len(all)-1]
 		}
 	}
 	if selected == nil {
@@ -1235,6 +1430,13 @@ func Status(root string) (Result, error) {
 		return Result{}, err
 	}
 	out := Result{Status: "ok", Preparations: preparations, Transactions: []Summary{}}
+	seals, e := preparationSeals(root)
+	if e != nil {
+		return Result{}, e
+	}
+	for _, s := range seals {
+		out.SealedPreparations = append(out.SealedPreparations, ".sealed-preparation-"+s.ID)
+	}
 	for _, l := range all {
 		out.Transactions = append(out.Transactions, Summary{TransactionID: l.plan.ID, Kind: l.plan.Kind, Phase: l.journal.Phase, PlanDigest: l.journal.PlanDigest, Operations: len(l.plan.Operations), CreatedAt: l.plan.CreatedAt, Sequence: l.plan.Sequence})
 		if !terminal(l.journal.Phase) {
