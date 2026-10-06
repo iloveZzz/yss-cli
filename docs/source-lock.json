@@ -9,8 +9,8 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "c42c2229e8bfbbff2e6f8a319dacee22e5b9ca55",
-      "templateVersion": "git:c42c2229e8bfbbff2e6f8a319dacee22e5b9ca55",
+      "templateCommit": "a3094b91ad4d8c6a8e26e3af0601d5a966e94045",
+      "templateVersion": "git:a3094b91ad4d8c6a8e26e3af0601d5a966e94045",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "1d837b09376c4c0ab488f34b17a33c543e0281c026e43a498f8eb0f8d5b8333e",
       "legacy": {

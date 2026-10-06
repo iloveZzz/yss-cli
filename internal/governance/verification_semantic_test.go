@@ -20,7 +20,7 @@ func TestVerificationExecutionOldOracleBindings(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only fixed old oracle unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	producer := `import fs from 'node:fs';import path from 'node:path';import {crossRepoFixture} from './scripts/fixtures/slice-contract-v3/cross-repo-fixture.mjs';import {bindSyntheticEvidence} from './scripts/fixtures/slice-contract-v3/evidence-fixture.mjs';import {validateExecutionResult,loadCompilerContract} from './scripts/lib/implementation-contract-compiler.mjs';import {loadSkillRegistry} from './scripts/lib/skill-registry.mjs';
 const f=crossRepoFixture();const a=f.approve();const result={schema_version:2,status:'implemented',work_unit_id:'work-unit.slice-backend',architecture_identity:f.identity,consumed_contract:{contract_id:f.contract.contract_id,contract_version:f.contract.contract_version,registry_digest:f.contract.resolution.registry_digest,compiler_contract_digest:f.contract.resolution.compiler_contract_digest,component_bindings_digest:f.contract.resolution.component_bindings_digest},changed_files:[{path:'src/main/java/Example.java',project_root:f.project}],verification_results:[{command:'./mvnw test',cwd:f.project,exit_code:0,executed_at:'2026-09-16T00:00:00Z'},{command:'node integration.mjs',cwd:f.project,dependency_roots:[f.peer],exit_code:0,executed_at:'2026-09-16T00:00:00Z'}],new_impacts:[]};
 f.write('project/results/test.log','Synthetic actual-exit mechanism evidence; no Maven run.');f.write('project/results/joint.log','Synthetic joint evidence; no command run.');const current={root:f.root,registry:loadSkillRegistry(),compilerContract:loadCompilerContract(),approved_slice:a.binding};bindSyntheticEvidence(result,f.contract,current);const checks={valid:result,architecture:{...result,architecture_identity:{...result.architecture_identity,project_id:'different-project'}},dependency:{...result,verification_results:result.verification_results.map(row=>({...row,dependency_roots:[]}))}};const outcomes=Object.fromEntries(Object.entries(checks).map(([key,value])=>[key,validateExecutionResult(value,f.contract,current).status]));f.write('execution.json',JSON.stringify(result));console.log(JSON.stringify({root:f.root,ref:a.binding.ref,approval:a.binding.approval_ref,outcomes,has_components:!!f.contract.resolution.component_bindings_digest}));`
@@ -442,7 +442,7 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only fixed finalized delivery producer unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	source, e := os.MkdirTemp(contractTestOracleTMP(t), "strategic-source-")
 	if e != nil {
 		t.Fatal(e)

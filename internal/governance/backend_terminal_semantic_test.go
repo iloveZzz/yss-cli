@@ -25,9 +25,9 @@ type backendFixture struct {
 
 func backendTestGit(t *testing.T, root string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "core.autocrlf=false"}, args...)...)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=")
 	b, e := cmd.CombinedOutput()
 	if e != nil {
 		t.Fatalf("git %v: %v %s", args, e, b)
@@ -165,7 +165,7 @@ func TestBackendCoverageOracleAndActualDrift(t *testing.T) {
 	if legacy := os.Getenv("YSS_LEGACY_ORACLE_ROOT"); legacy != "" {
 		script := `const {compileStandardsCoverage}=await import(process.argv[1]);const fs=await import('node:fs');const root=process.argv[2];console.log(JSON.stringify(compileStandardsCoverage({root,projectRoot:process.argv[3],baseline_binding:JSON.parse(fs.readFileSync(root+'/binding.json','utf8'))})));`
 		apTestPut(t, f.root, "binding.json", f.binding)
-		cmd := exec.Command("node", "--input-type=module", "-e", script, "file://"+filepath.Join(legacy, "scripts/lib/backend-standards-coverage.mjs"), f.root, f.project)
+		cmd := exec.Command("node", "--input-type=module", "-e", script, governanceOracleURL(filepath.Join(legacy, "scripts/lib/backend-standards-coverage.mjs")), f.root, f.project)
 		b, e := cmd.CombinedOutput()
 		if e != nil {
 			t.Fatalf("fixed source oracle: %v %s", e, b)
@@ -400,7 +400,7 @@ func TestBackendSourceV2FreezesActualAuthorityBytes(t *testing.T) {
 			strict := name == "lifecycle-version" || name == "lifecycle-inactive"
 			if legacy := os.Getenv("YSS_LEGACY_ORACLE_ROOT"); legacy != "" && (name == "complete" || strings.HasPrefix(name, "omit-") || strict) {
 				script := `const fs=await import('node:fs');const path=await import('node:path');const {sourceApproval}=await import(process.argv[1]);const {parseDocument}=await import(process.argv[2]);const root=process.argv[3],json=ref=>JSON.parse(fs.readFileSync(path.join(root,ref),'utf8'));try{await sourceApproval(json('review-approval.json'),parseDocument(fs.readFileSync(path.join(root,'.template-spec/agents/digital-human-roles.yaml'),'utf8')).toJS(),root,json('source-v2-binding.json'));console.log('source v2 approval accepted');}catch(error){console.error(error.message);process.exitCode=1;}`
-				cmd := exec.Command("node", "--input-type=module", "-e", script, "file://"+filepath.Join(legacy, "scripts/lib/strategic-handoff.mjs"), "file://"+filepath.Join(legacy, "scripts/vendor/yaml.mjs"), root)
+				cmd := exec.Command("node", "--input-type=module", "-e", script, governanceOracleURL(filepath.Join(legacy, "scripts/lib/strategic-handoff.mjs")), governanceOracleURL(filepath.Join(legacy, "scripts/vendor/yaml.mjs")), root)
 				out, err := cmd.CombinedOutput()
 				if (err == nil) != (name == "complete" || strict) {
 					t.Fatalf("fixed source v2 %s accepted=%v: %v %s", name, err == nil, err, out)
@@ -478,7 +478,7 @@ const result=validateBackendReview(f.state,{root:f.root});
 const reviewFile=path.join(f.root,f.state.review_result_ref), saved=fs.readFileSync(reviewFile,'utf8');
 let futureResult;try{const future=JSON.parse(saved);for(const check of future.verification_results)check.executed_at='2099-01-01T00:00:00Z';fs.writeFileSync(reviewFile,JSON.stringify(future));futureResult=validateBackendReview(f.state,{root:f.root});}finally{fs.writeFileSync(reviewFile,saved);}
 console.log(JSON.stringify({root:f.root,original,result,futureResult}));`
-	cmd := exec.Command("node", "--input-type=module", "-e", script, "file://"+filepath.Join(legacy, "scripts/fixtures/backend-standards/terminal-fixture.mjs"), "file://"+filepath.Join(legacy, "scripts/lib/backend-review.mjs"), legacy)
+	cmd := exec.Command("node", "--input-type=module", "-e", script, governanceOracleURL(filepath.Join(legacy, "scripts/fixtures/backend-standards/terminal-fixture.mjs")), governanceOracleURL(filepath.Join(legacy, "scripts/lib/backend-review.mjs")), legacy)
 	b, e := cmd.CombinedOutput()
 	if e != nil {
 		t.Fatalf("fixed current review fixture: %v %s", e, b)
@@ -607,7 +607,8 @@ func TestBackendCurrentTerminalFixedSource(t *testing.T) {
 		t.Skip("fixed legacy oracle not selected")
 	}
 	script := `const fs=await import('node:fs'),path=await import('node:path');const legacy=process.argv[1];
-const load=ref=>import('file://'+path.join(legacy,ref));
+const {pathToFileURL}=await import('node:url');
+const load=ref=>import(pathToFileURL(path.join(legacy,ref)).href);
 const {terminalReviewFixture}=await load('scripts/fixtures/backend-standards/terminal-fixture.mjs');
 const {fixture:strategyFixture}=await load('scripts/fixtures/strategic-handoff/fixture.mjs');
 const {attachArtifactApproval}=await load('scripts/fixtures/backend-delivery/approval-fixture.mjs');
