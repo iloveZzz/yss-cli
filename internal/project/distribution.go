@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"sort"
 	"strings"
@@ -63,6 +64,11 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 			}
 		}
 	}
+	platformSkills, err := selectedPlatformSkills(id, b, d, set)
+	if err != nil {
+		return nil, err
+	}
+	added = append(added, platformSkills...)
 	d["installedSkills"] = union(stringsOf(d["installedSkills"]), added)
 	if len(selection) > 0 {
 		stages := stringsOf(d["installedStages"])
@@ -82,6 +88,76 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 	}
 	return d, nil
 }
+
+func selectedPlatformSkills(id *Identity, b *bundle.Bundle, d map[string]any, selected map[string]bool) ([]string, error) {
+	roots := map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
+	projectionSelection := false
+	for _, runtime := range stringsOf(d["runtimes"]) {
+		root, known := roots[runtime]
+		if !known {
+			return nil, domain.Fail("BUNDLE", "平台 Skill 运行时来源非法")
+		}
+		for ref := range selected {
+			projectionSelection = projectionSelection || strings.HasPrefix(ref, root+"/")
+		}
+	}
+	if !projectionSelection {
+		return nil, nil
+	}
+	f, exists := b.Files["skills-lock.json"]
+	if !exists {
+		return nil, domain.Fail("BUNDLE", "平台 Skill 分发缺少固定源锁")
+	}
+	raw, err := base64.StdEncoding.DecodeString(f.Data)
+	if err != nil {
+		return nil, err
+	}
+	var lock struct {
+		Skills struct {
+			Platform map[string]map[string]json.RawMessage `json:"platform"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(raw, &lock); err != nil {
+		return nil, err
+	}
+	added := []string{}
+	for _, runtime := range stringsOf(d["runtimes"]) {
+		root, known := roots[runtime]
+		if !known {
+			return nil, domain.Fail("BUNDLE", "平台 Skill 运行时来源非法")
+		}
+		for name := range lock.Skills.Platform[root] {
+			prefix := root + "/" + name + "/"
+			if err := safefs.ValidateRef(strings.TrimSuffix(prefix, "/")); err != nil || strings.Contains(name, "/") {
+				return nil, domain.Fail("BUNDLE", "平台 Skill 来源名称非法")
+			}
+			hit := false
+			for ref := range selected {
+				if strings.HasPrefix(ref, prefix) {
+					if _, exists := b.Files[ref]; !exists {
+						return nil, domain.Fail("ASSET", "平台 Skill 选择不在固定 Bundle 中: "+ref)
+					}
+					hit = true
+				}
+			}
+			if !hit {
+				continue
+			}
+			for ref := range b.Files {
+				if strings.HasPrefix(ref, prefix) && !selected[ref] {
+					if id.Native == nil {
+						return nil, domain.Fail("ASSET", "平台 Skill 选择缺少完整固定目录: "+ref)
+					}
+					if _, managed := id.Native.Managed[ref]; !managed {
+						return nil, domain.Fail("ASSET", "平台 Skill 选择缺少受管资产: "+ref)
+					}
+				}
+			}
+			added = append(added, name)
+		}
+	}
+	return added, nil
+}
 func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 	f := b.Files["skills-lock.json"]
 	if text(d["mode"]) != "selected" {
@@ -91,49 +167,7 @@ func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 	if e != nil {
 		return f, e
 	}
-	var lock map[string]any
-	if e = json.Unmarshal(raw, &lock); e != nil {
-		return f, e
-	}
-	installed := map[string]bool{}
-	for _, s := range stringsOf(d["installedSkills"]) {
-		installed[s] = true
-	}
-	runtimeRoots := map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
-	roots := []string{}
-	for _, runtime := range stringsOf(d["runtimes"]) {
-		if r, ok := runtimeRoots[runtime]; ok {
-			roots = append(roots, r)
-		}
-	}
-	lock["projectionRoots"] = roots
-	skills, _ := object(lock["skills"])
-	shared, _ := object(skills["shared"])
-	filtered := map[string]any{}
-	for name, item := range shared {
-		if installed[name] {
-			m, _ := object(item)
-			m["targets"] = append([]string{".agents/skills"}, roots...)
-			filtered[name] = m
-		}
-	}
-	skills["shared"] = filtered
-	platform, _ := object(skills["platform"])
-	targetPlatform := map[string]any{}
-	for _, root := range roots {
-		entries, _ := object(platform[root])
-		p := map[string]any{}
-		for name, v := range entries {
-			if installed[name] {
-				p[name] = v
-			}
-		}
-		if len(p) > 0 {
-			targetPlatform[root] = p
-		}
-	}
-	skills["platform"] = targetPlatform
-	raw, e = jsonBytes(lock)
+	raw, e = bundle.SelectedSourceLock(raw, stringsOf(d["installedSkills"]), stringsOf(d["runtimes"]))
 	if e != nil {
 		return f, e
 	}

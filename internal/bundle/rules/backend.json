@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "profile": "backend",
+  "manifest": {
+    "allowRootEntries": [
+      ".agents",
+      ".codex",
+      ".cursor",
+      ".pi",
+      ".template-spec",
+      "scripts"
+    ],
+    "allowRootFiles": [
+      ".cursorrules",
+      ".gitignore",
+      ".nvmrc",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CONTEXT.md",
+      "README.md",
+      "skills-lock.json",
+      "yss-project.yaml",
+      "yss-public-skills.json"
+    ],
+    "allowFiles": [
+      ".template-spec/adr/README.md"
+    ],
+    "excludeRootEntries": [
+      ".git",
+      ".codegraph",
+      ".codebuddy",
+      ".idea",
+      ".uploads",
+      "node_modules",
+      ".ua",
+      ".qwen",
+      ".template-source",
+      "packages",
+      ".github",
+      "wiki"
+    ],
+    "excludeRootFiles": [
+      "package-lock.json",
+      "package.json",
+      "template.manifest.json",
+      "template.snapshot.json",
+      ".gitmodules"
+    ],
+    "excludePaths": [
+      ".codex/hooks.json",
+      ".codex/settings.local.json",
+      ".codex/skills/.DS_Store",
+      ".pi/settings.json",
+      ".cursor/environment.json",
+      "docs/.scratch",
+      "docs/reviews",
+      "docs/adr",
+      "scripts/instantiate-harness",
+      "scripts/verify-strategic-handoff-tools-lock"
+    ],
+    "renderPaths": [
+      "README.md",
+      "yss-project.yaml"
+    ],
+    "exampleDocPaths": [
+      ".template-spec/discovery/IDEATION.md"
+    ],
+    "initExcludeRootEntries": [],
+    "initExcludeRootFiles": [
+      "yss-public-skills.json"
+    ],
+    "initExcludePaths": []
+  }
+}

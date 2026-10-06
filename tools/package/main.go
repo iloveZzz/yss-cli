@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"os"
 	"os/exec"
@@ -42,6 +43,21 @@ func main() {
 		panic("输出必须是新目录")
 	}
 	must(os.MkdirAll(out, 0755))
+	revision, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	must(err)
+	commit := strings.TrimSpace(string(revision))
+	status, err := exec.Command("git", "status", "--porcelain", "--untracked-files=all").Output()
+	must(err)
+	sourceState := "committed"
+	if len(status) > 0 {
+		sourceState = "working-tree"
+	}
+	sources := map[string]any{}
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		inspection, e := bundle.Inspect(profile)
+		must(e)
+		sources[profile] = inspection
+	}
 	records := []map[string]any{}
 	for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64"} {
 		p := strings.Split(platform, "/")
@@ -51,7 +67,7 @@ func main() {
 		}
 		bin := filepath.Join(out, "build-"+p[0]+"-"+p[1], name)
 		must(os.MkdirAll(filepath.Dir(bin), 0755))
-		c := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", bin, "./cmd/yss")
+		c := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit="+commit+" -X github.com/iloveZzz/yss-cli/internal/domain.BuildSourceState="+sourceState, "-o", bin, "./cmd/yss")
 		c.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+p[0], "GOARCH="+p[1])
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
@@ -59,7 +75,7 @@ func main() {
 		content, e := os.ReadFile(bin)
 		must(e)
 		files := map[string][]byte{name: content}
-		for _, ref := range []string{"docs/source-lock.json", "docs/compatibility.md", "docs/porting-status.md", "docs/native-governance.md", "compat/README.md", "README.md"} {
+		for _, ref := range []string{"docs/source-lock.json", "docs/compatibility.md", "docs/porting-status.md", "docs/native-governance.md", "docs/cli-retirement.md", "compat/README.md", "README.md"} {
 			b, e := os.ReadFile(ref)
 			must(e)
 			files[ref] = b
@@ -73,7 +89,7 @@ func main() {
 			}
 			descriptors[ref] = map[string]any{"type": "file", "digest": hex.EncodeToString(h[:]), "mode": mode}
 		}
-		manifest, _ := json.MarshalIndent(map[string]any{"schemaVersion": 1, "cliVersion": domain.Version, "protocolVersion": domain.ProtocolVersion, "platform": platform, "cgo": false, "sourceState": "working-tree", "stableReady": false, "runtimeVerification": "pending except locally recorded host", "files": descriptors}, "", "  ")
+		manifest, _ := json.MarshalIndent(map[string]any{"schemaVersion": 1, "cliVersion": domain.Version, "protocolVersion": domain.ProtocolVersion, "platform": platform, "cgo": false, "sourceState": sourceState, "cliCommit": commit, "bundles": sources, "binarySha256": func() string { h := sha256.Sum256(content); return hex.EncodeToString(h[:]) }(), "stableReady": false, "runtimeVerification": "pending except locally recorded host", "files": descriptors}, "", "  ")
 		files["release-manifest.json"] = append(manifest, '\n')
 		archive := filepath.Join(out, "yss_"+domain.Version+"_"+p[0]+"_"+p[1])
 		if p[0] == "windows" {
@@ -89,7 +105,7 @@ func main() {
 		records = append(records, map[string]any{"platform": platform, "archive": filepath.Base(archive), "sha256": hex.EncodeToString(h[:]), "bytes": len(b), "compiled": true, "nativeRuntimeVerified": false})
 		fmt.Println(platform + ": " + archive)
 	}
-	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 1, "version": domain.Version, "stableReady": false, "artifacts": records}, "", "  ")
+	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 2, "version": domain.Version, "cliCommit": commit, "sourceState": sourceState, "bundles": sources, "stableReady": false, "pending": []string{"fixed-source-full-template-integration", "six-platform-native-runtime-acceptance"}, "artifacts": records}, "", "  ")
 	must(e)
 	must(os.WriteFile(filepath.Join(out, "checksums.json"), append(b, '\n'), 0644))
 }

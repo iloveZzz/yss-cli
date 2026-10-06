@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), cancellationSignals()...)
 	defer cancel()
 	args := os.Args[1:]
 	alias := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")

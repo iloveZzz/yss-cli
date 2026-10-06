@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +25,7 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
+	Binding         *Binding                     `json:"binding,omitempty"`
 	SchemaVersion   int                          `json:"schemaVersion"`
 	ProtocolVersion int                          `json:"protocolVersion"`
 	Command         string                       `json:"command"`
@@ -79,6 +81,21 @@ func baseline(id *Identity) map[string]Managed {
 	}
 	return out
 }
+
+// Only the selected distribution's fixed lock is a managed derived asset.
+// Other generated files remain user-preserved after initialization. Legacy
+// spec baselines have contentHash ownership; Detect and baseline validate and
+// translate those entries before the existing digest/mode guards are used.
+func managedDerivedSkillsLock(id *Identity, ref string, f bundle.File, previous Managed, wasManaged, selected bool) bool {
+	if !selected || ref != "skills-lock.json" || f.Ownership != "generated" || !wasManaged || previous.Applied.Type != "file" || previous.Applied.Digest == "" {
+		return false
+	}
+	if id.Native != nil {
+		return previous.Ownership == "generated"
+	}
+	return id.Legacy != nil && id.Profile.Name == "spec" && previous.Ownership == "managed"
+}
+
 func Variables(id *Identity, provided map[string]string) map[string]string {
 	v := map[string]string{"projectName": filepath.Base(id.Root), "businessDomain": "待补充", "teamSize": "待补充"}
 	if id.Native != nil {
@@ -102,6 +119,9 @@ func Variables(id *Identity, provided map[string]string) map[string]string {
 	return v
 }
 func Build(root, profile, command string, vars map[string]string, selection []string) (*Plan, error) {
+	return build(root, profile, command, vars, selection, nil)
+}
+func build(root, profile, command string, vars map[string]string, selection []string, binding *Binding) (*Plan, error) {
 	init := command == "init"
 	attach := command == "attach"
 	id, err := Detect(root, profile, init || attach)
@@ -118,7 +138,9 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 	}
 	if init {
 		if entries, e := os.ReadDir(id.Root); e == nil && len(entries) > 0 {
-			return nil, domain.Fail("CONFLICT", "init 需要空目录")
+			if err := verifyRestoredInitialization(id); err != nil {
+				return nil, err
+			}
 		} else if e != nil && !os.IsNotExist(e) {
 			return nil, e
 		}
@@ -161,8 +183,27 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 		}
 		p.Inputs[ref] = d
 	}
+	if id.ProfileRef != "" {
+		d, e := safefs.Describe(id.Root, id.ProfileRef)
+		if e != nil {
+			return nil, e
+		}
+		p.Inputs[id.ProfileRef] = d
+	}
+	if command == "migrate" && id.Native == nil {
+		if e := legacyRecoveryInputs(id, p.Inputs); e != nil {
+			return nil, e
+		}
+	}
+	if err = guardPluginBindings(id, b, p, binding); err != nil {
+		return nil, err
+	}
 	refs := map[string]bundle.File{}
 	old := baseline(id)
+	trustedModes := map[string]bool{}
+	if err = applyLegacyBaseline(id, command, binding, old, p.Inputs, trustedModes); err != nil {
+		return nil, err
+	}
 	if init || attach {
 		for ref, f := range b.Initial {
 			refs[ref] = f
@@ -188,18 +229,36 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 		}
 		refs[ref] = f
 	}
+	// A complete asset selection still uses the selected-runtime variants of
+	// entry files. Synchronization must render the same bytes as initialization.
+	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" {
+		for ref, initial := range b.Initial {
+			if _, selected := refs[ref]; selected {
+				refs[ref] = initial
+			}
+		}
+	}
 	if init || attach || command == "migrate" || id.Native != nil {
 		if _, ok := refs[".template-spec/process/harness-profile.yaml"]; !ok {
 			data := "schema_version: 2\nprofile_id: " + id.Profile.ID + "\ninstantiation:\n  cli_package: " + id.Profile.LegacyCommand + "\n  metadata_file: " + id.Profile.Metadata + "\n  template_source: " + id.Profile.TemplateSource + "\n"
 			refs[".template-spec/process/harness-profile.yaml"] = bundle.File{Data: base64.StdEncoding.EncodeToString([]byte(data)), Digest: safefs.Digest([]byte(data)), Mode: 0644, Ownership: "managed"}
 		}
 	}
+	if f, ok := refs[".template-spec/process/harness-profile.yaml"]; ok {
+		native, e := nativeProfileFile(f, id.Profile)
+		if e != nil {
+			return nil, e
+		}
+		refs[".template-spec/process/harness-profile.yaml"] = native
+	}
+	selectedLockProduced := false
 	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" {
 		f, e := selectedLock(b, distribution)
 		if e != nil {
 			return nil, e
 		}
 		refs["skills-lock.json"] = f
+		selectedLockProduced = true
 	}
 	managed := map[string]Managed{}
 	for ref, m := range old {
@@ -221,9 +280,31 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 		if e != nil {
 			return nil, e
 		}
+		if ref == ".template-spec/agents/issue-tracker.md" && (init || attach) {
+			data, e = renderTracker(data, vars["issueTracker"])
+			if e != nil {
+				return nil, e
+			}
+		}
+		if ref == "README.md" && (init || attach) && vars["issueTracker"] != "" {
+			data = bytes.Replace(data, []byte("默认 Issue Tracker：local-markdown"), []byte("默认 Issue Tracker："+vars["issueTracker"]), 1)
+		}
 		desired := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: domain.FileMode(f.Mode)}
 		previous, wasManaged := old[ref]
-		preserve := !init && (ref == "CONTEXT.md" || f.Ownership == "user-owned" || f.Ownership == "generated" || f.Ownership == "managed-customizable")
+		modeConflict := before.Mode != previous.Applied.Mode
+		if id.Native == nil && id.Profile.Name == "spec" {
+			// Legacy contentHash metadata cannot authorize a permission change.
+			// Only an exact fixed overlay policy can prove its current mode.
+			modeConflict = before.Mode != desired.Mode && !trustedModes[ref]
+		}
+		derivedLock := !init && !attach && selectedLockProduced && ref == "skills-lock.json"
+		if derivedLock && (!managedDerivedSkillsLock(id, ref, f, previous, wasManaged, selectedLockProduced) || before.Type != "file" || before.Digest != previous.Applied.Digest || modeConflict) {
+			// Even bytes matching the future lock must not silently adopt a user
+			// edit. A missing or untracked lock cannot authorize a new baseline.
+			p.Conflicts = append(p.Conflicts, ref)
+			continue
+		}
+		preserve := !init && (ref == "CONTEXT.md" || f.Ownership == "user-owned" || (f.Ownership == "generated" && !derivedLock) || f.Ownership == "managed-customizable")
 		if before == desired {
 			managed[ref] = Managed{Baseline: desired, Applied: before, Ownership: f.Ownership}
 			continue
@@ -235,7 +316,7 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 			}
 			continue
 		}
-		if before.Type != "missing" && (!wasManaged || before.Digest != previous.Applied.Digest || ((id.Native != nil || id.Profile.Name != "spec") && before.Mode != previous.Applied.Mode)) {
+		if before.Type != "missing" && (!wasManaged || before.Digest != previous.Applied.Digest || modeConflict) {
 			p.Conflicts = append(p.Conflicts, ref)
 			continue
 		}
@@ -254,6 +335,15 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 		return p, nil
 	}
 	meta := Metadata{SchemaVersion: 1, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
+	if b.SchemaVersion == 2 {
+		meta.SchemaVersion = 2
+		meta.TemplateVersion = b.TemplateVersion
+		meta.BundleSchemaVersion = 2
+		meta.BundleHash = b.BundleHash
+		source := domain.BuildProvenance()
+		meta.CLICommit = source.Commit
+		meta.CLISourceState = source.SourceState
+	}
 	mb, _ := json.Marshal(managed)
 	meta.BaselineDigest = safefs.Digest(mb)
 	data, e := jsonBytes(meta)
@@ -398,7 +488,7 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 			return transaction.Result{}, domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref)
 		}
 	}
-	rebuilt, e := Build(p.Root, p.Profile, p.Command, p.Variables, p.Selection)
+	rebuilt, e := BuildWithBinding(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding)
 	if e != nil {
 		return transaction.Result{}, e
 	}

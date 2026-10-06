@@ -23,6 +23,7 @@ type Identity struct {
 	Native     *Metadata      `json:"native,omitempty"`
 	Legacy     map[string]any `json:"legacy,omitempty"`
 	LegacyFile string         `json:"legacyFile,omitempty"`
+	ProfileRef string         `json:"profileContract,omitempty"`
 }
 
 var digestPattern = regexp.MustCompile("^[a-f0-9]{64}$")
@@ -186,6 +187,30 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, domain.Fail("IDENTITY", "缺少根 yss-project.yaml")
 	}
 	profileRef := ".template-spec/process/harness-profile.yaml"
+	// The historical design distribution installed its authoritative Profile
+	// under docs/process. Accept only its exact, intact legacy applied baseline;
+	// native instances always use the canonical contract location.
+	if out.Native == nil && out.Legacy != nil && out.Profile.Name == "design" {
+		legacyRef := "docs/process/harness-profile.yaml"
+		if oldPresent, e := exists(root, legacyRef); e != nil {
+			return nil, e
+		} else if oldPresent {
+			old, e := verifiedLegacyDesignProfile(out, legacyRef)
+			if e != nil {
+				return nil, e
+			}
+			current, e := safefs.Describe(root, profileRef)
+			if e != nil {
+				return nil, e
+			}
+			if current.Type == "missing" {
+				profileRef = legacyRef
+			} else if current != old {
+				return nil, domain.Fail("IDENTITY", "新旧位置的 design Profile 合同不一致")
+			}
+		}
+	}
+	out.ProfileRef = profileRef
 	if ok, e := exists(root, profileRef); e != nil {
 		return nil, e
 	} else if ok {
@@ -198,7 +223,9 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 			return nil, domain.Fail("IDENTITY", "Profile 合同未知或矛盾")
 		}
 		if inst, ok := object(m["instantiation"]); ok {
-			if text(inst["cli_package"]) != out.Profile.LegacyCommand || text(inst["metadata_file"]) != out.Profile.Metadata || text(inst["template_source"]) != out.Profile.TemplateSource {
+			legacyContract := text(inst["cli_package"]) == out.Profile.LegacyCommand && text(inst["metadata_file"]) == out.Profile.Metadata
+			nativeContract := out.Native != nil && text(inst["cli_package"]) == "yss" && text(inst["metadata_file"]) == MetadataFile && text(inst["native_profile"]) == out.Profile.Name
+			if (!legacyContract && !nativeContract) || text(inst["template_source"]) != out.Profile.TemplateSource {
 				return nil, domain.Fail("IDENTITY", "Profile 安装合同矛盾")
 			}
 		}
@@ -206,4 +233,28 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, domain.Fail("IDENTITY", "缺少项目 Profile 合同")
 	}
 	return out, nil
+}
+
+func verifiedLegacyDesignProfile(id *Identity, ref string) (domain.Descriptor, error) {
+	if text(id.Legacy["templateSourceState"]) != "committed" || !digestPattern.MatchString(text(id.Legacy["snapshotHash"])) || !digestPattern.MatchString(text(id.Legacy["manifestHash"])) {
+		return domain.Descriptor{}, domain.Fail("BASELINE", "旧 design Profile 缺少固定来源证明")
+	}
+	managed, _ := object(id.Legacy["managedFiles"])
+	item, ok := object(managed[ref])
+	if !ok || text(item["ownership"]) != "managed" {
+		return domain.Descriptor{}, domain.Fail("BASELINE", "旧 design Profile 不在受管基线中")
+	}
+	applied, ok := object(item["lastApplied"])
+	if !ok || text(applied["type"]) != "file" || !digestPattern.MatchString(text(applied["digest"])) || number(applied["mode"]) <= 0 || number(applied["mode"]) > 0777 {
+		return domain.Descriptor{}, domain.Fail("BASELINE", "旧 design Profile 缺少完整 applied 描述")
+	}
+	want := domain.Descriptor{Type: "file", Digest: text(applied["digest"]), Mode: domain.FileMode(uint32(number(applied["mode"])))}
+	actual, e := safefs.Describe(id.Root, ref)
+	if e != nil {
+		return domain.Descriptor{}, e
+	}
+	if actual != want {
+		return domain.Descriptor{}, domain.Fail("BASELINE", "旧 design Profile 与 applied 基线不一致")
+	}
+	return actual, nil
 }

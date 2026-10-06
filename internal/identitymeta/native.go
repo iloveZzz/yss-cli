@@ -16,6 +16,10 @@ type Managed struct {
 	Ownership string            `json:"ownership"`
 }
 type Metadata struct {
+	BundleSchemaVersion int                `json:"bundleSchemaVersion,omitempty"`
+	BundleHash          string             `json:"bundleHash,omitempty"`
+	CLICommit           string             `json:"cliCommit,omitempty"`
+	CLISourceState      string             `json:"cliSourceState,omitempty"`
 	TemplateSourceState string             `json:"templateSourceState"`
 	SchemaVersion       int                `json:"schemaVersion"`
 	Profile             string             `json:"profile"`
@@ -42,7 +46,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if e := decoder.Decode(&meta); e != nil {
 		return nil, e
 	}
-	if meta.SchemaVersion != 1 || meta.ProtocolVersion != domain.ProtocolVersion {
+	if (meta.SchemaVersion != 1 && meta.SchemaVersion != 2) || meta.ProtocolVersion != domain.ProtocolVersion {
 		return nil, domain.Fail("IDENTITY", "未知统一 CLI metadata 或协议版本")
 	}
 	p, e := domain.GetProfile(meta.Profile)
@@ -56,8 +60,13 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 		return nil, domain.Fail("BASELINE", "统一 metadata 模板来源、快照或清单摘要缺失或不合法")
 	}
 	semver := regexp.MustCompile("^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$")
-	if !semver.MatchString(meta.CLIVersion) || !semver.MatchString(meta.TemplateVersion) || !semver.MatchString(meta.LegacyCLIVersion) || meta.Variables == nil || meta.Distribution == nil {
+	if !semver.MatchString(meta.CLIVersion) || !(semver.MatchString(meta.TemplateVersion) || meta.SchemaVersion == 2 && meta.TemplateVersion == "git:"+meta.TemplateCommit) || !semver.MatchString(meta.LegacyCLIVersion) || meta.Variables == nil || meta.Distribution == nil {
 		return nil, domain.Fail("BASELINE", "统一 metadata 版本、变量或分发合同缺失")
+	}
+	if meta.SchemaVersion == 2 {
+		if meta.BundleSchemaVersion != 2 || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
+			return nil, domain.Fail("BASELINE", "native v2 Bundle/CLI provenance invalid")
+		}
 	}
 	if meta.Managed == nil || !digestPattern.MatchString(meta.BaselineDigest) {
 		return nil, domain.Fail("BASELINE", "统一 CLI 基线缺失")

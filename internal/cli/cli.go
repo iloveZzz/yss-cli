@@ -33,7 +33,7 @@ func parse(args []string) (options, error) {
 			o.json = true
 		}
 	}
-	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true}
+	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true, "full": true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "--") {
@@ -94,7 +94,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		command = "version"
 	}
 	if err == nil && (command == "" || o.values["help"] == "true" || command == "help") {
-		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover migrate skills assets\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n此预发布版本保留未迁移能力的旧执行路径；使用 yss capabilities 查看覆盖。")
+		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover rollback migrate skills assets bundle\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n使用 yss capabilities 查看当前覆盖与待验收边界。")
 		return 0
 	}
 	profile := o.values["profile"]
@@ -113,6 +113,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	code := "INTERNAL"
 	exit := 1
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		code = "CANCELLED"
+	}
 	var de *domain.Error
 	if errors.As(err, &de) {
 		code = de.Code
@@ -166,7 +169,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if err = ctx.Err(); err != nil {
 		return nil, profile, domain.Wrap("CANCELLED", err)
 	}
-	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "recover" || command == "version" || command == "capabilities" {
+	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "recover" || command == "rollback" || command == "version" || command == "capabilities" {
 		if len(o.args) > 1 {
 			return nil, profile, domain.Fail("ARGUMENT", "不支持额外子命令或位置参数")
 		}
@@ -185,8 +188,11 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			return nil, profile, domain.Fail("ARGUMENT", "未知迁移子命令: "+o.args[1])
 		}
 	}
+	if command == "bundle" {
+		return bundleCommand(ctx, o)
+	}
 	if command == "version" || o.values["version"] == "true" {
-		return map[string]any{"version": domain.Version, "protocolVersion": domain.ProtocolVersion, "profiles": domain.Profiles}, profile, nil
+		return map[string]any{"version": domain.Version, "protocolVersion": domain.ProtocolVersion, "profiles": domain.Profiles, "source": domain.BuildProvenance(), "cliCommit": domain.BuildProvenance().Commit, "sourceState": domain.BuildProvenance().SourceState}, profile, nil
 	}
 	if command == "capabilities" {
 		return capabilities(), profile, nil
@@ -255,6 +261,43 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		return p, "", nil
 	}
+	if command == "rollback" {
+		for k := range o.values {
+			switch k {
+			case "root", "target-dir", "profile", "json", "help", "apply":
+			default:
+				return nil, profile, domain.Fail("ARGUMENT", "rollback不支持参数: --"+k)
+			}
+		}
+		if e := project.CheckLegacyState(root, profile); e != nil {
+			return nil, profile, e
+		}
+		id, e := project.RecoveryIdentity(root, profile)
+		if e != nil {
+			return nil, profile, e
+		}
+		profile = id.Profile.Name
+		if o.values["apply"] != "true" {
+			r, e := transaction.Status(root)
+			return r, profile, e
+		}
+		r, e := transaction.RollbackContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
+			switch summary.Kind {
+			case "init", "attach", "sync", "migrate", "skills", "assets":
+			default:
+				return domain.Fail("KIND", "rollback仅支持项目事务")
+			}
+			current, e := project.RecoveryIdentity(root, profile)
+			if e != nil {
+				return e
+			}
+			if current.Profile.Name != profile {
+				return domain.Fail("IDENTITY", "回退时Profile已变化")
+			}
+			return nil
+		})
+		return r, profile, e
+	}
 	if command == "recover" || command == "migrate" && len(o.args) > 1 && (o.args[1] == "rollback" || o.args[1] == "recover" || o.args[1] == "status") {
 		for k := range o.values {
 			switch k {
@@ -265,6 +308,19 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		if e := project.CheckLegacyState(root, profile); e != nil {
 			return nil, profile, e
+		}
+		recovering := command == "recover" || len(o.args) > 1 && o.args[1] == "recover"
+		// The explicit migrate recovery subcommand retains its published write
+		// semantics; generic recover previews unless --apply is supplied.
+		applyRecovery := command == "migrate" || o.values["apply"] == "true"
+		if recovering {
+			preparation, handled, e := project.RecoverPreparation(ctx, root, profile, applyRecovery)
+			if e != nil {
+				return nil, profile, e
+			}
+			if handled {
+				return preparation, profile, nil
+			}
 		}
 		id, e := project.RecoveryIdentity(root, profile)
 		if e != nil {
@@ -277,7 +333,23 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		var r transaction.Result
 		switch {
 		case command == "recover" || o.args[1] == "recover":
-			r, err = transaction.Recover(root)
+			if !applyRecovery {
+				r, err = transaction.Status(root)
+				break
+			}
+			r, err = transaction.RecoverContextWithValidator(ctx, root, func(summary transaction.Summary, _ []string) error {
+				if summary.Kind != "init" && summary.Kind != "attach" && summary.Kind != "sync" && summary.Kind != "migrate" && summary.Kind != "skills" && summary.Kind != "assets" {
+					return domain.Fail("KIND", "recover仅支持项目事务")
+				}
+				current, e := project.RecoveryIdentity(root, profile)
+				if e != nil {
+					return e
+				}
+				if current.Profile.Name != profile {
+					return domain.Fail("IDENTITY", "恢复时Profile已变化")
+				}
+				return project.CheckLegacyState(root, profile)
+			})
 		case o.args[1] == "rollback":
 			r, err = transaction.RollbackKind(root, "migrate")
 		default:
@@ -287,7 +359,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
 		allowed := map[string]bool{}
-		for _, k := range []string{"root", "target-dir", "profile", "json", "help", "version", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file"} {
+		for _, k := range []string{"root", "target-dir", "profile", "json", "help", "version", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file", "binding-file", "full", "issue-tracker"} {
 			allowed[k] = true
 		}
 		for key := range o.values {
@@ -296,6 +368,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			}
 		}
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
+			if o.values["binding-file"] != "" || o.values["full"] != "" {
+				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
+			}
 			p, e := project.ReadPlan(o.values["plan-file"])
 			if e != nil {
 				return nil, profile, e
@@ -307,6 +382,22 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			return r, p.Profile, e
 		}
 		var selection []string
+		if o.values["full"] == "true" {
+			if command != "init" && command != "attach" {
+				return nil, profile, domain.Fail("ARGUMENT", "--full only supports init or attach")
+			}
+			b, e := bundle.Load(profile)
+			if e != nil {
+				return nil, profile, e
+			}
+			for ref := range b.Files {
+				if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/")) {
+					continue
+				}
+				selection = append(selection, ref)
+			}
+			sort.Strings(selection)
+		}
 		id, e := project.Detect(root, profile, command == "init" || command == "attach")
 		if e != nil {
 			return nil, profile, e
@@ -386,7 +477,25 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			}
 		}
 		vars := map[string]string{"projectName": o.values["project-name"], "businessDomain": o.values["business-domain"], "teamSize": o.values["team-size"]}
-		p, e := project.Build(root, profile, command, vars, selection)
+		if tracker, ok := o.values["issue-tracker"]; ok {
+			if command != "init" && command != "attach" {
+				return nil, profile, domain.Fail("ARGUMENT", "tracker更改需要单独迁移，不支持此命令参数")
+			}
+			switch tracker {
+			case "local-markdown", "github", "gitlab":
+				vars["issueTracker"] = tracker
+			default:
+				return nil, profile, domain.Fail("ARGUMENT", "未知issue-tracker")
+			}
+		}
+		var binding *project.Binding
+		if file := o.values["binding-file"]; file != "" {
+			binding, e = project.ReadBinding(file)
+			if e != nil {
+				return nil, profile, e
+			}
+		}
+		p, e := project.BuildWithBinding(root, profile, command, vars, selection, binding)
 		if e != nil {
 			return nil, profile, e
 		}
@@ -403,7 +512,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if id.Native == nil {
 					return "legacy"
 				}
-				return "go-hybrid"
+				return "go-native"
 			}(), "stableReady": false}, profile, nil
 		}
 		if path := o.values["out"]; path != "" {
@@ -450,7 +559,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	return r, profile, err
 }
 func capabilities() map[string]any {
-	return map[string]any{"stableReady": false, "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": "1.0.0-alpha.3", "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "pending": []string{"legacy-success-JSON-and-policy-parity", "legacy-JavaScript-success-API-and-plugin-consumers", "native-six-platform-runtime-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": true}
+	return map[string]any{"stableReady": false, "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": "1.0.0-alpha.3", "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "pending": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-six-platform-runtime-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist

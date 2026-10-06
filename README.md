@@ -17,7 +17,15 @@ yss lifecycle query --root ./my-project --id work-unit.entry-triage --json
 
 程序版本、协议、Profile 模板版本和旧 CLI 兼容版本分别存储。已有旧实例需要先 doctor/diff，再显式 migrate；不会用 1.0.0 与旧 Spec 3.5.10 比较并误判降级。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
 
-四类固定快照嵌入程序，CLI 原生能力离线运行。原始 Node/Python 治理脚本暂时保留，未迁移动作返回 UNPORTED；不会把结构检查视作阶段批准。现有四个旧 CLI 和 JavaScript API 保持原路径，在完整兼容验证前不替换其默认实现。
+四类 Bundle 由 Go 构建工具直接读取四个固定模板提交，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
+
+```sh
+go run ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
+yss bundle inspect --profile spec --json
+yss bundle export --profile spec --out /absolute/new-bundle-directory --json
+```
+
+来源锁、Bundle v2、原生 metadata v2 分别记录模板提交、统一 CLI 身份、资产摘要和受管基线。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [退役合同](docs/cli-retirement.md)。
 
 离线程序安装与项目迁移分开，先生成计划，再显式应用：
 

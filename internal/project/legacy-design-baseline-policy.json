@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "product-design-0.1-bc2c16a0",
+  "plugin": "yss-product-design",
+  "profile": "design",
+  "bundleDigest": "bc2c16a01bcda6c7f25b22cf8516748f2f5238997eabbda80f49446cf9259220",
+  "cliVersion": "0.8.6",
+  "templateCommit": "4b6764ae8daa11036063c1ebc1309b2844d11668",
+  "snapshotHash": "c071d320ecdbf99f328efdf5bbc6704980bdd488f00ef5c3f2086472f507ecf4",
+  "cliCommit": "b410e2bd7b886c1f2e02a79f63f3f4f705ad5d0d",
+  "manifestHash": "525107ebb51bfdef74f8d61c9cbe7c04d645d01d49b48bc00912cafffa27921a",
+  "receiptCoreDigest": "eb92dd7f0a21373bd5d2b6254dea6c0461b18d83d214c4520e6955b64ea62aee",
+  "files": {
+    "skills-lock.json": {
+      "previous": {
+        "type": "file",
+        "digest": "4e39c2dc33e57385c6eedf0e23809cb2105e89d5cbfe5242ae6046b1e7065e72",
+        "mode": 420
+      },
+      "overlay": {
+        "type": "file",
+        "digest": "a0f690691a5445425532c946beb6e85f4bf612fbce8ea07df4f15b9ee581b895",
+        "mode": 420
+      }
+    }
+  }
+}
