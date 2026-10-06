@@ -12,10 +12,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
@@ -26,15 +28,18 @@ const maxArchive = 256 << 20
 const receiptRef = "installation.json"
 
 type Manifest struct {
-	SchemaVersion       int                          `json:"schemaVersion"`
-	CLIVersion          string                       `json:"cliVersion"`
-	ProtocolVersion     int                          `json:"protocolVersion"`
-	Platform            string                       `json:"platform"`
-	CGO                 bool                         `json:"cgo"`
-	SourceState         string                       `json:"sourceState"`
-	StableReady         bool                         `json:"stableReady"`
-	RuntimeVerification string                       `json:"runtimeVerification"`
-	Files               map[string]domain.Descriptor `json:"files"`
+	SchemaVersion       int                           `json:"schemaVersion"`
+	CLIVersion          string                        `json:"cliVersion"`
+	ProtocolVersion     int                           `json:"protocolVersion"`
+	Platform            string                        `json:"platform"`
+	CGO                 bool                          `json:"cgo"`
+	SourceState         string                        `json:"sourceState"`
+	CLICommit           string                        `json:"cliCommit,omitempty"`
+	Bundles             map[string]*bundle.Inspection `json:"bundles,omitempty"`
+	BinarySHA256        string                        `json:"binarySha256,omitempty"`
+	StableReady         bool                          `json:"stableReady"`
+	RuntimeVerification string                        `json:"runtimeVerification"`
+	Files               map[string]domain.Descriptor  `json:"files"`
 }
 type Plan struct {
 	SchemaVersion int                          `json:"schemaVersion"`
@@ -82,7 +87,55 @@ func fileName() string {
 	return "yss"
 }
 func expectedFiles() map[string]bool {
-	return map[string]bool{fileName(): true, "README.md": true, "docs/source-lock.json": true, "docs/compatibility.md": true, "docs/porting-status.md": true, "docs/native-governance.md": true, "compat/README.md": true, "release-manifest.json": true}
+	return map[string]bool{fileName(): true, "README.md": true, "docs/source-lock.json": true, "docs/compatibility.md": true, "docs/porting-status.md": true, "docs/native-governance.md": true, "docs/cli-retirement.md": true, "compat/README.md": true, "release-manifest.json": true}
+}
+
+var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// Early pinned alpha archives omit provenance. New archives carry the complete
+// group, bound to their binary descriptor and their included source lock.
+func validateProvenance(m Manifest, sourceLock []byte) error {
+	if m.CLICommit == "" && m.Bundles == nil && m.BinarySHA256 == "" {
+		var marker struct {
+			SchemaVersion int `json:"schemaVersion"`
+		}
+		if e := json.Unmarshal(sourceLock, &marker); e == nil && marker.SchemaVersion == 2 {
+			return fail("ARTIFACT", "v2 来源锁缺少发行包来源字段")
+		}
+		return nil
+	}
+	if !commitPattern.MatchString(m.CLICommit) || !digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest || len(m.Bundles) != 4 {
+		return fail("ARTIFACT", "发行包程序来源、二进制摘要或 Profile 集不完整")
+	}
+	var lock bundle.SourceLock
+	if e := parseJSON(sourceLock, &lock); e != nil {
+		return e
+	}
+	if lock.SchemaVersion != 2 || len(lock.Profiles) != 4 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
+		return fail("ARTIFACT", "发行包缺少固定来源锁")
+	}
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		i := m.Bundles[profile]
+		s, ok := lock.Profiles[profile]
+		version := s.TemplateVersion
+		if version == "" {
+			version = "git:" + s.Commit
+		}
+		policyKind := "committed"
+		if strings.HasPrefix(s.PolicyPath, "builtin:") {
+			policyKind = "bootstrap"
+		}
+		if !ok || i == nil || i.SchemaVersion != 2 || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
+			return fail("ARTIFACT", "发行包 Profile 来源与锁不一致: "+profile)
+		}
+		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {
+			if !digestPattern.MatchString(hash) {
+				return fail("ARTIFACT", "发行包 Profile 来源摘要不完整: "+profile)
+			}
+		}
+	}
+	return nil
 }
 func archive(path, want string) (map[string][]byte, Manifest, error) {
 	files := map[string][]byte{}
@@ -182,7 +235,7 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	} else {
 		return nil, m, fail("ARTIFACT", "仅接受 .tar.gz 或 .zip 原生发行包")
 	}
-	// Schema v1 core files remain required; the two newer documentation files
+	// Schema v1 core files remain required; registered newer documentation files
 	// are registered optional additions so pinned early alpha archives remain readable.
 	for _, ref := range []string{fileName(), "README.md", "docs/source-lock.json", "docs/compatibility.md", "release-manifest.json"} {
 		if _, ok := files[ref]; !ok {
@@ -212,6 +265,9 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	}
 	if m.Files[fileName()].Mode != 0755 {
 		return nil, m, fail("ARTIFACT", "原生程序必须标记为可执行文件")
+	}
+	if e = validateProvenance(m, files["docs/source-lock.json"]); e != nil {
+		return nil, m, e
 	}
 	return files, m, nil
 }
