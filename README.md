@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.0.0，统一固定来源入口；发行资格由固定提交、明确发行范围内的原生运行与本次关联消费者与安装证据绑定，能力边界见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前开发版本为 1.0.1-dev.1，基于 1.0.0 增加日常交付路由与验证，并更新四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 

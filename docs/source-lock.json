@@ -2,17 +2,17 @@
   "schemaVersion": 2,
   "producer": {
     "version": "bundle-producer-v2",
-    "commit": "e7704d7923ab115a2ef17852ae5198d4a925f91a",
+    "commit": "77ec703d83a5b5d444cb778269476844ee3507a1",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "a3094b91ad4d8c6a8e26e3af0601d5a966e94045",
-      "templateVersion": "git:a3094b91ad4d8c6a8e26e3af0601d5a966e94045",
+      "templateCommit": "a18b89e7a8e961f642d50bb8c5bcce09c5831e1f",
+      "templateVersion": "git:a18b89e7a8e961f642d50bb8c5bcce09c5831e1f",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "1d837b09376c4c0ab488f34b17a33c543e0281c026e43a498f8eb0f8d5b8333e",
+      "policyHash": "6f75a86e4c8ed5fb4575d4dbfedbcf93a9799dd23219314b2f82c4aa1046fe17",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
@@ -23,10 +23,10 @@
     "design": {
       "profile": "design",
       "sourcePath": "submodules/yss-harness-design-agent",
-      "templateCommit": "bf7156ea3e7b34f9d7e7f8c770950a22d50f5508",
-      "templateVersion": "git:bf7156ea3e7b34f9d7e7f8c770950a22d50f5508",
+      "templateCommit": "f0d67b45af6c9588c1fef5cb8ca02f02ea4a8d65",
+      "templateVersion": "git:f0d67b45af6c9588c1fef5cb8ca02f02ea4a8d65",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "39441eecabf10381561f7d2121cd9e0e741904187ecd8aae175224fc43204d3c",
+      "policyHash": "d51e2cc217ea1572207f753343a0b0df3b243938da11ddd33c6640e224569740",
       "legacy": {
         "version": "0.8.17",
         "cliCommit": "7d2f9008d998ca87298a130f31019ffd6a87b3a5",
@@ -37,10 +37,10 @@
     "backend": {
       "profile": "backend",
       "sourcePath": "submodules/yss-harness-backend-agent",
-      "templateCommit": "31af4aac9bd556f47e2b297a2f91eb54f2aa200a",
-      "templateVersion": "git:31af4aac9bd556f47e2b297a2f91eb54f2aa200a",
+      "templateCommit": "c693495e4fb9b7c60a6194272dffdad08e087f02",
+      "templateVersion": "git:c693495e4fb9b7c60a6194272dffdad08e087f02",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "11d2b48115e4fa358b10b3401b9f79721eba265f5f625db485d3e3092cca9e0e",
+      "policyHash": "e56b7a1f7fb93acc4998e418e98587ab7d68a4b3cac59aa7ff9c3b93af16f38c",
       "legacy": {
         "version": "0.4.21",
         "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
@@ -51,10 +51,10 @@
     "frontend": {
       "profile": "frontend",
       "sourcePath": "submodules/yss-harness-frontend-agent",
-      "templateCommit": "031d318f79434473545d794d5b1d51975f055006",
-      "templateVersion": "git:031d318f79434473545d794d5b1d51975f055006",
+      "templateCommit": "4d18b4d871961bdf6582cb77424a7df24802b79c",
+      "templateVersion": "git:4d18b4d871961bdf6582cb77424a7df24802b79c",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "dc3fd4d6bf730bf6dd6ce5ae82aba71012adc86a59e1a7e6a66946dcf2986a3d",
+      "policyHash": "2258964eae1df50ea88e15609cd5cf389a817fe62c6c6281c77154a8958feb9c",
       "legacy": {
         "version": "0.3.21",
         "cliCommit": "3833ba6083f64fd057ba31f9012c979273cc7154",
