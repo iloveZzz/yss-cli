@@ -14,6 +14,9 @@ const platform = `${{ darwin: 'darwin', linux: 'linux', win32: 'windows' }[proce
 assert.equal(values['artifact-prefix'], 'native-' + platform.replace('/', '-'));
 assert.equal(fs.existsSync(path.join(out, 'native-receipt.json')), false);
 const initialHash = hash(fs.readFileSync(binary)), checks = [];
+const versionSource = fs.readFileSync('internal/domain/domain.go', 'utf8');
+const expectedVersion = versionSource.match(/^const Version = "([^"]+)"$/m)?.[1];
+assert.ok(expectedVersion, 'current source must declare the expected CLI version');
 const descriptor = file => {
   const rel = path.relative(out, file).split(path.sep).join('/');
   assert.ok(rel && !rel.startsWith('../') && !path.isAbsolute(rel));
@@ -33,7 +36,7 @@ const receipt = { schemaVersion: 1, platform, runtimePlatform: platform, cliComm
 try {
   const version = execute('native-version', binary, ['version', '--json']);
   const value = JSON.parse(version.output); assert.equal(value.status, 'ok'); assert.equal(value.code, 'OK'); assert.equal(value.protocolVersion, 1);
-  assert.equal(value.result.cliCommit, values.commit); assert.equal(value.result.sourceState, 'committed'); assert.equal(value.result.version, '1.0.0');
+  assert.equal(value.result.cliCommit, values.commit); assert.equal(value.result.sourceState, 'committed'); assert.equal(value.result.version, expectedVersion);
   const versionFile = path.join(out, 'native-version.json'); fs.writeFileSync(versionFile, version.output);
   Object.assign(receipt, { cliVersion: value.result.version, protocolVersion: value.result.protocolVersion, version: descriptor(versionFile), versionCommand: version.row });
   const lockFile = path.resolve('docs/source-lock.json');
