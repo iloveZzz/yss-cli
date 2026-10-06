@@ -18,6 +18,12 @@ func main() {
 	if strings.HasPrefix(alias, "create-yss-") {
 		os.Exit(compat.Run(ctx, alias, args, os.Stdout, os.Stderr))
 	}
+	// Native help must never read compat-api stdin or execute an adapter.
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" || arg == "--help=true" {
+			os.Exit(cli.Run(ctx, args, os.Stdout, os.Stderr))
+		}
+	}
 	if len(args) > 1 && args[0] == "compat" {
 		os.Exit(compat.Run(ctx, args[1], args[2:], os.Stdout, os.Stderr))
 	}

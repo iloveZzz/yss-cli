@@ -36,6 +36,9 @@ func parse(args []string) (options, error) {
 	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true, "full": true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "-h" {
+			a = "--help"
+		}
 		if !strings.HasPrefix(a, "--") {
 			o.args = append(o.args, a)
 			continue
@@ -58,7 +61,7 @@ func parse(args []string) (options, error) {
 			o.values[a] = "true"
 			continue
 		}
-		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") {
+		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") || args[i+1] == "-h" {
 			return o, domain.Fail("ARGUMENT", "参数缺少值: --"+a)
 		}
 		i++
@@ -97,8 +100,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		command = "version"
 	}
 	if err == nil && (command == "" || o.values["help"] == "true" || command == "help") {
-		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover rollback migrate skills assets bundle\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n日常只读: lifecycle route|verify-daily --task <Markdown> --implementation-root <Git根> --base <完整SHA>\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n使用 yss capabilities 查看当前覆盖与待验收边界。")
-		return 0
+		var help string
+		help, err = renderHelp(o.args)
+		if err == nil {
+			fmt.Fprintln(stdout, help)
+			return 0
+		}
 	}
 	profile := o.values["profile"]
 	if err == nil {
@@ -152,6 +159,24 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return exit
 }
 func execute(ctx context.Context, command string, o options) (any, string, error) {
+	if command == "upgrade" {
+		if len(o.args) != 1 || len(o.duplicates) > 0 {
+			return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 不接受子命令、位置参数或重复参数", Exit: 2}
+		}
+		for key, value := range o.values {
+			switch key {
+			case "json", "help", "check":
+			case "to", "tool-root":
+				if strings.TrimSpace(value) == "" {
+					return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 参数不能为空: --" + key, Exit: 2}
+				}
+			default:
+				return nil, "", &domain.Error{Code: "ARGUMENT", Message: "upgrade 不支持 --" + key + "；项目模板升级使用 yss sync", Exit: 2}
+			}
+		}
+		result, err := (updater.UpgradeClient{}).Run(ctx, updater.UpgradeRequest{Check: o.values["check"] == "true", To: o.values["to"], ToolRoot: o.values["tool-root"]})
+		return result, "", err
+	}
 	profile := o.values["profile"]
 	root := o.values["root"]
 	for _, flag := range []string{"root", "target-dir"} {
@@ -565,7 +590,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	return r, profile, err
 }
 func capabilities() map[string]any {
-	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist
