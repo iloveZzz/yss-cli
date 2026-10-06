@@ -210,7 +210,7 @@ func (c *closure) skill(skill string) error {
 		if e := c.prefix(".template-spec/design/tokens/"); e != nil {
 			return e
 		}
-		return c.module("scripts/design-md")
+		return c.module(".agents/skills/yss-design-system/scripts/design-md.mjs")
 	}
 	return nil
 }

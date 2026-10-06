@@ -37,7 +37,8 @@
       ".template-source",
       "packages",
       ".github",
-      "wiki"
+      "wiki",
+      "tests"
     ],
     "excludeRootFiles": [
       "package-lock.json",

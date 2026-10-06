@@ -318,3 +318,52 @@ func TestSpecFullFilesUseSelectedInstanceVariants(t *testing.T) {
 		t.Fatal("full asset range was reduced to initial skills")
 	}
 }
+
+func TestDesignMdCanonicalClosureRequiresReplacementAndVendor(t *testing.T) {
+	const entry = ".agents/skills/yss-design-system/scripts/design-md.mjs"
+	raw := map[string]sourceFile{
+		".agents/skills/yss-design-system/SKILL.md": {data: []byte("# Design system\nnode " + entry + " drift\n")},
+		entry:                     {data: []byte(`import {parseDocument} from "../../../../scripts/vendor/yaml.mjs";`)},
+		"scripts/vendor/yaml.mjs": {data: []byte("export function parseDocument() {}")},
+		".template-spec/design/tokens/theme.json": {data: []byte("{}")},
+	}
+	build := func() (Requirement, error) {
+		return assetClosure(raw, Policy{}, nil, []string{"yss-design-system"}, []string{"yss-design-system"})
+	}
+	req, e := build()
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, want := range []string{entry, "scripts/vendor/yaml.mjs", ".template-spec/design/tokens/theme.json"} {
+		found := false
+		for _, p := range req.Paths {
+			if p == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("replacement closure omitted %s", want)
+		}
+	}
+	delete(raw, "scripts/vendor/yaml.mjs")
+	if _, e = build(); e == nil {
+		t.Fatal("missing vendor accepted")
+	}
+	raw["scripts/vendor/yaml.mjs"] = sourceFile{data: []byte("export function parseDocument() {}")}
+	delete(raw, entry)
+	raw["scripts/design-md"] = sourceFile{data: []byte("legacy shell")}
+	if _, e = build(); e == nil {
+		t.Fatal("old shell accepted instead of missing canonical replacement")
+	}
+}
+
+func TestDesignMdRenderedGuidanceUsesCanonicalCommand(t *testing.T) {
+	const command = "node .agents/skills/yss-design-system/scripts/design-md.mjs export dtcg --write-css"
+	data, e := renderSource("spec", ".agents/skills/yss-design-system/references/prototype-default-theme.md", []byte(command), true, []string{"yss-design-system"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !bytes.Contains(data, []byte(command)) {
+		t.Fatalf("canonical command changed: %s", data)
+	}
+}

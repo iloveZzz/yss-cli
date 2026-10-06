@@ -75,6 +75,9 @@ func isSemanticCommand(o options) bool {
 		return false
 	}
 	group, action := o.args[0], o.args[1]
+	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
+		return true
+	}
 	return action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff") || group == "project-ci" && (action == "check" || action == "verify") && o.values["scope"] != "native-go"
 }
 func semInputCode(code string) bool {
@@ -94,7 +97,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		command = "version"
 	}
 	if err == nil && (command == "" || o.values["help"] == "true" || command == "help") {
-		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover rollback migrate skills assets bundle\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n使用 yss capabilities 查看当前覆盖与待验收边界。")
+		fmt.Fprintln(stdout, "yss "+domain.Version+"\n用法: yss <命令> --root <项目目录> [--profile spec|design|backend|frontend] [--json]\n命令: init attach sync diff doctor update recover rollback migrate skills assets bundle\n治理: context lifecycle stage contract evidence handoff runtime project-ci\n日常只读: lifecycle route|verify-daily --task <Markdown> --implementation-root <Git根> --base <完整SHA>\n写入计划: --plan --out <新文件>；应用: --apply --plan-file <文件>\n使用 yss capabilities 查看当前覆盖与待验收边界。")
 		return 0
 	}
 	profile := o.values["profile"]
@@ -543,6 +546,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		if report, ok := r.(*governance.SemanticReport); ok && report.Profile != "" {
 			profile = report.Profile
 		}
+		if report, ok := r.(*governance.DailyReport); ok && report.Profile != "" {
+			profile = report.Profile
+		}
 		return r, profile, err
 	}
 	id, err := project.Detect(root, profile, false)
@@ -559,7 +565,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	return r, profile, err
 }
 func capabilities() map[string]any {
-	return map[string]any{"stableReady": false, "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": "1.0.0-alpha.3", "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "pending": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-six-platform-runtime-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"stableReady": false, "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": "1.0.0-alpha.3", "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "pending": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-six-platform-runtime-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist
