@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
@@ -25,17 +27,23 @@ func root(t *testing.T) string {
 	return p
 }
 func fixture(t *testing.T, files map[string][]byte, platform string) (string, string) {
+	return fixtureManifest(t, files, platform, nil)
+}
+func fixtureManifest(t *testing.T, files map[string][]byte, platform string, customize func(*Manifest)) (string, string) {
 	t.Helper()
 	if files == nil {
 		files = map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": []byte(`{}`), "docs/compatibility.md": []byte("alpha")}
 	}
-	m := Manifest{1, domain.Version, 1, platform, false, "working-tree", false, "pending", map[string]domain.Descriptor{}}
+	m := Manifest{SchemaVersion: 1, CLIVersion: domain.Version, ProtocolVersion: 1, Platform: platform, SourceState: "working-tree", RuntimeVerification: "pending", Files: map[string]domain.Descriptor{}}
 	for ref, b := range files {
 		mode := uint32(0644)
 		if ref == fileName() {
 			mode = 0755
 		}
 		m.Files[ref] = domain.Descriptor{Type: "file", Digest: safefs.Digest(b), Mode: mode}
+	}
+	if customize != nil {
+		customize(&m)
 	}
 	data, _ := json.Marshal(m)
 	files["release-manifest.json"] = data
@@ -170,7 +178,7 @@ func TestProgramDocumentsCanExtendValidatedAlphaBaselineWithoutOverwriting(t *te
 					t.Fatal(e)
 				}
 			}
-			files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": []byte(`{}`), "docs/compatibility.md": []byte("alpha"), "docs/porting-status.md": []byte("explicit alpha limits"), "compat/README.md": []byte("compat alpha limits")}
+			files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": []byte(`{}`), "docs/compatibility.md": []byte("alpha"), "docs/porting-status.md": []byte("explicit alpha limits"), "docs/cli-retirement.md": []byte("retirement recovery"), "compat/README.md": []byte("compat alpha limits")}
 			next, nextSHA := fixture(t, files, runtime.GOOS+"/"+runtime.GOARCH)
 			p, e = Build(tool, next, nextSHA)
 			if custom {
@@ -203,6 +211,81 @@ func TestProgramDocumentsCanExtendValidatedAlphaBaselineWithoutOverwriting(t *te
 			}
 			if _, e = Build(tool, legacy, sha); e == nil {
 				t.Fatal("old package silently removed managed docs")
+			}
+			if _, e = Rollback(context.Background(), tool); e != nil {
+				t.Fatal(e)
+			}
+			for _, ref := range []string{"docs/porting-status.md", "docs/cli-retirement.md", "compat/README.md"} {
+				if _, e = os.Stat(filepath.Join(tool, ref)); !os.IsNotExist(e) {
+					t.Fatalf("rollback retained newly installed document: %s", ref)
+				}
+			}
+		})
+	}
+}
+
+func TestProgramPackageProvenanceMustBeCompleteAndMatchSourceLock(t *testing.T) {
+	for _, name := range []string{"valid", "partial", "stripped-provenance", "binary-digest", "cli-commit", "profile-set", "template-commit", "policy-digest", "producer", "source-lock", "unknown-doc"} {
+		t.Run(name, func(t *testing.T) {
+			lockBytes, e := os.ReadFile("../../docs/source-lock.json")
+			if e != nil {
+				t.Fatal(e)
+			}
+			files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": lockBytes, "docs/compatibility.md": []byte("alpha"), "docs/cli-retirement.md": []byte("retirement recovery")}
+			if name == "source-lock" {
+				files["docs/source-lock.json"] = []byte(`{}`)
+			}
+			if name == "unknown-doc" {
+				files["docs/unregistered.md"] = []byte("unknown")
+			}
+			file, sha := fixtureManifest(t, files, runtime.GOOS+"/"+runtime.GOARCH, func(m *Manifest) {
+				m.SourceState = "committed"
+				m.CLICommit = strings.Repeat("a", 40)
+				m.BinarySHA256 = m.Files[fileName()].Digest
+				m.Bundles = map[string]*bundle.Inspection{}
+				for _, p := range []string{"spec", "design", "backend", "frontend"} {
+					m.Bundles[p], e = bundle.Inspect(p)
+					if e != nil {
+						t.Fatal(e)
+					}
+				}
+				switch name {
+				case "stripped-provenance":
+					m.CLICommit = ""
+					m.BinarySHA256 = ""
+					m.Bundles = nil
+				case "partial":
+					m.Bundles = nil
+				case "binary-digest":
+					m.BinarySHA256 = strings.Repeat("b", 64)
+				case "cli-commit":
+					m.CLICommit = "short"
+				case "profile-set":
+					delete(m.Bundles, "design")
+				case "template-commit":
+					m.Bundles["spec"].TemplateCommit = strings.Repeat("b", 40)
+				case "policy-digest":
+					m.Bundles["backend"].SourcePolicy.Digest = strings.Repeat("c", 64)
+				case "producer":
+					m.Bundles["frontend"].Producer.Commit = strings.Repeat("d", 40)
+				}
+			})
+			tool := filepath.Join(root(t), "tools")
+			p, e := Build(tool, file, sha)
+			if name != "valid" {
+				if e == nil {
+					t.Fatal("inconsistent package accepted")
+				}
+			} else {
+				if e != nil {
+					t.Fatal(e)
+				}
+				if _, e = Apply(context.Background(), p); e != nil {
+					t.Fatal(e)
+				}
+				if _, e = Rollback(context.Background(), tool); e != nil {
+					t.Fatal(e)
+				}
 			}
 		})
 	}
