@@ -1,6 +1,6 @@
 # 四旧 CLI 退役合同
 
-目标入口为 `yss 1.0.0`，当前实现版本仍为 `1.0.0-alpha.4`。按验证推进 Spec → Design → Backend → Frontend，真实项目仅使用隔离副本，原地迁移另行安排。
+统一入口版本为 `yss 1.0.0`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。按验证推进 Spec → Design → Backend → Frontend，真实项目仅使用隔离副本，原地迁移另行安排。
 
 `tools/bundle` 独立读取模板根及三个 Agent 模板源的固定 Git 对象，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定来源提交和策略摘要；公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 
@@ -18,6 +18,10 @@ Bundle 与 native metadata schema v2 分开记录模板及统一 CLI 身份。`w
 
 算法、原生无解释器、真实旧恢复矩阵分别记录。正式旧恢复矩阵覆盖四 Profile 各 12 项，绑定二进制、固定旧包和日志摘要。合成 fixture、偶然 `INPUT_DRIFT`、交叉编译和 workflow 配置均不能替代真实目标通过。
 
-稳定发行前完成六个平台的原生运行、权限、取消、恢复，以及固定提交上的不可裁剪模板和 CLI 集成门禁；要求实际 exit 0、`input_drift=false`、必需项无未执行。移除旧 gitlink 后还须在干净 checkout 完成生产、构建、插件、分发及发布验证。
+1.0.0 稳定发行范围为本机 darwin/arm64；发行前完成该平台的原生运行、权限、取消、恢复，以及固定提交上本次受影响的 CLI、插件、安装与来源契约检查；要求实际 exit 0、`input_drift=false`、必需项无未执行。移除旧 gitlink 后的生产、构建、插件、分发证据按当前输入及明确范围记录；未执行的全模板回归不计为通过。
 
 不执行 npm unpublish。本地从未公开发布的固定恢复版本必须另存可获取渠道，不能声称它已在 npm。保留上一版二进制、Bundle、来源锁、插件、旧 gitlink SHA 和恢复材料；不使用 reset/clean 覆盖工作。提交、推送、tag、稳定发布、npm deprecated、旧仓 archive 分别需要授权。
+
+用户已将 1.0 平台验收限定为本机；其他平台 CI 及产物齐备不阻断本次发布。工具的 requiredPlatforms 必须与独立 caller 固定范围一致，禁止通过输入自行删减已选平台。
+
+本轮用户已授权跳过可复用重复检查和无关全仓流程。发行资格范围为 local-platform-impacted-consumers：本机原生接口、插件与恢复、固定源码及 Bundle 来源、实际安装契约。全模板和其他平台验证不属于本次 1.0 放行依据，报告保持裁剪记录。

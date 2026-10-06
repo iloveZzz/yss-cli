@@ -472,3 +472,27 @@ func TestRuntimeExistingOwnerDoesNotAuthorizeDatabaseInitializationOrRepair(t *t
 		})
 	}
 }
+
+func TestRuntimeStoreNativePathWithReservedURIFilename(t *testing.T) {
+	root := runtimeQueryTemp(t)
+	home := filepath.Join(runtimeQueryTemp(t), "运行空间 #%")
+	if err := os.Mkdir(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	v, err := runtimeRun(context.Background(), "begin", root, map[string]string{"home": home, "kind": "native-uri-regression"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := v.(map[string]any)
+	id := row["id"].(string)
+	before := runtimeQuerySnapshot(t, home)
+	if _, err = runtimeRun(context.Background(), "run", root, map[string]string{"home": home, "id": id}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, runtimeQuerySnapshot(t, home)) {
+		t.Fatal("read-only URI query wrote store")
+	}
+	if _, err = runtimeRun(context.Background(), "complete", root, map[string]string{"home": home, "id": id, "token": row["token"].(string), "status": "passed", "exit-code": "0"}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -226,7 +226,11 @@ func openRuntimeMode(ctx context.Context, dir string, readOnly, existingOnly boo
 			return nil, domain.Fail("UNPORTED", "WAL 运行存储读写尚未迁移；拒绝重配数据库或更改 SQLite sidecar")
 		}
 	}
-	u := url.URL{Scheme: "file", Path: file}
+	uriPath := filepath.ToSlash(file)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
 	q.Set("mode", mode)
 	u.RawQuery = q.Encode()

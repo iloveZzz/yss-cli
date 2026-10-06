@@ -3,11 +3,11 @@ package transaction_test
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -19,6 +19,16 @@ func TestProducerTemporaryCrashHelper(t *testing.T) {
 	if root == "" {
 		return
 	}
+	defer transaction.SetTemporaryWriterForTest(func(f *os.File, b []byte) (int, error) {
+		n, err := f.Write(b)
+		if err == nil && strings.HasSuffix(f.Name(), "-apply.tmp") {
+			if n != len(b) {
+				return n, io.ErrShortWrite
+			}
+			err = retainProducerWrite(f)
+		}
+		return n, err
+	})()
 	data := bytes.Repeat([]byte("actual native producer data\n"), 160000)
 	ops := []transaction.Operation{}
 	for i := 0; i < 150; i++ {
@@ -32,59 +42,27 @@ func producerPreChmodCrash(t *testing.T) (string, string) {
 	t.Helper()
 	data := bytes.Repeat([]byte("actual native producer data\n"), 160000)
 	expected := safefs.Digest(data)
-	for attempt := 0; attempt < 40; attempt++ {
-		root := testRoot(t)
-		if err := os.WriteFile(filepath.Join(root, "business.bin"), []byte{0, 255, 13, 10}, 0751); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Mkdir(filepath.Join(root, ".git"), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, ".git/index"), []byte("untouched index"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		child := exec.Command(os.Args[0], "-test.run=^TestProducerTemporaryCrashHelper$")
-		child.Env = append(os.Environ(), "YSS_PRODUCER_TEMP_CRASH_ROOT="+root)
-		var output bytes.Buffer
-		child.Stdout, child.Stderr = &output, &output
-		if err := child.Start(); err != nil {
-			t.Fatal(err)
-		}
-		seen := ""
-		deadline := time.Now().Add(60 * time.Second)
-		for time.Now().Before(deadline) {
-			refs, _ := filepath.Glob(filepath.Join(root, "payload/*.yss-txn-*-apply.tmp"))
-			for _, ref := range refs {
-				info, err := os.Stat(ref)
-				if err == nil && domain.FileMode(uint32(info.Mode().Perm())) == domain.FileMode(0600) {
-					seen = ref
-					break
-				}
-			}
-			if seen != "" {
-				break
-			}
-			time.Sleep(10 * time.Microsecond)
-		}
-		_ = child.Process.Kill()
-		err := child.Wait()
-		if err == nil {
-			t.Fatalf("producer finished before SIGKILL: %s", output.String())
-		}
-		if seen == "" {
-			t.Fatalf("no real producer temporary observed: %s", output.String())
-		}
-		refs, _ := filepath.Glob(filepath.Join(root, "payload/*.yss-txn-*-apply.tmp"))
-		for _, ref := range refs {
-			b, err := os.ReadFile(ref)
-			info, e := os.Stat(ref)
-			if err == nil && e == nil && safefs.Digest(b) == expected && domain.FileMode(uint32(info.Mode().Perm())) == domain.FileMode(0600) {
-				return root, ref
-			}
-		}
+	root := testRoot(t)
+	if err := os.WriteFile(filepath.Join(root, "business.bin"), []byte{0, 255, 13, 10}, 0751); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("SIGKILL did not retain the actual full-byte pre-Chmod producer window")
-	return "", ""
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git/index"), []byte("untouched index"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ref := killObservedProducer(t, root, "TestProducerTemporaryCrashHelper", "YSS_PRODUCER_TEMP_CRASH_ROOT", func(ref string) {
+		if !strings.HasSuffix(ref, "-apply.tmp") || filepath.Dir(ref) != filepath.Join(root, "payload") {
+			t.Fatalf("not an actual apply temporary: %s", ref)
+		}
+		b, err := os.ReadFile(ref)
+		info, e := os.Lstat(ref)
+		if err != nil || e != nil || !info.Mode().IsRegular() || len(b) != len(data) || safefs.Digest(b) != expected || domain.FileMode(uint32(info.Mode().Perm())) != domain.FileMode(0600) {
+			t.Fatalf("real full-byte pre-Chmod producer evidence differs: read=%v stat=%v", err, e)
+		}
+	})
+	return root, ref
 }
 func TestKilledProducerPreChmodTemporaryRecovers(t *testing.T) {
 	root, _ := producerPreChmodCrash(t)

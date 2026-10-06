@@ -37,6 +37,11 @@ type Manifest struct {
 	CLICommit           string                        `json:"cliCommit,omitempty"`
 	Bundles             map[string]*bundle.Inspection `json:"bundles,omitempty"`
 	BinarySHA256        string                        `json:"binarySha256,omitempty"`
+	SourceLockSHA256    string                        `json:"sourceLockSha256,omitempty"`
+	RequiredPlatforms   []string                      `json:"requiredPlatforms,omitempty"`
+	SupportedPlatforms  []string                      `json:"supportedPlatforms,omitempty"`
+	NativeReceiptSHA256 string                        `json:"nativeReceiptSha256,omitempty"`
+	ReleaseGateSHA256   string                        `json:"releaseGateSha256,omitempty"`
 	StableReady         bool                          `json:"stableReady"`
 	RuntimeVerification string                        `json:"runtimeVerification"`
 	Files               map[string]domain.Descriptor  `json:"files"`
@@ -92,6 +97,51 @@ func expectedFiles() map[string]bool {
 
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// Stable proof hashes bind the assembler's externally retained evidence. They
+// do not authorize publication, and those external reports are not in a pack.
+func validateStableProof(m Manifest, sourceLock, manifest []byte) error {
+	var fields map[string]json.RawMessage
+	if e := json.Unmarshal(manifest, &fields); e != nil {
+		return e
+	}
+	present := m.StableReady
+	for _, key := range []string{"sourceLockSha256", "requiredPlatforms", "supportedPlatforms", "nativeReceiptSha256", "releaseGateSha256"} {
+		_, ok := fields[key]
+		present = present || ok
+	}
+	if !present {
+		return nil // Pinned early alpha archives omit this entire group.
+	}
+	if !digestPattern.MatchString(m.SourceLockSHA256) || m.SourceLockSHA256 != safefs.Digest(sourceLock) || m.SourceLockSHA256 != m.Files["docs/source-lock.json"].Digest || !digestPattern.MatchString(m.NativeReceiptSHA256) || !digestPattern.MatchString(m.ReleaseGateSHA256) {
+		return fail("ARTIFACT", "稳定发行证明摘要不完整或来源锁不匹配")
+	}
+	if !commitPattern.MatchString(m.CLICommit) || m.Bundles == nil || !digestPattern.MatchString(m.BinarySHA256) {
+		return fail("ARTIFACT", "稳定发行证明缺少完整程序来源")
+	}
+	known := map[string]bool{"darwin/amd64": true, "darwin/arm64": true, "linux/amd64": true, "linux/arm64": true, "windows/amd64": true, "windows/arm64": true}
+	sets := []map[string]bool{{}, {}}
+	for index, values := range [][]string{m.RequiredPlatforms, m.SupportedPlatforms} {
+		if len(values) == 0 {
+			return fail("ARTIFACT", "稳定发行平台范围缺失")
+		}
+		for _, value := range values {
+			if !known[value] || sets[index][value] {
+				return fail("ARTIFACT", "稳定发行平台范围含未知或重复项")
+			}
+			sets[index][value] = true
+		}
+	}
+	if len(sets[1]) != len(known) || !sets[0][m.Platform] {
+		return fail("ARTIFACT", "稳定发行支持清单不完整或目标不在必要平台范围")
+	}
+	for value := range sets[0] {
+		if !sets[1][value] {
+			return fail("ARTIFACT", "稳定发行必要平台未受支持")
+		}
+	}
+	return nil
+}
 
 // Early pinned alpha archives omit provenance. New archives carry the complete
 // group, bound to their binary descriptor and their included source lock.
@@ -267,6 +317,9 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 		return nil, m, fail("ARTIFACT", "原生程序必须标记为可执行文件")
 	}
 	if e = validateProvenance(m, files["docs/source-lock.json"]); e != nil {
+		return nil, m, e
+	}
+	if e = validateStableProof(m, files["docs/source-lock.json"], files["release-manifest.json"]); e != nil {
 		return nil, m, e
 	}
 	return files, m, nil
