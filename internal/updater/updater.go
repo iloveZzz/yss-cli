@@ -398,18 +398,18 @@ func Build(toolRoot, archivePath, sha string) (*Plan, error) {
 			want.Mode = domain.FileMode(want.Mode)
 			got, ok := p.Inputs[ref]
 			if !ok || got != want {
-				return nil, fail("CONFLICT", "现有程序文件发生用户修改: "+ref)
+				return nil, installationConflict(root, fail("CONFLICT", "受管程序文件与安装清单不一致: "+ref))
 			}
 		}
 		for ref := range m.Files {
 			if _, owned := old.Files[ref]; !owned && p.Inputs[ref].Type != "missing" {
-				return nil, fail("CONFLICT", "新增程序文件拒绝覆盖用户内容: "+ref)
+				return nil, installationConflict(root, fail("CONFLICT", "新增程序文件拒绝覆盖已有内容: "+ref))
 			}
 		}
 	} else {
 		for ref, d := range p.Inputs {
 			if d.Type != "missing" {
-				return nil, fail("CONFLICT", "首次安装拒绝覆盖已有文件: "+ref)
+				return nil, installationConflict(root, fail("CONFLICT", "首次安装拒绝覆盖已有文件: "+ref))
 			}
 		}
 	}
@@ -540,6 +540,9 @@ func Status(root string) (any, error) {
 	}
 	b, e := os.ReadFile(path)
 	if os.IsNotExist(e) {
+		_, diagnostic, _ := inspectInstallation(root, false, nil)
+		out["diagnostic"] = diagnostic
+		out["installationConsistent"] = diagnostic.Consistent
 		return out, nil
 	}
 	if e != nil {
@@ -557,5 +560,8 @@ func Status(root string) (any, error) {
 	}
 	out["installed"] = true
 	out["installation"] = r
+	_, diagnostic, _ := inspectInstallation(root, false, nil)
+	out["diagnostic"] = diagnostic
+	out["installationConsistent"] = diagnostic.Consistent
 	return out, nil
 }

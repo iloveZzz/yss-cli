@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
@@ -307,8 +307,15 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 		if err != nil {
 			return result, err
 		}
-		installed, err = inspectProgram(result.ToolRoot, !request.Check)
+		installed, _, err = inspectInstallation(result.ToolRoot, !request.Check, c.Executable)
 		if err != nil {
+			if automatic {
+				var diagnosticError *installationError
+				var conflict *domain.Error
+				if errors.As(err, &diagnosticError) && errors.As(err, &conflict) && conflict.Code == "CONFLICT" && diagnosticError.diagnostic.RecordedVersion == "" && diagnosticError.diagnostic.Status == "inconsistent" {
+					diagnosticError.cause = fail("INSTALLATION", "实际运行目录缺少有效安装收据；请选择新的工具目录安装")
+				}
+			}
 			return result, err
 		}
 		if installed == nil {
@@ -318,9 +325,6 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 			result.CurrentVersion = ""
 		} else {
 			result.CurrentVersion = installed.receipt.CLIVersion
-			if automatic && (result.CurrentVersion != domain.Version || domain.BuildSourceState == "committed" && installed.manifest.CLICommit != domain.BuildCommit) {
-				return result, fail("INSTALLATION", "安装身份与实际运行 CLI 不一致；请先检查 yss update status --tool-root <目录>")
-			}
 		}
 	}
 	release, err := c.resolve(ctx, request.To)
@@ -419,90 +423,4 @@ func (c UpgradeClient) download(ctx context.Context, release onlineRelease, path
 type installedProgram struct {
 	receipt  receipt
 	manifest Manifest
-}
-
-// Inspect before networking so interrupted transactions and user modifications
-// cannot be mistaken for an up-to-date installation. Apply checks again under
-// the existing transaction guards after the download.
-func inspectProgram(root string, requireSettled bool) (*installedProgram, error) {
-	txn, err := transaction.Status(root)
-	if err != nil {
-		return nil, err
-	}
-	if requireSettled && (len(txn.Pending) > 0 || len(txn.Preparations) > 0) {
-		return nil, fail("STATE", fmt.Sprintf("工具目录有未完成事务；先运行 yss update recover --tool-root %q", root))
-	}
-	receiptPath, err := safefs.Path(root, receiptRef)
-	if err != nil {
-		return nil, err
-	}
-	b, err := os.ReadFile(receiptPath)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var installed installedProgram
-	if err = parseJSON(b, &installed.receipt); err != nil {
-		return nil, err
-	}
-	r := installed.receipt
-	if r.SchemaVersion != 1 || r.ProtocolVersion != domain.ProtocolVersion || r.Platform != runtime.GOOS+"/"+runtime.GOARCH || !digestPattern.MatchString(r.ArchiveDigest) || r.SourceState != "committed" && r.SourceState != "working-tree" || r.StableReady && r.SourceState != "committed" {
-		return nil, fail("ARTIFACT", "未知程序安装合同")
-	}
-	if _, err = versionParts(r.CLIVersion); err != nil {
-		return nil, err
-	}
-	path, err := safefs.Path(root, "release-manifest.json")
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > 8<<20 {
-		return nil, fail("ARTIFACT", "安装 manifest 非普通文件或超过 8 MiB")
-	}
-	b, err = os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if err = parseJSON(b, &installed.manifest); err != nil {
-		return nil, err
-	}
-	m := installed.manifest
-	if m.SchemaVersion != 1 || m.CLIVersion != r.CLIVersion || m.Platform != r.Platform || m.ProtocolVersion != r.ProtocolVersion || m.SourceState != r.SourceState || m.StableReady != r.StableReady || m.CGO || m.StableReady && m.RuntimeVerification != "passed" {
-		return nil, fail("ARTIFACT", "安装收据与 manifest 身份不一致")
-	}
-	for _, ref := range []string{fileName(), "README.md", "docs/source-lock.json", "docs/compatibility.md"} {
-		if _, ok := m.Files[ref]; !ok {
-			return nil, fail("ARTIFACT", "安装 manifest 缺少核心文件: "+ref)
-		}
-	}
-	for ref, want := range m.Files {
-		if !expectedFiles()[ref] || ref == "release-manifest.json" || want.Type != "file" || !digestPattern.MatchString(want.Digest) || want.Mode != 0644 && want.Mode != 0755 || ref == fileName() && want.Mode != 0755 {
-			return nil, fail("ARTIFACT", "安装 manifest 描述不合法: "+ref)
-		}
-		want.Mode = domain.FileMode(want.Mode)
-		got, err := safefs.Describe(root, ref)
-		if err != nil {
-			return nil, err
-		}
-		if got != want {
-			return nil, fail("CONFLICT", "现有程序文件发生用户修改: "+ref)
-		}
-	}
-	lock, err := os.ReadFile(filepath.Join(root, "docs/source-lock.json"))
-	if err != nil {
-		return nil, err
-	}
-	if err = validateProvenance(m, lock); err != nil {
-		return nil, err
-	}
-	if err = validateStableProof(m, lock, b); err != nil {
-		return nil, err
-	}
-	return &installed, nil
 }

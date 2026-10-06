@@ -33,17 +33,27 @@ func parse(args []string) (options, error) {
 			o.json = true
 		}
 	}
-	boolean := map[string]bool{"json": true, "plan": true, "apply": true, "help": true, "version": true, "check": true, "include-example-docs": true, "force": true, "history": true, "require-approved": true, "continuation": true, "recover": true, "full": true}
+	boolean := booleanOptions()
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "-h" {
 			a = "--help"
+		}
+		if a == "-V" {
+			a = "--version"
+		}
+		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") {
+			return o, argumentError("未知短参数: " + a)
 		}
 		if !strings.HasPrefix(a, "--") {
 			o.args = append(o.args, a)
 			continue
 		}
 		a = strings.TrimPrefix(a, "--")
+		key, _, _ := strings.Cut(a, "=")
+		if _, known := argumentSpecs[key]; !known {
+			return o, unknownOption(key, optionNames())
+		}
 		if key, value, ok := strings.Cut(a, "="); ok {
 			if _, exists := o.values[key]; exists {
 				o.duplicates = append(o.duplicates, key)
@@ -61,8 +71,8 @@ func parse(args []string) (options, error) {
 			o.values[a] = "true"
 			continue
 		}
-		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") || args[i+1] == "-h" {
-			return o, domain.Fail("ARGUMENT", "参数缺少值: --"+a)
+		if i+1 == len(args) || strings.HasPrefix(args[i+1], "--") || (args[i+1] == "-h" || args[i+1] == "-V") {
+			return o, argumentError("参数缺少值: --" + a + " " + argumentSpecs[a].placeholder)
 		}
 		i++
 		o.values[a] = args[i]
@@ -96,14 +106,6 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(o.args) > 0 {
 		command = o.args[0]
 	}
-	if command == "upgrade" && err != nil {
-		var argumentError *domain.Error
-		if errors.As(err, &argumentError) && argumentError.Code == "ARGUMENT" {
-			copy := *argumentError
-			copy.Exit = 2
-			err = &copy
-		}
-	}
 	if o.values["version"] == "true" {
 		command = "version"
 	}
@@ -115,6 +117,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 	}
+	if err == nil {
+		err = validateArguments(command, o)
+	}
+	inputError := err != nil
+	delete(o.values, "help")
+	delete(o.values, "version")
 	profile := o.values["profile"]
 	if err == nil {
 		var result any
@@ -152,13 +160,24 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var reported interface{ ErrorResult() any }
 	if errors.As(err, &reported) {
 		result = reported.ErrorResult()
-	} else if isSemanticCommand(o) {
+	} else if isSemanticCommand(o) && !inputError {
 		result = governance.InputFailureReport(ctx, o.values["root"], command, err)
+	}
+	if code == "ARGUMENT" {
+		exit = 2
+		message := err.Error()
+		if !strings.Contains(message, "--help") {
+			message += "；查看 " + helpCommand(o.args)
+		}
+		if inputError || !isSemanticCommand(o) {
+			result = map[string]any{"message": message}
+		}
+		err = errors.New(message)
 	}
 	if o.json {
 		_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "error", Code: code, Result: result})
 	} else {
-		if isSemanticCommand(o) {
+		if isSemanticCommand(o) && !inputError {
 			b, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Fprintln(stdout, string(b))
 		}
@@ -394,15 +413,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		return r, profile, err
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
-		allowed := map[string]bool{}
-		for _, k := range []string{"root", "target-dir", "profile", "json", "help", "version", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file", "binding-file", "full", "issue-tracker"} {
-			allowed[k] = true
-		}
-		for key := range o.values {
-			if !allowed[key] {
-				return nil, profile, domain.Fail("ARGUMENT", "此命令尚不支持参数: --"+key)
-			}
-		}
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 			if o.values["binding-file"] != "" || o.values["full"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
