@@ -70,3 +70,17 @@ func TestHelpProvidesNestedUsageTutorialAndRejectsUnknownCommands(t *testing.T) 
 		}
 	}
 }
+
+func TestDailyHelpDoesNotAdvertiseUnsupportedConsumerFlags(t *testing.T) {
+	for _, action := range []string{"route", "verify-daily"} {
+		var out, stderr bytes.Buffer
+		if code := Run(context.Background(), []string{"lifecycle", action, "--help"}, &out, &stderr); code != 0 {
+			t.Fatal(stderr.String())
+		}
+		for _, flag := range []string{"--home", "--run-dir", "--tool-root"} {
+			if strings.Contains(out.String(), flag) {
+				t.Fatalf("daily %s help advertises unsupported %s", action, flag)
+			}
+		}
+	}
+}

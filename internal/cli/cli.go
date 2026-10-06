@@ -96,6 +96,14 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(o.args) > 0 {
 		command = o.args[0]
 	}
+	if command == "upgrade" && err != nil {
+		var argumentError *domain.Error
+		if errors.As(err, &argumentError) && argumentError.Code == "ARGUMENT" {
+			copy := *argumentError
+			copy.Exit = 2
+			err = &copy
+		}
+	}
 	if o.values["version"] == "true" {
 		command = "version"
 	}
