@@ -631,6 +631,11 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if _, err := os.Lstat(file); os.IsNotExist(err) {
+		return false, nil // Let normal instance identity detection explain missing identity.
+	} else if err != nil {
+		return false, err
+	}
 	v, err := schema.LoadFile(file)
 	if err != nil {
 		return false, err
