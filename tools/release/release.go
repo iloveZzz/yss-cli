@@ -1,6 +1,8 @@
 // Package release assembles verified native artifacts without compiling or publishing.
 package release
 
+import "encoding/json"
+
 type FileRef struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
@@ -29,9 +31,11 @@ type Artifact struct {
 type Input struct {
 	SchemaVersion int `json:"schemaVersion"`
 	Identity
-	Documents   map[string]FileRef `json:"documents"`
-	Artifacts   []Artifact         `json:"artifacts"`
-	ReleaseGate FileRef            `json:"releaseGate"`
+	Documents          map[string]FileRef `json:"documents"`
+	RequiredPlatforms  []string           `json:"requiredPlatforms"`
+	QualificationScope string             `json:"qualificationScope"`
+	Artifacts          []Artifact         `json:"artifacts"`
+	ReleaseGate        FileRef            `json:"releaseGate"`
 }
 type Check struct {
 	Command    []string `json:"command,omitempty"`
@@ -47,12 +51,13 @@ type Check struct {
 	Stderr     FileRef  `json:"stderr"`
 }
 type Receipt struct {
-	GitHubRunID      string  `json:"githubRunId,omitempty"`
-	GitHubRunAttempt string  `json:"githubRunAttempt,omitempty"`
-	VersionCommand   *Check  `json:"versionCommand,omitempty"`
-	BundleCommands   []Check `json:"bundleCommands,omitempty"`
-	Error            string  `json:"error,omitempty"`
-	SchemaVersion    int     `json:"schemaVersion"`
+	GitHubRunID        string  `json:"githubRunId,omitempty"`
+	GitHubRunAttempt   string  `json:"githubRunAttempt,omitempty"`
+	VersionCommand     *Check  `json:"versionCommand,omitempty"`
+	BundleCommands     []Check `json:"bundleCommands,omitempty"`
+	Error              string  `json:"error,omitempty"`
+	SchemaVersion      int     `json:"schemaVersion"`
+	QualificationScope string  `json:"qualificationScope,omitempty"`
 	Identity
 	Platform            string   `json:"platform,omitempty"`
 	RuntimePlatform     string   `json:"runtimePlatform,omitempty"`
@@ -71,8 +76,49 @@ type Receipt struct {
 // Expected binds the assembler to its caller's frozen source, not the input's claims.
 type Expected struct {
 	Identity
-	Documents      map[string][]byte
-	RepositoryRoot string
+	Documents               map[string][]byte
+	RepositoryRoot          string
+	RequiredPlatforms       []string
+	QualificationScope      string
+	TemplateRoot            string
+	VerificationInputSHA256 string
+	VerificationPlan        map[string]any
+	VerificationInvocation  map[string]any
+}
+
+// GateBasis is supplied independently by the release caller. It is never
+// derived from a verification report or from the artifact manifest's claims.
+type GateBasis struct {
+	SchemaVersion int `json:"schemaVersion"`
+	Identity
+	RequiredPlatforms       []string       `json:"requiredPlatforms"`
+	TemplateRoot            string         `json:"templateRoot"`
+	VerificationInputSHA256 string         `json:"verificationInputSha256"`
+	VerificationPlan        map[string]any `json:"verificationPlan"`
+	VerificationInvocation  map[string]any `json:"verificationInvocation"`
+}
+
+type SourceReport struct {
+	Kind          string  `json:"kind"`
+	SchemaVersion int     `json:"schemaVersion"`
+	Report        FileRef `json:"report"`
+}
+type GateExecution struct {
+	SchemaVersion      int    `json:"schemaVersion"`
+	Kind               string `json:"kind"`
+	GateID             string `json:"gateId"`
+	QualificationScope string `json:"qualificationScope"`
+	Identity
+	Platform      string          `json:"platform"`
+	BinarySHA256  string          `json:"binarySha256"`
+	Status        string          `json:"status"`
+	ExitCode      *int            `json:"exitCode"`
+	Signal        json.RawMessage `json:"signal"`
+	Error         json.RawMessage `json:"error"`
+	InputDrift    *bool           `json:"inputDrift"`
+	Unexecuted    []string        `json:"unexecuted"`
+	Coverage      []string        `json:"coverage"`
+	SourceReports []SourceReport  `json:"sourceReports"`
 }
 type Error struct {
 	Code   string

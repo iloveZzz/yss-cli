@@ -26,7 +26,6 @@ import (
 var Platforms = []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64"}
 var Documents = []string{"docs/source-lock.json", "docs/compatibility.md", "docs/porting-status.md", "docs/native-governance.md", "docs/cli-retirement.md", "compat/README.md", "README.md"}
 var nativeChecks = []string{"native-smoke", "native-recovery", "plugin-native-smoke"}
-var releaseChecks = []string{"full-template-integration", "cli-integration", "legacy-recovery", "real-project-isolation"}
 var shaPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var stableVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -54,8 +53,13 @@ type guard struct {
 	size int64
 }
 type reader struct {
-	root   string
-	guards map[string]guard
+	root        string
+	guards      map[string]guard
+	identity    Identity
+	expected    Expected
+	binaries    map[string]string
+	inspections map[string]json.RawMessage
+	documents   map[string][]byte
 }
 
 func (r *reader) file(ref FileRef) ([]byte, error) {
@@ -158,11 +162,7 @@ func (r *reader) checks(rows []Check, required []string, platform, binaryHash st
 				return err
 			}
 		} else {
-			var obj map[string]any
-			if err = json.Unmarshal(raw, &obj); err != nil || obj == nil {
-				return reject("EVIDENCE", "invalid full-gate raw report %s", row.ID)
-			}
-			if err = rawExecution(obj); err != nil {
+			if err = r.gateReport(row.ID, raw); err != nil {
 				return err
 			}
 		}
@@ -170,38 +170,6 @@ func (r *reader) checks(rows []Check, required []string, platform, binaryHash st
 	return nil
 }
 
-func rawExecution(obj map[string]any) error {
-	observed := false
-	if value, ok := obj["status"]; ok {
-		observed = true
-		if value != "passed" && value != "ok" {
-			return reject("EVIDENCE", "raw gate did not pass")
-		}
-	}
-	for _, key := range []string{"exitCode", "exit_code"} {
-		if value, ok := obj[key]; ok {
-			observed = true
-			if value != float64(0) {
-				return reject("EVIDENCE", "raw gate exit was not zero")
-			}
-		}
-	}
-	for _, key := range []string{"inputDrift", "input_drift"} {
-		if value, ok := obj[key]; ok && value != false {
-			return reject("EVIDENCE", "raw gate input drift")
-		}
-	}
-	if value, ok := obj["unexecuted"]; ok {
-		items, valid := value.([]any)
-		if !valid || len(items) > 0 {
-			return reject("EVIDENCE", "raw gate has unexecuted items")
-		}
-	}
-	if !observed {
-		return reject("EVIDENCE", "raw gate lacks observed success")
-	}
-	return nil
-}
 func (r *reader) envelope(raw []byte, identity *Identity) error {
 	var env struct {
 		OutputVersion   int    `json:"outputVersion"`
@@ -340,77 +308,8 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 			}
 		}
 	case "plugin-native-smoke":
-		var report struct {
-			Schema   int    `json:"schemaVersion"`
-			Kind     string `json:"kind"`
-			Status   string `json:"status"`
-			Platform struct {
-				OS   string `json:"os"`
-				Arch string `json:"arch"`
-			} `json:"platform"`
-			Hash        string `json:"binary_sha256"`
-			AfterHash   string `json:"binary_after_sha256"`
-			Drift       *bool  `json:"input_drift"`
-			BinaryDrift *bool  `json:"binary_drift"`
-			Cases       []struct {
-				Profile string `json:"profile"`
-				Status  string `json:"status"`
-			} `json:"cases"`
-			Commands []struct {
-				Observed bool `json:"exit_observed"`
-				Exit     *int `json:"exit_code"`
-				Signal   any  `json:"signal"`
-				Error    any  `json:"error"`
-				Stdout   struct {
-					File   string `json:"file"`
-					SHA256 string `json:"sha256"`
-				} `json:"stdout"`
-				Stderr struct {
-					File   string `json:"file"`
-					SHA256 string `json:"sha256"`
-				} `json:"stderr"`
-			} `json:"commands"`
-		}
-		if err := json.Unmarshal(raw, &report); err != nil || report.Schema != 1 || report.Kind != "native-plugin-public-smoke" || report.Status != "passed" || report.Hash != binaryHash || report.AfterHash != binaryHash || report.Drift == nil || *report.Drift || report.BinaryDrift == nil || *report.BinaryDrift {
-			return reject("EVIDENCE", "invalid native plugin report")
-		}
-		osname := report.Platform.OS
-		if osname == "win32" {
-			osname = "windows"
-		}
-		arch := report.Platform.Arch
-		if arch == "x64" {
-			arch = "amd64"
-		}
-		if osname+"/"+arch != platform {
-			return reject("EVIDENCE", "plugin runner platform mismatch")
-		}
-		seen := map[string]bool{}
-		for _, row := range report.Cases {
-			if (row.Profile != "spec" && row.Profile != "design") || seen[row.Profile] || row.Status != "passed" {
-				return reject("EVIDENCE", "invalid plugin case")
-			}
-			seen[row.Profile] = true
-		}
-		if len(seen) != 2 || len(report.Commands) == 0 {
-			return reject("EVIDENCE", "incomplete native plugin acceptance")
-		}
-		for _, row := range report.Commands {
-			if !row.Observed || row.Exit == nil || *row.Exit != 0 || row.Signal != nil || row.Error != nil {
-				return reject("EVIDENCE", "failed plugin command")
-			}
-			for _, log := range []struct {
-				File   string `json:"file"`
-				SHA256 string `json:"sha256"`
-			}{row.Stdout, row.Stderr} {
-				if path.Base(log.File) != log.File || log.File == "." {
-					return reject("PATH", "invalid plugin log")
-				}
-				if _, err := r.file(FileRef{Path: path.Join(path.Dir(ref), log.File), SHA256: log.SHA256}); err != nil {
-					return err
-				}
-			}
-		}
+		return r.pluginReport(ref, raw, platform, binaryHash)
+
 	default:
 		return reject("EVIDENCE", "unknown native check")
 	}
@@ -520,6 +419,15 @@ func strippedExecutable(raw []byte, platform string) error {
 // before publishing the new directory. Receipt assertions are supplied by the
 // release verifier; this tool never creates runtime evidence or grants approval.
 func Assemble(manifestPath, out string, expected Expected) error {
+	return assemble(manifestPath, out, expected, false)
+}
+
+// AssembleCandidate validates native evidence without claiming release qualification.
+func AssembleCandidate(manifestPath, out string, expected Expected) error {
+	return assemble(manifestPath, out, expected, true)
+}
+
+func assemble(manifestPath, out string, expected Expected, candidate bool) error {
 	manifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return err
@@ -545,8 +453,19 @@ func Assemble(manifestPath, out string, expected Expected) error {
 	if err = decode(raw, &input); err != nil {
 		return err
 	}
-	if len(input.Artifacts) != 6 {
-		return reject("PLATFORMS", "six native artifacts required")
+	required, err := requiredPlatforms(input.RequiredPlatforms, expected.RequiredPlatforms)
+	if err != nil {
+		return err
+	}
+	releaseChecks, err := scopedChecks(expected.QualificationScope)
+	if err != nil {
+		return err
+	}
+	if input.QualificationScope != expected.QualificationScope {
+		return reject("EVIDENCE", "input qualification scope differs from independent caller")
+	}
+	if len(input.Artifacts) != len(required) {
+		return reject("PLATFORMS", "declared native artifact set is incomplete")
 	}
 	if input.SchemaVersion != 1 {
 		return reject("SCHEMA", "unsupported input schema")
@@ -554,6 +473,10 @@ func Assemble(manifestPath, out string, expected Expected) error {
 	if err = validIdentity(input.Identity, expected.Identity); err != nil {
 		return err
 	}
+	r.identity = input.Identity
+	r.expected = expected
+	r.binaries = map[string]string{}
+	r.inspections = map[string]json.RawMessage{}
 	platforms := map[string]Artifact{}
 	for _, a := range input.Artifacts {
 		known := false
@@ -567,6 +490,12 @@ func Assemble(manifestPath, out string, expected Expected) error {
 			return reject("PLATFORMS", "duplicate platform %s", a.Platform)
 		}
 		platforms[a.Platform] = a
+		r.binaries[a.Platform] = a.Binary.SHA256
+	}
+	for _, p := range required {
+		if _, ok := platforms[p]; !ok {
+			return reject("PLATFORMS", "missing declared platform %s", p)
+		}
 	}
 	if len(input.Documents) != len(Documents) || len(expected.Documents) != len(Documents) {
 		return reject("PROVENANCE", "fixed document set required")
@@ -599,28 +528,9 @@ func Assemble(manifestPath, out string, expected Expected) error {
 			return reject("PROVENANCE", "source-lock template mismatch %s", p)
 		}
 	}
-	raw, err = r.file(input.ReleaseGate)
-	if err != nil {
-		return err
-	}
-	var gate Receipt
-	if err = decode(raw, &gate); err != nil {
-		return err
-	}
-	if gate.SchemaVersion != 1 {
-		return reject("SCHEMA", "invalid release gate schema")
-	}
-	if err = validIdentity(gate.Identity, input.Identity); err != nil {
-		return err
-	}
-	if err = passed(gate.Status, gate.ExitCode, gate.InputDrift, gate.Unexecuted); err != nil {
-		return err
-	}
-	if err = r.checks(gate.Checks, releaseChecks, "", ""); err != nil {
-		return err
-	}
+	r.documents = docs
 	contents := map[string][]byte{}
-	for _, p := range Platforms {
+	for _, p := range required {
 		a := platforms[p]
 		bin, err := r.file(a.Binary)
 		if err != nil {
@@ -664,6 +574,31 @@ func Assemble(manifestPath, out string, expected Expected) error {
 		}
 		contents[p] = bin
 	}
+	if !candidate {
+		raw, err = r.file(input.ReleaseGate)
+		if err != nil {
+			return err
+		}
+		var gate Receipt
+		if err = decode(raw, &gate); err != nil {
+			return err
+		}
+		if gate.SchemaVersion != 1 || gate.QualificationScope != expected.QualificationScope {
+			return reject("SCHEMA", "invalid release gate schema")
+		}
+		if err = validIdentity(gate.Identity, input.Identity); err != nil {
+			return err
+		}
+		if gate.Error != "" {
+			return reject("EVIDENCE", "release receipt has an error")
+		}
+		if err = passed(gate.Status, gate.ExitCode, gate.InputDrift, gate.Unexecuted); err != nil {
+			return err
+		}
+		if err = r.checks(gate.Checks, releaseChecks, "", ""); err != nil {
+			return err
+		}
+	}
 	out, err = filepath.Abs(out)
 	if err != nil {
 		return err
@@ -695,7 +630,7 @@ func Assemble(manifestPath, out string, expected Expected) error {
 	}
 	defer os.RemoveAll(stage)
 	records := []map[string]any{}
-	for _, p := range Platforms {
+	for _, p := range required {
 		parts := strings.Split(p, "/")
 		name := "yss"
 		ext := ".tar.gz"
@@ -716,7 +651,15 @@ func Assemble(manifestPath, out string, expected Expected) error {
 			}
 			descriptors[ref] = map[string]any{"type": "file", "digest": digest(b), "mode": mode}
 		}
-		manifest := map[string]any{"schemaVersion": 1, "cliVersion": input.CLIVersion, "protocolVersion": input.ProtocolVersion, "cliCommit": input.CLICommit, "sourceState": "committed", "bundles": input.Bundles, "sourceLockSha256": input.SourceLockSHA256, "platform": p, "cgo": false, "binarySha256": digest(contents[p]), "stableReady": true, "runtimeVerification": "passed", "nativeReceiptSha256": platforms[p].Receipt.SHA256, "releaseGateSha256": input.ReleaseGate.SHA256, "files": descriptors}
+		manifest := map[string]any{"schemaVersion": 1, "cliVersion": input.CLIVersion, "protocolVersion": input.ProtocolVersion, "cliCommit": input.CLICommit, "sourceState": "committed", "bundles": r.inspections, "sourceLockSha256": input.SourceLockSHA256, "platform": p, "cgo": false, "binarySha256": digest(contents[p]), "requiredPlatforms": required, "supportedPlatforms": Platforms, "stableReady": !candidate, "runtimeVerification": "passed", "files": descriptors}
+		if candidate {
+			for _, key := range []string{"sourceLockSha256", "requiredPlatforms", "supportedPlatforms"} {
+				delete(manifest, key)
+			}
+		} else {
+			manifest["nativeReceiptSha256"] = platforms[p].Receipt.SHA256
+			manifest["releaseGateSha256"] = input.ReleaseGate.SHA256
+		}
 		b, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
 			return err
@@ -732,7 +675,11 @@ func Assemble(manifestPath, out string, expected Expected) error {
 		}
 		records = append(records, map[string]any{"platform": p, "archive": archive, "sha256": digest(b), "bytes": len(b), "compiled": false, "nativeRuntimeVerified": true, "binarySha256": digest(contents[p]), "nativeReceiptSha256": platforms[p].Receipt.SHA256})
 	}
-	proof := map[string]any{"schemaVersion": 2, "version": input.CLIVersion, "cliCommit": input.CLICommit, "sourceState": "committed", "bundles": input.Bundles, "sourceLockSha256": input.SourceLockSHA256, "stableReady": true, "pending": []string{}, "artifacts": records, "inputManifestSha256": r.guards[filepath.Base(manifestPath)].hash, "releaseGateSha256": input.ReleaseGate.SHA256}
+	proof := map[string]any{"schemaVersion": 2, "version": input.CLIVersion, "cliCommit": input.CLICommit, "sourceState": "committed", "bundles": input.Bundles, "sourceLockSha256": input.SourceLockSHA256, "requiredPlatforms": required, "supportedPlatforms": Platforms, "stableReady": !candidate, "qualificationScope": expected.QualificationScope, "pending": []string{}, "artifacts": records, "inputManifestSha256": r.guards[filepath.Base(manifestPath)].hash, "releaseGateSha256": input.ReleaseGate.SHA256}
+	if candidate {
+		proof["pending"] = releaseChecks
+		delete(proof, "releaseGateSha256")
+	}
 	b, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil {
 		return err
@@ -783,6 +730,9 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 		}
 		return nil
 	}
+	if receipt.VersionCommand == nil || len(receipt.BundleCommands) != 4 {
+		return reject("EVIDENCE", "actual version and four inspect commands are required")
+	}
 	if row := receipt.VersionCommand; row != nil {
 		if row.ID != "native-version" {
 			return reject("EVIDENCE", "wrong version command identity")
@@ -821,11 +771,27 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 				return err
 			}
 			var env struct {
-				Result BundleIdentity `json:"result"`
+				Result json.RawMessage `json:"result"`
 			}
-			if err = json.Unmarshal(raw, &env); err != nil || !reflect.DeepEqual(env.Result, want) {
+			var bound BundleIdentity
+			if err = json.Unmarshal(raw, &env); err != nil {
+				return reject("EVIDENCE", "invalid complete inspect result")
+			}
+			if err = json.Unmarshal(env.Result, &bound); err != nil || !reflect.DeepEqual(bound, want) {
 				return reject("PROVENANCE", "native inspect differs from fixed bundle")
 			}
+			if err = completeInspection(env.Result, profile); err != nil {
+				return err
+			}
+			if old := r.inspections[profile]; old != nil {
+				var a, b any
+				_ = json.Unmarshal(old, &a)
+				_ = json.Unmarshal(env.Result, &b)
+				if !reflect.DeepEqual(a, b) {
+					return reject("PROVENANCE", "native complete inspect results differ between artifacts")
+				}
+			}
+			r.inspections[profile] = env.Result
 			stdout, err := r.file(row.Stdout)
 			if err != nil {
 				return err
