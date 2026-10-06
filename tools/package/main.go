@@ -13,21 +13,24 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/tools/release"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 )
 
 func main() {
-	if len(os.Args) == 4 && os.Args[1] == "--native-manifest" {
-		must(packageNative(os.Args[2], os.Args[3]))
+	if len(os.Args) > 1 && (os.Args[1] == "--native-manifest" || os.Args[1] == "--native-candidate-manifest") {
+		must(nativeArguments(os.Args[2:], os.Args[1] == "--native-candidate-manifest"))
 		return
 	}
 	if len(os.Args) != 2 {
-		panic("用法: go run ./tools/package [--native-manifest <固定原生证据manifest.json>] <仓库外新目录>")
+		panic("用法: go run ./tools/package [--native-manifest <manifest.json> --gate-basis <basis.json> --required-platforms <os/arch,...>] <仓库外新目录>")
 	}
 	out, e := filepath.Abs(os.Args[1])
 	must(e)
@@ -111,12 +114,47 @@ func main() {
 		records = append(records, map[string]any{"platform": platform, "archive": filepath.Base(archive), "sha256": hex.EncodeToString(h[:]), "bytes": len(b), "compiled": true, "nativeRuntimeVerified": false})
 		fmt.Println(platform + ": " + archive)
 	}
-	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 2, "version": domain.Version, "cliCommit": commit, "sourceState": sourceState, "bundles": sources, "stableReady": false, "pending": []string{"fixed-source-full-template-integration", "six-platform-native-runtime-acceptance"}, "artifacts": records}, "", "  ")
+	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 2, "version": domain.Version, "cliCommit": commit, "sourceState": sourceState, "bundles": sources, "stableReady": false, "pending": []string{"declared-release-platform-native-runtime-acceptance", "scoped-release-qualification"}, "artifacts": records}, "", "  ")
 	must(e)
 	must(os.WriteFile(filepath.Join(out, "checksums.json"), append(b, '\n'), 0644))
 }
 
-func packageNative(input, out string) error {
+func nativeArguments(args []string, candidate bool) error {
+	if len(args) < 2 {
+		return &release.Error{Code: "SCHEMA", Detail: "native input and new output are required"}
+	}
+	input := args[0]
+	basis, out := "", ""
+	platformsSet := false
+	platforms := []string{runtime.GOOS + "/" + runtime.GOARCH}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--gate-basis":
+			if basis != "" || i+1 >= len(args) {
+				return &release.Error{Code: "SCHEMA", Detail: "invalid gate basis argument"}
+			}
+			i++
+			basis = args[i]
+		case "--required-platforms":
+			if platformsSet || i+1 >= len(args) {
+				return &release.Error{Code: "PLATFORMS", Detail: "missing independent platform scope"}
+			}
+			i++
+			platforms = strings.Split(args[i], ",")
+			platformsSet = true
+		default:
+			if out != "" || strings.HasPrefix(args[i], "--") {
+				return &release.Error{Code: "SCHEMA", Detail: "unknown stable assembly argument"}
+			}
+			out = args[i]
+		}
+	}
+	if out == "" {
+		return &release.Error{Code: "SCHEMA", Detail: "new output required"}
+	}
+	return packageNative(input, out, basis, platforms, candidate)
+}
+func packageNative(input, out, basisFile string, platforms []string, candidate bool) error {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
@@ -133,6 +171,8 @@ func packageNative(input, out string) error {
 		return &release.Error{Code: "PROVENANCE", Detail: "stable assembly requires a clean committed source checkout"}
 	}
 	expected := release.Expected{Identity: release.Identity{CLIVersion: domain.Version, ProtocolVersion: domain.ProtocolVersion, CLICommit: strings.TrimSpace(string(revision)), SourceState: "committed", Bundles: map[string]release.BundleIdentity{}}, Documents: map[string][]byte{}, RepositoryRoot: root}
+	expected.RequiredPlatforms = platforms
+	expected.QualificationScope = release.LocalQualificationScope
 	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
 		b, err := bundle.Inspect(profile)
 		if err != nil {
@@ -149,7 +189,40 @@ func packageNative(input, out string) error {
 	}
 	h := sha256.Sum256(expected.Documents["docs/source-lock.json"])
 	expected.SourceLockSHA256 = hex.EncodeToString(h[:])
-	if err = release.Assemble(input, out, expected); err != nil {
+	var basisBytes []byte
+	if basisFile != "" {
+		info, err := os.Lstat(basisFile)
+		if err != nil || !info.Mode().IsRegular() {
+			return &release.Error{Code: "PATH", Detail: "gate basis must be an ordinary file"}
+		}
+		basisBytes, err = os.ReadFile(basisFile)
+		if err != nil {
+			return err
+		}
+		var basis release.GateBasis
+		decoder := json.NewDecoder(bytes.NewReader(basisBytes))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&basis); err != nil {
+			return err
+		}
+		if err = decoder.Decode(new(any)); err != io.EOF {
+			return &release.Error{Code: "SCHEMA", Detail: "trailing gate basis JSON"}
+		}
+		if basis.SchemaVersion != 1 || !reflect.DeepEqual(basis.Identity, expected.Identity) || !reflect.DeepEqual(basis.RequiredPlatforms, platforms) {
+			return &release.Error{Code: "PROVENANCE", Detail: "independent gate basis identity or platform scope mismatch"}
+		}
+		expected.QualificationScope = release.FullQualificationScope
+		expected.TemplateRoot = basis.TemplateRoot
+		expected.VerificationInputSHA256 = basis.VerificationInputSHA256
+		expected.VerificationPlan = basis.VerificationPlan
+		expected.VerificationInvocation = basis.VerificationInvocation
+	}
+	if candidate {
+		err = release.AssembleCandidate(input, out, expected)
+	} else {
+		err = release.Assemble(input, out, expected)
+	}
+	if err != nil {
 		return err
 	}
 	current, err := exec.Command("git", "rev-parse", "HEAD").Output()
@@ -162,6 +235,13 @@ func packageNative(input, out string) error {
 	}
 	if !bytes.Equal(current, revision) || len(status) != 0 {
 		return &release.Error{Code: "INPUT_DRIFT", Detail: "source changed during assembly; do not publish output"}
+	}
+	currentBasis := basisBytes
+	if basisFile != "" {
+		currentBasis, err = os.ReadFile(basisFile)
+	}
+	if err != nil || !bytes.Equal(currentBasis, basisBytes) {
+		return &release.Error{Code: "INPUT_DRIFT", Detail: "independent gate basis changed during assembly"}
 	}
 	fmt.Println(filepath.Join(out, "checksums.json"))
 	return nil

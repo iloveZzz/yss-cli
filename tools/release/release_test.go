@@ -165,7 +165,10 @@ func (f *fixture) checks(t *testing.T, prefix string, ids []string) []release.Ch
 			if arch == "amd64" {
 				arch = "x64"
 			}
-			report = map[string]any{"schemaVersion": 1, "kind": "native-plugin-public-smoke", "status": "passed", "platform": map[string]any{"os": osname, "arch": arch}, "binary_sha256": hash(binaries(t)[platform]), "binary_after_sha256": hash(binaries(t)[platform]), "input_drift": false, "binary_drift": false, "unexecuted": []string{"outside-this-gate-deferred"}, "cases": []map[string]any{{"profile": "spec", "status": "passed"}, {"profile": "design", "status": "passed"}}, "commands": []map[string]any{{"exit_observed": true, "exit_code": 0, "signal": nil, "stdout": map[string]any{"file": "plugin-command.stdout.log", "sha256": f.file(t, prefix+"/plugin-command.stdout.log", nil).SHA256}, "stderr": map[string]any{"file": "plugin-command.stderr.log", "sha256": f.file(t, prefix+"/plugin-command.stderr.log", nil).SHA256}}}}
+			report = f.pluginEvidence(t, prefix, platform)
+		}
+		if prefix == "gates" {
+			report = f.gateEvidence(t, id)
 		}
 		rows = append(rows, release.Check{ID: id, Status: "passed", ExitCode: pointer(0), InputDrift: pointer(false), Unexecuted: []string{}, Report: f.json(t, prefix+"/"+id+".json", report), Stdout: f.file(t, prefix+"/"+id+".stdout", []byte("synthetic parser fixture output\n")), Stderr: f.file(t, prefix+"/"+id+".stderr", nil)})
 	}
@@ -192,8 +195,8 @@ func newFixture(t *testing.T) *fixture {
 		identity.Bundles[p] = release.BundleIdentity{TemplateVersion: "git:" + commit, TemplateCommit: commit, SourceState: "committed", SourceSnapshotHash: sha, ManifestHash: sha, BundleHash: sha}
 		profiles[p] = map[string]string{"templateCommit": commit}
 	}
-	f.expected = release.Expected{Identity: identity, Documents: map[string][]byte{}}
-	f.input = release.Input{SchemaVersion: 1, Identity: identity, Documents: map[string]release.FileRef{}}
+	f.expected = release.Expected{Identity: identity, Documents: map[string][]byte{}, RequiredPlatforms: append([]string(nil), platforms...), QualificationScope: release.FullQualificationScope, TemplateRoot: "/fixed/template", VerificationInputSHA256: hash([]byte("fixed-template-input")), VerificationPlan: asMap(map[string]any{"effective_profile": "release", "source_requirement": "committed", "strategy": "legacy-full", "policy_digest": hash([]byte("policy")), "commands": []any{map[string]any{"id": "check.fixture", "task_id": "task.fixture", "command": "fixture check", "gate_ids": []string{"check.fixture"}}}, "gates": []any{map[string]any{"id": "check.fixture", "selected": true}}}), VerificationInvocation: asMap(map[string]any{"command": "/fixed/template/scripts/run-template-verification", "args": []string{"--profile", "release"}})}
+	f.input = release.Input{SchemaVersion: 1, Identity: identity, Documents: map[string]release.FileRef{}, RequiredPlatforms: append([]string(nil), platforms...), QualificationScope: release.FullQualificationScope}
 	for _, ref := range documents {
 		raw := []byte("frozen test document " + ref + "\n")
 		if ref == "docs/source-lock.json" {
@@ -213,12 +216,12 @@ func newFixture(t *testing.T) *fixture {
 		receipt.GitHubRunAttempt = "1"
 		receipt.VersionCommand = &release.Check{ID: "native-version", Command: []string{"parser-fixture", "version", "--json"}, Status: "passed", ExitCode: pointer(0), InputDrift: pointer(false), Unexecuted: []string{}, Stdout: receipt.Version, Stderr: f.file(t, prefix+"/version.stderr.log", nil)}
 		for _, profile := range []string{"spec", "design", "backend", "frontend"} {
-			ref := f.json(t, prefix+"/inspect-"+profile+".json", map[string]any{"outputVersion": 1, "protocolVersion": 1, "status": "ok", "code": "OK", "result": f.input.Bundles[profile]})
+			ref := f.json(t, prefix+"/inspect-"+profile+".json", map[string]any{"outputVersion": 1, "protocolVersion": 1, "status": "ok", "code": "OK", "result": completeFixtureInspection(f, profile)})
 			receipt.BundleCommands = append(receipt.BundleCommands, release.Check{ID: "native-inspect-" + profile, Command: []string{"parser-fixture", "bundle", "inspect", "--profile", profile, "--json"}, Status: "passed", ExitCode: pointer(0), InputDrift: pointer(false), Unexecuted: []string{}, Report: ref, Stdout: ref, Stderr: f.file(t, prefix+"/inspect-"+profile+".stderr.log", nil)})
 		}
 		f.input.Artifacts = append(f.input.Artifacts, release.Artifact{Platform: p, Binary: bin, Receipt: f.json(t, prefix+"/receipt.json", receipt)})
 	}
-	gate := release.Receipt{SchemaVersion: 1, Identity: f.input.Identity, Status: "passed", ExitCode: pointer(0), InputDrift: pointer(false), Unexecuted: []string{}, Checks: f.checks(t, "gates", []string{"full-template-integration", "cli-integration", "legacy-recovery", "real-project-isolation"})}
+	gate := release.Receipt{SchemaVersion: 1, QualificationScope: release.FullQualificationScope, Identity: f.input.Identity, Status: "passed", ExitCode: pointer(0), InputDrift: pointer(false), Unexecuted: []string{}, Checks: f.checks(t, "gates", []string{"full-template-integration", "cli-integration", "legacy-recovery", "real-project-isolation"})}
 	f.input.ReleaseGate = f.json(t, "gate.json", gate)
 	return f
 }
@@ -431,7 +434,7 @@ func TestStableAssemblyRejectsUntrustedInputsWithoutWriting(t *testing.T) {
 				editRaw(t, f, &r.Checks[0].Report, func(raw map[string]any) { raw["status"] = "failed" })
 			})
 		}},
-		{"raw-release-not-execution", "EVIDENCE", func(t *testing.T, f *fixture) {
+		{"raw-release-not-execution", "SCHEMA", func(t *testing.T, f *fixture) {
 			editGate(t, f, func(r *release.Receipt) {
 				r.Checks[0].Report = f.json(t, r.Checks[0].Report.Path, map[string]any{"claim": "ready"})
 			})
