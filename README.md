@@ -128,3 +128,37 @@ yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json 
 ```
 
 已有受管安装应将 `--tool-root` 指向原工具目录；首次安装使用空目录。将新目录中的 `yss` 链接到 PATH 后即可直接运行 `yss upgrade`。独立 Node/Python 治理工具按各自职责继续维护。
+
+
+## 命令帮助与安装一致性诊断
+
+`yss` 或 `yss --help` 显示中文分组命令表、每条命令的用途与上手案例；`yss <命令/子命令> --help` 和 `yss help <命令/子命令>` 展示参数格式、默认值、条件及案例。`-h` 显示帮助，`-V` 等同于 `--version`。帮助始终输出文本，不读取项目、不访问网络、不写入资产。
+
+```sh
+yss init --help
+yss help update apply
+yss upgrade --help
+yss help tutorial
+yss -V --json
+```
+
+原生命令的未知命令、子命令、选项、无效取值或缺少参数值返回 `ARGUMENT`，退出码为 `2`，同时给出帮助入口和适用的拼写建议。比如 `yss upadate` 会建议 `update`，并说明在线程序升级使用 `upgrade`。建议不会自动执行。已有升级错误码和 JSON envelope 版本保持不变；其他治理和兼容消费者保留自身领域校验。
+
+- `yss upgrade`：下载并事务安装稳定版 CLI；`--check` 只查询在线版本。
+- `yss update plan/apply/status/recover/rollback`：离线程序安装、诊断及事务恢复。
+- `yss sync`：将项目模板更新到程序内置固定 Bundle。
+
+`yss update status --tool-root <实际安装目录> --json` 保留原有安装与事务信息，并新增 `installationConsistent` 和 `diagnostic`。诊断包含工具目录、安装记录版本、manifest 版本、逐文件 `expected/actual` 类型/摘要/权限、原因与下一步建议。`runningProgramMatchesRoot` 为 true 时才记录和比较 `runningVersion`；查询其他安装目录不会把当前程序版本当成该目录版本。
+
+查询成功表示获得了状态事实；`installed: true` 表示存在可识别安装记录，不能单独证明文件一致。`installationConsistent: true` 也不授予正式发行资格或项目批准。诊断不会改写安装清单、覆盖文件或自动运行恢复命令。
+
+遇到“受管程序文件与安装清单不一致”时，先查询错误中给出的实际目录。有未完成程序事务，检查状态和归档后使用 `update recover`。没有未完成事务但文件或版本漂移时，保留原目录与归档，选择不存在的新目录安装整个程序包：
+
+```sh
+# ./tools/yss-clean 必须不存在；下面是新安装目录示例。
+yss upgrade --tool-root ./tools/yss-clean
+./tools/yss-clean/yss version --json
+./tools/yss-clean/yss update status --tool-root ./tools/yss-clean --json
+```
+
+核验一致后再调整 PATH 入口。离线案例见 `yss help tutorial`。只替换二进制、改写旧收据或强制覆盖会破坏来源和回退依据；现有摘要、来源、冲突及事务保护继续生效。
