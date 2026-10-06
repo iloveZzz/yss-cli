@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.1.0，提供上下文帮助、离线教程和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.2.0，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -62,7 +62,7 @@ yss migrate rollback --root ./old-project --json
 
 本地打包六个平台：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.1.0 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
+1.2.0 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
@@ -97,11 +97,11 @@ yss assets list --root ./demo-spec --json
 ```sh
 yss upgrade --check
 yss upgrade
-yss upgrade --to 1.1.0 --json
+yss upgrade --to 1.2.0 --json
 yss upgrade --tool-root ./tools/yss --json
 ```
 
-默认查询 `iloveZzz/yss-cli` 的最新正式 Release，校验当前平台的发行资格、归档大小、SHA-256 与包内来源，再事务安装。`--to` 接受 `1.1.0` 或 `v1.1.0`，仅支持稳定版本并拒绝降级；`--version` 继续查询程序自身版本。`--check` 只查询，不下载或写入。
+默认查询 `iloveZzz/yss-cli` 的最新正式 Release，校验当前平台的发行资格、归档大小、SHA-256 与包内来源，再事务安装。`--to` 接受 `1.2.0` 或 `v1.2.0`，仅支持稳定版本并拒绝降级；`--version` 继续查询程序自身版本。`--check` 只查询，不下载或写入。
 
 默认通过实际可执行文件解析安装根。例如 `~/.local/bin/yss` 链接至 `~/.local/share/yss/yss` 时，更新受管目录并保留链接。裸复制二进制缺少安装收据时会拒绝自动覆盖；显式指定空工具目录可首次安装。已是目标稳定包时不下载、不创建事务。未完成事务、用户修改、输入漂移或发行校验失败均停止安装。
 
@@ -119,10 +119,10 @@ yss update rollback --tool-root ./tools/yss --json
 
 ## 从 1.0.0 首次安装新版（macOS arm64）
 
-`1.0.0` 没有 `upgrade`。从 [GitHub Release](https://github.com/iloveZzz/yss-cli/releases) 下载 `yss_1.1.0_darwin_arm64.tar.gz` 和 `checksums.json`，读取对应归档的 SHA-256；使用现有入口：
+`1.0.0` 没有 `upgrade`。从 [GitHub Release](https://github.com/iloveZzz/yss-cli/releases) 下载 `yss_1.2.0_darwin_arm64.tar.gz` 和 `checksums.json`，读取对应归档的 SHA-256；使用现有入口：
 
 ```sh
-yss update plan --tool-root ./tools/yss --artifact /path/yss_1.1.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
+yss update plan --tool-root ./tools/yss --artifact /path/yss_1.2.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
 yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
 ./tools/yss/yss version --json
 ```

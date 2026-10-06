@@ -71,9 +71,6 @@
       "scripts/generate-lifecycle-artifacts",
       "scripts/generate-yss-skill-boundaries",
       "scripts/inspect-maintenance-candidate",
-      "scripts/instantiate-harness",
-      "scripts/node-generate-lifecycle-artifacts.mjs",
-      "scripts/node-verify-lifecycle-registry.mjs",
       "scripts/prepare-maintenance-review",
       "scripts/run-template-verification",
       "scripts/sync-strategic-handoff-tools",
@@ -307,13 +304,14 @@
       ".template-spec/templates/approval-record-template.yaml",
       ".template-spec/templates/review-bundle-template.yaml",
       ".template-spec/templates/review-report-template.md",
-      ".template-spec/user-guide/用户手册.md"
+      ".template-spec/user-guide/用户手册.md",
+      ".template-spec/user-guide/unified-cli.md"
     ],
     "scripts": [
       "scripts/verify-project-instance",
       "scripts/sync-skills",
       "scripts/update-skill-lock",
-      "scripts/verify-context-contract",
+      "scripts/lib/native-context.mjs",
       "scripts/verify-context-reconciliation",
       "scripts/verify-digital-human-roles",
       "scripts/verify-digital-human-task-package",
