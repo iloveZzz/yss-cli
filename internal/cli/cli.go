@@ -9,10 +9,12 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance"
 	"github.com/iloveZzz/yss-cli/internal/project"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"github.com/iloveZzz/yss-cli/internal/updater"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -545,6 +547,20 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		return r, profile, err
 	}
+	if command == "context" {
+		source, err := contextTemplateSource(root, profile)
+		if err != nil {
+			return nil, profile, err
+		}
+		if source {
+			r, err := governance.RunContext(ctx, command, action, root, o.values)
+			if result, ok := r.(map[string]any); ok {
+				result["repository_mode"] = "template-source"
+				result["approval_created"] = false
+			}
+			return r, profile, err
+		}
+	}
 	id, err := project.Detect(root, profile, false)
 	if err != nil {
 		return nil, profile, err
@@ -557,6 +573,49 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	r, err := governance.RunContext(ctx, command, action, root, o.values)
 	return r, profile, err
+}
+
+// Context alone accepts source identity for read-only vocabulary checks.
+// Instance and all other governance command boundaries remain unchanged.
+func contextTemplateSource(root, profile string) (bool, error) {
+	file, err := safefs.Path(root, "yss-project.yaml")
+	if err != nil {
+		return false, err
+	}
+	v, err := schema.LoadFile(file)
+	if err != nil {
+		return false, err
+	}
+	m, ok := v.(map[string]any)
+	if !ok || m["repository_mode"] != "template-source" {
+		return false, nil
+	}
+	n, ok := m["schema_version"].(json.Number)
+	rational, valid := new(big.Rat).SetString(string(n))
+	if !ok || !valid || rational.Cmp(big.NewRat(1, 1)) != 0 {
+		return false, domain.Fail("IDENTITY", "模板源身份 schema 不支持")
+	}
+	if profile != "" {
+		if _, err := domain.GetProfile(profile); err != nil {
+			return false, err
+		}
+	}
+	refs := []string{domain.MetadataFile}
+	for _, p := range domain.Profiles {
+		refs = append(refs, p.Metadata)
+	}
+	for _, ref := range refs {
+		file, err := safefs.Path(root, ref)
+		if err != nil {
+			return false, err
+		}
+		if _, err = os.Lstat(file); err == nil {
+			return false, domain.Fail("IDENTITY", "模板源不能携带实例 metadata: "+ref)
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return true, nil
 }
 func capabilities() map[string]any {
 	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}

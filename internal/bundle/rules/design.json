@@ -41,7 +41,8 @@
       "packages",
       ".github",
       "wiki",
-      "submodules"
+      "submodules",
+      "tests"
     ],
     "excludeRootFiles": [
       "package-lock.json",
@@ -83,11 +84,7 @@
       ".template-spec/templates/retro-report-template.md",
       ".template-spec/templates/vertical-slice-ticket-template.md",
       "scripts/gitworks",
-      "scripts/implementation-path-policy",
       "scripts/lib/git-submodule-fixtures.mjs",
-      "scripts/lib/implementation-path-policy.mjs",
-      "scripts/lib/repository-scope-policy.mjs",
-      "scripts/repository-scope-policy",
       "scripts/verify-frontend-implementation-evidence",
       "scripts/verify-governance-release",
       "scripts/verify-implementation-path-scenarios",
