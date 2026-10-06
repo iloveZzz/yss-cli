@@ -123,7 +123,6 @@ function projectionRootsFor(lock) {
 			text = strings.ReplaceAll(text, "本仓是 `template-source`", "模板源是 `template-source`")
 		}
 		if strings.Contains(ref, "/skills/yss-design-system/") {
-			text = strings.ReplaceAll(text, "node .template-source/tooling/node/scripts/design-md.mjs", "scripts/design-md")
 			text = strings.Replace(text, "运行前先更新 `.template-spec/design/design-system-sync.yaml` 的规范源摘要。", "项目实例无需模板间的 design-system-sync 摘要。", 1)
 			text = strings.Replace(text, "修改根 DESIGN.md → 更新 design-system-sync.yaml 摘要 →", "修改根 DESIGN.md →", 1)
 		}

@@ -65,6 +65,8 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 		allowed = append(allowed, "id", "work-unit", "stage", "arg0")
 	case "lifecycle.status":
 		allowed = append(allowed, "checkpoint", "file", "arg0")
+	case "lifecycle.route", "lifecycle.verify-daily":
+		allowed = append(allowed, "task", "implementation-root", "base")
 	case "lifecycle.verify":
 		allowed = append(allowed, "checkpoint", "file", "arg0", "history", "home", "run-dir", "tool-root", "template-checkout")
 	case "stage.query", "stage.status", "stage.check":
@@ -107,6 +109,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	}
 	if semantic {
 		return semanticRun(ctx, group, action, root, args)
+	}
+	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
+		return dailyRun(ctx, action, root, args)
 	}
 	if group == "context" {
 		return contextRun(action, root, args)
