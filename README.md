@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.0.0，统一固定来源入口；发行资格由固定提交、六平台真实运行与完整集成证据绑定，能力边界见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.0.0，统一固定来源入口；发行资格由固定提交、明确发行范围内的原生运行与完整集成证据绑定，能力边界见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -49,3 +49,5 @@ yss migrate rollback --root ./old-project --json
 完整覆盖表、平台限制及剩余切换条件见 [迁移清单](docs/porting-status.md)。旧命令兼容与显式原生 API 用法见 [兼容适配](compat/README.md)。
 
 本地打包六个平台：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
+
+1.0.0 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和适用完整门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
