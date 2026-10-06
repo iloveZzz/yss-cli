@@ -159,7 +159,7 @@ func registerGovernanceHelp() {
 }
 
 func dailyHelp(summary, action string) helpTopic {
-	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <完整SHA>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位基线 SHA；不接受缩写\n--home / --run-dir / --tool-root  固定消费依赖", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base <完整40位SHA> --json", "只支持已启用对应政策的 Spec 实例；其他 Profile 不支持日常路径。已有正式任务不得降级。", false}
+	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <完整SHA>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位基线 SHA；不接受缩写", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base <完整40位SHA> --json", "只支持已启用对应政策的 Spec 实例；其他 Profile 不支持日常路径。已有正式任务不得降级。", false}
 }
 
 const tutorial = `YSS 离线入门教程
