@@ -145,6 +145,7 @@ func TestRenderedSkillLockPreservesOrderedSourceMetadataAndModes(t *testing.T) {
 	}
 }
 
+// Fixed spec a18b89e7: rendered tree hash independently checked with Node treeHash.
 func TestRenderedSkillLockCurrentFullSpecGolden(t *testing.T) {
 	b, err := Load("spec")
 	if err != nil {
@@ -160,7 +161,7 @@ func TestRenderedSkillLockCurrentFullSpecGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	skills := lock["skills"].(map[string]any)
-	if entry := skills["shared"].(map[string]any)["yss-design-system"].(map[string]any); entry["effectiveHash"] != "e7e78c6e7419eabcc62e0e6e21e43e36378932640423b36ad90b1cbf3a291841" {
+	if entry := skills["shared"].(map[string]any)["yss-design-system"].(map[string]any); entry["effectiveHash"] != "3207008f4b7975747cd32352a643b8f35769e7a971ae8b40ba320024e9118546" {
 		t.Fatalf("rendered design-system golden mismatch: %+v", entry)
 	}
 	if entry := skills["platform"].(map[string]any)[".codex/skills"].(map[string]any)["product-design"].(map[string]any); entry["effectiveHash"] != "5e49d34d508ea4aa4af203d45337d43e3137b9bb0c86531be693c62593fc4c08" {
