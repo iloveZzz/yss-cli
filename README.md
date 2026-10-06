@@ -42,6 +42,8 @@ yss migrate rollback --root ./old-project --json
 
 程序恢复仅消费 `program-update` 事务；回退只针对最近一次成功程序安装，不跨过后来的成功事务。恢复开始还原后会完成保护性还原，避免取消把工具目录留在混合状态；进程被强制结束时可再次执行恢复。用户后来修改的文件会使整体回退停止。
 
+安装器校验固定发行包摘要、程序摘要、完整 CLI 提交及四个 Profile 与包内 v2 来源锁的一致性。历史 alpha 包可以保留原来的无来源字段格式；v2 来源锁必须带完整的新来源字段。新增的退役说明纳入安装和回退范围，未知文档路径仍会拒绝。
+
 运行记录使用独立 SQLite 目录。`runtime run/events/commands/pins --id <运行 ID>` 为只读查询；`runtime pin/unpin --id <运行 ID> --token <begin 返回的 token> --reason <原因>` 只变更该运行的保护记录，完成后仍可操作。记录查询和保护标记不表示生命周期批准，也不删除证据文件。
 
 当前 checkpoint、批准、真实用户决定、实现合同、验证证据、战略交接及默认完整 project-ci 使用原生 Go 校验，接口见 [治理校验合同](docs/native-governance.md)。这些检查只消费既有资产，不执行业务验证命令或创建批准。
