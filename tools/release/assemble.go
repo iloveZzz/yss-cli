@@ -172,22 +172,28 @@ func (r *reader) checks(rows []Check, required []string, platform, binaryHash st
 
 func (r *reader) envelope(raw []byte, identity *Identity) error {
 	var env struct {
-		OutputVersion   int    `json:"outputVersion"`
-		ProtocolVersion int    `json:"protocolVersion"`
-		Status          string `json:"status"`
-		Code            string `json:"code"`
-		Result          struct {
-			Version         string `json:"version"`
-			ProtocolVersion int    `json:"protocolVersion"`
-			CLICommit       string `json:"cliCommit"`
-			SourceState     string `json:"sourceState"`
-		} `json:"result"`
+		OutputVersion   int             `json:"outputVersion"`
+		ProtocolVersion int             `json:"protocolVersion"`
+		Status          string          `json:"status"`
+		Code            string          `json:"code"`
+		Result          json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil || env.OutputVersion != 1 || env.ProtocolVersion != 1 || env.Status != "ok" || env.Code != "OK" {
 		return reject("EVIDENCE", "invalid native version/envelope")
 	}
-	if identity != nil && (env.Result.Version != identity.CLIVersion || env.Result.ProtocolVersion != identity.ProtocolVersion || env.Result.CLICommit != identity.CLICommit || env.Result.SourceState != identity.SourceState) {
-		return reject("PROVENANCE", "native version differs from fixed source")
+	if identity != nil {
+		var version struct {
+			Version         string `json:"version"`
+			ProtocolVersion int    `json:"protocolVersion"`
+			CLICommit       string `json:"cliCommit"`
+			SourceState     string `json:"sourceState"`
+		}
+		if err := json.Unmarshal(env.Result, &version); err != nil {
+			return reject("EVIDENCE", "invalid native version result")
+		}
+		if version.Version != identity.CLIVersion || version.ProtocolVersion != identity.ProtocolVersion || version.CLICommit != identity.CLICommit || version.SourceState != identity.SourceState {
+			return reject("PROVENANCE", "native version differs from fixed source")
+		}
 	}
 	return nil
 }
