@@ -1,6 +1,6 @@
 # 兼容与验收边界
 
-程序：1.0.0-alpha.3；运行协议：1；Bundle 和 .yss.json 为 schema v2（保留 native metadata v1 校验兼容）。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
+程序：1.0.0；运行协议：1；Bundle 和 .yss.json 为 schema v2（保留 native metadata v1 校验兼容）。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
 
 已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
 
@@ -12,4 +12,4 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 
 原生六平台CI使用GitHub官方提供的runner标签，见[官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。流水线准备好不等于已经执行；本地交叉编译不能替代原生运行、取消、权限和恢复验证。
 
-稳定版条件按 [退役合同](cli-retirement.md) 验收：必要能力和现役消费者闭合、六个平台实际运行通过、固定提交模板/CLI 集成与不可裁剪发布门禁通过。当前 stableReady=false；提交、推送、tag 和发布分别按授权执行。
+稳定版条件按 [退役合同](cli-retirement.md) 验收：必要能力和现役消费者闭合、六个平台实际运行通过、固定提交模板/CLI 集成与不可裁剪发布门禁通过。每份发行资产的 stableReady 结论由其发行 manifest、六平台原生收据和完整门禁摘要共同给出；源码版本和交叉编译不能代替这些证据。提交、推送、tag 和发布分别按授权执行。

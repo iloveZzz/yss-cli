@@ -27,6 +27,10 @@ func main() {
 	must(os.MkdirAll(out, 0755))
 	out, e = filepath.EvalSymlinks(out)
 	must(e)
+	initialBinary, e := os.ReadFile(binary)
+	must(e)
+	initialHash := sha256.Sum256(initialBinary)
+	binaryHash := hex.EncodeToString(initialHash[:])
 	results := []map[string]any{}
 	run := func(profile string, args ...string) map[string]any {
 		started := time.Now()
@@ -96,10 +100,21 @@ func main() {
 		run(profile, "runtime", "unpin", "--root", root, "--home", runtimeHome, "--id", id, "--token", token, "--reason", "native-smoke-observation")
 		run(profile, "runtime", "inspect", "--root", root, "--home", runtimeHome)
 	}
-	report := map[string]any{"schemaVersion": 1, "platform": runtime.GOOS + "/" + runtime.GOARCH, "path": "", "networkDependency": "none: built CLI has no network loader; GOPROXY/GOSUMDB off", "covered": "ported command surface only", "stableReady": false, "results": results}
+	finalBinary, e := os.ReadFile(binary)
+	must(e)
+	finalHash := sha256.Sum256(finalBinary)
+	drift := initialHash != finalHash
+	status := "passed"
+	if drift {
+		status = "failed"
+	}
+	report := map[string]any{"schemaVersion": 1, "status": status, "binary_sha256": binaryHash, "input_drift": drift, "unexecuted": []string{}, "platform": runtime.GOOS + "/" + runtime.GOARCH, "path": "", "networkDependency": "none: built CLI has no network loader; GOPROXY/GOSUMDB off", "covered": "ported command surface only", "stableReady": false, "results": results}
 	b, e := json.MarshalIndent(report, "", "  ")
 	must(e)
 	must(os.WriteFile(filepath.Join(out, "report.json"), append(b, '\n'), 0644))
+	if drift {
+		panic("native binary changed during verification")
+	}
 	fmt.Println(filepath.Join(out, "report.json"))
 }
 func must(e error) {

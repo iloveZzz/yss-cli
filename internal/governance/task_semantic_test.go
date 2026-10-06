@@ -24,7 +24,7 @@ func taskTestCompletedBackendProducerRoot(t *testing.T) string {
 	root := os.Getenv("YSS_BACKEND_COMPLETED_TASK_ROOT")
 	if root == "" {
 		frozen, err := os.ReadFile("backend_terminal_semantic_test.go")
-		if err != nil || safefs.Digest(frozen) != "5346e3ec844d2b3a56194cd8bd71ed1648d3ccb32757c3afe0c38885c93827bf" {
+		if err != nil || safefs.Digest(frozen) != "a0d066f8639c07ce144fb41314b393528fc5466555ad9cc8686f1181846dea68" {
 			t.Fatal("fixed backend producer body unavailable or changed", err)
 		}
 		section := string(frozen)
@@ -189,7 +189,7 @@ func taskTestLegacyCurrentProfile(t *testing.T, root string) (bool, string, bool
 	// The original task CLI has no --root. Use its published API with the
 	// current profile's independent role/registry inputs and explicit IO root.
 	script := `const fs=await import('node:fs');const path=await import('node:path');const {validateTaskPackage}=await import(process.argv[1]);const {parseDocument}=await import(process.argv[2]);const root=process.argv[3];const doc=ref=>parseDocument(fs.readFileSync(path.join(root,ref),'utf8')).toJS();try{validateTaskPackage(doc('profile-task.json'),{root,rolesDoc:doc('.template-spec/agents/digital-human-roles.yaml'),lifecycleDoc:doc('.template-spec/process/lifecycle-registry.yaml')});console.log('fixed task API current profile passed');}catch(error){console.error(error.message);process.exitCode=1;}`
-	argv := []string{"--input-type=module", "-e", script, "file://" + filepath.Join(source, "scripts/lib/task-package.mjs"), "file://" + filepath.Join(source, "scripts/vendor/yaml.mjs"), root}
+	argv := []string{"--input-type=module", "-e", script, governanceOracleURL(filepath.Join(source, "scripts/lib/task-package.mjs")), governanceOracleURL(filepath.Join(source, "scripts/vendor/yaml.mjs")), root}
 	cmd := exec.Command("node", argv...)
 	out, err := cmd.CombinedOutput()
 	exitCode := 0

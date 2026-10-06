@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
 	"os/exec"
@@ -28,6 +29,7 @@ func fixtureGit(t *testing.T) (string, string, string) {
 	run("init", "-q")
 	run("config", "user.email", "fixture@example.invalid")
 	run("config", "user.name", "fixture")
+	run("config", "core.autocrlf", "false")
 	p := Policy{SchemaVersion: 1, Profile: "backend", Manifest: map[string]any{"allowRootEntries": []string{"scripts"}, "allowRootFiles": []string{"README.md", "yss-project.yaml"}, "renderPaths": []string{"README.md", "yss-project.yaml"}}}
 	b, _ := json.Marshal(p)
 	os.MkdirAll(filepath.Join(root, ".template-source/distribution"), 0755)
@@ -37,6 +39,7 @@ func fixtureGit(t *testing.T) (string, string, string) {
 	os.WriteFile(filepath.Join(root, "README.md"), []byte("source README\n"), 0644)
 	os.WriteFile(filepath.Join(root, "yss-project.yaml"), []byte("schema_version: 1\nrepository_mode: template-source\n"), 0644)
 	run("add", ".")
+	run("update-index", "--chmod=+x", "scripts/probe")
 	run("commit", "-qm", "fixture")
 	return root, run("rev-parse", "HEAD"), safefs.Digest(b)
 }
@@ -149,7 +152,7 @@ func TestPublicExportPreservesAllAssetsAndRefusesUnsafeTargets(t *testing.T) {
 			t.Fatalf("bytes differ %s", ref)
 		}
 		st, _ := os.Stat(filepath.Join(out, filepath.FromSlash(ref)))
-		if uint32(st.Mode().Perm()) != f.Mode {
+		if domain.FileMode(uint32(st.Mode().Perm())) != domain.FileMode(f.Mode) {
 			t.Fatalf("mode differs %s", ref)
 		}
 	}

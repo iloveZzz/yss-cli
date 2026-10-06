@@ -108,7 +108,7 @@ func (s *semanticSession) gitFresh(root string, args []string) (semanticGitObser
 	if err != nil {
 		return row, s.unavailable("CAPABILITY", "Git 基线校验需要 git")
 	}
-	flags := []string{"--no-pager", "--no-optional-locks", "--no-lazy-fetch", "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.pager=cat", "-c", "diff.external=", "-c", "core.attributesFile=" + os.DevNull}
+	flags := []string{"--no-pager", "--no-optional-locks", "--no-lazy-fetch", "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.pager=cat", "-c", "diff.external=", "-c", "core.attributesFile="}
 	query := append([]string(nil), args...)
 	if query[0] == "diff" || query[0] == "show" {
 		query = append([]string{query[0], "--no-ext-diff", "--no-textconv"}, query[1:]...)
@@ -120,7 +120,7 @@ func (s *semanticSession) gitFresh(root string, args []string) (semanticGitObser
 			cmd.Env = append(cmd.Env, e)
 		}
 	}
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_NO_REPLACE_OBJECTS=1", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_NO_REPLACE_OBJECTS=1", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	var stdout, stderr semanticLimitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

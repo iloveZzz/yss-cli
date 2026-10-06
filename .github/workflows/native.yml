@@ -5,6 +5,10 @@ on:
   pull_request:
 permissions:
   contents: read
+env:
+  YSS_LEGACY_ORACLE_ROOT: ${{ github.workspace }}/template-source
+  YSS_NATIVE_SOURCE_ROOT: ${{ github.workspace }}/cli-source
+  PYTHONDONTWRITEBYTECODE: 1
 jobs:
   native:
     defaults:
@@ -34,6 +38,10 @@ jobs:
             binary: yss-bin.exe
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Preserve committed source bytes on native checkouts
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
         with:
           path: cli-source
@@ -52,6 +60,48 @@ jobs:
         run: |
           python3 --version
           python3 -m pip install jsonschema==4.23.0
+      - name: Read fixed template source
+        id: template-source
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const commit = JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
+          if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed template commit required');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${commit}\n`);
+          JS
+      - name: Checkout fixed template before integration tests
+        uses: actions/checkout@v5
+        with:
+          repository: iloveZzz/yss-spec-project-template
+          ref: ${{ steps.template-source.outputs.commit }}
+          path: template-source
+          submodules: false
+          fetch-depth: 1
+      - name: Verify fixed template revision
+        shell: bash
+        run: test "$(git -C "$GITHUB_WORKSPACE/template-source" rev-parse HEAD)" = "${{ steps.template-source.outputs.commit }}"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.15.0'
+      - name: Install fixed governance tooling
+        shell: bash
+        run: pnpm --dir "$GITHUB_WORKSPACE/template-source/.template-source/tooling/node" install --frozen-lockfile
+      - name: Build the exact native release candidate
+        shell: bash
+        env:
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p "$RUNNER_TEMP/yss-release-native"
+          binary="$RUNNER_TEMP/yss-release-native/${{ matrix.binary }}"
+          go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit=$GITHUB_SHA -X github.com/iloveZzz/yss-cli/internal/domain.BuildSourceState=committed" -o "$binary" ./cmd/yss
+          node --input-type=module - "$binary" <<'JS'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const binary = process.argv[2];
+          const digest = createHash('sha256').update(fs.readFileSync(binary)).digest('hex');
+          fs.appendFileSync(process.env.GITHUB_ENV, `YSS_NATIVE_BINARY=${binary}\nYSS_NATIVE_BINARY_SHA256=${digest}\n`);
+          JS
       - run: go test -timeout=60m -count=1 ./...
       - run: go vet ./...
       - run: go mod verify
@@ -83,43 +133,20 @@ jobs:
         env:
           CGO_ENABLED: 1
         run: go test -timeout=60m -count=1 -race ./...
-      - name: Build native binary
+      - name: Exact release binary native acceptance
         shell: bash
-        env:
-          CGO_ENABLED: 0
-        run: go build -trimpath -o "${{ matrix.binary }}" ./cmd/yss
-      - name: Read fixed template source
-        id: template-source
-        shell: bash
-        run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const commit = JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
-          if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed template commit required');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${commit}\n`);
-          JS
-      - name: Checkout fixed template after native build
-        uses: actions/checkout@v5
-        with:
-          repository: iloveZzz/yss-spec-project-template
-          ref: ${{ steps.template-source.outputs.commit }}
-          path: template-source
-          submodules: false
-          fetch-depth: 1
-      - name: No interpreter smoke
-        shell: bash
-        run: go run ./tools/native-smoke "./${{ matrix.binary }}" "$RUNNER_TEMP/yss-native-smoke"
-      - name: Native cancellation and recovery
-        shell: bash
-        run: go run ./tools/native-recovery "./${{ matrix.binary }}" "$RUNNER_TEMP/yss-native-recovery"
-      - name: Native public plugin build and atomic project rollback
-        shell: bash
-        run: node tools/plugin-native-smoke.mjs --binary "./${{ matrix.binary }}" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-plugin-native-smoke"
+        run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-${{ matrix.platform }}" --commit "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-${{ matrix.platform }}
           path: |
+            ${{ runner.temp }}/yss-release-native/*
+            ${{ runner.temp }}/native-receipt.json
+            ${{ runner.temp }}/native-version.json
+            ${{ runner.temp }}/native-inspect-*.json
+            ${{ runner.temp }}/*.stdout.log
+            ${{ runner.temp }}/*.stderr.log
             ${{ runner.temp }}/yss-native-smoke/*.json
             ${{ runner.temp }}/yss-native-recovery/report.json
             ${{ runner.temp }}/yss-native-recovery/output-*.json

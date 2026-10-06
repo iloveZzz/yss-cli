@@ -316,7 +316,7 @@ func durable(root, ref string, b []byte, mode uint32) error {
 		return err
 	}
 	defer os.Remove(temp)
-	if _, err = f.Write(b); err == nil {
+	if _, err = writeTemporary(f, b); err == nil {
 		err = f.Chmod(os.FileMode(mode))
 	}
 	if err == nil {
@@ -1128,7 +1128,7 @@ func replace(root, base string, i int, r record, wanted domain.Descriptor, role 
 	if err != nil {
 		return err
 	}
-	if _, err = f.Write(b); err == nil {
+	if _, err = writeTemporary(f, b); err == nil {
 		err = f.Chmod(os.FileMode(wanted.Mode))
 	}
 	if err == nil {

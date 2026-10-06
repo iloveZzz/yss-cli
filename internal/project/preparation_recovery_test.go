@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"testing"
 	"time"
@@ -300,7 +301,11 @@ func TestInstalledPreparationPreservesAllTargetsAndRechecksGuards(t *testing.T) 
 	if err := os.WriteFile(path, original, info.Mode()); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0600); err != nil {
+	modeDrift := os.FileMode(0600)
+	if runtime.GOOS == "windows" {
+		modeDrift = 0444 // A read-only attribute is the representable permission change.
+	}
+	if err := os.Chmod(path, modeDrift); err != nil {
 		t.Fatal(err)
 	}
 	assertPreparationRefusal(t, root, "spec", "INPUT_DRIFT")
