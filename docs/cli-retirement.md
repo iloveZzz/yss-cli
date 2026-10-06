@@ -18,6 +18,8 @@ Bundle 与 native metadata schema v2 分开记录模板及统一 CLI 身份。`w
 
 算法、原生无解释器、真实旧恢复矩阵分别记录。正式旧恢复矩阵覆盖四 Profile 各 12 项，绑定二进制、固定旧包和日志摘要。合成 fixture、偶然 `INPUT_DRIFT`、交叉编译和 workflow 配置均不能替代真实目标通过。
 
-稳定发行前完成六个平台的原生运行、权限、取消、恢复，以及固定提交上的不可裁剪模板和 CLI 集成门禁；要求实际 exit 0、`input_drift=false`、必需项无未执行。移除旧 gitlink 后还须在干净 checkout 完成生产、构建、插件、分发及发布验证。
+1.0.0 稳定发行范围为本机 darwin/arm64；发行前完成该平台的原生运行、权限、取消、恢复，以及固定提交上的不可裁剪模板和 CLI 集成门禁；要求实际 exit 0、`input_drift=false`、必需项无未执行。移除旧 gitlink 后还须在干净 checkout 完成生产、构建、插件、分发及发布验证。
 
 不执行 npm unpublish。本地从未公开发布的固定恢复版本必须另存可获取渠道，不能声称它已在 npm。保留上一版二进制、Bundle、来源锁、插件、旧 gitlink SHA 和恢复材料；不使用 reset/clean 覆盖工作。提交、推送、tag、稳定发布、npm deprecated、旧仓 archive 分别需要授权。
+
+用户已将 1.0 平台验收限定为本机；其他平台 CI 及产物齐备不阻断本次发布。工具的 requiredPlatforms 必须与独立 caller 固定范围一致，禁止通过输入自行删减已选平台。

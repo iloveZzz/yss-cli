@@ -68,7 +68,24 @@ try {
     } else {
       assert.equal(report.binary_drift, false); assert.equal(report.cases.length, 2); assert.ok(report.cases.every(row => row.status === 'passed'));
       assert.deepEqual(report.cases.map(row => row.profile).sort(), ['design', 'spec']);
-      assert.ok(report.commands.every(row => row.exit_observed && row.exit_code === 0 && row.signal === null));
+      const labels = ['go-head', 'go-tree', 'template-head', 'template-clean', 'go-before-tracked', 'go-before-files', 'template-before-tracked', 'template-before-files', 'binary-version', 'python-jsonschema', 'go-after-tracked', 'go-after-files', 'template-after-tracked', 'template-after-files'];
+      for (const profile of ['spec', 'design']) for (const command of ['inspect', 'build', 'staged-inspect', 'verify', 'doctor', 'preview', 'apply', 'binding-check', 'readonly-project-recover', 'readonly-project-rollback', 'whole-rollback', 'repeat-project-rollback', 'repeat-project-recover', 'repeat-project-rollback', 'repeat-project-recover']) labels.push(profile + '-' + command);
+      assert.deepEqual(report.commands.map(row => row.label).sort(), labels.sort(), 'plugin public acceptance requires all 44 observed commands');
+      assert.ok(report.commands.every(row => row.exit_observed === true && row.exit_code === 0 && row.signal === null && row.error === null));
+      assert.equal(report.source_lock_sha256, receipt.sourceLockSha256); assert.equal(report.go_head, receipt.cliCommit); assert.equal(report.template_head, receipt.bundles.spec.templateCommit);
+      for (const key of ['version', 'protocolVersion', 'cliCommit', 'sourceState']) assert.equal(report.binary_version[key], value.result[key]);
+      for (const source of ['go', 'template']) {
+        assert.match(report.inputs_before[source].sha256, /^[a-f0-9]{64}$/);
+        assert.deepEqual(report.inputs_after[source], report.inputs_before[source]);
+      }
+      for (const item of report.cases) {
+        for (const key of ['readonly_preview', 'readonly_recovery', 'whole_atomic_rollback', 'repeated_recovery']) assert.equal(item[key], true);
+        assert.ok(typeof item.init_plan_id === 'string' && item.init_plan_id.length > 0);
+        for (const key of ['installed_metadata', 'installed_binding']) { assert.equal(item[key].type, 'file'); assert.match(item[key].sha256, /^[a-f0-9]{64}$/); }
+        assert.deepEqual(item.business_after, item.business_before);
+        assert.deepEqual(item.business_before.map(row => row.ref).sort(), ['.github/workflows/user-owned-readonly.yml', 'src/user-owned/readonly.txt']);
+        for (const row of item.business_before) { assert.equal(row.type, 'file'); assert.equal(row.mode, 0o444); assert.match(row.sha256, /^[a-f0-9]{64}$/); }
+      }
       for (const row of report.commands) for (const stream of ['stdout', 'stderr']) assert.equal(hash(fs.readFileSync(path.join(out, folder, row[stream].file))), row[stream].sha256);
     }
     checks.push({ ...result.row, report: descriptor(file) }); receipt.unexecuted = receipt.unexecuted.filter(item => item !== id);

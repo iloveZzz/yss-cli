@@ -10,6 +10,8 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 
 恢复：原字节、类型、权限与计划摘要持久保存；WAL先于目标写入。后续用户修改导致恢复或整体回滚拒绝，避免覆盖。Git index、业务目录和嵌套Git仓库不属于模板写范围。原有CLI的历史事务格式不能由新事务格式冒充；历史中断首先走旧CLI恢复。
 
-原生六平台CI使用GitHub官方提供的runner标签，见[官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。流水线准备好不等于已经执行；本地交叉编译不能替代原生运行、取消、权限和恢复验证。
+可支持的平台 CI 使用GitHub官方提供的runner标签，见[官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。流水线准备好不等于已经执行；本地交叉编译不能替代原生运行、取消、权限和恢复验证。
 
-稳定版条件按 [退役合同](cli-retirement.md) 验收：必要能力和现役消费者闭合、六个平台实际运行通过、固定提交模板/CLI 集成与不可裁剪发布门禁通过。每份发行资产的 stableReady 结论由其发行 manifest、六平台原生收据和完整门禁摘要共同给出；源码版本和交叉编译不能代替这些证据。提交、推送、tag 和发布分别按授权执行。
+稳定版条件按 [退役合同](cli-retirement.md) 验收：必要能力和现役消费者闭合、本次明确发行平台实际运行通过、固定提交模板/CLI 集成与不可裁剪发布门禁通过。每份发行资产的 stableReady 结论由其发行 manifest、本次发行平台原生收据和完整门禁摘要共同给出；源码版本和交叉编译不能代替这些证据。提交、推送、tag 和发布分别按授权执行。
+
+1.0.0 本次仅发行并验证 darwin/arm64，六平台齐备不再是条件。其他平台已有结果按实际状态保留，未通过的平台不提供合格稳定包。
