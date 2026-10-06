@@ -183,3 +183,22 @@ func TestOfflineClosureConflictsAndDynamicReferences(t *testing.T) {
 		}
 	})
 }
+
+// The public local closure must resolve native Windows drive paths and retain
+// URI-escaped filename bytes. The same case executes on every native runner.
+func TestLocalSchemaReferenceNativePathWithReservedURIFilename(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "schema 空间#%")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	put(t, dir, "value #%.json", `{"type":"integer","minimum":2}`)
+	root := put(t, dir, "main.json", `{"$ref":"value%20%23%25.json"}`)
+	issues, err := schema.ValidateValue(root, json.Number("3"))
+	if err != nil || len(issues) != 0 {
+		t.Fatalf("local schema URI failed: %v %v", issues, err)
+	}
+	issues, err = schema.ValidateValue(root, json.Number("1"))
+	if err != nil || len(issues) != 1 || issues[0].Code != "SCHEMA_VALIDATION" {
+		t.Fatalf("local constraint lost: %v %v", issues, err)
+	}
+}

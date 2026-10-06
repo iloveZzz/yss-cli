@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -24,6 +23,25 @@ func TestPreparationObjectCrashHelper(t *testing.T) {
 	if root == "" {
 		return
 	}
+	defer transaction.SetTemporaryWriterForTest(func(f *os.File, b []byte) (int, error) {
+		if len(b) != preparationObjectSize || !strings.Contains(filepath.ToSlash(f.Name()), "/objects/") {
+			return f.Write(b)
+		}
+		// A real prefix write leaves the digest-named object's unpublished
+		// .writing-ID evidence; Apply has already persisted its trusted plan.
+		n, err := f.Write(b[:4096])
+		if err != nil {
+			return n, err
+		}
+		if n != 4096 {
+			return n, io.ErrShortWrite
+		}
+		if err := retainProducerWrite(f); err != nil {
+			return n, err
+		}
+		remaining, err := f.Write(b[n:])
+		return n + remaining, err
+	})()
 	data := bytes.Repeat([]byte("x"), preparationObjectSize)
 	guard, err := safefs.Describe(root, "identity.txt")
 	if err != nil {
@@ -41,73 +59,32 @@ func TestPreparationObjectCrashHelper(t *testing.T) {
 
 func killedPreparationObject(t *testing.T) (string, string) {
 	t.Helper()
-	for attempt := 0; attempt < 12; attempt++ {
-		root := testRoot(t)
-		for _, f := range []struct {
-			ref, data string
-			mode      os.FileMode
-		}{{"existing", "original business bytes", 0751}, {"identity.txt", "fixed caller identity", 0600}, {".git/index", "original index bytes", 0600}} {
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f.ref)), 0700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(root, f.ref), []byte(f.data), f.mode); err != nil {
-				t.Fatal(err)
-			}
-		}
-		child := exec.Command(os.Args[0], "-test.run=^TestPreparationObjectCrashHelper$")
-		child.Env = append(os.Environ(), "YSS_PREPARATION_OBJECT_CRASH_ROOT="+root)
-		var output bytes.Buffer
-		child.Stdout, child.Stderr = &output, &output
-		if err := child.Start(); err != nil {
+	root := testRoot(t)
+	for _, f := range []struct {
+		ref, data string
+		mode      os.FileMode
+	}{{"existing", "original business bytes", 0751}, {"identity.txt", "fixed caller identity", 0600}, {".git/index", "original index bytes", 0600}} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f.ref)), 0700); err != nil {
 			t.Fatal(err)
 		}
-		done := make(chan error, 1)
-		go func() { done <- child.Wait() }()
-		deadline := time.Now().Add(60 * time.Second)
-		seen := ""
-		for time.Now().Before(deadline) {
-			select {
-			case err := <-done:
-				t.Fatalf("producer exited before the required interruption window: %v %s", err, output.String())
-			default:
-			}
-			refs, _ := filepath.Glob(filepath.Join(root, ".yss/transactions/.preparing-*/objects/*"))
-			for _, ref := range refs {
-				if strings.HasPrefix(filepath.Base(ref), safefs.Digest([]byte("original business bytes"))) {
-					continue
-				}
-				info, err := os.Stat(ref)
-				if err == nil && info.Size() < preparationObjectSize && info.Size() != int64(len("original business bytes")) {
-					seen = ref
-					break
-				}
-			}
-			if seen != "" {
-				break
-			}
-			time.Sleep(10 * time.Microsecond)
-		}
-		_ = child.Process.Kill()
-		if err := <-done; err == nil {
-			t.Fatalf("producer finished before SIGKILL: %s", output.String())
-		}
-		if seen == "" {
-			t.Fatalf("no producer object writing window observed: %s", output.String())
-		}
-		refs, _ := filepath.Glob(filepath.Join(root, ".yss/transactions/.preparing-*/objects/*"))
-		for _, ref := range refs {
-			if strings.HasPrefix(filepath.Base(ref), safefs.Digest([]byte("original business bytes"))) {
-				continue
-			}
-			info, err := os.Stat(ref)
-			if err == nil && info.Size() < preparationObjectSize && info.Size() != int64(len("original business bytes")) {
-				t.Logf("actual SIGKILL left object %s bytes=%d", filepath.Base(ref), info.Size())
-				return root, ref
-			}
+		if err := os.WriteFile(filepath.Join(root, f.ref), []byte(f.data), f.mode); err != nil {
+			t.Fatal(err)
 		}
 	}
-	t.Fatal("actual SIGKILL never retained partial producer object bytes")
-	return "", ""
+	expectedName := safefs.Digest(bytes.Repeat([]byte("x"), preparationObjectSize)) + ".writing-"
+	ref := killObservedProducer(t, root, "TestPreparationObjectCrashHelper", "YSS_PREPARATION_OBJECT_CRASH_ROOT", func(ref string) {
+		rel, _ := filepath.Rel(root, ref)
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) != 5 || parts[0] != ".yss" || parts[1] != "transactions" || !strings.HasPrefix(parts[2], ".preparing-") || parts[3] != "objects" || !strings.HasPrefix(parts[4], expectedName) {
+			t.Fatalf("not an actual unpublished producer object: %s", ref)
+		}
+		b, err := os.ReadFile(ref)
+		info, e := os.Lstat(ref)
+		if err != nil || e != nil || !info.Mode().IsRegular() || info.Size() != 4096 || !bytes.Equal(b, bytes.Repeat([]byte("x"), 4096)) || domain.FileMode(uint32(info.Mode().Perm())) != domain.FileMode(0600) {
+			t.Fatalf("actual partial object bytes/mode changed: read=%v stat=%v", err, e)
+		}
+	})
+	return root, ref
 }
 
 func objectPreparationTree(t *testing.T, root string) map[string]domain.Descriptor {

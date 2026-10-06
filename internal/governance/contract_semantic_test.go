@@ -126,7 +126,7 @@ func TestContractBusinessOldOracleDifferential(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only old oracle unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	if _, e := os.Stat(filepath.Join(old, "scripts/lib/business-tickets.mjs")); e != nil {
 		t.Skip("fixed old oracle unavailable")
 	}
@@ -155,7 +155,7 @@ func TestContractSliceV3OldOracleDifferential(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only old oracle unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	cmd := exec.Command("node", "--input-type=module", "-e", "import {pilotFixture} from './scripts/fixtures/slice-contract-v3/pilot-fixture.mjs';import {createApprovedExecutionContext} from './scripts/lib/approved-execution-context.mjs';const f=pilotFixture();const a=f.approve();createApprovedExecutionContext(a.binding,{root:f.root,work_unit_id:'work-unit.slice-backend',readOnly:true});console.log(JSON.stringify({root:f.root,ref:a.binding.ref,approval:a.binding.approval_ref}));", "synthetic-oracle")
 	cmd.Dir = old
 	oracleTMP := contractTestOracleTMP(t)
@@ -217,7 +217,7 @@ func TestContractPlatformFingerprintOldOracleUnicode(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only old oracle unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	root := apTestRoot(t)
 	for _, ref := range []string{".agents/skills/yss-ddd-scaffold-generator/scripts/generate_scaffold.mjs", ".agents/skills/yss-layered-mvc-scaffold-generator/scripts/generate_scaffold.mjs", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs", "scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", ".agents/skills/yss-ddd-scaffold-generator/scripts/run_scaffold_verification.mjs", ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper/mvnw"} {
 		apTestPut(t, root, ref, ref+"\n")
@@ -274,7 +274,7 @@ func contractTacticalFixture() map[string]any {
 }
 func TestContractTacticalOldOracleDifferential(t *testing.T) {
 	root := apTestRoot(t)
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	for _, kind := range []string{"valid", "missing-preconditions", "wrong-root-owner", "invalid-id", "dangling-event", "upstream-stale", "missing-complexity-ref"} {
 		t.Run(kind, func(t *testing.T) {
 			d := contractTacticalFixture()
@@ -462,7 +462,7 @@ func TestContractTechnicalAnalysisTransitionOracle(t *testing.T) {
 				return
 			}
 			cmd := exec.Command("node", "--input-type=module", "-e", `import fs from 'node:fs';import path from 'node:path';import {validateNextRoute} from './scripts/lib/lifecycle-transition.mjs';const root=process.argv[1],cp=JSON.parse(fs.readFileSync(path.join(root,'transition-checkpoint.json'),'utf8'));console.log(JSON.stringify(validateNextRoute('work-unit.technical-analysis','work-unit.implementation-repository-preparation',cp.decision_state,{root,exists:ref=>fs.existsSync(path.resolve(root,ref)),read:ref=>fs.readFileSync(path.resolve(root,ref),'utf8')})));`, root)
-			cmd.Dir = "/Users/zhudaoming/Projects/yss-spec-project-template"
+			cmd.Dir = governanceOracleRoot(t)
 			raw, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("fixed old transition oracle %v %s", err, raw)
@@ -482,7 +482,7 @@ func TestContractServiceInitializationPublishedFixture(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only old producer unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	producer := `import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -869,7 +869,7 @@ func TestContractBackendProbeCurrentFactsAndCancellation(t *testing.T) {
 				if _, e := exec.LookPath("node"); e == nil {
 					payload, _ := json.Marshal(delivery)
 					oracle := exec.Command("node", "--input-type=module", "-e", `import fs from 'node:fs';import {probeBackend} from './scripts/lib/frontend-delivery.mjs';try {await probeBackend(JSON.parse(fs.readFileSync(0,'utf8')));console.log(JSON.stringify({passed:true}));}catch(error){console.log(JSON.stringify({passed:false,message:error.message}));}`, "synthetic-oracle")
-					oracle.Dir = "/Users/zhudaoming/Projects/yss-spec-project-template"
+					oracle.Dir = governanceOracleRoot(t)
 					oracle.Stdin = bytes.NewReader(payload)
 					out, e := oracle.CombinedOutput()
 					if e != nil {
@@ -932,7 +932,7 @@ func TestContractFrontendBackendDeliveryFixedSourceChain(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only fixed source producer unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	root := contractTestRetainedRoot(t, apTestProfileRoot(t, "frontend"), "frontend-online")
 	contractTestRules(t, root)
 	var revision atomic.Value
@@ -959,13 +959,13 @@ func TestContractFrontendBackendDeliveryFixedSourceChain(t *testing.T) {
 		if !strings.HasPrefix(m[1], ".") {
 			return v
 		}
-		return "from 'file://" + filepath.Clean(filepath.Join(old, ".template-source/tooling/node/test", m[1])) + "'"
+		return "from '" + governanceOracleURL(filepath.Clean(filepath.Join(old, ".template-source/tooling/node/test", m[1]))) + "'"
 	})
 	body := textSource[strings.Index(textSource, "  const f=terminalReviewFixture();"):strings.Index(textSource, "  const input={delivery:")]
 	body = strings.ReplaceAll(body, "t.after(()=>f.cleanup());", "")
 	body = strings.ReplaceAll(body, "base_url:'http://127.0.0.1:1'", "base_url:process.argv[2]")
 	body = strings.ReplaceAll(body, "  const source=path.join", "  f.write('.template-spec/process/harness-profile.yaml',{schema_version:2,profile_id:'harness.spec-template'});\n  const source=path.join")
-	producer := imports + body + `\nimport {importBackendDelivery} from 'file://` + filepath.Join(old, "scripts/lib/backend-delivery.mjs") + `';
+	producer := imports + body + "\n" + `import {importBackendDelivery} from '` + governanceOracleURL(filepath.Join(old, "scripts/lib/backend-delivery.mjs")) + `';
 fs.writeFileSync(path.join(process.argv[1],'CONTEXT.md'),fs.readFileSync(path.join(source,'CONTEXT.md')));
 const imported=await importBackendDelivery({bundle:exported.output,targetRoot:process.argv[1]});
 console.log(JSON.stringify({root:f.root,slice:f.contract.slice_id,acceptance:imported.acceptance_ref,delivery}));`

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,7 +212,13 @@ func (r *resources) walk(value any, parent schemaScope, path string, discover bo
 			if local.Scheme != "file" || local.Host != "" {
 				return fail("SCHEMA_OFFLINE", child, "local schema closure must resolve to a file")
 			}
-			if err := r.load(filepath.FromSlash(local.Path), resolved); err != nil {
+			localPath := local.Path
+			// A Windows file URI contains /C:/..., whereas native filesystem
+			// paths begin C:\...; the URI separator is not a root-relative drive.
+			if runtime.GOOS == "windows" && len(localPath) >= 3 && localPath[0] == '/' && localPath[2] == ':' {
+				localPath = localPath[1:]
+			}
+			if err := r.load(filepath.FromSlash(localPath), resolved); err != nil {
 				return err
 			}
 		}

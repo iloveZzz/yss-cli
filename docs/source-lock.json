@@ -2,7 +2,8 @@
   "schemaVersion": 2,
   "producer": {
     "version": "bundle-producer-v2",
-    "sourceState": "working-tree"
+    "sourceState": "committed",
+    "commit": "e7704d7923ab115a2ef17852ae5198d4a925f91a"
   },
   "profiles": {
     "spec": {

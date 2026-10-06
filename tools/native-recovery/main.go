@@ -141,8 +141,16 @@ func main() {
 	}
 	current, err := os.ReadFile(binary)
 	must(err)
-	report := map[string]any{"schema_version": 1, "kind": "native-process-recovery", "platform": runtime.GOOS + "/" + runtime.GOARCH, "binary_sha256": binaryHash, "input_drift": digest(current) != binaryHash, "status": "passed", "path": "", "unexecuted": []string{}, "cases": cases}
+	drift := digest(current) != binaryHash
+	status := "passed"
+	if drift {
+		status = "failed"
+	}
+	report := map[string]any{"schema_version": 1, "kind": "native-process-recovery", "platform": runtime.GOOS + "/" + runtime.GOARCH, "binary_sha256": binaryHash, "input_drift": drift, "status": status, "path": "", "unexecuted": []string{}, "cases": cases}
 	raw, err := json.MarshalIndent(report, "", "  ")
 	must(err)
 	must(os.WriteFile(filepath.Join(out, "report.json"), append(raw, '\n'), 0644))
+	if drift {
+		panic("native binary changed during recovery verification")
+	}
 }

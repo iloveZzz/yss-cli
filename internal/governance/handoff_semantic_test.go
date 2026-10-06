@@ -170,7 +170,7 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only old oracle unavailable")
 	}
-	old := "/Users/zhudaoming/Projects/yss-spec-project-template"
+	old := governanceOracleRoot(t)
 	if _, e := os.Stat(filepath.Join(old, "scripts/fixtures/strategic-handoff/fixture.mjs")); e != nil {
 		t.Skip("fixed old oracle unavailable")
 	}

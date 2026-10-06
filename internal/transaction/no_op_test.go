@@ -28,6 +28,10 @@ type noOpFile struct {
 }
 
 func noOpTree(t *testing.T, root string) map[string]noOpFile {
+	return noOpTreeWithHeldMutex(t, root, nil)
+}
+
+func noOpTreeWithHeldMutex(t *testing.T, root string, mutex *noOpFile) map[string]noOpFile {
 	t.Helper()
 	out := map[string]noOpFile{}
 	if err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
@@ -45,6 +49,14 @@ func noOpTree(t *testing.T, root string) map[string]noOpFile {
 				return err
 			}
 			v.Digest = safefs.Digest([]byte(link))
+		} else if mutex != nil && filepath.ToSlash(ref) == ".yss/transactions/.lock" {
+			// Windows LockFileEx denies reads of the locked byte range. The
+			// real child readiness proves the lock is held; stat remains checked
+			// here, and exact mutex bytes are compared before/after release.
+			if !info.Mode().IsRegular() || info.Size() != 0 || v.Mode != mutex.Mode || v.MTime != mutex.MTime {
+				return errors.New("held mutex type/size/mode/mtime changed")
+			}
+			v.Digest = mutex.Digest
 		} else if !info.IsDir() {
 			data, err := os.ReadFile(p)
 			if err != nil {
@@ -248,6 +260,7 @@ func TestNoOpHeldLockHelper(t *testing.T) {
 
 func TestNoOpLiveSubprocessLockRefusesWithoutTouchingDiagnostic(t *testing.T) {
 	root := noOpFixture(t)
+	mutexBefore := noOpTree(t, root)[".yss/transactions/.lock"]
 	child := exec.Command(os.Args[0], "-test.run=^TestNoOpHeldLockHelper$")
 	child.Env = append(os.Environ(), "YSS_NOOP_LOCK_ROOT="+root)
 	input, err := child.StdinPipe()
@@ -265,6 +278,7 @@ func TestNoOpLiveSubprocessLockRefusesWithoutTouchingDiagnostic(t *testing.T) {
 	}
 	waited := false
 	t.Cleanup(func() {
+		_ = input.Close()
 		if !waited {
 			_ = child.Process.Kill()
 			_ = child.Wait()
@@ -288,7 +302,7 @@ func TestNoOpLiveSubprocessLockRefusesWithoutTouchingDiagnostic(t *testing.T) {
 	select {
 	case line := <-ready:
 		if line == "" {
-			t.Fatalf("child exited before holding lock: %s", stderr.String())
+			t.Fatal("child exited before holding lock")
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("child did not retain live lock")
@@ -304,11 +318,20 @@ func TestNoOpLiveSubprocessLockRefusesWithoutTouchingDiagnostic(t *testing.T) {
 	if err := json.Unmarshal(raw, &diagnostic); err != nil || diagnostic.PID != child.Process.Pid || diagnostic.Host == "" || len(diagnostic.Token) != 32 {
 		t.Fatalf("normal writer diagnostic missing: %s %v", raw, err)
 	}
-	before := noOpTree(t, root)
+	var heldMutex *noOpFile
+	if runtime.GOOS == "windows" {
+		heldMutex = &mutexBefore
+	}
+	before := noOpTreeWithHeldMutex(t, root, heldMutex)
+	if runtime.GOOS != "windows" && !reflect.DeepEqual(before, noOpTreeWithHeldMutex(t, root, &mutexBefore)) {
+		t.Fatal("held-mutex observation differs from actual readable whole-tree evidence")
+	}
 	if _, err := transaction.ApplyWithGuards(root, "sync", nil, noOpGuard(t, root, "CONTEXT.md")); errorCode(err) != "LOCKED" {
 		t.Fatalf("live mutex bypassed by no-op: %v", err)
 	}
-	assertNoOpTree(t, root, before)
+	if after := noOpTreeWithHeldMutex(t, root, heldMutex); !reflect.DeepEqual(before, after) {
+		t.Fatal("no-op changed held-lock whole-tree bytes/mode/mtime")
+	}
 	if err := input.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -316,6 +339,9 @@ func TestNoOpLiveSubprocessLockRefusesWithoutTouchingDiagnostic(t *testing.T) {
 		t.Fatalf("real held-lock child failed: %v %s", err, stderr.String())
 	}
 	waited = true
+	if mutexAfter := noOpTree(t, root)[".yss/transactions/.lock"]; mutexAfter != mutexBefore {
+		t.Fatalf("real held-lock mutex bytes/mode/mtime changed: before=%+v after=%+v", mutexBefore, mutexAfter)
+	}
 }
 
 func TestNoOpGenuinePendingAndPreparingRefuseWithoutWrites(t *testing.T) {

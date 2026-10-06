@@ -1,9 +1,10 @@
-// Package builds local prerelease archives; it never publishes or creates tags.
+// Package builds prereleases or assembles verified native archives, without publishing.
 package main
 
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/tools/release"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,8 +22,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 4 && os.Args[1] == "--native-manifest" {
+		must(packageNative(os.Args[2], os.Args[3]))
+		return
+	}
 	if len(os.Args) != 2 {
-		panic("用法: go run ./tools/package <仓库外新目录>")
+		panic("用法: go run ./tools/package [--native-manifest <固定原生证据manifest.json>] <仓库外新目录>")
 	}
 	out, e := filepath.Abs(os.Args[1])
 	must(e)
@@ -108,6 +114,57 @@ func main() {
 	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 2, "version": domain.Version, "cliCommit": commit, "sourceState": sourceState, "bundles": sources, "stableReady": false, "pending": []string{"fixed-source-full-template-integration", "six-platform-native-runtime-acceptance"}, "artifacts": records}, "", "  ")
 	must(e)
 	must(os.WriteFile(filepath.Join(out, "checksums.json"), append(b, '\n'), 0644))
+}
+
+func packageNative(input, out string) error {
+	root, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	revision, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		return err
+	}
+	status, err := exec.Command("git", "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil {
+		return err
+	}
+	if len(status) != 0 {
+		return &release.Error{Code: "PROVENANCE", Detail: "stable assembly requires a clean committed source checkout"}
+	}
+	expected := release.Expected{Identity: release.Identity{CLIVersion: domain.Version, ProtocolVersion: domain.ProtocolVersion, CLICommit: strings.TrimSpace(string(revision)), SourceState: "committed", Bundles: map[string]release.BundleIdentity{}}, Documents: map[string][]byte{}, RepositoryRoot: root}
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		b, err := bundle.Inspect(profile)
+		if err != nil {
+			return err
+		}
+		expected.Bundles[profile] = release.BundleIdentity{TemplateVersion: b.TemplateVersion, TemplateCommit: b.TemplateCommit, SourceState: b.SourceState, SourceSnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, BundleHash: b.BundleHash}
+	}
+	for _, ref := range release.Documents {
+		b, err := os.ReadFile(ref)
+		if err != nil {
+			return err
+		}
+		expected.Documents[ref] = b
+	}
+	h := sha256.Sum256(expected.Documents["docs/source-lock.json"])
+	expected.SourceLockSHA256 = hex.EncodeToString(h[:])
+	if err = release.Assemble(input, out, expected); err != nil {
+		return err
+	}
+	current, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		return err
+	}
+	status, err = exec.Command("git", "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, revision) || len(status) != 0 {
+		return &release.Error{Code: "INPUT_DRIFT", Detail: "source changed during assembly; do not publish output"}
+	}
+	fmt.Println(filepath.Join(out, "checksums.json"))
+	return nil
 }
 func makeZip(file string, files map[string][]byte, bin string) error {
 	f, e := os.Create(file)
