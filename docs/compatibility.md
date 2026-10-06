@@ -1,6 +1,6 @@
 # 兼容与验收边界
 
-程序：1.0.0-alpha.3；运行协议：1；Bundle 和 .yss.json 为 schema v2（保留 native metadata v1 校验兼容）。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
+程序：1.0.0-alpha.4；运行协议：1；Bundle 和 .yss.json 为 schema v2（保留 native metadata v1 校验兼容）。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
 
 已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
 
