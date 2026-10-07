@@ -26,7 +26,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计 → 系统 / 数据架构与工程契约 → Ticket 正式化 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：c219b60206d62e0e90e6f5dc585d721b8cf8b8c4；来源摘要：d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5
+  固定模板：5153d60ec657378421f6759b69cb3c02cd3d1512；来源摘要：d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）
   教程：yss help tutorial governed | yss help tutorial daily
 
@@ -119,7 +119,7 @@ Profile 职责:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=c219b60206d62e0e90e6f5dc585d721b8cf8b8c4；registry=d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5；profile=尚未登记；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d
+来源摘要：template=5153d60ec657378421f6759b69cb3c02cd3d1512；registry=d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5；profile=尚未登记；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -210,7 +210,7 @@ Profile 职责:
 
 ```text
 日常交付（Spec）
-来源摘要：template=c219b60206d62e0e90e6f5dc585d721b8cf8b8c4；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d；日常能力=true
+来源摘要：template=5153d60ec657378421f6759b69cb3c02cd3d1512；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d；日常能力=true
 前置条件：当前 Spec 实例启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、独立审查和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 独立审查 → verify-daily。
@@ -249,7 +249,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=c219b60206d62e0e90e6f5dc585d721b8cf8b8c4；registry=d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5；profile=尚未登记；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d
+来源摘要：template=5153d60ec657378421f6759b69cb3c02cd3d1512；registry=d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5；profile=尚未登记；policy=5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 

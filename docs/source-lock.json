@@ -2,15 +2,15 @@
   "schemaVersion": 2,
   "producer": {
     "version": "bundle-producer-v3",
-    "commit": "4cef2cccbd24a9d6b6232b852b86fc03663e04a2",
+    "commit": "a64386db73b8dc1b35f4d22165c3a6c70e20c439",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "c219b60206d62e0e90e6f5dc585d721b8cf8b8c4",
-      "templateVersion": "git:c219b60206d62e0e90e6f5dc585d721b8cf8b8c4",
+      "templateCommit": "5153d60ec657378421f6759b69cb3c02cd3d1512",
+      "templateVersion": "git:5153d60ec657378421f6759b69cb3c02cd3d1512",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "470668400ea5909f20e0b3116ea459ddcefcb765ea95a064374cab9d7a6dd382",
       "legacy": {
