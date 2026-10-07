@@ -1,9 +1,12 @@
 package bundle
 
 import (
+	"bytes"
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 func TestEmbeddedLifecycleProfilesKeepTheirContracts(t *testing.T) {
@@ -37,6 +40,10 @@ func TestEmbeddedLifecycleProfilesKeepTheirContracts(t *testing.T) {
 }
 
 func TestEmbeddedWorkLayoutConsumers(t *testing.T) {
+	expected, err := nativeWorkLayoutAssets.ReadFile("work-layout-assets/scripts/lib/work-layout.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
 		t.Run(profile, func(t *testing.T) {
 			b, e := Load(profile)
@@ -47,7 +54,10 @@ func TestEmbeddedWorkLayoutConsumers(t *testing.T) {
 			if !ok {
 				t.Fatal("initial project lacks configured layout resolver")
 			}
-			raw, _ := base64.StdEncoding.DecodeString(central.Data)
+			raw, e := base64.StdEncoding.DecodeString(central.Data)
+			if e != nil || !bytes.Equal(raw, expected) || central.Digest != b.Files["scripts/lib/work-layout.mjs"].Digest {
+				t.Fatal("initial/full layout module differs from canonical compatibility source")
+			}
 			if !strings.Contains(string(raw), "tracker.root") {
 				t.Fatal("missing tracker authority")
 			}
@@ -66,17 +76,62 @@ func TestEmbeddedWorkLayoutConsumers(t *testing.T) {
 					}
 				}
 			}
-			found := false
 			for _, tr := range b.NativeTransforms {
 				if tr.Path == "scripts/lib/work-layout.mjs" {
-					found = true
-					if !tr.SourceAbsent {
-						t.Fatal("new compatibility module lost source absence provenance")
+					if tr.Generator != "native-work-layout-v1" || tr.OutputDigest != central.Digest || tr.Source.Digest == central.Digest {
+						t.Fatal("layout compatibility transform lost source/output provenance")
+					}
+					if tr.SourceAbsent && tr.Source.Digest != safefs.Digest(nil) {
+						t.Fatal("absent layout source has nonempty original bytes")
 					}
 				}
 			}
-			if !found {
-				t.Fatal("layout module generator provenance absent")
+		})
+	}
+}
+
+func TestNativeWorkLayoutSourceProvenance(t *testing.T) {
+	const ref = "scripts/lib/work-layout.mjs"
+	expected, err := nativeWorkLayoutAssets.ReadFile("work-layout-assets/" + ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name       string
+		original   []byte
+		exists     bool
+		transforms bool
+	}{
+		{name: "old-source-without-module", transforms: true},
+		{name: "canonical-module-already-in-source", original: expected, exists: true},
+		{name: "older-module-in-source", original: []byte("export const workLayout = {};\n"), exists: true, transforms: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := map[string]sourceFile{}
+			if tc.exists {
+				raw[ref] = sourceFile{data: tc.original, mode: 0644}
+			}
+			transforms, err := nativeWorkLayoutSource(raw)
+			if err != nil || !bytes.Equal(raw[ref].data, expected) {
+				t.Fatalf("layout output differs: %v", err)
+			}
+			count := 0
+			for _, tr := range transforms {
+				if tr.Path != ref {
+					continue
+				}
+				count++
+				original, err := tr.Source.Render(nil)
+				if err != nil || !bytes.Equal(original, tc.original) || tr.SourceAbsent != !tc.exists || tr.Generator != "native-work-layout-v1" {
+					t.Fatalf("layout source provenance differs: %+v %v", tr, err)
+				}
+			}
+			want := 0
+			if tc.transforms {
+				want = 1
+			}
+			if count != want {
+				t.Fatalf("layout transform count = %d, want %d", count, want)
 			}
 		})
 	}
