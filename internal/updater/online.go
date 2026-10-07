@@ -131,7 +131,7 @@ func (c UpgradeClient) client() *http.Client {
 func (c UpgradeClient) get(ctx context.Context, address string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
-		return nil, domain.Wrap("NETWORK", err)
+		return nil, domain.Explain(domain.Wrap("NETWORK", err), "RELEASE_REQUEST_INVALID", "固定发行来源请求无法构建。", map[string]any{"source": address, "phase": "request"})
 	}
 	req.Header.Set("User-Agent", "yss/"+domain.Version)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -140,11 +140,11 @@ func (c UpgradeClient) get(ctx context.Context, address string) (*http.Response,
 		if ctx.Err() != nil {
 			return nil, domain.Wrap("CANCELLED", ctx.Err())
 		}
-		return nil, domain.Wrap("NETWORK", err)
+		return nil, domain.Explain(domain.Wrap("NETWORK", err), "RELEASE_REQUEST_FAILED", "连接固定发行来源失败。", map[string]any{"source": address, "phase": "request"})
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fail("NETWORK", fmt.Sprintf("GitHub 返回 HTTP %d；检查网络、版本是否发布或稍后重试", resp.StatusCode))
+		return nil, domain.Explain(fail("NETWORK", fmt.Sprintf("GitHub 返回 HTTP %d；检查网络、版本是否发布或稍后重试", resp.StatusCode)), "RELEASE_HTTP_STATUS", "固定发行来源返回了非成功 HTTP 状态。", map[string]any{"source": address, "phase": "request", "httpStatus": resp.StatusCode})
 	}
 	return resp, nil
 }
@@ -415,7 +415,7 @@ func (c UpgradeClient) download(ctx context.Context, release onlineRelease, path
 		return fail("ARTIFACT", "发行下载实际长度与校验清单不一致")
 	}
 	if hex.EncodeToString(h.Sum(nil)) != release.artifact.SHA256 {
-		return fail("DIGEST", "发行下载 SHA-256 不匹配")
+		return domain.Explain(fail("DIGEST", "发行下载 SHA-256 不匹配"), "RELEASE_CHECKSUM_MISMATCH", "下载文件的 SHA-256 与固定发行校验清单不同，不能安装。", map[string]any{"path": path, "phase": "checksum", "expectedDigest": release.artifact.SHA256, "observedDigest": hex.EncodeToString(h.Sum(nil))})
 	}
 	return f.Sync()
 }

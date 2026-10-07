@@ -14,6 +14,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -330,12 +331,19 @@ func designProfile(v *view) (bool, []string, error) {
 	}
 	return text(m["profile_id"]) == "harness.business-ddd-strategy-handoff", list, nil
 }
-func checkpointFeature(ref string) (string, error) {
-	match := regexp.MustCompile(`^docs/\.scratch/([a-z0-9][a-z0-9-]*)/[^/]+\.(?:json|yaml|yml)$`).FindStringSubmatch(ref)
-	if match == nil {
-		return "", domain.Fail("TRACKING_PATH", "checkpoint 必须位于功能包根目录")
+func viewWorkLayout(v *view) (*worklayout.Layout, error) {
+	config, e := tracker(v)
+	if e != nil {
+		return nil, e
 	}
-	return match[1], nil
+	return worklayout.New(v.root, config)
+}
+func checkpointFeature(v *view, ref string) (string, error) {
+	layout, e := viewWorkLayout(v)
+	if e != nil {
+		return "", e
+	}
+	return layout.CheckpointFeature(ref)
 }
 func asTracking(cp map[string]any) (*StageTracking, error) {
 	if cp["stage_tracking"] == nil {
@@ -394,7 +402,7 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	feature, err := checkpointFeature(ref)
+	feature, err := checkpointFeature(v, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +472,15 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	base := "docs/.scratch/" + feature + "/"
+	layout, err := viewWorkLayout(v)
+	if err != nil {
+		return nil, err
+	}
+	featureRoot, err := layout.FeatureRoot(feature)
+	if err != nil {
+		return nil, err
+	}
+	base := featureRoot + "/"
 	if design {
 		if t.Entry.Kind != "checkpoint" || t.Entry.Ref != ref {
 			return nil, domain.Fail("TRACKING_ENTRY", "design Profile 必须使用 checkpoint 入口")
@@ -719,7 +735,15 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 	if !strings.HasSuffix(cpRef, ".json") {
 		return plan, domain.Fail("UNPORTED", "阶段写入要求显式 JSON checkpoint；YAML 仅只读兼容")
 	}
-	feature, err := checkpointFeature(cpRef)
+	feature, err := checkpointFeature(v, cpRef)
+	if err != nil {
+		return plan, err
+	}
+	layout, err := viewWorkLayout(v)
+	if err != nil {
+		return plan, err
+	}
+	featureRoot, err := layout.FeatureRoot(feature)
 	if err != nil {
 		return plan, err
 	}
@@ -748,7 +772,7 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 		}
 	}
 	if tracking == nil {
-		entry := TrackingEntry{"parent-ticket", "docs/.scratch/" + feature + "/parent-ticket.md"}
+		entry := TrackingEntry{"parent-ticket", featureRoot + "/parent-ticket.md"}
 		if design {
 			entry = TrackingEntry{"checkpoint", cpRef}
 		}
@@ -901,7 +925,7 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 			item.SplitReasons = append(item.SplitReasons, "different-owner")
 		}
 		if len(item.SplitReasons) > 0 && item.DefinitionRef == "" {
-			ref := "docs/.scratch/" + feature + "/work-items/" + item.ID + ".md"
+			ref := featureRoot + "/work-items/" + item.ID + ".md"
 			d, err := v.watch(ref)
 			if err != nil {
 				return plan, err
@@ -944,7 +968,7 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 			}
 		}
 	}
-	mapRef := "docs/.scratch/" + feature + "/map.md"
+	mapRef := featureRoot + "/map.md"
 	d, err := v.watch(mapRef)
 	if err != nil {
 		return plan, err
@@ -1077,7 +1101,19 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 			return nil, err
 		}
 		if fresh.PlanDigest != plan.PlanDigest {
-			return nil, domain.Fail("INPUT_DRIFT", "计划已过期，重新登记计划")
+			changed := []string{}
+			for ref, before := range plan.Observed {
+				if now, ok := fresh.Observed[ref]; !ok || before != now {
+					changed = append(changed, ref)
+				}
+			}
+			for ref := range fresh.Observed {
+				if _, ok := plan.Observed[ref]; !ok {
+					changed = append(changed, ref)
+				}
+			}
+			sort.Strings(changed)
+			return nil, domain.Explain(domain.Fail("INPUT_DRIFT", "计划已过期，重新登记计划"), "SAVED_STAGE_PLAN_CHANGED", "阶段计划绑定的输入已变化，需重新登记并保存计划。", map[string]any{"root": root, "checkpoint": plan.CheckpointRef, "file": plan.InputRef, "planAction": plan.Action, "affectedInputs": changed})
 		}
 		tx, err := transaction.ApplyContextWithGuards(ctx, root, "stage-"+plan.Action, plan.Operations, plan.Observed)
 		if err != nil {

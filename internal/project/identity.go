@@ -90,7 +90,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 			continue
 		}
 		if found != "" {
-			return nil, domain.Fail("IDENTITY", "检测到多个家族 metadata，拒绝混用")
+			return nil, domain.Explain(domain.Fail("IDENTITY", "检测到多个家族 metadata，拒绝混用"), "PROFILE_IDENTITY_CONFLICT", "同一目录包含多个 Profile 的身份元数据。", map[string]any{"root": root, "profiles": []string{found, name}})
 		}
 		found = name
 		v, err := load(root, p.Metadata)
@@ -103,7 +103,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		}
 		ver := number(m["metadataSchemaVersion"])
 		if (name == "spec" && ver != 3) || (name != "spec" && ver != 2) {
-			return nil, domain.Fail("LEGACY", "旧 metadata schema 尚未迁移；请使用原 CLI 检查和恢复")
+			return nil, domain.Explain(domain.Fail("LEGACY", "旧 metadata schema 尚未迁移；请使用原 CLI 检查和恢复"), "LEGACY_SCHEMA_UNSUPPORTED", "旧实例元数据格式需要显式迁移；历史未完成事务须先由固定旧执行器恢复。", map[string]any{"root": root, "metadataFile": p.Metadata, "metadataSchema": ver})
 		}
 		if text(m["templateSource"]) != p.TemplateSource || (name != "spec" && text(m["profileId"]) != p.ID) {
 			return nil, domain.Fail("IDENTITY", "metadata 身份矛盾")
@@ -158,7 +158,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 			return nil, err
 		}
 		if found != "" && found != explicit {
-			return nil, domain.Fail("IDENTITY", "显式 Profile 与项目身份不匹配")
+			return nil, domain.Explain(domain.Fail("IDENTITY", "显式 Profile 与项目身份不匹配"), "PROFILE_IDENTITY_CONFLICT", "显式选择的 Profile 与实际项目身份不同。", map[string]any{"root": root, "expectedProfile": found, "requestedProfile": explicit})
 		}
 		found = explicit
 	}
@@ -166,7 +166,11 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		if allowAbsent {
 			return out, nil
 		}
-		return nil, domain.Fail("IDENTITY", "缺少可识别的 Profile metadata")
+		id, cause := "PROJECT_METADATA_MISSING", "项目目录未包含可识别的 Profile 元数据。"
+		if _, e := os.Lstat(root); os.IsNotExist(e) {
+			id, cause = "PROJECT_ROOT_NOT_FOUND", "指定的项目目录不存在。"
+		}
+		return nil, domain.Explain(domain.Fail("IDENTITY", "缺少可识别的 Profile metadata"), id, cause, map[string]any{"root": root})
 	}
 	out.Profile = domain.Profiles[found]
 	hasIdentity, err := exists(root, "yss-project.yaml")

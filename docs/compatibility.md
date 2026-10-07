@@ -1,6 +1,12 @@
 # 兼容与验收边界
 
-程序：1.2.0；运行协议：1；Bundle 和 .yss.json 为 schema v2（保留 native metadata v1 校验兼容）。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
+呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
+
+程序兼容基线：1.2.0；运行协议和 JSON envelope：1；升级计划：v2；Bundle 和 .yss.json：v3（保留 native metadata v1/v2 识别与历史原生事务恢复）。旧保存计划可以诊断，应用返回 `PLAN_VERSION`，须重新生成。来源锁继续使用 schema v2。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
+
+`attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
+
+Bundle 生产器按固定 Git 对象取源；`native-upgrade-v3` 兼容生成器使用 CLI 中已审查的输入，为旧快照提供 v3 metadata 读取脚本和升级指引。`nativeTransforms` 记录源字节与输出摘要，归档保留两者；原模板提交及快照摘要仍指向旧固定来源，生成器来源另由 producer 记录。当前工作树 producer 只能交付 implementation-ready，不能作为 committed-source 发行证据。
 
 已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
 

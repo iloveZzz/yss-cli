@@ -250,7 +250,11 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 		}
 		apTestPut(t, root, ref, raw)
 	}
-	const cpRef = "docs/.scratch/feature-demo/checkpoint.json"
+	layout, err := viewWorkLayout(apTestSession(t, root).v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpRef := layout.Root + "/feature-demo/checkpoint.json"
 	cp := map[string]any{"schema_version": 1, "repository_mode": "project-instance", "feature_id": "feature-demo", "mode": "audit", "status": "running", "stage": "stage.entry-triage", "artifacts": map[string]any{}, "gates": map[string]any{}, "context_reconciliation": map[string]any{"status": "pending", "ref": nil, "evidence_refs": []any{}}, "next_work_unit": nil, "ticket_sync": map[string]any{}, "verification": map[string]any{"commands": []any{}, "evidence_refs": []any{"tactical-consumption-valid.json"}}, "human_review": map[string]any{}, "git_checkpoint": map[string]any{}, "blockers": []any{}, "rollback": []any{}}
 	apTestPut(t, root, cpRef, cp)
 	if report, err := RunContext(context.Background(), "project-ci", "verify", root, nil); err != nil {
@@ -259,7 +263,7 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 	contractTestRetainFixture(t, root, "complete-ci-handoff-consumption", map[string]any{"group": "project-ci", "action": "verify", "isolate_root": true, "expected_exit": 0})
 	cp["verification"] = map[string]any{"commands": []any{}, "evidence_refs": []any{"tactical-consumption-stale.json"}}
 	apTestPut(t, root, cpRef, cp)
-	_, err := RunContext(context.Background(), "project-ci", "verify", root, nil)
+	_, err = RunContext(context.Background(), "project-ci", "verify", root, nil)
 	apTestCode(t, err, "PROJECT_CI_REJECTED")
 	contractTestRetainFixture(t, root, "complete-ci-handoff-consumption-refusal", map[string]any{"group": "project-ci", "action": "verify", "isolate_root": true, "expected_exit": 1})
 	apTestPut(t, root, "package/unregistered.txt", "extra bytes")

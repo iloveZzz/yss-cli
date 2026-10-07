@@ -99,7 +99,8 @@
       "scripts/verify-yss-dto-openapi-scenarios",
       "scripts/verify-yss-router-scenarios",
       "scripts/verify-yss-ui-scenarios",
-      "scripts/instantiate-harness"
+      "scripts/instantiate-harness",
+      ".work"
     ],
     "renderPaths": [
       "AGENTS.md",

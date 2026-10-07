@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string) error {
 	if e != nil {
 		return e
 	}
-	result := map[string]any{"schemaVersion": 2, "profiles": map[string]any{}, "gzipHashes": hashes}
+	result := map[string]any{"schemaVersion": 3, "profiles": map[string]any{}, "gzipHashes": hashes}
 	profiles := result["profiles"].(map[string]any)
 	for key, b := range bundles {
 		profiles[key] = map[string]any{"templateCommit": b.TemplateCommit, "templateVersion": b.TemplateVersion, "sourceState": b.SourceState, "sourceSnapshotHash": b.SnapshotHash, "manifestHash": b.ManifestHash, "bundleHash": b.BundleHash, "sourcePolicy": b.SourcePolicy, "files": len(b.Files), "initialFiles": len(b.Initial)}

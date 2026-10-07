@@ -20,6 +20,9 @@ type FileDescriptor struct {
 	Size      int    `json:"size"`
 }
 type Inspection struct {
+	NativeTransforms  []TransformDescriptor     `json:"nativeTransforms,omitempty"`
+	Upgrade           *UpgradePolicy            `json:"upgradePolicy,omitempty"`
+	Initial           map[string]FileDescriptor `json:"initial"`
 	Legacy            LegacyLineage             `json:"legacy,omitempty"`
 	SchemaVersion     int                       `json:"schemaVersion"`
 	Profile           string                    `json:"profile"`
@@ -39,6 +42,13 @@ type Inspection struct {
 	InitialPaths      []string                  `json:"initialPaths"`
 	StageRequirements any                       `json:"stageRequirements,omitempty"`
 	SkillRequirements any                       `json:"skillRequirements,omitempty"`
+}
+type TransformDescriptor struct {
+	Path         string `json:"path"`
+	Generator    string `json:"generator"`
+	SourceDigest string `json:"sourceDigest"`
+	OutputDigest string `json:"outputDigest"`
+	SourceAbsent bool   `json:"sourceAbsent,omitempty"`
 }
 type ExportResult struct {
 	Inspection   *Inspection      `json:"inspection"`
@@ -77,6 +87,18 @@ func inspectBundle(b *Bundle) (*Inspection, error) {
 			return nil, e
 		}
 		i.Files[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: len(data)}
+	}
+	i.Upgrade = b.Upgrade
+	for _, t := range b.NativeTransforms {
+		i.NativeTransforms = append(i.NativeTransforms, TransformDescriptor{Path: t.Path, Generator: t.Generator, SourceDigest: t.Source.Digest, OutputDigest: t.OutputDigest, SourceAbsent: t.SourceAbsent})
+	}
+	i.Initial = map[string]FileDescriptor{}
+	for p, f := range b.Initial {
+		data, e := base64.StdEncoding.DecodeString(f.Data)
+		if e != nil {
+			return nil, e
+		}
+		i.Initial[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: len(data)}
 	}
 	return i, nil
 }
@@ -129,7 +151,7 @@ func Export(ctx context.Context, profile, out string) (result *ExportResult, err
 		if e = ctx.Err(); e != nil {
 			return nil, e
 		}
-		if ref == ".yss-bundle.json" {
+		if ref == ".yss-bundle.json" || ref == SnapshotFile {
 			return nil, fmt.Errorf("reserved bundle manifest path")
 		}
 		f := b.Files[ref]
@@ -175,6 +197,21 @@ func Export(ctx context.Context, profile, out string) (result *ExportResult, err
 	}
 	_, e = f.Write(manifest)
 	if ce := f.Close(); e == nil {
+		e = ce
+	}
+	if e != nil {
+		return nil, e
+	}
+	snapshot, e := json.Marshal(b)
+	if e != nil {
+		return nil, e
+	}
+	sf, e := root.OpenFile(SnapshotFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if e != nil {
+		return nil, e
+	}
+	_, e = sf.Write(append(snapshot, '\n'))
+	if ce := sf.Close(); e == nil {
 		e = ce
 	}
 	if e != nil {

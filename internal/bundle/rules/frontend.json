@@ -58,7 +58,8 @@
       "docs/reviews",
       "docs/adr",
       "scripts/instantiate-harness",
-      "scripts/verify-strategic-handoff-tools-lock"
+      "scripts/verify-strategic-handoff-tools-lock",
+      ".work"
     ],
     "renderPaths": [
       "README.md",

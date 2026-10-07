@@ -26,7 +26,7 @@ func Path(root, ref string) (string, error) {
 		ancestor = filepath.Join(ancestor, part)
 		st, e := os.Lstat(ancestor)
 		if e == nil && (!st.IsDir() || st.Mode()&os.ModeSymlink != 0) {
-			return "", domain.Fail("PATH", "项目根路径必须由普通目录组成")
+			return "", domain.Explain(domain.Fail("PATH", "项目根路径必须由普通目录组成"), "UNSAFE_ROOT_COMPONENT", "项目根的路径组件包含符号链接或非目录节点。", map[string]any{"root": root, "path": ancestor})
 		}
 		if e != nil && !os.IsNotExist(e) {
 			return "", e
@@ -35,7 +35,7 @@ func Path(root, ref string) (string, error) {
 	cur := root
 	info, err := os.Lstat(root)
 	if err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return "", domain.Fail("PATH", "项目根不可为符号链接")
+		return "", domain.Explain(domain.Fail("PATH", "项目根不可为符号链接"), "UNSAFE_ROOT_COMPONENT", "项目根是符号链接。", map[string]any{"root": root})
 	}
 	if err != nil && !os.IsNotExist(err) {
 		return "", err

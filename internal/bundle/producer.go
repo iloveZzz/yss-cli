@@ -67,6 +67,7 @@ type Entries struct {
 	Skills   []string `json:"skills,omitempty"`
 }
 type Policy struct {
+	Upgrade       *UpgradePolicy     `json:"upgradePolicy,omitempty"`
 	SchemaVersion int                `json:"schemaVersion"`
 	Profile       string             `json:"profile"`
 	Manifest      map[string]any     `json:"manifest"`
@@ -159,16 +160,28 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		s.TemplateVersion = "git:" + s.Commit
 	}
 	if s.Producer.Version == "" {
-		s.Producer = Provenance{Version: "bundle-producer-v2", SourceState: "unspecified"}
+		s.Producer = Provenance{Version: "bundle-producer-v3", SourceState: "unspecified"}
 	}
 	manifestBytes, _ := json.Marshal(policy.Manifest)
-	b := &Bundle{SchemaVersion: 2, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: "committed", ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
+	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: "committed", ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
+	if b.Upgrade == nil {
+		b.Upgrade = DefaultUpgradePolicy()
+	}
 	snapshot := map[string]File{}
 	for ref, f := range raw {
 		snapshot[ref] = encodedFile(f.data, f.mode, "")
 	}
 	encoded, _ := json.Marshal(snapshot)
 	b.SnapshotHash = safefs.Digest(encoded)
+	transforms, e := nativeUpgradeSource(raw)
+	if e != nil {
+		return nil, e
+	}
+	layoutTransforms, e := nativeWorkLayoutSource(raw)
+	if e != nil {
+		return nil, e
+	}
+	transforms = append(transforms, layoutTransforms...)
 	renderSet := stringSet(stringsFrom(policy.Manifest["renderPaths"]))
 	for ref, f := range raw {
 		if !includedByManifest(ref, policy.Manifest, true) {
@@ -186,6 +199,12 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 			}
 		}
 		b.Files[ref] = encodedFile(nativeGuidance(s.Profile, ref, data), f.mode, ownership(s.Profile, ref, policy.Manifest))
+	}
+	for _, t := range transforms {
+		if f, included := b.Files[t.Path]; included {
+			t.OutputDigest = f.Digest
+			b.NativeTransforms = append(b.NativeTransforms, t)
+		}
 	}
 	if e = bindBuiltSkillLock(b.Files); e != nil {
 		return nil, e
@@ -248,8 +267,8 @@ func WriteBuilt(out string, bundles map[string]*Bundle) (map[string]string, erro
 		if e := validate(b, p); e != nil {
 			return nil, e
 		}
-		if b.SchemaVersion != 2 || b.BundleHash != contentHash(b) {
-			return nil, fmt.Errorf("bundle v2 content hash mismatch")
+		if b.SchemaVersion < 2 || b.BundleHash != contentHash(b) {
+			return nil, fmt.Errorf("bundle content hash mismatch")
 		}
 		raw, e := json.Marshal(b)
 		if e != nil {
@@ -545,7 +564,7 @@ func ownership(profile, ref string, m map[string]any) string {
 		}
 		user = user || !managed
 	} else {
-		for _, prefix := range []string{"docs/.scratch", "docs/reviews", "docs/releases", "docs/requirements", "docs/implementation", "docs/api", "docs/adr"} {
+		for _, prefix := range []string{".work", "docs/.scratch", "docs/reviews", "docs/releases", "docs/requirements", "docs/implementation", "docs/api", "docs/adr"} {
 			user = user || beneath(ref, prefix)
 		}
 	}

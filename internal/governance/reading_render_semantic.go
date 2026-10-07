@@ -240,11 +240,18 @@ type readingBuild struct {
 }
 
 func (s *semanticSession) buildReading(cpRef string) (*readingBuild, error) {
-	match := regexp.MustCompile(`^docs/\.scratch/([a-z0-9][a-z0-9-]*)/[^/]+\.(yaml|json)$`).FindStringSubmatch(cpRef)
-	if match == nil {
-		return nil, s.reject("READING_PATH", "managed checkpoint 路径非法")
+	layout, err := viewWorkLayout(s.v)
+	if err != nil {
+		return nil, err
 	}
-	base := "docs/.scratch/" + match[1]
+	feature, err := layout.CheckpointFeature(cpRef)
+	if err != nil {
+		return nil, s.reject("READING_PATH", err.Error())
+	}
+	base, err := layout.FeatureRoot(feature)
+	if err != nil {
+		return nil, err
+	}
 	directory := base + "/reading"
 	b := &readingBuild{Outputs: map[string]string{}, ProjectRefs: map[string]any{}, ToolRefs: map[string]any{}, Renderer: map[string]any{}}
 	project := func(ref string) ([]byte, error) {

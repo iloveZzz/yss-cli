@@ -484,7 +484,11 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 func (s *semanticSession) ciApprovalOwners() (map[string][]string, error) {
 	owners := map[string][]string{}
 	refs := []string{}
-	for _, root := range []string{"docs", ".yss"} {
+	layout, err := viewWorkLayout(s.v)
+	if err != nil {
+		return nil, err
+	}
+	for _, root := range uniqueStrings(append(append([]string{}, layout.ScanRoots...), "docs", ".yss")) {
 		files, err := s.scan(root)
 		if err != nil {
 			return nil, err

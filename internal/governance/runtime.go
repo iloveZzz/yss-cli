@@ -19,6 +19,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	_ "modernc.org/sqlite"
 )
 
@@ -76,7 +77,11 @@ func protectedRoots(root string) ([]string, error) {
 		}
 		return nil
 	}
-	for _, ref := range []string{"docs", ".scratch", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project"} {
+	scanRoots, err := worklayout.ReadScanRoots(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range append(scanRoots, "docs", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project") {
 		p, err := safefs.Path(root, ref)
 		if err != nil {
 			return nil, err

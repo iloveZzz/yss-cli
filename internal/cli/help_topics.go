@@ -1,14 +1,15 @@
 package cli
 
 const projectFlags = "--root <目录>  项目根，默认当前目录；推荐显式指定\n--profile <spec|design|backend|frontend>  必需或从项目身份检测"
+const upgradeFlags = "--review-out <新目录>  项目外审查材料与决议模板\n--base-bundle <路径>  离线历史 Bundle 完整材料\n--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划"
 const planFlags = "--plan --out <新文件>  生成保存计划，输出文件必须不存在\n--apply --plan-file <文件>  应用保存计划；输入变化时拒绝"
 const governanceNotes = "读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。"
 
 // The registry is shared by root, group and leaf help. It describes public
 // behavior only; command execution and its authority checks remain unchanged.
 func init() {
-	helpTopics["attach"] = helpTopic{"接管已有工程的模板受管资产。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n--full  选择完整资源集合\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
-	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。", false}
+	helpTopics["attach"] = helpTopic{"首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags + "\n--full  选择完整资源集合\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
+	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。", false}
 	for _, action := range []string{"doctor", "diff"} {
 		summary := "检查项目身份、受管基线和冲突。"
 		if action == "diff" {
@@ -87,8 +88,8 @@ func registerGovernanceHelp() {
 	})
 	registerGroup("lifecycle", "查询阶段、工作单元、日常路由及当前门禁。", "--root <目录>", projectFlags, "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", governanceNotes, map[string]helpTopic{
 		"query":        {"查询注册表中的稳定 ID。", "[--id <ID>]", "--id / --work-unit / --stage  选择注册对象", "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", "", true},
-		"status":       {"读取 checkpoint 当前状态。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint", "yss lifecycle status --root ./demo-spec --checkpoint docs/.scratch/feature/checkpoint.yaml --json", "", true},
-		"verify":       {"核验当前 checkpoint 的领域门禁。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint\n--history  仅历史结构，不授予当前放行\n--home / --run-dir / --tool-root / --template-checkout  独立依赖来源", "yss lifecycle verify --root ./demo-spec --checkpoint docs/.scratch/feature/checkpoint.yaml --json", "", true},
+		"status":       {"读取 checkpoint 当前状态。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint", "yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "", true},
+		"verify":       {"核验当前 checkpoint 的领域门禁。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint\n--history  仅历史结构，不授予当前放行\n--home / --run-dir / --tool-root / --template-checkout  独立依赖来源", "yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "", true},
 		"route":        dailyHelp("只读判定日常或正式交付路径。", "route"),
 		"verify-daily": dailyHelp("核验同一日常任务的当前差异、测试和独立审查。", "verify-daily"),
 	})
@@ -96,10 +97,10 @@ func registerGovernanceHelp() {
 		"query": {"查询阶段或 checkpoint 中的工作项。", "[--checkpoint <文件>] [--id <ID>]", "无 checkpoint: --id / --stage  阶段 ID\n有 checkpoint: --id  工作项 ID；--work-unit / --stage 筛选尚未支持", "yss stage query --root ./demo-spec --id stage.spec-architecture --json", "", true},
 	}
 	for _, action := range []string{"status", "check"} {
-		stage[action] = helpTopic{"读取并校验当前阶段工作项。", "--checkpoint <文件>", "--checkpoint / --file  已存在的 checkpoint", "yss stage " + action + " --root ./demo-spec --checkpoint docs/.scratch/feature/checkpoint.yaml --json", governanceNotes, true}
+		stage[action] = helpTopic{"读取并校验当前阶段工作项。", "--checkpoint <文件>", "--checkpoint / --file  已存在的 checkpoint", "yss stage " + action + " --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", governanceNotes, true}
 	}
 	for _, action := range []string{"register", "update", "plan"} {
-		stage[action] = helpTopic{"生成阶段工作项写入计划。", "--checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]", "--checkpoint / --file  已存在的 checkpoint\n--items / --item  合同规定的工作项 JSON\n默认只输出计划；保存计划必须位于项目内\n--apply --plan-file  应用已保存计划\n--refresh 尚未支持，返回 UNPORTED", "yss stage " + action + " --root ./demo-spec --checkpoint docs/.scratch/feature/checkpoint.yaml --items docs/work-items.json > ./demo-spec/docs/stage-plan.json\nyss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", "使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。", true}
+		stage[action] = helpTopic{"生成阶段工作项写入计划。", "--checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]", "--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读\n--items / --item  合同规定的工作项 JSON\n默认只输出计划；保存计划必须位于项目内\n--apply --plan-file  应用已保存计划\n--refresh 尚未支持，返回 UNPORTED", "yss stage " + action + " --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json\nyss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", "使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。", true}
 	}
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes, true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
@@ -127,7 +128,7 @@ func registerGovernanceHelp() {
 		ci[action] = helpTopic{"生成有限原生 CI 安装计划。", "--scope native-go --cli-source <路径> [--provider github]", "--scope native-go  必需\n--provider github  当前唯一支持的 provider，默认 github\n--branch  默认项目配置分支或 main\n--cli-source  必需；项目内已存在的固定 Go CLI 源码目录\n--additional-path  CI 补充路径\n默认只输出计划；--apply --plan-file 应用保存计划", "yss project-ci " + action + " --root ./demo-spec --scope native-go --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json\nyss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-plan.json --json", "先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI 不替代完整治理；保存原始计划时不加 --json。", true}
 	}
 	ci["apply"] = helpTopic{"应用有限原生 CI 保存计划。", "--scope native-go --plan-file <文件>", "--scope native-go  必需\n--plan-file  项目内原始写入计划", "yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-plan.json --json", governanceNotes, true}
-	ci["transition"] = helpTopic{"核验工作单元流转条件。", "--scope native-go --checkpoint <文件> [--next-work-unit <ID>]", "--scope native-go  必需\n--checkpoint / --file  当前 checkpoint\n--current-work-unit / --next-work-unit  默认读取 checkpoint", "yss project-ci transition --root ./demo-spec --scope native-go --checkpoint docs/.scratch/feature/checkpoint.yaml --json", "仅核验已存在的当前门禁，不创建批准、不自动推进工作单元。", true}
+	ci["transition"] = helpTopic{"核验工作单元流转条件。", "--scope native-go --checkpoint <文件> [--next-work-unit <ID>]", "--scope native-go  必需\n--checkpoint / --file  当前 checkpoint\n--current-work-unit / --next-work-unit  默认读取 checkpoint", "yss project-ci transition --root ./demo-spec --scope native-go --checkpoint .work/feature/checkpoint.yaml --json", "仅核验已存在的当前门禁，不创建批准、不自动推进工作单元。", true}
 	registerGroup("project-ci", "核验或配置项目 CI。", "--root <目录>", projectFlags, "yss project-ci check --root ./demo-spec --runtime-store off --json", governanceNotes, ci)
 	run := map[string]helpTopic{}
 	for _, action := range []string{"inspect", "run", "events", "commands", "pins"} {
@@ -173,7 +174,7 @@ func dailyHelp(summary, action string) helpTopic {
 	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <完整SHA>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位基线 SHA；不接受缩写", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base <完整40位SHA> --json", "只支持已启用对应政策的 Spec 实例；其他 Profile 不支持日常路径。已有正式任务不得降级。", false}
 }
 
-const tutorial = `YSS 离线入门教程
+const maintenanceTutorial = `YSS 离线入门教程
 
 1. 查看程序与选择模板
    yss version --json

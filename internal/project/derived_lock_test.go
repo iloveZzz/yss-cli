@@ -324,16 +324,9 @@ func TestDerivedLockDoesNotAdoptUnmanagedAttachLockOrOtherGeneratedFiles(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Apply(p); err != nil {
-			t.Fatal(err)
-		}
 		before := lockTree(t, root, true)
-		p, err = Build(root, "spec", "skills", nil, lockSelection(t, "skills", "tdd"))
-		if err != nil {
-			t.Fatal(err)
-		}
 		if _, err := Apply(p); lockCode(err) != "CONFLICT" {
-			t.Fatalf("unmanaged lock accepted as updatable: %v", err)
+			t.Fatalf("first attach silently adopted an unmanaged generated lock: %v", err)
 		}
 		if !reflect.DeepEqual(before, lockTree(t, root, true)) {
 			t.Fatal("unmanaged lock refusal wrote assets")

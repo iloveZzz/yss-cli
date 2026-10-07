@@ -20,6 +20,8 @@ type File struct {
 	Ownership string `json:"ownership"`
 }
 type Bundle struct {
+	NativeTransforms  []NativeTransform      `json:"nativeTransforms,omitempty"`
+	Upgrade           *UpgradePolicy         `json:"upgradePolicy,omitempty"`
 	Legacy            LegacyLineage          `json:"legacy,omitempty"`
 	SchemaVersion     int                    `json:"schemaVersion"`
 	TemplateVersion   string                 `json:"templateVersion,omitempty"`
@@ -61,7 +63,7 @@ func Load(profile string) (*Bundle, error) {
 	if err = validate(&out, profile); err != nil {
 		return nil, err
 	}
-	if out.SchemaVersion == 2 && out.BundleHash != contentHash(&out) {
+	if out.SchemaVersion >= 2 && out.BundleHash != contentHash(&out) {
 		return nil, domain.Fail("BUNDLE", "Bundle 摘要不一致")
 	}
 	return &out, nil
@@ -82,7 +84,7 @@ func (f File) Render(vars map[string]string) ([]byte, error) {
 }
 
 func validate(out *Bundle, profile string) error {
-	if (out.SchemaVersion != 1 && out.SchemaVersion != 2) || out.Profile != profile || out.SourceState != "committed" {
+	if (out.SchemaVersion < 1 || out.SchemaVersion > 3) || out.Profile != profile || out.SourceState != "committed" {
 		return domain.Fail("BUNDLE", "快照身份或来源不合法")
 	}
 	if out.Initial == nil {
@@ -111,10 +113,21 @@ func validate(out *Bundle, profile string) error {
 			return domain.Fail("BUNDLE", "初始化不属于完整快照: "+ref)
 		}
 	}
-	if out.SchemaVersion == 2 {
+	if out.SchemaVersion >= 2 {
 		if out.TemplateVersion == "" || !fullCommit.MatchString(out.TemplateCommit) || out.SourcePolicy.Digest == "" {
 			return domain.Fail("BUNDLE", "v2来源身份缺失")
 		}
+	}
+	if out.SchemaVersion == 3 && out.Upgrade == nil {
+		return domain.Fail("BUNDLE", "Bundle v3 缺少升级政策")
+	}
+	if out.Upgrade != nil {
+		if err := out.Upgrade.Validate(out); err != nil {
+			return err
+		}
+	}
+	if err := validateNativeTransforms(out); err != nil {
+		return err
 	}
 	for _, req := range out.StageRequirements {
 		for _, p := range req.Paths {

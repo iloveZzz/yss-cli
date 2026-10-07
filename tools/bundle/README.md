@@ -8,6 +8,6 @@ Source lock 使用 `schemaVersion: 2`；四个 `profiles` 的 key 必须为 `spe
 
 政策是声明式入口规则：`manifest` 定义允许根、排除项、渲染入口和 ownership；Spec 的 `common` 与 `stages` 定义资产入口。模块 imports、Schema refs 与 Skill 资源引用通过 Go 计算闭包。允许根下新增已提交文件会进入下一个完整 bundle，无需冻结全文件名清单。仅将 `.codex/.cursor/.pi/skills/<name>` 指向同名 `.agents/skills/<name>` 的安全 Git 投影展开为普通文件；其他源符号链及不可移植路径拒绝。
 
-`bundle.Inspect(profile)` 返回同二进制完整 manifest、provenance、分发和每个文件的摘要、权限、ownership、字节长度，不含私有源码入口。`bundle.Export(ctx,profile,out)` 要求新普通目录，拒绝符号链祖先、已有目标及不安全路径；输出全部原始资产 bytes/mode 和 `.yss-bundle.json`（Inspection）。它不替代 init 的实例变量渲染。
+`bundle.Inspect(profile)` 返回同二进制完整 manifest、provenance、分发和每个文件的摘要、权限、ownership、字节长度，不含私有源码入口。`bundle.Export(ctx,profile,out)` 要求新普通目录，拒绝符号链祖先、已有目标及不安全路径；输出资产 bytes/mode、`.yss-bundle.json`（Inspection）和 `.yss-bundle.snapshot.json`（完整 JSON Bundle，包含 full/initial 变体与来源材料）。它不替代 init 的实例变量渲染。`attach`、`sync`、`migrate plan` 的 `--base-bundle` 可显式读取该导出目录或完整 JSON 文件，最大 128MiB；默认不联网，不接受内部 gzip 资产作为公开输入。
 
-程序 JSON 协议、bundle schema v2、模板版本与 legacy lineage 分开。新的实例入口文案使用 `yss assets/skills ensure --plan --out` 和 `--apply --plan-file`，保留生物人审批和业务资产保护边界。完整旧源 oracle 比对已覆盖文件 bytes/mode/ownership、Spec 初始资产及阶段/Skill 依赖；原生命令文案是明确记录的行为迁移差异。
+程序 JSON envelope 与运行协议继续使用 v1；Bundle/metadata 使用 v3，保存计划使用 v2，source lock 仍为 v2。模板版本与 legacy lineage 单独登记。旧 metadata 和历史事务可识别及恢复；旧保存计划应用返回 `PLAN_VERSION`，要求重新生成。新的实例入口文案使用 `yss assets/skills ensure --plan --out` 和 `--apply --plan-file`，保留生物人审批和业务资产保护边界。完整旧源 oracle 比对覆盖文件 bytes/mode/ownership、Spec 初始资产及阶段/Skill 依赖；原生命令文案是明确记录的行为迁移差异。

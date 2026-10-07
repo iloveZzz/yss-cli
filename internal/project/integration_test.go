@@ -8,7 +8,9 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +36,21 @@ func TestFourProfilesInitRepeatSyncAndWholeRollback(t *testing.T) {
 			if _, e = Apply(p); e != nil {
 				t.Fatal(e)
 			}
+			trackerBytes, e := os.ReadFile(filepath.Join(root, ".template-spec/agents/issue-tracker.md"))
+			if e != nil || !strings.Contains(string(trackerBytes), "root: .work") {
+				t.Fatalf("new default root: %s %v", trackerBytes, e)
+			}
+			if out, e := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); e != nil {
+				t.Fatalf("%s %v", out, e)
+			}
+			for _, ref := range []string{".work/report/spec.md", ".work/report/gates/approval.yaml", ".work/report/verification/build.log"} {
+				if ignored, e := workIgnoredTarget(root, ref); e != nil || ignored {
+					t.Fatalf("durable asset ignored %s: %v", ref, e)
+				}
+			}
+			if ignored, e := workIgnoredTarget(root, ".work/report/cache/temp.json"); e != nil || !ignored {
+				t.Fatal("rebuildable cache not ignored")
+			}
 			id, e := Detect(root, "", false)
 			if e != nil {
 				t.Fatal(e)
@@ -43,7 +60,7 @@ func TestFourProfilesInitRepeatSyncAndWholeRollback(t *testing.T) {
 				if e != nil {
 					t.Fatal(e)
 				}
-				if b.SchemaVersion == 2 {
+				if b.SchemaVersion >= 2 {
 					return "git:" + b.TemplateCommit
 				}
 				return domain.Profiles[name].LegacyVersion

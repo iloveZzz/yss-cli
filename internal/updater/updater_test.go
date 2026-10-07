@@ -29,6 +29,35 @@ func root(t *testing.T) string {
 func fixture(t *testing.T, files map[string][]byte, platform string) (string, string) {
 	return fixtureManifest(t, files, platform, nil)
 }
+
+// Stable-package parser fixtures model a committed producer explicitly. The
+// checkout's Bundle producer may be an unqualified working-tree candidate;
+// these synthetic bytes never serve as a release qualification receipt.
+func committedPackageInputs(t *testing.T) ([]byte, map[string]*bundle.Inspection) {
+	t.Helper()
+	raw, err := os.ReadFile("../../docs/source-lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock bundle.SourceLock
+	if err = json.Unmarshal(raw, &lock); err != nil {
+		t.Fatal(err)
+	}
+	lock.Producer.SourceState = "committed"
+	raw, err = json.Marshal(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspections := map[string]*bundle.Inspection{}
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		inspections[profile], err = bundle.Inspect(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspections[profile].Producer = lock.Producer
+	}
+	return raw, inspections
+}
 func fixtureManifest(t *testing.T, files map[string][]byte, platform string, customize func(*Manifest)) (string, string) {
 	t.Helper()
 	if files == nil {
@@ -227,10 +256,7 @@ func TestProgramDocumentsCanExtendValidatedAlphaBaselineWithoutOverwriting(t *te
 func TestProgramPackageProvenanceMustBeCompleteAndMatchSourceLock(t *testing.T) {
 	for _, name := range []string{"valid", "partial", "stripped-provenance", "binary-digest", "cli-commit", "profile-set", "template-commit", "policy-digest", "producer", "source-lock", "unknown-doc"} {
 		t.Run(name, func(t *testing.T) {
-			lockBytes, e := os.ReadFile("../../docs/source-lock.json")
-			if e != nil {
-				t.Fatal(e)
-			}
+			lockBytes, inspections := committedPackageInputs(t)
 			files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": lockBytes, "docs/compatibility.md": []byte("alpha"), "docs/cli-retirement.md": []byte("retirement recovery")}
 			if name == "source-lock" {
 				files["docs/source-lock.json"] = []byte(`{}`)
@@ -242,13 +268,7 @@ func TestProgramPackageProvenanceMustBeCompleteAndMatchSourceLock(t *testing.T) 
 				m.SourceState = "committed"
 				m.CLICommit = strings.Repeat("a", 40)
 				m.BinarySHA256 = m.Files[fileName()].Digest
-				m.Bundles = map[string]*bundle.Inspection{}
-				for _, p := range []string{"spec", "design", "backend", "frontend"} {
-					m.Bundles[p], e = bundle.Inspect(p)
-					if e != nil {
-						t.Fatal(e)
-					}
-				}
+				m.Bundles = inspections
 				switch name {
 				case "stripped-provenance":
 					m.CLICommit = ""

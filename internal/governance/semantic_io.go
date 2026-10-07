@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 )
 
 type semanticGitObservation struct {
@@ -71,10 +72,15 @@ func semanticGitArguments(args []string) bool {
 	case "log":
 		// Daily routing inspects only committed task history with a fixed,
 		// non-executable format. Never accept arbitrary log formatting/options.
-		if len(args) != 9 || args[1] != "--all" || args[2] != "--format=%H" || args[3] != "--" {
+		if len(args) < 5 || args[1] != "--all" || args[2] != "--format=%H" || args[3] != "--" {
 			return false
 		}
-		return args[4] == "docs/.scratch" && args[5] == ".scratch" && args[6] == "docs/tasks" && args[7] == ".template-spec/implementation" && safefs.ValidateRef(args[8]) == nil && !strings.HasPrefix(args[8], ":")
+		for _, ref := range args[4:] {
+			if safefs.ValidateRef(ref) != nil || strings.HasPrefix(ref, ":") {
+				return false
+			}
+		}
+		return true
 	case "rev-parse", "cat-file", "ls-tree", "ls-files", "status", "show", "diff":
 	case "check-ignore":
 		return len(args) == 4 && args[1] == "-q" && args[2] == "--" && !strings.ContainsAny(args[3], "\x00\r\n")
@@ -175,7 +181,14 @@ func (s *semanticSession) referenceView(ref string) (*view, string, error) {
 			return nil, "", s.reject("PATH", "maintenance 引用仅适用于 template-source")
 		}
 		// Bind inputs used by the runtime location's registered-root deny list.
-		for _, r := range []string{"docs", ".scratch", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project"} {
+		if _, err = s.v.watch(worklayout.TrackerRef); err != nil {
+			return nil, "", err
+		}
+		roots, err := worklayout.ReadScanRoots(s.root)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, r := range append(roots, "docs", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project") {
 			if _, err = s.scan(r); err != nil {
 				return nil, "", err
 			}

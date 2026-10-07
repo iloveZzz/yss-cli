@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository_mode": "project-instance",
+  "feature_id": "cli-tutorial-test",
+  "stage": "stage.plan",
+  "next_work_unit": "work-unit.plan-requirements",
+  "gates": {},
+  "blockers": []
+}

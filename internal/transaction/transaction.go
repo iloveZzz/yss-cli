@@ -25,15 +25,18 @@ import (
 const stateRef = ".yss/transactions"
 
 type Operation struct {
-	Path   string `json:"path"`
-	Data   []byte `json:"data,omitempty"`
-	Mode   uint32 `json:"mode,omitempty"`
-	Delete bool   `json:"delete,omitempty"`
+	Path      string `json:"path"`
+	Data      []byte `json:"data,omitempty"`
+	Mode      uint32 `json:"mode,omitempty"`
+	Delete    bool   `json:"delete,omitempty"`
+	Directory bool   `json:"directory,omitempty"`
 	// Nil means an absent file, never permission to overwrite an unknown baseline.
 	Before *domain.Descriptor `json:"before,omitempty"`
 }
 
 type Result struct {
+	FileApplication    string    `json:"fileApplication,omitempty"`
+	Verification       string    `json:"verification,omitempty"`
 	Status             string    `json:"status"`
 	TransactionID      string    `json:"transactionId,omitempty"`
 	Kind               string    `json:"kind,omitempty"`
@@ -47,6 +50,7 @@ type Result struct {
 }
 
 type Summary struct {
+	Profile       string `json:"profile,omitempty"`
 	TransactionID string `json:"transactionId"`
 	Kind          string `json:"kind"`
 	Phase         string `json:"phase"`
@@ -62,6 +66,7 @@ type record struct {
 	After  domain.Descriptor `json:"after"`
 }
 type plan struct {
+	Artifacts     []ArtifactRecord             `json:"artifacts,omitempty"`
 	Guards        map[string]domain.Descriptor `json:"guards,omitempty"`
 	SchemaVersion int                          `json:"schemaVersion"`
 	Sequence      uint64                       `json:"sequence"`
@@ -116,6 +121,9 @@ func encode(v any) []byte {
 	return append(b, '\n')
 }
 func descriptorValid(d domain.Descriptor) bool {
+	if d.Type == "directory" {
+		return d.Digest == "" && d.Mode > 0 && d.Mode <= 0777
+	}
 	if d.Type == "missing" {
 		return d.Digest == "" && d.Mode == 0
 	}
@@ -188,6 +196,7 @@ func guard(root, ref string) error {
 func normalize(root string, ops []Operation) ([]record, error) {
 	records := make([]record, 0, len(ops))
 	seen := map[string]bool{}
+	directories := map[string]bool{}
 	var spellings safefs.PathSet
 	descendants := map[string]bool{}
 	for _, op := range ops {
@@ -204,8 +213,15 @@ func normalize(root string, ops []Operation) ([]record, error) {
 			return nil, fail("PLAN", "操作路径存在父子冲突")
 		}
 		for parent := filepath.ToSlash(filepath.Dir(op.Path)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
-			if seen[parent] {
+			if seen[parent] && !directories[parent] {
 				return nil, fail("PLAN", "操作路径存在父子冲突")
+			}
+			if !seen[parent] {
+				for ancestor := filepath.ToSlash(filepath.Dir(parent)); ancestor != "."; ancestor = filepath.ToSlash(filepath.Dir(ancestor)) {
+					if directories[ancestor] {
+						return nil, fail("PLAN", "新建目录的中间目录必须显式登记: "+parent)
+					}
+				}
 			}
 			descendants[parent] = true
 		}
@@ -218,9 +234,15 @@ func normalize(root string, ops []Operation) ([]record, error) {
 			return nil, fail("PLAN", "无效输入摘要: "+op.Path)
 		}
 		before = normalizedDescriptor(before)
+		if op.Directory && (op.Delete || before.Type != "missing" || len(op.Data) != 0) || !op.Directory && before.Type == "directory" {
+			return nil, fail("PLAN", "目录事务只允许显式创建不存在的目录: "+op.Path)
+		}
 		mode := op.Mode
 		if mode == 0 {
 			mode = 0644
+			if op.Directory {
+				mode = 0755
+			}
 			if before.Type == "file" {
 				mode = before.Mode
 			}
@@ -228,7 +250,9 @@ func normalize(root string, ops []Operation) ([]record, error) {
 		if mode > 0777 {
 			return nil, fail("PLAN", "文件权限超出 0777: "+op.Path)
 		}
-		mode = domain.FileMode(mode)
+		if !op.Directory {
+			mode = domain.FileMode(mode)
+		}
 		// Replacing an existing Windows read-only destination would require an
 		// extra attribute mutation or a native API contract we have not verified.
 		// Do not introduce an unjournaled permission intermediate state.
@@ -238,6 +262,10 @@ func normalize(root string, ops []Operation) ([]record, error) {
 		after := domain.Descriptor{Type: "missing"}
 		if !op.Delete {
 			after = domain.Descriptor{Type: "file", Digest: safefs.Digest(op.Data), Mode: mode}
+			if op.Directory {
+				after = domain.Descriptor{Type: "directory", Mode: mode}
+				directories[op.Path] = true
+			}
 		}
 		records = append(records, record{Path: op.Path, Before: before, After: after})
 	}
@@ -248,7 +276,7 @@ func assertCurrent(root string, r record, expected domain.Descriptor) error {
 	if err := guard(root, r.Path); err != nil {
 		return err
 	}
-	actual, err := safefs.Describe(root, r.Path)
+	actual, err := describeOperation(root, r.Path, r)
 	if err != nil {
 		return err
 	}
@@ -415,7 +443,11 @@ func validatePlan(root, id string, p plan) error {
 	if p.SchemaVersion != 2 || p.Sequence == 0 || p.ID != id || p.Root != root || strings.TrimSpace(p.Kind) == "" || strings.ContainsAny(p.Kind, "\r\n\x00") {
 		return fail("STATE", "准备计划身份无效")
 	}
+	if e := validateArtifacts(p.Artifacts); e != nil {
+		return e
+	}
 	seen := map[string]bool{}
+	directories := map[string]bool{}
 	descendants := map[string]bool{}
 	var spellings safefs.PathSet
 	for _, r := range p.Operations {
@@ -428,9 +460,19 @@ func validatePlan(root, id string, p plan) error {
 		if seen[r.Path] || descendants[r.Path] || !canonicalDescriptor(r.Before) || !canonicalDescriptor(r.After) {
 			return fail("STATE", "事务操作清单无效")
 		}
+		if r.Before.Type == "directory" || r.After.Type == "directory" && r.Before.Type != "missing" {
+			return fail("STATE", "目录事务仅支持显式创建")
+		}
 		for parent := filepath.ToSlash(filepath.Dir(r.Path)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
-			if seen[parent] {
+			if seen[parent] && !directories[parent] {
 				return fail("STATE", "事务操作存在父子冲突")
+			}
+			if !seen[parent] {
+				for ancestor := filepath.ToSlash(filepath.Dir(parent)); ancestor != "."; ancestor = filepath.ToSlash(filepath.Dir(ancestor)) {
+					if directories[ancestor] {
+						return fail("STATE", "新建目录的中间目录未登记: "+parent)
+					}
+				}
 			}
 			descendants[parent] = true
 		}
@@ -438,6 +480,7 @@ func validatePlan(root, id string, p plan) error {
 			return fail("UNPORTED", "Windows 只读事务恢复合同尚未验证")
 		}
 		seen[r.Path] = true
+		directories[r.Path] = r.After.Type == "directory"
 	}
 	for ref, d := range p.Guards {
 		if _, err := safefs.Path(root, ref); err != nil {
@@ -690,6 +733,13 @@ func ApplyWithGuards(root, kind string, ops []Operation, guards map[string]domai
 	return ApplyContextWithGuards(context.Background(), root, kind, ops, guards)
 }
 func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor) (Result, error) {
+	return ApplyContextWithValidation(ctx, root, kind, ops, guards, nil, nil)
+}
+
+// Validation runs under the transaction lock after postconditions, before
+// commit. Failure uses the same whole-transaction restoration as a write failure.
+// Archive artifacts never become writable project operations.
+func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, validate func() error) (Result, error) {
 	if ctx == nil {
 		return Result{}, fail("PLAN", "取消上下文不可为空")
 	}
@@ -705,6 +755,10 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	}
 	root = absolute
 	records, err := normalize(root, ops)
+	if err != nil {
+		return Result{}, err
+	}
+	archiveRecords, err := normalizeArtifacts(artifacts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -755,7 +809,7 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 	}
 	for _, l := range all {
 		if !terminal(l.journal.Phase) {
-			return result(l, "pending"), fail("INTERRUPTED", "存在未完成事务，先 recover")
+			return result(l, "pending"), domain.Explain(fail("INTERRUPTED", "存在未完成事务，先 recover"), "NATIVE_TRANSACTION_PENDING", "存在尚未完成的原生事务；先检查事务状态与恢复材料。", map[string]any{"root": root, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
 		}
 	}
 	for _, r := range records {
@@ -782,7 +836,17 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 				return Result{}, fail("CONCURRENT", "只读验证期间事务状态出现")
 			}
 		}
-		return Result{Status: "unchanged"}, nil
+		if validate != nil {
+			if e := validate(); e != nil {
+				return Result{Status: "unchanged", FileApplication: "unchanged", Verification: "failed"}, e
+			}
+		}
+		r := Result{Status: "unchanged"}
+		if validate != nil {
+			r.FileApplication = "unchanged"
+			r.Verification = "passed"
+		}
+		return r, nil
 	}
 	sequence := uint64(1)
 	if len(all) > 0 {
@@ -796,7 +860,7 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 		return Result{}, err
 	}
 	staging := stateRef + "/.preparing-" + id
-	l := loaded{base: stateRef + "/" + id, plan: plan{SchemaVersion: 2, Sequence: sequence, ID: id, Root: root, Kind: kind, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Operations: records, Guards: boundGuards}}
+	l := loaded{base: stateRef + "/" + id, plan: plan{SchemaVersion: 2, Sequence: sequence, ID: id, Root: root, Kind: kind, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Operations: records, Guards: boundGuards, Artifacts: archiveRecords}}
 	planBytes := encode(l.plan)
 	l.journal = journal{SchemaVersion: 1, ID: id, PlanDigest: safefs.Digest(planBytes), Phase: "prepared", UpdatedAt: l.plan.CreatedAt}
 	header := preparationHeader{SchemaVersion: 1, Plan: l.plan}
@@ -819,6 +883,14 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 		return Result{}, err
 	}
 	objects := map[string]bool{}
+	for i, a := range archiveRecords {
+		if e := ctx.Err(); e != nil {
+			return Result{Status: "cancelled"}, e
+		}
+		if e := storeObject(root, staging, a.Descriptor, artifacts[i].Data, objects); e != nil {
+			return Result{}, e
+		}
+	}
 	for i, r := range records {
 		if err := ctx.Err(); err != nil {
 			return Result{Status: "cancelled"}, err
@@ -880,18 +952,44 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 			return result(l, "pending"), err
 		}
 	}
-	appliedErr := apply(ctx, root, &l)
+	verificationStatus := "not-run"
+	var validation func() error
+	if validate != nil {
+		validation = func() error {
+			verificationStatus = "failed"
+			if e := validate(); e != nil {
+				return e
+			}
+			verificationStatus = "passed"
+			return nil
+		}
+	}
+	appliedErr := apply(ctx, root, &l, validation)
 	if appliedErr != nil {
 		restoreResult, restoreErr := restore(root, &l, false)
 		if restoreErr != nil {
-			return result(l, "blocked"), fmt.Errorf("%w; 恢复阻断: %v", appliedErr, restoreErr)
+			r := result(l, "blocked")
+			r.FileApplication = "blocked"
+			if validate != nil {
+				r.Verification = verificationStatus
+			}
+			return r, fmt.Errorf("%w; 恢复阻断: %v", appliedErr, restoreErr)
+		}
+		if validate != nil {
+			restoreResult.FileApplication = "restored"
+			restoreResult.Verification = verificationStatus
 		}
 		return restoreResult, appliedErr
 	}
-	return result(l, "applied"), nil
+	r := result(l, "applied")
+	if validate != nil {
+		r.FileApplication = "applied"
+		r.Verification = "passed"
+	}
+	return r, nil
 }
 
-func apply(ctx context.Context, root string, l *loaded) (applyErr error) {
+func apply(ctx context.Context, root string, l *loaded, validate func() error) (applyErr error) {
 	dirty := map[string]bool{}
 	defer func() {
 		if err := flushDirectories(dirty); applyErr == nil {
@@ -958,6 +1056,14 @@ func apply(ctx context.Context, root string, l *loaded) (applyErr error) {
 	if err := checkGuards(root, l.plan.Guards, written); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if validate != nil {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
 	return update(root, l, "committed")
 }
 func checkGuards(root string, guards map[string]domain.Descriptor, skip map[string]bool) error {
@@ -971,6 +1077,9 @@ func checkGuards(root string, guards map[string]domain.Descriptor, skip map[stri
 			continue
 		}
 		got, e := safefs.Describe(root, ref)
+		if guards[ref].Type == "directory" {
+			got, e = describeTarget(root, ref)
+		}
 		if e != nil {
 			return e
 		}
@@ -1057,7 +1166,7 @@ func storeObject(root, base string, d domain.Descriptor, b []byte, objects map[s
 }
 
 func blob(root, base string, i int, d domain.Descriptor, original bool) ([]byte, error) {
-	if d.Type == "missing" {
+	if d.Type == "missing" || d.Type == "directory" {
 		return nil, nil
 	}
 	// Content is immutable and shared by digest; each original mode remains in
@@ -1077,12 +1186,25 @@ func temporary(ref, base string, i int, role string) string {
 }
 func tempCheck(root, base string, i int, r record, role string, d domain.Descriptor) error {
 	ref := temporary(r.Path, base, i, role)
-	actual, err := safefs.Describe(root, ref)
+	actual, err := describeOperation(root, ref, r)
 	if err != nil {
 		return err
 	}
 	if actual.Type == "missing" {
 		return nil
+	}
+	if d.Type == "directory" && actual.Type == "directory" && (actual.Mode == d.Mode || actual.Mode == 0700) {
+		p, e := safefs.Path(root, ref)
+		if e != nil {
+			return e
+		}
+		entries, e := os.ReadDir(p)
+		if e != nil {
+			return e
+		}
+		if len(entries) == 0 {
+			return nil
+		}
 	}
 	// replace creates the temporary at 0600, writes the exact immutable blob,
 	// then applies its final mode. SIGKILL between Write and Chmod preserves a
@@ -1109,7 +1231,11 @@ func replace(root, base string, i int, r record, wanted domain.Descriptor, role 
 			}
 			return err
 		}
+		delete(dirty, p)
 		return persistDirectory(filepath.Dir(p), dirty)
+	}
+	if wanted.Type == "directory" {
+		return replaceDirectory(root, base, i, r, wanted, role, dirty)
 	}
 	original := role == "restore"
 	b, err := blob(root, base, i, wanted, original)
@@ -1162,17 +1288,20 @@ func restore(root string, l *loaded, rollback bool) (restoreResult Result, resto
 		return result(*l, "blocked"), err
 	}
 	// Complete preflight prevents a later conflict from partially undoing earlier files.
+	if err := preflightCreatedDirectories(root, *l, n); err != nil {
+		return result(*l, "blocked"), err
+	}
 	for i := 0; i < n; i++ {
 		r := l.plan.Operations[i]
 		if err := guard(root, r.Path); err != nil {
 			return result(*l, "blocked"), err
 		}
-		current, err := safefs.Describe(root, r.Path)
+		current, err := describeOperation(root, r.Path, r)
 		if err != nil {
 			return result(*l, "blocked"), err
 		}
 		if !same(current, r.Before) && !same(current, r.After) {
-			return result(*l, "blocked"), fail("RECOVERY_FAILED", "文件有后续修改，事务整体停止: "+r.Path)
+			return result(*l, "blocked"), domain.Explain(fail("RECOVERY_FAILED", "文件有后续修改，事务整体停止: "+r.Path), "RECOVERY_USER_MODIFICATION", "文件已在事务之后被修改，恢复不能覆盖当前用户内容。", map[string]any{"root": root, "path": r.Path, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
 		}
 		if _, err := blob(root, l.base, i, r.Before, true); err != nil {
 			return result(*l, "blocked"), err
@@ -1208,7 +1337,7 @@ func restore(root string, l *loaded, rollback bool) (restoreResult Result, resto
 				}
 			}
 		}
-		current, e := safefs.Describe(root, r.Path)
+		current, e := describeOperation(root, r.Path, r)
 		if e != nil {
 			return result(*l, "blocked"), e
 		}
