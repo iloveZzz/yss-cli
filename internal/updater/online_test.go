@@ -23,13 +23,15 @@ type fixtureTransport struct {
 	transport http.RoundTripper
 }
 
+const onlineFixtureVersion = "1.4.0"
+
 // These package bytes model a stable archive for parser/transaction tests.
 // They are fixtures, not a native release qualification receipt.
 func onlinePackage(t *testing.T) (UpgradeClient, func(map[string]any, map[string]any), []byte) {
 	t.Helper()
 	var fields map[string]any
 	file, sha := stableProofFixture(t, func(m map[string]any) {
-		m["cliVersion"] = "1.3.0"
+		m["cliVersion"] = onlineFixtureVersion
 		m["cliCommit"] = strings.Repeat("1", 40)
 		m["nativeReceiptSha256"] = strings.Repeat("6", 64)
 		m["releaseGateSha256"] = strings.Repeat("3", 64)
@@ -87,7 +89,7 @@ func (t fixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func onlineFixture(t *testing.T, customize func(map[string]any, map[string]any), archive []byte) UpgradeClient {
 	t.Helper()
-	version := "1.3.0"
+	version := onlineFixtureVersion
 	platform := runtime.GOOS + "/" + runtime.GOARCH
 	ext := ".tar.gz"
 	if runtime.GOOS == "windows" {
@@ -127,7 +129,7 @@ func TestOnlineCheckShowsLatestNativeReleaseWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Status != "checked" || r.TargetVersion != "1.3.0" || !r.UpdateAvailable || r.Platform != runtime.GOOS+"/"+runtime.GOARCH {
+	if r.Status != "checked" || r.TargetVersion != onlineFixtureVersion || !r.UpdateAvailable || r.Platform != runtime.GOOS+"/"+runtime.GOARCH {
 		t.Fatalf("unexpected check result: %+v", r)
 	}
 	if _, err := os.Stat(tool); !os.IsNotExist(err) {
@@ -298,10 +300,10 @@ func TestOnlineUpgradeRefusesCustomizationAndDowngrade(t *testing.T) {
 		r["html_url"] = releaseBase + "tag/v1.1.0"
 		p["version"] = "1.1.0"
 		for _, a := range r["assets"].([]map[string]any) {
-			a["name"] = strings.ReplaceAll(a["name"].(string), "1.3.0", "1.1.0")
-			a["browser_download_url"] = strings.ReplaceAll(a["browser_download_url"].(string), "1.3.0", "1.1.0")
+			a["name"] = strings.ReplaceAll(a["name"].(string), onlineFixtureVersion, "1.1.0")
+			a["browser_download_url"] = strings.ReplaceAll(a["browser_download_url"].(string), onlineFixtureVersion, "1.1.0")
 		}
-		p["artifacts"].([]map[string]any)[0]["archive"] = strings.ReplaceAll(p["artifacts"].([]map[string]any)[0]["archive"].(string), "1.3.0", "1.1.0")
+		p["artifacts"].([]map[string]any)[0]["archive"] = strings.ReplaceAll(p["artifacts"].([]map[string]any)[0]["archive"].(string), onlineFixtureVersion, "1.1.0")
 	}, nil)
 	if _, err := c.Run(context.Background(), UpgradeRequest{ToolRoot: tool, To: "1.1.0"}); updateErrorCode(err) != "VERSION" {
 		t.Fatalf("wanted downgrade refusal, got %v", err)

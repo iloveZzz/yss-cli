@@ -72,6 +72,26 @@ func TestPythonDraft202012DifferentialCorpus(t *testing.T) {
 		doc, _ := json.Marshal(map[string]any{"pattern": entry.pattern})
 		add(fmt.Sprintf("Unicode regex %d", i), string(doc), entry.value, entry.want)
 	}
+	for i, policy := range []struct {
+		pattern string
+		values  []string
+		valid   []bool
+	}{
+		{`^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*\\)(?:[A-Za-z0-9._-]+/)+[a-z0-9][a-z0-9-]*/api/[a-z0-9][a-z0-9-]*\.ya?ml$`,
+			[]string{"docs/demo/api/demo.yaml", "/docs/demo/api/demo.yaml", "docs/../demo/api/demo.yaml", "docs/./demo/api/demo.yml", "docs/.../demo/api/demo.yml", "docs/.hidden/demo/api/demo.yml", "docs\\demo/api/demo.yml", "docs/demo/api/demo.yml\n"},
+			[]bool{true, false, false, false, true, true, false, true}},
+		{`^pnpm exec redocly lint (?!/)(?!.*\.\./)[^\s\\]+\.ya?ml$`,
+			[]string{"pnpm exec redocly lint docs/demo/api/demo.yaml", "pnpm exec redocly lint /docs/demo.yaml", "pnpm exec redocly lint docs/../demo.yaml", "pnpm exec redocly lint docs/name../demo.yaml", "pnpm exec redocly lint docs/demo.yml", "pnpm exec redocly lint docs\\demo.yml", "pnpm exec redocly lint docs/my demo.yml", "pnpm exec redocly lint docs/demo.yml\n"},
+			[]bool{true, false, false, false, true, false, false, true}},
+		{`^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*\\)(?:[a-zA-Z0-9._-]+/)+[a-z0-9][a-z0-9-]*/[^/]+\.(yaml|yml|json)$`,
+			[]string{"docs/demo/checkpoint.json", "/docs/demo/checkpoint.json", "docs/../demo/checkpoint.json", "docs/.hidden/demo/checkpoint.json", "docs/.../demo/checkpoint.json", "docs/demo/check\\point.json", "docs/demo/checkpoint.json\n", "docs/demo/check\n\\point.json"},
+			[]bool{true, false, false, true, true, false, true, true}},
+	} {
+		for j, value := range policy.values {
+			doc, _ := json.Marshal(map[string]any{"type": "string", "pattern": policy.pattern})
+			add(fmt.Sprintf("registered path regex %d/%d", i, j), string(doc), value, policy.valid[j])
+		}
+	}
 	payload, _ := json.Marshal(cases)
 	cmd := exec.Command(python, "-c", `import json,sys
 from jsonschema import Draft202012Validator, FormatChecker

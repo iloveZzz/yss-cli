@@ -1,15 +1,17 @@
 # 原生治理校验使用合同
 
-本文件记录 `1.0.0` 固定来源候选的治理接口；整批验收须以冻结输入、独立审查和原始验证记录为依据。实现检查通过不会创建批准、设置 Ticket 状态、授予实现或发布资格。
+本文件记录 `1.3.0` 固定来源候选的治理接口；整批验收须以冻结输入、独立审查和原始验证记录为依据。实现检查通过不会创建批准、设置 Ticket 状态、授予实现或发布资格。
 
 所有接口读取项目本地资产；不执行资产中登记的验证命令。`check` 保留结构校验语义，`verify` 消费相应领域规则，不能用 `--schema` 绕过。默认完整 CI 与显式有限 CI 分开报告。
 
+已登记的 OpenAPI 与 reading-policy 三个路径正则使用正匹配和拒绝匹配联合校验，保留固定 Python Unicode 15 与行尾语义；其他前后查找、反向引用及命名分组仍返回 `SCHEMA_REGEX_INCOMPATIBLE`。
+
 ```sh
-yss lifecycle verify --root /project --checkpoint docs/.scratch/feature/checkpoint.yaml --json
-yss contract verify --root /project --kind slice --file docs/contract.json --checkpoint docs/.scratch/feature/checkpoint.yaml --json
+yss lifecycle verify --root /project --checkpoint .work/feature/checkpoint.yaml --json
+yss contract verify --root /project --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json
 yss contract verify --root /project --kind scaffold --file docs/scaffold.json --json
 yss contract verify --root /project --kind task --file docs/review-task.json --json
-yss evidence verify --root /project --kind approval --file docs/approval.json --checkpoint docs/.scratch/feature/checkpoint.yaml --json
+yss evidence verify --root /project --kind approval --file docs/approval.json --checkpoint .work/feature/checkpoint.yaml --json
 yss evidence verify --root /project --kind user-decision --file docs/decision.json --requirements docs/current-decision-requirements.json --json
 yss evidence verify --root /project --kind verification --file docs/verification.json --json
 yss handoff verify --root /project --kind package --package docs/handoff --json
