@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/helpview"
 )
 
 type helpTopic struct {
@@ -23,6 +24,38 @@ var helpTopics = map[string]helpTopic{
 	},
 }
 
+// Help is a read-only reading request. Execution flags and missing values do
+// not trigger a validator before help; the selected command path still must exist.
+func helpRequest(args []string) ([]string, bool) {
+	requested := len(args) == 0
+	path := []string{}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-h" || a == "--help" || a == "--help=true" {
+			requested = true
+			continue
+		}
+		if a == "-V" {
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			key, _, equals := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if spec, ok := argumentSpecs[key]; ok && !spec.boolean && !equals && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		path = append(path, a)
+	}
+	if len(path) > 0 && path[0] == "help" {
+		requested = true
+	}
+	return path, requested
+}
+
 func renderHelp(args []string) (string, error) {
 	if len(args) > 0 && args[0] == "help" {
 		args = args[1:]
@@ -30,8 +63,28 @@ func renderHelp(args []string) (string, error) {
 	if len(args) == 0 {
 		return rootHelp(), nil
 	}
-	if len(args) == 1 && args[0] == "tutorial" {
-		return tutorial, nil
+	if args[0] == "tutorial" {
+		if len(args) > 2 {
+			return "", argumentError("教程只接受一个主题；查看 yss help tutorial")
+		}
+		topic := ""
+		if len(args) == 2 {
+			topic = args[1]
+		}
+		return renderTutorial(topic)
+	}
+	if args[0] == "examples" {
+		return renderExamples(args[1:])
+	}
+	if args[0] == "errors" {
+		if len(args) > 2 {
+			return "", argumentError("错误帮助只接受一个错误码")
+		}
+		code := ""
+		if len(args) == 2 {
+			code = args[1]
+		}
+		return renderErrorHelp(code)
 	}
 	key := strings.Join(args, " ")
 	topic, ok := helpTopics[key]
@@ -55,12 +108,27 @@ func renderHelp(args []string) (string, error) {
 		subcommands = "\n\n子命令:\n" + strings.Join(children, "\n")
 	}
 	spec := commands[key]
-	return fmt.Sprintf("yss %s — %s\n──────────────────────\n%s\n\n用法: yss %s %s%s\n\n参数:\n%s\n\n参数说明与条件:\n%s\n\n示例:\n%s\n\n%s", domain.Version, key, topic.summary, key, topic.usage, subcommands, renderOptions(spec), topic.options, topic.examples, topic.notes), nil
+	return fmt.Sprintf("yss %s — %s\n──────────────────────\n%s\n\n用法: yss %s %s%s\n\n前置条件:\n%s\n%s\n\n最小示例:\n%s\n\n参数:\n%s\n\n参数说明与条件:\n%s\n\n预期结果:\n%s\n\n下一步:\n%s\n\n常见错误:\n%s\n详细示例: yss help examples %s", domain.Version, key, topic.summary, key, topic.usage, subcommands, prerequisite(key), topic.notes, safeExampleText(topic.examples), renderOptions(spec), topic.options, expectedResult(key), nextReading(key), strings.Join(commonErrorCodes(key), "、")+"；yss help errors <错误码>", key), nil
 }
 
 func rootHelp() string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend / Frontend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\n通用选项:\n  -h, --help       显示帮助\n  -V, --version    显示 CLI 版本及来源\n  --json           执行结果输出 JSON；帮助始终输出文本\n\n命令:\n", domain.Version)
+	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend / Frontend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合治理；design 战略与产品设计交接；backend/frontend 专职交付。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
+	for _, p := range []string{"spec", "design", "backend", "frontend"} {
+		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
+	}
+	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss context verify --root ./demo-spec --json\n\n生命周期导航:\n")
+	if v, e := helpview.Load("spec"); e == nil {
+		names := []string{}
+		for _, s := range v.Stages {
+			names = append(names, s.Name)
+		}
+		out.WriteString("  正式：" + strings.Join(names, " → ") + "\n")
+		fmt.Fprintf(&out, "  固定模板：%s；来源摘要：%s\n", v.TemplateCommit, v.RegistrySHA256)
+	} else {
+		out.WriteString("  生命周期视图待核验：" + e.Error() + "\n")
+	}
+	out.WriteString("  日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）\n  教程：yss help tutorial governed | yss help tutorial daily\n\n通用选项:\n  -h, --help       显示离线帮助\n  -V, --version    显示程序及来源\n  --human          强制中文摘要；终端默认中文，管道保持原格式\n  --json           输出机器协议 1；与 --human 互斥\n  --diagnostics    与 --json 同用，失败时附加诊断\n\n命令:\n")
 	for _, group := range []struct {
 		label string
 		names []string
@@ -76,14 +144,8 @@ func rootHelp() string {
 			fmt.Fprintf(&out, "    %-16s %s\n", name, commands[name].help.summary)
 		}
 	}
-	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|design|backend|frontend；init 必需，其余从身份检测\n\n快速上手（选择一个 Profile，在新目录运行）:\n")
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
-		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", profile, profile)
-	}
-	out.WriteString(`  yss doctor --root ./demo-spec --json
-  yss diff --root ./demo-spec --json
-
-升级案例:
+	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|design|backend|frontend；init 必需，其余从身份检测\n\n")
+	out.WriteString(`升级、同步与恢复:
   yss upgrade --check                         查询 CLI 稳定版本
   yss upgrade                                 升级 CLI 程序
   yss update status --tool-root ./tools/yss    诊断离线安装与事务
@@ -92,6 +154,10 @@ func rootHelp() string {
 
 帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
 完整离线教程: yss help tutorial
+按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|frontend|maintenance
+示例索引: yss help examples [命令/子命令]
+错误索引: yss help errors [错误码]
+入口区别: upgrade 升级程序；sync 同步模板；migrate 迁移旧实例；recover 恢复未完成事务；rollback 回退最近成功事务。
 能力与限制: yss capabilities --json；未迁移行为返回 UNPORTED。
 帮助不读取项目、不访问网络、不创建资产。
 `)

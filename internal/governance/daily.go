@@ -538,7 +538,11 @@ func (d *dailySession) formalBinding() (bool, error) {
 			return true, nil
 		}
 	}
-	for _, dir := range []string{"docs/.scratch", ".scratch", "docs/tasks", ".template-spec/implementation"} {
+	layout, err := viewWorkLayout(d.s.v)
+	if err != nil {
+		return false, err
+	}
+	for _, dir := range append(layout.ScanRoots, "docs/tasks", ".template-spec/implementation") {
 		files, err := d.s.scan(dir)
 		if err != nil {
 			return false, err
@@ -579,7 +583,12 @@ func (d *dailySession) formalHistory() (bool, error) {
 	} else if err != nil {
 		return false, d.s.unavailable("INPUT", err.Error())
 	}
-	commits, err := d.s.git(d.s.root, "log", "--all", "--format=%H", "--", "docs/.scratch", ".scratch", "docs/tasks", ".template-spec/implementation", d.taskRef)
+	layout, err := viewWorkLayout(d.s.v)
+	if err != nil {
+		return false, err
+	}
+	roots := append(append([]string{}, layout.ScanRoots...), "docs/tasks", ".template-spec/implementation", d.taskRef)
+	commits, err := d.s.git(d.s.root, append([]string{"log", "--all", "--format=%H", "--"}, roots...)...)
 	if err != nil {
 		return false, err
 	}
@@ -589,7 +598,7 @@ func (d *dailySession) formalHistory() (bool, error) {
 	}
 	seen := map[string]bool{}
 	for _, sha := range ids {
-		tree, err := d.s.git(d.s.root, "ls-tree", "-r", "-z", sha, "--", "docs/.scratch", ".scratch", "docs/tasks", ".template-spec/implementation", d.taskRef)
+		tree, err := d.s.git(d.s.root, append([]string{"ls-tree", "-r", "-z", sha, "--"}, roots...)...)
 		if err != nil {
 			return false, err
 		}

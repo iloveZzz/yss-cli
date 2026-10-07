@@ -13,6 +13,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"github.com/iloveZzz/yss-cli/internal/updater"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"io"
 	"math/big"
 	"os"
@@ -23,18 +24,39 @@ import (
 
 type options struct {
 	args       []string
+	rawArgs    []string
 	values     map[string]string
 	json       bool
 	duplicates []string
 }
 
 func parse(args []string) (options, error) {
-	o := options{values: map[string]string{}}
+	o := options{values: map[string]string{}, rawArgs: append([]string{}, args...)}
 	for _, a := range args {
 		if a == "--json" || a == "--json=true" {
 			o.json = true
 		}
+		for _, key := range []string{"human", "diagnostics"} {
+			if a == "--"+key || a == "--"+key+"=true" {
+				o.values[key] = "true"
+			}
+			if a == "--"+key+"=false" {
+				o.values[key] = "false"
+			}
+		}
 	}
+	// The pre-scan preserves output choices on parse failure. Clear them while
+	// parsing so a valid flag is not mistaken for a duplicate.
+	presentation := map[string]string{"human": o.values["human"], "diagnostics": o.values["diagnostics"]}
+	delete(o.values, "human")
+	delete(o.values, "diagnostics")
+	defer func() {
+		for key, value := range presentation {
+			if value != "" {
+				o.values[key] = value
+			}
+		}
+	}()
 	boolean := booleanOptions()
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -54,7 +76,7 @@ func parse(args []string) (options, error) {
 		a = strings.TrimPrefix(a, "--")
 		key, _, _ := strings.Cut(a, "=")
 		if _, known := argumentSpecs[key]; !known {
-			return o, unknownOption(key, optionNames())
+			return o, unknownOption(key, optionCandidates(args))
 		}
 		if key, value, ok := strings.Cut(a, "="); ok {
 			if _, exists := o.values[key]; exists {
@@ -103,6 +125,21 @@ func semInputCode(code string) bool {
 	return false
 }
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return RunWithTerminal(ctx, args, stdout, stderr, writerIsTerminal)
+}
+
+// RunWithTerminal allows hosts to provide their terminal boundary without
+// changing command execution, validation or machine output.
+func RunWithTerminal(ctx context.Context, args []string, stdout, stderr io.Writer, terminal func(io.Writer) bool) int {
+	if helpArgs, requested := helpRequest(args); requested {
+		content, err := renderHelp(helpArgs)
+		if err == nil {
+			fmt.Fprintln(stdout, content)
+			return 0
+		}
+		fmt.Fprintln(stderr, "ARGUMENT: "+err.Error())
+		return 2
+	}
 	o, err := parse(args)
 	command := ""
 	if len(o.args) > 0 {
@@ -120,18 +157,31 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if err == nil {
+		if o.values["human"] == "true" && o.json {
+			err = argumentError("--human 与 --json 互斥")
+		} else if o.values["diagnostics"] == "true" && !o.json {
+			err = argumentError("--diagnostics 必须与 --json 同用")
+		}
+	}
+	if err == nil {
 		err = validateArguments(command, o)
 	}
+	human := !o.json && (o.values["human"] == "true" || terminal != nil && terminal(stdout))
+	withDiagnostics := o.values["diagnostics"] == "true"
 	inputError := err != nil
 	delete(o.values, "help")
 	delete(o.values, "version")
+	delete(o.values, "human")
+	delete(o.values, "diagnostics")
 	profile := o.values["profile"]
+	var result any
 	if err == nil {
-		var result any
 		result, profile, err = execute(ctx, command, o)
 		if err == nil {
 			if o.json {
 				_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "ok", Code: "OK", Result: result})
+			} else if human {
+				fmt.Fprintln(stdout, renderHumanSuccess(command, o, profile, result))
 			} else {
 				b, _ := json.MarshalIndent(result, "", "  ")
 				fmt.Fprintln(stdout, string(b))
@@ -155,15 +205,25 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		exit = 2
 	}
 	var se *schema.Error
-	if errors.As(err, &se) {
+	if de == nil && errors.As(err, &se) {
 		code = se.Code
 	}
-	var result any = map[string]any{"message": err.Error()}
+	receipt, hasReceipt := result.(transaction.Result)
+	result = map[string]any{"message": err.Error()}
 	var reported interface{ ErrorResult() any }
 	if errors.As(err, &reported) {
 		result = reported.ErrorResult()
 	} else if isSemanticCommand(o) && !inputError {
 		result = governance.InputFailureReport(ctx, o.values["root"], command, err)
+	}
+	if hasReceipt {
+		if receipt.FileApplication == "" {
+			receipt.FileApplication = "not-applied"
+		}
+		if receipt.Verification == "" {
+			receipt.Verification = "not-run"
+		}
+		result = map[string]any{"message": err.Error(), "receipt": receipt, "fileApplication": receipt.FileApplication, "verification": receipt.Verification}
 	}
 	if code == "ARGUMENT" {
 		exit = 2
@@ -174,10 +234,17 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		if inputError || !isSemanticCommand(o) {
 			result = map[string]any{"message": message}
 		}
-		err = errors.New(message)
+		err = domain.WithMessage(err, message)
 	}
+	diagnostic := diagnosticFor(code, err, o, profile, result)
 	if o.json {
-		_ = json.NewEncoder(stdout).Encode(domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "error", Code: code, Result: result})
+		env := domain.Envelope{OutputVersion: 1, Version: domain.Version, ProtocolVersion: domain.ProtocolVersion, Command: command, Profile: profile, Status: "error", Code: code, Result: result}
+		if withDiagnostics {
+			env.Diagnostic = diagnostic
+		}
+		_ = json.NewEncoder(stdout).Encode(env)
+	} else if human {
+		fmt.Fprintln(stderr, renderHumanDiagnostic(diagnostic))
 	} else {
 		if isSemanticCommand(o) && !inputError {
 			b, _ := json.MarshalIndent(result, "", "  ")
@@ -416,7 +483,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
-			if o.values["binding-file"] != "" || o.values["full"] != "" {
+			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
 			}
 			p, e := project.ReadPlan(o.values["plan-file"])
@@ -429,6 +496,11 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			r, e := project.ApplyContext(ctx, p)
 			return r, p.Profile, e
 		}
+		id, e := project.Detect(root, profile, command == "init" || command == "attach")
+		if e != nil {
+			return nil, profile, e
+		}
+		profile = id.Profile.Name
 		var selection []string
 		if o.values["full"] == "true" {
 			if command != "init" && command != "attach" {
@@ -446,11 +518,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			}
 			sort.Strings(selection)
 		}
-		id, e := project.Detect(root, profile, command == "init" || command == "attach")
-		if e != nil {
-			return nil, profile, e
-		}
-		profile = id.Profile.Name
 		if command == "skills" || command == "assets" {
 			if len(o.args) < 2 {
 				return nil, profile, domain.Fail("ARGUMENT", "需要 list 或 ensure 子命令")
@@ -543,7 +610,37 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				return nil, profile, e
 			}
 		}
-		p, e := project.BuildWithBinding(root, profile, command, vars, selection, binding)
+		planning := project.PlanningOptions{BaseBundlePath: o.values["base-bundle"], ResolutionFile: o.values["resolution-file"]}
+		if o.values["plan-file"] != "" {
+			if o.values["resolution-file"] == "" || o.values["plan"] != "true" {
+				return nil, profile, domain.Fail("ARGUMENT", "重新规划须同时提供 --plan --plan-file 和 --resolution-file")
+			}
+			for _, key := range []string{"project-name", "business-domain", "team-size", "issue-tracker", "full", "binding-file"} {
+				if _, supplied := o.values[key]; supplied {
+					return nil, profile, domain.Fail("ARGUMENT", "决议重规划使用原保存计划，不能同时改写参数: "+key)
+				}
+			}
+			original, e := project.ReadPlan(o.values["plan-file"])
+			if e != nil {
+				return nil, profile, e
+			}
+			planning.Original = original
+			vars = original.Variables
+			selection = original.Selection
+			binding = original.Binding
+			if planning.BaseBundlePath == "" {
+				planning.BaseBundlePath = original.BaseBundlePath
+			}
+		}
+		var p *project.Plan
+		if o.values["migration-kind"] == "work-layout" {
+			if command != "migrate" || binding != nil || len(selection) > 0 || o.values["base-bundle"] != "" {
+				return nil, profile, domain.Fail("ARGUMENT", "目录迁移不能同时升级模板或转换格式")
+			}
+			p, e = project.BuildWorkLayoutWithOptions(root, profile, planning)
+		} else {
+			p, e = project.BuildWithOptions(root, profile, command, vars, selection, binding, planning)
+		}
 		if e != nil {
 			return nil, profile, e
 		}
@@ -565,6 +662,11 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		if path := o.values["out"]; path != "" {
 			if e = project.SavePlan(p, path); e != nil {
+				return nil, profile, e
+			}
+		}
+		if out := o.values["review-out"]; out != "" {
+			if e = project.ExportReview(p, out); e != nil {
 				return nil, profile, e
 			}
 		}
@@ -672,7 +774,7 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	return true, nil
 }
 func capabilities() map[string]any {
-	return map[string]any{"releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist

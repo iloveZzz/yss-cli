@@ -1,0 +1,12 @@
+[
+  {
+    "id": "tutorial-requirements",
+    "title": "内部 CLI 案例需求",
+    "stage": "stage.plan",
+    "work_unit": "work-unit.plan-requirements",
+    "owner": "案例维护者",
+    "scope": "仅验证阶段计划协议",
+    "acceptance": ["原始计划可应用且不创建批准"],
+    "source_refs": ["CONTEXT.md"]
+  }
+]

@@ -29,7 +29,7 @@ type commandSpec struct {
 var argumentSpecs = map[string]argumentSpec{}
 var commands = map[string]commandSpec{}
 var projectOptionNames = strings.Fields("root target-dir profile json help version project-name business-domain team-size plan out apply plan-file binding-file full issue-tracker")
-var commonOptionNames = []string{"help", "json", "version"}
+var commonOptionNames = []string{"help", "json", "version", "human", "diagnostics"}
 
 func initializeCommands() {
 	// Every flag accepted by the existing dispatchers has a registered type.
@@ -39,7 +39,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json plan apply help version check include-example-docs force history require-approved continuation recover full") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation recover full") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend", "frontend")
@@ -48,6 +48,10 @@ func initializeCommands() {
 	defineArgument("tool-root", "<目录>", "程序安装目录；update 必需，upgrade 默认识别运行目录")
 	defineArgument("out", "<新路径>", "计划文件或导出目录；目标须不存在，按命令选择")
 	defineArgument("plan-file", "<文件>", "消费已有计划；写入前核验输入摘要")
+	defineArgument("review-out", "<新目录>", "在项目外导出冲突、基线、合并候选和决议模板")
+	defineArgument("base-bundle", "<路径>", "显式提供完整历史 Bundle 材料；默认离线")
+	defineArgument("migration-kind", "<类型>", "工作包目录迁移；缺省保持模板迁移", "work-layout")
+	defineArgument("resolution-file", "<文件>", "结合 --plan-file 原计划重新规划已决议资产")
 	defineArgument("artifact", "<归档>", "本机平台 .tar.gz 或 .zip 发行包")
 	defineArgument("sha256", "<SHA-256>", "发行包的 64 位十六进制 SHA-256")
 	defineArgument("to", "<稳定版本>", "在线升级目标，如 1.2.0 或 v1.2.0；默认最新稳定版")
@@ -64,6 +68,8 @@ func initializeCommands() {
 
 	for _, row := range []struct{ key, description string }{
 		{"json", "执行结果输出 JSON；帮助始终输出文本"},
+		{"human", "强制中文摘要；与 --json 互斥；管道默认保留原格式"},
+		{"diagnostics", "与 --json 同用，在失败 envelope 中附加诊断"},
 		{"help", "显示当前命令帮助；不读取项目、不联网、不写入"},
 		{"version", "显示 CLI 版本及来源；不需要项目"},
 		{"plan", "只生成计划，使用 --out 保存；不应用项目修改"},
@@ -81,6 +87,12 @@ func initializeCommands() {
 		switch parts[0] {
 		case "init", "attach", "sync", "doctor", "diff", "migrate", "skills", "assets":
 			opts = append(opts, projectOptionNames...)
+			if parts[0] == "attach" || parts[0] == "sync" || parts[0] == "migrate" && (len(parts) == 1 || parts[1] == "plan") {
+				opts = append(opts, "review-out", "base-bundle", "resolution-file")
+				if parts[0] == "migrate" {
+					opts = append(opts, "migration-kind")
+				}
+			}
 			if len(parts) > 1 && parts[0] == "migrate" && (parts[1] == "status" || parts[1] == "recover" || parts[1] == "rollback") {
 				opts = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "apply")
 			}
@@ -99,7 +111,8 @@ func initializeCommands() {
 				opts = append(opts, "out")
 			}
 		case "compat", "compat-api":
-			opts = append(opts, "native")
+			// Compatibility dispatchers retain their frozen flag contracts.
+			opts = []string{"help", "json", "version", "native"}
 		case "version", "capabilities":
 		case "contract", "evidence", "handoff", "lifecycle":
 			if len(parts) > 1 && parts[1] == "verify" {
@@ -227,6 +240,62 @@ func unknownOption(key string, candidates []string) error {
 	}
 	return argumentError("未知或不支持的参数: --" + key + suggestions("--"+key, names))
 }
+
+// Resolve the command independently of an unknown flag's position. Known
+// option values are skipped, so a path or Profile cannot become a command.
+func optionCandidates(args []string) []string {
+	positionals := []string{}
+	kind := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-h" || a == "-V" {
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			key, value, equals := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if flag, ok := argumentSpecs[key]; ok && !flag.boolean && !equals && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				value = args[i]
+			}
+			if key == "kind" {
+				kind = value
+			}
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
+			positionals = append(positionals, a)
+		}
+	}
+	if len(positionals) == 0 {
+		return commonOptionNames
+	}
+	key := positionals[0]
+	spec, ok := commands[key]
+	if !ok {
+		return commonOptionNames
+	}
+	if len(positionals) > 1 {
+		if child, found := commands[key+" "+positionals[1]]; found {
+			key += " " + positionals[1]
+			spec = child
+		}
+	}
+	opts := spec.options
+	if strings.HasSuffix(key, " verify") {
+		group := strings.Fields(key)[0]
+		if group == "contract" || group == "evidence" || group == "handoff" || group == "lifecycle" {
+			opts = append(append([]string{}, commonOptionNames...), verificationOptions(group, kind)...)
+		}
+	}
+	out := []string{}
+	for _, k := range opts {
+		if k == "refresh" || strings.HasPrefix(key, "stage query") && (k == "work-unit" || k == "stage") {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}
 func validateArguments(command string, o options) error {
 	if o.values["version"] == "true" {
 		return nil
@@ -291,7 +360,11 @@ func validateArguments(command string, o options) error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if !allowed[k] {
-			return unknownOption(k, effectiveOptions)
+			candidateArgs := append([]string{}, o.args...)
+			if kind := o.values["kind"]; kind != "" {
+				candidateArgs = append(candidateArgs, "--kind="+kind)
+			}
+			return unknownOption(k, optionCandidates(candidateArgs))
 		}
 		flag := argumentSpecs[k]
 		if choices, ok := spec.choices[k]; ok {

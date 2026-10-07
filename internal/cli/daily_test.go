@@ -52,6 +52,7 @@ func newDailyFixture(t *testing.T) *dailyFixture {
 	dailyWrite(t, f.root, "yss-project.yaml", []byte("schema_version: 1\nrepository_mode: project-instance\n"))
 	dailyWrite(t, f.root, "CONTEXT.md", []byte("# 业务上下文\n"))
 	dailyWrite(t, f.root, "AGENTS.md", []byte("# Agent 入口\n"))
+	dailyWrite(t, f.root, ".template-spec/agents/issue-tracker.md", []byte("---\ntracker:\n  platform: local-markdown\n  root: docs/.scratch\n---\n"))
 	managed := map[string]any{}
 	mb, _ := json.Marshal(managed)
 	meta := map[string]any{"schemaVersion": 1, "protocolVersion": 1, "profile": "spec", "profileId": "harness.spec-template", "cliVersion": domain.Version, "templateVersion": "1.0.0", "legacyCliVersion": "3.5.10", "templateCommit": strings.Repeat("a", 40), "snapshotHash": strings.Repeat("b", 64), "manifestHash": strings.Repeat("c", 64), "templateSourceState": "committed", "managedFiles": managed, "baselineDigest": safefs.Digest(mb), "variables": map[string]any{}, "distribution": map[string]any{}}

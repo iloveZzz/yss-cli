@@ -4284,6 +4284,18 @@ func contractOpenAPIValidation(s *semanticSession, record map[string]any) error 
 		return e
 	}
 	draft, tool := semMap(record["draft"]), semMap(record["toolchain"])
+	layout, err := viewWorkLayout(s.v)
+	if err != nil {
+		return err
+	}
+	feature, err := layout.FeatureOf(text(draft["ref"]))
+	if err != nil {
+		return err
+	}
+	base, _ := layout.FeatureRoot(feature)
+	if !strings.HasPrefix(text(draft["ref"]), base+"/api/") {
+		return s.reject("OPENAPI_VALIDATION", "Draft 必须位于配置的功能包根的 api 目录")
+	}
 	exit, ok := integer(tool["exit_code"])
 	if record["template"] != false || text(record["status"]) != "passed" || !ok || exit != 0 || text(tool["command"]) != "pnpm exec redocly lint "+text(draft["ref"]) {
 		return s.reject("OPENAPI_VALIDATION", "实际 lint 未通过或未指向当前 Draft")

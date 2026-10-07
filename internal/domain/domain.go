@@ -2,7 +2,7 @@ package domain
 
 import "fmt"
 
-const Version = "1.2.0"
+const Version = "1.3.0-dev.1"
 const ProtocolVersion = 1
 const MetadataFile = ".yss.json"
 
@@ -18,7 +18,7 @@ func Wrap(code string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return Fail(code, err.Error())
+	return &wrappedError{base: &Error{code, err.Error(), 1}, cause: err}
 }
 
 type Descriptor struct {
@@ -52,12 +52,13 @@ func GetProfile(name string) (Profile, error) {
 }
 
 type Envelope struct {
-	OutputVersion   int    `json:"outputVersion"`
-	Version         string `json:"version"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	Command         string `json:"command"`
-	Profile         string `json:"profile"`
-	Status          string `json:"status"`
-	Code            string `json:"code"`
-	Result          any    `json:"result"`
+	OutputVersion   int         `json:"outputVersion"`
+	Version         string      `json:"version"`
+	ProtocolVersion int         `json:"protocolVersion"`
+	Command         string      `json:"command"`
+	Profile         string      `json:"profile"`
+	Status          string      `json:"status"`
+	Code            string      `json:"code"`
+	Result          any         `json:"result"`
+	Diagnostic      *Diagnostic `json:"diagnostic,omitempty"`
 }

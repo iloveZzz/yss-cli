@@ -176,7 +176,7 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		if strings.HasPrefix(s.PolicyPath, "builtin:") {
 			policyKind = "bootstrap"
 		}
-		if !ok || i == nil || i.SchemaVersion != 2 || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
+		if !ok || i == nil || (i.SchemaVersion != 2 && i.SchemaVersion != 3) || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
 			return fail("ARTIFACT", "发行包 Profile 来源与锁不一致: "+profile)
 		}
 		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {

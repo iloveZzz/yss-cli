@@ -6,6 +6,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"go.yaml.in/yaml/v3"
 	"strings"
 )
@@ -42,11 +43,8 @@ func nativeProfileFile(f bundle.File, profile domain.Profile) (bundle.File, erro
 	return f, nil
 }
 func renderTracker(data []byte, tracker string) ([]byte, error) {
-	if tracker == "" {
-		return data, nil
-	}
 	switch tracker {
-	case "local-markdown", "github", "gitlab":
+	case "", "local-markdown", "github", "gitlab":
 	default:
 		return nil, domain.Fail("ARGUMENT", "unknown issueTracker")
 	}
@@ -66,11 +64,20 @@ func renderTracker(data []byte, tracker string) ([]byte, error) {
 		return nil, domain.Fail("BUNDLE", "tracker authority is missing")
 	}
 	old, _ := record["platform"].(string)
+	if tracker == "" {
+		tracker = old
+	}
 	record["platform"] = tracker
+	oldRoot, _ := record["root"].(string)
+	record["root"] = worklayout.DefaultRoot
+	record["legacy_roots"] = worklayout.HistoricalRoots
 	encoded, e := yaml.Marshal(front)
 	if e != nil {
 		return nil, e
 	}
 	body := strings.Replace(string(parts[1]), "| `platform` | `"+old+"` |", "| `platform` | `"+tracker+"` |", 1)
+	if oldRoot != ".work" && oldRoot != "" {
+		body = strings.ReplaceAll(body, oldRoot, ".work")
+	}
 	return append(append(append([]byte("---\n"), encoded...), []byte("---\n")...), []byte(body)...), nil
 }

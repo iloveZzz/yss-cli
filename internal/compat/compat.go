@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -342,7 +343,8 @@ func runNative(ctx context.Context, p domain.Profile, args []string, stdout, std
 		}
 		if _, err := project.Detect(root, p.Name, false); err != nil {
 			code := "IDENTITY"
-			if e, ok := err.(*domain.Error); ok {
+			var e *domain.Error
+			if errors.As(err, &e) {
 				code = e.Code
 			}
 			return nativeFailure(p, code, err.Error(), args, stdout, stderr)

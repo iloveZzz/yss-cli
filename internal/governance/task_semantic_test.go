@@ -62,7 +62,9 @@ func taskTestCompletedBackendProducerRoot(t *testing.T) string {
 	// The original published terminal producer predates business_ticket_version.
 	// This independent synthetic consumer explicitly selects its supported legacy
 	// tracker mode. It does not alter delivery/review/package authority bytes.
-	apTestPut(t, root, ".template-spec/agents/issue-tracker.md", "---\ntracker:\n  platform: local-markdown\n  root: docs/issues\n  lifecycle_tracking_version: 1\n---\nSynthetic registered legacy tracker. Business protocol remains off; no real authorization.\n")
+	// This consumer creates checkpoint/task assets under docs/.scratch. The
+	// registered tracker.root is the work-layout authority for those assets.
+	apTestPut(t, root, ".template-spec/agents/issue-tracker.md", "---\ntracker:\n  platform: local-markdown\n  root: docs/.scratch\n  lifecycle_tracking_version: 1\n---\nSynthetic registered legacy tracker. Business protocol remains off; no real authorization.\n")
 	task := apTestTask(t, root, 1)
 	task["work_unit_id"], task["stage_id"], task["workflow_status"] = "work-unit.backend-delivery", "stage.verification-release-retrospective", "resolved"
 	task["allowed_write_paths"] = []any{".yss-backend-delivery.json"}

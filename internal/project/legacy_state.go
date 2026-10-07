@@ -18,7 +18,7 @@ func CheckLegacyState(root, profile string) error {
 			return e
 		}
 		if _, e = os.Lstat(p); e == nil {
-			return domain.Fail("LEGACY_INTERRUPTED", "存在旧执行器锁，请先使用对应固定版本旧 CLI 检查和恢复: "+ref)
+			return domain.Explain(domain.Fail("LEGACY_INTERRUPTED", "存在旧执行器锁，请先使用对应固定版本旧 CLI 检查和恢复: "+ref), "LEGACY_EXECUTOR_PENDING", "存在旧执行器锁，原生恢复入口不能消费该事务格式。", map[string]any{"root": root, "path": ref, "profile": profile})
 		} else if !os.IsNotExist(e) {
 			return e
 		}

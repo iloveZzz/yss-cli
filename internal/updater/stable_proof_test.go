@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
@@ -21,10 +20,8 @@ import (
 // receipt hashes bind external evidence; their raw documents are not in a pack.
 func stableProofFixture(t *testing.T, change func(map[string]any)) (string, string) {
 	t.Helper()
-	lock, err := os.ReadFile("../../docs/source-lock.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	lock, bundles := committedPackageInputs(t)
+	var err error
 	files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": lock, "docs/compatibility.md": []byte("stable")}
 	descriptors := map[string]domain.Descriptor{}
 	for ref, data := range files {
@@ -33,13 +30,6 @@ func stableProofFixture(t *testing.T, change func(map[string]any)) (string, stri
 			mode = 0755
 		}
 		descriptors[ref] = domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: mode}
-	}
-	bundles := map[string]*bundle.Inspection{}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
-		bundles[profile], err = bundle.Inspect(profile)
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 	m := map[string]any{
 		"schemaVersion": 1, "cliVersion": "1.0.0", "protocolVersion": 1,

@@ -16,7 +16,9 @@ import (
 	"golang.org/x/text/language"
 )
 
-func ignoredSkillFile(name string) bool {
+// IgnoredSkillFile is shared by tree hashing and planning; local caches are
+// preserved explicitly without changing a fixed Skill's source digest.
+func IgnoredSkillFile(name string) bool {
 	for _, part := range strings.Split(name, "/") {
 		if part == ".DS_Store" || part == "__pycache__" {
 			return true
@@ -34,7 +36,7 @@ func SkillTreeHash(files map[string]File, prefix string, vars map[string]string)
 	}
 	refs := []string{}
 	for ref := range files {
-		if strings.HasPrefix(ref, prefix+"/") && !ignoredSkillFile(strings.TrimPrefix(ref, prefix+"/")) {
+		if strings.HasPrefix(ref, prefix+"/") && !IgnoredSkillFile(strings.TrimPrefix(ref, prefix+"/")) {
 			if err := safefs.ValidateRef(ref); err != nil {
 				return "", err
 			}

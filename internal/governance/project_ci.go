@@ -26,7 +26,7 @@ func governanceScope(v *view) ([]string, map[string]any, error) {
 	if err := projectIdentity(v); err != nil {
 		return nil, nil, err
 	}
-	t, err := tracker(v)
+	layout, err := viewWorkLayout(v)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,7 +46,7 @@ func governanceScope(v *view) ([]string, map[string]any, error) {
 	if !ok || n != 1 || text(config["provider"]) != "github" || !valid {
 		return nil, nil, domain.Fail("CI_CONFIG", "project-ci 配置版本、provider 或 additional_paths 无效")
 	}
-	roots := []string{strings.TrimSuffix(text(t["root"]), "/")}
+	roots := []string{layout.Root}
 	for _, p := range paths {
 		s, ok := p.(string)
 		if !ok {

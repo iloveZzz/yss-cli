@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "profile": "design",
+  "templateCommit": "9db9f036a772ace7e2e3afd20a1daebc0422c2f2",
+  "registrySHA256": "78be460bcee78a5325f36c8f3c4b2c1454ab7821fea456eab4fefb0b73df3220",
+  "profileSHA256": "c4cd307dc2bea3279d50dd7988b5e43b59d3aece408c89e82287497ebe0f8e84",
+  "stages": [
+    {
+      "id": "stage.entry-triage",
+      "name": "入口分诊",
+      "goal": "确认仓库身份、问题范围和影响面。",
+      "exitCriteria": "yss-project.yaml 合法，影响面和最近可信阶段可解释。"
+    },
+    {
+      "id": "stage.plan",
+      "name": "Plan（战略规划）",
+      "goal": "确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。",
+      "exitCriteria": "命中的业务边界与阶段决策检查通过，用户统一批准当前 Plan；关键问题已解决，非关键项有责任人、解决时点和接收方；下游可进入 Spec，不代表可实现。"
+    },
+    {
+      "id": "stage.spec-architecture",
+      "name": "Spec / 功能架构",
+      "goal": "固化解决方案和功能边界。",
+      "exitCriteria": "Spec 基线和功能边界可审查。"
+    },
+    {
+      "id": "stage.product-design",
+      "name": "产品设计",
+      "goal": "在存在产品设计影响时校准页面流和状态。",
+      "exitCriteria": "命中的设计门禁通过；未命中项记录 not-applicable 及原因。"
+    },
+    {
+      "id": "stage.ticket-formalization",
+      "name": "Ticket 正式化",
+      "goal": "在既有功能追踪入口下，将冻结范围正式化为垂直切片。",
+      "exitCriteria": "工作单元窄、依赖清晰、验收和测试 seam 可执行。"
+    }
+  ],
+  "referenceStages": [
+    {
+      "id": "stage.system-data-engineering",
+      "name": "系统 / 数据架构与工程契约",
+      "goal": "固化系统、数据、工程基线和 API 契约。",
+      "exitCriteria": "受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。"
+    },
+    {
+      "id": "stage.vertical-slice-implementation",
+      "name": "垂直切片实现",
+      "goal": "以批准合同驱动 TDD 实现和跨仓库协作。",
+      "exitCriteria": "允许写路径、禁止模式、证据和验证命令全部满足。"
+    },
+    {
+      "id": "stage.verification-release-retrospective",
+      "name": "验证 / 发布 / 复盘",
+      "goal": "完成 fresh verification、发布和回顾。",
+      "exitCriteria": "所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。"
+    }
+  ],
+  "entryWorkUnit": "work-unit.entry-triage",
+  "dailyEnabled": false
+}

@@ -86,7 +86,7 @@ func TestBuildFixedCommitDiscoversFutureFiles(t *testing.T) {
 	if newer.SnapshotHash == first.SnapshotHash || newer.BundleHash == first.BundleHash {
 		t.Fatal("source change did not update identity")
 	}
-	if first.TemplateVersion != "git:"+commit || first.SourceState != "committed" || first.SchemaVersion != 2 {
+	if first.TemplateVersion != "git:"+commit || first.SourceState != "committed" || first.SchemaVersion != 3 {
 		t.Fatal("source identities not independent")
 	}
 	if first.Files["scripts/probe"].Mode != 0755 {

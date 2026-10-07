@@ -299,6 +299,9 @@ func loadPreparation(root, id string) (preparation, error) {
 	}
 	expected := map[string]bool{}
 	if c.plan != nil {
+		for _, a := range c.plan.Artifacts {
+			expected[a.Descriptor.Digest] = true
+		}
 		for _, r := range c.plan.Operations {
 			if r.Before.Type == "file" {
 				expected[r.Before.Digest] = true
@@ -388,6 +391,9 @@ func validatePreparation(root, profile string, c *preparation, validate ScopeVal
 		return fail("IDENTITY", "准备头与请求 Profile 不匹配")
 	}
 	s := Summary{TransactionID: c.id, Kind: "abandoned-preparation", Phase: "preparing"}
+	if c.header != nil {
+		s.Profile = c.header.Profile
+	}
 	paths := []string{}
 	if c.plan != nil {
 		p := *c.plan

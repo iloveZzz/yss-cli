@@ -4,7 +4,7 @@
 
 `tools/bundle` 独立读取模板根及三个 Agent 模板源的固定 Git 对象，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定来源提交和策略摘要；公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 
-Bundle 与 native metadata schema v2 分开记录模板及统一 CLI 身份。`working-tree` 候选不能冒充已提交来源。最终生态发行清单汇总源码、Bundle、平台二进制、插件及恢复包摘要，保存为仓外发行产物，不循环嵌入参与仓库的提交哈希。
+Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统一 CLI 身份；来源锁保留 schema v2，运行协议与 JSON envelope 保留 v1。旧 metadata v1/v2 及历史原生事务继续可识别、恢复；旧保存计划应用返回 `PLAN_VERSION`。Bundle 的兼容生成记录绑定旧固定模板字节和新的原生消费者，不能掩盖 producer 的 `working-tree` 状态。最终生态发行清单汇总源码、Bundle、平台二进制、插件及恢复包摘要，保存为仓外发行产物，不循环嵌入参与仓库的提交哈希。
 
 旧实例先 doctor/diff，再保存显式 migrate plan；apply 重建计划并核验输入。旧 metadata 原字节保留。两个固定 binding 路径、旧 receipt、身份及受管文件受同一事务保护；Backend 保持 `plan-to-backend`。未完成旧事务返回 `LEGACY_INTERRUPTED`，先由仓外固定旧执行器恢复。
 

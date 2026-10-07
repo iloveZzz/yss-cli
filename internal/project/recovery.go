@@ -78,7 +78,7 @@ func RecoveryIdentity(root, explicit string) (*Identity, error) {
 	if e != nil {
 		return nil, e
 	}
-	if (m.SchemaVersion != 1 && m.SchemaVersion != 2) || m.ProtocolVersion != domain.ProtocolVersion || m.ProfileID != p.ID || m.TemplateSourceState != "committed" || !digestPattern.MatchString(m.SnapshotHash) || !digestPattern.MatchString(m.ManifestHash) {
+	if (m.SchemaVersion < 1 || m.SchemaVersion > 3) || m.ProtocolVersion != domain.ProtocolVersion || m.ProfileID != p.ID || m.TemplateSourceState != "committed" || !digestPattern.MatchString(m.SnapshotHash) || !digestPattern.MatchString(m.ManifestHash) {
 		return nil, domain.Fail("STATE", "恢复归档中的 Profile 或来源合同未知")
 	}
 	if len(legacyFiles) == 1 {
@@ -103,7 +103,7 @@ func RecoveryIdentity(root, explicit string) (*Identity, error) {
 
 // RecoverPreparation seals only unpublished control-state evidence. It never
 // restores, writes or guesses project assets. Initial partial preparations need
-// an explicit Profile and strictly empty targets; installed projects are checked
+// an explicit Profile; installed projects are checked
 // again under the transaction lock, including their exact metadata descriptors.
 func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) (transaction.Result, bool, error) {
 	status, err := transaction.Status(root)
@@ -153,7 +153,21 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 			}
 		}
 		if !installed {
-			if summary.Kind != "init" && summary.Kind != "abandoned-preparation" {
+			if summary.Kind == "abandoned-preparation" {
+				// An interrupted header has no trusted asset plan or Profile.
+				// The transaction layer has proved this is unpublished control
+				// evidence only, without objects or write intents. Preserve it
+				// under the caller's explicit Profile; do not authorize init or
+				// infer any target write from the partial bytes.
+				return nil
+			}
+			if summary.Kind == "attach" && summary.Profile == id.Profile.Name {
+				// A complete durable, root-bound header and every original input
+				// have already been checked by RecoverPreparations. No target
+				// writes were published, so sealing preserves the existing project.
+				return nil
+			}
+			if summary.Kind != "init" {
 				return domain.Fail("KIND", "无安装身份的准备不能作为 init 封存")
 			}
 			return transaction.VerifyEmptyPreparationRoot(id.Root)

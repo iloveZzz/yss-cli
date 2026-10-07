@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "profile": "backend",
+  "templateCommit": "2b6774e9ca035f740f543f03b823a14a4de634ee",
+  "registrySHA256": "4a3eabfb5adc2cdd999cd7d7967a0b7c344b3cbd618cea36b752fd5292dd2ac9",
+  "profileSHA256": "3af7f3d5f15babfbc6f90fa918c9fb5e6f81b6488062087575fe374bb4ccfeca",
+  "stages": [
+    {
+      "id": "stage.harness-entry",
+      "name": "Harness 入口",
+      "goal": "校验仓库身份、上游输入、影响面和实现仓库上下文。",
+      "exitCriteria": "上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。"
+    },
+    {
+      "id": "stage.technical-design",
+      "name": "技术设计",
+      "goal": "按已确认的 DDD 或 MVC 架构把批准需求细化为可实现、可验证的设计。",
+      "exitCriteria": "新建后端的架构与精确 Spring Boot 版本已由用户确认，既有工程已核验并复用登记架构与实际版本；后端 Technical Design Contract 已批准且当前；数据影响为真时数据架构已批准，否则有可核验的不适用记录；gate.engineering-contract-approved 已通过。"
+    },
+    {
+      "id": "stage.implementation-repository-preparation",
+      "name": "实现仓库准备",
+      "goal": "在已批准的技术/数据设计之后接入既有仓库或生成纯机械后端骨架。",
+      "exitCriteria": "Implementation Repository Preparation Result v2 当前且通过；新生成仅使用 Scaffold Contract/Manifest v4，历史 v3 已完成恢复对账。"
+    },
+    {
+      "id": "stage.slice-contract",
+      "name": "Slice Contract",
+      "goal": "将战术设计和冻结契约编译为一个跨前后端测试的实现合同。",
+      "exitCriteria": "合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。"
+    },
+    {
+      "id": "stage.slice-implementation",
+      "name": "垂直切片实现",
+      "goal": "由前端、后端和测试 Agent 按同一合同并行实现和验证。",
+      "exitCriteria": "行为实现、测试证据、契约一致性和写入边界均满足合同。"
+    },
+    {
+      "id": "stage.verification",
+      "name": "独立验证",
+      "goal": "由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。",
+      "exitCriteria": "所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。"
+    }
+  ],
+  "entryWorkUnit": "work-unit.harness-entry",
+  "dailyEnabled": false
+}

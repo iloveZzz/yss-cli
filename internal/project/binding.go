@@ -158,7 +158,11 @@ func addBinding(p *Plan, b *Binding) error {
 			}
 		}
 		if scopeBefore.Type == "missing" {
-			p.Changes = append(p.Changes, Change{scopeRef, scopeBefore, domain.Descriptor{Type: "file", Digest: safefs.Digest(scopeBytes), Mode: 0644}, base64.StdEncoding.EncodeToString(scopeBytes), "plugin-scope"})
+			scopeAfter := domain.Descriptor{Type: "file", Digest: safefs.Digest(scopeBytes), Mode: 0644}
+			p.Changes = append(p.Changes, Change{scopeRef, scopeBefore, scopeAfter, base64.StdEncoding.EncodeToString(scopeBytes), "plugin-scope"})
+			addSystemAsset(p, scopeRef, scopeBefore, scopeAfter, "plugin-scope")
+		} else {
+			addSystemAsset(p, scopeRef, scopeBefore, scopeBefore, "plugin-scope")
 		}
 	}
 	copy := *b
@@ -172,18 +176,12 @@ func addBinding(p *Plan, b *Binding) error {
 	if before != after {
 		p.Changes = append(p.Changes, Change{b.Path, before, after, b.Data, "plugin-binding"})
 	}
-	p.Digest = planDigest(p)
+	addSystemAsset(p, b.Path, before, after, "plugin-binding")
+	finalizePlan(p)
 	return nil
 }
 func BuildWithBinding(root, profile, command string, vars map[string]string, selection []string, b *Binding) (*Plan, error) {
-	p, e := build(root, profile, command, vars, selection, b)
-	if e != nil {
-		return nil, e
-	}
-	if e = addBinding(p, b); e != nil {
-		return nil, e
-	}
-	return p, nil
+	return BuildWithOptions(root, profile, command, vars, selection, b, PlanningOptions{})
 }
 
 // Existing receipts are inputs even when this operation does not change them.
@@ -225,7 +223,7 @@ func guardPluginBindings(id *Identity, source *bundle.Bundle, p *Plan, next *Bin
 			plugin = "yss-product-design"
 		}
 		if !ok || ref != expected || number(receipt["schema_version"]) != 2 || receipt["plugin"] != plugin || receipt["profile"] != id.Profile.Name || receipt["template_commit"] != id.Native.TemplateCommit || receipt["bundle_hash"] != id.Native.BundleHash || !digestPattern.MatchString(text(receipt["binary_sha256"])) {
-			return domain.Fail("BINDING_CONFLICT", "plugin receipt and native source identity disagree; use the public plugin upgrade plan")
+			return domain.Explain(domain.Fail("BINDING_CONFLICT", "plugin receipt and native source identity disagree; use the public plugin upgrade plan"), "PLUGIN_BINDING_SOURCE_MISMATCH", "插件收据与原生项目的 Profile、模板或 Bundle 来源不一致。", map[string]any{"root": id.Root, "path": ref, "plugin": plugin, "templateCommit": id.Native.TemplateCommit, "bindingTemplateCommit": receipt["template_commit"]})
 		}
 		if p.Command == "diff" || p.Command == "doctor" {
 			continue
@@ -236,7 +234,7 @@ func guardPluginBindings(id *Identity, source *bundle.Bundle, p *Plan, next *Bin
 		}
 		provenance := domain.BuildProvenance()
 		if id.Native.TemplateCommit != source.TemplateCommit || id.Native.BundleHash != source.BundleHash || id.Native.CLIVersion != domain.Version || id.Native.CLICommit != provenance.Commit || id.Native.CLISourceState != provenance.SourceState || receipt["binary_sha256"] != binaryDigest {
-			return domain.Fail("BINDING_REQUIRED", "bound project source changes require its public plugin upgrade plan and new binding")
+			return domain.Explain(domain.Fail("BINDING_REQUIRED", "bound project source changes require its public plugin upgrade plan and new binding"), "PLUGIN_BINDING_UPGRADE_REQUIRED", "程序或固定模板来源已变化，绑定项目必须由对应插件生成升级计划与新 binding。", map[string]any{"root": id.Root, "path": ref, "plugin": plugin, "templateCommit": id.Native.TemplateCommit, "instanceCLI": id.Native.CLIVersion})
 		}
 	}
 	return nil

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "profile": "frontend",
+  "templateCommit": "119c53f9ab6fcaae5ef17dd23e9ecbec9f72455d",
+  "registrySHA256": "27eb6b4d0bf80472ba6ca4f0ea54dcffe519660e1779035b1dc7b835a7e55905",
+  "profileSHA256": "6f87ffbcdc392a4a88830048ffffc3f0e4b7d52a089048c5eca22ec01f351cf1",
+  "stages": [
+    {
+      "id": "stage.harness-entry",
+      "name": "Harness 入口",
+      "goal": "校验仓库身份、上游输入、影响面和实现仓库上下文。",
+      "exitCriteria": "上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。"
+    },
+    {
+      "id": "stage.frontend-engineering-design",
+      "name": "前端工程设计",
+      "goal": "联合输入通过后定义组件、状态管理、API 消费和前端测试边界。",
+      "exitCriteria": "前端实现计划可审阅；本地无领域影响已记录 not-applicable，新领域问题回交上游。"
+    },
+    {
+      "id": "stage.slice-contract",
+      "name": "Slice Contract",
+      "goal": "将当前前端工程设计、条件化后端交付和冻结契约编译为前端垂直切片实现合同。",
+      "exitCriteria": "合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。"
+    },
+    {
+      "id": "stage.slice-implementation",
+      "name": "垂直切片实现",
+      "goal": "由前端、后端和测试 Agent 按同一合同并行实现和验证。",
+      "exitCriteria": "行为实现、测试证据、契约一致性和写入边界均满足合同。"
+    },
+    {
+      "id": "stage.verification",
+      "name": "独立验证",
+      "goal": "由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。",
+      "exitCriteria": "所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。"
+    }
+  ],
+  "entryWorkUnit": "work-unit.harness-entry",
+  "dailyEnabled": false
+}

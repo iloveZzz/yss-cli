@@ -37,7 +37,7 @@ yss bundle inspect --profile spec --json
 yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 ```
 
-来源锁、Bundle v2、原生 metadata v2 分别记录模板提交、统一 CLI 身份、资产摘要和受管基线。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [退役合同](docs/cli-retirement.md)。
+来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
 离线程序安装与项目迁移分开，先生成计划，再显式应用：
 
@@ -132,7 +132,9 @@ yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json 
 
 ## 命令帮助与安装一致性诊断
 
-`yss` 或 `yss --help` 显示中文分组命令表、每条命令的用途与上手案例；`yss <命令/子命令> --help` 和 `yss help <命令/子命令>` 展示参数格式、默认值、条件及案例。`-h` 显示帮助，`-V` 等同于 `--version`。帮助始终输出文本，不读取项目、不访问网络、不写入资产。
+`yss` 或 `yss --help` 按快速上手、生命周期、常用命令及维护入口展示中文导航；`yss <命令/子命令> --help` 和 `yss help <命令/子命令>` 展示用途、前置条件、最小示例、参数、预期结果、下一步及错误。`-h` 显示帮助，`-V` 等同于 `--version`。帮助始终输出文本，不读取项目、不访问网络、不写入资产。
+
+交互终端默认中文摘要；管道和重定向保留原始结果。`--human` 强制中文，与 `--json` 互斥；`--json --diagnostics` 仅在失败时附加顶层诊断，保留原错误码、退出码、协议版本和 `result`。原因、处理和复验区分已确认、可能及待核验事项，并标记命令的只读、写入或联网行为。没有版本依据时显示“尚未登记”。
 
 ```sh
 yss init --help
@@ -141,6 +143,10 @@ yss upgrade --help
 yss help tutorial
 yss -V --json
 ```
+
+完整离线教程和命令索引见 [生成帮助指南](docs/cli-help.md)。按主题使用 `yss help tutorial daily` 或 `yss help tutorial frontend`；按问题使用 `yss help examples sync` 或 `yss help errors INPUT_DRIFT`。阶段名称及退出条件消费固定 Bundle 注册表，执行范围和顺序消费固定 Profile 路由；Design 的下游兼容登记不授予本 Profile 实现资格。
+
+更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs`；两者的 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。源码内部教程 fixture 只验证协议，不构成真实批准。
 
 原生命令的未知命令、子命令、选项、无效取值或缺少参数值返回 `ARGUMENT`，退出码为 `2`，同时给出帮助入口和适用的拼写建议。比如 `yss upadate` 会建议 `update`，并说明在线程序升级使用 `upgrade`。建议不会自动执行。已有升级错误码和 JSON envelope 版本保持不变；其他治理和兼容消费者保留自身领域校验。
 

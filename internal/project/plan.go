@@ -1,7 +1,6 @@
 package project
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -13,7 +12,6 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -25,21 +23,34 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
-	Binding         *Binding                     `json:"binding,omitempty"`
-	SchemaVersion   int                          `json:"schemaVersion"`
-	ProtocolVersion int                          `json:"protocolVersion"`
-	Command         string                       `json:"command"`
-	Root            string                       `json:"root"`
-	Profile         string                       `json:"profile"`
-	TemplateCommit  string                       `json:"templateCommit"`
-	SnapshotHash    string                       `json:"snapshotHash"`
-	Changes         []Change                     `json:"changes"`
-	Conflicts       []string                     `json:"conflicts"`
-	Preserved       []string                     `json:"preserved"`
-	Inputs          map[string]domain.Descriptor `json:"inputs"`
-	Digest          string                       `json:"digest"`
-	Variables       map[string]string            `json:"variables"`
-	Selection       []string                     `json:"selection"`
+	MigrationKind    string               `json:"migrationKind,omitempty"`
+	WorkLayout       *WorkLayoutMigration `json:"workLayout,omitempty"`
+	materialData     map[string][]byte
+	AssetScope       []string                     `json:"assetScope,omitempty"`
+	ReadyToApply     bool                         `json:"readyToApply,omitempty"`
+	Assets           []AssetResult                `json:"assets,omitempty"`
+	Blockers         []Blocker                    `json:"blockers,omitempty"`
+	Coverage         *Coverage                    `json:"coverage,omitempty"`
+	Materials        []Material                   `json:"baselineMaterials,omitempty"`
+	BaseBundlePath   string                       `json:"baseBundlePath,omitempty"`
+	BaseBundleDigest string                       `json:"baseBundleDigest,omitempty"`
+	ResolvedFrom     string                       `json:"resolvedFrom,omitempty"`
+	Resolutions      []Resolution                 `json:"resolutions,omitempty"`
+	Binding          *Binding                     `json:"binding,omitempty"`
+	SchemaVersion    int                          `json:"schemaVersion"`
+	ProtocolVersion  int                          `json:"protocolVersion"`
+	Command          string                       `json:"command"`
+	Root             string                       `json:"root"`
+	Profile          string                       `json:"profile"`
+	TemplateCommit   string                       `json:"templateCommit"`
+	SnapshotHash     string                       `json:"snapshotHash"`
+	Changes          []Change                     `json:"changes"`
+	Conflicts        []string                     `json:"conflicts"`
+	Preserved        []string                     `json:"preserved"`
+	Inputs           map[string]domain.Descriptor `json:"inputs"`
+	Digest           string                       `json:"digest"`
+	Variables        map[string]string            `json:"variables"`
+	Selection        []string                     `json:"selection"`
 }
 
 func (p *Plan) Public() map[string]any {
@@ -47,7 +58,7 @@ func (p *Plan) Public() map[string]any {
 	for _, c := range p.Changes {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
-	return map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	return map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "migrationKind": p.MigrationKind, "workLayout": p.WorkLayout, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
 }
 
 func jsonBytes(v any) ([]byte, error) {
@@ -122,6 +133,9 @@ func Build(root, profile, command string, vars map[string]string, selection []st
 	return build(root, profile, command, vars, selection, nil)
 }
 func build(root, profile, command string, vars map[string]string, selection []string, binding *Binding) (*Plan, error) {
+	return buildCore(root, profile, command, vars, selection, binding, PlanningOptions{})
+}
+func buildCore(root, profile, command string, vars map[string]string, selection []string, binding *Binding, options PlanningOptions) (*Plan, error) {
 	init := command == "init"
 	attach := command == "attach"
 	id, err := Detect(root, profile, init || attach)
@@ -135,6 +149,17 @@ func build(root, profile, command string, vars map[string]string, selection []st
 		if err = CheckLegacyState(id.Root, id.Profile.Name); err != nil {
 			return nil, err
 		}
+		if status, e := transaction.Status(id.Root); e != nil {
+			return nil, e
+		} else if len(status.Pending) > 0 || len(status.Preparations) > 0 {
+			return nil, domain.Fail("INTERRUPTED", "存在未完成事务；执行 yss recover --root "+id.Root+" --apply")
+		}
+	}
+	if attach && id.Native != nil {
+		return nil, domain.Fail("SYNC_REQUIRED", "原生实例使用 yss sync --root "+id.Root+" --plan")
+	}
+	if attach && id.Legacy != nil {
+		return nil, domain.Fail("MIGRATION_REQUIRED", "旧 CLI 实例使用 yss migrate plan --root "+id.Root)
 	}
 	if init {
 		if entries, e := os.ReadDir(id.Root); e == nil && len(entries) > 0 {
@@ -152,6 +177,8 @@ func build(root, profile, command string, vars map[string]string, selection []st
 			if _, e := governance.Run("context", "verify", id.Root, nil); e != nil {
 				return nil, e
 			}
+		} else if id.Native != nil {
+			return nil, domain.Fail("CONTEXT_MISSING", "原生实例缺少 CONTEXT.md；请恢复项目 Context 后重新规划")
 		}
 	}
 	if !init && !attach && id.Native == nil && command != "migrate" && command != "diff" && command != "doctor" {
@@ -160,6 +187,9 @@ func build(root, profile, command string, vars map[string]string, selection []st
 	b, err := bundle.Load(id.Profile.Name)
 	if err != nil {
 		return nil, err
+	}
+	if options.target != nil {
+		b = options.target
 	}
 	vars = Variables(id, vars)
 	for key, value := range vars {
@@ -173,7 +203,7 @@ func build(root, profile, command string, vars map[string]string, selection []st
 	if err != nil {
 		return nil, err
 	}
-	p := &Plan{SchemaVersion: 1, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
+	p := &Plan{SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
 	// Bind identity and vocabulary inputs even when preserved custom files do not
 	// appear in managedFiles. Transaction guards recheck them under the write lock.
 	for _, ref := range []string{"yss-project.yaml", ".template-spec/process/harness-profile.yaml", "CONTEXT.md", MetadataFile, id.Profile.Metadata} {
@@ -204,11 +234,12 @@ func build(root, profile, command string, vars map[string]string, selection []st
 	if err = applyLegacyBaseline(id, command, binding, old, p.Inputs, trustedModes); err != nil {
 		return nil, err
 	}
-	if init || attach {
+	if init || attach || id.Native != nil || command == "migrate" {
 		for ref, f := range b.Initial {
 			refs[ref] = f
 		}
-	} else {
+	}
+	if !init && !attach {
 		for ref := range old {
 			if f, ok := b.Initial[ref]; ok {
 				refs[ref] = f
@@ -217,6 +248,7 @@ func build(root, profile, command string, vars map[string]string, selection []st
 			}
 		}
 	}
+
 	if command == "migrate" {
 		for ref, f := range b.Initial {
 			refs[ref] = f
@@ -260,86 +292,51 @@ func build(root, profile, command string, vars map[string]string, selection []st
 		refs["skills-lock.json"] = f
 		selectedLockProduced = true
 	}
-	managed := map[string]Managed{}
-	for ref, m := range old {
-		managed[ref] = m
+	if err = completeTargets(id, b, distribution, refs, old); err != nil {
+		return nil, err
 	}
-	keys := make([]string, 0, len(refs))
-	for ref := range refs {
-		keys = append(keys, ref)
-	}
-	sort.Strings(keys)
-	for _, ref := range keys {
-		f := refs[ref]
-		before, e := safefs.Describe(id.Root, ref)
+	if f, ok := refs[".template-spec/process/harness-profile.yaml"]; ok {
+		native, e := nativeProfileFile(f, id.Profile)
 		if e != nil {
 			return nil, e
 		}
-		p.Inputs[ref] = before
-		data, e := f.Render(vars)
-		if e != nil {
-			return nil, e
-		}
-		if ref == ".template-spec/agents/issue-tracker.md" && (init || attach) {
-			data, e = renderTracker(data, vars["issueTracker"])
-			if e != nil {
-				return nil, e
-			}
-		}
-		if ref == "README.md" && (init || attach) && vars["issueTracker"] != "" {
-			data = bytes.Replace(data, []byte("默认 Issue Tracker：local-markdown"), []byte("默认 Issue Tracker："+vars["issueTracker"]), 1)
-		}
-		desired := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: domain.FileMode(f.Mode)}
-		previous, wasManaged := old[ref]
-		modeConflict := before.Mode != previous.Applied.Mode
-		if id.Native == nil && id.Profile.Name == "spec" {
-			// Legacy contentHash metadata cannot authorize a permission change.
-			// Only an exact fixed overlay policy can prove its current mode.
-			modeConflict = before.Mode != desired.Mode && !trustedModes[ref]
-		}
-		derivedLock := !init && !attach && selectedLockProduced && ref == "skills-lock.json"
-		if derivedLock && (!managedDerivedSkillsLock(id, ref, f, previous, wasManaged, selectedLockProduced) || before.Type != "file" || before.Digest != previous.Applied.Digest || modeConflict) {
-			// Even bytes matching the future lock must not silently adopt a user
-			// edit. A missing or untracked lock cannot authorize a new baseline.
-			p.Conflicts = append(p.Conflicts, ref)
-			continue
-		}
-		preserve := !init && (ref == "CONTEXT.md" || f.Ownership == "user-owned" || (f.Ownership == "generated" && !derivedLock) || f.Ownership == "managed-customizable")
-		if before == desired {
-			managed[ref] = Managed{Baseline: desired, Applied: before, Ownership: f.Ownership}
-			continue
-		}
-		if before.Type == "file" && preserve {
-			p.Preserved = append(p.Preserved, ref)
-			if wasManaged {
-				managed[ref] = previous
-			}
-			continue
-		}
-		if before.Type != "missing" && (!wasManaged || before.Digest != previous.Applied.Digest || modeConflict) {
-			p.Conflicts = append(p.Conflicts, ref)
-			continue
-		}
-		if before.Type == "missing" && wasManaged && command == "sync" {
-			p.Conflicts = append(p.Conflicts, ref)
-			continue
-		}
-		if f.Ownership == "user-owned" && command != "init" {
-			continue
-		}
-		p.Changes = append(p.Changes, Change{ref, before, desired, base64.StdEncoding.EncodeToString(data), f.Ownership})
-		managed[ref] = Managed{Baseline: desired, Applied: desired, Ownership: f.Ownership}
+		refs[".template-spec/process/harness-profile.yaml"] = native
 	}
+	if f, ok := refs["skills-lock.json"]; ok && b.AssetKind("skills-lock.json", f) == "generated" {
+		raw, e := bundle.RenderedSkillLock(mustDecode(f.Data), refs, vars)
+		if e != nil {
+			return nil, domain.Wrap("BUNDLE", e)
+		}
+		f.Data = base64.StdEncoding.EncodeToString(raw)
+		f.Digest = safefs.Digest(raw)
+		refs["skills-lock.json"] = f
+	}
+	planner, err := newUpgradePlanner(id, b, p, old, options, trustedModes)
+	if err != nil {
+		return nil, err
+	}
+	managed, err := planner.planAssets(refs, selectedLockProduced)
+	if err != nil {
+		return nil, err
+	}
+
 	if command == "diff" || command == "doctor" {
-		p.Digest = planDigest(p)
+		finalizePlan(p)
 		return p, nil
 	}
-	meta := Metadata{SchemaVersion: 1, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
-	if b.SchemaVersion == 2 {
-		meta.SchemaVersion = 2
+	meta := Metadata{SchemaVersion: 3, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
+	if b.SchemaVersion >= 2 {
 		meta.TemplateVersion = b.TemplateVersion
-		meta.BundleSchemaVersion = 2
+		meta.BundleSchemaVersion = b.SchemaVersion
 		meta.BundleHash = b.BundleHash
+		source := domain.BuildProvenance()
+		meta.CLICommit = source.Commit
+		meta.CLISourceState = source.SourceState
+	}
+	if b.SchemaVersion == 1 {
+		meta.BundleSchemaVersion = 2
+		meta.BundleHash = bundle.Hash(b)
+		meta.TemplateVersion = b.LegacyVersion
 		source := domain.BuildProvenance()
 		meta.CLICommit = source.Commit
 		meta.CLISourceState = source.SourceState
@@ -367,13 +364,16 @@ func build(root, profile, command string, vars map[string]string, selection []st
 				return nil, e
 			}
 			p.Changes = append(p.Changes, Change{id.LegacyFile, d, d, base64.StdEncoding.EncodeToString(raw), "legacy-metadata-archive"})
+			addSystemAsset(p, id.LegacyFile, d, d, "legacy-metadata-archive")
 		}
 	}
 	after := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: 0644}
 	if before != after {
 		p.Changes = append(p.Changes, Change{MetadataFile, before, after, base64.StdEncoding.EncodeToString(data), "runtime-metadata"})
 	}
-	p.Digest = planDigest(p)
+	addSystemAsset(p, MetadataFile, before, after, "generated")
+	p.AssetScope = union(p.AssetScope, []string{MetadataFile})
+	finalizePlan(p)
 	return p, nil
 }
 func planDigest(p *Plan) string {
@@ -454,7 +454,7 @@ func ReadPlan(file string) (*Plan, error) {
 	if e = d.Decode(&p); e != nil {
 		return nil, e
 	}
-	if p.SchemaVersion != 1 || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
+	if (p.SchemaVersion != 1 && p.SchemaVersion != 2) || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
 		return nil, domain.Fail("PLAN", "计划版本或摘要不合法")
 	}
 	return &p, nil
@@ -463,11 +463,20 @@ func Apply(p *Plan) (transaction.Result, error) {
 	return ApplyContext(context.Background(), p)
 }
 func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
+	if p.MigrationKind == "work-layout" {
+		return applyWorkLayout(ctx, p)
+	}
+	if p.MigrationKind != "" {
+		return transaction.Result{}, domain.Fail("PLAN", "未知迁移类型")
+	}
+	if p.SchemaVersion != 2 {
+		return transaction.Result{}, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")
+	}
 	if p.Digest != planDigest(p) {
 		return transaction.Result{}, domain.Fail("PLAN", "计划摘要不合法")
 	}
-	if len(p.Conflicts) > 0 {
-		return transaction.Result{}, domain.Fail("CONFLICT", "存在用户修改冲突，须先人工合并")
+	if len(p.Conflicts) > 0 || len(p.Blockers) > 0 || !p.ReadyToApply {
+		return transaction.Result{}, domain.Explain(domain.Fail("CONFLICT", "存在用户修改冲突，须先人工合并"), "MANAGED_FILE_CONFLICT", "保存计划中存在尚未关闭的文件冲突或阻断项。", map[string]any{"root": p.Root, "conflicts": p.Conflicts, "blockers": p.Blockers})
 	}
 	b, e := bundle.Load(p.Profile)
 	if e != nil {
@@ -485,10 +494,10 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 			return transaction.Result{}, e
 		}
 		if now != before {
-			return transaction.Result{}, domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref)
+			return transaction.Result{}, domain.Explain(domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref), "SAVED_PLAN_INPUT_CHANGED", "当前输入与保存计划绑定的字节或权限不同，必须重新生成计划。", map[string]any{"root": p.Root, "path": ref, "expected": before, "observed": now})
 		}
 	}
-	rebuilt, e := BuildWithBinding(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding)
+	rebuilt, e := BuildWithOptions(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding, PlanningOptions{BaseBundlePath: p.BaseBundlePath, ResolvedFrom: p.ResolvedFrom, Resolutions: p.Resolutions})
 	if e != nil {
 		return transaction.Result{}, e
 	}
@@ -497,12 +506,27 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 	}
 	ops := make([]transaction.Operation, 0, len(p.Changes))
 	for _, c := range p.Changes {
+		before := c.Before
+		if c.After.Type == "missing" {
+			if c.Data != "" {
+				return transaction.Result{}, domain.Fail("PLAN", "删除操作不得含候选字节")
+			}
+			ops = append(ops, transaction.Operation{Path: c.Path, Delete: true, Before: &before})
+			continue
+		}
 		data, e := base64.StdEncoding.DecodeString(c.Data)
 		if e != nil || safefs.Digest(data) != c.After.Digest {
 			return transaction.Result{}, domain.Fail("PLAN", "计划内容摘要不合法: "+c.Path)
 		}
-		before := c.Before
 		ops = append(ops, transaction.Operation{Path: c.Path, Data: data, Mode: c.After.Mode, Before: &before})
 	}
-	return transaction.ApplyContextWithGuards(ctx, p.Root, p.Command, ops, p.Inputs)
+	materials := make([]transaction.Artifact, 0, len(p.Materials))
+	for _, m := range p.Materials {
+		data := rebuilt.materialData[m.Descriptor.Digest]
+		if safefs.Digest(data) != m.Descriptor.Digest {
+			return transaction.Result{}, domain.Fail("PLAN", "模板材料摘要不合法")
+		}
+		materials = append(materials, transaction.Artifact{ArtifactRecord: transaction.ArtifactRecord{Path: m.Path, Kind: m.Kind, Descriptor: m.Descriptor}, Data: data})
+	}
+	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, ops, p.Inputs, materials, func() error { return verifyAppliedPlan(ctx, p, b) })
 }
