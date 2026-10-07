@@ -21,7 +21,7 @@ func init() {
 	helpTopics["rollback"] = helpTopic{"查询或整体回退最近一次成功项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行回退；默认只查询", "yss rollback --root ./demo-spec --json\nyss rollback --root ./demo-spec --apply --json", "后续用户修改会阻止覆盖。程序版本回退使用 yss update rollback。", false}
 	helpTopics["version"] = helpTopic{"查看 CLI、协议和固定来源身份。", "[--json]", "也可使用 yss -V 或 yss --version", "yss version --json", "不需要项目目录。", false}
 	helpTopics["capabilities"] = helpTopic{"查看原生能力、治理接口与发行证据边界。", "[--json]", "--json  输出机器可读能力清单", "yss capabilities --json", "支持清单不等于某个平台已通过原生发行验收。", false}
-	helpTopics["upgrade"] = helpTopic{"从 GitHub 下载并事务安装稳定版 CLI。", "[--check] [--to <稳定版本>] [--tool-root <目录>] [--json]", "--check  只检查版本，不下载、不写入\n--to <版本>  指定稳定版，如 1.2.0 或 v1.2.0；默认最新稳定版\n--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录", "yss upgrade --check\nyss upgrade\nyss upgrade --to 1.2.0 --tool-root ./tools/yss --json", "固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝。恢复: yss update recover --tool-root <目录>；回退: yss update rollback --tool-root <目录>。1.0.0 首次安装新版使用离线 update，见 yss help tutorial。", false}
+	helpTopics["upgrade"] = helpTopic{"从 GitHub 下载并事务安装稳定版 CLI。", "[--check] [--to <稳定版本>] [--tool-root <目录>] [--json]", "--check  只检查版本，不下载、不写入\n--to <版本>  指定稳定版，如 1.3.0 或 v1.3.0；默认最新稳定版\n--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录", "yss upgrade --check\nyss upgrade\nyss upgrade --to 1.3.0 --tool-root ./tools/yss --json", "固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝。恢复: yss update recover --tool-root <目录>；回退: yss update rollback --tool-root <目录>。1.0.0 首次安装新版使用离线 update，见 yss help tutorial。", false}
 	registerGroup("update", "安装、恢复或回退指定本地发行包。", "--tool-root <目录>", "--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根", "yss update status --tool-root ./tools/yss --json", "保留离线安装接口；每次写入绑定摘要和程序事务。", map[string]helpTopic{
 		"plan":     {"生成离线程序安装计划（默认动作）。", "--artifact <归档> --sha256 <摘要> [--out <新文件>]", "--artifact <文件>  本机平台的 .tar.gz 或 .zip\n--sha256 <摘要>  归档 SHA-256\n--out <新文件>  保存计划到工具目录外；默认只输出计划", "yss update plan --tool-root ./tools/yss --artifact /path/yss.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json", "归档必须来自可信固定来源。", false},
 		"apply":    {"应用保存的程序安装计划。", "--plan-file <文件>", "--plan-file <文件>  必需；读取 update plan 生成的计划", "yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json", "保持文件权限；用户改动及输入漂移会阻止安装。", false},
@@ -208,13 +208,13 @@ const maintenanceTutorial = `YSS 离线入门教程
 6. 升级 CLI 程序
    yss upgrade --check
    yss upgrade
-   yss upgrade --to 1.2.0 --tool-root ./tools/yss --json
+   yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
    自动识别实际运行的受管工具目录；未受管裸二进制须显式选择新工具目录。
 
    1.0.0 没有 upgrade 命令：首次进入新版从
    https://github.com/iloveZzz/yss-cli/releases 下载本机包和 checksums.json，
    读取其中对应归档 SHA-256，再执行现有离线入口：
-   yss update plan --tool-root ./tools/yss --artifact /path/yss_1.2.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
+   yss update plan --tool-root ./tools/yss --artifact /path/yss_1.3.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
    yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
    ./tools/yss/yss version --json
    将该受管目录的 yss 链接到 PATH 后即可使用 upgrade。

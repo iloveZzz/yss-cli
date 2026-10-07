@@ -54,7 +54,7 @@ func initializeCommands() {
 	defineArgument("resolution-file", "<文件>", "结合 --plan-file 原计划重新规划已决议资产")
 	defineArgument("artifact", "<归档>", "本机平台 .tar.gz 或 .zip 发行包")
 	defineArgument("sha256", "<SHA-256>", "发行包的 64 位十六进制 SHA-256")
-	defineArgument("to", "<稳定版本>", "在线升级目标，如 1.2.0 或 v1.2.0；默认最新稳定版")
+	defineArgument("to", "<稳定版本>", "在线升级目标，如 1.3.0 或 v1.3.0；默认最新稳定版")
 	defineArgument("issue-tracker", "<追踪器>", "Spec Tracker 配置", "local-markdown", "github", "gitlab")
 	defineArgument("provider", "<提供方>", "CI 提供方，默认 github", "github")
 	defineArgument("base", "<完整SHA>", "已确认实现仓的完整 Git 基线")
