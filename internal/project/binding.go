@@ -177,8 +177,7 @@ func addBinding(p *Plan, b *Binding) error {
 		p.Changes = append(p.Changes, Change{b.Path, before, after, b.Data, "plugin-binding"})
 	}
 	addSystemAsset(p, b.Path, before, after, "plugin-binding")
-	finalizePlan(p)
-	return nil
+	return finalizePlan(p)
 }
 func BuildWithBinding(root, profile, command string, vars map[string]string, selection []string, b *Binding) (*Plan, error) {
 	return BuildWithOptions(root, profile, command, vars, selection, b, PlanningOptions{})
