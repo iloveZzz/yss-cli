@@ -36,7 +36,11 @@ func TestCurrentCheckpointFourProfilesPublicAndUnknownStage(t *testing.T) {
 				t.Fatal(err)
 			}
 			stage := text(semMap(semList(registry["stages"])[0])["id"])
-			const ref = "docs/.scratch/feature-demo/checkpoint.json"
+			layout, err := viewWorkLayout(apTestSession(t, root).v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := layout.Root + "/feature-demo/checkpoint.json"
 			cp := map[string]any{"schema_version": 1, "repository_mode": "project-instance", "feature_id": "feature-demo", "mode": "audit", "status": "running", "stage": stage, "artifacts": map[string]any{}, "gates": map[string]any{}, "context_reconciliation": map[string]any{"status": "pending", "ref": nil, "evidence_refs": []any{}}, "next_work_unit": nil, "ticket_sync": map[string]any{}, "verification": map[string]any{}, "human_review": map[string]any{}, "git_checkpoint": map[string]any{}, "blockers": []any{}, "rollback": []any{}}
 			apTestPut(t, root, ref, cp)
 			result, err := RunContext(context.Background(), "lifecycle", "verify", root, map[string]string{"checkpoint": ref})
@@ -60,7 +64,7 @@ func TestCurrentCheckpointFourProfilesPublicAndUnknownStage(t *testing.T) {
 			}
 			bad["feature_id"] = "feature-bad"
 			bad["stage"] = "stage.unknown"
-			badRef := "docs/.scratch/feature-bad/checkpoint.json"
+			badRef := layout.Root + "/feature-bad/checkpoint.json"
 			apTestPut(t, root, badRef, bad)
 			for _, action := range []string{"check", "verify"} {
 				for _, selected := range []string{"", ref} {
@@ -134,7 +138,11 @@ func TestCompleteCIRegisteredScaffoldDispatch(t *testing.T) {
 			apTestPut(t, root, ref, raw)
 		}
 	}
-	const good = "docs/.scratch/feature-demo/checkpoint.json"
+	layout, err := viewWorkLayout(apTestSession(t, root).v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := layout.Root + "/feature-demo/checkpoint.json"
 	cp := map[string]any{"schema_version": 1, "repository_mode": "project-instance", "feature_id": "feature-demo", "mode": "audit", "status": "running", "stage": "stage.entry-triage", "artifacts": map[string]any{}, "gates": map[string]any{}, "context_reconciliation": map[string]any{"status": "pending", "ref": nil, "evidence_refs": []any{}}, "next_work_unit": nil, "ticket_sync": map[string]any{}, "verification": map[string]any{}, "human_review": map[string]any{}, "git_checkpoint": map[string]any{}, "blockers": []any{}, "rollback": []any{}}
 	apTestPut(t, root, good, cp)
 

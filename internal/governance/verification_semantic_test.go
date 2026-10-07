@@ -305,13 +305,17 @@ func verificationTestFormalConsumer(t *testing.T, root, typedRef string) (string
 		apTestPut(t, root, ref, raw)
 	}
 	s := apTestSession(t, root)
+	layout, e := viewWorkLayout(s.v)
+	if e != nil {
+		t.Fatal(e)
+	}
 	roleID := "role.project-manager"
 	role := taskRole(s, roleID)
 	if role == nil {
 		t.Fatal("fixture source lacks current project-manager role")
 	}
-	cpRef := "docs/.scratch/report-consumer/checkpoint.json"
-	taskRef := "docs/.scratch/report-consumer/task.json"
+	cpRef := layout.Root + "/report-consumer/checkpoint.json"
+	taskRef := layout.Root + "/report-consumer/task.json"
 	cp := apTestCheckpoint(map[string]any{})
 	cp["feature_id"] = "report-consumer"
 	cp["stage"], cp["mode"], cp["next_work_unit"] = "stage.plan", "orchestrate", "work-unit.plan-requirements"
@@ -322,7 +326,7 @@ func verificationTestFormalConsumer(t *testing.T, root, typedRef string) (string
 	proof := apTestPut(t, root, ".template-source/report-consumer/check.log", "Synthetic formal task actual-exit fixture only; no command executed.")
 	result := map[string]any{"result_schema": "workflow-execution-result-v1", "work_unit": "work-unit.entry-triage", "workflow_reference": "AGENTS.md", "skill": "yss-product-lifecycle", "result": "completed", "changed_files": []any{}, "changed_artifacts": []any{typedRef}, "context_reconciliation": map[string]any{"status": "reconciled", "ref": "CONTEXT.md"}, "evidence_refs": []any{"CONTEXT.md", typedRef}, "deferred_seams": []any{}, "drift": []any{}, "violation": []any{}, "new_impacts": []any{}, "stale_candidates": []any{}, "next_route": "work-unit.plan-opportunity", "blocking_signals": []any{}}
 	task := map[string]any{"schema_version": 1, "task_id": "synthetic.report-consumer", "work_unit_id": "work-unit.entry-triage", "actor_id": "synthetic.report-consumer", "role_id": "role.requirements-manager", "runtime_id": "runtime.generic", "execution_state": "Explorer", "workflow_status": "resolved", "stage_id": "stage.entry-triage", "skill_source": map[string]any{"registry_ref": approvalRolesRef, "defaults_ref": "taskPackageDefaults(role.requirements-manager)", "core_skills": role["core_skills"], "forbidden_skills": role["forbidden_skills"]}, "contract": map[string]any{"kind": "lifecycle-work-unit", "contract_id": "synthetic.consumer", "contract_version": 1, "status": "issued", "contract_ref": "AGENTS.md", "lifecycle_ref": approvalRegistryRef}, "checkpoint_ref": cpRef, "inputs": []any{"CONTEXT.md"}, "objective": "合成测试：从正式已声明产物核验当前交付报告", "allowed_write_paths": []any{}, "forbidden_actions": []any{"commit", "publish"}, "expected_outputs": []any{"当前只读交付校验"}, "expected_evidence_files": []any{typedRef, "CONTEXT.md"}, "verification_commands": []any{"synthetic formal verification"}, "verification_results": []any{map[string]any{"command": "synthetic formal verification", "exit_code": 0, "executed_at": time.Now().UTC().Format(time.RFC3339Nano), "evidence_ref": ".template-source/report-consumer/check.log", "evidence_digest": "sha256:" + safefs.Digest(proof)}}, "downstream_consumers": []any{"root.test"}, "convergence": map[string]any{"parent_work_unit": "work-unit.entry-triage", "convergence_ref": "AGENTS.md"}, "result": result}
-	task["allowed_write_paths"] = []any{"docs/.scratch/report-consumer/output.json"}
+	task["allowed_write_paths"] = []any{layout.Root + "/report-consumer/output.json"}
 	task["work_unit_id"], task["stage_id"], task["execution_state"] = "work-unit.plan-opportunity", "stage.plan", "Worker"
 	task["convergence"] = map[string]any{"parent_work_unit": "work-unit.plan-opportunity", "convergence_ref": "AGENTS.md"}
 	result["work_unit"], result["next_route"] = "work-unit.plan-opportunity", "work-unit.plan-requirements"
@@ -330,7 +334,7 @@ func verificationTestFormalConsumer(t *testing.T, root, typedRef string) (string
 	result["changed_artifacts"] = []any{}
 	task["role_id"] = roleID
 	task["skill_source"] = map[string]any{"registry_ref": approvalRolesRef, "defaults_ref": "taskPackageDefaults(" + roleID + ")", "core_skills": role["core_skills"], "forbidden_skills": role["forbidden_skills"]}
-	parentRef := "docs/.scratch/report-consumer/parent-ticket.md"
+	parentRef := layout.Root + "/report-consumer/parent-ticket.md"
 	apTestPut(t, root, parentRef, "Synthetic parent Ticket bound to "+cpRef+"; no real work authorization.\n")
 	source, e := s.bind("CONTEXT.md")
 	if e != nil {
@@ -475,6 +479,11 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 		t.Fatal(e)
 	}
 	apTestPut(t, root, ".template-spec/agents/issue-tracker.md", trackerRaw)
+	layout, e := viewWorkLayout(apTestSession(t, root).v)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cpRef := layout.Root + "/strategic-verification/checkpoint.json"
 	prefix := "docs/deliveries/strategic/strategic-design-handoff.supplier/v1"
 	if e = filepath.WalkDir(meta.Exported.Delivery, func(file string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -512,7 +521,7 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 				checkpoint = apCopy(cp)
 				checkpoint["artifacts"] = map[string]any{}
 			}
-			apTestPut(t, root, "docs/.scratch/strategic-verification/checkpoint.json", checkpoint)
+			apTestPut(t, root, cpRef, checkpoint)
 			ref := prefix + "/verification.json"
 			if name == "wrong-report" {
 				raw, e := os.ReadFile(filepath.Join(root, ref))
@@ -536,7 +545,7 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 				apTestPut(t, root, ref, v)
 				defer apTestPut(t, root, ref, saved)
 			}
-			opts := map[string]string{"checkpoint": "docs/.scratch/strategic-verification/checkpoint.json"}
+			opts := map[string]string{"checkpoint": cpRef}
 			if name == "missing-consumer" {
 				opts = map[string]string{}
 			}
@@ -554,11 +563,11 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 				t.Fatal("strategic verify mutated evidence")
 			}
 			if name == "valid" {
-				contractTestRetainFixture(t, root, "public-strategic-verification", map[string]any{"group": "evidence", "action": "verify", "kind": "verification", "file": ref, "checkpoint": "docs/.scratch/strategic-verification/checkpoint.json", "profile": "design", "expected_exit": 0})
+				contractTestRetainFixture(t, root, "public-strategic-verification", map[string]any{"group": "evidence", "action": "verify", "kind": "verification", "file": ref, "checkpoint": cpRef, "profile": "design", "expected_exit": 0})
 			}
 		})
 	}
-	apTestPut(t, root, "docs/.scratch/strategic-verification/checkpoint.json", cp)
+	apTestPut(t, root, cpRef, cp)
 }
 
 func TestVerificationPublicBackendCompletedProducerReports(t *testing.T) {
