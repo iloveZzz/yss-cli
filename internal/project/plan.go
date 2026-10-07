@@ -321,7 +321,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 
 	if command == "diff" || command == "doctor" {
-		finalizePlan(p)
+		if e := finalizePlan(p); e != nil {
+			return nil, e
+		}
 		return p, nil
 	}
 	meta := Metadata{SchemaVersion: 3, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
@@ -373,7 +375,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	addSystemAsset(p, MetadataFile, before, after, "generated")
 	p.AssetScope = union(p.AssetScope, []string{MetadataFile})
-	finalizePlan(p)
+	if e := finalizePlan(p); e != nil {
+		return nil, e
+	}
 	return p, nil
 }
 func planDigest(p *Plan) string {
@@ -489,7 +493,7 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 		return transaction.Result{}, e
 	}
 	for ref, before := range p.Inputs {
-		now, e := safefs.Describe(p.Root, ref)
+		now, e := workDescribe(p.Root, ref)
 		if e != nil {
 			return transaction.Result{}, e
 		}
@@ -507,6 +511,13 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 	ops := make([]transaction.Operation, 0, len(p.Changes))
 	for _, c := range p.Changes {
 		before := c.Before
+		if c.After.Type == "directory" {
+			if c.Data != "" {
+				return transaction.Result{}, domain.Fail("PLAN", "目录操作不得含候选字节")
+			}
+			ops = append(ops, transaction.Operation{Path: c.Path, Directory: true, Mode: c.After.Mode, Before: &before})
+			continue
+		}
 		if c.After.Type == "missing" {
 			if c.Data != "" {
 				return transaction.Result{}, domain.Fail("PLAN", "删除操作不得含候选字节")

@@ -64,7 +64,10 @@ type PlanningOptions struct {
 	target       *bundle.Bundle // isolated tests, never an external CLI parameter
 }
 
-func finalizePlan(p *Plan) {
+func finalizePlan(p *Plan) error {
+	if err := planAssetDirectories(p); err != nil {
+		return err
+	}
 	sort.Slice(p.Assets, func(i, j int) bool { return p.Assets[i].Path < p.Assets[j].Path })
 	sort.Slice(p.Materials, func(i, j int) bool {
 		if p.Materials[i].Path == p.Materials[j].Path {
@@ -102,7 +105,45 @@ func finalizePlan(p *Plan) {
 	p.Coverage = &Coverage{InScope: len(p.AssetScope), Classified: count, Percent: percent}
 	p.ReadyToApply = len(p.Blockers) == 0 && len(p.Conflicts) == 0
 	p.Digest = planDigest(p)
+	return nil
 }
+
+// Bind parents in the saved plan and reuse directory WAL operations so rollback
+// removes only directories created by this transaction.
+func planAssetDirectories(p *Plan) error {
+	planned := map[string]bool{}
+	for _, c := range p.Changes {
+		if c.After.Type == "directory" {
+			planned[c.Path] = true
+		}
+	}
+	for _, c := range p.Changes {
+		if c.After.Type == "missing" {
+			continue
+		}
+		for ref := filepath.ToSlash(filepath.Dir(c.Path)); ref != "."; ref = filepath.ToSlash(filepath.Dir(ref)) {
+			if planned[ref] {
+				continue
+			}
+			before, err := workDescribe(p.Root, ref)
+			if err != nil {
+				return err
+			}
+			if before.Type != "missing" && before.Type != "directory" {
+				return domain.Fail("PATH", "资产父路径不是普通目录: "+ref)
+			}
+			p.Inputs[ref] = before
+			planned[ref] = true
+			if before.Type == "missing" {
+				after := domain.Descriptor{Type: "directory", Mode: 0755}
+				p.Changes = append(p.Changes, Change{Path: ref, Before: before, After: after, Ownership: "runtime-directory"})
+				addSystemAsset(p, ref, before, after, "runtime-directory")
+			}
+		}
+	}
+	return nil
+}
+
 func addSystemAsset(p *Plan, ref string, before, after domain.Descriptor, kind string) {
 	p.AssetScope = union(p.AssetScope, []string{ref})
 	action := "unchanged"

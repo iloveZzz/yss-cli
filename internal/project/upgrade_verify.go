@@ -20,7 +20,7 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 		return e
 	}
 	for _, c := range p.Changes {
-		actual, e := safefs.Describe(p.Root, c.Path)
+		actual, e := workDescribe(p.Root, c.Path)
 		if e != nil {
 			return e
 		}
@@ -46,7 +46,7 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 		if a.Action == "delete" || a.Action == "rename" {
 			want = domain.Descriptor{Type: "missing"}
 		}
-		actual, e := safefs.Describe(p.Root, a.Path)
+		actual, e := workDescribe(p.Root, a.Path)
 		if e != nil {
 			return e
 		}
