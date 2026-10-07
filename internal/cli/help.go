@@ -133,7 +133,7 @@ func rootHelp() string {
 		label string
 		names []string
 	}{
-		{"项目", []string{"init", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
+		{"项目", []string{"init", "profile", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
 		{"资源", []string{"skills", "assets", "bundle"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"context", "lifecycle", "stage", "contract", "evidence", "handoff", "project-ci"}},

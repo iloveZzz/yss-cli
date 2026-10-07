@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.0，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.1，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -30,6 +30,21 @@ yss lifecycle query --root ./my-project --id work-unit.entry-triage --json
 程序版本、协议、Profile 模板版本和旧 CLI 兼容版本分别存储。已有旧实例需要先 doctor/diff，再显式 migrate；不会用 1.0.0 与旧 Spec 3.5.10 比较并误判降级。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
 
 四类 Bundle 由 Go 构建工具直接读取四个固定模板提交，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
+
+四类模板的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
+
+启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的前后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
+
+```sh
+yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
+yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
+yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json
+yss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json
+yss handoff verify --root ./design --kind spec-baseline --file docs/spec-baselines/spec-baseline.feature/v1/receipt.json --json
+```
+
+初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Design 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
 
 ```sh
 go run ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
@@ -62,7 +77,7 @@ yss migrate rollback --root ./old-project --json
 
 本地打包六个平台：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.3.0 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
+1.3.1 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 

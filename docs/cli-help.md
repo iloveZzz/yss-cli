@@ -8,7 +8,7 @@
 ## 入口导航
 
 ```text
-yss 1.3.0 — Spec / Design / Backend / Frontend 统一入口
+yss 1.3.1 — Spec / Design / Backend / Frontend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
@@ -40,6 +40,7 @@ Profile 职责:
 命令:
   [项目]
     init             创建固定模板来源的项目实例。
+    profile          准备独立的下游 Profile 工程并登记显式关联。
     attach           首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。
     doctor           检查项目身份、受管基线和冲突。
     diff             查看当前文件相对固定模板的差异和同步计划。
@@ -722,6 +723,8 @@ YSS 离线入门教程
 | `evidence verify` | 执行当前领域规则和独立消费者绑定校验。 | `yss help examples evidence verify` |
 | `handoff` | 校验 handoff 的结构或原生领域语义。 | `yss help examples handoff` |
 | `handoff check` | 执行显式 Schema 结构校验。 | `yss help examples handoff check` |
+| `handoff export` | 导出当前已批准的 Spec 基线及来源证据。 | `yss help examples handoff export` |
+| `handoff import` | 将批准 Spec 基线接入独立 Design。 | `yss help examples handoff import` |
 | `handoff verify` | 执行当前领域规则和独立消费者绑定校验。 | `yss help examples handoff verify` |
 | `init` | 创建固定模板来源的项目实例。 | `yss help examples init` |
 | `lifecycle` | 查询阶段、工作单元、日常路由及当前门禁。 | `yss help examples lifecycle` |
@@ -736,6 +739,8 @@ YSS 离线入门教程
 | `migrate recover` | 恢复未完成迁移事务。 | `yss help examples migrate recover` |
 | `migrate rollback` | 恢复迁移前实例。 | `yss help examples migrate rollback` |
 | `migrate status` | 查询迁移事务。 | `yss help examples migrate status` |
+| `profile` | 准备独立的下游 Profile 工程并登记显式关联。 | `yss help examples profile` |
+| `profile prepare` | 生成或执行单端、联合初始化保存计划。 | `yss help examples profile prepare` |
 | `project-ci` | 核验或配置项目 CI。 | `yss help examples project-ci` |
 | `project-ci apply` | 应用有限原生 CI 保存计划。 | `yss help examples project-ci apply` |
 | `project-ci check` | 核验完整治理或显式有限 CI。 | `yss help examples project-ci check` |
@@ -783,7 +788,7 @@ YSS 离线入门教程
 ### archive
 
 ```text
-yss 1.3.0 — archive
+yss 1.3.1 — archive
 ──────────────────────
 安全打包、读取或核验 ZIP 资产。
 
@@ -829,7 +834,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive pack
 
 ```text
-yss 1.3.0 — archive pack
+yss 1.3.1 — archive pack
 ──────────────────────
 打包指定项目目录。
 
@@ -875,7 +880,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive unpack
 
 ```text
-yss 1.3.0 — archive unpack
+yss 1.3.1 — archive unpack
 ──────────────────────
 安全解包到新位置。
 
@@ -921,7 +926,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive verify
 
 ```text
-yss 1.3.0 — archive verify
+yss 1.3.1 — archive verify
 ──────────────────────
 只读核验归档结构。
 
@@ -965,7 +970,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets
 
 ```text
-yss 1.3.0 — assets
+yss 1.3.1 — assets
 ──────────────────────
 查询或补装 阶段资源和 Skill 闭包。
 
@@ -1020,7 +1025,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets ensure
 
 ```text
-yss 1.3.0 — assets ensure
+yss 1.3.1 — assets ensure
 ──────────────────────
 补装指定 阶段资源和 Skill 闭包。
 
@@ -1075,7 +1080,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets list
 
 ```text
-yss 1.3.0 — assets list
+yss 1.3.1 — assets list
 ──────────────────────
 列出当前 Profile 支持的标识。
 
@@ -1127,7 +1132,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### attach
 
 ```text
-yss 1.3.0 — attach
+yss 1.3.1 — attach
 ──────────────────────
 首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。
 
@@ -1189,7 +1194,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle
 
 ```text
-yss 1.3.0 — bundle
+yss 1.3.1 — bundle
 ──────────────────────
 读取或导出完整固定 Bundle 与 manifest。
 
@@ -1232,7 +1237,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle export
 
 ```text
-yss 1.3.0 — bundle export
+yss 1.3.1 — bundle export
 ──────────────────────
 导出 Bundle 全部 bytes、mode 和 manifest。
 
@@ -1272,7 +1277,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle inspect
 
 ```text
-yss 1.3.0 — bundle inspect
+yss 1.3.1 — bundle inspect
 ──────────────────────
 检查 Bundle 身份、来源及摘要。
 
@@ -1311,7 +1316,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### capabilities
 
 ```text
-yss 1.3.0 — capabilities
+yss 1.3.1 — capabilities
 ──────────────────────
 查看原生能力、治理接口与发行证据边界。
 
@@ -1348,7 +1353,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat
 
 ```text
-yss 1.3.0 — compat
+yss 1.3.1 — compat
 ──────────────────────
 显式旧命令兼容适配。
 
@@ -1390,7 +1395,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat create-yss-harness-backend
 
 ```text
-yss 1.3.0 — compat create-yss-harness-backend
+yss 1.3.1 — compat create-yss-harness-backend
 ──────────────────────
 固定旧别名的显式原生适配。
 
@@ -1426,7 +1431,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat create-yss-harness-design
 
 ```text
-yss 1.3.0 — compat create-yss-harness-design
+yss 1.3.1 — compat create-yss-harness-design
 ──────────────────────
 固定旧别名的显式原生适配。
 
@@ -1462,7 +1467,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat create-yss-harness-frontend
 
 ```text
-yss 1.3.0 — compat create-yss-harness-frontend
+yss 1.3.1 — compat create-yss-harness-frontend
 ──────────────────────
 固定旧别名的显式原生适配。
 
@@ -1498,7 +1503,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat create-yss-spec
 
 ```text
-yss 1.3.0 — compat create-yss-spec
+yss 1.3.1 — compat create-yss-spec
 ──────────────────────
 固定旧别名的显式原生适配。
 
@@ -1534,7 +1539,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api
 
 ```text
-yss 1.3.0 — compat-api
+yss 1.3.1 — compat-api
 ──────────────────────
 供现役 JavaScript 消费者使用的原生传输接口。
 
@@ -1579,7 +1584,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api native.run
 
 ```text
-yss 1.3.0 — compat-api native.run
+yss 1.3.1 — compat-api native.run
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1615,7 +1620,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api native.snapshot
 
 ```text
-yss 1.3.0 — compat-api native.snapshot
+yss 1.3.1 — compat-api native.snapshot
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1651,7 +1656,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api projectDiff
 
 ```text
-yss 1.3.0 — compat-api projectDiff
+yss 1.3.1 — compat-api projectDiff
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1687,7 +1692,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api projectDoctor
 
 ```text
-yss 1.3.0 — compat-api projectDoctor
+yss 1.3.1 — compat-api projectDoctor
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1723,7 +1728,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api templateApply
 
 ```text
-yss 1.3.0 — compat-api templateApply
+yss 1.3.1 — compat-api templateApply
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1759,7 +1764,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api templatePlan
 
 ```text
-yss 1.3.0 — compat-api templatePlan
+yss 1.3.1 — compat-api templatePlan
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1795,7 +1800,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### compat-api toErrorEnvelope
 
 ```text
-yss 1.3.0 — compat-api toErrorEnvelope
+yss 1.3.1 — compat-api toErrorEnvelope
 ──────────────────────
 版本化兼容传输方法。
 
@@ -1831,7 +1836,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context
 
 ```text
-yss 1.3.0 — context
+yss 1.3.1 — context
 ──────────────────────
 查询或校验唯一 CONTEXT.md 及词汇快照。
 
@@ -1878,7 +1883,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context check
 
 ```text
-yss 1.3.0 — context check
+yss 1.3.1 — context check
 ──────────────────────
 校验词汇结构。
 
@@ -1925,7 +1930,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context query
 
 ```text
-yss 1.3.0 — context query
+yss 1.3.1 — context query
 ──────────────────────
 查询稳定词汇。
 
@@ -1972,7 +1977,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context verify
 
 ```text
-yss 1.3.0 — context verify
+yss 1.3.1 — context verify
 ──────────────────────
 校验当前词汇和可选快照。
 
@@ -2020,7 +2025,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### contract
 
 ```text
-yss 1.3.0 — contract
+yss 1.3.1 — contract
 ──────────────────────
 校验 contract 的结构或原生领域语义。
 
@@ -2065,7 +2070,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract check
 
 ```text
-yss 1.3.0 — contract check
+yss 1.3.1 — contract check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2110,7 +2115,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract verify
 
 ```text
-yss 1.3.0 — contract verify
+yss 1.3.1 — contract verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2166,7 +2171,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### diff
 
 ```text
-yss 1.3.0 — diff
+yss 1.3.1 — diff
 ──────────────────────
 查看当前文件相对固定模板的差异和同步计划。
 
@@ -2217,7 +2222,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### doctor
 
 ```text
-yss 1.3.0 — doctor
+yss 1.3.1 — doctor
 ──────────────────────
 检查项目身份、受管基线和冲突。
 
@@ -2268,7 +2273,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### evidence
 
 ```text
-yss 1.3.0 — evidence
+yss 1.3.1 — evidence
 ──────────────────────
 校验 evidence 的结构或原生领域语义。
 
@@ -2313,7 +2318,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence check
 
 ```text
-yss 1.3.0 — evidence check
+yss 1.3.1 — evidence check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2358,7 +2363,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence verify
 
 ```text
-yss 1.3.0 — evidence verify
+yss 1.3.1 — evidence verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2420,7 +2425,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff
 
 ```text
-yss 1.3.0 — handoff
+yss 1.3.1 — handoff
 ──────────────────────
 校验 handoff 的结构或原生领域语义。
 
@@ -2428,6 +2433,8 @@ yss 1.3.0 — handoff
 
 子命令:
 check  执行显式 Schema 结构校验。
+export  导出当前已批准的 Spec 基线及来源证据。
+import  将批准 Spec 基线接入独立 Design。
 verify  执行当前领域规则和独立消费者绑定校验。
 
 前置条件:
@@ -2465,7 +2472,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff check
 
 ```text
-yss 1.3.0 — handoff check
+yss 1.3.1 — handoff check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2507,10 +2514,114 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 详细示例: yss help examples handoff check
 ```
 
+### handoff export
+
+```text
+yss 1.3.1 — handoff export
+──────────────────────
+导出当前已批准的 Spec 基线及来源证据。
+
+用法: yss handoff export --root <Spec工程> --kind spec-baseline --checkpoint <当前检查点> --out <新目录>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+保留源批准、业务票稳定 ID 和原始字节摘要；导出不会推进源阶段。
+
+最小示例:
+yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: spec-baseline
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --package <路径>                文件或目录路径
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend|frontend>  必需或从项目身份检测
+--kind spec-baseline
+--checkpoint <文件>
+--out <新目录>
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples handoff export
+```
+
+### handoff import
+
+```text
+yss 1.3.1 — handoff import
+──────────────────────
+将批准 Spec 基线接入独立 Design。
+
+用法: yss handoff import --root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。
+
+最小示例:
+yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json
+yss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: spec-baseline
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --package <路径>                文件或目录路径
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend|frontend>  必需或从项目身份检测
+--kind spec-baseline
+--package <目录包>
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples handoff import
+```
+
 ### handoff verify
 
 ```text
-yss 1.3.0 — handoff verify
+yss 1.3.1 — handoff verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2532,7 +2643,7 @@ yss handoff verify --root ./demo-spec --kind package --package docs/handoff --js
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: package|consumption
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: package|consumption|spec-baseline
   --package <路径>                文件或目录路径
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -2545,9 +2656,9 @@ yss handoff verify --root ./demo-spec --kind package --package docs/handoff --js
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend|frontend>  必需或从项目身份检测
---kind <package|consumption>
+--kind <package|consumption|spec-baseline>
 --file / --checkpoint  资产与独立消费期待
---package  仅 package
+--package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥
 --consumer  仅 consumption
 --home / --run-dir / --tool-root / --template-checkout  固定依赖来源
 
@@ -2565,7 +2676,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### init
 
 ```text
-yss 1.3.0 — init
+yss 1.3.1 — init
 ──────────────────────
 创建固定模板来源的项目实例。
 
@@ -2623,7 +2734,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### lifecycle
 
 ```text
-yss 1.3.0 — lifecycle
+yss 1.3.1 — lifecycle
 ──────────────────────
 查询阶段、工作单元、日常路由及当前门禁。
 
@@ -2673,7 +2784,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle query
 
 ```text
-yss 1.3.0 — lifecycle query
+yss 1.3.1 — lifecycle query
 ──────────────────────
 查询注册表中的稳定 ID。
 
@@ -2718,7 +2829,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle route
 
 ```text
-yss 1.3.0 — lifecycle route
+yss 1.3.1 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
@@ -2765,7 +2876,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle status
 
 ```text
-yss 1.3.0 — lifecycle status
+yss 1.3.1 — lifecycle status
 ──────────────────────
 读取 checkpoint 当前状态。
 
@@ -2809,7 +2920,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify
 
 ```text
-yss 1.3.0 — lifecycle verify
+yss 1.3.1 — lifecycle verify
 ──────────────────────
 核验当前 checkpoint 的领域门禁。
 
@@ -2860,7 +2971,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify-daily
 
 ```text
-yss 1.3.0 — lifecycle verify-daily
+yss 1.3.1 — lifecycle verify-daily
 ──────────────────────
 核验同一日常任务的当前差异、测试和独立审查。
 
@@ -2907,7 +3018,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### migrate
 
 ```text
-yss 1.3.0 — migrate
+yss 1.3.1 — migrate
 ──────────────────────
 显式迁移旧实例 metadata、受管基线及 binding。
 
@@ -2969,7 +3080,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate apply
 
 ```text
-yss 1.3.0 — migrate apply
+yss 1.3.1 — migrate apply
 ──────────────────────
 应用迁移计划。
 
@@ -3021,7 +3132,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate plan
 
 ```text
-yss 1.3.0 — migrate plan
+yss 1.3.1 — migrate plan
 ──────────────────────
 生成只读迁移计划（默认动作）。
 
@@ -3077,7 +3188,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate recover
 
 ```text
-yss 1.3.0 — migrate recover
+yss 1.3.1 — migrate recover
 ──────────────────────
 恢复未完成迁移事务。
 
@@ -3120,7 +3231,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate rollback
 
 ```text
-yss 1.3.0 — migrate rollback
+yss 1.3.1 — migrate rollback
 ──────────────────────
 恢复迁移前实例。
 
@@ -3163,7 +3274,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate status
 
 ```text
-yss 1.3.0 — migrate status
+yss 1.3.1 — migrate status
 ──────────────────────
 查询迁移事务。
 
@@ -3203,10 +3314,118 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 详细示例: yss help examples migrate status
 ```
 
+### profile
+
+```text
+yss 1.3.1 — profile
+──────────────────────
+准备独立的下游 Profile 工程并登记显式关联。
+
+用法: yss profile <子命令> --root <源工程>
+
+子命令:
+prepare  生成或执行单端、联合初始化保存计划。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+已有普通工程使用 attach；关联回退不回退下游工程。
+
+最小示例:
+yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --backend-root <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --checkpoint <路径>             文件或目录路径
+  --design-root <路径>            文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --frontend-root <路径>          文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend|frontend>  必需或从项目身份检测
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples profile
+```
+
+### profile prepare
+
+```text
+yss 1.3.1 — profile prepare
+──────────────────────
+生成或执行单端、联合初始化保存计划。
+
+用法: yss profile prepare --root <源工程> [--design-root <目录>] [--backend-root <目录>] [--frontend-root <目录>] --plan --out <新文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+全部目标预检后登记关联，再依次初始化；失败保留已成功工程，按原计划重试剩余步骤。初始化不授予阶段实施资格。
+
+最小示例:
+yss profile prepare --root ./spec --design-root ./design --plan --out /tmp/design-prepare.json
+yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --backend-root <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --checkpoint <路径>             文件或目录路径
+  --design-root <路径>            文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --frontend-root <路径>          文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend|frontend>  必需或从项目身份检测
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+--checkpoint <文件>  可选，绑定当前工作及来源证据
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples profile prepare
+```
+
 ### project-ci
 
 ```text
-yss 1.3.0 — project-ci
+yss 1.3.1 — project-ci
 ──────────────────────
 核验或配置项目 CI。
 
@@ -3255,7 +3474,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci apply
 
 ```text
-yss 1.3.0 — project-ci apply
+yss 1.3.1 — project-ci apply
 ──────────────────────
 应用有限原生 CI 保存计划。
 
@@ -3317,7 +3536,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci check
 
 ```text
-yss 1.3.0 — project-ci check
+yss 1.3.1 — project-ci check
 ──────────────────────
 核验完整治理或显式有限 CI。
 
@@ -3380,7 +3599,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci install
 
 ```text
-yss 1.3.0 — project-ci install
+yss 1.3.1 — project-ci install
 ──────────────────────
 生成有限原生 CI 安装计划。
 
@@ -3447,7 +3666,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci plan
 
 ```text
-yss 1.3.0 — project-ci plan
+yss 1.3.1 — project-ci plan
 ──────────────────────
 生成有限原生 CI 安装计划。
 
@@ -3514,7 +3733,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci transition
 
 ```text
-yss 1.3.0 — project-ci transition
+yss 1.3.1 — project-ci transition
 ──────────────────────
 核验工作单元流转条件。
 
@@ -3577,7 +3796,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci verify
 
 ```text
-yss 1.3.0 — project-ci verify
+yss 1.3.1 — project-ci verify
 ──────────────────────
 按完整 Git 基线核验 CI。
 
@@ -3640,7 +3859,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### recover
 
 ```text
-yss 1.3.0 — recover
+yss 1.3.1 — recover
 ──────────────────────
 查询或恢复未完成的项目事务。
 
@@ -3684,7 +3903,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### rollback
 
 ```text
-yss 1.3.0 — rollback
+yss 1.3.1 — rollback
 ──────────────────────
 查询或整体回退最近一次成功项目事务。
 
@@ -3728,7 +3947,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime
 
 ```text
-yss 1.3.0 — runtime
+yss 1.3.1 — runtime
 ──────────────────────
 管理独立运行记录与保护标记。
 
@@ -3781,7 +4000,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime begin
 
 ```text
-yss 1.3.0 — runtime begin
+yss 1.3.1 — runtime begin
 ──────────────────────
 创建运行记录并返回所有权 token。
 
@@ -3829,7 +4048,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime commands
 
 ```text
-yss 1.3.0 — runtime commands
+yss 1.3.1 — runtime commands
 ──────────────────────
 只读查询运行记录。
 
@@ -3874,7 +4093,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime complete
 
 ```text
-yss 1.3.0 — runtime complete
+yss 1.3.1 — runtime complete
 ──────────────────────
 以实际退出码结束运行记录。
 
@@ -3923,7 +4142,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime event
 
 ```text
-yss 1.3.0 — runtime event
+yss 1.3.1 — runtime event
 ──────────────────────
 追加运行事件。
 
@@ -3972,7 +4191,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime events
 
 ```text
-yss 1.3.0 — runtime events
+yss 1.3.1 — runtime events
 ──────────────────────
 只读查询运行记录。
 
@@ -4017,7 +4236,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime inspect
 
 ```text
-yss 1.3.0 — runtime inspect
+yss 1.3.1 — runtime inspect
 ──────────────────────
 只读查询运行记录。
 
@@ -4061,7 +4280,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pin
 
 ```text
-yss 1.3.0 — runtime pin
+yss 1.3.1 — runtime pin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -4108,7 +4327,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pins
 
 ```text
-yss 1.3.0 — runtime pins
+yss 1.3.1 — runtime pins
 ──────────────────────
 只读查询运行记录。
 
@@ -4153,7 +4372,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime run
 
 ```text
-yss 1.3.0 — runtime run
+yss 1.3.1 — runtime run
 ──────────────────────
 只读查询运行记录。
 
@@ -4198,7 +4417,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime unpin
 
 ```text
-yss 1.3.0 — runtime unpin
+yss 1.3.1 — runtime unpin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -4245,7 +4464,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills
 
 ```text
-yss 1.3.0 — skills
+yss 1.3.1 — skills
 ──────────────────────
 查询或补装 Skill 及其依赖闭包。
 
@@ -4300,7 +4519,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills ensure
 
 ```text
-yss 1.3.0 — skills ensure
+yss 1.3.1 — skills ensure
 ──────────────────────
 补装指定 Skill 及其依赖闭包。
 
@@ -4355,7 +4574,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills list
 
 ```text
-yss 1.3.0 — skills list
+yss 1.3.1 — skills list
 ──────────────────────
 列出当前 Profile 支持的标识。
 
@@ -4407,7 +4626,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### stage
 
 ```text
-yss 1.3.0 — stage
+yss 1.3.1 — stage
 ──────────────────────
 查询、登记或更新既有阶段工作项。
 
@@ -4462,7 +4681,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage apply
 
 ```text
-yss 1.3.0 — stage apply
+yss 1.3.1 — stage apply
 ──────────────────────
 事务应用已保存的阶段工作项计划。
 
@@ -4511,7 +4730,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage check
 
 ```text
-yss 1.3.0 — stage check
+yss 1.3.1 — stage check
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -4558,7 +4777,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage plan
 
 ```text
-yss 1.3.0 — stage plan
+yss 1.3.1 — stage plan
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -4612,7 +4831,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage query
 
 ```text
-yss 1.3.0 — stage query
+yss 1.3.1 — stage query
 ──────────────────────
 查询阶段或 checkpoint 中的工作项。
 
@@ -4660,7 +4879,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage register
 
 ```text
-yss 1.3.0 — stage register
+yss 1.3.1 — stage register
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -4714,7 +4933,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage status
 
 ```text
-yss 1.3.0 — stage status
+yss 1.3.1 — stage status
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -4761,7 +4980,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage update
 
 ```text
-yss 1.3.0 — stage update
+yss 1.3.1 — stage update
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -4815,7 +5034,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### sync
 
 ```text
-yss 1.3.0 — sync
+yss 1.3.1 — sync
 ──────────────────────
 将项目模板升级到本 CLI 内置固定 Bundle。
 
@@ -4875,7 +5094,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### update
 
 ```text
-yss 1.3.0 — update
+yss 1.3.1 — update
 ──────────────────────
 安装、恢复或回退指定本地发行包。
 
@@ -4926,7 +5145,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update apply
 
 ```text
-yss 1.3.0 — update apply
+yss 1.3.1 — update apply
 ──────────────────────
 应用保存的程序安装计划。
 
@@ -4971,7 +5190,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update plan
 
 ```text
-yss 1.3.0 — update plan
+yss 1.3.1 — update plan
 ──────────────────────
 生成离线程序安装计划（默认动作）。
 
@@ -5018,7 +5237,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update recover
 
 ```text
-yss 1.3.0 — update recover
+yss 1.3.1 — update recover
 ──────────────────────
 恢复唯一未完成的程序事务。
 
@@ -5057,7 +5276,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update rollback
 
 ```text
-yss 1.3.0 — update rollback
+yss 1.3.1 — update rollback
 ──────────────────────
 回退最近一次成功程序安装。
 
@@ -5096,7 +5315,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update status
 
 ```text
-yss 1.3.0 — update status
+yss 1.3.1 — update status
 ──────────────────────
 只读诊断安装一致性及程序事务状态。
 
@@ -5136,7 +5355,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### upgrade
 
 ```text
-yss 1.3.0 — upgrade
+yss 1.3.1 — upgrade
 ──────────────────────
 从 GitHub 下载并事务安装稳定版 CLI。
 
@@ -5180,7 +5399,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### version
 
 ```text
-yss 1.3.0 — version
+yss 1.3.1 — version
 ──────────────────────
 查看 CLI、协议和固定来源身份。
 
@@ -5217,7 +5436,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml
 
 ```text
-yss 1.3.0 — xml
+yss 1.3.1 — xml
 ──────────────────────
 读取 Maven project XML。
 
@@ -5262,7 +5481,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml inspect
 
 ```text
-yss 1.3.0 — xml inspect
+yss 1.3.1 — xml inspect
 ──────────────────────
 读取 Maven project 结构。
 
@@ -5305,7 +5524,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml query
 
 ```text
-yss 1.3.0 — xml query
+yss 1.3.1 — xml query
 ──────────────────────
 查询 Maven project 读取结果。
 
@@ -7059,6 +7278,71 @@ NOT_FOUND — 项目身份或路径无法核验
 处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CHECKPOINT_REQUIRED
+
+```text
+CHECKPOINT_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROFILE_LINKS
+
+```text
+PROFILE_LINKS — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROFILE_ROUTE
+
+```text
+PROFILE_ROUTE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRANSACTION_PROFILE
+
+```text
+TRANSACTION_PROFILE — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目、迁移和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRANSACTION_SCOPE
+
+```text
+TRANSACTION_SCOPE — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目、迁移和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
 ```
 

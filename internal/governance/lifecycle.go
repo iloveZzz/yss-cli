@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"regexp"
@@ -154,7 +155,7 @@ func findRegistry(m map[string]any, id string) (string, map[string]any, bool) {
 	return "", nil, false
 }
 
-func lifecycleRun(group, action, root string, args map[string]string) (any, error) {
+func lifecycleRun(ctx context.Context, group, action, root string, args map[string]string) (any, error) {
 	if action != "query" && action != "status" {
 		return nil, domain.Fail("UNPORTED", "生命周期动作尚未迁移: "+action)
 	}
@@ -285,6 +286,7 @@ func lifecycleRun(group, action, root string, args map[string]string) (any, erro
 	}
 	base["diagnostics"] = diagnostics
 	base["next_stage_candidates"] = ids
+	base["profile_guidance"] = ProfileGuidance(ctx, root, ref, cp)
 	return base, nil
 }
 

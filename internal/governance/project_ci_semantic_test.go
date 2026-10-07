@@ -155,3 +155,31 @@ func TestCompleteProjectCIGitBaselineProtectsFourProfiles(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectCICapturedCheckpointsKeepSourceOwnership(t *testing.T) {
+	root := ciProfileTestRoot(t, "design")
+	checkpoint := map[string]any{"gates": map[string]any{"gate.spec-approved": map[string]any{"approval_ref": "spec-approval.json"}}}
+	apTestPut(t, root, "receiving-checkpoint.json", checkpoint)
+	for _, ref := range []string{
+		"docs/spec-baselines/spec-baseline.demo/v1/package/payload/files/checkpoint.json",
+		"docs/handoffs/handoff.demo/v5/package/payload/files/checkpoint.json",
+		"docs/backend-deliveries/delivery.demo/v1/package/payload/files/checkpoint.json",
+	} {
+		apTestPut(t, root, ref, checkpoint)
+	}
+	before := verificationTree(t, root)
+	s := newSemanticSession(context.Background(), root, nil)
+	owners, err := s.ciApprovalOwners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contractSame(owners["spec-approval.json"], []string{"receiving-checkpoint.json"}) {
+		t.Fatalf("captured source checkpoint became a receiver approval owner: %#v", owners)
+	}
+	if err = s.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if !contractSame(before, verificationTree(t, root)) {
+		t.Fatal("approval-owner discovery changed assets")
+	}
+}

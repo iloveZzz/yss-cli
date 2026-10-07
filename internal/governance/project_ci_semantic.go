@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -18,6 +19,58 @@ var ciURI = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`)
 var ciCheckpointName = regexp.MustCompile(`(^|/)checkpoint\.(yaml|yml|json)$`)
 var ciReadyTicket = regexp.MustCompile(`(?:^|\n)Status:\s*ready-for-agent\s*(?:\n|$)`)
 var ciCommit = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+var ciSourceDeliveryEvidence = regexp.MustCompile(`^docs/handoffs/[^/]+/v[1-9][0-9]*/source-delivery-record\.json$`)
+var ciCapturedSource = regexp.MustCompile(`^docs/(?:handoffs|backend-deliveries|spec-baselines)/[^/]+/v[1-9][0-9]*/package/`)
+
+func ciEvidenceReceipt(ref string) string {
+	if ciSourceDeliveryEvidence.MatchString(ref) {
+		return path.Join(path.Dir(ref), "import-receipt.json")
+	}
+	return ""
+}
+
+func init() {
+	registerSemanticValidator("handoff-source-delivery-evidence", func(s *semanticSession, ref string, _ map[string]string) error {
+		receiptRef := ciEvidenceReceipt(ref)
+		if receiptRef == "" {
+			return s.reject("HANDOFF_RECEIPT", "来源交付证据缺少合法接收记录路径")
+		}
+		receipt, err := s.doc(receiptRef)
+		if err != nil {
+			return err
+		}
+		if receipt["source_delivery_record_ref"] != ref || contractN(receipt["schema_version"]) != 3 {
+			return s.reject("HANDOFF_RECEIPT", "来源交付证据未由receipt v3绑定")
+		}
+		return contractReceipt(s, receipt)
+	})
+	registerSemanticValidator("handoff-import-receipt", func(s *semanticSession, ref string, _ map[string]string) error {
+		receipt, err := s.doc(ref)
+		if err != nil {
+			return err
+		}
+		if ref != path.Join("docs/handoffs", text(receipt["bundle_id"]), text(receipt["version"]), "import-receipt.json") {
+			return s.reject("HANDOFF_RECEIPT", "导入收据路径非法")
+		}
+		if err = contractReceipt(s, receipt); err != nil {
+			return err
+		}
+		for _, capability := range semStrings(receipt["selected_consumer_capabilities"]) {
+			if err = contractReceiptConsumer(s, receipt, capability); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	registerSemanticValidator("spec-baseline-package", func(s *semanticSession, ref string, _ map[string]string) error {
+		_, _, err := openSpecBaseline(s, ref)
+		return err
+	})
+	registerSemanticValidator("spec-baseline-import-receipt", func(s *semanticSession, ref string, _ map[string]string) error {
+		_, _, err := verifySpecBaselineReceipt(s, ref, false)
+		return err
+	})
+}
 
 func ciFileRef(v any) bool {
 	r, ok := v.(string)
@@ -109,6 +162,12 @@ func ciClaimed(v map[string]any) bool {
 // Recognize protocol families, then let their native validator enforce version,
 // approval and currentness. Recognition never constitutes an acceptance check.
 func ciDomainKind(v map[string]any) string {
+	if v["kind"] == "spec-baseline-import" {
+		return "spec-baseline-import-receipt"
+	}
+	if v["bundle_id"] != nil && v["package_ref"] != nil && v["target_context_digest"] != nil {
+		return "handoff-import-receipt"
+	}
 	if v["handoff_id"] != nil && v["handoff_version"] != nil && v["package_export"] != nil {
 		return "handoff-source"
 	}
@@ -231,6 +290,10 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				prefix := filepath.ToSlash(filepath.Dir(ref))
 				run("handoff-package", prefix, semanticOptions(args))
 				packageRoots = append(packageRoots, prefix)
+			} else if e == nil && value["kind"] == "spec-baseline" && value["baseline_id"] != nil && value["files"] != nil {
+				prefix := filepath.ToSlash(filepath.Dir(ref))
+				run("spec-baseline-package", prefix, nil)
+				packageRoots = append(packageRoots, prefix)
 			}
 		}
 		for _, ref := range files {
@@ -273,11 +336,27 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				continue
 			}
 			values[ref] = value
+			if receiptRef := ciEvidenceReceipt(ref); receiptRef != "" {
+				run("handoff-source-delivery-evidence", ref, nil)
+				// This copied record's raw refs belong to its captured source.
+				// Its receiver-side dependency is the receipt that binds it.
+				values[ref] = map[string]any{"ref": receiptRef}
+				if !strict[receiptRef] {
+					strict[receiptRef] = true
+					delete(seen, receiptRef)
+					queue = append(queue, receiptRef)
+				}
+				continue
+			}
 			if prefix := text(value["package_ref"]); prefix != "" && !ciURI.MatchString(prefix) && !filepath.IsAbs(prefix) {
 				if present, e := s.exists(filepath.ToSlash(filepath.Join(prefix, "manifest.json"))); e != nil {
 					fail(ref, e)
 				} else if present {
-					run("handoff-package", prefix, semanticOptions(args))
+					kind := "handoff-package"
+					if value["kind"] == "spec-baseline-import" {
+						kind = "spec-baseline-package"
+					}
+					run(kind, prefix, semanticOptions(args))
 					packageRoots = append(packageRoots, prefix)
 				}
 			}
@@ -506,6 +585,9 @@ func (s *semanticSession) ciApprovalOwners() (map[string][]string, error) {
 		}
 	}
 	for _, ref := range uniqueStrings(refs) {
+		if ciCapturedSource.MatchString(ref) {
+			continue
+		}
 		if !semHas([]string{".json", ".yaml", ".yml"}, filepath.Ext(ref)) {
 			continue
 		}

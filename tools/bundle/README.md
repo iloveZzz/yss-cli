@@ -2,6 +2,8 @@
 
 运行 `go run ./tools/bundle --source-root <四模板的根> --lock docs/source-lock.json --out internal/bundle/assets`。
 
+生成单个 `bundles.json.gz`，私有存储格式 v1 将四个 Profile 的 `files`、`initial` 与 `NativeTransforms.Source` 内容汇入共享对象池；每个路径继续保存摘要、权限、ownership 和来源信息。构建工具的摘要输出单独使用 schema v4，`profiles` 保留各逻辑 Bundle 身份，`storage` 记录格式版本、文件名、SHA-256、压缩字节数、JSON 字节数和唯一对象数。公开导出仍为完整 Bundle v3，不接受私有归档作为 `--base-bundle` 输入。详见 [内部存储合同](../../docs/bundle-storage.md)。
+
 Producer 只读取 `templateCommit` 指定的完整 Git commit 对象，不读取 dirty worktree 内容，也不加载四个旧 CLI 的 JS 模块。分发政策默认位于每个模板的 `.template-source/distribution/bundle-profile.json`，必须在同一固定提交内，并以 `policyHash` 锁定原始政策 bytes。迁移期间可用 `policyPath: builtin:<profile>` 与显式摘要；输出诚实标识 `sourcePolicy.kind: bootstrap`。这只支持本地迁移验证，最终固定源应锁定模板内的政策。
 
 Source lock 使用 `schemaVersion: 2`；四个 `profiles` 的 key 必须为 `spec`、`design`、`backend`、`frontend`。每项包含 `profile`、相对于 `--source-root` 的 `sourcePath`、`templateCommit`、独立 `templateVersion`（默认 `git:<templateCommit>`）、`policyPath`、`policyHash`。`legacy` 记录原 CLI 的版本、提交和原摘要，仅用于历史谱系。`producer` 记录生产工具版本及来源；统一 CLI 的 runtime build commit 由二进制 build provenance 提供，不反嵌根 CLI 的下一提交，也不与根模板的 yss-cli gitlink 形成循环。

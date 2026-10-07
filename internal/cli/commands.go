@@ -33,7 +33,7 @@ var commonOptionNames = []string{"help", "json", "version", "human", "diagnostic
 
 func initializeCommands() {
 	// Every flag accepted by the existing dispatchers has a registered type.
-	for _, key := range strings.Fields("root target-dir tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements implementation-root template-checkout cli-source report-dir home run-dir") {
+	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native") {
@@ -98,6 +98,8 @@ func initializeCommands() {
 			}
 		case "recover", "rollback":
 			opts = append(opts, "root", "target-dir", "profile", "apply")
+		case "profile":
+			opts = append(opts, "root", "design-root", "backend-root", "frontend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
 		case "upgrade":
 			opts = append(opts, "check", "to", "tool-root")
 		case "update":
@@ -451,7 +453,9 @@ func commandChoices(key string) map[string][]string {
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification"}}
 	case "handoff verify":
-		return map[string][]string{"kind": {"package", "consumption"}}
+		return map[string][]string{"kind": {"package", "consumption", "spec-baseline"}}
+	case "handoff export", "handoff import":
+		return map[string][]string{"kind": {"spec-baseline"}}
 	case "runtime complete":
 		return map[string][]string{"status": {"passed", "success", "completed", "ok", "failed", "failure", "cancelled", "canceled", "timed-out", "timeout", "error"}}
 	}
@@ -483,6 +487,8 @@ func verificationOptions(group, kind string) []string {
 		case "evidence.verification":
 			options = append(options, "approval-ref", "task")
 		case "handoff.package":
+			options = append(options, "package")
+		case "handoff.spec-baseline":
 			options = append(options, "package")
 		case "handoff.consumption":
 			options = append(options, "consumer")

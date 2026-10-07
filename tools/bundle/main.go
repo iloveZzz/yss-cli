@@ -22,7 +22,7 @@ func run(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("bundle", flag.ContinueOnError)
 	sourceRoot := f.String("source-root", "", "root containing the four Git template repositories")
 	lockPath := f.String("lock", "docs/source-lock.json", "source lock v2")
-	out := f.String("out", "internal/bundle/assets", "output embedded gzip directory")
+	out := f.String("out", "internal/bundle/assets", "output shared embedded archive directory")
 	if e := f.Parse(args); e != nil {
 		return e
 	}
@@ -56,11 +56,11 @@ func run(ctx context.Context, args []string) error {
 	if e != nil {
 		return e
 	}
-	hashes, e := bundle.WriteBuilt(*out, bundles)
+	storage, e := bundle.WriteBuilt(*out, bundles)
 	if e != nil {
 		return e
 	}
-	result := map[string]any{"schemaVersion": 3, "profiles": map[string]any{}, "gzipHashes": hashes}
+	result := map[string]any{"schemaVersion": 4, "profiles": map[string]any{}, "storage": storage}
 	profiles := result["profiles"].(map[string]any)
 	for key, b := range bundles {
 		profiles[key] = map[string]any{"templateCommit": b.TemplateCommit, "templateVersion": b.TemplateVersion, "sourceState": b.SourceState, "sourceSnapshotHash": b.SnapshotHash, "manifestHash": b.ManifestHash, "bundleHash": b.BundleHash, "sourcePolicy": b.SourcePolicy, "files": len(b.Files), "initialFiles": len(b.Initial)}

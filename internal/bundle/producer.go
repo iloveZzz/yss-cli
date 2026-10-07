@@ -3,12 +3,14 @@ package bundle
 import (
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -259,31 +261,11 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 	return out, nil
 }
 
-// WriteBuilt stages every deterministic gzip payload before replacing named assets.
-func WriteBuilt(out string, bundles map[string]*Bundle) (map[string]string, error) {
-	hashes := map[string]string{}
-	payloads := map[string][]byte{}
-	for p, b := range bundles {
-		if e := validate(b, p); e != nil {
-			return nil, e
-		}
-		if b.SchemaVersion < 2 || b.BundleHash != contentHash(b) {
-			return nil, fmt.Errorf("bundle content hash mismatch")
-		}
-		raw, e := json.Marshal(b)
-		if e != nil {
-			return nil, e
-		}
-		var buf bytes.Buffer
-		z, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-		if _, e = z.Write(raw); e != nil {
-			return nil, e
-		}
-		if e = z.Close(); e != nil {
-			return nil, e
-		}
-		payloads[p] = buf.Bytes()
-		hashes[p] = safefs.Digest(buf.Bytes())
+// WriteBuilt verifies and atomically replaces one deterministic shared archive.
+func WriteBuilt(out string, bundles map[string]*Bundle) (*StorageReport, error) {
+	data, report, e := packBundles(bundles)
+	if e != nil {
+		return nil, e
 	}
 	if _, e := safefs.Path(out, "probe"); e != nil {
 		return nil, e
@@ -291,31 +273,29 @@ func WriteBuilt(out string, bundles map[string]*Bundle) (map[string]string, erro
 	if e := os.MkdirAll(out, 0755); e != nil {
 		return nil, e
 	}
-	for p, data := range payloads {
-		file, e := safefs.Path(out, p+".json.gz")
-		if e != nil {
-			return nil, e
-		}
-		temp, e := os.CreateTemp(out, ".bundle-")
-		if e != nil {
-			return nil, e
-		}
-		name := temp.Name()
-		if _, e = temp.Write(data); e == nil {
-			e = temp.Chmod(0644)
-		}
-		if ce := temp.Close(); e == nil {
-			e = ce
-		}
-		if e == nil {
-			e = os.Rename(name, file)
-		}
-		os.Remove(name)
-		if e != nil {
-			return nil, e
-		}
+	file, e := safefs.Path(out, report.Filename)
+	if e != nil {
+		return nil, e
 	}
-	return hashes, nil
+	temp, e := os.CreateTemp(out, ".bundle-")
+	if e != nil {
+		return nil, e
+	}
+	name := temp.Name()
+	defer os.Remove(name)
+	if _, e = temp.Write(data); e == nil {
+		e = temp.Chmod(0644)
+	}
+	if ce := temp.Close(); e == nil {
+		e = ce
+	}
+	if e == nil {
+		e = os.Rename(name, file)
+	}
+	if e != nil {
+		return nil, e
+	}
+	return report, nil
 }
 func git(ctx context.Context, root string, args ...string) ([]byte, error) {
 	c := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
@@ -589,8 +569,20 @@ func matchesOwnership(ref, p string) bool {
 func contentHash(b *Bundle) string {
 	clone := *b
 	clone.BundleHash = ""
-	raw, _ := json.Marshal(&clone)
-	return safefs.Digest(raw)
+	h := sha256.New()
+	if err := json.NewEncoder(jsonHashWriter{h}).Encode(&clone); err != nil {
+		return safefs.Digest(nil)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Compact Encoder output adds one newline to the exact Marshal bytes. Hash
+// directly from its buffer instead of allocating a second full JSON copy.
+type jsonHashWriter struct{ hash.Hash }
+
+func (w jsonHashWriter) Write(p []byte) (int, error) {
+	_, err := w.Hash.Write(bytes.TrimSuffix(p, []byte("\n")))
+	return len(p), err
 }
 func sortedKeys[V any](m map[string]V) []string {
 	a := make([]string, 0, len(m))

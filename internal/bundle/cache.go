@@ -77,16 +77,20 @@ func (c *snapshotCache) load(profile string, compressed []byte) ([]byte, error) 
 	return raw, err
 }
 func decompressSnapshot(compressed []byte) ([]byte, error) {
+	return decompressSnapshotWithLimit(compressed, snapshotLimit)
+}
+
+func decompressSnapshotWithLimit(compressed []byte, limit int) ([]byte, error) {
 	z, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		return nil, err
 	}
 	defer z.Close()
-	raw, err := io.ReadAll(io.LimitReader(z, snapshotLimit+1))
+	raw, err := io.ReadAll(io.LimitReader(z, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > snapshotLimit {
+	if len(raw) > limit {
 		return nil, domain.Fail("BUNDLE", "快照超过限制")
 	}
 	return raw, nil
