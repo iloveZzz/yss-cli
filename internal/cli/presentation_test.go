@@ -141,6 +141,7 @@ func TestHumanSavedPlanNextCommandKeepsExecutorScope(t *testing.T) {
 		{[]string{"update", "plan", "--tool-root", "/tool with spaces", "--out", "/plan.json"}, []string{"yss", "update", "apply", "--tool-root", "/tool with spaces", "--plan-file", "/plan.json", "--json"}},
 		{[]string{"migrate", "plan", "--root", "/project with spaces", "--out", "/plan.json"}, []string{"yss", "migrate", "apply", "--root", "/project with spaces", "--plan-file", "/plan.json", "--json"}},
 		{[]string{"sync", "--out", "/plan.json"}, []string{"yss", "sync", "--root", "/actual project", "--apply", "--plan-file", "/plan.json", "--json"}},
+		{[]string{"handoff", "import", "--kind", "spec-baseline", "--root", "/project with spaces", "--plan", "--out", "/plan.json"}, []string{"yss", "handoff", "import", "--root", "/project with spaces", "--apply", "--plan-file", "/plan.json", "--json", "--kind", "spec-baseline"}},
 	} {
 		o, err := parse(scenario.args)
 		if err != nil {

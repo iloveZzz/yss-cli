@@ -55,10 +55,15 @@ func init() {
 		"export":  {"导出 Bundle 全部 bytes、mode 和 manifest。", "--out <新目录>", "--out <新目录>  必需且不能已存在", "yss bundle export --profile spec --out /tmp/yss-spec-bundle --json", "", false},
 	})
 	registerGovernanceHelp()
+	registerGroup("profile", "准备独立的下游 Profile 工程并登记显式关联。", "--root <源工程>", projectFlags, "yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json", "已有普通工程使用 attach；关联回退不回退下游工程。", map[string]helpTopic{
+		"prepare": {"生成或执行单端、联合初始化保存计划。", "[--design-root <目录>] [--backend-root <目录>] [--frontend-root <目录>] --plan --out <新文件>", planFlags + "\n--checkpoint <文件>  可选，绑定当前工作及来源证据", "yss profile prepare --root ./spec --design-root ./design --plan --out /tmp/design-prepare.json\nyss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json\nyss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json", "全部目标预检后登记关联，再依次初始化；失败保留已成功工程，按原计划重试剩余步骤。初始化不授予阶段实施资格。", false},
+	})
+	helpTopics["handoff export"] = helpTopic{"导出当前已批准的 Spec 基线及来源证据。", "--root <Spec工程> --kind spec-baseline --checkpoint <当前检查点> --out <新目录>", projectFlags + "\n--kind spec-baseline\n--checkpoint <文件>\n--out <新目录>", "yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline", "保留源批准、业务票稳定 ID 和原始字节摘要；导出不会推进源阶段。", false}
+	helpTopics["handoff import"] = helpTopic{"将批准 Spec 基线接入独立 Design。", "--root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>", projectFlags + "\n--kind spec-baseline\n--package <目录包>\n" + planFlags, "yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json\nyss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json", "初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。", false}
 	for group, conditions := range map[string]string{
 		"contract": "--kind <slice|scaffold|task>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  仅 slice\n--history  仅 task；历史结构不授予当前放行",
 		"evidence": "--kind <approval|user-decision|verification>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
-		"handoff":  "--kind <package|consumption>\n--file / --checkpoint  资产与独立消费期待\n--package  仅 package\n--consumer  仅 consumption",
+		"handoff":  "--kind <package|consumption|spec-baseline>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
 		key := group + " verify"
 		topic := helpTopics[key]

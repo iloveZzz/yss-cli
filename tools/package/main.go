@@ -25,6 +25,11 @@ import (
 )
 
 func main() {
+	embedded, err := os.ReadFile("internal/bundle/assets/bundles.json.gz")
+	must(err)
+	if len(embedded) > bundle.MaxArchiveBytes {
+		panic("模板归档超过 10,000,000 字节")
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--native-manifest" || os.Args[1] == "--native-candidate-manifest") {
 		must(nativeArguments(os.Args[2:], os.Args[1] == "--native-candidate-manifest"))
 		return
@@ -68,7 +73,8 @@ func main() {
 		sources[profile] = inspection
 	}
 	records := []map[string]any{}
-	for _, platform := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64"} {
+	sizes := []map[string]any{}
+	for _, platform := range release.Platforms {
 		p := strings.Split(platform, "/")
 		name := "yss"
 		if p[0] == "windows" {
@@ -83,6 +89,7 @@ func main() {
 		must(c.Run())
 		content, e := os.ReadFile(bin)
 		must(e)
+		must(release.CheckBinarySize(int64(len(content))))
 		files := map[string][]byte{name: content}
 		for _, ref := range []string{"docs/source-lock.json", "docs/compatibility.md", "docs/porting-status.md", "docs/native-governance.md", "docs/cli-retirement.md", "compat/README.md", "README.md"} {
 			b, e := os.ReadFile(ref)
@@ -112,11 +119,17 @@ func main() {
 		must(e)
 		h := sha256.Sum256(b)
 		records = append(records, map[string]any{"platform": platform, "archive": filepath.Base(archive), "sha256": hex.EncodeToString(h[:]), "bytes": len(b), "compiled": true, "nativeRuntimeVerified": false})
+		binaryHash := sha256.Sum256(content)
+		sizes = append(sizes, map[string]any{"platform": platform, "binaryBytes": len(content), "binarySha256": hex.EncodeToString(binaryHash[:]), "archiveBytes": len(b), "nativeRuntimeVerified": false})
 		fmt.Println(platform + ": " + archive)
 	}
 	b, e := json.MarshalIndent(map[string]any{"schemaVersion": 2, "version": domain.Version, "cliCommit": commit, "sourceState": sourceState, "bundles": sources, "stableReady": false, "pending": []string{"declared-release-platform-native-runtime-acceptance", "scoped-release-qualification"}, "artifacts": records}, "", "  ")
 	must(e)
 	must(os.WriteFile(filepath.Join(out, "checksums.json"), append(b, '\n'), 0644))
+	embeddedHash := sha256.Sum256(embedded)
+	b, e = json.MarshalIndent(map[string]any{"schemaVersion": 1, "status": "passed", "cliCommit": commit, "sourceState": sourceState, "limits": map[string]any{"binaryBytes": release.MaxBinaryBytes, "embeddedArchiveBytes": bundle.MaxArchiveBytes}, "embeddedArchive": map[string]any{"filename": "bundles.json.gz", "bytes": len(embedded), "sha256": hex.EncodeToString(embeddedHash[:])}, "platforms": sizes}, "", "  ")
+	must(e)
+	must(os.WriteFile(filepath.Join(out, "size-report.json"), append(b, '\n'), 0644))
 }
 
 func nativeArguments(args []string, candidate bool) error {

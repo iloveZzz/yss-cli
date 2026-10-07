@@ -21,6 +21,19 @@ import (
 	"github.com/iloveZzz/yss-cli/tools/release"
 )
 
+func TestBinarySizeLimit(t *testing.T) {
+	for _, size := range []int64{1, release.MaxBinaryBytes} {
+		if err := release.CheckBinarySize(size); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, size := range []int64{0, release.MaxBinaryBytes + 1} {
+		if release.Code(release.CheckBinarySize(size)) != "SIZE" {
+			t.Fatalf("invalid size accepted: %d", size)
+		}
+	}
+}
+
 func TestStableAssemblyRejectsIncompleteNativeSet(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "input.json")

@@ -232,7 +232,7 @@ func TestBuildExpandsOnlyCanonicalSkillProjections(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if a["backend"] != repeat["backend"] {
+	if a.SHA256 != repeat.SHA256 {
 		t.Fatal("gzip output nondeterministic")
 	}
 }

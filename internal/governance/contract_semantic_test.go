@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"go.yaml.in/yaml/v3"
@@ -929,12 +930,41 @@ func TestContractBackendProbeCurrentFactsAndCancellation(t *testing.T) {
 }
 
 func TestContractFrontendBackendDeliveryFixedSourceChain(t *testing.T) {
+	for _, version := range []int{4, 5} {
+		t.Run(fmt.Sprintf("handoff-v%d", version), func(t *testing.T) { contractFrontendBackendDeliveryChain(t, version) })
+	}
+}
+
+func contractFrontendBackendDeliveryChain(t *testing.T, handoffVersion int) {
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Skip("development-only fixed source producer unavailable")
 	}
 	old := governanceOracleRoot(t)
 	root := contractTestRetainedRoot(t, apTestProfileRoot(t, "frontend"), "frontend-online")
 	contractTestRules(t, root)
+	frontendBundle, err := bundle.Load("frontend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref, f := range frontendBundle.Files {
+		if strings.HasPrefix(ref, ".agents/skills/harness-orchestrator/") {
+			raw, err := f.Render(map[string]string{"projectName": "synthetic", "businessDomain": "test-only", "teamSize": "2"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			apTestPut(t, root, ref, raw)
+		}
+	}
+	if handoffVersion == 5 {
+		for _, ref := range []string{".template-spec/process/harness-profile.yaml", ".agents/skills/harness-orchestrator/references/orchestration-contract.yaml"} {
+			raw, err := os.ReadFile(filepath.Join(old, "submodules/yss-harness-frontend-agent", ref))
+			if err != nil {
+				t.Fatal(err)
+			}
+			apTestPut(t, root, ref, raw)
+			t.Logf("current frontend oracle ref=%s sha256=%s", ref, safefs.Digest(raw))
+		}
+	}
 	var revision atomic.Value
 	var changed atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -962,13 +992,24 @@ func TestContractFrontendBackendDeliveryFixedSourceChain(t *testing.T) {
 		return "from '" + governanceOracleURL(filepath.Clean(filepath.Join(old, ".template-source/tooling/node/test", m[1]))) + "'"
 	})
 	body := textSource[strings.Index(textSource, "  const f=terminalReviewFixture();"):strings.Index(textSource, "  const input={delivery:")]
+	if handoffVersion == 5 {
+		body = strings.ReplaceAll(body, "{handoffVersion:4}", "{handoffVersion:5,businessTickets:true}")
+		imports += "\nimport {finalizeDelivery} from '" + governanceOracleURL(filepath.Join(old, "scripts/lib/strategic-handoff.mjs")) + "';\n"
+		body = strings.ReplaceAll(body, "const strategy=await exportBundle({sourceRoot:source,handoffRef:'handoff.yaml',output:path.join(f.root,'strategy-package')});", "const strategy=await finalizeDelivery({sourceRoot:source,handoffRef:'handoff.yaml'});fs.cpSync(path.join(strategy.delivery,'package'),path.join(f.root,'strategy-package'),{recursive:true});")
+	}
 	body = strings.ReplaceAll(body, "t.after(()=>f.cleanup());", "")
 	body = strings.ReplaceAll(body, "base_url:'http://127.0.0.1:1'", "base_url:process.argv[2]")
 	body = strings.ReplaceAll(body, "  const source=path.join", "  f.write('.template-spec/process/harness-profile.yaml',{schema_version:2,profile_id:'harness.spec-template'});\n  const source=path.join")
 	producer := imports + body + "\n" + `import {importBackendDelivery} from '` + governanceOracleURL(filepath.Join(old, "scripts/lib/backend-delivery.mjs")) + `';
 fs.writeFileSync(path.join(process.argv[1],'CONTEXT.md'),fs.readFileSync(path.join(source,'CONTEXT.md')));
-const imported=await importBackendDelivery({bundle:exported.output,targetRoot:process.argv[1]});
+${STRATEGIC_IMPORT}const imported=await importBackendDelivery({bundle:exported.output,targetRoot:process.argv[1]});
 console.log(JSON.stringify({root:f.root,slice:f.contract.slice_id,acceptance:imported.acceptance_ref,delivery}));`
+	if handoffVersion == 5 {
+		producer = strings.ReplaceAll(producer, "${STRATEGIC_IMPORT}", "await importBundle({bundle:strategy.delivery,targetRoot:process.argv[1]});")
+		producer = "import {importBundle} from '" + governanceOracleURL(filepath.Join(old, "scripts/lib/strategic-handoff.mjs")) + "';\n" + producer
+	} else {
+		producer = strings.ReplaceAll(producer, "${STRATEGIC_IMPORT}", "")
+	}
 	producer = strings.ReplaceAll(producer, `\nimport`, "\nimport")
 	cmd := exec.Command("node", "--input-type=module", "-e", producer, root, server.URL)
 	cmd.Dir = old
@@ -1005,6 +1046,9 @@ console.log(JSON.stringify({root:f.root,slice:f.contract.slice_id,acceptance:imp
 	if e != nil {
 		t.Fatal(e)
 	}
+	if contractN(bundle.Handoff["schema_version"]) != handoffVersion || contractN(receipt["schema_version"]) != handoffVersion-2 || contractN(acceptance["schema_version"]) != handoffVersion-2 {
+		t.Fatal("Handoff receipt and acceptance protocol chain changed")
+	}
 	proof := apTestPut(t, root, "frontend-case-evidence.log", "Synthetic frontend success/failure evidence. No browser/build run.")
 	contextRef := "frontend-context-reconciliation.json"
 	apTestPut(t, root, contextRef, map[string]any{"schema_version": 1, "repository_mode": "project-instance", "stage": "stage.system-data-engineering", "work_unit": "work-unit.frontend-engineering-design", "status": "reconciled", "context_snapshot": bundle.Handoff["source_context_snapshot"], "changes": map[string]any{"added": []any{}, "updated": []any{}, "deprecated": []any{}}, "unresolved_terms": []any{}, "evidence_refs": []any{"frontend-case-evidence.log"}})
@@ -1023,13 +1067,43 @@ console.log(JSON.stringify({root:f.root,slice:f.contract.slice_id,acceptance:imp
 	if e != nil {
 		t.Fatal(e)
 	}
+	if contractN(preflight["schema_version"]) != handoffVersion-3 {
+		t.Fatal("Handoff frontend preflight protocol chain changed")
+	}
 	preflight["status"] = "verified"
 	preflight["context_reconciliation_ref"] = contextRef
 	preflightBytes := apTestPut(t, root, text(preflightBinding["ref"]), preflight)
 	preflightBinding["digest"] = "sha256:" + safefs.Digest(preflightBytes)
 	cases := []any{}
+	caseSources := semMap(delivery["scope"])["source_ids"]
+	caseKey := "visual_case_ids"
+	if handoffVersion == 5 {
+		caseKey = "baseline_case_ids"
+		ids := []any{}
+		for _, row := range bundle.Rules {
+			ids = append(ids, semMap(row)["rule_id"])
+		}
+		for _, row := range bundle.Scenarios {
+			if semMap(row)["critical"] == true {
+				ids = append(ids, semMap(row)["scenario_id"])
+			}
+		}
+		for _, row := range semList(strategy["rows"]) {
+			id := text(semMap(row)["source_id"])
+			if id != "" {
+				found := false
+				for _, value := range ids {
+					found = found || value == id
+				}
+				if !found {
+					ids = append(ids, id)
+				}
+			}
+		}
+		caseSources = ids
+	}
 	for _, outcome := range []string{"success", "failure"} {
-		cases = append(cases, map[string]any{"case_id": outcome, "source_ids": semMap(delivery["scope"])["source_ids"], "outcome": outcome, "operation_ids": semMap(delivery["scope"])["operation_ids"], "visual_case_ids": []any{"primary-desktop"}, "evidence_ref": "frontend-case-evidence.log", "evidence_digest": "sha256:" + safefs.Digest(proof)})
+		cases = append(cases, map[string]any{"case_id": outcome, "source_ids": caseSources, "outcome": outcome, "operation_ids": semMap(delivery["scope"])["operation_ids"], caseKey: []any{"primary-desktop"}, "evidence_ref": "frontend-case-evidence.log", "evidence_digest": "sha256:" + safefs.Digest(proof)})
 	}
 	acceptance["frontend_cases"] = cases
 	clone := func(v map[string]any) map[string]any {

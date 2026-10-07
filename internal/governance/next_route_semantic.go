@@ -280,6 +280,19 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 	if current == "work-unit.entry-triage" && identity["repository_mode"] == "template-source" {
 		allowed = []string{"work-unit.maintenance-research", "work-unit.ssot-update"}
 	}
+	if current == "work-unit.entry-triage" && profile["profile_id"] == specBaselineProfile && state["upstream_spec_baseline"] != nil {
+		if err = verifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
+			return err
+		}
+		manifest, _, e := verifySpecBaselineReceipt(s, text(semMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
+		if e != nil {
+			return e
+		}
+		allowed = []string{"work-unit.business-ticket-formalization"}
+		if semMap(manifest["source"])["product_design_required"] == true {
+			allowed = []string{"work-unit.prototype-design"}
+		}
+	}
 	if (current == "work-unit.maintenance-research" || next == "work-unit.maintenance-research") && identity["repository_mode"] != "template-source" {
 		return s.reject("ROUTE", "模板研究仅用于 template-source")
 	}

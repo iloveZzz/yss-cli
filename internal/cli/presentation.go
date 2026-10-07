@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/helpview"
 	"github.com/mattn/go-isatty"
 )
 
@@ -70,6 +71,10 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 	sort.Strings(keys)
 	for _, k := range keys {
 		v := m[k]
+		if k == "profile_guidance" {
+			renderProfileGuidance(&out, v)
+			continue
+		}
 		if k == "checks" || k == "diagnostics" || k == "diagnostic" {
 			continue
 		}
@@ -82,6 +87,10 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 						break
 					}
 					if fields, ok := row.(map[string]any); ok {
+						if target, ok := fields["target_root"].(string); ok {
+							fmt.Fprintf(&out, "  %v：%s → %s\n", fields["profile"], stringValue(fields["previous_root"], "未关联"), target)
+							continue
+						}
 						fmt.Fprintf(&out, "  %s", firstText(fields, "path", "ref", "id", "code"))
 						if state := fields["status"]; state != nil {
 							fmt.Fprintf(&out, "：%v", state)
@@ -126,12 +135,79 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		} else {
 			fmt.Fprintf(&out, "下一步：%s\n  %s", nextReading(strings.Join(o.args, " ")), helpCommand(o.args))
 		}
-	} else if o.values["apply"] == "true" || command == "init" && !plan {
+	} else if command == "init" && !plan {
+		root := stringValue(m["root"], o.values["root"])
+		if view, err := helpview.Load(profile); err == nil {
+			fmt.Fprintf(&out, "下一步：进入本 Profile 的已登记入口\n  %s", formatArgv([]string{"yss", "lifecycle", "query", "--root", root, "--id", view.EntryWorkUnit, "--json"}))
+		} else {
+			fmt.Fprintf(&out, "下一步：%s", helpCommand([]string{"lifecycle", "query"}))
+		}
+	} else if o.values["apply"] == "true" {
 		fmt.Fprintf(&out, "下一步：核对实际身份与变更\n  %s", formatArgv([]string{"yss", "doctor", "--root", stringValue(m["root"], o.values["root"]), "--json"}))
 	} else {
 		fmt.Fprintf(&out, "下一步：%s\n  %s", nextReading(strings.Join(o.args, " ")), helpCommand(o.args))
 	}
 	return out.String()
+}
+
+func renderProfileGuidance(out *strings.Builder, value any) {
+	g, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	fmt.Fprintf(out, "Profile 引导：%s\n", compactValue(g["status"]))
+	if reason, _ := g["reason"].(string); reason != "" {
+		fmt.Fprintf(out, "  %s\n", reason)
+	}
+	if g["default"] == "continue-current-spec" {
+		out.WriteString("  默认：在当前 Spec 继续已登记工作；独立 Design 可按适用范围选择。\n")
+	}
+	defaultCommands, _ := g["default_commands"].([]any)
+	for _, command := range defaultCommands {
+		parts, _ := command.([]any)
+		argv := []string{}
+		for _, part := range parts {
+			argv = append(argv, fmt.Sprint(part))
+		}
+		fmt.Fprintf(out, "    %s\n", formatArgv(argv))
+	}
+	labels := map[string]string{"unlinked": "未关联", "not-initialized": "未初始化", "initialized": "已初始化", "needs-attention": "需处理", "pending-verification": "待核验", "waiting-input": "等待输入", "verified": "已核验", "blocked": "受阻", "required": "推荐", "optional": "可选", "not-applicable": "不适用"}
+	label := func(v any) string {
+		text, _ := v.(string)
+		if translated, ok := labels[text]; ok {
+			return translated
+		}
+		return text
+	}
+	recommendations, _ := g["recommendations"].([]any)
+	for _, value := range recommendations {
+		r, _ := value.(map[string]any)
+		fmt.Fprintf(out, "  %v：%s；工程%s；输入%s\n", r["profile"], label(r["recommendation"]), label(r["engineering_status"]), label(r["input_status"]))
+		if root, _ := r["target_root"].(string); root != "" {
+			fmt.Fprintf(out, "    目标：%s\n", root)
+		}
+		if basis, _ := r["basis"].(string); basis != "" {
+			fmt.Fprintf(out, "    依据：%s\n", basis)
+		}
+		missingItems, _ := r["missing"].([]any)
+		for _, missing := range missingItems {
+			fmt.Fprintf(out, "    待处理：%v\n", missing)
+		}
+		commands, _ := r["commands"].([]any)
+		for _, command := range commands {
+			argv := []string{}
+			parts, _ := command.([]any)
+			for _, part := range parts {
+				argv = append(argv, fmt.Sprint(part))
+			}
+			fmt.Fprintf(out, "    %s\n", formatArgv(argv))
+		}
+	}
+	missingItems, _ := g["missing"].([]any)
+	for _, missing := range missingItems {
+		fmt.Fprintf(out, "  待处理：%v\n", missing)
+	}
+	out.WriteString("  建议不授予实施或批准权限。\n")
 }
 
 func savedPlanApplyCommand(o options, profile string, result map[string]any) []string {
@@ -156,6 +232,9 @@ func savedPlanApplyCommand(o options, profile string, result map[string]any) []s
 	}
 	if command == "init" || o.values["profile"] != "" {
 		argv = append(argv, "--profile", profile)
+	}
+	if command == "handoff" && o.values["kind"] != "" {
+		argv = append(argv, "--kind", o.values["kind"])
 	}
 	return argv
 }

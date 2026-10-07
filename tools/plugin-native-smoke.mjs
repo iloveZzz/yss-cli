@@ -58,7 +58,12 @@ async function main() {
     const tracked = new Set(run(label + '-tracked', 'git', ['ls-files', '-z', '--cached'], { cwd: root, json: false }).split('\0').filter(Boolean));
     const refs = [...new Set(run(label + '-files', 'git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, json: false }).split('\0').filter(Boolean))].sort();
     const rows = refs.filter(ref => path.resolve(root, ref) !== binary).map(ref => {
-      const file = path.join(root, ref), stat = fs.lstatSync(file);
+      const file = path.join(root, ref);
+      if (!exists(file)) {
+        assert.ok(tracked.has(ref), 'untracked source disappeared: ' + ref);
+        return { ref, type: 'missing' };
+      }
+      const stat = fs.lstatSync(file);
       if (stat.isSymbolicLink()) {
         // Canonical tracked Skill projections are source inputs. Record only
         // the link itself; project/asset/binary descriptors still reject links.

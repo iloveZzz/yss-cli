@@ -2,16 +2,15 @@ package bundle
 
 import (
 	"bytes"
-	"embed"
+	_ "embed"
 	"encoding/base64"
-	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"strings"
 )
 
-//go:embed assets/*.json.gz
-var assets embed.FS
+//go:embed assets/bundles.json.gz
+var packedData []byte
 
 type File struct {
 	Data      string `json:"data"`
@@ -48,25 +47,11 @@ func Load(profile string) (*Bundle, error) {
 	if _, err := domain.GetProfile(profile); err != nil {
 		return nil, err
 	}
-	b, err := assets.ReadFile("assets/" + profile + ".json.gz")
-	if err != nil {
-		return nil, domain.Wrap("BUNDLE", err)
-	}
-	raw, err := snapshots.load(profile, b)
+	raw, err := snapshots.load("packed-v1", packedData)
 	if err != nil {
 		return nil, err
 	}
-	var out Bundle
-	if err = json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
-	if err = validate(&out, profile); err != nil {
-		return nil, err
-	}
-	if out.SchemaVersion >= 2 && out.BundleHash != contentHash(&out) {
-		return nil, domain.Fail("BUNDLE", "Bundle 摘要不一致")
-	}
-	return &out, nil
+	return loadPacked(raw, profile)
 }
 func (f File) Render(vars map[string]string) ([]byte, error) {
 	b, err := base64.StdEncoding.DecodeString(f.Data)

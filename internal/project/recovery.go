@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance"
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
@@ -173,6 +174,10 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 			return transaction.VerifyEmptyPreparationRoot(id.Root)
 		}
 		switch summary.Kind {
+		case ProfileLinksKind:
+			return ValidateProfileLinksTransaction(id.Root, id.Profile.Name, paths)
+		case "spec-baseline-import":
+			return governance.ValidateSpecBaselineImportTransaction(id.Root, id.Profile.Name, paths)
 		case "init", "attach", "sync", "migrate", "skills", "assets", "abandoned-preparation":
 			return nil
 		default:

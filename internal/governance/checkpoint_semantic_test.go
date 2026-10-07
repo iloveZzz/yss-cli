@@ -11,6 +11,50 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
+func TestOrchestrationConsumesInstalledProfileAuthority(t *testing.T) {
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		t.Run(profile, func(t *testing.T) {
+			root := apTestProfileRoot(t, profile)
+			b, err := bundle.Load(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := guidanceContractRef(profile)
+			file, present := b.Files[ref]
+			if !present {
+				t.Fatalf("installed Profile has no authoritative orchestration contract: %s", ref)
+			}
+			raw, err := file.Render(map[string]string{"projectName": "synthetic-governance", "businessDomain": "test-only", "teamSize": "2"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			apTestPut(t, root, ref, raw)
+			if profile != "spec" {
+				apTestPut(t, root, guidanceContractRef("spec"), map[string]any{"schema_version": 1, "unrelated_profile": "full-spec"})
+			}
+			s := apTestSession(t, root)
+			before := verificationTree(t, root)
+			policy, selected, err := s.orchestration()
+			if err != nil || selected != ref || policy["unrelated_profile"] != nil {
+				t.Fatalf("actual %s Profile did not select its own policy: %s %v", profile, selected, err)
+			}
+			if profile == "design" {
+				if _, err := s.planPolicy(); err != nil {
+					t.Fatalf("Design cannot verify its genuine local Plan approval policy: %v", err)
+				}
+			}
+			if !contractSame(before, verificationTree(t, root)) {
+				t.Fatal("Profile policy selection wrote to the instance")
+			}
+		})
+	}
+	root := apTestProfileRoot(t, "design")
+	apTestPut(t, root, ".template-spec/process/checkpoint-boundary.yaml", map[string]any{"schema_version": 1})
+	if _, ref, err := apTestSession(t, root).orchestration(); err != nil || ref != ".template-spec/process/checkpoint-boundary.yaml" {
+		t.Fatalf("legacy boundary fallback changed: %s %v", ref, err)
+	}
+}
+
 // Initial checkpoints have no approved boundary and authorize no real action.
 // Rules are the actual fixed Profile bytes, rather than a permissive test policy.
 func TestCurrentCheckpointFourProfilesPublicAndUnknownStage(t *testing.T) {

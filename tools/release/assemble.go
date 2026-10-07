@@ -30,6 +30,15 @@ var shaPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var stableVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
+const MaxBinaryBytes = 35_000_000
+
+func CheckBinarySize(size int64) error {
+	if size <= 0 || size > MaxBinaryBytes {
+		return reject("SIZE", "binary size %d is outside 1..%d bytes", size, MaxBinaryBytes)
+	}
+	return nil
+}
+
 func reject(code, format string, args ...any) error {
 	return &Error{Code: code, Detail: fmt.Sprintf(format, args...)}
 }
@@ -322,6 +331,9 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 	return nil
 }
 func binaryIdentity(raw []byte, platform string, identity Identity) error {
+	if err := CheckBinarySize(int64(len(raw))); err != nil {
+		return err
+	}
 	info, err := buildinfo.Read(bytes.NewReader(raw))
 	if err != nil {
 		return reject("BINARY", "not a Go executable: %v", err)

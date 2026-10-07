@@ -174,13 +174,13 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 	if _, e := os.Stat(filepath.Join(old, "scripts/fixtures/strategic-handoff/fixture.mjs")); e != nil {
 		t.Skip("fixed old oracle unavailable")
 	}
-	root := contractTestRetainedRoot(t, apTestRoot(t), "handoff-v5")
+	root := contractTestRetainedRoot(t, specBaselineTestNativeSeed(t, "spec"), "handoff-v5")
 	contractTestRules(t, root)
 	source := filepath.Join(contractTestOracleTMP(t), "handoff-v5-source")
 	if e := os.MkdirAll(source, 0755); e != nil {
 		t.Fatal(e)
 	}
-	cmd := exec.Command("node", "--input-type=module", "-e", "import {fixture} from './scripts/fixtures/strategic-handoff/fixture.mjs';import {exportBundle,importBundle} from './scripts/lib/strategic-handoff.mjs';const root=process.argv[1];await fixture(root,{handoffVersion:5,businessTickets:true});const exported=await exportBundle({sourceRoot:root,handoffRef:'handoff.yaml',output:process.argv[2],zip:true});await importBundle({bundle:exported.zip,targetRoot:process.argv[3]});", source, filepath.Join(root, "package"), root)
+	cmd := exec.Command("node", "--input-type=module", "-e", "import {fixture} from './scripts/fixtures/strategic-handoff/fixture.mjs';import {exportBundle,importBundle,finalizeDelivery} from './scripts/lib/strategic-handoff.mjs';const root=process.argv[1];await fixture(root,{handoffVersion:5,businessTickets:true});const exported=await exportBundle({sourceRoot:root,handoffRef:'handoff.yaml',output:process.argv[2],zip:true});const packaged=await finalizeDelivery({sourceRoot:root,handoffRef:'handoff.yaml'});await importBundle({bundle:packaged.delivery,targetRoot:process.argv[3]});", source, filepath.Join(root, "package"), root)
 	cmd.Dir = old
 	out, e := cmd.CombinedOutput()
 	if e != nil {
@@ -218,6 +218,16 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 		if e = contractReceipt(s, receipt); e != nil {
 			t.Fatal(e)
 		}
+		if contractN(receipt["schema_version"]) != 3 {
+			t.Fatal("v5 did not consume the published strategic delivery record")
+		}
+		legacy := contractCopy(receipt)
+		legacy["schema_version"] = json.Number("2")
+		delete(legacy, "source_delivery_record_ref")
+		delete(legacy, "source_delivery_record_sha256")
+		delete(legacy, "ready_for_agent")
+		apTestCode(t, contractReceipt(s, legacy), "HANDOFF_RECEIPT")
+
 		if receipt["bundle_digest"] != bundle.Manifest["bundle_digest"] || receipt["status"] != "pending-context-reconciliation" {
 			t.Fatal("published receipt changed pending state or bundle identity")
 		}
@@ -261,6 +271,56 @@ func TestHandoffSourceV5OldOracleDifferential(t *testing.T) {
 		t.Fatalf("full CI closed Handoff package/consumption: %v diagnostics=%+v", err, report.(*SemanticReport).Diagnostics)
 	}
 	contractTestRetainFixture(t, root, "complete-ci-handoff-consumption", map[string]any{"group": "project-ci", "action": "verify", "isolate_root": true, "expected_exit": 0})
+	importBase := "docs/handoffs/strategic-design-handoff.supplier/v1"
+	recordRef, receiptRef := importBase+"/source-delivery-record.json", importBase+"/import-receipt.json"
+	recordRaw, err := os.ReadFile(filepath.Join(root, recordRef))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptRaw, err := os.ReadFile(filepath.Join(root, receiptRef))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []string{"record-tamper", "missing-receipt-binding", "orphan-record"} {
+		t.Run("complete-ci-"+variant, func(t *testing.T) {
+			orphanRef := "docs/handoffs/strategic-design-handoff.orphan/v1/source-delivery-record.json"
+			switch variant {
+			case "record-tamper":
+				apTestPut(t, root, recordRef, append(append([]byte{}, recordRaw...), '\n'))
+			case "missing-receipt-binding":
+				receipt, err := newSemanticSession(context.Background(), root, nil).doc(receiptRef)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delete(receipt, "source_delivery_record_ref")
+				delete(receipt, "source_delivery_record_sha256")
+				apTestPut(t, root, receiptRef, receipt)
+			case "orphan-record":
+				apTestPut(t, root, orphanRef, recordRaw)
+				// The default CI discovers the registered work root and its
+				// current dependencies, so declare this record as current evidence.
+				orphanCheckpoint := contractCopy(cp)
+				orphanCheckpoint["verification"] = map[string]any{"commands": []any{}, "evidence_refs": []any{"tactical-consumption-valid.json", orphanRef}}
+				apTestPut(t, root, cpRef, orphanCheckpoint)
+			}
+			defer func() {
+				apTestPut(t, root, recordRef, recordRaw)
+				apTestPut(t, root, receiptRef, receiptRaw)
+				if variant == "orphan-record" {
+					apTestPut(t, root, cpRef, cp)
+					if err := os.RemoveAll(filepath.Join(root, "docs/handoffs/strategic-design-handoff.orphan")); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}()
+			before := verificationTree(t, root)
+			_, err := RunContext(context.Background(), "project-ci", "verify", root, nil)
+			apTestCode(t, err, "PROJECT_CI_REJECTED")
+			if !contractSame(before, verificationTree(t, root)) {
+				t.Fatal("CI rejection mutated imported source evidence")
+			}
+		})
+	}
 	cp["verification"] = map[string]any{"commands": []any{}, "evidence_refs": []any{"tactical-consumption-stale.json"}}
 	apTestPut(t, root, cpRef, cp)
 	_, err = RunContext(context.Background(), "project-ci", "verify", root, nil)
@@ -438,5 +498,45 @@ func TestHandoffReceiptConsumerBindsActualProfileAndCapability(t *testing.T) {
 		if (err == nil) != (state == "valid") {
 			t.Fatalf("%s: %v", state, err)
 		}
+	}
+}
+
+func TestHandoffNoProductDesignRequiresInactiveFrontend(t *testing.T) {
+	h := map[string]any{"schema_version": json.Number("5"), "ui_baseline_kind": "not-applicable", "source": map[string]any{}, "consumer_routes": []any{map[string]any{"capability": "frontend-engineering-design", "activation": "not-applicable"}}}
+	stage := map[string]any{"impact_assessment": map[string]any{"ui": false, "frontend": false}}
+	config := map[string]any{"approvals": map[string]any{}}
+	for _, variant := range []string{"valid", "ui-impact", "frontend-impact", "unknown-impact", "active-frontend", "ui-source", "ui-approval", "prototype-config"} {
+		t.Run(variant, func(t *testing.T) {
+			candidate, decision, export := contractCopy(h), contractCopy(stage), contractCopy(config)
+			switch variant {
+			case "ui-impact":
+				semMap(decision["impact_assessment"])["ui"] = true
+			case "frontend-impact":
+				semMap(decision["impact_assessment"])["frontend"] = true
+			case "unknown-impact":
+				delete(semMap(decision["impact_assessment"]), "ui")
+			case "active-frontend":
+				semMap(semList(candidate["consumer_routes"])[0])["activation"] = "optional"
+			case "ui-source":
+				semMap(candidate["source"])["visual_baseline_ref"] = map[string]any{}
+			case "ui-approval":
+				semMap(export["approvals"])["prototype_ref"] = map[string]any{}
+			case "prototype-config":
+				export["prototype"] = map[string]any{}
+			}
+			s := newSemanticSession(context.Background(), t.TempDir(), nil)
+			err := contractHandoffUIScope(s, candidate, decision, export)
+			if variant != "valid" {
+				apTestCode(t, err, "HANDOFF_UI")
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := contractHandoffBaseline(s, candidate)
+			if err != nil || len(semList(baseline["cases"])) != 0 || len(s.report.Inputs) != 0 {
+				t.Fatalf("inactive UI must not read a nonexistent UI asset: %v %v", baseline, err)
+			}
+		})
 	}
 }

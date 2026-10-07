@@ -321,6 +321,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "capabilities" {
 		return capabilities(), profile, nil
 	}
+	if command == "profile" {
+		return profileCommand(ctx, root, o)
+	}
 	if command == "update" {
 		if len(o.args) > 2 {
 			return nil, "", domain.Fail("ARGUMENT", "程序升级子命令参数过多")
@@ -407,6 +410,17 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		r, e := transaction.RollbackContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
 			switch summary.Kind {
+			case "profile-links":
+				if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
+					return e
+				}
+			case "spec-baseline-import":
+				if profile != "design" {
+					return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
+				}
+				if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
+					return e
+				}
 			case "init", "attach", "sync", "migrate", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
@@ -461,8 +475,21 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				r, err = transaction.Status(root)
 				break
 			}
-			r, err = transaction.RecoverContextWithValidator(ctx, root, func(summary transaction.Summary, _ []string) error {
-				if summary.Kind != "init" && summary.Kind != "attach" && summary.Kind != "sync" && summary.Kind != "migrate" && summary.Kind != "skills" && summary.Kind != "assets" {
+			r, err = transaction.RecoverContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
+				switch summary.Kind {
+				case "profile-links":
+					if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
+						return e
+					}
+				case "spec-baseline-import":
+					if profile != "design" {
+						return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
+					}
+					if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
+						return e
+					}
+				case "init", "attach", "sync", "migrate", "skills", "assets":
+				default:
 					return domain.Fail("KIND", "recover仅支持项目事务")
 				}
 				current, e := project.RecoveryIdentity(root, profile)
@@ -774,7 +801,7 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	return true, nil
 }
 func capabilities() map[string]any {
-	return map[string]any{"workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "profile-guidance-v1", "profile-prepare", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 )
@@ -26,6 +27,28 @@ func semanticDefinition(registry map[string]any, bucket, id string) map[string]a
 }
 func (s *semanticSession) orchestration() (map[string]any, string, error) {
 	ref := ".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml"
+	if present, err := s.exists(".template-spec/process/harness-profile.yaml"); err != nil {
+		return nil, "", err
+	} else if present {
+		profile, err := s.doc(".template-spec/process/harness-profile.yaml")
+		if err != nil {
+			return nil, "", err
+		}
+		preferred := ""
+		for name, known := range domain.Profiles {
+			if profile["profile_id"] == known.ID {
+				preferred = guidanceContractRef(name)
+			}
+		}
+		if preferred == "" {
+			return nil, "", s.unavailable("IDENTITY", "无法识别当前 Profile 的主控合同")
+		}
+		if present, err := s.exists(preferred); err != nil {
+			return nil, "", err
+		} else if present {
+			ref = preferred
+		}
+	}
 	exists, err := s.exists(ref)
 	if err != nil {
 		return nil, "", err
@@ -36,7 +59,7 @@ func (s *semanticSession) orchestration() (map[string]any, string, error) {
 	doc, err := s.doc(ref)
 	if err == nil {
 		version, valid := integer(doc["schema_version"])
-		if !valid || version != 1 {
+		if !valid || version != 1 && !(version == 2 && ref == guidanceContractRef("design")) {
 			return nil, ref, s.unavailable("CAPABILITY", "未知本地主控合同版本")
 		}
 	}

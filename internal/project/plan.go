@@ -387,6 +387,10 @@ func planDigest(p *Plan) string {
 	return safefs.Digest(b)
 }
 func SavePlan(p *Plan, file string) error {
+	return saveNewPlan(p.Root, p, file)
+}
+
+func saveNewPlan(root string, value any, file string) error {
 	file, e := filepath.Abs(file)
 	if e != nil {
 		return e
@@ -396,7 +400,7 @@ func SavePlan(p *Plan, file string) error {
 			return domain.Fail("PROTECTED", "计划输出不得位于 Git 内部目录")
 		}
 	}
-	rel, e := filepath.Rel(p.Root, file)
+	rel, e := filepath.Rel(root, file)
 	if e != nil {
 		return e
 	}
@@ -418,14 +422,14 @@ func SavePlan(p *Plan, file string) error {
 			return domain.Fail("PROTECTED", "计划输出不得通过链接进入 Git 内部目录")
 		}
 	}
-	rel, e = filepath.Rel(p.Root, file)
+	rel, e = filepath.Rel(root, file)
 	if e != nil {
 		return e
 	}
 	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(filepath.ToSlash(rel), ".yss/plans/") {
 		return domain.Fail("PROTECTED", "计划输出不得通过链接进入项目业务目录")
 	}
-	b, e := jsonBytes(p)
+	b, e := jsonBytes(value)
 	if e != nil {
 		return e
 	}
@@ -467,77 +471,115 @@ func Apply(p *Plan) (transaction.Result, error) {
 	return ApplyContext(context.Background(), p)
 }
 func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
-	if p.MigrationKind == "work-layout" {
+	if p != nil && p.MigrationKind == "work-layout" {
 		return applyWorkLayout(ctx, p)
 	}
+	a, err := prepareApplication(ctx, p)
+	if err != nil {
+		return transaction.Result{}, err
+	}
+	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, a.ops, p.Inputs, a.materials, func() error { return verifyAppliedPlan(ctx, p, a.bundle) })
+}
+
+type applicationInputs struct {
+	bundle    *bundle.Bundle
+	ops       []transaction.Operation
+	materials []transaction.Artifact
+}
+
+// PreflightApplyContext shares every native apply input check without creating
+// target directories, acquiring a write lock, or trusting its result at apply.
+func PreflightApplyContext(ctx context.Context, p *Plan) error {
+	_, err := prepareApplication(ctx, p)
+	return err
+}
+
+func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error) {
+	if ctx == nil {
+		return nil, domain.Fail("ARGUMENT", "取消上下文不可为空")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, domain.Wrap("CANCELLED", err)
+	}
+	if p == nil {
+		return nil, domain.Fail("PLAN", "缺少保存计划")
+	}
 	if p.MigrationKind != "" {
-		return transaction.Result{}, domain.Fail("PLAN", "未知迁移类型")
+		return nil, domain.Fail("PLAN", "未知迁移类型")
 	}
 	if p.SchemaVersion != 2 {
-		return transaction.Result{}, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")
+		return nil, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")
 	}
 	if p.Digest != planDigest(p) {
-		return transaction.Result{}, domain.Fail("PLAN", "计划摘要不合法")
+		return nil, domain.Fail("PLAN", "计划摘要不合法")
 	}
 	if len(p.Conflicts) > 0 || len(p.Blockers) > 0 || !p.ReadyToApply {
-		return transaction.Result{}, domain.Explain(domain.Fail("CONFLICT", "存在用户修改冲突，须先人工合并"), "MANAGED_FILE_CONFLICT", "保存计划中存在尚未关闭的文件冲突或阻断项。", map[string]any{"root": p.Root, "conflicts": p.Conflicts, "blockers": p.Blockers})
+		return nil, domain.Explain(domain.Fail("CONFLICT", "存在用户修改冲突，须先人工合并"), "MANAGED_FILE_CONFLICT", "保存计划中存在尚未关闭的文件冲突或阻断项。", map[string]any{"root": p.Root, "conflicts": p.Conflicts, "blockers": p.Blockers})
 	}
 	b, e := bundle.Load(p.Profile)
 	if e != nil {
-		return transaction.Result{}, e
+		return nil, e
 	}
 	if b.TemplateCommit != p.TemplateCommit || b.SnapshotHash != p.SnapshotHash {
-		return transaction.Result{}, domain.Fail("BUNDLE", "计划绑定快照已改变")
+		return nil, domain.Fail("BUNDLE", "计划绑定快照已改变")
 	}
 	if _, e = Detect(p.Root, p.Profile, p.Command == "init" || p.Command == "attach"); e != nil {
-		return transaction.Result{}, e
+		return nil, e
 	}
 	for ref, before := range p.Inputs {
 		now, e := workDescribe(p.Root, ref)
 		if e != nil {
-			return transaction.Result{}, e
+			return nil, e
 		}
 		if now != before {
-			return transaction.Result{}, domain.Explain(domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref), "SAVED_PLAN_INPUT_CHANGED", "当前输入与保存计划绑定的字节或权限不同，必须重新生成计划。", map[string]any{"root": p.Root, "path": ref, "expected": before, "observed": now})
+			return nil, domain.Explain(domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref), "SAVED_PLAN_INPUT_CHANGED", "当前输入与保存计划绑定的字节或权限不同，必须重新生成计划。", map[string]any{"root": p.Root, "path": ref, "expected": before, "observed": now})
 		}
 	}
 	rebuilt, e := BuildWithOptions(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding, PlanningOptions{BaseBundlePath: p.BaseBundlePath, ResolvedFrom: p.ResolvedFrom, Resolutions: p.Resolutions})
 	if e != nil {
-		return transaction.Result{}, e
+		return nil, e
 	}
 	if rebuilt.Digest != p.Digest {
-		return transaction.Result{}, domain.Fail("PLAN", "计划不符合当前快照生成结果；拒绝编辑后重绑定的计划")
+		return nil, domain.Fail("PLAN", "计划不符合当前快照生成结果；拒绝编辑后重绑定的计划")
 	}
+	ops, e := nativePlanOperations(p)
+	if e != nil {
+		return nil, e
+	}
+	materials := make([]transaction.Artifact, 0, len(p.Materials))
+	for _, m := range p.Materials {
+		data := rebuilt.materialData[m.Descriptor.Digest]
+		if safefs.Digest(data) != m.Descriptor.Digest {
+			return nil, domain.Fail("PLAN", "模板材料摘要不合法")
+		}
+		materials = append(materials, transaction.Artifact{ArtifactRecord: transaction.ArtifactRecord{Path: m.Path, Kind: m.Kind, Descriptor: m.Descriptor}, Data: data})
+	}
+	return &applicationInputs{bundle: b, ops: ops, materials: materials}, nil
+}
+
+func nativePlanOperations(p *Plan) ([]transaction.Operation, error) {
 	ops := make([]transaction.Operation, 0, len(p.Changes))
 	for _, c := range p.Changes {
 		before := c.Before
 		if c.After.Type == "directory" {
 			if c.Data != "" {
-				return transaction.Result{}, domain.Fail("PLAN", "目录操作不得含候选字节")
+				return nil, domain.Fail("PLAN", "目录操作不得含候选字节")
 			}
 			ops = append(ops, transaction.Operation{Path: c.Path, Directory: true, Mode: c.After.Mode, Before: &before})
 			continue
 		}
 		if c.After.Type == "missing" {
 			if c.Data != "" {
-				return transaction.Result{}, domain.Fail("PLAN", "删除操作不得含候选字节")
+				return nil, domain.Fail("PLAN", "删除操作不得含候选字节")
 			}
 			ops = append(ops, transaction.Operation{Path: c.Path, Delete: true, Before: &before})
 			continue
 		}
 		data, e := base64.StdEncoding.DecodeString(c.Data)
 		if e != nil || safefs.Digest(data) != c.After.Digest {
-			return transaction.Result{}, domain.Fail("PLAN", "计划内容摘要不合法: "+c.Path)
+			return nil, domain.Fail("PLAN", "计划内容摘要不合法: "+c.Path)
 		}
 		ops = append(ops, transaction.Operation{Path: c.Path, Data: data, Mode: c.After.Mode, Before: &before})
 	}
-	materials := make([]transaction.Artifact, 0, len(p.Materials))
-	for _, m := range p.Materials {
-		data := rebuilt.materialData[m.Descriptor.Digest]
-		if safefs.Digest(data) != m.Descriptor.Digest {
-			return transaction.Result{}, domain.Fail("PLAN", "模板材料摘要不合法")
-		}
-		materials = append(materials, transaction.Artifact{ArtifactRecord: transaction.ArtifactRecord{Path: m.Path, Kind: m.Kind, Descriptor: m.Descriptor}, Data: data})
-	}
-	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, ops, p.Inputs, materials, func() error { return verifyAppliedPlan(ctx, p, b) })
+	return ops, nil
 }

@@ -333,6 +333,9 @@ func verifyPlanCheckpointSemantic(s *semanticSession, ref string, opts map[strin
 	if cp["repository_mode"] != "project-instance" {
 		return nil
 	}
+	if cp["upstream_spec_baseline"] != nil && (semMap(semMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" || semMap(semMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved") {
+		return verifyInheritedSpecCheckpoint(s, ref, cp)
+	}
 	if cp["next_work_unit"] == "work-unit.spec-synthesis" || cp["stage"] == "stage.spec-architecture" || semMap(cp["stage_trace"])["completed_work_unit"] == "work-unit.spec-synthesis" {
 		return s.verify("plan-spec-entry", ref, opts)
 	}
@@ -525,6 +528,9 @@ func verifyPlanEntrySemantic(s *semanticSession, ref string, opts map[string]str
 	cp, err := s.doc(ref)
 	if err != nil {
 		return err
+	}
+	if cp["upstream_spec_baseline"] != nil && semMap(semMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" {
+		return verifyInheritedSpecCheckpoint(s, ref, cp)
 	}
 	reviewRef := text(cp["plan_review_ref"])
 	feature := text(cp["feature_id"])

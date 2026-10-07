@@ -51,6 +51,12 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if args == nil {
 		args = map[string]string{}
 	}
+	if group == "handoff" && args["kind"] == "spec-baseline" {
+		if err := rejectUnportedArgs(args, ArgumentKeys(group, action)...); err != nil {
+			return nil, err
+		}
+		return specBaselineRun(ctx, action, root, args)
+	}
 	semantic := action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff")
 	if !semantic && (args["history"] != "" || args["require-approved"] != "") {
 		return nil, domain.Fail("UNPORTED", "历史兼容校验与批准语义尚未迁移；不能由结构校验代替")
@@ -88,7 +94,7 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 		return projectCIRun(ctx, action, root, args)
 	}
 	if group == "lifecycle" || group == "stage" {
-		return lifecycleRun(group, action, root, args)
+		return lifecycleRun(ctx, group, action, root, args)
 	}
 	if group == "contract" || group == "evidence" || group == "handoff" {
 		return assetCheck(group, action, root, args)
@@ -131,6 +137,8 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "scope", "checkpoint", "task", "file", "arg0", "current-work-unit", "next-work-unit", "provider", "branch", "additional-path", "cli-source", "apply", "plan-file", "base", "runtime-store", "recover", "home", "run-dir", "tool-root", "template-checkout")
 	case "contract.check", "evidence.check", "handoff.check":
 		allowed = append(allowed, "schema", "file", "arg0")
+	case "handoff.export", "handoff.import":
+		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
 		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "tool-root", "template-checkout", "approval-ref", "unit")
 	case "archive.pack", "archive.unpack":

@@ -68,12 +68,22 @@ jobs:
       - name: Verify fixed template revision
         shell: bash
         run: test "$(git -C "$GITHUB_WORKSPACE/template-source" rev-parse HEAD)" = "${{ steps.template-source.outputs.commit }}"
+      - name: Initialize fixed Profile oracles
+        shell: bash
+        run: git -C "$GITHUB_WORKSPACE/template-source" submodule update --init --depth 1 -- submodules/yss-harness-backend-agent submodules/yss-harness-frontend-agent submodules/yss-harness-design-agent
       - uses: pnpm/action-setup@v4
         with:
           version: '10.15.0'
       - name: Install fixed governance tooling
         shell: bash
-        run: pnpm --dir "$GITHUB_WORKSPACE/template-source/.template-source/tooling/node" install --frozen-lockfile
+        run: |
+          pnpm --dir "$GITHUB_WORKSPACE/template-source/.template-source/tooling/node" install --frozen-lockfile
+          for profile in backend frontend design; do
+            tooling="$GITHUB_WORKSPACE/template-source/submodules/yss-harness-$profile-agent/.template-source/tooling/node"
+            if test -f "$tooling/package.json"; then
+              pnpm --dir "$tooling" install --frozen-lockfile
+            fi
+          done
       - name: Build the exact native release candidate
         shell: bash
         env:
@@ -123,6 +133,15 @@ jobs:
       - name: Exact release binary native acceptance
         shell: bash
         run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-${{ matrix.platform }}" --commit "$GITHUB_SHA"
+      - name: Six platform size limits
+        shell: bash
+        run: go run ./tools/package "$RUNNER_TEMP/yss-size-package"
+      - name: Native performance measurement
+        shell: bash
+        if: matrix.platform == 'darwin-arm64'
+        run: |
+          python3 tools/size-performance.py --self-check
+          python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --out "$RUNNER_TEMP/yss-size-performance"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -139,3 +158,6 @@ jobs:
             ${{ runner.temp }}/yss-native-recovery/output-*.json
             ${{ runner.temp }}/yss-plugin-native-smoke/report.json
             ${{ runner.temp }}/yss-plugin-native-smoke/*.log
+            ${{ runner.temp }}/yss-size-package/size-report.json
+            ${{ runner.temp }}/yss-size-package/checksums.json
+            ${{ runner.temp }}/yss-size-performance/report.json

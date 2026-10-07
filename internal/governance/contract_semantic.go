@@ -5070,8 +5070,14 @@ func contractFrontendDelivery(s *semanticSession, binding map[string]any, c *nat
 			return e
 		}
 		base := path.Join("docs/handoffs", text(receipt["bundle_id"]), text(receipt["version"]))
-		if contractN(receipt["schema_version"]) != 2 || text(preflight["import_receipt_ref"]) != base+"/import-receipt.json" || text(receipt["package_ref"]) != base+"/package" || preflight["bundle_digest"] != receipt["bundle_digest"] || preflight["bundle_digest"] != semMap(doc["strategic_handoff"])["bundle_digest"] {
+		if !semHas([]string{"2", "3"}, fmt.Sprint(contractN(receipt["schema_version"]))) || text(preflight["import_receipt_ref"]) != base+"/import-receipt.json" || text(receipt["package_ref"]) != base+"/package" || preflight["bundle_digest"] != receipt["bundle_digest"] || preflight["bundle_digest"] != semMap(doc["strategic_handoff"])["bundle_digest"] {
 			return s.reject("FRONTEND_PREFLIGHT", "预检收据身份或战略包版本冲突")
+		}
+		if e = contractReceipt(s, receipt); e != nil {
+			return e
+		}
+		if e = contractReceiptConsumer(s, receipt, "frontend-engineering-design"); e != nil {
+			return e
 		}
 		if e = s.verify("context-reconciliation", text(preflight["context_reconciliation_ref"]), map[string]string{"import-receipt": text(preflight["import_receipt_ref"])}); e != nil {
 			return e
@@ -5241,7 +5247,30 @@ func contractFrontendBackendDelivery(s *semanticSession, acceptance map[string]a
 			}
 		}
 		for _, id := range semStrings(item["source_ids"]) {
-			if !semHas(semMap(delivery["scope"])["source_ids"], id) {
+			covered := semHas(semMap(delivery["scope"])["source_ids"], id)
+			if !covered && n == 3 && bundle.Business != nil {
+				row := apFind(bundle.Business["tickets"], "id", id)
+				if row != nil {
+					ticket, e := bundle.Source.doc(text(row["ref"]))
+					if e != nil {
+						return e
+					}
+					related := 0
+					covered = true
+					for _, v := range semList(ticket["source_refs"]) {
+						binding := semMap(v)
+						locator := text(binding["locator"])
+						if binding["locator_kind"] == "id" && (apFind(bundle.Rules, "rule_id", locator) != nil || apFind(bundle.Scenarios, "scenario_id", locator) != nil) {
+							related++
+							if !semHas(semMap(delivery["scope"])["source_ids"], locator) {
+								covered = false
+							}
+						}
+					}
+					covered = covered && related > 0
+				}
+			}
+			if !covered {
 				return s.reject("FRONTEND_CASE", "前端用例依赖未交付规则/场景")
 			}
 		}
