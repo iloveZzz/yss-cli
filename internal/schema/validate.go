@@ -396,11 +396,60 @@ func jsonPointer(parts []string) string {
 // Unicode-class differences instead of silently accepting Go-only semantics.
 // A compatible replacement pattern must be chosen explicitly by its owner.
 func compatibleRegexpCompile(pattern string) (js.Regexp, error) {
-	translated, err := translatePattern(pattern, "<regex>")
+	positive := pattern
+	var exclusions []string
+	// Explicit compatibility decisions for the published OpenAPI and reading
+	// path policies. Other lookaround still requires its owner's decision.
+	const relativePrefix = `^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*\\)`
+	switch pattern {
+	case relativePrefix + `(?:[A-Za-z0-9._-]+/)+[a-z0-9][a-z0-9-]*/api/[a-z0-9][a-z0-9-]*\.ya?ml$`,
+		relativePrefix + `(?:[a-zA-Z0-9._-]+/)+[a-z0-9][a-z0-9-]*/[^/]+\.(yaml|yml|json)$`:
+		positive = "^" + strings.TrimPrefix(pattern, relativePrefix)
+		exclusions = []string{`^/`, `^.*(?:^|/)\.{1,2}(?:/|$)`, `^.*\\`}
+	case `^pnpm exec redocly lint (?!/)(?!.*\.\./)[^\s\\]+\.ya?ml$`:
+		positive = `^pnpm exec redocly lint [^\s\\]+\.ya?ml$`
+		exclusions = []string{`^pnpm exec redocly lint /`, `^pnpm exec redocly lint .*\.\./`}
+	}
+	translated, err := translatePattern(positive, "<regex>")
 	if err != nil {
 		return nil, err
 	}
-	return regexp.Compile(translated)
+	matched, err := regexp.Compile(translated)
+	if err != nil || len(exclusions) == 0 {
+		return matched, err
+	}
+	guarded := &guardedRegexp{pattern: pattern, matched: matched}
+	for _, exclusion := range exclusions {
+		translated, err := translatePattern(exclusion, "<regex>")
+		if err != nil {
+			return nil, err
+		}
+		rejected, err := regexp.Compile(translated)
+		if err != nil {
+			return nil, err
+		}
+		guarded.rejected = append(guarded.rejected, rejected)
+	}
+	return guarded, nil
+}
+
+type guardedRegexp struct {
+	pattern  string
+	matched  *regexp.Regexp
+	rejected []*regexp.Regexp
+}
+
+func (r *guardedRegexp) String() string { return r.pattern }
+func (r *guardedRegexp) MatchString(value string) bool {
+	if !r.matched.MatchString(value) {
+		return false
+	}
+	for _, rejected := range r.rejected {
+		if rejected.MatchString(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func translatePattern(pattern, path string) (string, error) {
