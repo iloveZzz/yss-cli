@@ -274,8 +274,11 @@ func assetClosure(raw map[string]sourceFile, p Policy, stages, skills, resources
 		}
 		if e == nil {
 			rs := stringSet(resources)
-			if selected["yss-harness-upgrade"] {
-				rs["yss-harness-upgrade"] = true
+			// Fixed historical snapshots retain their original skill identity.
+			for _, skill := range []string{"setup-yss-harness", "yss-harness-upgrade"} {
+				if selected[skill] {
+					rs[skill] = true
+				}
 			}
 			for _, skill := range sortedKeys(rs) {
 				if e = c.skill(skill); e != nil {

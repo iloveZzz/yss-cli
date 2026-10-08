@@ -210,10 +210,19 @@ func governedTutorial(profile string) (string, error) {
 		case "stage.spec-architecture":
 			fmt.Fprintf(&out, "  yss stage update --root %s --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > %s/docs/stage-plan-next.json\n  yss lifecycle verify --root %s --checkpoint .work/feature/checkpoint.json --json --diagnostics\n", root, root, root)
 			out.WriteString("  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。\n")
+			if profile == "spec" {
+				out.WriteString("  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。\n")
+			}
 		case "stage.product-design":
 			fmt.Fprintf(&out, "  yss assets list --root %s --json\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
 			out.WriteString("  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。\n")
+			if profile == "spec" {
+				out.WriteString("  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。\n")
+			}
 		case "stage.system-data-engineering":
+			if profile == "spec" {
+				out.WriteString("  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。\n")
+			}
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind scaffold --file docs/scaffold.json --json --diagnostics\n  yss handoff verify --root %s --kind package --package docs/handoff --json\n", root, root)
 			out.WriteString("  API：OAS 3.1 YAML Draft → 锁定工具校验 → 独立 Review → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。\n")
 		case "stage.ticket-formalization":
@@ -224,6 +233,9 @@ func governedTutorial(profile string) (string, error) {
 			}
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics\n", root)
 			out.WriteString("  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。\n")
+			if profile == "spec" {
+				out.WriteString("  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。\n")
+			}
 		case "stage.technical-design", "stage.frontend-engineering-design":
 			fmt.Fprintf(&out, "  yss handoff verify --root %s --kind package --package docs/handoff --json --diagnostics\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
 			out.WriteString("  消费当前上游接收与工程约束；适用的技术/前端设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。\n")

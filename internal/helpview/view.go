@@ -22,6 +22,31 @@ type Stage struct {
 	Goal string `json:"goal" yaml:"goal"`
 	Exit string `json:"exitCriteria" yaml:"exit_criteria"`
 }
+
+func (s *Stage) UnmarshalYAML(node *yaml.Node) error {
+	type plain Stage
+	var record struct {
+		plain      `yaml:",inline"`
+		PublicName string `yaml:"public_name"`
+		PublicGoal string `yaml:"public_goal"`
+		PublicExit string `yaml:"public_exit_criteria"`
+	}
+	if err := node.Decode(&record); err != nil {
+		return err
+	}
+	*s = Stage(record.plain)
+	if record.PublicName != "" {
+		s.Name = record.PublicName
+	}
+	if record.PublicGoal != "" {
+		s.Goal = record.PublicGoal
+	}
+	if record.PublicExit != "" {
+		s.Exit = record.PublicExit
+	}
+	return nil
+}
+
 type View struct {
 	SchemaVersion   int      `json:"schemaVersion"`
 	Profile         string   `json:"profile"`

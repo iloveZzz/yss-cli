@@ -38,7 +38,7 @@ func init() {
 	})
 	for _, group := range []string{"skills", "assets"} {
 		identifier := "Skill 名称"
-		sample := "yss-harness-upgrade"
+		sample := "yss-research"
 		meaning := "Skill 及其依赖闭包"
 		if group == "assets" {
 			identifier = "阶段 ID"
@@ -198,7 +198,7 @@ const maintenanceTutorial = `YSS 离线入门教程
 
 4. 查询和补装资源
    yss skills list --root ./demo-spec --json
-   yss skills ensure yss-harness-upgrade --root ./demo-spec --plan --out /tmp/yss-skill-plan.json
+   yss skills ensure yss-research --root ./demo-spec --plan --out /tmp/yss-skill-plan.json
    yss skills --root ./demo-spec --apply --plan-file /tmp/yss-skill-plan.json
    yss assets list --root ./demo-spec --json
    使用 list 的实际标识；阶段资源以当前 Profile 登记为准。

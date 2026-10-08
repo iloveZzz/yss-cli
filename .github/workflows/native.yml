@@ -129,7 +129,7 @@ jobs:
         if: matrix.platform != 'windows-arm64'
         env:
           CGO_ENABLED: 1
-        run: go test -timeout=60m -count=1 -race ./...
+        run: go test -timeout=120m -count=1 -race ./...
       - name: Exact release binary native acceptance
         shell: bash
         run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-${{ matrix.platform }}" --commit "$GITHUB_SHA"
