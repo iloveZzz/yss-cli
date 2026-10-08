@@ -940,6 +940,17 @@ func contractFrontendBackendDeliveryChain(t *testing.T, handoffVersion int) {
 		t.Skip("development-only fixed source producer unavailable")
 	}
 	old := governanceOracleRoot(t)
+	if handoffVersion == 5 {
+		receiver, err := os.ReadFile(filepath.Join(old, "scripts/lib/backend-delivery.mjs"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The fixed historical producer only consumes v4's schema-2 receipt.
+		// Native v5 package and receipt readers have independent coverage.
+		if strings.Contains(string(receiver), "strategicReceipt.schema_version===2?") {
+			t.Skip("fixed historical backend producer does not support Handoff-v5 receipts")
+		}
+	}
 	root := contractTestRetainedRoot(t, apTestProfileRoot(t, "frontend"), "frontend-online")
 	contractTestRules(t, root)
 	frontendBundle, err := bundle.Load("frontend")

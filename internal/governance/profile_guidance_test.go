@@ -119,6 +119,12 @@ func TestProfileGuidanceUsesRegisteredCheckpointWithoutGuessingDirectorySlug(t *
 
 func TestProfileGuidanceSpecStrategicHandoffRoutesAndIntake(t *testing.T) {
 	oracle := governanceOracleRoot(t)
+	if _, err := os.Stat(filepath.Join(oracle, "scripts/fixtures/spec-baseline/fixture.mjs")); err != nil {
+		if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		t.Skip("fixed historical template has no Spec-baseline fixture; old-policy rejection is tested separately")
+	}
 	source := specBaselineTestNativeSeed(t, "spec")
 	baselineParent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
