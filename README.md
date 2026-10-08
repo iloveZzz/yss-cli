@@ -100,10 +100,12 @@ yss diff --root ./demo-spec --json
 yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
 yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
 yss skills list --root ./demo-spec --json
-yss skills ensure yss-harness-upgrade --root ./demo-spec --plan --out /tmp/yss-skill-plan.json
+yss skills ensure yss-research --root ./demo-spec --plan --out /tmp/yss-skill-plan.json
 yss skills --root ./demo-spec --apply --plan-file /tmp/yss-skill-plan.json
 yss assets list --root ./demo-spec --json
 ```
+
+安装和项目就绪由 `setup-yss-harness` 技能编排。已发布二进制的 Bundle 标识以 `skills list` 为准；源码更名进入内嵌分发需要后续固定来源发行。
 
 计划输出文件必须不存在。输入变化或定制冲突时，先处理诊断并重新生成计划。旧实例需要显式 `migrate plan/apply`；旧未完成事务先用对应仓外固定旧执行器恢复。
 

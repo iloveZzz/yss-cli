@@ -34,6 +34,15 @@ func nativeUpgradeSource(raw map[string]sourceFile) ([]NativeTransform, error) {
 		inputs[root+"/skills/yss-harness-upgrade/SKILL.md"] = "upgrade-SKILL.md"
 		inputs[root+"/skills/yss-harness-upgrade/references/project-operations.md"] = "project-operations.md"
 	}
+	// The old paths above are fixed historical inputs, not discovery aliases.
+	for _, root := range []string{".agents", ".codex", ".cursor", ".pi"} {
+		inputs[root+"/skills/setup-yss-harness/SKILL.md"] = "setup-SKILL.md"
+		inputs[root+"/skills/setup-yss-harness/references/project-operations.md"] = "setup-project-operations.md"
+		inputs[root+"/skills/setup-yss-harness/references/operation-contract.md"] = "setup-operation-contract.md"
+	}
+	if _, exists := raw[".agents/skills/setup-yss-harness/SKILL.md"]; exists {
+		inputs[".template-spec/process/harness-upgrade.md"] = "setup-contract.md"
+	}
 	transforms := []NativeTransform{}
 	for _, ref := range sortedKeys(inputs) {
 		original, exists := raw[ref]

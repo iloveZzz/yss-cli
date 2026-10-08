@@ -4,7 +4,30 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
+
+func TestStageReadingUsesPublicPresentationAndKeepsLegacyFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name, presentation, wantName, wantGoal, wantExit string
+	}{
+		{"legacy", "", "Ticket 正式化", "冻结范围形成垂直切片", "验收可执行"},
+		{"public", "public_name: 实现切片拆分与合同准入\npublic_goal: 消费冻结工程契约形成实现切片\npublic_exit_criteria: 当前合同批准并完成就绪核验\n", "实现切片拆分与合同准入", "消费冻结工程契约形成实现切片", "当前合同批准并完成就绪核验"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stage Stage
+			raw := "id: stage.ticket-formalization\nname: Ticket 正式化\ngoal: 冻结范围形成垂直切片\nexit_criteria: 验收可执行\n" + tc.presentation
+			if err := yaml.Unmarshal([]byte(raw), &stage); err != nil {
+				t.Fatal(err)
+			}
+			want := Stage{ID: "stage.ticket-formalization", Name: tc.wantName, Goal: tc.wantGoal, Exit: tc.wantExit}
+			if stage != want {
+				t.Fatalf("阅读结果错误: got=%+v want=%+v", stage, want)
+			}
+		})
+	}
+}
 
 func TestHelpViewsMatchFixedSourcesAndProfileExecutionOrder(t *testing.T) {
 	for _, profile := range []string{"spec", "design", "backend", "frontend"} {

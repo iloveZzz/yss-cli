@@ -26,6 +26,11 @@ func TestLifecycleTutorialHasOrderedStagesAndActionableReadingPaths(t *testing.T
 			t.Fatalf("missing %s", text)
 		}
 	}
+	business := strings.Index(out.String(), "产品设计校准后完成 work-unit.business-ticket-formalization")
+	engineering := strings.Index(out.String(), "5. 系统 / 数据架构与工程契约")
+	if business < 0 || business >= engineering || !strings.Contains(out.String(), "工程契约和实现仓库准备须先闭合") {
+		t.Fatalf("教程必须区分工程设计前的业务正式化与工程准备后的实现切片准入: %s", &out)
+	}
 	for _, args := range [][]string{{"help", "tutorial", "daily"}, {"help", "tutorial", "spec"}, {"help", "tutorial", "design"}, {"help", "tutorial", "backend"}, {"help", "tutorial", "frontend"}, {"help", "examples", "sync"}, {"help", "errors", "IDENTITY"}} {
 		out.Reset()
 		stderr.Reset()
