@@ -301,6 +301,11 @@ func openSpecBaseline(s *semanticSession, prefix string) (map[string]any, *seman
 	for _, v := range semList(manifest["files"]) {
 		row := semMap(v)
 		ref, original := text(row["path"]), text(row["original_ref"])
+		for _, candidate := range []string{ref, original} {
+			if err = rejectProgressionEvidence(s, candidate); err != nil {
+				return nil, nil, err
+			}
+		}
 		if !contractPath(original) || ref != baselineFileRef(original) {
 			return nil, nil, s.reject("SPEC_BASELINE_PATH", "基线文件映射非法")
 		}

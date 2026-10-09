@@ -54,6 +54,39 @@ func TestUnknownInputExplainsCorrectionBeforeAccessingProject(t *testing.T) {
 	}
 }
 
+func TestLocalFrontendPublicOptionsMatchFacade(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "absent")
+	for _, row := range []struct {
+		name          string
+		args          []string
+		argumentError bool
+	}{
+		{"current-inputs", []string{"--kind", "frontend-delivery", "--file", ".work/feature/checkpoint.json", "--checkpoint", ".work/feature/checkpoint.json", "--slice", "slice.feature", "--phase", "inputs", "--unit", "work-unit.slice-frontend"}, false},
+		{"preparation-without-future-slice", []string{"--kind", "frontend-delivery", "--file", ".work/feature/checkpoint.json", "--checkpoint", ".work/feature/checkpoint.json", "--phase", "contract"}, false},
+		{"unknown-phase", []string{"--kind", "frontend-delivery", "--file", "checkpoint.json", "--phase", "asserted-completed"}, true},
+		{"slice-selector-on-task", []string{"--kind", "task", "--file", "task.json", "--slice", "slice.feature"}, true},
+		{"phase-selector-on-slice", []string{"--kind", "slice", "--file", "slice.yaml", "--phase", "inputs"}, true},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			args := append([]string{"contract", "verify", "--json", "--root", root}, row.args...)
+			var out, stderr bytes.Buffer
+			if code := Run(context.Background(), args, &out, &stderr); code != 2 {
+				t.Fatalf("expected bounded input failure, exit=%d %s", code, out.String())
+			}
+			var result struct{ Code string }
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if (result.Code == "ARGUMENT") != row.argumentError {
+				t.Fatalf("public facade options reached wrong boundary: %s", out.String())
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatal("readonly option validation created a project")
+			}
+		})
+	}
+}
+
 type rejectHTTP struct{ calls *atomic.Int32 }
 
 func (r rejectHTTP) RoundTrip(*http.Request) (*http.Response, error) {

@@ -307,6 +307,9 @@ func apBasis(s *semanticSession, v any, label, code string) ([]map[string]any, e
 	for _, x := range a {
 		m := apMap(x)
 		ref := apText(m["ref"])
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return nil, err
+		}
 		if strings.TrimSpace(ref) == "" || refs[ref] || !apHashValid(m["digest"], true) {
 			return nil, apFail(s, code, label+" 证据引用缺失、重复或摘要非法")
 		}
@@ -415,6 +418,11 @@ func assertApprovalSignerSemantic(s *semanticSession, record map[string]any) (ma
 
 func approvalExpectationFromState(s *semanticSession, boundary string, state map[string]any) (map[string]any, error) {
 	ref := apText(state["subject_ref"])
+	for _, ref := range []string{ref, apText(state["approval_ref"])} {
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return nil, err
+		}
+	}
 	if ref == "" || !apUnique(state["approval_scope"]) {
 		return nil, apFail(s, "APPROVAL_CONTEXT_REQUIRED", "当前消费边界缺少主体或批准范围")
 	}
@@ -555,6 +563,12 @@ func verifyApprovalSemantic(s *semanticSession, ref string, opts map[string]stri
 		s.report.Applicability = append(s.report.Applicability, map[string]any{"kind": "approval", "mode": "history-only", "execution_authorization": "not-evaluated"})
 		return nil
 	}
+	if err := rejectProgressionEvidence(s, ref); err != nil {
+		return err
+	}
+	if err := currentApprovalReferencesSemantic(s, record); err != nil {
+		return err
+	}
 	checkpointRef := opts["checkpoint"]
 	if checkpointRef == "" {
 		checkpointRef = s.checkpointRef
@@ -628,7 +642,31 @@ func verifyApprovalSemantic(s *semanticSession, ref string, opts map[string]stri
 	return nil
 }
 
+// The current consumer excludes intent from its existing reference fields. Pure
+// historical schema inspection deliberately does not call this proof boundary.
+func currentApprovalReferencesSemantic(s *semanticSession, record map[string]any) error {
+	refs := []string{apText(record["subject_ref"]), apText(record["review_task_ref"]), apText(record["continuation_ref"])}
+	refs = append(refs, semStrings(record["evidence_refs"])...)
+	for _, field := range []string{"basis", "review_bundle_basis"} {
+		for _, asset := range apRows(record[field]) {
+			refs = append(refs, apText(asset["ref"]))
+		}
+	}
+	for _, ref := range refs {
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func assertCurrentApprovalSemantic(s *semanticSession, record, expected map[string]any) error {
+	if err := currentApprovalReferencesSemantic(s, record); err != nil {
+		return err
+	}
+	if err := rejectProgressionEvidence(s, apText(expected["subject_ref"])); err != nil {
+		return err
+	}
 	_, e := assertApprovalSignerSemantic(s, record)
 	if e != nil {
 		return e

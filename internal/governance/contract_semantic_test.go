@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -940,17 +941,6 @@ func contractFrontendBackendDeliveryChain(t *testing.T, handoffVersion int) {
 		t.Skip("development-only fixed source producer unavailable")
 	}
 	old := governanceOracleRoot(t)
-	if handoffVersion == 5 {
-		receiver, err := os.ReadFile(filepath.Join(old, "scripts/lib/backend-delivery.mjs"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// The fixed historical producer only consumes v4's schema-2 receipt.
-		// Native v5 package and receipt readers have independent coverage.
-		if strings.Contains(string(receiver), "strategicReceipt.schema_version===2?") {
-			t.Skip("fixed historical backend producer does not support Handoff-v5 receipts")
-		}
-	}
 	root := contractTestRetainedRoot(t, apTestProfileRoot(t, "frontend"), "frontend-online")
 	contractTestRules(t, root)
 	frontendBundle, err := bundle.Load("frontend")
@@ -964,16 +954,6 @@ func contractFrontendBackendDeliveryChain(t *testing.T, handoffVersion int) {
 				t.Fatal(err)
 			}
 			apTestPut(t, root, ref, raw)
-		}
-	}
-	if handoffVersion == 5 {
-		for _, ref := range []string{".template-spec/process/harness-profile.yaml", ".agents/skills/harness-orchestrator/references/orchestration-contract.yaml"} {
-			raw, err := os.ReadFile(filepath.Join(old, "submodules/yss-harness-frontend-agent", ref))
-			if err != nil {
-				t.Fatal(err)
-			}
-			apTestPut(t, root, ref, raw)
-			t.Logf("current frontend oracle ref=%s sha256=%s", ref, safefs.Digest(raw))
 		}
 	}
 	var revision atomic.Value
@@ -1006,7 +986,7 @@ func contractFrontendBackendDeliveryChain(t *testing.T, handoffVersion int) {
 	if handoffVersion == 5 {
 		body = strings.ReplaceAll(body, "{handoffVersion:4}", "{handoffVersion:5,businessTickets:true}")
 		imports += "\nimport {finalizeDelivery} from '" + governanceOracleURL(filepath.Join(old, "scripts/lib/strategic-handoff.mjs")) + "';\n"
-		body = strings.ReplaceAll(body, "const strategy=await exportBundle({sourceRoot:source,handoffRef:'handoff.yaml',output:path.join(f.root,'strategy-package')});", "const strategy=await finalizeDelivery({sourceRoot:source,handoffRef:'handoff.yaml'});fs.cpSync(path.join(strategy.delivery,'package'),path.join(f.root,'strategy-package'),{recursive:true});")
+		body = strings.ReplaceAll(body, "const strategy=await exportBundle({sourceRoot:source,handoffRef:'handoff.yaml',output:path.join(f.root,'strategy-package')});", "const strategy=await finalizeDelivery({sourceRoot:source,handoffRef:'handoff.yaml'});fs.cpSync(strategy.delivery,path.join(f.root,'strategy-package'),{recursive:true});")
 	}
 	body = strings.ReplaceAll(body, "t.after(()=>f.cleanup());", "")
 	body = strings.ReplaceAll(body, "base_url:'http://127.0.0.1:1'", "base_url:process.argv[2]")
@@ -1059,6 +1039,87 @@ console.log(JSON.stringify({root:f.root,slice:f.contract.slice_id,acceptance:imp
 	}
 	if contractN(bundle.Handoff["schema_version"]) != handoffVersion || contractN(receipt["schema_version"]) != handoffVersion-2 || contractN(acceptance["schema_version"]) != handoffVersion-2 {
 		t.Fatal("Handoff receipt and acceptance protocol chain changed")
+	}
+	t.Run("backend-strategic-input", func(t *testing.T) {
+		before := verificationTree(t, meta.Root)
+		source := newSemanticSession(context.Background(), meta.Root, nil)
+		// As in backendOpenDelivery, the actual receiving Profile supplies the
+		// installed schema reader; the exported synthetic producer is evidence.
+		source.ruleSession = s
+		opened, err := backendOpenStrategicInput(source, text(delivery["strategic_bundle_ref"]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if opened.Manifest["bundle_digest"] != delivery["strategic_bundle_digest"] {
+			t.Fatal("formal Backend input changed the approved strategic version")
+		}
+		if err = source.finish(); err != nil {
+			t.Fatal(err)
+		}
+		if !contractSame(before, verificationTree(t, meta.Root)) {
+			t.Fatal("formal Backend strategic query changed source bytes")
+		}
+	})
+	t.Run("backend-strategic-input-raw", func(t *testing.T) {
+		before := verificationTree(t, meta.Root)
+		source := newSemanticSession(context.Background(), meta.Root, nil)
+		source.ruleSession = s
+		ref := text(delivery["strategic_bundle_ref"])
+		if handoffVersion == 5 {
+			ref = path.Join(ref, "package")
+		}
+		_, err := backendOpenStrategicInput(source, ref)
+		if handoffVersion == 5 {
+			apTestCode(t, err, "BACKEND_DELIVERY")
+		} else if err != nil {
+			t.Fatalf("legacy v4 raw package compatibility: %v", err)
+		}
+		if !contractSame(before, verificationTree(t, meta.Root)) {
+			t.Fatal("raw Backend strategic query changed source bytes")
+		}
+	})
+	if handoffVersion == 5 {
+		t.Run("rehashed-legacy-layout-refused", func(t *testing.T) {
+			prefix := "backend-strategic-rehashed-v5"
+			refs, err := s.scan(text(receipt["package_ref"]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, ref := range refs {
+				raw, err := s.bytes(ref)
+				if err != nil {
+					t.Fatal(err)
+				}
+				apTestPut(t, root, path.Join(prefix, strings.TrimPrefix(ref, text(receipt["package_ref"])+"/")), raw)
+			}
+			manifest := semMap(contractCopy(bundle.Manifest))
+			for _, entry := range semList(manifest["files"]) {
+				file := semMap(entry)
+				original := text(file["original_ref"])
+				stored := ""
+				if original == text(manifest["handoff_ref"]) {
+					stored = "handoff.yaml"
+				} else if original == "CONTEXT.md" {
+					stored = "payload/source-context.snapshot.md"
+				}
+				if stored != "" {
+					from := path.Join(prefix, text(file["path"]))
+					apTestPut(t, root, path.Join(prefix, stored), mustReadSpecBaselineTestFile(t, filepath.Join(root, from)))
+					if err := os.Remove(filepath.Join(root, from)); err != nil {
+						t.Fatal(err)
+					}
+					file["path"] = stored
+				}
+			}
+			manifest["bundle_digest"] = contractDigest(contractWithout(manifest, "bundle_digest"))
+			apTestPut(t, root, path.Join(prefix, "manifest.json"), manifest)
+			before := verificationTree(t, root)
+			_, err = contractOpenHandoff(apTestSession(t, root), prefix)
+			apTestCode(t, err, "HANDOFF_PATH")
+			if !contractSame(before, verificationTree(t, root)) {
+				t.Fatal("rehashed v5 package rejection changed files")
+			}
+		})
 	}
 	proof := apTestPut(t, root, "frontend-case-evidence.log", "Synthetic frontend success/failure evidence. No browser/build run.")
 	contextRef := "frontend-context-reconciliation.json"

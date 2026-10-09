@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -107,6 +108,7 @@ type semanticSession struct {
 	gitInputs         map[string]semanticGitObservation
 	contextInventory  []string
 	intakeInputs      map[string]map[string]any
+	profileInput      map[string]any // Verified explicit Profile receipt, for readonly coordination.
 	ruleSession       *semanticSession
 	toolSource        *semanticSession
 	finalObservations map[string][]func() error
@@ -233,8 +235,18 @@ func (s *semanticSession) bind(ref string) (Binding, error) {
 }
 func (s *semanticSession) validateSchema(ref string, value any) error {
 	if s.ruleSession != nil {
+		// The enclosing wrapper/Receipt belongs to its receiver. A frozen
+		// source registry and checkpoint belong to the source Profile already
+		// identified by authorities, even through several nested packages.
+		if s.report.Profile != "" && (ref == ".template-spec/process/schemas/lifecycle-registry.schema.json" || ref == ".template-spec/process/schemas/lifecycle-checkpoint.schema.json") {
+			return s.validateImmutableSourceSchema(ref, value)
+		}
 		return s.ruleSession.validateSchema(ref, value)
 	}
+	return s.validateSchemaInView(ref, value)
+}
+
+func (s *semanticSession) validateSchemaInView(ref string, value any) error {
 	if err := s.guard(); err != nil {
 		return err
 	}
@@ -257,6 +269,52 @@ func (s *semanticSession) validateSchema(ref string, value any) error {
 	}
 	return s.guard()
 }
+
+// Historical source snapshots need not contain schemas. Their original
+// registry, roles, approvals and replies remain the authority; the supported
+// CLI Bundle supplies only the corresponding Profile's strict syntax. A
+// captured schema is observed and validated too, and can never replace this
+// canonical constraint with a permissive or unsupported schema.
+func (s *semanticSession) validateImmutableSourceSchema(ref string, value any) error {
+	if err := s.guard(); err != nil {
+		return err
+	}
+	present, err := s.exists(ref)
+	if err != nil {
+		return err
+	}
+	if present {
+		if err = s.validateSchemaInView(ref, value); err != nil {
+			return err
+		}
+	}
+	b, err := bundle.Load(s.report.Profile)
+	if err != nil {
+		return s.unavailable("CAPABILITY", "不支持冻结来源 Profile 的结构校验："+err.Error())
+	}
+	p, err := safefs.Path(s.root, ref)
+	if err != nil {
+		return s.unavailable("PATH", err.Error())
+	}
+	issues, err := schema.ValidateValueWithReader(p, value, func(file string) ([]byte, error) {
+		local, e := filepath.Rel(s.root, file)
+		if e != nil || !strings.HasPrefix(filepath.ToSlash(local), ".template-spec/process/schemas/") {
+			return nil, fmt.Errorf("来源结构 schema 依赖越界：%s", file)
+		}
+		f, ok := b.Files[filepath.ToSlash(local)]
+		if !ok {
+			return nil, fmt.Errorf("受信 %s Bundle 缺少结构 schema：%s", s.report.Profile, local)
+		}
+		return f.Render(nil)
+	})
+	if err != nil {
+		return s.unavailable("CAPABILITY", ref+": "+err.Error())
+	}
+	if len(issues) > 0 {
+		return s.reject("SCHEMA", fmt.Sprintf("%s/%s: %v", s.report.Profile, ref, issues))
+	}
+	return s.guard()
+}
 func (s *semanticSession) basis(value any) error {
 	rows, ok := value.([]any)
 	if !ok || len(rows) == 0 {
@@ -269,6 +327,9 @@ func (s *semanticSession) basis(value any) error {
 			return s.reject("EVIDENCE_INVALID", "依据必须为对象")
 		}
 		ref := text(m["ref"])
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return err
+		}
 		digest := strings.TrimPrefix(text(m["digest"]), "sha256:")
 		if ref == "" || seen[ref] || !isSHA256(digest) {
 			return s.reject("EVIDENCE_INVALID", "依据引用或摘要缺失、重复或非法")
@@ -1011,7 +1072,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice", "scaffold", "task"}, "evidence": {"approval", "user-decision", "verification"}, "handoff": {"package", "consumption"}}
+		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "frontend-delivery"}, "evidence": {"approval", "user-decision", "verification"}, "handoff": {"package", "consumption"}}
 		if kinds, ok := allowed[group]; ok && !semHas(kinds, args["kind"]) {
 			err = s.unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
@@ -1023,7 +1084,8 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		}
 		for _, flag := range map[string][]string{
 			"slice": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
-			"task": {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task"},
+			"frontend-delivery": {"slice", "phase", "unit"},
+			"task":              {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task"},
 			"user-decision":   {"requirements", "continuation", "task"},
 			"handoff-package": {"package"}, "handoff-consumption": {"consumer", "slice"}, "checkpoint": {"history"},
 		}[kind] {
@@ -1094,6 +1156,9 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	s.report.Checks = s.collectedChecks()
 	if err != nil {
 		return s.report, &semanticFailure{cause: err, report: s.report}
+	}
+	if kind == "frontend-delivery" && s.report.Coverage["delivery_mode"] == "local-approved-assets" {
+		s.report.Coverage["inputs_current"] = true
 	}
 	return s.report, nil
 }

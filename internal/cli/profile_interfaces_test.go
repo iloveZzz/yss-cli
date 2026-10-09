@@ -29,17 +29,6 @@ func TestProfilePreparationPublicPlanAndApply(t *testing.T) {
 		return envelope["result"].(map[string]any)
 	}
 	run("init", "--profile", "design", "--root", root)
-	// An instance without the new policy keeps its old readonly status. Supply
-	// the new policy as an explicit customization until fixed Bundle regeneration.
-	policy := filepath.Join(root, ".agents/skills/yss-strategic-design/references/orchestration-contract.yaml")
-	bytes, err := os.ReadFile(policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bytes = append(bytes, []byte("\nprofile_guidance:\n  schema_version: 1\n  links_file: .yss-profile-links.json\n  routes:\n    design:\n      targets: [backend, frontend]\n")...)
-	if err = os.WriteFile(policy, bytes, 0644); err != nil {
-		t.Fatal(err)
-	}
 	planFile := filepath.Join(base, "prepare.json")
 	run("profile", "prepare", "--root", root, "--backend-root", filepath.Join(base, "backend"), "--frontend-root", filepath.Join(base, "frontend"), "--plan", "--out", planFile)
 	if _, err = os.Stat(filepath.Join(root, ".yss-profile-links.json")); !os.IsNotExist(err) {

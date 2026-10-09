@@ -334,7 +334,7 @@ func TestSemanticCancelledFinalReadRefusesPass(t *testing.T) {
 }
 
 func TestSemanticPublicKindAndSchemaCannotBypassDomainRules(t *testing.T) {
-	for _, args := range []map[string]string{{"kind": "checkpoint-boundary", "file": "input.yaml"}, {"kind": "approval", "file": "input.yaml"}, {"kind": "slice", "file": "input.yaml", "schema": "loose.json"}, {"kind": "slice", "file": "input.yaml", "continuation": "true"}} {
+	for _, args := range []map[string]string{{"kind": "checkpoint-boundary", "file": "input.yaml"}, {"kind": "approval", "file": "input.yaml"}, {"kind": "slice", "file": "input.yaml", "schema": "loose.json"}, {"kind": "slice", "file": "input.yaml", "continuation": "true"}, {"kind": "slice", "file": "input.yaml", "phase": "contract"}, {"kind": "task", "file": "input.yaml", "slice": "slice.demo"}} {
 		result, err := semanticRun(context.Background(), "contract", "verify", semanticTestRoot(t), args)
 		var d *domain.Error
 		if !errors.As(err, &d) || d.Exit != 2 || d.Code != "ARGUMENT" {

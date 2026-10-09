@@ -20,11 +20,32 @@ func init() {
 }
 
 func verifySourcePlanApprovalSemantic(s *semanticSession, ref string, opts map[string]string) error {
+	checkpoint, err := sourcePlanApprovalCheckpoint(s, ref, opts)
+	if err != nil {
+		return err
+	}
+	cp, err := s.doc(checkpoint)
+	if err != nil {
+		return err
+	}
+	if opts["asset-ref"] != "" && cp["plan_review_ref"] != opts["asset-ref"] {
+		return s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 checkpoint 的 Plan 主体与待消费资产矛盾")
+	}
+	if err = s.validateSchema(".template-spec/process/schemas/lifecycle-checkpoint.schema.json", cp); err != nil {
+		return err
+	}
+	if first(text(cp["plan_approval_ref"]), text(semMap(semMap(cp["gates"])["gate.plan-approved"])["approval_ref"])) != ref {
+		return s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 checkpoint 未持有该 Plan 聚合批准")
+	}
+	return s.verify("plan-aggregate", checkpoint, map[string]string{"approval": ref})
+}
+
+func sourcePlanApprovalCheckpoint(s *semanticSession, ref string, opts map[string]string) (string, error) {
 	checkpoint := ""
 	if opts["task-ref"] != "" {
 		task, err := s.doc(opts["task-ref"])
 		if err != nil {
-			return err
+			return "", err
 		}
 		checkpoint = text(task["checkpoint_ref"])
 	}
@@ -46,24 +67,11 @@ func verifySourcePlanApprovalSemantic(s *semanticSession, ref string, opts map[s
 			}
 		}
 		if len(candidates) != 1 {
-			return s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 Plan 批准缺少唯一已导出的当前 checkpoint")
+			return "", s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 Plan 批准缺少唯一已导出的当前 checkpoint")
 		}
 		checkpoint = candidates[0]
 	}
-	cp, err := s.doc(checkpoint)
-	if err != nil {
-		return err
-	}
-	if opts["asset-ref"] != "" && cp["plan_review_ref"] != opts["asset-ref"] {
-		return s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 checkpoint 的 Plan 主体与待消费资产矛盾")
-	}
-	if err = s.validateSchema(".template-spec/process/schemas/lifecycle-checkpoint.schema.json", cp); err != nil {
-		return err
-	}
-	if first(text(cp["plan_approval_ref"]), text(semMap(semMap(cp["gates"])["gate.plan-approved"])["approval_ref"])) != ref {
-		return s.reject("HANDOFF_PLAN_OWNER_REQUIRED", "来源 checkpoint 未持有该 Plan 聚合批准")
-	}
-	return s.verify("plan-aggregate", checkpoint, map[string]string{"approval": ref})
+	return checkpoint, nil
 }
 func (s *semanticSession) planPolicy() (map[string]any, error) {
 	contract, ref, err := s.orchestration()
@@ -911,8 +919,16 @@ func (s *semanticSession) planAggregateRecord(cp, review map[string]any, basis [
 	if approvalRef == "" {
 		return s.reject("PLAN_APPROVAL_REQUIRED", "缺少独立 Plan 聚合批准")
 	}
+	for _, ref := range []string{approvalRef, text(cp["plan_review_ref"])} {
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return err
+		}
+	}
 	record, err := s.doc(approvalRef)
 	if err != nil {
+		return err
+	}
+	if err = currentApprovalReferencesSemantic(s, record); err != nil {
 		return err
 	}
 	if record["kind"] == "review-bundle" || record["gate_id"] != "gate.plan-approved" {

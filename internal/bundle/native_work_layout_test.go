@@ -70,7 +70,19 @@ func TestEmbeddedWorkLayoutConsumers(t *testing.T) {
 					t.Fatal("instance assets distributed: " + ref)
 				}
 				if strings.HasSuffix(ref, "/stage-tracking.mjs") || strings.HasSuffix(ref, "/reading-view-policy.mjs") || strings.HasSuffix(ref, "/offline-html.mjs") {
-					raw, _ := base64.StdEncoding.DecodeString(f.Data)
+					raw, e := base64.StdEncoding.DecodeString(f.Data)
+					if e != nil {
+						t.Fatal("invalid production consumer: " + ref)
+					}
+					if strings.HasSuffix(ref, "/stage-tracking.mjs") && !strings.Contains(string(raw), "work-layout.mjs") {
+						helperRef := strings.TrimSuffix(ref, "stage-tracking.mjs") + "reading-view-policy.mjs"
+						helper, exists := b.Files[helperRef]
+						helperRaw, err := base64.StdEncoding.DecodeString(helper.Data)
+						if !exists || err != nil || !strings.Contains(string(raw), "from './reading-view-policy.mjs'") || !strings.Contains(string(raw), "readingLocation(") || !strings.Contains(string(helperRaw), "from './work-layout.mjs'") || !strings.Contains(string(helperRaw), "readWorkLayout(") {
+							t.Fatal("stage consumer lacks its actual same-directory layout dependency: " + ref)
+						}
+						continue
+					}
 					if !strings.Contains(string(raw), "work-layout.mjs") {
 						t.Fatal("unadapted production consumer: " + ref)
 					}

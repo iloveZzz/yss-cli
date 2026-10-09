@@ -292,7 +292,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		refs["skills-lock.json"] = f
 		selectedLockProduced = true
 	}
-	if err = completeTargets(id, b, distribution, refs, old); err != nil {
+	if err = completeTargets(id, b, distribution, refs, old, command); err != nil {
 		return nil, err
 	}
 	if f, ok := refs[".template-spec/process/harness-profile.yaml"]; ok {

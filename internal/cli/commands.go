@@ -36,7 +36,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
-	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native") {
+	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation recover full") {
@@ -449,7 +449,7 @@ func terminalWidth(s string) int {
 func commandChoices(key string) map[string][]string {
 	switch key {
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification"}}
 	case "handoff verify":
@@ -478,6 +478,8 @@ func verificationOptions(group, kind string) []string {
 		switch group + "." + k {
 		case "contract.slice":
 			options = append(options, "approval-ref", "unit")
+		case "contract.frontend-delivery":
+			options = append(options, "slice", "phase", "unit")
 		case "contract.task":
 			options = append(options, "history")
 		case "evidence.approval":

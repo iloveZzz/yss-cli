@@ -34,6 +34,30 @@ func backendReject(s *semanticSession, message string) error {
 	return s.reject("BACKEND_DELIVERY", message)
 }
 func backendHash(b []byte) string { return "sha256:" + safefs.Digest(b) }
+
+// Formal Backend inputs retain the complete published delivery wrapper for v5.
+// Historical v4 packages remain readable without synthesizing that wrapper.
+func backendOpenStrategicInput(s *semanticSession, ref string) (*nativeHandoff, error) {
+	if !strings.EqualFold(path.Ext(ref), ".zip") {
+		recordRef := path.Join(ref, "delivery-record.json")
+		present, err := s.exists(recordRef)
+		if err != nil {
+			return nil, err
+		}
+		if present {
+			bundle, _, err := contractOpenStrategicDelivery(s, recordRef)
+			return bundle, err
+		}
+	}
+	bundle, err := contractOpenHandoff(s, ref)
+	if err != nil {
+		return nil, err
+	}
+	if contractN(bundle.Handoff["schema_version"]) == 5 {
+		return nil, backendReject(s, "Handoff v5 后端战略输入必须保留正式 delivery wrapper")
+	}
+	return bundle, nil
+}
 func backendBound(s *semanticSession, v any) ([]byte, error) {
 	b := apMap(v)
 	if apText(b["ref"]) == "" || apText(b["digest"]) == "" {
@@ -66,14 +90,11 @@ func verifyBackendTerminalSemantic(s *semanticSession, ref string, opts map[stri
 	if e := backendProject(s); e != nil {
 		return e
 	}
-	scope, e := s.executionScope()
+	a, e := progressionBackendAuthorization(s, opts["checkpoint"], ref, true)
 	if e != nil {
 		return e
 	}
-	if scope == nil {
-		return backendReject(s, "需要 plan-to-backend 职责范围")
-	}
-	if ref != ".yss-backend-delivery.json" {
+	if ref != a.TerminalRef {
 		return backendReject(s, "终点必须消费固定持久引用")
 	}
 	record, e := s.doc(ref)
@@ -82,6 +103,9 @@ func verifyBackendTerminalSemantic(s *semanticSession, ref string, opts map[stri
 	}
 	if apNumber(record["schema_version"]) != 1 || record["kind"] != "backend-delivery-terminal" || record["business_completed"] != false || record["release_authorized"] != false {
 		return backendReject(s, "后端终点不是业务完成或发布批准")
+	}
+	if record["delivery_mode"] == "local-evidence" {
+		return backendVerifyLocalTerminal(s, ref, record, a, opts)
 	}
 	for _, k := range []string{"delivery", "review_state"} {
 		if _, e = backendBound(s, record[k]); e != nil {
@@ -95,6 +119,17 @@ func verifyBackendTerminalSemantic(s *semanticSession, ref string, opts map[stri
 	delivery, e := backendInspectDelivery(s, apText(apMap(record["delivery"])["ref"]), opts)
 	if e != nil {
 		return e
+	}
+	if e = backendTerminalSliceScope(s, delivery); e != nil {
+		return e
+	}
+	if e = backendCurrentCheckpointSlice(s, a.CheckpointRef, record, delivery); e != nil {
+		return e
+	}
+	if a.Mode == "backend-profile" {
+		if e = backendProfileFresh(s, a.CheckpointRef, delivery); e != nil {
+			return e
+		}
 	}
 	input := apMap(state["review_input"])
 	if input["scope_kind"] != "change" || input["slice_contract_ref"] != apMap(delivery["slice_contract"])["ref"] {
@@ -111,11 +146,11 @@ func verifyBackendTerminalSemantic(s *semanticSession, ref string, opts map[stri
 	if e != nil {
 		return e
 	}
-	head, e := s.git(root, "rev-parse", "HEAD")
+	buildSource, e := candidateBuildSource(s, root, input)
 	if e != nil {
 		return e
 	}
-	if input["review_mode"] != "committed" || apMap(delivery["build"])["source_commit"] != strings.TrimSpace(string(head)) {
+	if input["review_mode"] != "committed" || apMap(delivery["build"])["source_commit"] != buildSource {
 		return backendReject(s, "终点需要当前已提交审查候选和真实构建源码提交")
 	}
 	downstream := apMap(record["downstream"])
@@ -143,7 +178,69 @@ func verifyBackendTerminalSemantic(s *semanticSession, ref string, opts map[stri
 		}
 	}
 	_ = source
-	s.report.Coverage = map[string]any{"result": "backend-delivered", "delivery_id": delivery["delivery_id"], "version": delivery["version"], "bundle_digest": manifest["bundle_digest"], "next_work_unit": nil, "business_completed": false, "release_authorized": false, "live_service_checked": false, "downstream": downstream}
+	coverage := map[string]any{"result": "backend-delivered", "delivery_id": delivery["delivery_id"], "version": delivery["version"], "bundle_digest": manifest["bundle_digest"], "next_work_unit": nil, "business_completed": false, "release_authorized": false, "live_service_checked": false, "downstream": downstream, "terminal_ref": ref}
+	if a.CheckpointRef != "" {
+		cp, err := s.doc(a.CheckpointRef)
+		if err != nil {
+			return err
+		}
+		coverage["checkpoint_ref"], coverage["next_work_unit"] = a.CheckpointRef, cp["next_work_unit"]
+	}
+	s.report.Coverage = coverage
+	return nil
+}
+
+func backendProfileFresh(s *semanticSession, cpRef string, delivery map[string]any) error {
+	cp, err := s.doc(cpRef)
+	if err != nil {
+		return err
+	}
+	slice, err := loadNativeSlice(s, text(semMap(delivery["slice_contract"])["ref"]))
+	if err != nil {
+		return err
+	}
+	if contractN(slice.Raw["schema_version"]) == 3 {
+		if err = s.gateChecks(cp, cpRef, "gate.slice-contract-approved"); err != nil {
+			return err
+		}
+	}
+	if err = s.gateChecks(cp, cpRef, "gate.fresh-verification-passed"); err != nil {
+		return err
+	}
+	refs := semStrings(semMap(semMap(semMap(cp["gates"])["gate.fresh-verification-passed"])["evidence"])["evidence.fresh-verification"])
+	if len(refs) == 0 {
+		return backendReject(s, "后端专职终点缺少当前实际Fresh Verification报告")
+	}
+	for _, ref := range refs {
+		report, err := s.doc(ref)
+		if err != nil {
+			return err
+		}
+		if nested, ok := object(report["execution_result"]); ok {
+			report = nested
+		}
+		switch report["kind"] {
+		case "backend-contract", "backend-deployment":
+			name := map[string]string{"backend-contract": "contract", "backend-deployment": "deployment"}[text(report["kind"])]
+			if semMap(semMap(delivery["verification"])[name])["ref"] != ref {
+				return backendReject(s, "Fresh Verification未绑定当前实际契约或部署报告")
+			}
+		default:
+			if len(semMap(report["consumed_contract"])) == 0 || report["work_unit_id"] == nil || report["status"] != "implemented" {
+				return backendReject(s, "未知或未实现的Fresh Verification报告")
+			}
+			binding := semMap(delivery["slice_contract"])
+			if err = contractExecutionResult(s, report, map[string]string{"contract": text(binding["ref"]), "approval-ref": text(binding["approval_ref"])}); err != nil {
+				return err
+			}
+			for _, row := range semList(report["verification_results"]) {
+				executed, err := time.Parse(time.RFC3339Nano, text(semMap(row)["executed_at"]))
+				if err != nil || executed.After(time.Now().Add(time.Minute)) {
+					return backendReject(s, "Fresh Verification执行时间无效")
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -199,7 +296,11 @@ func backendUnit(c *nativeSlice, requested string) string {
 func backendSelected(s *semanticSession, c *nativeSlice, unit string) (map[string]any, error) {
 	n := apCopy(c.Normalized)
 	if len(c.Repositories) == 0 {
-		return n, nil
+		selected, err := contractSelectLocalUnit(s, c, unit)
+		if err != nil {
+			return nil, err
+		}
+		return apCopy(selected.Normalized), nil
 	}
 	u := apFind(n["work_units"], "id", unit)
 	if u == nil {
@@ -336,6 +437,10 @@ func backendArtifactApproval(s *semanticSession, gate string, binding, record ma
 }
 
 func backendInspectDelivery(s *semanticSession, ref string, opts map[string]string) (map[string]any, error) {
+	return backendInspectDeliveryMode(s, ref, opts, false, "")
+}
+
+func backendInspectDeliveryMode(s *semanticSession, ref string, opts map[string]string, local bool, cpRef string) (map[string]any, error) {
 	if e := backendProject(s); e != nil {
 		return nil, e
 	}
@@ -346,27 +451,22 @@ func backendInspectDelivery(s *semanticSession, ref string, opts map[string]stri
 	if e = s.validateSchema(".template-spec/process/schemas/backend-delivery.schema.json", d); e != nil {
 		return nil, e
 	}
+	if (d["delivery_mode"] == "local-evidence") != local {
+		return nil, backendReject(s, "本地交付证据不能替代对外后端交付包")
+	}
+	if local {
+		for _, key := range []string{"strategic_bundle_ref", "strategic_bundle_digest", "strategic_route_id"} {
+			if d[key] != nil {
+				return nil, backendReject(s, "本地交付不得伪造战略包字段")
+			}
+		}
+	}
 	data, e := backendBound(s, apMap(d["environment"])["test_data"])
 	if e != nil {
 		return nil, e
 	}
 	if len(data) == 0 {
 		return nil, backendReject(s, "测试数据准备说明为空")
-	}
-	apiBinding := apMap(d["openapi"])
-	if _, e = backendBound(s, apiBinding); e != nil {
-		return nil, e
-	}
-	ar, e := s.doc(apText(apiBinding["approval_ref"]))
-	if e != nil {
-		return nil, e
-	}
-	gate := apText(ar["gate_id"])
-	if !apContains([]string{"gate.engineering-contract-approved", "gate.openapi-frozen", "gate.openapi-freeze-confirmed"}, gate) {
-		return nil, backendReject(s, "OpenAPI 批准门禁不匹配")
-	}
-	if e = backendArtifactApproval(s, gate, apiBinding, ar, opts); e != nil {
-		return nil, e
 	}
 	c, e := backendSliceApproved(s, apMap(d["slice_contract"]), opts)
 	if e != nil {
@@ -375,28 +475,68 @@ func backendInspectDelivery(s *semanticSession, ref string, opts map[string]stri
 	if c.Normalized["slice_id"] != apMap(d["scope"])["slice_id"] {
 		return nil, backendReject(s, "Slice 切片不匹配")
 	}
-	api, e := s.doc(apText(apiBinding["ref"]))
-	if e != nil {
-		return nil, e
+	if local && semMap(c.Normalized["backend"])["status"] != "required" {
+		return nil, backendReject(s, "本地后端证据缺少当前批准后端实现范围")
 	}
-	if !strings.HasPrefix(apText(api["openapi"]), "3.1.") {
-		return nil, backendReject(s, "必须使用 OpenAPI 3.1")
-	}
+	apiBinding := apMap(d["openapi"])
 	operations := []string{}
-	for _, item := range apMap(api["paths"]) {
-		for method, op := range apMap(item) {
-			if apContains([]string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}, method) {
-				operations = append(operations, apText(apMap(op)["operationId"]))
+	if local && apiBinding["mode"] == "not-applicable" {
+		if semMap(semMap(c.Raw["applicability"])["api"])["status"] != "not-applicable" || text(apiBinding["reason"]) == "" || len(apStrings(apMap(d["scope"])["operation_ids"])) != 0 {
+			return nil, backendReject(s, "无API交付必须与批准Slice适用性一致")
+		}
+		if _, e = backendBound(s, apiBinding); e != nil {
+			return nil, e
+		}
+		na, err := s.doc(text(apiBinding["ref"]))
+		if err != nil {
+			return nil, err
+		}
+		if na["status"] != "not-applicable" || na["slice_id"] != c.Normalized["slice_id"] || c.Basis["no_api_impact_record"]["ref"] != apiBinding["ref"] || c.Basis["no_api_impact_record"]["digest"] != apiBinding["digest"] {
+			return nil, backendReject(s, "无API记录未绑定当前Slice依据")
+		}
+	} else {
+		if local {
+			api := c.Basis["openapi_freeze"]
+			if api["ref"] != apiBinding["ref"] || api["digest"] != apiBinding["digest"] {
+				return nil, backendReject(s, "本地后端证据未消费当前Slice冻结OpenAPI")
+			}
+		}
+		if _, e = backendBound(s, apiBinding); e != nil {
+			return nil, e
+		}
+		ar, e := s.doc(apText(apiBinding["approval_ref"]))
+		if e != nil {
+			return nil, e
+		}
+		gate := apText(ar["gate_id"])
+		if !apContains([]string{"gate.engineering-contract-approved", "gate.openapi-frozen", "gate.openapi-freeze-confirmed"}, gate) {
+			return nil, backendReject(s, "OpenAPI 批准门禁不匹配")
+		}
+		if e = backendArtifactApproval(s, gate, apiBinding, ar, opts); e != nil {
+			return nil, e
+		}
+		api, e := s.doc(apText(apiBinding["ref"]))
+		if e != nil {
+			return nil, e
+		}
+		if !strings.HasPrefix(apText(api["openapi"]), "3.1.") {
+			return nil, backendReject(s, "必须使用 OpenAPI 3.1")
+		}
+		for _, item := range apMap(api["paths"]) {
+			for method, op := range apMap(item) {
+				if apContains([]string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}, method) {
+					operations = append(operations, apText(apMap(op)["operationId"]))
+				}
+			}
+		}
+		for _, id := range apStrings(apMap(d["scope"])["operation_ids"]) {
+			if !apContains(operations, id) {
+				return nil, backendReject(s, "交付接口不在冻结 OpenAPI 中")
 			}
 		}
 	}
-	for _, id := range apStrings(apMap(d["scope"])["operation_ids"]) {
-		if !apContains(operations, id) {
-			return nil, backendReject(s, "交付接口不在冻结 OpenAPI 中")
-		}
-	}
 	body := map[string]any{}
-	for _, k := range []string{"delivery_id", "version", "strategic_bundle_digest", "strategic_route_id", "scope", "openapi", "slice_contract", "build", "environment"} {
+	for _, k := range []string{"delivery_id", "version", "delivery_mode", "strategic_bundle_digest", "strategic_route_id", "scope", "openapi", "slice_contract", "build", "environment"} {
 		if v, ok := d[k]; ok {
 			body[k] = v
 		}
@@ -409,7 +549,13 @@ func backendInspectDelivery(s *semanticSession, ref string, opts map[string]stri
 	if _, e = backendVerification(s, apMap(d["verification"])["deployment"], basis, "backend-deployment"); e != nil {
 		return nil, e
 	}
-	b, e := contractOpenHandoff(s, apText(d["strategic_bundle_ref"]))
+	if local {
+		if e = backendLocalSpecCoverage(s, cpRef, c, d, tests); e != nil {
+			return nil, e
+		}
+		return d, nil
+	}
+	b, e := backendOpenStrategicInput(s, apText(d["strategic_bundle_ref"]))
 	if e != nil {
 		return nil, e
 	}
@@ -524,6 +670,11 @@ func backendOpenDelivery(s *semanticSession, prefix string, opts map[string]stri
 	for _, v := range list {
 		f := apMap(v)
 		ref := apText(f["path"])
+		for _, candidate := range []string{ref, apText(f["original_ref"])} {
+			if e = rejectProgressionEvidence(s, candidate); e != nil {
+				return nil, nil, e
+			}
+		}
 		if e = paths.Add(ref); e != nil {
 			return nil, nil, backendReject(s, "后端包路径非法/冲突")
 		}
@@ -652,6 +803,19 @@ func backendReview(s *semanticSession, state map[string]any, opts map[string]str
 		o := apCopyStrings(opts)
 		o["approval-ref"] = apText(input["approval_ref"])
 		o["unit"] = backendUnit(c, apText(input["work_unit_id"]))
+		if contractN(c.Raw["schema_version"]) == 3 && semMap(c.Normalized["frontend"])["status"] == "required" {
+			unit := apFind(c.Normalized["work_units"], "id", apText(input["work_unit_id"]))
+			if unit == nil || unit["role_id"] != "role.backend-engineer" {
+				return nil, backendReject(s, "混合Slice后端审查须显式选择当前批准后端工作单元")
+			}
+			unitRoot := text(unit["project_root"])
+			if !filepath.IsAbs(unitRoot) {
+				unitRoot = filepath.Join(s.root, unitRoot)
+			}
+			if filepath.Clean(unitRoot) != root {
+				return nil, backendReject(s, "后端审查工程与当前工作单元冲突")
+			}
+		}
 		if e = contractSliceFresh(s, c, o); e != nil {
 			return nil, e
 		}
@@ -727,20 +891,8 @@ func backendReview(s *semanticSession, state map[string]any, opts map[string]str
 			if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(candidate) {
 				return nil, backendReject(s, "审查候选须固定提交")
 			}
-			tree, e := s.git(root, "rev-parse", candidate+"^{tree}")
-			if e != nil {
+			if _, e = candidateCommittedCurrent(s, root, candidate, apText(input["candidate_digest"]), c.Ref, "BACKEND_DELIVERY"); e != nil {
 				return nil, e
-			}
-			head, e := s.git(root, "rev-parse", "HEAD^{tree}")
-			if e != nil {
-				return nil, e
-			}
-			dirty, e := s.git(root, "status", "--porcelain")
-			if e != nil {
-				return nil, e
-			}
-			if strings.TrimSpace(string(tree)) != input["candidate_digest"] || !bytes.Equal(tree, head) || len(dirty) > 0 {
-				return nil, backendReject(s, "候选不是当前干净 checkout")
 			}
 		}
 	}
@@ -874,8 +1026,14 @@ func backendWorktreeCurrent(s *semanticSession, root string, input map[string]an
 	if e != nil {
 		return "", e
 	}
+	allowed, e := candidateIntentAllowlist(s, root, apText(input["slice_contract_ref"]))
+	if e != nil {
+		return "", e
+	}
 	if !bytes.Equal(diff, snapshot.TrackedDiff) {
-		return "", backendReject(s, "工作树 tracked candidate 变化")
+		if e = candidateTrackedIntentDifference(s, root, base, snapshot.TrackedDiff, diff, allowed); e != nil {
+			return "", e
+		}
 	}
 	exclusions := apStrings(snapshot.Manifest["excluded_paths"])
 	for _, ref := range exclusions {
@@ -883,7 +1041,18 @@ func backendWorktreeCurrent(s *semanticSession, root string, input map[string]an
 			return "", backendReject(s, "候选只能排除既有维护证据路径")
 		}
 	}
-	current, e := s.git(root, "ls-files", "-z", "--others", "--exclude-standard")
+	inventoryRoot, prefix := root, ""
+	if len(allowed) > 0 {
+		inventoryRoot = s.root
+		rel, err := filepath.Rel(s.root, root)
+		if err != nil {
+			return "", err
+		}
+		if rel != "." {
+			prefix = filepath.ToSlash(rel) + "/"
+		}
+	}
+	current, e := s.git(inventoryRoot, "ls-files", "-z", "--others", "--exclude-standard")
 	if e != nil {
 		return "", e
 	}
@@ -894,20 +1063,22 @@ func backendWorktreeCurrent(s *semanticSession, root string, input map[string]an
 		}
 		exclude := false
 		for _, parent := range exclusions {
-			exclude = exclude || ref == parent || strings.HasPrefix(ref, parent+"/")
+			exclude = exclude || ref == prefix+parent || strings.HasPrefix(ref, prefix+parent+"/")
 		}
-		if !exclude {
+		if !exclude && !allowed[ref] {
 			actual = append(actual, ref)
 		}
 	}
 	expected := []string{}
 	for _, file := range snapshot.Files {
-		expected = append(expected, string(file.RawPath))
+		if !allowed[prefix+string(file.RawPath)] {
+			expected = append(expected, prefix+string(file.RawPath))
+		}
 	}
 	sort.Strings(actual)
 	sort.Strings(expected)
 	if !equalStrings(actual, expected) {
-		return "", backendReject(s, "工作树 untracked inventory 变化")
+		return "", backendReject(s, "工作树 untracked inventory 变化："+strings.Join(actual, "|")+" != "+strings.Join(expected, "|"))
 	}
 	observation, e := s.intakeSnapshot(root, 0)
 	if e != nil {
@@ -916,6 +1087,9 @@ func backendWorktreeCurrent(s *semanticSession, root string, input map[string]an
 	s.intakeInputs[root] = observation
 	for _, file := range snapshot.Files {
 		ref := string(file.RawPath)
+		if allowed[prefix+ref] {
+			continue
+		} // Original packed bytes were already validated; only verified current intent may differ.
 		if e = safefs.ValidateRef(ref); e != nil {
 			return "", e
 		}
@@ -1120,9 +1294,16 @@ func backendCurrentCoverage(s *semanticSession, input map[string]any, root strin
 		return nil, e
 	}
 	recorded := apMap(v)
-	current, e := backendCompileCoverage(s, root, contract, apText(input["scope_kind"]), apMap(input["baseline_binding"]), comparison, apStrings(input["actual_skill_impacts"]), apRows(input["responsibility_evidence"]))
+	intent, e := candidateCoverageIntent(s, root, input, recorded)
 	if e != nil {
 		return nil, e
+	}
+	current, e := backendCompileCoverageIntent(s, root, contract, apText(input["scope_kind"]), apMap(input["baseline_binding"]), comparison, apStrings(input["actual_skill_impacts"]), apRows(input["responsibility_evidence"]), intent)
+	if e != nil {
+		return nil, e
+	}
+	if intent != nil {
+		candidateRestoreCoverageMaterials(current, recorded, intent)
 	}
 	if !apEqual(current, recorded) {
 		return nil, backendReject(s, "规范覆盖过期或不完整")
@@ -1130,6 +1311,9 @@ func backendCurrentCoverage(s *semanticSession, input map[string]any, root strin
 	return current, nil
 }
 func backendCompileCoverage(s *semanticSession, root string, contract map[string]any, kind string, baselineBinding map[string]any, comparison string, actual []string, responsibilities []map[string]any) (map[string]any, error) {
+	return backendCompileCoverageIntent(s, root, contract, kind, baselineBinding, comparison, actual, responsibilities, nil)
+}
+func backendCompileCoverageIntent(s *semanticSession, root string, contract map[string]any, kind string, baselineBinding map[string]any, comparison string, actual []string, responsibilities []map[string]any, intent *candidateCoverageContext) (map[string]any, error) {
 	if !apContains([]string{"baseline", "change"}, kind) {
 		return nil, backendReject(s, "未知覆盖范围")
 	}
@@ -1179,6 +1363,9 @@ func backendCompileCoverage(s *semanticSession, root string, contract map[string
 	selected := []string{}
 	outside := []string{}
 	for _, ref := range all {
+		if intent != nil && intent.Local[ref] {
+			continue
+		}
 		inside := false
 		for _, r := range roots {
 			inside = inside || r == "." || ref == r || strings.HasPrefix(ref, r+"/")
@@ -1343,7 +1530,13 @@ func backendCompileCoverage(s *semanticSession, root string, contract map[string
 		if contract == nil || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(comparison) {
 			return nil, backendReject(s, "变更覆盖需要批准合同和固定 comparison_ref")
 		}
-		diff, e := s.git(root, "diff", "--name-only", comparison)
+		var diff []byte
+		var e error
+		if intent != nil {
+			diff, e = candidateCoverageTrackedPaths(s, root, comparison, intent)
+		} else {
+			diff, e = s.git(root, "diff", "--name-only", comparison)
+		}
 		if e != nil {
 			return nil, e
 		}
@@ -1353,6 +1546,9 @@ func backendCompileCoverage(s *semanticSession, root string, contract map[string
 		}
 		changed := map[string]bool{}
 		for _, ref := range strings.Split(strings.TrimSpace(string(diff)+"\n"+string(other)), "\n") {
+			if intent != nil && (intent.Allowed[ref] || intent.Local[ref]) {
+				continue
+			}
 			if ref != "" {
 				changed[ref] = true
 			}
@@ -1682,6 +1878,9 @@ func backendCompileCoverage(s *semanticSession, root string, contract map[string
 	head, e := s.git(root, "rev-parse", "HEAD")
 	if e != nil {
 		return nil, e
+	}
+	if intent != nil {
+		head = []byte(intent.SourceHead)
 	}
 	reviewed := []string{}
 	for _, t := range active {

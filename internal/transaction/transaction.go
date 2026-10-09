@@ -49,6 +49,147 @@ type Result struct {
 	Transactions       []Summary `json:"transactions,omitempty"`
 }
 
+// IntentMaterial is a verified transaction file, never lifecycle evidence.
+type IntentMaterial struct {
+	Ref        string            `json:"ref"`
+	Descriptor domain.Descriptor `json:"descriptor"`
+}
+
+// LifecycleTargetMaterials reads only the exact target's terminal intent archive.
+func LifecycleTargetMaterials(root, configRef string) ([]IntentMaterial, error) {
+	root, err := safeRoot(root, false)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.Base(configRef) != "progression-target.json" {
+		return nil, fail("STATE", "目标材料需要精确意图配置引用")
+	}
+	if err = guard(root, configRef); err != nil {
+		return nil, err
+	}
+	all, preparations, err := scan(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(preparations) != 0 {
+		return nil, fail("INTERRUPTED", "未发布事务不能作为意图材料")
+	}
+	out := []IntentMaterial{}
+	for _, l := range all {
+		if l.plan.Kind != "lifecycle-target" {
+			continue
+		}
+		matches := false
+		for _, op := range l.plan.Operations {
+			matches = matches || op.Path == configRef
+		}
+		if !matches {
+			continue
+		}
+		if !terminal(l.journal.Phase) {
+			return nil, fail("INTERRUPTED", "目标事务尚未完成")
+		}
+		if len(l.plan.Operations) != 1 || len(l.plan.Artifacts) != 0 {
+			return nil, fail("STATE", "目标事务只能修改指定意图，不能携带额外操作或归档证据")
+		}
+		op := l.plan.Operations[0]
+		if (op.Before.Type != "file" && op.Before.Type != "missing") || op.After.Type != "file" {
+			return nil, fail("STATE", "目标事务仅支持原文件或缺失配置到文件")
+		}
+		count, err := attempted(root, l)
+		if err != nil {
+			return nil, err
+		}
+		wal, err := read(root, l.base+"/intent.wal")
+		if err != nil {
+			return nil, err
+		}
+		var complete []byte
+		for i := 0; i < count; i++ {
+			complete = append(complete, encode(intent{SchemaVersion: 1, Index: i})...)
+		}
+		if !bytes.Equal(wal, complete) || l.journal.Phase == "rolled-back" && count != 1 {
+			return nil, fail("STATE", "终态目标事务 WAL 不完整或含未知内容")
+		}
+		journalBytes, err := read(root, l.base+"/journal.json")
+		if err != nil {
+			return nil, err
+		}
+		wanted := map[string]string{"plan.json": l.journal.PlanDigest, "journal.json": safefs.Digest(journalBytes), "intent.wal": safefs.Digest(wal)}
+		for _, d := range []domain.Descriptor{op.Before, op.After} {
+			if d.Type == "file" {
+				if _, err := blob(root, l.base, 0, d, false); err != nil {
+					return nil, err
+				}
+				wanted["objects/"+d.Digest] = d.Digest
+			}
+		}
+		// The existing inventory verifies links/types. Check root names as well:
+		// preparationInventory intentionally omits preparation seal files.
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(l.base)))
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Name() != "objects" && wanted[entry.Name()] == "" {
+				return nil, fail("STATE", "目标事务含未知材料: "+entry.Name())
+			}
+		}
+		files, dirs, err := preparationInventory(root, l.base)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) != len(wanted) || len(dirs) != 2 || dirs["."] == 0 || dirs["objects"] == 0 {
+			return nil, fail("STATE", "目标事务材料库存不完整")
+		}
+		for ref, d := range files {
+			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(l.base+"/"+ref)))
+			if err != nil {
+				return nil, err
+			}
+			if wanted[ref] != d.Digest || domain.FileMode(d.Mode) != domain.FileMode(0600) || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+				return nil, fail("STATE", "目标事务材料路径或模式不匹配: "+ref)
+			}
+			d.Mode = domain.FileMode(d.Mode)
+			out = append(out, IntentMaterial{Ref: l.base + "/" + ref, Descriptor: d})
+		}
+		current, err := load(root, l.plan.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(encode(current.plan), encode(l.plan)) || current.journal != l.journal {
+			return nil, fail("CONCURRENT", "目标事务读取期间身份或终态变化")
+		}
+	}
+	if len(out) != 0 {
+		// acquire leaves this exact empty mutex after a successful transaction.
+		// It is not a license to omit other global transaction control files.
+		ref := stateRef + "/.lock"
+		raw, err := read(root, ref)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(ref)))
+		if err != nil {
+			return nil, err
+		}
+		want := domain.Descriptor{Type: "file", Digest: safefs.Digest(nil), Mode: domain.FileMode(0600)}
+		if len(raw) != 0 || !info.Mode().IsRegular() || domain.FileMode(uint32(info.Mode().Perm())) != want.Mode || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+			return nil, fail("STATE", "目标事务 mutex 必须是原协议模式的空普通文件")
+		}
+		current, err := safefs.Describe(root, ref)
+		if err != nil {
+			return nil, err
+		}
+		if !same(current, want) {
+			return nil, fail("CONCURRENT", "目标事务 mutex 读取期间变化")
+		}
+		out = append(out, IntentMaterial{Ref: ref, Descriptor: current})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	return out, nil
+}
+
 type Summary struct {
 	Profile       string `json:"profile,omitempty"`
 	TransactionID string `json:"transactionId"`

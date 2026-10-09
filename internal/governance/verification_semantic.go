@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	"path"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,8 @@ func verifyVerificationSemantic(s *semanticSession, ref string, opts map[string]
 		return contractExecutionResult(s, doc, opts)
 	}
 	switch kind {
+	case "verification":
+		return contractFrontendImplementation(s, ref, opts)
 	case "template-verification-report":
 		return contractTemplateVerification(s, doc, opts)
 	case "frontend-scaffold-verification":
@@ -101,17 +104,27 @@ func contractPublicVerificationBasis(s *semanticSession, reportRef, kind string,
 		if e != nil {
 			return "", e
 		}
+		if kind == "strategic-delivery-verification-v1" {
+			basis, selected, err := contractExplicitDesignVerificationBasis(s, cpRef, cp, reportRef, taskRef)
+			if selected || err != nil {
+				return basis, err
+			}
+		}
 		trace := semMap(cp["stage_trace"])
 		if kind != "strategic-delivery-verification-v1" && cp["mode"] == "audit" && trace["completed_work_unit"] == "work-unit.backend-delivery" {
 			unit := apFind(s.registry["work_units"], "id", "work-unit.backend-delivery")
 			if unit == nil || unit["scope"] != "project-instance" || cp["status"] != "routing" || cp["next_work_unit"] != nil || cp["stage"] != "stage.verification-release-retrospective" || trace["stage"] != cp["stage"] {
 				return "", s.reject("VERIFICATION_CONSUMER_ROUTE", "当前 Checkpoint 未处于已登记后端终点的只读审计状态")
 			}
-			source, e := contractPublicBackendVerificationSource(s)
+			source, e := contractPublicBackendVerificationSource(s, cpRef)
 			if e != nil {
 				return "", e
 			}
-			for _, required := range []string{source, ".yss-backend-delivery.json", reportRef} {
+			authorization, e := progressionBackendAuthorization(s, cpRef, "", true)
+			if e != nil {
+				return "", e
+			}
+			for _, required := range []string{source, authorization.TerminalRef, reportRef} {
 				found := false
 				for _, observed := range semStrings(trace["artifact_refs"]) {
 					found = found || contractVerificationSameRef(s, required, observed)
@@ -129,7 +142,7 @@ func contractPublicVerificationBasis(s *semanticSession, reportRef, kind string,
 			if _, e = contractBoundDoc(s, binding); e != nil {
 				return "", e
 			}
-			source, e := contractPublicBackendVerificationSource(s)
+			source, e := contractPublicBackendVerificationSource(s, cpRef)
 			if e != nil {
 				return "", e
 			}
@@ -186,7 +199,7 @@ func contractPublicVerificationBasis(s *semanticSession, reportRef, kind string,
 		}
 		backendSource := ""
 		if kind != "strategic-delivery-verification-v1" {
-			backendSource, e = contractPublicBackendVerificationSource(s)
+			backendSource, e = contractPublicBackendVerificationSource(s, cpRef)
 			if e != nil {
 				return "", e
 			}
@@ -251,10 +264,125 @@ func contractPublicVerificationBasis(s *semanticSession, reportRef, kind string,
 	return contractDigest(body), nil
 }
 
+// Intent only selects a consumer. Its current original Receipt, signing
+// authority and full delivery determine the verification subject independently
+// of the candidate report. This reader is shared by public verification and
+// milestone evaluation and never invokes the business evaluator.
+func contractExplicitDesignVerificationBasis(s *semanticSession, cpRef string, cp map[string]any, reportRef, taskRef string) (string, bool, error) {
+	if s.report.Profile != "spec" || !strings.HasPrefix(text(cp["feature_id"]), "feature.") {
+		return "", false, nil
+	}
+	contractRef := guidanceContractRef("spec")
+	present, err := s.exists(contractRef)
+	if err != nil || !present {
+		return "", false, err // Legacy reports may not install this policy asset.
+	}
+	contract, err := s.doc(contractRef)
+	if err != nil {
+		return "", false, err
+	}
+	if _, declared := contract["progression_target"]; !declared {
+		return "", false, nil // Legacy reports retain their existing ownership.
+	}
+	if _, _, err = progressionPolicy(s); err != nil {
+		return "", false, err
+	}
+	configRef, _, err := progressionLocation(s, cpRef)
+	if err != nil {
+		return "", false, err
+	}
+	present, err = s.exists(configRef)
+	if err != nil || !present {
+		return "", false, err
+	}
+	raw, err := s.bytes(configRef)
+	if err != nil {
+		return "", false, err
+	}
+	intent, err := parseProgressionTarget(raw)
+	if err != nil {
+		return "", false, err
+	}
+	if intent.FeatureID != text(cp["feature_id"]) || intent.CheckpointRef != cpRef {
+		return "", false, s.reject("PROGRESSION_BINDING", "验证报告的显式消费者意图未绑定当前功能 checkpoint")
+	}
+	if err = progressionScope(s, intent.Target); err != nil {
+		return "", false, err
+	}
+	for _, consumer := range intent.Consumers {
+		if consumer.Profile != "design" {
+			continue
+		}
+		if taskRef != "" || guidanceArtifact(cp, "artifact.strategic-design-handoff", "strategic_handoff_ref", "handoff_ref") != "" {
+			return "", true, s.reject("VERIFICATION_CONSUMER_ROUTE", "战略验证同时登记本端与外部 Design 生产来源")
+		}
+		// A backend or frontend is irrelevant to this report's source selection.
+		// Their terminal qualification remains mandatory for whole business.
+		intent.Consumers = []ProgressionConsumer{consumer}
+		rows, sessions := progressionConsumers(s, "spec", cpRef, cp, intent)
+		row, design := semMap(rows["design"]), sessions["design"]
+		if design == nil || row["input_status"] != "verified" || row["completion_status"] != "reached" {
+			return "", true, s.reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 的当前来源接收或本端交付未核验："+first(text(row["reason"]), text(row["completion_reason"])))
+		}
+		current, err := design.doc(consumer.CheckpointRef)
+		if err != nil {
+			return "", true, err
+		}
+		ref, present, err := guidanceStrategicDeliveryRef(design, current)
+		if err != nil {
+			return "", true, err
+		}
+		if !present {
+			return "", true, s.reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 缺少当前批准 Handoff 的完整交付登记")
+		}
+		bundle, record, err := contractOpenStrategicDelivery(design, ref)
+		if err != nil {
+			return "", true, err
+		}
+		asset := semMap(semMap(current["artifacts"])["artifact.strategic-design-handoff"])
+		if asset["status"] != "approved" || !contractSHA(asset["digest"]) {
+			return "", true, s.reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 的当前 Handoff 资产缺少批准或原始字节摘要")
+		}
+		handoff, err := contractBoundDoc(design, asset)
+		if err != nil {
+			return "", true, err
+		}
+		published := semMap(record["handoff"])
+		if published["ref"] != asset["ref"] || published["sha256"] != asset["digest"] || !contractSame(handoff, bundle.Handoff) {
+			return "", true, s.reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 当前 Handoff 与完整交付包的原始批准资产不一致")
+		}
+		expectedRef := path.Join(path.Dir(ref), text(record["verification_ref"]))
+		if err = contractVerificationOriginalCopy(s, reportRef, design, expectedRef); err != nil {
+			return "", true, err
+		}
+		return text(bundle.Manifest["bundle_digest"]), true, nil
+	}
+	return "", false, nil
+}
+
+func contractVerificationOriginalCopy(s *semanticSession, reportRef string, source *semanticSession, sourceRef string) error {
+	actual, err := s.bytes(reportRef)
+	if err != nil {
+		return err
+	}
+	original, err := source.bytes(sourceRef)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(actual, original) {
+		return s.reject("VERIFICATION_CURRENT_REQUIRED", "待验冻结报告原始字节与当前外部 Design 交付验证不同")
+	}
+	return nil
+}
+
 // The fixed terminal producer owns the delivery reference. A report or a task
 // cannot choose another valid delivery as its current verification subject.
-func contractPublicBackendVerificationSource(s *semanticSession) (string, error) {
-	const ref = ".yss-backend-delivery.json"
+func contractPublicBackendVerificationSource(s *semanticSession, cpRef string) (string, error) {
+	authorization, e := progressionBackendAuthorization(s, cpRef, "", true)
+	if e != nil {
+		return "", e
+	}
+	ref := authorization.TerminalRef
 	exists, e := s.exists(ref)
 	if e != nil {
 		return "", e
@@ -262,7 +390,7 @@ func contractPublicBackendVerificationSource(s *semanticSession) (string, error)
 	if !exists {
 		return "", s.reject("VERIFICATION_CURRENT_REQUIRED", "缺少当前已发布后端交付终点")
 	}
-	if e = s.verify("backend-terminal", ref, nil); e != nil {
+	if e = s.verify("backend-terminal", ref, map[string]string{"checkpoint": cpRef}); e != nil {
 		return "", e
 	}
 	record, e := s.doc(ref)

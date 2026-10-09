@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.1，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.3，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -77,7 +77,7 @@ yss migrate rollback --root ./old-project --json
 
 本地打包六个平台：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.3.1 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
+1.3.3 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
@@ -163,7 +163,9 @@ yss -V --json
 
 完整离线教程和命令索引见 [生成帮助指南](docs/cli-help.md)。按主题使用 `yss help tutorial daily` 或 `yss help tutorial frontend`；按问题使用 `yss help examples sync` 或 `yss help errors INPUT_DRIFT`。阶段名称及退出条件消费固定 Bundle 注册表，执行范围和顺序消费固定 Profile 路由；Design 的下游兼容登记不授予本 Profile 实现资格。
 
-更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs`；两者的 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。源码内部教程 fixture 只验证协议，不构成真实批准。
+支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
+
+更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。源码内部教程 fixture 只验证协议，不构成真实批准。
 
 原生命令的未知命令、子命令、选项、无效取值或缺少参数值返回 `ARGUMENT`，退出码为 `2`，同时给出帮助入口和适用的拼写建议。比如 `yss upadate` 会建议 `update`，并说明在线程序升级使用 `upgrade`。建议不会自动执行。已有升级错误码和 JSON envelope 版本保持不变；其他治理和兼容消费者保留自身领域校验。
 

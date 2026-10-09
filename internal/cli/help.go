@@ -113,7 +113,7 @@ func renderHelp(args []string) (string, error) {
 
 func rootHelp() string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend / Frontend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合治理；design 战略与产品设计交接；backend/frontend 专职交付。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
+	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend / Frontend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  design 产品与业务设计；backend/frontend 承担技术设计与专职交付。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
 	for _, p := range []string{"spec", "design", "backend", "frontend"} {
 		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
 	}
@@ -128,7 +128,7 @@ func rootHelp() string {
 	} else {
 		out.WriteString("  生命周期视图待核验：" + e.Error() + "\n")
 	}
-	out.WriteString("  日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）\n  教程：yss help tutorial governed | yss help tutorial daily\n\n通用选项:\n  -h, --help       显示离线帮助\n  -V, --version    显示程序及来源\n  --human          强制中文摘要；终端默认中文，管道保持原格式\n  --json           输出机器协议 1；与 --human 互斥\n  --diagnostics    与 --json 同用，失败时附加诊断\n\n命令:\n")
+	out.WriteString("  日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）\n  教程：yss help tutorial governed | yss help tutorial daily\n  先 Spec、再设计、再交付：yss help tutorial spec\n  目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target\n\n通用选项:\n  -h, --help       显示离线帮助\n  -V, --version    显示程序及来源\n  --human          强制中文摘要；终端默认中文，管道保持原格式\n  --json           输出机器协议 1；与 --human 互斥\n  --diagnostics    与 --json 同用，失败时附加诊断\n\n命令:\n")
 	for _, group := range []struct {
 		label string
 		names []string

@@ -61,7 +61,7 @@ func init() {
 	helpTopics["handoff export"] = helpTopic{"导出当前已批准的 Spec 基线及来源证据。", "--root <Spec工程> --kind spec-baseline --checkpoint <当前检查点> --out <新目录>", projectFlags + "\n--kind spec-baseline\n--checkpoint <文件>\n--out <新目录>", "yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline", "保留源批准、业务票稳定 ID 和原始字节摘要；导出不会推进源阶段。", false}
 	helpTopics["handoff import"] = helpTopic{"将批准 Spec 基线接入独立 Design。", "--root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>", projectFlags + "\n--kind spec-baseline\n--package <目录包>\n" + planFlags, "yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json\nyss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json", "初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。", false}
 	for group, conditions := range map[string]string{
-		"contract": "--kind <slice|scaffold|task>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  仅 slice\n--history  仅 task；历史结构不授予当前放行",
+		"contract": "--kind <slice|scaffold|task|frontend-delivery>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行",
 		"evidence": "--kind <approval|user-decision|verification>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
 		"handoff":  "--kind <package|consumption|spec-baseline>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
@@ -91,9 +91,17 @@ func registerGovernanceHelp() {
 		"verify": {"校验当前词汇和可选快照。", "[--snapshot <文件>]", "--snapshot / --file  待验快照\n--term-refs / --allowed-context-ids  独立消费范围", "yss context verify --root ./demo-spec --json", "", true},
 		"check":  {"校验词汇结构。", "[--file <文件>]", "--file / --snapshot  可选快照", "yss context check --root ./demo-spec --json", "", true},
 	})
-	registerGroup("lifecycle", "查询阶段、工作单元、日常路由及当前门禁。", "--root <目录>", projectFlags, "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", governanceNotes, map[string]helpTopic{
-		"query":        {"查询注册表中的稳定 ID。", "[--id <ID>]", "--id / --work-unit / --stage  选择注册对象", "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", "", true},
-		"status":       {"读取 checkpoint 当前状态。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint", "yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "", true},
+	registerGroup("lifecycle", "查询当前生命周期、配置本次推进目标并核验门禁。", "--root <目录>", projectFlags, "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", governanceNotes+"\n新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。", map[string]helpTopic{
+		"query":  {"查询注册表中的稳定 ID。", "[--id <ID>]", "--id / --work-unit / --stage  选择注册对象", "yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json", "", true},
+		"status": {"只读核验 checkpoint、本次目标与显式消费者的当前证据。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint\nprogression  本次目标及本端职责/整体业务完成结论\ncoordination  显式同功能消费者的当前来源、接收及交付\nnext_action  承接者、工程、工作单元和等待原因", "yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "查询不写入、不启动实现或业务测试。达到短目标仍保留 checkpoint.next_work_unit；next_action 不是执行授权。旧实例未启用目标政策时保留旧行为，须显式 sync 后核验能力。", true},
+		"target": {
+			"读取或事务设置 Spec 单功能的本次推进目标。",
+			"--checkpoint <文件> [--plan --input <JSON> --out <新计划>] 或 --apply --plan-file <原计划>",
+			"无 plan/apply：只读核验目标、显式交接与完成依据\n--checkpoint  Tracker/map 唯一登记的当前功能 checkpoint\n--input  项目内 JSON：schema_version、kind、feature_id、checkpoint_ref、target、intent_source、consumers\nJSON target 五选一：spec-approved / product-design-completed / backend-deliverable / frontend-accepted / business-accepted\nconsumers  本地推进用 []；独立专职端显式给 profile、绝对 root、同功能 checkpoint_ref，每种 Profile 最多一个\n--plan --out  保存新计划；输入草稿保留到 apply 完成，计划建议放工程外\n--apply --plan-file  仅消费原保存计划；不要同时传 checkpoint/input/plan/out",
+			"yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json\nyss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --input .work/feature/tmp/target-input.json --plan --out /tmp/target-plan.json --json\nyss lifecycle target --root ./demo-spec --apply --plan-file /tmp/target-plan.json --json\nyss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json",
+			"新正式 Spec 默认 business-accepted；plan-to-backend 的职责上限只允许前三目标。仅支持 lifecycle-target-v1 政策的 Spec 主控可写；专职只读 profile-terminal 不是可写枚举。写入仅限 progression-target.json 及必要事务记录，不改 checkpoint、批准、冻结包或 Receipt，不授 ready-for-agent。达到目标后停止本次下游写入，保留真实 next_work_unit；续推修改 JSON target/intent_source，再 plan/apply 并重验，从首个合法未完成工作单元继续。能力缺失的旧原生实例先显式 sync；帮助教程见 yss help tutorial spec。草稿使用已有忽略规则覆盖的功能 tmp 目录，不自动添加 ignore。",
+			false,
+		},
 		"verify":       {"核验当前 checkpoint 的领域门禁。", "--checkpoint <文件>", "--checkpoint / --file  当前 checkpoint\n--history  仅历史结构，不授予当前放行\n--home / --run-dir / --tool-root / --template-checkout  独立依赖来源", "yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "", true},
 		"route":        dailyHelp("只读判定日常或正式交付路径。", "route"),
 		"verify-daily": dailyHelp("核验同一日常任务的当前差异、测试和独立审查。", "verify-daily"),
@@ -110,7 +118,7 @@ func registerGovernanceHelp() {
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes, true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
 	for _, group := range []string{"contract", "evidence", "handoff"} {
-		kinds := "slice|scaffold|task"
+		kinds := "slice|scaffold|task|frontend-delivery"
 		example := "yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json"
 		if group == "evidence" {
 			kinds = "approval|user-decision|verification"

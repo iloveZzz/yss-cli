@@ -34,6 +34,9 @@ func safeExampleText(s string) string {
 }
 
 func prerequisite(key string) string {
+	if key == "lifecycle target" {
+		return "当前实例具备 lifecycle-target-v1 政策；Tracker/map 唯一登记当前功能 checkpoint。写目标仅限 Spec，输入 JSON 必须绑定同一 feature/checkpoint。"
+	}
 	group := strings.Fields(key)[0]
 	switch group {
 	case "init":
@@ -57,12 +60,15 @@ func prerequisite(key string) string {
 
 func exampleKind(key string) string {
 	group := strings.Fields(key)[0]
-	if group == "contract" || group == "evidence" || group == "handoff" || group == "stage" || strings.Contains(key, "lifecycle verify") || key == "lifecycle status" || key == "lifecycle route" || group == "compat-api" {
+	if group == "contract" || group == "evidence" || group == "handoff" || group == "stage" || strings.Contains(key, "lifecycle verify") || key == "lifecycle status" || key == "lifecycle target" || key == "lifecycle route" || group == "compat-api" {
 		return "需要当前资产"
 	}
 	return "直接运行（替换路径；写入示例在独立演示目录执行）"
 }
 func expectedResult(key string) string {
+	if key == "lifecycle target" {
+		return "查询只读返回本次目标、显式消费者及当前证据；plan 保存意图配置计划，apply 重验原计划后仅写目标和必要事务记录，不创建批准或执行实现。"
+	}
 	if strings.Contains(key, "verify") || strings.HasPrefix(key, "project-ci") {
 		return "返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。"
 	}
@@ -78,6 +84,9 @@ func expectedResult(key string) string {
 	return "返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。"
 }
 func nextReading(key string) string {
+	if key == "lifecycle target" || key == "lifecycle status" {
+		return "yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。"
+	}
 	switch strings.Fields(key)[0] {
 	case "init", "attach":
 		return "yss doctor --help；核对身份后用 lifecycle 查询当前入口。"
@@ -150,7 +159,7 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
-前置条件：在独立新目录选择一个 Profile；spec 综合治理，design 战略与产品设计交接，backend/frontend 专职交付。
+前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend/frontend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -165,6 +174,58 @@ const quickstartTutorial = `快速上手
 下一步：yss help tutorial governed；符合日常政策时另读 daily。
 失败恢复：目录错误查看 yss help errors IDENTITY；未完成原生事务先 yss recover --root ./demo-spec --json，再在已确认恢复范围内增加 --apply。
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。`
+
+const specProgressionTutorial = `本次目标、停止与续推（Spec 主控）
+当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
+
+三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
+五个可写目标：
+  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
+  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
+  backend-deliverable：当前批准合同、适用 API、后端实现、独立审查、构建及契约/部署验证闭合。
+  frontend-accepted：当前前端实现、适用还原验证和独立验收闭合；前端不适用须另核批准影响评估及 Slice。
+  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
+专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
+
+示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
+{
+  "schema_version": 1,
+  "kind": "lifecycle-progression-target",
+  "feature_id": "feature.example",
+  "checkpoint_ref": ".work/feature/checkpoint.json",
+  "target": "spec-approved",
+  "intent_source": "用户要求先完成 Spec",
+  "consumers": []
+}
+草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
+
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+
+plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
+达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
+
+用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
+设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
+每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
+
+本地或独立专职：
+  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
+  外部专职：consumers 每项给 profile（design/backend/frontend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend/Frontend 消费同一冻结战略基线；Backend→Frontend 消费当前接口及运行证据。前端可先准备设计与计划，正式实现仍核验当前依赖。
+  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
+
+读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
+失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
+详细输入和独立消费者示例见 docs/lifecycle-target.md。
+
+`
 
 func dailyTutorial() string {
 	v, e := helpview.Load("spec")
@@ -197,6 +258,9 @@ func governedTutorial(profile string) (string, error) {
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "正式生命周期（%s）\n来源摘要：template=%s；registry=%s；profile=%s；policy=%s\n前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。\n输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。\n\n", profile, v.TemplateCommit, v.RegistrySHA256, registeredDigest(v.ProfileSHA256), registeredDigest(v.PolicySHA256))
+	if profile == "spec" {
+		out.WriteString(specProgressionTutorial)
+	}
 	root := "./demo-" + profile
 	for i, stage := range v.Stages {
 		fmt.Fprintf(&out, "%d. %s（%s）\n目标：%s\n", i+1, stage.Name, stage.ID, stage.Goal)
@@ -275,7 +339,7 @@ func profileTutorial(profile string) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	responsibility := map[string]string{"spec": "综合治理；按正式生命周期或当前日常政策分流。", "design": "战略与产品设计交接；形成当前职责内的战略、设计和交接材料。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。", "frontend": "核验战略与后端交接输入，在批准合同内完成前端交付。"}[profile]
+	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "design": "产品与业务设计；技术设计由前后端工程路线承担。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。", "frontend": "核验战略与后端交接输入，在批准合同内完成前端交付。"}[profile]
 	root := "./demo-" + profile
 	intro := fmt.Sprintf("Profile %s\n职责：%s\n日常政策启用：%t\n\n前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。\n输入材料：项目名称、当前职责对应的合同/交接材料。\n\n  yss init --profile %s --root %s --project-name 演示项目\n  yss doctor --root %s --json\n  yss context verify --root %s --json\n  yss lifecycle query --root %s --id %s --json\n  yss assets list --root %s --json\n  yss skills list --root %s --json\n\n预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。\n下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。\n失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。\n\n", profile, responsibility, v.DailyEnabled, profile, root, root, root, root, v.EntryWorkUnit, root, root)
 	stages, err := governedTutorial(profile)

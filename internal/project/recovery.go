@@ -178,6 +178,8 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 			return ValidateProfileLinksTransaction(id.Root, id.Profile.Name, paths)
 		case "spec-baseline-import":
 			return governance.ValidateSpecBaselineImportTransaction(id.Root, id.Profile.Name, paths)
+		case "lifecycle-target":
+			return governance.ValidateProgressionTransaction(id.Root, id.Profile.Name, paths)
 		case "init", "attach", "sync", "migrate", "skills", "assets", "abandoned-preparation":
 			return nil
 		default:

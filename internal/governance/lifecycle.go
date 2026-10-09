@@ -287,6 +287,14 @@ func lifecycleRun(ctx context.Context, group, action, root string, args map[stri
 	base["diagnostics"] = diagnostics
 	base["next_stage_candidates"] = ids
 	base["profile_guidance"] = ProfileGuidance(ctx, root, ref, cp)
+	projection, progressionErr := progressionRead(ctx, root, ref)
+	if progressionErr == nil {
+		for _, key := range []string{"progression", "coordination", "next_action"} {
+			base[key] = projection[key]
+		}
+	} else {
+		base["progression"] = map[string]any{"enabled": false, "status": "unsupported", "reason": progressionErr.Error(), "read_only": true}
+	}
 	return base, nil
 }
 

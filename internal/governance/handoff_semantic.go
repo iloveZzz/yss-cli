@@ -171,6 +171,11 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 	for _, v := range semList(manifest["files"]) {
 		file := semMap(v)
 		ref := text(file["path"])
+		for _, candidate := range []string{ref, text(file["original_ref"])} {
+			if e = rejectProgressionEvidence(s, candidate); e != nil {
+				return nil, e
+			}
+		}
 		if !contractPath(ref) || folds[fold.String(ref)] {
 			return nil, s.reject("HANDOFF_PATH", "包路径非法或大小写冲突")
 		}
@@ -277,6 +282,24 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 	}
 	source.registry = map[string]any{"gates": published, "id_policy": map[string]any{"deprecated_ids": []any{}}}
 	source.report.Checks = append(source.report.Checks, SemanticCheck{ID: "handoff-source-policy-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
+	handoff, e := source.doc(text(manifest["handoff_ref"]))
+	if e != nil {
+		return nil, e
+	}
+	if contractN(handoff["schema_version"]) == 5 {
+		for _, entry := range semList(manifest["files"]) {
+			file := semMap(entry)
+			if original := text(file["original_ref"]); original != "" {
+				expected := "payload/files/" + original
+				if original == "CONTEXT.md" {
+					expected = "payload/files/source-context.snapshot.md"
+				}
+				if text(file["path"]) != expected {
+					return nil, s.reject("HANDOFF_PATH", "Handoff v5 必须保留固定 payload/files 来源布局")
+				}
+			}
+		}
+	}
 	bundle, e := contractInspectHandoff(source, text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
@@ -1015,6 +1038,10 @@ func contractSourceApproval(s *semanticSession, gate string, binding map[string]
 			bounded = bounded || text(row["aggregate_gate"]) == gate && text(row["aggregate_additional_review_task"]) == "forbidden"
 		}
 		if bounded {
+			s.registry, e = s.doc(".template-spec/process/lifecycle-registry.yaml")
+			if e != nil {
+				return e
+			}
 			context := semMap(binding["approval_context"])
 			assetRef := first(text(context["subject_ref"]), text(binding["ref"]))
 			if e = s.verify("source-plan-approval", approvalRef, map[string]string{"asset-ref": assetRef, "task-ref": text(record["review_task_ref"])}); e != nil {
@@ -1029,14 +1056,48 @@ func contractSourceApproval(s *semanticSession, gate string, binding map[string]
 }
 func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([]string, error) {
 	queue := []string{ref, "CONTEXT.md", ".template-spec/agents/digital-human-roles.yaml"}
+	savedRegistry := s.registry
+	defer func() { s.registry = savedRegistry }()
+	sealedPackages := map[string]bool{}
+	enqueueBaseline := func(receiptRef string) error {
+		if _, _, err := verifySpecBaselineReceipt(s, receiptRef, false); err != nil {
+			return err
+		}
+		receipt, err := s.doc(receiptRef)
+		if err != nil {
+			return err
+		}
+		working, err := s.doc(text(receipt["working_set_ref"]))
+		if err != nil {
+			return err
+		}
+		packageRef := text(receipt["package_ref"])
+		sealedPackages[packageRef] = true
+		queue = append(queue, receiptRef, packageRef, text(receipt["working_set_ref"]))
+		for _, asset := range semMap(working["assets"]) {
+			queue = append(queue, text(asset))
+		}
+		return nil
+	}
 	if exists, err := s.exists(".yss.json"); err != nil {
 		return nil, err
 	} else if exists {
 		queue = append(queue, ".yss.json")
 	}
-	for _, v := range semMap(b.Handoff["source"]) {
+	for key, v := range semMap(b.Handoff["source"]) {
 		queue = append(queue, text(semMap(v)["persisted_ref"]))
 		if marker := semMap(semMap(semMap(v)["approval_context"])["source_baseline"]); len(marker) > 0 {
+			gate := "gate.plan-approved"
+			if key == "spec_ref" {
+				gate = "gate.spec-baseline-approved"
+			}
+			binding := semMap(v)
+			if _, err := inheritedSourceApproval(s, gate, map[string]any{"ref": binding["persisted_ref"], "approval_context": binding["approval_context"]}, text(semMap(semMap(b.Config["approvals"])[key])["record_ref"])); err != nil {
+				return nil, err
+			}
+			if err := enqueueBaseline(text(marker["receipt_ref"])); err != nil {
+				return nil, err
+			}
 			queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", text(marker["receipt_ref"]), text(marker["context_reconciliation_ref"]))
 		}
 	}
@@ -1053,6 +1114,14 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 		}
 	}
 	symbolic := semMap(b.Config["reference_map"])
+	boundedPlan := false
+	for _, value := range semList(semMap(semMap(s.roles["gate_policy"])["review_execution"])["review_bundles"]) {
+		row := semMap(value)
+		boundedPlan = boundedPlan || row["aggregate_gate"] == "gate.plan-approved" && row["aggregate_additional_review_task"] == "forbidden"
+	}
+	// Keep SpecBaseline's published closure when it reuses this walker internally.
+	protocol := contractN(b.Handoff["schema_version"])
+	boundedPlan = boundedPlan && (protocol == 3 || protocol == 4 || protocol == 5)
 	seen := map[string]bool{}
 	total := 0
 	enqueue := func(ref string) {
@@ -1064,7 +1133,12 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 		}
 	}
 	var refs func(any, string)
+	var dependencyErr error
+	documentRef := ""
 	refs = func(v any, key string) {
+		if dependencyErr != nil {
+			return
+		}
 		switch x := v.(type) {
 		case []any:
 			for _, v := range x {
@@ -1075,6 +1149,19 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 				}
 			}
 		case map[string]any:
+			if len(semMap(x["upstream_spec_baseline"])) > 0 {
+				s.registry, dependencyErr = s.doc(".template-spec/process/lifecycle-registry.yaml")
+				if dependencyErr != nil {
+					return
+				}
+				if dependencyErr = verifyInheritedSpecCheckpoint(s, documentRef, x); dependencyErr != nil {
+					return
+				}
+				if dependencyErr = enqueueBaseline(text(semMap(x["upstream_spec_baseline"])["receipt_ref"])); dependencyErr != nil {
+					return
+				}
+				queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml")
+			}
 			if marker := semMap(x["source_baseline"]); len(marker) > 0 {
 				enqueue(text(marker["receipt_ref"]))
 				enqueue(text(marker["context_reconciliation_ref"]))
@@ -1120,8 +1207,14 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 	for len(queue) > 0 {
 		ref := queue[0]
 		queue = queue[1:]
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return nil, err
+		}
 		if mapped := text(symbolic[ref]); mapped != "" {
 			ref = mapped
+		}
+		if err := rejectProgressionEvidence(s, ref); err != nil {
+			return nil, err
 		}
 		if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
 			continue
@@ -1177,14 +1270,41 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 		if len(seen) > 20000 || total > 512<<20 {
 			return nil, s.reject("HANDOFF_LIMIT", "闭包数量/大小超限")
 		}
-		sealedSource := regexp.MustCompile(`^docs/spec-baselines/spec-baseline\.[A-Za-z0-9][A-Za-z0-9._-]*/v[1-9][0-9]*/package/`).MatchString(ref)
+		sealedSource := false
+		for prefix := range sealedPackages {
+			sealedSource = sealedSource || strings.HasPrefix(ref, prefix+"/")
+		}
 		localBaseline := sealedSource || contractHandoffUIKind(b.Handoff) == "existing-ui-baseline" && strings.HasPrefix(ref, text(contractHandoffUIRef(b.Handoff)["persisted_ref"])+"/")
 		if !localBaseline && (strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") || strings.HasSuffix(ref, ".json")) {
 			doc, e := schema.Parse(bytes)
 			if e != nil {
 				return nil, e
 			}
+			value := semMap(doc)
+			if boundedPlan && value["gate_id"] == "gate.plan-approved" && text(value["decision"]) != "" && text(value["actor_kind"]) != "" {
+				opts := map[string]string{}
+				if value["plan_review_binding"] != nil && text(value["review_task_ref"]) != "" {
+					opts["task-ref"] = text(value["review_task_ref"])
+				}
+				owner, e := sourcePlanApprovalCheckpoint(s, ref, opts)
+				if e != nil {
+					return nil, e
+				}
+				enqueue(owner)
+				if opts["task-ref"] == "" {
+					enqueue(trackerRef)
+				}
+				if exists, e := s.exists(".template-spec/process/harness-profile.yaml"); e != nil {
+					return nil, e
+				} else if exists {
+					enqueue(".template-spec/process/harness-profile.yaml")
+				}
+			}
+			documentRef = ref
 			refs(doc, "")
+			if dependencyErr != nil {
+				return nil, dependencyErr
+			}
 		}
 		if !localBaseline && strings.HasSuffix(ref, ".md") {
 			for _, match := range regexp.MustCompile(`!?\[[^\]]*\]\(<?([^\s)>]+)>?(?:\s+[^)]*)?\)`).FindAllStringSubmatch(string(bytes), -1) {

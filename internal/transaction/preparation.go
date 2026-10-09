@@ -49,7 +49,7 @@ type preparation struct {
 
 func isProjectTransaction(kind string) bool {
 	switch kind {
-	case "init", "attach", "sync", "migrate", "skills", "assets", "profile-links", "spec-baseline-import":
+	case "init", "attach", "sync", "migrate", "skills", "assets", "profile-links", "spec-baseline-import", "lifecycle-target":
 		return true
 	default:
 		return false
