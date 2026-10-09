@@ -896,6 +896,16 @@ func enforceHarnessTaskSemanticMode(s *semanticSession, task map[string]any, com
 	if apText(apMap(task["contract"])["kind"]) == "template-maintenance" {
 		return apFail(s, "TASK_SCOPE", "专职产品项目不得派发模板维护")
 	}
+
+	if apContains([]string{"role.requirements-manager", "role.product-manager"}, apText(task["role_id"])) {
+		analysisUnits := []string{"work-unit.plan-opportunity", "work-unit.plan-requirements", "work-unit.domain-strategy-design", "work-unit.stage-decision", "work-unit.spec-synthesis"}
+		if id == "harness.frontend-delivery" {
+			analysisUnits = append(analysisUnits, "work-unit.prototype-design-v2")
+		}
+		if apText(task["execution_state"]) == "Worker" || !apContains(analysisUnits, apText(task["work_unit_id"])) {
+			return apFail(s, "TASK_SCOPE", "业务分析角色仅能起草/审查本端分析与产品设计，不能实现生产代码")
+		}
+	}
 	crossReview := apContains([]string{"Explorer", "Reviewer"}, apText(task["execution_state"])) && len(apArray(task["allowed_write_paths"])) == 0
 	audience := apMap(profile["audience"])
 	if !crossReview && !apContains(audience["target_user_roles"], apText(task["role_id"])) && !apContains(audience["control_plane_roles"], apText(task["role_id"])) {
@@ -923,11 +933,15 @@ func taskFrontendDeliverySemantic(s *semanticSession, task map[string]any) error
 		return e
 	}
 	dedicated := apText(identity["repository_mode"]) == "project-instance" && apContains([]string{"harness.frontend-delivery", "yss-harness-frontend"}, apText(profile["profile_id"]))
+	local, e := hasLocalImplementationInputs(s)
+	if e != nil {
+		return e
+	}
 	taskContract := apMap(task["contract"])
 	contractRef := apText(taskContract["slice_contract_ref"])
 	cpRef := first(apText(task["checkpoint_ref"]), apText(taskContract["lifecycle_ref"]))
 	formalFrontendVerification := apText(task["work_unit_id"]) == "work-unit.frontend-implementation-verification"
-	if !dedicated && contractRef == "" && formalFrontendVerification && task["frontend_delivery"] == nil {
+	if (!dedicated || local) && contractRef == "" && formalFrontendVerification && task["frontend_delivery"] == nil {
 		local, err := hasLocalImplementationInputs(s)
 		if err != nil {
 			return err
@@ -993,13 +1007,13 @@ func taskFrontendDeliverySemantic(s *semanticSession, task map[string]any) error
 	}
 	status := apText(apMap(contract["frontend"])["status"])
 	required := status != "" && status != "not-applicable" && status != "disabled"
-	if !dedicated && binding == nil && !required {
+	if binding == nil && !required && (!dedicated || local && !formalFrontendVerification && apText(taskContract["kind"]) != "slice-implementation" && apContains(apMap(profile["lifecycle"])["allowed_work_units"], apText(task["work_unit_id"]))) {
 		return nil
 	}
 	if dedicated && apText(apMap(task["contract"])["kind"]) == "template-maintenance" {
 		return apFail(s, "FRONTEND_DELIVERY", "前端产品项目不得用维护任务绕过输入")
 	}
-	if !dedicated && binding == nil && required {
+	if (!dedicated || local) && binding == nil && required {
 		if cpRef == "" {
 			cpRef, e = progressionTaskAssetCheckpoint(s, contractRef)
 			if e != nil {
@@ -1275,7 +1289,16 @@ func validateTaskContractSemantic(s *semanticSession, ref string, task, unit map
 	if kind != "slice-implementation" {
 		return apFail(s, "TASK_CONTRACT", "v1 read-only-intake非法")
 	}
-	if apTruthy(contract["lifecycle_ref"]) || apTruthy(contract["maintenance_ref"]) || apText(task["stage_id"]) != "stage.vertical-slice-implementation" || apText(apMap(task["convergence"])["parent_work_unit"]) != "work-unit.slice-implementation" {
+	stages := []string{}
+	for _, stage := range apRows(s.registry["stages"]) {
+		if apContains([]string{"stage.vertical-slice-implementation", "stage.slice-implementation"}, apText(stage["id"])) {
+			stages = append(stages, apText(stage["id"]))
+		}
+	}
+	if len(stages) != 1 {
+		return apFail(s, "TASK_CONTRACT", "接收端注册表缺少唯一 Slice 实现阶段")
+	}
+	if apTruthy(contract["lifecycle_ref"]) || apTruthy(contract["maintenance_ref"]) || apText(task["stage_id"]) != stages[0] || apText(apMap(task["convergence"])["parent_work_unit"]) != "work-unit.slice-implementation" {
 		return apFail(s, "TASK_CONTRACT", "切片合同阶段或汇合不匹配")
 	}
 	sliceRef := apText(contract["slice_contract_ref"])

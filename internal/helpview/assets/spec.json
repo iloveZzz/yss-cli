@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "profile": "spec",
-  "templateCommit": "b3698c597adab739b06c9d23aa2a49b4b0966cab",
+  "templateCommit": "d3cf37b315d18404ae8ab5a4c03c3ac0bbc3c589",
   "registrySHA256": "39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c",
-  "policySHA256": "65a6cd831e1297635092b2d554545907395a89552b32c120902ce10dc1215de1",
+  "policySHA256": "c8c5da26d6971eab7de922d67ff18e33f9737c3f235d00716d099e5b793deeb8",
   "stages": [
     {
       "id": "stage.entry-triage",

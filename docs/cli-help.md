@@ -28,7 +28,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：b3698c597adab739b06c9d23aa2a49b4b0966cab；来源摘要：39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c
+  固定模板：d3cf37b315d18404ae8ab5a4c03c3ac0bbc3c589；来源摘要：39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -124,7 +124,7 @@ Profile 职责:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=b3698c597adab739b06c9d23aa2a49b4b0966cab；registry=39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c；profile=尚未登记；policy=65a6cd831e1297635092b2d554545907395a89552b32c120902ce10dc1215de1
+来源摘要：template=d3cf37b315d18404ae8ab5a4c03c3ac0bbc3c589；registry=39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c；profile=尚未登记；policy=c8c5da26d6971eab7de922d67ff18e33f9737c3f235d00716d099e5b793deeb8
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -269,7 +269,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 ```text
 日常交付（Spec）
-来源摘要：template=b3698c597adab739b06c9d23aa2a49b4b0966cab；policy=65a6cd831e1297635092b2d554545907395a89552b32c120902ce10dc1215de1；日常能力=true
+来源摘要：template=d3cf37b315d18404ae8ab5a4c03c3ac0bbc3c589；policy=c8c5da26d6971eab7de922d67ff18e33f9737c3f235d00716d099e5b793deeb8；日常能力=true
 前置条件：当前 Spec 实例启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、独立审查和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 独立审查 → verify-daily。
@@ -308,7 +308,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=b3698c597adab739b06c9d23aa2a49b4b0966cab；registry=39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c；profile=尚未登记；policy=65a6cd831e1297635092b2d554545907395a89552b32c120902ce10dc1215de1
+来源摘要：template=d3cf37b315d18404ae8ab5a4c03c3ac0bbc3c589；registry=39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c；profile=尚未登记；policy=c8c5da26d6971eab7de922d67ff18e33f9737c3f235d00716d099e5b793deeb8
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -471,7 +471,7 @@ Profile design
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（design）
-来源摘要：template=d87282ff827160da3fc5ddbc71b30ce578956083；registry=78be460bcee78a5325f36c8f3c4b2c1454ab7821fea456eab4fefb0b73df3220；profile=581e38f7bc9c75f4ffc832ccbb7a8458d29060efb7bd0ea390514936847e1fe0；policy=尚未登记
+来源摘要：template=269beb1cc6be098f8d6a28785f59058fb677247f；registry=78be460bcee78a5325f36c8f3c4b2c1454ab7821fea456eab4fefb0b73df3220；profile=581e38f7bc9c75f4ffc832ccbb7a8458d29060efb7bd0ea390514936847e1fe0；policy=尚未登记
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -553,11 +553,31 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=57d3a4c620472baa0e472b6b39f2cf4ddf94237c；registry=3bdc65cc74c2dc6fa32a8e1473dad763ee95b2f02db6cbb4a1fc9c37eecae450；profile=eaffafd6b92ae258a4c7812fb6109a48ca919d04a92b382dd7b92153bb5117e2；policy=尚未登记
+来源摘要：template=b07c7542c90f5c00200c13d9eaf40bd688596abc；registry=43e691a1a56b3221b70f954afe572005a64a93ff76efb2be690d515f82c707ff；profile=daf3ad0ce3ca83ee539ea10913fe2f1bf39767e17eae3b463095abb6f942b59c；policy=尚未登记
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
-1. Harness 入口（stage.harness-entry）
+1. Plan（战略规划）（stage.plan）
+目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
+  yss stage query --root ./demo-backend --id stage.plan --json
+  yss stage register --root ./demo-backend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-backend/docs/stage-plan.json
+  yss stage apply --root ./demo-backend --plan-file docs/stage-plan.json --json
+  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+2. Spec / 功能架构（stage.spec-architecture）
+目标：固化解决方案和功能边界。
+  yss stage query --root ./demo-backend --id stage.spec-architecture --json
+  yss stage update --root ./demo-backend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-backend/docs/stage-plan-next.json
+  yss lifecycle verify --root ./demo-backend --checkpoint .work/feature/checkpoint.json --json --diagnostics
+  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Spec 基线和功能边界可审查。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+3. Harness 入口（stage.harness-entry）
 目标：校验仓库身份、上游输入、影响面和实现仓库上下文。
   yss stage query --root ./demo-backend --id stage.harness-entry --json
   yss doctor --root ./demo-backend --json
@@ -567,7 +587,7 @@ Profile backend
 下一步条件：上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-2. 技术设计（stage.technical-design）
+4. 技术设计（stage.technical-design）
 目标：按已确认的 DDD 或 MVC 架构把批准需求细化为可实现、可验证的设计。
   yss stage query --root ./demo-backend --id stage.technical-design --json
   yss handoff verify --root ./demo-backend --kind package --package docs/handoff --json --diagnostics
@@ -577,7 +597,7 @@ Profile backend
 下一步条件：新建后端的架构与精确 Spring Boot 版本已由用户确认，既有工程已核验并复用登记架构与实际版本；后端 Technical Design Contract 已批准且当前；数据影响为真时数据架构已批准，否则有可核验的不适用记录；gate.engineering-contract-approved 已通过。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-3. 实现仓库准备（stage.implementation-repository-preparation）
+5. 实现仓库准备（stage.implementation-repository-preparation）
 目标：在已批准的技术/数据设计之后接入既有仓库或生成纯机械后端骨架。
   yss stage query --root ./demo-backend --id stage.implementation-repository-preparation --json
   yss contract verify --root ./demo-backend --kind scaffold --file docs/scaffold.json --json --diagnostics
@@ -586,7 +606,7 @@ Profile backend
 下一步条件：Implementation Repository Preparation Result v2 当前且通过；新生成仅使用 Scaffold Contract/Manifest v4，历史 v3 已完成恢复对账。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-4. Slice Contract（stage.slice-contract）
+6. Slice Contract（stage.slice-contract）
 目标：将战术设计和冻结契约编译为一个跨前后端测试的实现合同。
   yss stage query --root ./demo-backend --id stage.slice-contract --json
   yss contract verify --root ./demo-backend --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
@@ -595,7 +615,7 @@ Profile backend
 下一步条件：合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-5. 垂直切片实现（stage.slice-implementation）
+7. 垂直切片实现（stage.slice-implementation）
 目标：由前端、后端和测试 Agent 按同一合同并行实现和验证。
   yss stage query --root ./demo-backend --id stage.slice-implementation --json
   yss skills list --root ./demo-backend --json
@@ -605,7 +625,7 @@ Profile backend
 下一步条件：行为实现、测试证据、契约一致性和写入边界均满足合同。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-6. 独立验证（stage.verification）
+8. 独立验证（stage.verification）
 目标：由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。
   yss stage query --root ./demo-backend --id stage.verification --json
   yss evidence verify --root ./demo-backend --kind verification --file docs/verification.json --json --diagnostics
@@ -641,11 +661,31 @@ Profile frontend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（frontend）
-来源摘要：template=0a75c1228e163ef2fe9ffd6436e0a0b92d0add15；registry=3a5627facb1e8858bf36d6a1027e8d118629600979464aab2e92702fed3225cf；profile=4ee76c84117222a24af02254e91e64ac898de06169c3a128d840b434a05ac527；policy=尚未登记
+来源摘要：template=700f844c68ae60fd05fa76f7f9eddf572b48ba6f；registry=045fdcca4a7099f56208aafde872359e8e3f003e69fc9b16b13aee90e85e0e69；profile=c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a；policy=尚未登记
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
-1. Harness 入口（stage.harness-entry）
+1. Plan（战略规划）（stage.plan）
+目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
+  yss stage query --root ./demo-frontend --id stage.plan --json
+  yss stage register --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-frontend/docs/stage-plan.json
+  yss stage apply --root ./demo-frontend --plan-file docs/stage-plan.json --json
+  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+2. Spec / 功能架构（stage.spec-architecture）
+目标：固化解决方案和功能边界。
+  yss stage query --root ./demo-frontend --id stage.spec-architecture --json
+  yss stage update --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-frontend/docs/stage-plan-next.json
+  yss lifecycle verify --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --json --diagnostics
+  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Spec 基线和功能边界可审查。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+3. Harness 入口（stage.harness-entry）
 目标：校验仓库身份、上游输入、影响面和实现仓库上下文。
   yss stage query --root ./demo-frontend --id stage.harness-entry --json
   yss doctor --root ./demo-frontend --json
@@ -655,7 +695,7 @@ Profile frontend
 下一步条件：上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-2. 前端工程设计（stage.frontend-engineering-design）
+4. 前端工程设计（stage.frontend-engineering-design）
 目标：联合输入通过后定义组件、状态管理、API 消费和前端测试边界。
   yss stage query --root ./demo-frontend --id stage.frontend-engineering-design --json
   yss handoff verify --root ./demo-frontend --kind package --package docs/handoff --json --diagnostics
@@ -665,7 +705,7 @@ Profile frontend
 下一步条件：前端实现计划可审阅；本地无领域影响已记录 not-applicable，新领域问题回交上游。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-3. Slice Contract（stage.slice-contract）
+5. Slice Contract（stage.slice-contract）
 目标：将当前前端工程设计、条件化后端交付和冻结契约编译为前端垂直切片实现合同。
   yss stage query --root ./demo-frontend --id stage.slice-contract --json
   yss contract verify --root ./demo-frontend --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
@@ -674,7 +714,7 @@ Profile frontend
 下一步条件：合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-4. 垂直切片实现（stage.slice-implementation）
+6. 垂直切片实现（stage.slice-implementation）
 目标：由前端、后端和测试 Agent 按同一合同并行实现和验证。
   yss stage query --root ./demo-frontend --id stage.slice-implementation --json
   yss skills list --root ./demo-frontend --json
@@ -684,7 +724,7 @@ Profile frontend
 下一步条件：行为实现、测试证据、契约一致性和写入边界均满足合同。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
-5. 独立验证（stage.verification）
+7. 独立验证（stage.verification）
 目标：由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。
   yss stage query --root ./demo-frontend --id stage.verification --json
   yss evidence verify --root ./demo-frontend --kind verification --file docs/verification.json --json --diagnostics
@@ -693,6 +733,16 @@ Profile frontend
   核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
 预期结果：查询/核验当前输入与适用条件。
 下一步条件：所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+8. 产品设计（stage.product-design）
+目标：在存在产品设计影响时校准页面流和状态。
+  yss stage query --root ./demo-frontend --id stage.product-design --json
+  yss assets list --root ./demo-frontend --json
+  yss lifecycle status --root ./demo-frontend --checkpoint .work/feature/checkpoint.yaml --json
+  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的设计门禁通过；未命中项记录 not-applicable 及原因。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
 
 
