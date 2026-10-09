@@ -60,8 +60,14 @@ const f=await backendProfileTerminalFixture({nativeSeed:seed,localEvidence:true}
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(f.Root) })
-	if raw, err = exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "evidence", "verify", "--root", f.Root, "--kind", "backend-terminal", "--file", f.Terminal, "--checkpoint", f.Checkpoint, "--json").CombinedOutput(); err != nil {
+	apTestPut(t, f.Root, "local-deployment.json", mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, "profile-deployment.json")))
+	qualifyLocalBackendMilestoneEngineering(t, localImplementationTestFixture{Root: f.Root, CheckpointRef: f.Checkpoint, SliceRef: f.Slice})
+	if raw, err = exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "lifecycle", "status", "--root", f.Root, "--checkpoint", f.Checkpoint, "--json").CombinedOutput(); err != nil {
 		t.Fatalf("public actual Backend local terminal: %v %s", err, raw)
+	}
+	var status map[string]any
+	if err = json.Unmarshal(raw, &status); err != nil || semMap(semMap(status["result"])["progression"])["status"] != "reached" {
+		t.Fatalf("Backend local responsibility did not reach its terminal: %v %s", err, raw)
 	}
 	front := specBaselineActualNativeSeed(t, "frontend", true)
 	apTestPut(t, front, ".work/profile/map.md", "---\ncheckpoint_ref: .work/profile/checkpoint.json\n---\n")
@@ -78,6 +84,14 @@ const f=await backendProfileTerminalFixture({nativeSeed:seed,localEvidence:true}
 	if err = consume(); err != nil {
 		t.Fatalf("explicit current Backend dependency: %v", err)
 	}
+	checkpoint := mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, f.Checkpoint))
+	missingGate := semMap(mustParseContract(checkpoint))
+	delete(semMap(missingGate["gates"]), "gate.engineering-contract-approved")
+	apTestPut(t, f.Root, f.Checkpoint, missingGate)
+	if consume() == nil {
+		t.Fatal("unfinished Backend responsibility accepted")
+	}
+	apTestPut(t, f.Root, f.Checkpoint, checkpoint)
 	c.Basis["openapi_freeze"]["digest"] = "sha256:" + safefs.Digest([]byte("stale"))
 	if consume() == nil {
 		t.Fatal("API mismatch accepted")

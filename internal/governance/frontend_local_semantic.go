@@ -286,12 +286,8 @@ func contractLocalFrontendBackend(s *semanticSession, cpRef string, c *nativeSli
 		if identity["profile_id"] != "harness.backend-delivery" || backendCP["feature_id"] != cp["feature_id"] {
 			return s.reject("FRONTEND_BINDING", "后端依赖必须是同功能当前专职Backend工程")
 		}
-		authorization, err := progressionBackendAuthorization(backend, ref, "", true)
-		if err != nil {
-			return err
-		}
-		if err = backend.verify("backend-terminal", authorization.TerminalRef, map[string]string{"checkpoint": ref}); err != nil {
-			return err
+		if status, reason := progressionProfileTerminal(backend, "backend", ref, backendCP); status != "reached" {
+			return s.reject("FRONTEND_INPUTS", "明确后端职责终点尚未完成："+reason)
 		}
 	} else {
 		row := semMap(coordination["backend"])

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "profile": "frontend",
-  "templateCommit": "ab1ff42250a7ff01157483076e8fc8f55887ae17",
+  "templateCommit": "4094931f0f7df937706c5129be3178377730abb3",
   "registrySHA256": "045fdcca4a7099f56208aafde872359e8e3f003e69fc9b16b13aee90e85e0e69",
   "profileSHA256": "c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a",
   "stages": [
