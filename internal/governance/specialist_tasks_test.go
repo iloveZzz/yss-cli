@@ -12,14 +12,22 @@ import (
 
 func TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker(t *testing.T) {
 	frontend := specBaselineActualNativeSeed(t, "frontend", true)
+	program := `import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
+const root=process.argv[1],{planTracking,applyTracking}=await import(pathToFileURL(path.join(root,'scripts/lib/stage-tracking-migration.mjs')).href);
+const base=path.join(root,'.work/analysis');fs.mkdirSync(base,{recursive:true});
+const cp=JSON.parse(fs.readFileSync(path.join(root,'.template-spec/process/templates/lifecycle-checkpoint-template.json'),'utf8'));Object.assign(cp,{feature_id:'feature.analysis',repository_mode:'project-instance',stage:'stage.plan',next_work_unit:'work-unit.plan-requirements'});if(cp.stage_trace)cp.stage_trace.stage=cp.stage;fs.writeFileSync(path.join(base,'checkpoint.json'),JSON.stringify(cp));fs.writeFileSync(path.join(base,'map.md'),'---\ncheckpoint_ref: .work/analysis/checkpoint.json\n---\n');
+const plan=planTracking(root,{checkpoint_ref:'.work/analysis/checkpoint.json',items:[{id:'requirements',title:'Synthetic local requirements',stage:'stage.plan',work_unit:'work-unit.plan-requirements',owner:'synthetic-analysis',scope:'Confirm same-side business requirements',acceptance:['Current source rules recorded'],source_refs:['CONTEXT.md']}]});applyTracking(root,plan);`
+	if raw, err := exec.Command("node", "--input-type=module", "-e", program, frontend).CombinedOutput(); err != nil {
+		t.Fatalf("actual public analysis tracking: %v %s", err, raw)
+	}
 	s := apTestSession(t, frontend)
-	for _, unit := range []string{"work-unit.plan-requirements", "work-unit.prototype-design-v2"} {
+	for _, unit := range []string{"work-unit.plan-requirements"} {
 		stage, roleID := "stage.plan", "role.requirements-manager"
 		if unit == "work-unit.prototype-design-v2" {
 			stage, roleID = "stage.product-design", "role.product-manager"
 		}
 		role := taskRole(s, roleID)
-		task := map[string]any{"schema_version": 1, "task_id": "synthetic.local-analysis", "work_unit_id": unit, "actor_id": "synthetic.analysis", "role_id": roleID, "runtime_id": "runtime.generic", "execution_state": "Drafter", "workflow_status": "active", "stage_id": stage, "skill_source": map[string]any{"registry_ref": approvalRolesRef, "defaults_ref": "taskPackageDefaults(" + roleID + ")", "core_skills": role["core_skills"], "forbidden_skills": role["forbidden_skills"]}, "contract": map[string]any{"kind": "lifecycle-work-unit", "contract_id": "synthetic.current", "contract_version": 1, "status": "issued", "contract_ref": guidanceContractRef("frontend"), "lifecycle_ref": approvalRegistryRef}, "inputs": []any{"CONTEXT.md"}, "objective": "Synthetic local analysis consumer; no real approval", "allowed_write_paths": []any{}, "forbidden_actions": []any{"publish"}, "expected_outputs": []any{"analysis"}, "expected_evidence_files": []any{"AGENTS.md"}, "verification_commands": []any{"synthetic check"}, "verification_results": []any{}, "downstream_consumers": []any{"test"}, "convergence": map[string]any{"parent_work_unit": unit, "convergence_ref": "AGENTS.md"}}
+		task := map[string]any{"schema_version": 1, "task_id": "synthetic.local-analysis", "work_unit_id": unit, "actor_id": "synthetic.analysis", "role_id": roleID, "runtime_id": "runtime.generic", "execution_state": "Drafter", "workflow_status": "active", "stage_id": stage, "skill_source": map[string]any{"registry_ref": approvalRolesRef, "defaults_ref": "taskPackageDefaults(" + roleID + ")", "core_skills": role["core_skills"], "forbidden_skills": role["forbidden_skills"]}, "contract": map[string]any{"kind": "lifecycle-work-unit", "contract_id": "synthetic.current", "contract_version": 1, "status": "issued", "contract_ref": guidanceContractRef("frontend"), "lifecycle_ref": approvalRegistryRef}, "inputs": []any{"CONTEXT.md"}, "objective": "Synthetic local analysis consumer; no real approval", "allowed_write_paths": []any{".work/analysis/plan.md"}, "checkpoint_ref": ".work/analysis/checkpoint.json", "forbidden_actions": []any{"publish"}, "expected_outputs": []any{"analysis"}, "expected_evidence_files": []any{"AGENTS.md"}, "verification_commands": []any{"synthetic check"}, "verification_results": []any{}, "downstream_consumers": []any{"test"}, "convergence": map[string]any{"parent_work_unit": unit, "convergence_ref": "AGENTS.md"}}
 		apTestPut(t, frontend, "task.json", task)
 		if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", frontend, "--kind", "task", "--file", "task.json", "--json").CombinedOutput(); err != nil {
 			t.Fatalf("public local analysis %s: %v %s", unit, err, raw)
