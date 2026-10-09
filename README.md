@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.5，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。新增内置技能详情查询、按条件解析与就绪核验，Agent 可补装后在当前会话读取已核验入口。1.3.5 修复后端平台证据随 Bundle 分发，并让 DDD/MVC Maven 验证优先消费用户 settings；原平台及脚手架合同门禁继续生效。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前版本为 1.3.5，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。新增内置技能详情查询、按条件解析与就绪核验，Agent 可补装后在当前会话读取已核验入口。1.3.5 修复后端平台证据随 Bundle 分发，并让 DDD/MVC Maven 验证优先消费用户 settings；新增明确的独立 DDD/MVC 纯骨架模式，并支持 Backend/Frontend 本地业务分析与本端交付；正式平台与合同门禁继续生效。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -16,7 +16,7 @@ yss help tutorial
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
 
-编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -count=1 ./...`；适用平台增加 `-race`。
+编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试默认使用 `node tools/verification-plan.mjs --base <完整基线SHA> --template-root <固定模板源> --out <仓库外计划> --execute`，按差异及依赖执行专项 Go、竞态和来源消费者；共享核心、事务/安装/安全或未知范围扩大到全量，明确全量使用 `--full`。真实证据只在源码、工具、参数、环境和输入一致时复用。
 
 ```sh
 yss init --profile spec --root ./my-project --project-name 项目名称
@@ -75,9 +75,9 @@ yss migrate rollback --root ./old-project --json
 
 完整覆盖表、平台限制及剩余切换条件见 [迁移清单](docs/porting-status.md)。旧命令兼容与显式原生 API 用法见 [兼容适配](compat/README.md)。
 
-本地打包六个平台：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
+通用交叉打包入口（会构建全部平台，当前发行不调用）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.3.5 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。其他平台可提供独立标注的未原生验收试用包，保留 `stableReady=false`、`nativeRuntimeVerified=false`；Windows 只读文件操作的 `UNPORTED` 限制保持。
+1.3.5 的发行平台为本机 `darwin/arm64`。只有该平台的固定二进制、真实验收收据和本次必要门禁通过，才装配正式包；其他平台的历史结果保留，未验证或失败结果不会标记为通过。六平台齐备不作为本次发行条件。本次仅提供 Windows AMD64 独立标注的未原生验收试用包，保留 `stableReady=false`、`nativeRuntimeVerified=false`；Windows 只读文件操作的 `UNPORTED` 限制保持。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
@@ -187,3 +187,7 @@ yss upgrade --tool-root ./tools/yss-clean
 ```
 
 核验一致后再调整 PATH 入口。离线案例见 `yss help tutorial`。只替换二进制、改写旧收据或强制覆盖会破坏来源和回退依据；现有摘要、来源、冲突及事务保护继续生效。
+
+Backend/Frontend 支持 `standalone` 本地业务事实与 `upstream` 权威来源两种输入。日常 Ticket 的 `business_input` 记录 `mode`、`side`、`ref`、当前 `digest`、显式 `conflicts: []`；前端额外记录 `backend_dependency` 的 `mode: aligned | not-applicable`、`reason`、`ref`、`digest`。上游审批仍消费真实当前批准，冲突回交权威方；本端分析不扩大另一端代码写范围，本端完成不等于跨端业务验收。高风险与已有正式任务仍走 governed。
+
+独立后端骨架使用生成器 `--standalone` 并明确精确平台、Maven 坐标及输出目录；无需 Harness 合同，不生成业务代码、批准或 ready-for-agent。Maven 优先根 `./mvnw` 与现有 settings 配置；缺配置询问路径/仓库信息并保留待验证骨架。

@@ -44,7 +44,7 @@ func checkpointAsset(cp map[string]any, key string, ids ...string) string {
 
 // Source approval is consumed in its original policy and checkpoint scope. No
 // receiving gate is populated or promoted by this reader.
-func verifySpecBaselineSource(s *semanticSession, cpRef string) (map[string]any, []string, error) {
+func verifySpecBaselineSource(s *semanticSession, cpRef string, local ...bool) (map[string]any, []string, error) {
 	if !contractPath(cpRef) {
 		return nil, nil, s.reject("SPEC_BASELINE", "Spec 基线需要项目内当前 checkpoint")
 	}
@@ -59,7 +59,8 @@ func verifySpecBaselineSource(s *semanticSession, cpRef string) (map[string]any,
 	if err != nil {
 		return nil, nil, err
 	}
-	if identity["repository_mode"] != "project-instance" || profile["profile_id"] != "harness.spec-template" {
+	localOwnSide := len(local) == 1 && local[0] && profile["profile_id"] == "harness.frontend-delivery"
+	if identity["repository_mode"] != "project-instance" || (profile["profile_id"] != "harness.spec-template" && !localOwnSide) {
 		return nil, nil, s.reject("SPEC_BASELINE", "导出来源必须为 Spec 项目实例")
 	}
 	cp, err := s.doc(cpRef)
@@ -186,7 +187,7 @@ func verifySpecBaselineSource(s *semanticSession, cpRef string) (map[string]any,
 	if !ciCommit.MatchString(templateCommit) {
 		return nil, nil, s.reject("IDENTITY", "Spec 基线需要固定模板来源")
 	}
-	source := map[string]any{"profile_id": "harness.spec-template", "feature_id": cp["feature_id"], "checkpoint_ref": cpRef, "checkpoint_digest": "sha256:" + safefs.Digest(cpBytes), "template_commit": templateCommit, "spec_ref": specRef, "spec_digest": "sha256:" + safefs.Digest(specBytes), "plan_ref": planRef, "domain_strategy_ref": strategyRef, "stage_decision_package_ref": stageRef, "business_ticket_set_ref": ticketsRef, "product_design_required": productDesign}
+	source := map[string]any{"profile_id": profile["profile_id"], "feature_id": cp["feature_id"], "checkpoint_ref": cpRef, "checkpoint_digest": "sha256:" + safefs.Digest(cpBytes), "template_commit": templateCommit, "spec_ref": specRef, "spec_digest": "sha256:" + safefs.Digest(specBytes), "plan_ref": planRef, "domain_strategy_ref": strategyRef, "stage_decision_package_ref": stageRef, "business_ticket_set_ref": ticketsRef, "product_design_required": productDesign}
 	extra := []any{domain.MetadataFile, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/yss-skill-registry.yaml"}
 	_, orchestrationRef, e := s.orchestration()
 	if e != nil {
