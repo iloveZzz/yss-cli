@@ -27,7 +27,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
       reasons.push("AST 确认仅批准业务输入消费者变化；导出、接收、前端及生命周期消费者专项");
     }
     else if (file === "internal/governance/specialist_tasks_test.go") focusedGo.push({packages:["./internal/governance"],run:"Specialist|LocalFrontend"});
-    else if (/^internal\/governance\/contract_semantic(?:_test)?\.go$/.test(file) && goChanges[file] && !goChanges[file].SharedChanged && goChanges[file].Functions.length > 0 && goChanges[file].Functions.every(name => ["contractPlatformFingerprint","TestContractPlatformFingerprintOldOracleUnicode"].includes(name))) {
+    else if (/^internal\/governance\/contract_semantic(?:_test)?\.go$/.test(file) && goChanges[file] && !goChanges[file].SharedChanged && goChanges[file].Functions.length > 0 && goChanges[file].Functions.every(name => ["contractPlatformFingerprint","TestContractPlatformFingerprintOldOracleUnicode","contractSelectLocalUnit","TestContractSelectLocalUnitSpecialistResponsibilities"].includes(name))) {
       focusedGo.push({packages:["./internal/governance"],run:"Contract|Scaffold|Platform|Backend|LocalFrontend"});
       reasons.push("AST 确认只扩展平台来源指纹及其差分测试；合同、平台、脚手架与后端消费者专项");
     }
@@ -44,7 +44,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
   for (const original of sourcePaths) {
     if (/^tests\/fixtures\/upstream-source(?:\/|-index\.mjs$)/.test(original)) { reasons.push(`冻结测试输入由来源 fixture 检查和原生消费者核验: ${original}`); continue; }
     const file = sourcePath(original);
-    if (/^scripts\/lib\/(?:implementation-contract-compiler|frontend-delivery-boundary|slice-contract-preparation|slice-task-package|task-package)\.mjs$/.test(file) || /^\.agents\/skills\/yss-implementation-contract-compiler\/tests\//.test(file)) { suites.add("implementation-contracts"); suites.add("specialist-business-inputs"); }
+    if (/^scripts\/lib\/(?:implementation-contract-compiler|frontend-delivery-boundary|slice-contract|slice-contract-preparation|slice-task-package|task-package)\.mjs$/.test(file) || file==="scripts/fixtures/slice-contract-v3/scenarios.test.mjs" || /^\.agents\/skills\/yss-implementation-contract-compiler\//.test(file)) { suites.add("implementation-contracts"); suites.add("specialist-business-inputs"); }
     else if (file === ".template-spec/process/schemas/lifecycle-registry.schema.json") suites.add("specialist-business-inputs");
     else if (/^\.agents\/skills\/yss-(?:ddd|layered-mvc)-scaffold-generator\//.test(file) || /^scripts\/(?:lib\/(?:standalone-backend-scaffold|backend-scaffold-prerequisites|scaffold-local-database)\.mjs|fixtures\/backend-scaffold\/)/.test(file)) suites.add("backend-scaffolds");
     else if (/^(?:scripts\/(?:lib\/backend-platform[^/]*\.mjs|backend-platforms)|tests\/backend-platforms\.test\.mjs|\.template-spec\/engineering\/(?:backend-platforms\.|evidence\/)|\.template-source\/engineering\/evidence\/)/.test(file)) { suites.add("backend-platforms"); suites.add("backend-scaffolds"); }
