@@ -27,6 +27,10 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
       reasons.push("AST 确认仅批准业务输入消费者变化；导出、接收、前端及生命周期消费者专项");
     }
     else if (file === "internal/governance/specialist_tasks_test.go") focusedGo.push({packages:["./internal/governance"],run:"Specialist|LocalFrontend"});
+    else if (file === "internal/governance/frontend_implementation_semantic.go" && goChanges[file] && !goChanges[file].SharedChanged && goChanges[file].Functions.length > 0 && goChanges[file].Functions.every(name => name === "frontendImplementationCurrent")) {
+      focusedGo.push({packages:["./internal/governance"],run:"Frontend|LocalFrontend|Task|Approval|Review"});
+      reasons.push("AST 确认当前前端候选绑定：本地完成、任务、批准和独立审查消费者专项");
+    }
     else if (/^internal\/governance\/contract_semantic(?:_test)?\.go$/.test(file) && goChanges[file] && !goChanges[file].SharedChanged && goChanges[file].Functions.length > 0 && goChanges[file].Functions.every(name => ["contractPlatformFingerprint","TestContractPlatformFingerprintOldOracleUnicode","contractSelectLocalUnit","TestContractSelectLocalUnitSpecialistResponsibilities"].includes(name))) {
       focusedGo.push({packages:["./internal/governance"],run:"Contract|Scaffold|Platform|Backend|LocalFrontend"});
       reasons.push("AST 确认只扩展平台来源指纹及其差分测试；合同、平台、脚手架与后端消费者专项");
@@ -132,7 +136,7 @@ function main(argv) {
     const local = item => item === module ? "." : "./" + item.slice(module.length + 1);
     importGraph[local(pkg)] = imports.filter(item => item === module || item.startsWith(module + "/")).map(local);
   }
-  const scopedFiles=["internal/governance/spec_baseline.go","internal/governance/task_semantic.go","internal/governance/contract_semantic.go","internal/governance/contract_semantic_test.go"].filter(file=>paths.includes(file));
+  const scopedFiles=["internal/governance/spec_baseline.go","internal/governance/task_semantic.go","internal/governance/contract_semantic.go","internal/governance/contract_semantic_test.go","internal/governance/frontend_implementation_semantic.go"].filter(file=>paths.includes(file));
   const goChanges=scopedFiles.length?JSON.parse(execFileSync("go",["run","./tools/verification-scope"],{cwd:root,encoding:"utf8",input:JSON.stringify(Object.fromEntries(scopedFiles.map(file=>[file,{Before:git(["show",base+":"+file],root),After:fs.readFileSync(path.join(root,file),"utf8")}])))})):{};
   const plan = { schemaVersion: 1, baseCommit: base, cliCommit: git(["rev-parse", "HEAD"], root), sourceLockSha256: createHash("sha256").update(fs.readFileSync(path.join(root, "docs/source-lock.json"))).digest("hex"), paths, sourceChanges, sourceAnalysisPending: sourceChanged && !options["template-root"], ...selectVerification({ paths, sourcePaths, versionOnly, importGraph, forceFull: options.full, goChanges }) };
   if (plan.sourceAnalysisPending) plan.nativeRequired = true;
