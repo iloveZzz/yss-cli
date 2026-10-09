@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "profile": "backend",
-  "templateCommit": "ebf5236f44c2c91d58366e838b64551e6f30751d",
-  "registrySHA256": "4a3eabfb5adc2cdd999cd7d7967a0b7c344b3cbd618cea36b752fd5292dd2ac9",
-  "profileSHA256": "3af7f3d5f15babfbc6f90fa918c9fb5e6f81b6488062087575fe374bb4ccfeca",
+  "templateCommit": "2a5f253cade0e23becb86ae81db98ad9a329be13",
+  "registrySHA256": "3bdc65cc74c2dc6fa32a8e1473dad763ee95b2f02db6cbb4a1fc9c37eecae450",
+  "profileSHA256": "eaffafd6b92ae258a4c7812fb6109a48ca919d04a92b382dd7b92153bb5117e2",
   "stages": [
     {
       "id": "stage.harness-entry",

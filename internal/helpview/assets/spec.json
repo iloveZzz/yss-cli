@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "profile": "spec",
-  "templateCommit": "5153d60ec657378421f6759b69cb3c02cd3d1512",
-  "registrySHA256": "d876225c5bfe1dd63ef05359c34688cd83194d59d05a47bc4a223833a1961ab5",
-  "policySHA256": "5d59f7d334d9c9c86c9d2557cacddb16029b12c31ef8cf0e48b81532125a299d",
+  "templateCommit": "e6113cd832b414d4822db4fcff14159667853189",
+  "registrySHA256": "39a8e314412faa8e3ffe82d6f834dbe81d512105df9ae2c49f17b70f21fb892c",
+  "policySHA256": "65a6cd831e1297635092b2d554545907395a89552b32c120902ce10dc1215de1",
   "stages": [
     {
       "id": "stage.entry-triage",
@@ -20,26 +20,26 @@
     {
       "id": "stage.spec-architecture",
       "name": "Spec / 功能架构",
-      "goal": "固化解决方案和功能边界。",
-      "exitCriteria": "Spec 基线和功能边界可审查。"
+      "goal": "固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。",
+      "exitCriteria": "Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。"
     },
     {
       "id": "stage.product-design",
-      "name": "产品设计",
-      "goal": "在存在产品设计影响时校准页面流和状态。",
-      "exitCriteria": "命中的设计门禁通过；未命中项记录 not-applicable 及原因。"
+      "name": "产品设计与业务 Ticket 正式化",
+      "goal": "按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。",
+      "exitCriteria": "命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。"
     },
     {
       "id": "stage.system-data-engineering",
       "name": "系统 / 数据架构与工程契约",
-      "goal": "固化系统、数据、工程基线和 API 契约。",
+      "goal": "消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。",
       "exitCriteria": "新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。"
     },
     {
       "id": "stage.ticket-formalization",
-      "name": "Ticket 正式化",
-      "goal": "在既有功能追踪入口下，将冻结范围正式化为垂直切片。",
-      "exitCriteria": "工作单元窄、依赖清晰、验收和测试 seam 可执行。"
+      "name": "实现切片拆分与合同准入",
+      "goal": "消费冻结工程契约和当前实现仓库准备，将业务 Ticket 细化为可独立验证的实现切片，并批准当前 Slice Implementation Contract。",
+      "exitCriteria": "切片范围窄、依赖清晰、验收与测试 seam 可执行；工程前置闭合、合同批准且当前，生命周期复算后才能 ready-for-agent。"
     },
     {
       "id": "stage.vertical-slice-implementation",
