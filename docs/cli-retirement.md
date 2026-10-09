@@ -1,6 +1,6 @@
 # 四旧 CLI 退役合同
 
-统一入口版本为 `yss 1.3.3`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。按验证推进 Spec → Design → Backend → Frontend，真实项目仅使用隔离副本，原地迁移另行安排。
+统一入口版本为 `yss 1.3.4`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。按验证推进 Spec → Design → Backend → Frontend，真实项目仅使用隔离副本，原地迁移另行安排。
 
 `tools/bundle` 独立读取模板根及三个 Agent 模板源的固定 Git 对象，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定来源提交和策略摘要；公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 

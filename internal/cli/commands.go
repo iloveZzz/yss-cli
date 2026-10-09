@@ -65,6 +65,9 @@ func initializeCommands() {
 	defineArgument("project-name", "<名称>", "项目名称，作为模板变量")
 	defineArgument("business-domain", "<领域>", "项目业务领域，作为模板变量")
 	defineArgument("team-size", "<规模>", "团队规模，作为模板变量")
+	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
+	defineArgument("agent-runtime", "<运行时>", "技能入口核验的目标运行时；本轮支持 Codex", "codex")
+	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 
 	for _, row := range []struct{ key, description string }{
 		{"json", "执行结果输出 JSON；帮助始终输出文本"},
@@ -87,6 +90,12 @@ func initializeCommands() {
 		switch parts[0] {
 		case "init", "attach", "sync", "doctor", "diff", "migrate", "skills", "assets":
 			opts = append(opts, projectOptionNames...)
+			if key == "skills list" {
+				opts = append(opts, "details")
+			}
+			if key == "skills resolve" {
+				opts = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "agent-runtime", "when")
+			}
 			if parts[0] == "attach" || parts[0] == "sync" || parts[0] == "migrate" && (len(parts) == 1 || parts[1] == "plan") {
 				opts = append(opts, "review-out", "base-bundle", "resolution-file")
 				if parts[0] == "migrate" {
@@ -346,6 +355,9 @@ func validateArguments(command string, o options) error {
 	}
 	allowed := map[string]bool{}
 	effectiveOptions := spec.options
+	if key == "skills list" && o.values["details"] == "true" {
+		effectiveOptions = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "details")
+	}
 	if strings.HasSuffix(key, " verify") {
 		group := strings.Fields(key)[0]
 		if group == "contract" || group == "evidence" || group == "handoff" || group == "lifecycle" {
