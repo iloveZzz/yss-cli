@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -252,7 +253,18 @@ func (r *reader) candidateArchive(raw []byte, platform, binary string) error {
 var scopedConsumerCases = []string{"skills.projection", "skills.lock", "profiles.projection", "handoff.source-lock", "lifecycle.registry", "skills.registry", "affected-source-contract-tests", "source.whitespace", "skills.upstream-source"}
 
 func scopedCommand(i int, args []string, cwd string) bool {
-	commands := [][]string{{"scripts/sync-skills", "--check"}, {"scripts/update-skill-lock", "--check"}, {"scripts/sync-profile-skills", "--check", "--profile=all"}, {"scripts/verify-strategic-handoff-tools-lock", "--require-committed"}, {"scripts/verify-lifecycle-registry"}, {"scripts/verify-skill-registry"}, {"node", "--test", "--test-concurrency=1", "tests/read-only-intake.test.mjs", "tests/verification-execution.test.mjs", "tests/instance-metadata.test.mjs", ".template-source/tooling/node/test/retirement.test.mjs"}, {"git", "diff", "--check"}, {"scripts/verify-upstream-skill-source", "--source=iloveZzz/yss-harness-design-agent", "--source-root=" + cwd + "/submodules/yss-harness-design-agent"}}
+	sourceRoot := cwd + "/submodules/yss-harness-design-agent"
+	if i == 8 {
+		if len(args) != 3 {
+			return false
+		}
+		// Imported Skill revisions are independently pinned and verified by the source script.
+		sourceRoot = strings.TrimPrefix(args[2], "--source-root=")
+		if !filepath.IsAbs(sourceRoot) || filepath.Clean(sourceRoot) != sourceRoot {
+			return false
+		}
+	}
+	commands := [][]string{{"scripts/sync-skills", "--check"}, {"scripts/update-skill-lock", "--check"}, {"scripts/sync-profile-skills", "--check", "--profile=all"}, {"scripts/verify-strategic-handoff-tools-lock", "--require-committed"}, {"scripts/verify-lifecycle-registry"}, {"scripts/verify-skill-registry"}, {"node", "--test", "--test-concurrency=1", "tests/read-only-intake.test.mjs", "tests/verification-execution.test.mjs", "tests/instance-metadata.test.mjs", ".template-source/tooling/node/test/retirement.test.mjs"}, {"git", "diff", "--check"}, {"scripts/verify-upstream-skill-source", "--source=iloveZzz/yss-harness-design-agent", "--source-root=" + sourceRoot}}
 	return i >= 0 && i < len(commands) && reflect.DeepEqual(args, commands[i])
 }
 func (r *reader) scopedTemplateGate(s gateSources) error {
