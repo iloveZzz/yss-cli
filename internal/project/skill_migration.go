@@ -16,17 +16,30 @@ const maintenanceMigrationRef = ".template-spec/agents/skill-migrations.md"
 // documented pair must be present in the immutable target Bundle. Historical
 // Bundles without that retirement section keep their original behavior.
 func maintenanceSkillMigration(id *Identity, b *bundle.Bundle, command string) bool {
-	if command != "sync" || id.Native == nil || b.SourceState != "committed" || b.Profile != id.Profile.Name {
+	if b.SourceState != "committed" || b.Profile != id.Profile.Name {
+		return false
+	}
+	var distribution map[string]any
+	switch {
+	case command == "sync" && id.Native != nil:
+		distribution = id.Native.Distribution
+	case command == "migrate" && id.Native == nil && id.Legacy != nil && id.Profile.Name == "spec":
+		old, registered := baseline(id)[".agents/skills/"+oldMaintenanceSkill+"/SKILL.md"]
+		if !registered || old.Ownership != "managed" || !digestPattern.MatchString(old.Applied.Digest) {
+			return false
+		}
+		distribution, _ = object(id.Legacy["distribution"])
+	default:
 		return false
 	}
 	fullProfile := false
 	switch id.Profile.Name {
 	case "spec":
-		if text(id.Native.Distribution["mode"]) != "selected" {
+		if text(distribution["mode"]) != "selected" {
 			return false
 		}
 	case "design", "backend", "frontend":
-		if text(id.Native.Distribution["mode"]) != "profile-full" || text(b.Distribution["mode"]) != "profile-full" {
+		if text(distribution["mode"]) != "profile-full" || text(b.Distribution["mode"]) != "profile-full" {
 			return false
 		}
 		// Complete Profiles have no installedSkills selection. Only their
@@ -152,7 +165,8 @@ func historicalMaintenanceFile(ref string) bool {
 
 func (u *upgradePlanner) maintenanceRetirements() map[string]bundle.MigrationRule {
 	rules := map[string]bundle.MigrationRule{}
-	if !maintenanceSkillMigration(u.id, u.bundle, u.plan.Command) {
+	// Legacy selection migration does not prove the old bytes needed for deletion.
+	if u.plan.Command != "sync" || u.id.Native == nil || !maintenanceSkillMigration(u.id, u.bundle, u.plan.Command) {
 		return rules
 	}
 	commit, snapshot, hash := u.previousSource()

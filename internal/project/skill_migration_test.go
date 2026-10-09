@@ -297,6 +297,298 @@ func writeMigrationMetadata(t *testing.T, root string, metadata Metadata) {
 	}
 }
 
+func legacyMaintenanceSelectionFixture(t *testing.T) (string, *Identity) {
+	t.Helper()
+	root, _ := lockLegacyFixture(t)
+	ref := ".agents/skills/" + oldMaintenanceSkill + "/SKILL.md"
+	raw := []byte("Historical managed maintenance entry; synthetic legacy bytes for migration tests.\n")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, ref)), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ref), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := load(root, domain.Profiles["spec"].Metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, ok := object(value)
+	if !ok {
+		t.Fatal("legacy fixture metadata is not an object")
+	}
+	managed, _ := object(metadata["managedFiles"])
+	managed[ref] = map[string]any{"contentHash": safefs.Digest(raw)}
+	distribution, _ := object(metadata["distribution"])
+	distribution["installedSkills"] = union(stringsOf(distribution["installedSkills"]), []string{oldMaintenanceSkill})
+	encoded, err := jsonBytes(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, domain.Profiles["spec"].Metadata), encoded, 0644); err != nil {
+		t.Fatal(err)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, id
+}
+
+func TestLegacyMaintenanceSelectionRequiresFixedSource(t *testing.T) {
+	_, id := legacyMaintenanceSelectionFixture(t)
+	target, err := bundle.Load("spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maintenanceSkillMigration(id, target, "migrate") {
+		t.Fatal("real committed Bundle did not authorize its documented legacy selection migration")
+	}
+	for _, variant := range []string{"wrong-command", "native-sync-command", "wrong-profile", "wrong-target-profile", "working-tree-target", "missing-legacy", "native-migrate", "legacy-all", "unregistered-canonical", "projection-only", "invalid-old-hash", "missing-tombstone", "missing-replacement", "partial-replacement", "unsupported-replacement"} {
+		t.Run(variant, func(t *testing.T) {
+			_, candidate := legacyMaintenanceSelectionFixture(t)
+			actual, err := bundle.Load("spec")
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := "migrate"
+			ref := ".agents/skills/" + oldMaintenanceSkill + "/SKILL.md"
+			switch variant {
+			case "wrong-command":
+				command = "ensure"
+			case "native-sync-command":
+				command = "sync"
+			case "wrong-profile":
+				candidate.Profile = domain.Profiles["backend"]
+				actual, err = bundle.Load("backend")
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "wrong-target-profile":
+				actual.Profile = "design"
+			case "working-tree-target":
+				actual.SourceState = "working-tree"
+			case "missing-legacy":
+				candidate.Legacy = nil
+			case "native-migrate":
+				candidate.Native = &Metadata{}
+			case "legacy-all":
+				d, _ := object(candidate.Legacy["distribution"])
+				d["mode"] = "legacy-all"
+			case "unregistered-canonical", "projection-only", "invalid-old-hash":
+				managed, _ := object(candidate.Legacy["managedFiles"])
+				old := managed[ref]
+				delete(managed, ref)
+				if variant == "projection-only" {
+					managed[".codex/skills/"+oldMaintenanceSkill+"/SKILL.md"] = old
+				} else if variant == "invalid-old-hash" {
+					managed[ref] = map[string]any{"contentHash": "not-a-sha256"}
+				}
+			case "missing-tombstone":
+				delete(actual.Files, maintenanceMigrationRef)
+			case "missing-replacement":
+				delete(actual.Files, ".agents/skills/"+currentMaintenanceSkill+"/SKILL.md")
+			case "partial-replacement":
+				missing := ""
+				for _, path := range actual.SkillRequirements[currentMaintenanceSkill].Paths {
+					if path != ".agents/skills/"+currentMaintenanceSkill+"/SKILL.md" {
+						missing = path
+						break
+					}
+				}
+				if missing == "" {
+					t.Fatal("real replacement closure has no dependency for this counterexample")
+				}
+				delete(actual.Files, missing)
+			case "unsupported-replacement":
+				requirement := actual.SkillRequirements[currentMaintenanceSkill]
+				requirement.UnsupportedReason = "test-only unavailable dependency"
+				actual.SkillRequirements[currentMaintenanceSkill] = requirement
+			}
+			if maintenanceSkillMigration(candidate, actual, command) {
+				t.Fatal("invalid legacy selection authorized the known replacement")
+			}
+		})
+	}
+}
+
+func TestLegacyMaintenanceSelectionPreservesOldFiles(t *testing.T) {
+	root, id := legacyMaintenanceSelectionFixture(t)
+	oldRef := ".agents/skills/" + oldMaintenanceSkill + "/SKILL.md"
+	target, err := bundle.Load("spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := &upgradePlanner{id: id, bundle: target, plan: &Plan{Command: "migrate"}, old: baseline(id)}
+	if len(u.maintenanceRetirements()) != 0 {
+		t.Fatal("legacy selection treated metadata claims as trusted deletion material")
+	}
+	for _, variant := range []string{"current", "customized-old-file", "unknown-other-skill"} {
+		t.Run(variant, func(t *testing.T) {
+			if variant == "customized-old-file" {
+				f, err := os.OpenFile(filepath.Join(root, oldRef), os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, writeErr := f.WriteString("local customization must stay byte-for-byte\n")
+				closeErr := f.Close()
+				if writeErr != nil || closeErr != nil {
+					t.Fatal(writeErr, closeErr)
+				}
+			}
+			if variant == "unknown-other-skill" {
+				value, err := load(root, domain.Profiles["spec"].Metadata)
+				if err != nil {
+					t.Fatal(err)
+				}
+				metadata, _ := object(value)
+				d, _ := object(metadata["distribution"])
+				d["installedSkills"] = union(stringsOf(d["installedSkills"]), []string{"unknown-removed-skill"})
+				raw, err := jsonBytes(metadata)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, domain.Profiles["spec"].Metadata), raw, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := lockTree(t, root, true)
+			plan, err := Build(root, "spec", "migrate", nil, nil)
+			if !reflect.DeepEqual(before, lockTree(t, root, true)) {
+				t.Fatal("legacy selection planning wrote files or transaction material")
+			}
+			if variant == "unknown-other-skill" {
+				if lockCode(err) != "ASSET" {
+					t.Fatal("unknown missing Skill did not fail closed", err)
+				}
+				return
+			}
+			if err != nil || !plan.ReadyToApply {
+				t.Fatalf("documented legacy selection could not be planned: %v %+v", err, plan)
+			}
+			if asset := upgradeAsset(plan, oldRef); asset.Action != "retired-preserved" || asset.RuleID != "" {
+				t.Fatal("legacy old bytes were scheduled for retirement instead of preservation", asset)
+			}
+			selected := false
+			for _, change := range plan.Changes {
+				if historicalMaintenanceFile(change.Path) {
+					t.Fatal("legacy selection planned a write to the old Skill", change.Path)
+				}
+				if change.Path == MetadataFile {
+					var metadata Metadata
+					if err := json.Unmarshal(mustDecode(change.Data), &metadata); err != nil {
+						t.Fatal(err)
+					}
+					for _, name := range stringsOf(metadata.Distribution["installedSkills"]) {
+						if name == oldMaintenanceSkill {
+							t.Fatal("old entry remained an active selection")
+						}
+						selected = selected || name == currentMaintenanceSkill
+					}
+				}
+			}
+			if !selected {
+				t.Fatal("current setup entry was not selected")
+			}
+		})
+	}
+}
+
+func TestLegacyMaintenanceMigrationApplyDoctorAndRollback(t *testing.T) {
+	root, original := legacyMaintenanceSelectionFixture(t)
+	oldRef := ".agents/skills/" + oldMaintenanceSkill + "/SKILL.md"
+	before := lockTree(t, root, false)
+	legacyMetadata, err := os.ReadFile(filepath.Join(root, original.LegacyFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Build(root, "spec", "migrate", nil, nil)
+	if err != nil || !plan.ReadyToApply {
+		t.Fatal("documented legacy migration could not be planned", err)
+	}
+	if _, err = Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil || id.Native == nil {
+		t.Fatal("migration did not establish the native identity", err)
+	}
+	selected := stringsOf(id.Native.Distribution["installedSkills"])
+	if !reflect.DeepEqual(selected, migratedMaintenanceSkills(selected)) || !strings.Contains(strings.Join(selected, ","), currentMaintenanceSkill) {
+		t.Fatal("migration did not select the replacement alone", selected)
+	}
+	if got := lockTree(t, root, false)[oldRef]; got != before[oldRef] {
+		t.Fatal("migration changed preserved historical Skill bytes or mode")
+	}
+	if raw, err := os.ReadFile(filepath.Join(root, original.LegacyFile)); err != nil || string(raw) != string(legacyMetadata) {
+		t.Fatal("migration changed the protected legacy identity", err)
+	}
+	nativeMetadata, err := os.ReadFile(filepath.Join(root, MetadataFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"doctor", "diff"} {
+		t.Run(command, func(t *testing.T) {
+			readonly := lockTree(t, root, true)
+			inspection, err := Build(root, "spec", command, nil, nil)
+			if err != nil || !inspection.ReadyToApply || len(inspection.Changes) != 0 {
+				t.Fatal("preserved inactive old Skill prevented stable inspection", err)
+			}
+			if asset := upgradeAsset(inspection, oldRef); asset.Action != "retired-preserved" {
+				t.Fatal("read-only inspection reactivated the preserved Skill", asset)
+			}
+			if !reflect.DeepEqual(readonly, lockTree(t, root, true)) {
+				t.Fatal("post-migration inspection wrote files or transaction evidence")
+			}
+		})
+	}
+	for _, variant := range []string{"replacement-not-selected", "old-still-selected", "unknown-managed-skill"} {
+		t.Run(variant, func(t *testing.T) {
+			var metadata Metadata
+			if err := json.Unmarshal(nativeMetadata, &metadata); err != nil {
+				t.Fatal(err)
+			}
+			skills := stringsOf(metadata.Distribution["installedSkills"])
+			switch variant {
+			case "replacement-not-selected":
+				filtered := make([]string, 0, len(skills))
+				for _, skill := range skills {
+					if skill != currentMaintenanceSkill {
+						filtered = append(filtered, skill)
+					}
+				}
+				metadata.Distribution["installedSkills"] = filtered
+			case "old-still-selected":
+				metadata.Distribution["installedSkills"] = union(skills, []string{oldMaintenanceSkill})
+			case "unknown-managed-skill":
+				metadata.Managed[".agents/skills/unknown-removed-skill/SKILL.md"] = metadata.Managed[oldRef]
+			}
+			writeMigrationMetadata(t, root, metadata)
+			defer func() {
+				if err := os.WriteFile(filepath.Join(root, MetadataFile), nativeMetadata, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}()
+			readonly := lockTree(t, root, true)
+			if _, err := Build(root, "spec", "doctor", nil, nil); lockCode(err) != "ASSET" {
+				t.Fatal("unselected replacement or unknown old Skill bypassed the selection guard", err)
+			}
+			if !reflect.DeepEqual(readonly, lockTree(t, root, true)) {
+				t.Fatal("invalid post-migration selection refusal wrote project files")
+			}
+		})
+	}
+	if _, err = transaction.Rollback(root); err != nil {
+		t.Fatal(err)
+	}
+	if got := lockTree(t, root, false); !reflect.DeepEqual(before, got) {
+		t.Fatal("rollback did not restore original legacy identity, files and modes")
+	}
+	restored, err := Detect(root, "spec", false)
+	if err != nil || restored.Native != nil || restored.Legacy == nil {
+		t.Fatal("rollback did not restore the original legacy identity", err)
+	}
+}
+
 // Dedicated native instances use their complete Profile Bundle rather than
 // Spec's installedSkills selection. The same exact source-authorized retirement
 // must retain the original baseline and transaction rollback behavior.

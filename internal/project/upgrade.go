@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -177,7 +178,12 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 	}
 	skills := union(stringsOf(d["installedSkills"]), stringsOf(b.Distribution["installedSkills"]))
 	stages := union(stringsOf(d["installedStages"]), stringsOf(b.Distribution["installedStages"]))
+	inactiveMaintenance := id.Native != nil && slices.Contains(stringsOf(d["installedSkills"]), currentMaintenanceSkill) && !slices.Contains(stringsOf(d["installedSkills"]), oldMaintenanceSkill) && maintenanceSkillMigration(id, b, "sync")
 	for ref := range old {
+		// Preserved retired bytes are protection records, not active selections.
+		if inactiveMaintenance && historicalMaintenanceFile(ref) {
+			continue
+		}
 		if strings.HasPrefix(ref, ".agents/skills/") {
 			parts := strings.Split(ref, "/")
 			if len(parts) > 3 && !strings.HasPrefix(parts[2], ".") {
