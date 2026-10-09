@@ -9,8 +9,8 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "d92941b89eb44bcfae21b4a8b3f2425f025d6b5a",
-      "templateVersion": "git:d92941b89eb44bcfae21b4a8b3f2425f025d6b5a",
+      "templateCommit": "8de0e1dbd0c26843a0ad31cea1c088d9a120e108",
+      "templateVersion": "git:8de0e1dbd0c26843a0ad31cea1c088d9a120e108",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "54148bed5143b4c15d10fd97c28303847b788e67a53d4fbdaa5a4b1ff8e54a8a",
       "legacy": {
@@ -23,8 +23,8 @@
     "design": {
       "profile": "design",
       "sourcePath": "submodules/yss-harness-design-agent",
-      "templateCommit": "9802bc86848c9fcb58073e6fa82f0b43c09e256e",
-      "templateVersion": "git:9802bc86848c9fcb58073e6fa82f0b43c09e256e",
+      "templateCommit": "014dcd4db6ea694c815274c140ddd6edd079fd6a",
+      "templateVersion": "git:014dcd4db6ea694c815274c140ddd6edd079fd6a",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "cfdf8672e3775a7ebb3097e88f9e2b09c705d77c70dbc4be0faa4b53e05bf290",
       "legacy": {
@@ -37,8 +37,8 @@
     "backend": {
       "profile": "backend",
       "sourcePath": "submodules/yss-harness-backend-agent",
-      "templateCommit": "ee5faf849508d07cdec7c520439150475daa69cf",
-      "templateVersion": "git:ee5faf849508d07cdec7c520439150475daa69cf",
+      "templateCommit": "086099956d0f83c5c87f55f79f20350a8f5e2d4b",
+      "templateVersion": "git:086099956d0f83c5c87f55f79f20350a8f5e2d4b",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "d51506f2461eb6e71ce1d03acd31dc665b096bc57309b76c0251019b94c0b36e",
       "legacy": {
@@ -51,8 +51,8 @@
     "frontend": {
       "profile": "frontend",
       "sourcePath": "submodules/yss-harness-frontend-agent",
-      "templateCommit": "16e15bcce04972e33adc2b43336e4d97249e699c",
-      "templateVersion": "git:16e15bcce04972e33adc2b43336e4d97249e699c",
+      "templateCommit": "20da7d7f49bb5408bf509ed30dba4a2b9b4ab5e9",
+      "templateVersion": "git:20da7d7f49bb5408bf509ed30dba4a2b9b4ab5e9",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "392890ed2abb37e18ad33f4cf65fcb408c4c36c6ebb6bbd40af50ac9504ea480",
       "legacy": {
