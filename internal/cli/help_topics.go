@@ -50,6 +50,8 @@ func init() {
 			"ensure": {"补装指定 " + meaning + "。", "<标识...> --plan --out <新文件>", "位置参数: " + identifier + "；支持多个\n" + planFlags, "yss " + group + " ensure " + sample + " --root ./demo-spec --plan --out /tmp/yss-resource-plan.json\nyss " + group + " --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json", "须先 list 确认该 Profile 支持相应标识。", true},
 		})
 	}
+	helpTopics["skills list"] = helpTopic{"列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。", "[--details] [--json]", "--details  不核验整个技能库；调用前使用 resolve", "yss skills list --root ./demo-spec --json\nyss skills list --details --root ./demo-spec --json", "普通 list 输出保持兼容。详情不是技能就绪证明。", false}
+	helpTopics["skills resolve"] = helpTopic{"只读核验所选内置技能及命中的上下文依赖。", "<标识...> --agent-runtime codex [--when <条件列表>] [--json]", "位置参数: 已登记技能 ID 或别名；支持多个并去重\n--agent-runtime codex  必需\n--when <条件列表>  逗号分隔；只接受已登记条件", "yss skills resolve code-review codebase-design --agent-runtime codex --root ./demo-spec --json\nyss skills resolve code-review --agent-runtime codex --when lifecycle-document-output --root ./demo-spec --json", "消费 result.status：ready 才读取 entryPath；missing 在已有授权内 ensure plan/apply 后重新 resolve；blocked 停止受影响调用。查询退出 0 不授予调用、实施或批准权限。", true}
 	registerGroup("bundle", "读取或导出完整固定 Bundle 与 manifest。", "--profile <Profile>", "--profile <spec|design|backend|frontend>  必需", "yss bundle inspect --profile spec --json", "无需项目或网络；公开资产接口供插件及构建消费者使用。", map[string]helpTopic{
 		"inspect": {"检查 Bundle 身份、来源及摘要。", "[--json]", "不支持 --out；只读", "yss bundle inspect --profile spec --json", "", false},
 		"export":  {"导出 Bundle 全部 bytes、mode 和 manifest。", "--out <新目录>", "--out <新目录>  必需且不能已存在", "yss bundle export --profile spec --out /tmp/yss-spec-bundle --json", "", false},

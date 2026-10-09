@@ -565,6 +565,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if command == "assets" {
 					return b.StageRequirements, profile, nil
 				}
+				if o.values["details"] == "true" {
+					result, e := project.SkillsDetails(id, b)
+					return result, profile, e
+				}
 				names := map[string]bool{}
 				for ref := range b.Files {
 					if strings.HasPrefix(ref, ".agents/skills/") {
@@ -578,6 +582,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				}
 				sort.Strings(list)
 				return list, profile, nil
+			}
+			if command == "skills" && o.args[1] == "resolve" {
+				result, e := project.ResolveSkills(id, b, o.args[2:], o.values["agent-runtime"], o.values["when"])
+				return result, profile, e
 			}
 			if o.args[1] != "ensure" || len(o.args) < 3 {
 				return nil, profile, domain.Fail("ARGUMENT", "需要 ensure <标识>")
