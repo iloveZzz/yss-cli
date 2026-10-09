@@ -44,7 +44,9 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
   for (const original of sourcePaths) {
     if (/^tests\/fixtures\/upstream-source(?:\/|-index\.mjs$)/.test(original)) { reasons.push(`冻结测试输入由来源 fixture 检查和原生消费者核验: ${original}`); continue; }
     const file = sourcePath(original);
-    if (/^\.agents\/skills\/yss-(?:ddd|layered-mvc)-scaffold-generator\//.test(file) || /^scripts\/(?:lib\/(?:standalone-backend-scaffold|backend-scaffold-prerequisites|scaffold-local-database)\.mjs|fixtures\/backend-scaffold\/)/.test(file)) suites.add("backend-scaffolds");
+    if (file === "scripts/lib/implementation-contract-compiler.mjs" || /^\.agents\/skills\/yss-implementation-contract-compiler\/tests\//.test(file)) { suites.add("implementation-contracts"); suites.add("specialist-business-inputs"); }
+    else if (file === ".template-spec/process/schemas/lifecycle-registry.schema.json") suites.add("specialist-business-inputs");
+    else if (/^\.agents\/skills\/yss-(?:ddd|layered-mvc)-scaffold-generator\//.test(file) || /^scripts\/(?:lib\/(?:standalone-backend-scaffold|backend-scaffold-prerequisites|scaffold-local-database)\.mjs|fixtures\/backend-scaffold\/)/.test(file)) suites.add("backend-scaffolds");
     else if (/^(?:scripts\/(?:lib\/backend-platform[^/]*\.mjs|backend-platforms)|tests\/backend-platforms\.test\.mjs|\.template-spec\/engineering\/(?:backend-platforms\.|evidence\/)|\.template-source\/engineering\/evidence\/)/.test(file)) { suites.add("backend-platforms"); suites.add("backend-scaffolds"); }
     else if (/^(?:\.agents\/skills\/(?:yss-product-lifecycle|yss-strategic-design|harness-orchestrator|architecture-agent|yss-stage-decision)\/|scripts\/lib\/(?:harness-execution-scope|lifecycle-progression|lifecycle-execution-scope|backend-delivery-terminal|frontend-delivery-boundary|slice-task-package|task-package|spec-baseline)\.mjs|tests\/specialist-business-inputs\.test\.mjs)/.test(file) || /^(?:\.template-spec\/(?:agents\/(?:digital-human-roles|yss-skill-registry)\.yaml|process\/(?:lifecycle-[^/]+\.(?:yaml|json|md)|harness-profile\.yaml|implementation-repo-integration\.md|frontend-backend-delivery\.md|schemas\/slice-implementation-contract-v3\.schema\.json))|scripts\/lib\/digital-human-roles\.mjs)$/.test(file)) suites.add("specialist-business-inputs");
     else if (/^(?:AGENTS\.md|README\.md|scripts\/sync-strategic-handoff-tools|scripts\/lib\/business-tickets\.mjs)$/.test(file)) { suites.add("specialist-business-inputs"); reasons.push("入口与共享分发由 Profile 投影/锁/来源检查核验"); }
@@ -153,6 +155,7 @@ function main(argv) {
   const template = options["template-root"] && path.resolve(options["template-root"]);
   const tests = new Set();
   for (const suite of plan.sourceSuites) {
+    if (suite === "implementation-contracts") for(const file of ["tests/implementation-contract-compiler.test.mjs",".agents/skills/yss-implementation-contract-compiler/tests/backend-profiles.test.mjs","tests/slice-task-package-frontend-boundary.test.mjs"])tests.add(file);
     if (suite === "specialist-business-inputs") tests.add("tests/specialist-business-inputs.test.mjs");
     if (suite === "distribution") tests.add("tests/efficiency-distribution.test.mjs");
     if (suite === "backend-platforms") tests.add("tests/backend-platforms.test.mjs");
