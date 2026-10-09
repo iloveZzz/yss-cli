@@ -43,6 +43,34 @@ const plan=planTracking(root,{checkpoint_ref:'.work/analysis/checkpoint.json',it
 	if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Root, "--kind", "task", "--file", f.TaskRef, "--json").CombinedOutput(); err != nil {
 		t.Fatalf("actual Frontend approved local Worker: %v %s", err, raw)
 	}
+	completion := func() error {
+		s := newSemanticSession(context.Background(), f.Root, nil)
+		cp, err := s.doc(f.CheckpointRef)
+		if err != nil {
+			return err
+		}
+		if err = progressionFrontendImplementationCompletion(s, f.CheckpointRef, cp); err != nil {
+			return err
+		}
+		return s.finish()
+	}
+	if err := completion(); err != nil {
+		t.Fatalf("actual Frontend independently approved local completion: %v", err)
+	}
+	checkpoint := mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, f.CheckpointRef))
+	missingReview := semMap(mustParseContract(checkpoint))
+	delete(semMap(missingReview["checks"]), "check.frontend-implementation-verified")
+	apTestPut(t, f.Root, f.CheckpointRef, missingReview)
+	if completion() == nil {
+		t.Fatal("Frontend completion accepted without independent review")
+	}
+	apTestPut(t, f.Root, f.CheckpointRef, checkpoint)
+	report := mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, f.FrontendVerificationRef))
+	apTestPut(t, f.Root, f.FrontendVerificationRef, append(report, '\n'))
+	if completion() == nil {
+		t.Fatal("Frontend completion accepted changed review evidence")
+	}
+	apTestPut(t, f.Root, f.FrontendVerificationRef, report)
 }
 
 func TestLocalFrontendSpecialistExternalBackendAndLocalBackendTerminal(t *testing.T) {
