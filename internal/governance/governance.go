@@ -77,6 +77,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
 		return dailyRun(ctx, action, root, args)
 	}
+	if group == "lifecycle" && action == "target" {
+		return progressionTargetRun(ctx, root, args)
+	}
 	if group == "context" {
 		return contextRun(action, root, args)
 	}
@@ -125,6 +128,8 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "id", "work-unit", "stage", "arg0")
 	case "lifecycle.status":
 		allowed = append(allowed, "checkpoint", "file", "arg0")
+	case "lifecycle.target":
+		allowed = append(allowed, "checkpoint", "input", "plan", "out", "apply", "plan-file")
 	case "lifecycle.route", "lifecycle.verify-daily":
 		allowed = append(allowed, "task", "implementation-root", "base")
 	case "lifecycle.verify":
@@ -140,7 +145,7 @@ func ArgumentKeys(group, action string) []string {
 	case "handoff.export", "handoff.import":
 		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
-		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "tool-root", "template-checkout", "approval-ref", "unit")
+		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "tool-root", "template-checkout", "approval-ref", "unit", "slice", "phase")
 	case "archive.pack", "archive.unpack":
 		allowed = append(allowed, "source", "file", "output", "arg0")
 	case "archive.verify":

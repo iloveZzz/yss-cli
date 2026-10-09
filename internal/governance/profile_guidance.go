@@ -93,6 +93,13 @@ func guidanceArtifact(cp map[string]any, id string, fallback ...string) string {
 }
 
 func guidanceStrategicHandoff(s *semanticSession, cp map[string]any) (*nativeHandoff, bool, error) {
+	if ref, present, err := guidanceStrategicDeliveryRef(s, cp); present || err != nil {
+		if err != nil {
+			return nil, present, err
+		}
+		h, _, err := contractOpenStrategicDelivery(s, ref)
+		return h, true, err
+	}
 	for _, asset := range []struct {
 		id       string
 		fallback []string
@@ -120,6 +127,40 @@ func guidanceStrategicHandoff(s *semanticSession, cp map[string]any) (*nativeHan
 		return h, true, err
 	}
 	return nil, false, nil
+}
+
+// Finalization records live under the registered handoff's evidence references;
+// this does not invent a new checkpoint asset ID.
+func guidanceStrategicDeliveryRef(s *semanticSession, cp map[string]any) (string, bool, error) {
+	asset := semMap(semMap(cp["artifacts"])["artifact.strategic-design-handoff"])
+	refs := []string{}
+	for _, row := range semList(asset["evidence_refs"]) {
+		ref := text(row)
+		if ref == "" {
+			ref = text(semMap(row)["ref"])
+		}
+		if path.Base(ref) == "delivery-record.json" {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) == 0 {
+		return "", false, nil
+	}
+	if len(refs) != 1 || asset["status"] != "approved" {
+		return "", true, s.reject("HANDOFF_DELIVERY", "战略交接交付记录不唯一或资产尚未批准")
+	}
+	h, record, err := contractOpenStrategicDelivery(s, refs[0])
+	if err != nil {
+		return "", true, err
+	}
+	if h.Manifest["handoff_ref"] != asset["ref"] {
+		return "", true, s.reject("HANDOFF_DELIVERY", "交付记录未绑定checkpoint当前战略Handoff")
+	}
+	verification := semMap(semMap(cp["verification"])["strategic_delivery"])
+	if verification["bundle_digest"] != record["bundle_digest"] {
+		return "", true, s.reject("HANDOFF_DELIVERY", "checkpoint战略交付验证未绑定当前包版本")
+	}
+	return refs[0], true, nil
 }
 
 // A completed string is never a qualification. These are the same readers used
@@ -174,17 +215,21 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 	case "backend":
 		ref := guidanceArtifact(cp, "artifact.backend-delivery", "backend_delivery_ref")
 		if ref == "" {
-			present, err := s.exists(".yss-backend-delivery.json")
+			a, err := progressionBackendAuthorization(s, cpRef, "", true)
+			if err != nil {
+				return nil, "", err
+			}
+			present, err := s.exists(a.TerminalRef)
 			if err != nil {
 				return nil, "", err
 			}
 			if !present {
 				return nil, "", s.reject("WAITING_PROFILE_INPUT", "等待真实后端交付记录")
 			}
-			if err = s.verify("backend-terminal", ".yss-backend-delivery.json", nil); err != nil {
+			if err = s.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); err != nil {
 				return nil, "", err
 			}
-			doc, err := s.doc(".yss-backend-delivery.json")
+			doc, err := s.doc(a.TerminalRef)
 			if err != nil {
 				return nil, "", err
 			}
@@ -194,7 +239,7 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 		if err != nil {
 			return nil, "", err
 		}
-		h, err := contractOpenHandoff(s, text(delivery["strategic_bundle_ref"]))
+		h, err := backendOpenStrategicInput(s, text(delivery["strategic_bundle_ref"]))
 		if err != nil {
 			return nil, "", err
 		}
@@ -277,6 +322,10 @@ func guidanceEngineering(root, profile string) (string, string) {
 // Source approval qualifies the recommendation, not the target's inputs. Only
 // an explicit receipt and a registered target checkpoint can qualify intake.
 func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string) (string, string, []string) {
+	return guidanceTargetInputSession(ctx, source, profile, cpRef, cp, targetRoot, target, engineering, nil)
+}
+
+func guidanceTargetInputSession(ctx context.Context, source *semanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string, targetSession *semanticSession) (string, string, []string) {
 	specBaseline := profile == "spec" && target == "design"
 	if engineering == "needs-attention" {
 		return "blocked", "目标身份或未完成事务需要处理后才能核验输入", nil
@@ -301,11 +350,6 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 			version = "v1"
 		}
 		receiptRef = path.Join("docs/spec-baselines", "spec-baseline."+strings.TrimPrefix(feature, "feature."), version, "receipt.json")
-		raw, err := source.bytes(cpRef)
-		if err != nil {
-			return "blocked", err.Error(), nil
-		}
-		sourceDigest = "sha256:" + safefs.Digest(raw)
 	} else {
 		var h *nativeHandoff
 		var err error
@@ -317,8 +361,15 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 			}
 		} else {
 			ref := guidanceArtifact(cp, "artifact.backend-delivery", "backend_delivery_ref")
-			if ref == "" {
-				terminal, e := source.doc(".yss-backend-delivery.json")
+			if ref == "" || targetSession != nil {
+				a, e := progressionBackendAuthorization(source, cpRef, "", true)
+				if e != nil {
+					return "blocked", e.Error(), nil
+				}
+				if e = source.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
+					return "blocked", e.Error(), nil
+				}
+				terminal, e := source.doc(a.TerminalRef)
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
@@ -329,7 +380,7 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 				return "blocked", e.Error(), nil
 			}
 			sourceDelivery = delivery
-			h, err = contractOpenHandoff(source, text(delivery["strategic_bundle_ref"]))
+			h, err = backendOpenStrategicInput(source, text(delivery["strategic_bundle_ref"]))
 		}
 		if err != nil {
 			return "blocked", err.Error(), nil
@@ -339,6 +390,9 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 		sourceDigest = text(h.Manifest["bundle_digest"])
 	}
 	s := newSemanticSession(ctx, targetRoot, nil)
+	if targetSession != nil {
+		s = targetSession
+	}
 	present, err := s.exists(receiptRef)
 	if err != nil {
 		return "blocked", err.Error(), nil
@@ -350,12 +404,12 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 		return "waiting-input", "等待接入当前来源包和接收记录：" + receiptRef, nil
 	}
 	if specBaseline {
-		manifest, _, e := verifySpecBaselineReceipt(s, receiptRef, false)
+		manifest, snapshot, e := verifySpecBaselineReceipt(s, receiptRef, false)
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
-		if semMap(manifest["source"])["checkpoint_digest"] != sourceDigest {
-			return "blocked", "目标接收记录未绑定当前 Spec 来源", nil
+		if e = guidanceCurrentSpecBaseline(source, cpRef, cp, manifest, snapshot); e != nil {
+			return "blocked", e.Error(), nil
 		}
 	} else {
 		receipt, e := s.doc(receiptRef)
@@ -394,6 +448,9 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 	}
 	if targetCPRef == "" {
 		return "pending-verification", "接收记录已核验；等待明确登记目标自己的当前 checkpoint 和 Context 对账", nil
+	}
+	if targetSession != nil && targetSession.checkpointRef != "" && targetSession.checkpointRef != targetCPRef {
+		return "blocked", "显式消费者checkpoint与Tracker登记入口不一致", nil
 	}
 	s.checkpointRef = targetCPRef
 	recon := semMap(targetCP["context_reconciliation"])
@@ -449,6 +506,23 @@ func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, 
 	}
 	if err != nil {
 		return "blocked", err.Error(), nil
+	}
+	receipt, err := s.doc(receiptRef)
+	if err != nil {
+		return "blocked", err.Error(), nil
+	}
+	raw, err := s.bytes(receiptRef)
+	if err != nil {
+		return "blocked", err.Error(), nil
+	}
+	s.profileInput = map[string]any{"source_profile": profile, "source_root": source.root, "source_checkpoint_ref": cpRef, "receipt_ref": receiptRef, "receipt_digest": "sha256:" + safefs.Digest(raw), "package_ref": receipt["package_ref"], "bundle_digest": receipt["bundle_digest"]}
+	if specBaseline {
+		s.profileInput["baseline_id"], s.profileInput["version"] = receipt["baseline_id"], receipt["version"]
+	} else {
+		s.profileInput["handoff_id"], s.profileInput["version"] = sourceHandoff["handoff_id"], sourceHandoff["handoff_version"]
+	}
+	if sourceDelivery != nil {
+		s.profileInput["backend_delivery_id"], s.profileInput["backend_delivery_version"] = sourceDelivery["delivery_id"], sourceDelivery["version"]
 	}
 	if specBaseline {
 		return "verified", "", []string{"yss", "handoff", "verify", "--root", targetRoot, "--kind", "spec-baseline", "--file", receiptRef, "--checkpoint", targetCPRef, "--json"}
@@ -520,7 +594,7 @@ func guidanceRegisteredCheckpoint(s *semanticSession, workRoot, feature string) 
 		if e != nil || cp["feature_id"] != feature {
 			continue
 		}
-		if selected != "" && selected != ref {
+		if selected != "" {
 			return "", nil, s.reject("PROFILE_INPUT_AMBIGUOUS", "同一来源功能登记了多个目标 checkpoint；先明确当前工作入口")
 		}
 		selected, checkpoint = ref, cp

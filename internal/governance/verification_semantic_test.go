@@ -568,10 +568,186 @@ func TestVerificationPublicStrategicFinalizedDelivery(t *testing.T) {
 		})
 	}
 	apTestPut(t, root, cpRef, cp)
+	t.Run("spec-explicit-design-cannot-be-ignored", func(t *testing.T) {
+		spec := specBaselineTestNativeSeed(t, "spec")
+		contractTestRules(t, spec)
+		for _, ref := range []string{"handoff.yaml", prefix} {
+			if e := filepath.WalkDir(filepath.Join(root, ref), func(file string, entry fs.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				local, err := filepath.Rel(root, file)
+				if err != nil {
+					return err
+				}
+				apTestPut(t, spec, filepath.ToSlash(local), mustReadSpecBaselineTestFile(t, file))
+				return nil
+			}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		current := apCopy(cp)
+		current["feature_id"] = "feature.strategic-verification"
+		currentRef := ".work/feature.strategic-verification/checkpoint.json"
+		apTestPut(t, spec, currentRef, current)
+		apTestPut(t, spec, trackerRef, "---\ntracker:\n  platform: local-markdown\n  root: .work\n---\n# Synthetic current feature\n")
+		apTestPut(t, spec, ".work/feature.strategic-verification/map.md", "---\ncheckpoint_ref: "+currentRef+"\n---\n# Synthetic current feature\n")
+		args := map[string]string{"kind": "verification", "file": prefix + "/verification.json", "checkpoint": currentRef}
+		if report, e := RunContext(context.Background(), "evidence", "verify", spec, args); e != nil {
+			t.Fatalf("original local strategic report: %s %v %+v", semanticCode(e), e, report)
+		}
+		// The existing local producer remains valid, but an explicit second
+		// producer must not silently be ignored or chosen by the report.
+		apTestPut(t, spec, ".work/feature.strategic-verification/"+progressionFile, ProgressionTarget{SchemaVersion: 1, Kind: "lifecycle-progression-target", FeatureID: "feature.strategic-verification", CheckpointRef: currentRef, Target: "business-accepted", IntentSource: "Synthetic explicit Design selection", Consumers: []ProgressionConsumer{{Profile: "design", Root: t.TempDir(), CheckpointRef: "current-checkpoint.json"}}})
+		before := progressionInventory(t, spec)
+		_, e := RunContext(context.Background(), "evidence", "verify", spec, args)
+		if semanticCode(e) != "VERIFICATION_CONSUMER_ROUTE" {
+			t.Fatalf("explicit duplicate Design producer ignored: %v", e)
+		}
+		if !contractSame(before, progressionInventory(t, spec)) {
+			t.Fatal("refusing duplicate strategic ownership changed evidence")
+		}
+	})
 }
 
 func TestVerificationPublicBackendCompletedProducerReports(t *testing.T) {
 	root := taskTestCompletedBackendProducerRoot(t)
 	verificationTestPublicBackendReports(t, root, os.Getenv("YSS_LEGACY_ORACLE_ROOT"),
 		"docs/.scratch/backend-consumer/checkpoint.json", "docs/.scratch/backend-consumer/task.json")
+}
+
+func TestVerificationExternalFrozenReportUsesOriginalBytes(t *testing.T) {
+	for _, variant := range []string{"same-original-bytes", "same-parsed-report", "different-verification", "source-drift-after-read"} {
+		t.Run(variant, func(t *testing.T) {
+			receiver, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			source, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := []byte(`{"kind":"strategic-delivery-verification-v1","bundle_digest":"synthetic-fixed-bundle","result":"verified"}`)
+			copy := append([]byte{}, original...)
+			if variant == "same-parsed-report" {
+				copy = append(copy, '\n')
+			} else if variant == "different-verification" {
+				copy = []byte(`{"kind":"strategic-delivery-verification-v1","bundle_digest":"synthetic-fixed-bundle","result":"failed"}`)
+			}
+			apTestPut(t, source, "delivery/verification.json", original)
+			apTestPut(t, receiver, "frozen/verification.json", copy)
+			s := newSemanticSession(context.Background(), receiver, nil)
+			child := newSemanticSession(context.Background(), source, nil)
+			s.children = append(s.children, child)
+			before := map[string]map[string]string{receiver: progressionInventory(t, receiver), source: progressionInventory(t, source)}
+			err = contractVerificationOriginalCopy(s, "frozen/verification.json", child, "delivery/verification.json")
+			if variant == "same-parsed-report" || variant == "different-verification" {
+				apTestCode(t, err, "VERIFICATION_CURRENT_REQUIRED")
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if variant == "source-drift-after-read" {
+					apTestPut(t, source, "delivery/verification.json", append(original, '\n'))
+					apTestCode(t, s.finish(), "INPUT_DRIFT")
+					return
+				}
+				if err = s.finish(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for root, inventory := range before {
+				if !contractSame(inventory, progressionInventory(t, root)) {
+					t.Fatal("frozen report comparison changed source or receiver bytes/modes")
+				}
+			}
+		})
+	}
+}
+
+func TestVerificationExplicitDesignSelectionRequiresCurrentBinding(t *testing.T) {
+	for _, variant := range []string{"no-explicit-consumer", "legacy-missing-contract", "legacy-no-policy", "declared-null-policy", "declared-empty-policy", "unknown-policy-version", "unknown-policy-capability", "future-consumer", "wrong-feature", "wrong-checkpoint", "duplicate-map", "unknown-config-version", "local-and-external-producer", "task-and-external-producer", "self-consumer"} {
+		t.Run(variant, func(t *testing.T) {
+			root := specBaselineTestNativeSeed(t, "spec")
+			contractTestRules(t, root)
+			cpRef, configRef := ".work/registered-feature/checkpoint.json", ".work/registered-feature/"+progressionFile
+			cp := apTestCheckpoint(map[string]any{})
+			cp["feature_id"] = "feature.demo"
+			apTestPut(t, root, cpRef, cp)
+			apTestPut(t, root, trackerRef, "---\ntracker:\n  platform: local-markdown\n  root: .work\n---\n# Synthetic current feature\n")
+			apTestPut(t, root, ".work/registered-feature/map.md", "---\ncheckpoint_ref: "+cpRef+"\n---\n# Synthetic feature binding\n")
+			future, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			intent := ProgressionTarget{SchemaVersion: 1, Kind: "lifecycle-progression-target", FeatureID: "feature.demo", CheckpointRef: cpRef, Target: "business-accepted", IntentSource: "Synthetic explicit current Design selection", Consumers: []ProgressionConsumer{{Profile: "design", Root: future, CheckpointRef: "current-checkpoint.json"}}}
+			taskRef, want := "", "VERIFICATION_CURRENT_REQUIRED"
+			switch variant {
+			case "no-explicit-consumer":
+				intent.Consumers = []ProgressionConsumer{}
+				want = ""
+			case "legacy-missing-contract":
+				if err := os.Remove(filepath.Join(root, guidanceContractRef("spec"))); err != nil {
+					t.Fatal(err)
+				}
+				want = ""
+			case "legacy-no-policy", "declared-null-policy", "declared-empty-policy", "unknown-policy-version", "unknown-policy-capability":
+				contractRef := guidanceContractRef("spec")
+				value, err := schema.Parse(mustReadSpecBaselineTestFile(t, filepath.Join(root, contractRef)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				contract := semMap(value)
+				want = "CAPABILITY"
+				switch variant {
+				case "legacy-no-policy":
+					delete(contract, "progression_target")
+					want = ""
+				case "declared-null-policy":
+					contract["progression_target"] = nil
+				case "declared-empty-policy":
+					contract["progression_target"] = map[string]any{}
+				case "unknown-policy-version":
+					semMap(contract["progression_target"])["schema_version"] = 2
+				case "unknown-policy-capability":
+					semMap(contract["progression_target"])["required_capabilities"] = []any{"lifecycle-target-v1", "unsupported-capability"}
+				}
+				apTestPut(t, root, contractRef, contract)
+			case "wrong-feature":
+				intent.FeatureID, want = "feature.other", "PROGRESSION_BINDING"
+			case "wrong-checkpoint":
+				intent.CheckpointRef, want = "other-checkpoint.json", "PROGRESSION_BINDING"
+			case "duplicate-map":
+				apTestPut(t, root, ".work/another-map/map.md", "---\ncheckpoint_ref: "+cpRef+"\n---\n# Duplicate binding\n")
+				want = "PROFILE_INPUT_AMBIGUOUS"
+			case "unknown-config-version":
+				intent.SchemaVersion, want = 2, "PROGRESSION_TARGET"
+			case "local-and-external-producer":
+				semMap(cp["artifacts"])["artifact.strategic-design-handoff"] = map[string]any{"ref": "handoff.yaml"}
+				want = "VERIFICATION_CONSUMER_ROUTE"
+			case "task-and-external-producer":
+				taskRef, want = "completed-task.json", "VERIFICATION_CONSUMER_ROUTE"
+			case "self-consumer":
+				intent.Consumers[0].Root = root
+			}
+			apTestPut(t, root, cpRef, cp)
+			apTestPut(t, root, configRef, intent)
+			before := progressionInventory(t, root)
+			s := newSemanticSession(context.Background(), root, map[string]string{"checkpoint": cpRef})
+			if err := s.authorities(); err != nil {
+				t.Fatal(err)
+			}
+			basis, selected, err := contractExplicitDesignVerificationBasis(s, cpRef, cp, "candidate-report.json", taskRef)
+			if want == "" {
+				if err != nil || selected || basis != "" {
+					t.Fatalf("no consumer invented strategic ownership: %q %v %v", basis, selected, err)
+				}
+			} else {
+				apTestCode(t, err, want)
+			}
+			if !contractSame(before, progressionInventory(t, root)) {
+				t.Fatal("explicit Design source selection changed current files or modes")
+			}
+		})
+	}
 }

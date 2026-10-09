@@ -240,15 +240,11 @@ type readingBuild struct {
 }
 
 func (s *semanticSession) buildReading(cpRef string) (*readingBuild, error) {
-	layout, err := viewWorkLayout(s.v)
+	checkpoint, err := s.doc(cpRef)
 	if err != nil {
 		return nil, err
 	}
-	feature, err := layout.CheckpointFeature(cpRef)
-	if err != nil {
-		return nil, s.reject("READING_PATH", err.Error())
-	}
-	base, err := layout.FeatureRoot(feature)
+	feature, base, err := stageFeatureBinding(s, cpRef, checkpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +268,43 @@ func (s *semanticSession) buildReading(cpRef string) (*readingBuild, error) {
 	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md", ".template-spec/process/reading-policy.yaml", approvalRegistryRef, approvalRolesRef} {
 		if _, err := project(ref); err != nil {
 			return nil, err
+		}
+	}
+	if strings.HasPrefix(feature, "feature.") {
+		for _, ref := range []string{trackerRef, ".template-spec/process/harness-profile.yaml", guidanceContractRef(s.report.Profile)} {
+			if _, err := project(ref); err != nil {
+				return nil, err
+			}
+		}
+		config, err := tracker(s.v, s)
+		if err != nil {
+			return nil, err
+		}
+		root := strings.TrimSuffix(text(config["root"]), "/")
+		files, err := s.scan(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, ref := range files {
+			if path.Base(ref) != "map.md" || path.Dir(path.Dir(ref)) != root {
+				continue
+			}
+			// The current navigation map is rewritten by rendering. Its
+			// registration is recomputed, never frozen as its own dependency.
+			if ref != base+"/map.md" {
+				if _, err := project(ref); err != nil {
+					return nil, err
+				}
+			}
+			meta, err := contractTicketMetadata(s, ref)
+			if err != nil {
+				return nil, err
+			}
+			if checkpoint := text(meta["checkpoint_ref"]); checkpoint != "" {
+				if _, err := project(checkpoint); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 	identity, err := s.doc("yss-project.yaml")
@@ -527,7 +560,13 @@ func (b *readingBuild) readingToolSchema(s *semanticSession, ref string, seen ma
 	return visit(node)
 }
 func (b *readingBuild) readingToolClosure(s *semanticSession) error {
-	fingerprint := map[string]string{"scripts/lib/reading-view-bundle.mjs": "2aab86301d37ffb95fbbc1136bf8989411b0f594aa8246ea3df0552d952b4772", "scripts/lib/contract-views.mjs": "f88b6f5da3fea534717f58b833da3e8f1fa4d6c04f2e4ff9a754618316ef555c", "scripts/lib/reading-view-adapters.mjs": "a749e7a86e0b62c720aea1da5980e7e1a6ae70620fb87056f2b89e28f44e91e9", "scripts/lib/reading-view-markdown.mjs": "5b55e76271831f4c957f4991ba12f99e2245767ae8ab8a20188dcc0cf6b68e11", "scripts/lib/lifecycle-presentation.mjs": "beb03307591ab98186d1fadcefb40f0301a7d1417a239943a75f296f13171d37"}
+	fingerprint := map[string][]string{
+		"scripts/lib/reading-view-bundle.mjs":    {"2aab86301d37ffb95fbbc1136bf8989411b0f594aa8246ea3df0552d952b4772", "8d35fe88e6d6c933d5e172dabb8604565de5d9b055a028c399ddb712547a6539"},
+		"scripts/lib/contract-views.mjs":         {"f88b6f5da3fea534717f58b833da3e8f1fa4d6c04f2e4ff9a754618316ef555c"},
+		"scripts/lib/reading-view-adapters.mjs":  {"a749e7a86e0b62c720aea1da5980e7e1a6ae70620fb87056f2b89e28f44e91e9"},
+		"scripts/lib/reading-view-markdown.mjs":  {"5b55e76271831f4c957f4991ba12f99e2245767ae8ab8a20188dcc0cf6b68e11"},
+		"scripts/lib/lifecycle-presentation.mjs": {"beb03307591ab98186d1fadcefb40f0301a7d1417a239943a75f296f13171d37", "8dbed3b7c403fb055f53979e7c2c7c779fe6253510fd8ad6b83488d1ac442581"},
+	}
 	imports := regexp.MustCompile(`(?:from\s*|import\s*)['"](\.[^'"]+)['"]`)
 	var visit func(string) error
 	visit = func(ref string) error {
@@ -542,7 +581,7 @@ func (b *readingBuild) readingToolClosure(s *semanticSession) error {
 			return err
 		}
 		sha := safefs.Digest(raw)
-		if expected, ok := fingerprint[ref]; ok && sha != expected {
+		if expected, ok := fingerprint[ref]; ok && !contains(expected, sha) {
 			return s.unavailable("CAPABILITY", "阅读渲染规则版本未迁移: "+ref)
 		}
 		b.Renderer[ref] = "sha256:" + sha

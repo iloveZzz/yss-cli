@@ -75,6 +75,22 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 			renderProfileGuidance(&out, v)
 			continue
 		}
+		if k == "progression" {
+			renderProgression(&out, v)
+			continue
+		}
+		if k == "coordination" {
+			renderCoordination(&out, v)
+			continue
+		}
+		if k == "next_action" {
+			a, _ := v.(map[string]any)
+			fmt.Fprintf(&out, "下一步：%v；承接 %v，工程 %v，工作单元 %v\n", a["kind"], a["profile"], a["root"], a["work_unit"])
+			if reason := stringValue(a["reason"], ""); reason != "" {
+				fmt.Fprintf(&out, "  %s\n", reason)
+			}
+			continue
+		}
 		if k == "checks" || k == "diagnostics" || k == "diagnostic" {
 			continue
 		}
@@ -148,6 +164,43 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		fmt.Fprintf(&out, "下一步：%s\n  %s", nextReading(strings.Join(o.args, " ")), helpCommand(o.args))
 	}
 	return out.String()
+}
+
+func renderProgression(out *strings.Builder, value any) {
+	p, _ := value.(map[string]any)
+	labels := map[string]string{"spec-approved": "Spec 已批准", "product-design-completed": "产品设计完成", "backend-deliverable": "后端可交付", "frontend-accepted": "前端接收完成", "business-accepted": "业务验收完成", "profile-terminal": "本 Profile 交付终点", "pending": "待完成", "reached": "已达到", "not-applicable": "不适用（已核验）", "not-evaluated": "待核验", "blocked": "受阻", "unsupported": "当前实例不支持"}
+	label := func(v any) string {
+		s := fmt.Sprint(v)
+		if name := labels[s]; name != "" {
+			return name
+		}
+		return s
+	}
+	fmt.Fprintf(out, "推进目标：%s；%s\n", label(p["target"]), label(p["status"]))
+	if reason := stringValue(p["reason"], ""); reason != "" {
+		fmt.Fprintf(out, "  %s\n", reason)
+	}
+	completion, _ := p["completion"].(map[string]any)
+	for _, pair := range [][2]string{{"stage", "阶段"}, {"profile", "Profile"}, {"business", "业务"}} {
+		row, _ := completion[pair[0]].(map[string]any)
+		if row != nil {
+			fmt.Fprintf(out, "  %s完成：%s\n", pair[1], label(row["status"]))
+		}
+	}
+}
+
+func renderCoordination(out *strings.Builder, value any) {
+	rows, _ := value.(map[string]any)
+	for _, profile := range []string{"design", "backend", "frontend"} {
+		row, _ := rows[profile].(map[string]any)
+		if row == nil {
+			continue
+		}
+		fmt.Fprintf(out, "专职承接 %s：输入 %v；本端完成 %v；%v\n", profile, row["input_status"], row["completion_status"], row["root"])
+		if reason := stringValue(row["reason"], ""); reason != "" {
+			fmt.Fprintf(out, "  %s\n", reason)
+		}
+	}
 }
 
 func renderProfileGuidance(out *strings.Builder, value any) {

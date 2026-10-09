@@ -2,7 +2,6 @@ package governance
 
 import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"path"
 	"strings"
 )
 
@@ -29,7 +28,14 @@ func verifyReadingTransitionSemantic(s *semanticSession, ref string, opts map[st
 		s.report.Applicability = append(s.report.Applicability, map[string]any{"id": "reading-views", "status": "not-applicable", "reason": "当前 checkpoint 不要求 managed 阅读视图"})
 		return nil
 	}
-	base := path.Dir(ref)
+	cp, err := s.doc(ref)
+	if err != nil {
+		return err
+	}
+	_, base, err := stageFeatureBinding(s, ref, cp)
+	if err != nil {
+		return err
+	}
 	for _, suffix := range []string{".transaction.json", ".lock"} {
 		present, err := s.exists(base + "/reading/" + suffix)
 		if err != nil {

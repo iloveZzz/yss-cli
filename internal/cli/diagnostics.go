@@ -41,6 +41,7 @@ var errorCodes = strings.Fields(`AMBIGUOUS ARCHIVE ARGUMENT ARTIFACT ASSET ASSET
 
 func init() {
 	errorCodes = append(errorCodes, strings.Fields(`CHECKPOINT_REQUIRED PROFILE_LINKS PROFILE_ROUTE TRANSACTION_PROFILE TRANSACTION_SCOPE`)...)
+	errorCodes = append(errorCodes, strings.Fields(`PROGRESSION_TARGET PROGRESSION_BINDING PROGRESSION_TARGET_BLOCKED PROGRESSION_EVIDENCE`)...)
 	errorCodes = append(errorCodes, strings.Fields(`ASSET_TRANSACTION_PENDING CONTEXT_MISSING FRONTEND_PROBE_AUTHORIZATION FRONTEND_PROBE_UNAVAILABLE GIT_BASELINE HANDOFF_POLICY_CAPABILITY NEEDS_INFO PLAN_REVIEW_POLICY_INVALID PLAN_REVIEW_PROTOCOL_REQUIRED READONLY_SOURCE_LAYOUT_REQUIRED WORK_LAYOUT_PATH WORK_LAYOUT_REFERENCE WORK_LAYOUT_SOURCE WORK_LAYOUT_VERIFY APPROVAL_REBIND_REQUIRED IMMUTABLE WORK_LAYOUT_SCHEMA`)...)
 	errorCodes = append(errorCodes, strings.Fields(`ARGS INVALID UNKNOWN_ALIAS GIT_IGNORE WORK_LAYOUT_PERMISSION MISSING_REFERENCE YSS_ARGUMENT_INVALID YSS_COMMAND_FAILED YSS_FAMILY_IDENTITY_INVALID YSS_GIT_PROTECTED YSS_IDENTITY_INVALID YSS_METADATA_INVALID YSS_MIGRATION_CONFLICT YSS_OWNERSHIP_PROTECTED YSS_PATH_SAFETY YSS_SNAPSHOT_INVALID YSS_TARGET_INVALID YSS_UNPORTED YSS_UNSAFE_PATH`)...)
 }
@@ -59,13 +60,13 @@ func errorFamily(code string) string {
 		return "conflict"
 	}
 	switch {
-	case code == "ARGUMENT" || code == "KIND" || code == "SCOPE":
+	case code == "ARGUMENT" || code == "KIND" || code == "SCOPE" || code == "PROGRESSION_TARGET":
 		return "argument"
 	case code == "IDENTITY" || code == "ROOT" || code == "PATH" || code == "PROFILE" || code == "PROFILE_LINKS" || code == "PERMISSION" || code == "NOT_FOUND":
 		return "identity"
 	case code == "UNPORTED" || code == "CAPABILITY" || code == "VERSION" || code == "LEGACY" || code == "MIGRATION_REQUIRED" || code == "SYNC_REQUIRED" || strings.HasPrefix(code, "LEGACY_POLICY") || strings.HasPrefix(code, "BUNDLE") || code == "BASELINE" || code == "PROVENANCE":
 		return "version"
-	case strings.HasPrefix(code, "BINDING"):
+	case strings.HasPrefix(code, "BINDING") || code == "PROGRESSION_BINDING":
 		return "binding"
 	case strings.HasPrefix(code, "PLAN") || strings.HasPrefix(code, "RESOLUTION") || code == "INPUT_DRIFT" || code == "CANDIDATE_DRIFT" || code == "BASE_BUNDLE":
 		return "plan"
@@ -83,6 +84,8 @@ func errorFamily(code string) string {
 		return "network"
 	case code == "ARTIFACT" || code == "DIGEST" || code == "PLATFORM" || code == "INSTALLATION":
 		return "artifact"
+	case strings.HasPrefix(code, "PROGRESSION_"):
+		return "governance"
 	case strings.HasPrefix(code, "CI_") || strings.HasPrefix(code, "TRACKING_") || strings.HasPrefix(code, "CONTEXT") || strings.HasPrefix(code, "LIFECYCLE") || strings.HasPrefix(code, "WORK_LAYOUT") || strings.HasPrefix(code, "FRONTEND_PROBE") || code == "MISSING_REFERENCE" || code == "HANDOFF_POLICY_CAPABILITY" || code == "GIT_BASELINE" || code == "NEEDS_INFO" || code == "READONLY_SOURCE_LAYOUT_REQUIRED" || code == "APPROVAL_REBIND_REQUIRED" || code == "PROJECT_CI_REJECTED" || code == "GOVERNED_REQUIRED" || code == "EVIDENCE" || code == "VERIFY" || code == "INPUT" || code == "SKILL" || code == "TRACKER" || code == "READ_ONLY" || code == "ASSET" || code == "CHECKPOINT_REQUIRED" || code == "PROFILE_ROUTE":
 		return "governance"
 	default:

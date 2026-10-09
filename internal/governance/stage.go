@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -27,6 +29,7 @@ var trackedUnits = map[string]string{
 	"work-unit.domain-strategy-design": "stage.plan", "work-unit.stage-decision": "stage.plan",
 	"work-unit.spec-synthesis": "stage.spec-architecture", "work-unit.prototype-design-v2": "stage.product-design",
 	"work-unit.prototype-design": "stage.product-design", "work-unit.business-ticket-formalization": "stage.product-design",
+	"work-unit.strategic-design-handoff": "stage.product-design",
 }
 
 type Binding struct {
@@ -264,8 +267,12 @@ func frontmatter(b []byte) ([]byte, []byte, error) {
 	}
 	return []byte(s[4:end]), []byte(s[tail:]), nil
 }
-func tracker(v *view) (map[string]any, error) {
-	m, err := v.document(trackerRef)
+func tracker(v *view, sessions ...*semanticSession) (map[string]any, error) {
+	read := v.document
+	if len(sessions) > 0 {
+		read = sessions[0].doc
+	}
+	m, err := read(trackerRef)
 	if err != nil {
 		return nil, err
 	}
@@ -287,8 +294,12 @@ func tracker(v *view) (map[string]any, error) {
 	}
 	return t, nil
 }
-func projectIdentity(v *view) error {
-	m, err := v.document("yss-project.yaml")
+func projectIdentity(v *view, sessions ...*semanticSession) error {
+	read := v.document
+	if len(sessions) > 0 {
+		read = sessions[0].doc
+	}
+	m, err := read("yss-project.yaml")
 	if err != nil {
 		return err
 	}
@@ -298,15 +309,21 @@ func projectIdentity(v *view) error {
 	}
 	return nil
 }
-func designProfile(v *view) (bool, []string, error) {
-	d, err := v.watch(".template-spec/process/harness-profile.yaml")
+func designProfile(v *view, sessions ...*semanticSession) (bool, []string, error) {
+	ref := ".template-spec/process/harness-profile.yaml"
+	read := v.document
+	if len(sessions) > 0 {
+		ref = sessions[0].localRef(ref)
+		read = sessions[0].doc
+	}
+	d, err := v.watch(ref)
 	if err != nil {
 		return false, nil, err
 	}
 	if d.Type == "missing" {
 		return false, nil, nil
 	}
-	m, err := v.document(".template-spec/process/harness-profile.yaml")
+	m, err := read(".template-spec/process/harness-profile.yaml")
 	if err != nil {
 		return false, nil, err
 	}
@@ -344,6 +361,76 @@ func checkpointFeature(v *view, ref string) (string, error) {
 		return "", e
 	}
 	return layout.CheckpointFeature(ref)
+}
+
+// A registered canonical feature ID and its directory are separate facts. Older
+// instances retain their existing path identity until they adopt this policy.
+func stageFeatureBinding(s *semanticSession, ref string, cp map[string]any) (string, string, error) {
+	if err := s.guard(); err != nil {
+		return "", "", err
+	}
+	if strings.HasPrefix(text(cp["feature_id"]), "feature.") {
+		present, err := s.exists(".template-spec/process/harness-profile.yaml")
+		if err != nil {
+			return "", "", err
+		}
+		if present {
+			profileDoc, err := s.doc(".template-spec/process/harness-profile.yaml")
+			if err != nil {
+				return "", "", err
+			}
+			profile := ""
+			for name, known := range domain.Profiles {
+				if profileDoc["profile_id"] == known.ID {
+					profile = name
+				}
+			}
+			if profile == "" {
+				return "", "", s.unavailable("IDENTITY", "未知功能登记 Profile")
+			}
+			contractRef := guidanceContractRef(profile)
+			present, err = s.exists(contractRef)
+			if err != nil {
+				return "", "", err
+			}
+			if present {
+				contract, err := s.doc(contractRef)
+				if err != nil {
+					return "", "", err
+				}
+				if _, declared := contract["progression_target"]; declared {
+					if _, _, err = progressionPolicy(s); err != nil {
+						return "", "", err
+					}
+					configRef, registered, err := progressionLocation(s, ref)
+					if err != nil {
+						return "", "", err
+					}
+					if registered["feature_id"] != cp["feature_id"] {
+						return "", "", s.reject("TRACKING_FEATURE", "当前 checkpoint 功能身份与登记不一致")
+					}
+					return text(cp["feature_id"]), path.Dir(configRef), nil
+				}
+			}
+		}
+	}
+	config, err := tracker(s.v, s)
+	if err != nil {
+		return "", "", err
+	}
+	layout, err := worklayout.New(s.root, config)
+	if err != nil {
+		return "", "", err
+	}
+	feature, err := layout.CheckpointFeature(ref)
+	if err != nil {
+		return "", "", err
+	}
+	if text(cp["feature_id"]) != feature {
+		return "", "", s.reject("TRACKING_FEATURE", "checkpoint 功能身份与路径不一致")
+	}
+	base, err := layout.FeatureRoot(feature)
+	return feature, base, err
 }
 func asTracking(cp map[string]any) (*StageTracking, error) {
 	if cp["stage_tracking"] == nil {
@@ -394,20 +481,22 @@ func pendingOldTransaction(v *view) error {
 	return nil
 }
 
-func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) {
-	if err := projectIdentity(v); err != nil {
+func checkStage(v *view, cp map[string]any, ref string, sessions ...*semanticSession) (map[string]any, error) {
+	s := newSemanticSession(context.Background(), v.root, nil)
+	s.v = v
+	if len(sessions) > 0 {
+		s = sessions[0]
+	}
+	if err := projectIdentity(v, s); err != nil {
 		return nil, err
 	}
-	config, err := tracker(v)
+	config, err := tracker(v, s)
 	if err != nil {
 		return nil, err
 	}
-	feature, err := checkpointFeature(v, ref)
+	feature, featureRoot, err := stageFeatureBinding(s, ref, cp)
 	if err != nil {
 		return nil, err
-	}
-	if text(cp["feature_id"]) != feature {
-		return nil, domain.Fail("TRACKING_FEATURE", "checkpoint 功能身份与路径不一致")
 	}
 	t, err := asTracking(cp)
 	if err != nil {
@@ -424,12 +513,12 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	if _, err = v.read(trackingSchemaRef); err != nil {
+	if _, err = s.bytes(trackingSchemaRef); err != nil {
 		return nil, err
 	}
 	// The current stage Schema is standalone. Refuse a future external closure until every
 	// referenced Schema can be included in the write plan's locked input guards.
-	stageSchema, err := v.document(trackingSchemaRef)
+	stageSchema, err := s.doc(trackingSchemaRef)
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +547,13 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	if externalRefs(stageSchema) {
 		return nil, domain.Fail("UNPORTED", "stage Schema 的外部引用尚未绑定事务输入闭包")
 	}
-	issues, err := schema.ValidateValue(sp, cp["stage_tracking"])
+	issues, err := schema.ValidateValueWithReader(sp, cp["stage_tracking"], func(file string) ([]byte, error) {
+		ref, err := filepath.Rel(s.root, file)
+		if err != nil {
+			return nil, err
+		}
+		return s.bytes(filepath.ToSlash(ref))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -468,15 +563,7 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	if t.SchemaVersion != 1 || t.FeatureID != feature || t.CheckpointRef != ref {
 		return nil, domain.Fail("TRACKING_IDENTITY", "stage_tracking 身份、版本或 checkpoint 引用不一致")
 	}
-	design, allowed, err := designProfile(v)
-	if err != nil {
-		return nil, err
-	}
-	layout, err := viewWorkLayout(v)
-	if err != nil {
-		return nil, err
-	}
-	featureRoot, err := layout.FeatureRoot(feature)
+	design, allowed, err := designProfile(v, s)
 	if err != nil {
 		return nil, err
 	}
@@ -488,14 +575,14 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 	} else if t.Entry.Kind != "parent-ticket" || t.Entry.Ref != base+"parent-ticket.md" {
 		return nil, domain.Fail("TRACKING_ENTRY", "阶段追踪必须引用本功能 parent-ticket")
 	}
-	entry, err := v.read(t.Entry.Ref)
+	entry, err := s.bytes(t.Entry.Ref)
 	if err != nil {
 		return nil, err
 	}
 	if t.Entry.Kind == "parent-ticket" && !strings.Contains(string(entry), ref) {
 		return nil, domain.Fail("TRACKING_ENTRY", "parent-ticket 缺少 checkpoint 引用")
 	}
-	r, err := v.document(".template-spec/process/lifecycle-registry.yaml")
+	r, err := s.doc(".template-spec/process/lifecycle-registry.yaml")
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +601,7 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 		kind, _, ok = findRegistry(r, item.Stage)
 		unitKind, _, unitOK := findRegistry(r, item.WorkUnit)
 		expected := trackedUnits[item.WorkUnit]
-		if design && item.WorkUnit == "work-unit.business-ticket-formalization" {
+		if design && (item.WorkUnit == "work-unit.business-ticket-formalization" || item.WorkUnit == "work-unit.strategic-design-handoff") {
 			expected = "stage.ticket-formalization"
 		}
 		if !ok || kind != "stages" || !unitOK || unitKind != "work_units" || expected != item.Stage {
@@ -530,7 +617,7 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 			if item.DefinitionRef != base+"work-items/"+item.ID+".md" {
 				return nil, domain.Fail("TRACKING_DEFINITION", "独立定义路径非法")
 			}
-			b, err := v.read(item.DefinitionRef)
+			b, err := s.bytes(item.DefinitionRef)
 			if err != nil {
 				return nil, err
 			}
@@ -550,7 +637,7 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 			if err != nil || !at.After(time.Now()) {
 				return nil, domain.Fail("TRACKING_DEFERRAL", "延期已过期或日期非法")
 			}
-			if _, err = v.read(item.Deferred.DecisionRef); err != nil {
+			if _, err = s.bytes(item.Deferred.DecisionRef); err != nil {
 				return nil, err
 			}
 		}
@@ -586,8 +673,8 @@ func checkStage(v *view, cp map[string]any, ref string) (map[string]any, error) 
 			if _, err := safefs.Path(v.root, binding.Ref); err != nil {
 				return nil, err
 			}
-			actual, err := v.bind(binding.Ref)
-			if err != nil || actual.Digest != binding.Digest {
+			raw, err := s.bytes(binding.Ref)
+			if err != nil || "sha256:"+safefs.Digest(raw) != binding.Digest {
 				stale[item.ID] = true
 			}
 		}
@@ -714,9 +801,14 @@ func enableTracker(b []byte) ([]byte, error) {
 	return append(result, body...), nil
 }
 
-func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
+func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Context) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "stage-tracking-go-plan", Root: root, Action: action, CheckpointRef: cpRef, InputRef: inputRef, Scope: "stage-work-only", Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
-	v := newView(root)
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	s := newSemanticSession(ctx, root, nil)
+	v := s.v
 	if err := projectIdentity(v); err != nil {
 		return plan, err
 	}
@@ -735,24 +827,13 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 	if !strings.HasSuffix(cpRef, ".json") {
 		return plan, domain.Fail("UNPORTED", "阶段写入要求显式 JSON checkpoint；YAML 仅只读兼容")
 	}
-	feature, err := checkpointFeature(v, cpRef)
-	if err != nil {
-		return plan, err
-	}
-	layout, err := viewWorkLayout(v)
-	if err != nil {
-		return plan, err
-	}
-	featureRoot, err := layout.FeatureRoot(feature)
-	if err != nil {
-		return plan, err
-	}
 	cp, err := v.document(cpRef)
 	if err != nil {
 		return plan, domain.Fail("UNPORTED", "需要既有 checkpoint，不从模板推断当前阶段")
 	}
-	if text(cp["feature_id"]) != feature {
-		return plan, domain.Fail("TRACKING_FEATURE", "功能身份不一致")
+	feature, featureRoot, err := stageFeatureBinding(s, cpRef, cp)
+	if err != nil {
+		return plan, err
 	}
 	config, err := tracker(v)
 	if err != nil {
@@ -767,7 +848,7 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 		return plan, err
 	}
 	if tracking != nil {
-		if _, err = checkStage(v, cp, cpRef); err != nil {
+		if _, err = checkStage(v, cp, cpRef, s); err != nil {
 			return plan, err
 		}
 	}
@@ -1013,16 +1094,90 @@ func buildStagePlan(root, action, cpRef, inputRef string) (WritePlan, error) {
 		return plan, err
 	}
 	cp, _ = object(normalized)
-	if _, err = checkStage(v, cp, cpRef); err != nil {
+	if _, err = checkStage(v, cp, cpRef, s); err != nil {
 		return plan, err
 	}
-	plan.Observed = v.observed
+	if err = s.finish(); err != nil {
+		return plan, err
+	}
+	for ref, descriptor := range v.observed {
+		// The transaction manager owns the journal and pending exclusion under
+		// its lock; its preparation must not invalidate the stage plan itself.
+		if ref != ".yss/transactions" && !strings.HasPrefix(ref, ".yss/transactions/") {
+			plan.Observed[ref] = descriptor
+		}
+	}
 	plan.Operations, err = v.ops()
 	if err != nil {
 		return plan, err
 	}
+	if scans := progressionScans(s, root, ""); len(scans) > 0 {
+		data, err := json.Marshal(scans)
+		if err != nil {
+			return plan, err
+		}
+		plan.Options = map[string]string{"stage_scan_inputs": string(data)}
+	}
 	plan.PlanDigest, err = nativePlanDigest(plan)
 	return plan, err
+}
+
+// Transaction postconditions permit only their own files and newly created
+// parent directories. Every other registration member remains a locked input.
+func validateStagePlanScans(ctx context.Context, root string, plan WritePlan) error {
+	if plan.Options["stage_scan_inputs"] == "" {
+		return nil
+	}
+	var scans []progressionScanInput
+	if err := json.Unmarshal([]byte(plan.Options["stage_scan_inputs"]), &scans); err != nil {
+		return err
+	}
+	for _, scan := range scans {
+		if scan.Root != root {
+			return domain.Fail("PLAN", "阶段登记扫描不属于当前工程")
+		}
+		beforeDirs := map[string]bool{}
+		for _, member := range scan.Files {
+			if strings.HasPrefix(member, "dir:") {
+				body := strings.TrimPrefix(member, "dir:")
+				beforeDirs[body[:strings.LastIndex(body, ":")]] = true
+			}
+		}
+		written, newParents := map[string]bool{}, map[string]bool{}
+		for _, op := range plan.Operations {
+			written["file:"+op.Path] = true
+			for dir := path.Dir(op.Path); dir != "."; dir = path.Dir(dir) {
+				if !beforeDirs[dir] {
+					newParents[dir] = true
+				}
+			}
+		}
+		filter := func(files []string) []string {
+			result := []string{}
+			for _, member := range files {
+				if written[member] {
+					continue
+				}
+				if strings.HasPrefix(member, "dir:") {
+					body := strings.TrimPrefix(member, "dir:")
+					if newParents[body[:strings.LastIndex(body, ":")]] {
+						continue
+					}
+				}
+				result = append(result, member)
+			}
+			return result
+		}
+		s := newSemanticSession(ctx, root, nil)
+		files, err := s.scanFresh(scan.Ref, false)
+		if err != nil {
+			return err
+		}
+		if !equalStrings(filter(files), filter(scan.Files)) {
+			return domain.Fail("INPUT_DRIFT", "阶段写入期间功能登记文件集合变化")
+		}
+	}
+	return nil
 }
 
 func stageRun(ctx context.Context, action, root string, args map[string]string) (any, error) {
@@ -1031,16 +1186,20 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		if args["stage"] != "" || args["work-unit"] != "" {
 			return nil, domain.Fail("UNPORTED", "checkpoint 工作项查询不支持 --stage/--work-unit 过滤")
 		}
-		v := newView(root)
+		s := newSemanticSession(ctx, root, args)
+		v := s.v
 		if err := pendingOldTransaction(v); err != nil {
 			return nil, err
 		}
-		cp, err := v.document(ref)
+		cp, err := s.doc(ref)
 		if err != nil {
 			return nil, err
 		}
-		result, err := checkStage(v, cp, ref)
+		result, err := checkStage(v, cp, ref, s)
 		if err != nil {
+			return nil, err
+		}
+		if err = s.finish(); err != nil {
 			return nil, err
 		}
 		if id := args["id"]; id != "" {
@@ -1096,7 +1255,7 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		if err != nil || digest != plan.PlanDigest {
 			return nil, domain.Fail("PLAN", "计划摘要不一致")
 		}
-		fresh, err := buildStagePlan(root, plan.Action, plan.CheckpointRef, plan.InputRef)
+		fresh, err := buildStagePlan(root, plan.Action, plan.CheckpointRef, plan.InputRef, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1115,7 +1274,14 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 			sort.Strings(changed)
 			return nil, domain.Explain(domain.Fail("INPUT_DRIFT", "计划已过期，重新登记计划"), "SAVED_STAGE_PLAN_CHANGED", "阶段计划绑定的输入已变化，需重新登记并保存计划。", map[string]any{"root": root, "checkpoint": plan.CheckpointRef, "file": plan.InputRef, "planAction": plan.Action, "affectedInputs": changed})
 		}
-		tx, err := transaction.ApplyContextWithGuards(ctx, root, "stage-"+plan.Action, plan.Operations, plan.Observed)
+		var validate func() error
+		if fresh.Options["stage_scan_inputs"] != "" {
+			validate = func() error { return validateStagePlanScans(ctx, root, fresh) }
+			if err = validate(); err != nil {
+				return nil, err
+			}
+		}
+		tx, err := transaction.ApplyContextWithValidation(ctx, root, "stage-"+plan.Action, plan.Operations, plan.Observed, nil, validate)
 		if err != nil {
 			return nil, err
 		}
@@ -1131,5 +1297,5 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 	if input == "" {
 		return nil, domain.Fail("INPUT", "register/update 需要 --items/--item")
 	}
-	return buildStagePlan(root, action, ref, input)
+	return buildStagePlan(root, action, ref, input, ctx)
 }

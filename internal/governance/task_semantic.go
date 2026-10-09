@@ -636,10 +636,15 @@ func verifyBackendCompletedProducerTaskSemantic(s *semanticSession, ref string, 
 	if checkpoint["stage"] != task["stage_id"] || apMap(checkpoint["stage_trace"])["completed_work_unit"] != "work-unit.backend-delivery" || checkpoint["next_work_unit"] != nil || checkpoint["mode"] != "audit" {
 		return apFail(s, "TASK_PRODUCER_AUDIT", "当前 checkpoint 未独立声明只读后端终点审计范围")
 	}
-	if err = s.verify("backend-terminal", ".yss-backend-delivery.json", nil); err != nil {
+	authorization, err := progressionBackendAuthorization(s, checkpointRef, "", true)
+	if err != nil {
 		return err
 	}
-	terminal, err := s.doc(".yss-backend-delivery.json")
+	terminalRef := authorization.TerminalRef
+	if err = s.verify("backend-terminal", terminalRef, map[string]string{"checkpoint": checkpointRef}); err != nil {
+		return err
+	}
+	terminal, err := s.doc(terminalRef)
 	if err != nil {
 		return err
 	}
@@ -652,7 +657,7 @@ func verifyBackendCompletedProducerTaskSemantic(s *semanticSession, ref string, 
 			return apFail(s, "TASK_PRODUCER_AUDIT", "完成任务没有声明当前终点的独立 "+key+" 来源证据")
 		}
 	}
-	if !apContains(task["expected_evidence_files"], ".yss-backend-delivery.json") || !apContains(result["evidence_refs"], ".yss-backend-delivery.json") {
+	if !apContains(task["expected_evidence_files"], terminalRef) || !apContains(result["evidence_refs"], terminalRef) {
 		return apFail(s, "TASK_PRODUCER_AUDIT", "完成任务缺少固定后端终点证据")
 	}
 	if err = verifyTaskPackageSemanticMode(s, ref, opts, true); err != nil {
@@ -832,7 +837,9 @@ func enforceHarnessTaskSemanticMode(s *semanticSession, task map[string]any, com
 			return apFail(s, "TASK_SCOPE", "插件项目缺少职责范围")
 		}
 		if apText(task["work_unit_id"]) == "work-unit.backend-delivery" {
-			return apFail(s, "TASK_SCOPE", "后端终点需要显式职责范围")
+			if _, e := progressionBackendAuthorization(s, apText(task["checkpoint_ref"]), "", false); e != nil {
+				return e
+			}
 		}
 	} else {
 		scope, e := s.doc(".yss-execution-scope.yaml")
@@ -916,14 +923,62 @@ func taskFrontendDeliverySemantic(s *semanticSession, task map[string]any) error
 		return e
 	}
 	dedicated := apText(identity["repository_mode"]) == "project-instance" && apContains([]string{"harness.frontend-delivery", "yss-harness-frontend"}, apText(profile["profile_id"]))
-	contractRef := apText(apMap(task["contract"])["slice_contract_ref"])
+	taskContract := apMap(task["contract"])
+	contractRef := apText(taskContract["slice_contract_ref"])
+	cpRef := first(apText(task["checkpoint_ref"]), apText(taskContract["lifecycle_ref"]))
+	formalFrontendVerification := apText(task["work_unit_id"]) == "work-unit.frontend-implementation-verification"
+	if !dedicated && contractRef == "" && formalFrontendVerification && task["frontend_delivery"] == nil {
+		local, err := hasLocalImplementationInputs(s)
+		if err != nil {
+			return err
+		}
+		if local {
+			if cpRef == "" {
+				return apFail(s, "FRONTEND_DELIVERY", "正式前端验证缺少明确当前功能checkpoint")
+			}
+			cp, err := s.doc(cpRef)
+			if err != nil {
+				return err
+			}
+			contractRef = progressionSliceRef(cp)
+			if contractRef == "" {
+				return apFail(s, "FRONTEND_DELIVERY", "正式前端验证缺少当前功能批准Slice")
+			}
+		}
+	}
 	var contract map[string]any
+	var currentSlice *nativeSlice
 	if contractRef != "" {
 		loaded, e := loadNativeSlice(s, contractRef)
 		if e != nil {
 			return e
 		}
-		contract = loaded.Normalized
+		currentSlice, contract = loaded, loaded.Normalized
+		if apText(apMap(task["contract"])["kind"]) == "slice-implementation" && contractN(loaded.Raw["schema_version"]) == 3 {
+			unit := apFind(contract["work_units"], "id", apText(task["work_unit_id"]))
+			if unit == nil || unit["role_id"] != task["role_id"] {
+				return apFail(s, "TASK_CONTRACT", "任务须匹配当前批准工作单元角色")
+			}
+			for _, allowed := range apStrings(task["allowed_write_paths"]) {
+				if !apContains(unit["allowed_write_paths"], allowed) {
+					return apFail(s, "TASK_SCOPE", "任务写范围未获当前工作单元批准")
+				}
+			}
+			if len(loaded.Repositories) == 0 {
+				currentSlice, e = contractSelectLocalUnit(s, loaded, apText(task["work_unit_id"]))
+			} else {
+				contract, e = backendSelected(s, loaded, apText(task["work_unit_id"]))
+			}
+			if e != nil {
+				return e
+			}
+			if len(loaded.Repositories) == 0 {
+				contract = currentSlice.Normalized
+			}
+			if !dedicated && semMap(contract["frontend"])["status"] == "not-applicable" {
+				return nil
+			}
+		}
 	}
 	binding := apMap(task["frontend_delivery"])
 	direct := apMap(apMap(contract["frontend"])["delivery"])
@@ -943,6 +998,22 @@ func taskFrontendDeliverySemantic(s *semanticSession, task map[string]any) error
 	}
 	if dedicated && apText(apMap(task["contract"])["kind"]) == "template-maintenance" {
 		return apFail(s, "FRONTEND_DELIVERY", "前端产品项目不得用维护任务绕过输入")
+	}
+	if !dedicated && binding == nil && required {
+		if cpRef == "" {
+			cpRef, e = progressionTaskAssetCheckpoint(s, contractRef)
+			if e != nil {
+				return e
+			}
+		}
+		phase := "contract"
+		if apText(apMap(task["contract"])["kind"]) == "slice-implementation" {
+			phase = "implementation"
+		}
+		if formalFrontendVerification {
+			phase = "verification"
+		}
+		return contractLocalFrontendInputs(s, currentSlice, map[string]string{"checkpoint": cpRef, "slice": apText(contract["slice_id"]), "phase": phase})
 	}
 	ref := apText(binding["acceptance_ref"])
 	slice := apText(contract["slice_id"])
@@ -1039,6 +1110,9 @@ func verifyTaskPackageSemanticMode(s *semanticSession, ref string, opts map[stri
 	}
 	if apText(task["execution_state"]) == "Reviewer" && apMap(task["review_context"])["implementation_actor_id"] == task["actor_id"] {
 		return apFail(s, "REVIEW_NOT_INDEPENDENT", "Reviewer与实现者actor相同")
+	}
+	if e = progressionTaskEntry(s, task); e != nil {
+		return e
 	}
 	if len(apArray(task["allowed_write_paths"])) > 0 && apText(contract["kind"]) == "lifecycle-work-unit" {
 		if e = s.verify("tracking-entry", ref, map[string]string{"checkpoint": apText(task["checkpoint_ref"])}); e != nil {
@@ -1210,7 +1284,14 @@ func validateTaskContractSemantic(s *semanticSession, ref string, task, unit map
 		return e
 	}
 	slice := c.Normalized
-	if e = s.verify("slice", sliceRef, map[string]string{"checkpoint": apText(task["checkpoint_ref"])}); e != nil {
+	options := map[string]string{"checkpoint": apText(task["checkpoint_ref"])}
+	if contractN(c.Raw["schema_version"]) == 3 {
+		options, e = sliceV3TaskVerificationOptions(s, task, sliceRef)
+		if e != nil {
+			return e
+		}
+	}
+	if e = s.verify("slice", sliceRef, options); e != nil {
 		return e
 	}
 	if !apEqual(slice["contract_id"], contract["contract_id"]) || !apEqual(slice["contract_version"], contract["contract_version"]) || apText(slice["status"]) != "approved" {
@@ -1272,11 +1353,11 @@ func validateSliceV3TaskSemantic(s *semanticSession, task, slice, unit map[strin
 			return apFail(s, "TASK_SKILL", "Slice工作单元使用禁用Skill")
 		}
 	}
-	refs := apStrings(apMap(task["contract"])["gate_refs"])
-	if len(refs) != 1 {
-		return apFail(s, "TASK_CONTRACT", "Slice v3派发须有唯一批准checkpoint")
+	options, e := sliceV3TaskVerificationOptions(s, task, apText(apMap(task["contract"])["slice_contract_ref"]))
+	if e != nil {
+		return e
 	}
-	if e := s.verify("slice", apText(apMap(task["contract"])["slice_contract_ref"]), map[string]string{"checkpoint": refs[0]}); e != nil {
+	if e := s.verify("slice", apText(apMap(task["contract"])["slice_contract_ref"]), options); e != nil {
 		return e
 	}
 	for _, allowed := range apStrings(task["allowed_write_paths"]) {
@@ -1300,6 +1381,42 @@ func validateSliceV3TaskSemantic(s *semanticSession, task, slice, unit map[strin
 		}
 	}
 	return nil
+}
+
+// A Slice's original approval checkpoint and its current feature checkpoint
+// are different identities. Public v3 tasks bind the former in gate_refs.
+func sliceV3TaskVerificationOptions(s *semanticSession, task map[string]any, sliceRef string) (map[string]string, error) {
+	refs := apStrings(apMap(task["contract"])["gate_refs"])
+	if len(refs) != 1 {
+		return nil, apFail(s, "TASK_CONTRACT", "Slice v3派发须有唯一原批准checkpoint")
+	}
+	cpRef := apText(task["checkpoint_ref"])
+	if s.checkpointRef != "" {
+		if cpRef != "" && cpRef != s.checkpointRef {
+			return nil, apFail(s, "TASK_CONTRACT", "任务与显式checkpoint冲突")
+		}
+		cpRef = s.checkpointRef
+	}
+	local, err := hasLocalImplementationInputs(s)
+	if err != nil {
+		return nil, err
+	}
+	if local {
+		current, err := progressionTaskAssetCheckpoint(s, sliceRef)
+		if err != nil {
+			return nil, err
+		}
+		if current == "" {
+			return nil, apFail(s, "PROGRESSION_BINDING", "当前Slice缺少唯一活动功能checkpoint登记")
+		}
+		if cpRef != "" && cpRef != current {
+			return nil, apFail(s, "TASK_CONTRACT", "显式checkpoint不是当前Slice唯一登记的功能checkpoint")
+		}
+		cpRef = current
+	} else if cpRef == "" {
+		cpRef = refs[0]
+	}
+	return map[string]string{"checkpoint": cpRef, "approval-ref": refs[0], "unit": apText(task["work_unit_id"])}, nil
 }
 
 func assertImplementationDecisionSemantic(s *semanticSession, state map[string]any) error {

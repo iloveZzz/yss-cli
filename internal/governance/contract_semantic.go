@@ -1396,7 +1396,15 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 			if text(semMap(app["frontend"])["ui_change"]) != "none" || semHas(scope["impacted_areas"], "ui") {
 				return nil, s.reject("APPLICABILITY", "既有 UI 不能承接 UI 变化")
 			}
-			if e = contractNeedBasis(s, basis, "existing_ui_baseline", "frontend_delivery"); e != nil {
+			local, err := hasLocalImplementationInputs(s)
+			if err != nil {
+				return nil, err
+			}
+			keys := []string{"existing_ui_baseline", "frontend_delivery"}
+			if local {
+				keys = []string{"existing_ui_baseline"}
+			}
+			if e = contractNeedBasis(s, basis, keys...); e != nil {
 				return nil, e
 			}
 			baseline, e := contractExistingUI(s, text(basis["existing_ui_baseline"]["ref"]))
@@ -1978,6 +1986,14 @@ func contractSliceFresh(s *semanticSession, c *nativeSlice, opts map[string]stri
 	}
 	unit := opts["unit"]
 	selectedContext := c
+	if len(c.Repositories) == 0 {
+		selectedContext, e = contractSelectLocalUnit(s, c, unit)
+		if e != nil {
+			return e
+		}
+		n = selectedContext.Normalized
+		r = semMap(n["resolution"])
+	}
 	if len(c.Repositories) > 0 {
 		if unit == "" && len(semList(n["work_units"])) == 1 {
 			unit = text(semMap(semList(n["work_units"])[0])["id"])
@@ -2048,12 +2064,46 @@ func contractSliceFresh(s *semanticSession, c *nativeSlice, opts map[string]stri
 		if len(delivery) == 0 {
 			delivery = semMap(semMap(n["frontend"])["delivery"])
 		}
-		if e = contractFrontendDelivery(s, delivery, c, opts); e != nil {
+		if len(delivery) == 0 {
+			e = contractLocalFrontendInputs(s, selectedContext, opts)
+		} else {
+			e = contractFrontendDelivery(s, delivery, selectedContext, opts)
+		}
+		if e != nil {
 			return e
 		}
 	}
 	s.report.ExecutionAuthorization = "not-evaluated"
 	return nil
+}
+
+// A responsibility view is derived only after the entire source Slice has
+// been normalized and approved. It never changes that source or its basis.
+func contractSelectLocalUnit(s *semanticSession, c *nativeSlice, unit string) (*nativeSlice, error) {
+	if contractN(c.Raw["schema_version"]) != 3 || unit == "" || len(c.Repositories) != 0 {
+		return c, nil
+	}
+	u := apFind(c.Normalized["work_units"], "id", unit)
+	if u == nil {
+		return nil, s.reject("WORK_UNIT", "未知当前批准工作单元")
+	}
+	role := text(u["role_id"])
+	if !semHas([]string{"role.backend-engineer", "role.frontend-engineer"}, role) {
+		return c, nil
+	}
+	selected := *c
+	selected.Normalized = contractCopy(c.Normalized)
+	common := contractCopy(semMap(c.Normalized["common"]))
+	common["project_roots"] = []any{u["project_root"]}
+	common["allowed_write_paths"] = u["allowed_write_paths"]
+	selected.Normalized["common"] = common
+	selected.Normalized["work_units"] = []any{u}
+	if role == "role.backend-engineer" {
+		selected.Normalized["frontend"] = map[string]any{"status": "not-applicable"}
+	} else {
+		selected.Normalized["backend"] = map[string]any{"status": "not-applicable"}
+	}
+	return &selected, nil
 }
 
 func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
@@ -2901,7 +2951,20 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 			return e
 		}
 		if strings.TrimSpace(string(out)) != expect[i] {
-			return s.reject("ARCH_SOURCE_STALE", "Git 根/origin/HEAD/提交与登记冲突")
+			if i != 3 {
+				return s.reject("ARCH_SOURCE_STALE", "Git 根/origin/提交与登记冲突")
+			}
+			allowed, err := candidateIntentAllowlist(s, repoRoot, c.Ref)
+			if err != nil {
+				return err
+			}
+			differences, err := s.git(repoRoot, "diff", "--no-renames", "--name-only", "-z", text(source["base_commit"]), "HEAD")
+			if err != nil {
+				return err
+			}
+			if err = candidateOnlyIntentPaths(s, differences, allowed, "ARCH_SOURCE_STALE"); err != nil {
+				return err
+			}
 		}
 	}
 	treeBytes, e := s.git(repoRoot, "ls-tree", "-r", "-z", text(source["base_commit"]))
@@ -2941,6 +3004,10 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 		}
 		tree[ref] = meta[2]
 	}
+	intentAllowed, err := candidateIntentAllowlist(s, repoRoot, c.Ref)
+	if err != nil {
+		return err
+	}
 	seen, changes := map[string]bool{}, []string{}
 	for _, v := range semList(source["files"]) {
 		f := semMap(v)
@@ -2949,6 +3016,9 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 			return s.reject("ARCH_SOURCE_INVALID", "固定源码路径/blob 非法")
 		}
 		seen[ref] = true
+		if intentAllowed[prefix+ref] {
+			continue
+		} // Original frozen blob/identity stays intact; intent current bytes are independently verified.
 		b, e := s.externalBytes(root, ref)
 		if e != nil {
 			view := s.externalViews[root]
@@ -2995,7 +3065,7 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 			for _, part := range strings.Split(ref, "/") {
 				skip = skip || semHas([]string{".git", "target", "node_modules"}, part)
 			}
-			if !skip && !seen[ref] {
+			if !skip && !seen[ref] && !intentAllowed[prefix+ref] {
 				changes = append(changes, ref)
 			}
 		}
@@ -5000,6 +5070,15 @@ func contractVisualDigest(raw []byte) (string, error) {
 	return "sha256:" + safefs.Digest([]byte("{"+strings.Join(parts, ",")+"}")), nil
 }
 func verifyFrontendDeliverySemantic(s *semanticSession, ref string, opts map[string]string) error {
+	if opts["phase"] != "" && !semHas([]string{"preflight", "design", "contract", "inputs", "implementation", "verification"}, opts["phase"]) {
+		return s.reject("FRONTEND_PHASE", "未知前端交付阶段")
+	}
+	if opts["unit"] != "" && ref != opts["checkpoint"] {
+		return s.reject("FRONTEND_BINDING", "外部接收记录不得伪装本地工作单元输入")
+	}
+	if opts["checkpoint"] != "" && ref == opts["checkpoint"] {
+		return contractLocalFrontendInputs(s, nil, opts)
+	}
 	binding := map[string]any{"acceptance_ref": ref, "digest": opts["expected-digest"]}
 	var c *nativeSlice
 	if opts["contract"] != "" {
@@ -5224,7 +5303,7 @@ func contractFrontendBackendDelivery(s *semanticSession, acceptance map[string]a
 	if e = contractHandoffConsumption(s, acceptance, map[string]string{"consumer": "frontend", "slice": slice}); e != nil {
 		return e
 	}
-	bundle, e := contractOpenHandoff(source, text(delivery["strategic_bundle_ref"]))
+	bundle, e := backendOpenStrategicInput(source, text(delivery["strategic_bundle_ref"]))
 	if e != nil {
 		return e
 	}

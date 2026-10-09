@@ -112,7 +112,7 @@ func isSemanticCommand(o options) bool {
 		return false
 	}
 	group, action := o.args[0], o.args[1]
-	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
+	if group == "lifecycle" && (action == "route" || action == "verify-daily" || action == "target") {
 		return true
 	}
 	return action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff") || group == "project-ci" && (action == "check" || action == "verify") && o.values["scope"] != "native-go"
@@ -421,6 +421,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
 					return e
 				}
+			case "lifecycle-target":
+				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
+					return e
+				}
 			case "init", "attach", "sync", "migrate", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
@@ -486,6 +490,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 						return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
 					}
 					if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
+						return e
+					}
+				case "lifecycle-target":
+					if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 						return e
 					}
 				case "init", "attach", "sync", "migrate", "skills", "assets":
@@ -801,7 +809,7 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	return true, nil
 }
 func capabilities() map[string]any {
-	return map[string]any{"workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "profile-guidance-v1", "profile-prepare", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	return map[string]any{"workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist

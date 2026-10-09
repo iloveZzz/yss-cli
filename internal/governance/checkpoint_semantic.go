@@ -334,7 +334,7 @@ func verifyTrackingEntrySemantic(s *semanticSession, ref string, opts map[string
 			return err
 		}
 	}
-	_, err = checkStage(s.v, cp, ref)
+	_, err = checkStage(s.v, cp, ref, s)
 	if err != nil {
 		return s.reject("TRACKING", err.Error())
 	}

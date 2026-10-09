@@ -165,7 +165,7 @@ func addSystemAsset(p *Plan, ref string, before, after domain.Descriptor, kind s
 
 // The complete target is determined by the current base plus the dependency
 // closure of recorded selections. It never discovers stages by scanning files.
-func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[string]bundle.File, old map[string]Managed) error {
+func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[string]bundle.File, old map[string]Managed, command string) error {
 	mode := text(d["mode"])
 	if id.Profile.Name != "spec" || mode != "selected" {
 		if mode == "legacy-all" || mode == "profile-full" {
@@ -198,6 +198,9 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 			refs[ref] = f
 		}
 		skills = union(skills, r.Skills)
+	}
+	if maintenanceSkillMigration(id, b, command) {
+		skills = migratedMaintenanceSkills(skills)
 	}
 	visited := map[string]bool{}
 	for {
@@ -292,15 +295,16 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 }
 
 type upgradePlanner struct {
-	id           *Identity
-	bundle       *bundle.Bundle
-	plan         *Plan
-	old          map[string]Managed
-	options      PlanningOptions
-	trustedModes map[string]bool
-	archive      *transaction.MaterialReader
-	base         *bundle.Bundle
-	decisions    map[string]Resolution
+	id               *Identity
+	bundle           *bundle.Bundle
+	plan             *Plan
+	old              map[string]Managed
+	options          PlanningOptions
+	trustedModes     map[string]bool
+	archive          *transaction.MaterialReader
+	base             *bundle.Bundle
+	decisions        map[string]Resolution
+	maintenanceRules map[string]bundle.MigrationRule
 }
 
 func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]Managed, o PlanningOptions, modes map[string]bool) (*upgradePlanner, error) {
@@ -309,6 +313,7 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 		return nil, e
 	}
 	u := &upgradePlanner{id: id, bundle: b, plan: p, old: old, options: o, trustedModes: modes, archive: reader, decisions: map[string]Resolution{}}
+	u.maintenanceRules = u.maintenanceRetirements()
 	p.materialData = map[string][]byte{}
 	if o.BaseBundlePath != "" {
 		var abs, hash string
@@ -436,6 +441,12 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 					}
 				}
 			}
+		}
+	}
+	commit, snapshot, hash := u.previousSource()
+	for ref, rule := range u.maintenanceRules {
+		if _, alreadyDeclared := retire[ref]; !alreadyDeclared && rule.From.Profile == u.id.Profile.Name && rule.From.TemplateCommit == commit && rule.From.SnapshotHash == snapshot && rule.From.BundleHash == hash {
+			retire[ref] = rule
 		}
 	}
 	keys := []string{}
@@ -619,6 +630,13 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 			if previous.Ownership != "managed-customizable" {
 				a.Policy = "fixed-retired"
 			}
+			maintenanceRule, documentedRetirement := u.maintenanceRules[ref]
+			documentedRetirement = documentedRetirement && maintenanceRule.ID == rule.ID
+			if documentedRetirement {
+				// The fixed-source tombstone permits bound keep-local exceptions
+				// for customized historical files, outside the new Skill lock.
+				a.Policy = "retired"
+			}
 			a.Target = domain.Descriptor{Type: "missing"}
 			a.TargetPath = rule.TargetPath
 			base, source, trusted, e := u.baseMaterial(ref, previous)
@@ -651,7 +669,11 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 				a.TargetData = base64.StdEncoding.EncodeToString(targetData)
 				pristine = pristine && d.Type == "missing"
 			}
-			if pristine {
+			keptException := documentedRetirement && previous.Disposition != nil && previous.Disposition.Choice == "keep-local" && previous.Disposition.RuleID == rule.ID && previous.Disposition.Applied == before
+			if keptException {
+				a.Action = "retired-preserved"
+				a.Reason = "继续执行已登记的历史技能退役保留例外"
+			} else if pristine {
 				a.Action = rule.Action
 				a.Reason = "固定来源规则及旧字节已核验"
 			} else {
@@ -720,6 +742,10 @@ func (u *upgradePlanner) classifyForeignSkillFiles(refs map[string]bundle.File) 
 		if len(parts) > 3 && parts[1] == "skills" && (parts[0] == ".agents" || parts[0] == ".codex" || parts[0] == ".cursor" || parts[0] == ".pi") && !strings.HasPrefix(parts[2], ".") {
 			roots[strings.Join(parts[:3], "/")] = true
 		}
+	}
+	for ref := range u.maintenanceRules {
+		parts := strings.Split(ref, "/")
+		roots[strings.Join(parts[:3], "/")] = true
 	}
 	for prefix := range roots {
 		path, e := safefs.Path(u.id.Root, prefix)

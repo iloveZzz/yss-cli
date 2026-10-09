@@ -343,6 +343,45 @@ func TestApprovalCurrentPublicBindingAndHistory(t *testing.T) {
 	apTestCode(t, err, "APPROVAL_CURRENT_INVALID")
 }
 
+func TestApprovalCurrentRejectsProgressionReferencesAndKeepsHistory(t *testing.T) {
+	for _, field := range []string{"evidence_refs", "subject_ref", "review_task_ref", "continuation_ref", "basis", "review_bundle_basis"} {
+		t.Run(field, func(t *testing.T) {
+			root := apTestRoot(t)
+			record, state, gate := apTestApproval(t, root)
+			ref := "nested/Progression-Target.JSON"
+			raw := apTestPut(t, root, ref, "intent")
+			s := apTestSession(t, root)
+			expected, err := approvalExpectationFromState(s, gate, state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = assertCurrentApprovalSemantic(s, record, expected); err != nil {
+				t.Fatalf("original current approval invalid: %v", err)
+			}
+			switch field {
+			case "evidence_refs":
+				record[field] = append(apArray(record[field]), ref)
+			case "basis", "review_bundle_basis":
+				record[field] = append(apArray(record[field]), map[string]any{"ref": ref, "digest": safefs.Digest(raw)})
+			default:
+				record[field] = ref
+			}
+			if err = assertCurrentApprovalSemantic(s, record, expected); semanticCode(err) != "PROGRESSION_EVIDENCE" {
+				t.Fatalf("current approval accepted target %s: %v", field, err)
+			}
+			if field == "evidence_refs" {
+				apTestPut(t, root, "approval.json", record)
+				if _, err = apTestRun(root, "approval", "approval.json", map[string]string{"checkpoint": "checkpoint.json"}); semanticCode(err) != "PROGRESSION_EVIDENCE" {
+					t.Fatalf("public current consumer accepted target evidence: %v", err)
+				}
+				if _, err = apTestRun(root, "approval", "approval.json", map[string]string{"history": "true"}); err != nil {
+					t.Fatalf("historical schema-only reader changed: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift(t *testing.T) {
 	for _, name := range []string{"scope", "basis-bytes", "author", "role", "veto", "unlisted", "subject-bytes"} {
 		t.Run(name, func(t *testing.T) {

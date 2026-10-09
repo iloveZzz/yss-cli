@@ -82,6 +82,10 @@ func taskTestCompletedBackendProducerRoot(t *testing.T) string {
 	cp["feature_id"], cp["mode"], cp["stage"], cp["status"], cp["next_work_unit"] = "backend-consumer", "audit", "stage.verification-release-retrospective", "routing", nil
 	cp["context_reconciliation"] = map[string]any{"status": "reconciled", "ref": "CONTEXT.md", "evidence_refs": []any{"CONTEXT.md"}}
 	cp["phase_boundary"] = map[string]any{"decision": "continue", "reason": "Synthetic current backend responsibility endpoint, never business completion"}
+	delivery := semMap(mustParseContract(mustReadSpecBaselineTestFile(t, filepath.Join(root, "delivery.json"))))
+	// This synthetic consumer explicitly selects the same Slice that the current
+	// terminal's producer approved. A checkpoint option cannot invent its scope.
+	semMap(cp["human_review"])["implementation"] = map[string]any{"slice_contract_ref": semMap(delivery["slice_contract"])["ref"]}
 	cp["stage_trace"] = map[string]any{"stage": "stage.verification-release-retrospective", "upstream_refs": []any{"CONTEXT.md"}, "artifact_refs": evidence, "gate_decisions": []any{}, "downstream_impacts": []any{}, "completed_work_unit": "work-unit.backend-delivery"}
 	apTestPut(t, root, cpRef, cp)
 	apTestPut(t, root, "docs/.scratch/backend-consumer/task.json", task)
@@ -166,6 +170,16 @@ func TestTaskCompletedBackendProducerAuditFixedSource(t *testing.T) {
 			apTestPut(t, root, ref, baseline)
 		})
 	}
+	t.Run("wrong-current-slice", func(t *testing.T) {
+		before := mustReadSpecBaselineTestFile(t, filepath.Join(root, cpRef))
+		defer apTestPut(t, root, cpRef, before)
+		cp := semMap(mustParseContract(before))
+		semMap(semMap(cp["human_review"])["implementation"])["slice_contract_ref"] = "other-current-slice.yaml"
+		apTestPut(t, root, cpRef, cp)
+		if err := run(nil); err == nil {
+			t.Fatal("legacy completed producer accepted a different current checkpoint Slice")
+		}
+	})
 	// Current delivery bytes, rather than the task's self-described evidence,
 	// control terminal validity. Restore only this synthetic fixture afterwards.
 	delivery, err := os.ReadFile(filepath.Join(root, "delivery.json"))

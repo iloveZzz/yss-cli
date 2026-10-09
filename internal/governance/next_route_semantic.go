@@ -69,7 +69,8 @@ func nativeNextRoutes(profile string) map[string][]string {
 	put("stage-decision", "spec-synthesis")
 	put("spec-synthesis", "prototype-design-v2", "business-ticket-formalization", "technical-analysis")
 	put("prototype-design-v2", "business-ticket-formalization", "technical-analysis")
-	put("business-ticket-formalization", "technical-analysis")
+	put("business-ticket-formalization", "technical-analysis", "strategic-design-handoff")
+	put("strategic-design-handoff", "technical-analysis")
 	put("technical-analysis", "implementation-repository-preparation")
 	put("implementation-repository-preparation", "service-project-initialization", "ticket-decomposition")
 	put("service-project-initialization", "implementation-repository-preparation")
@@ -77,7 +78,7 @@ func nativeNextRoutes(profile string) map[string][]string {
 	put("slice-implementation", "frontend-implementation-verification", "code-review")
 	put("frontend-implementation-verification", "code-review")
 	put("code-review", "release-and-retrospective", "slice-implementation", "backend-delivery")
-	put("backend-delivery")
+	put("backend-delivery", "release-and-retrospective")
 	put("release-and-retrospective")
 	return m
 }
@@ -209,7 +210,7 @@ func (s *semanticSession) trackingTransition(cp map[string]any, ref, current, ne
 	if trackedUnits[current] == "" && trackedUnits[next] == "" {
 		return nil
 	}
-	if _, err = checkStage(s.v, cp, ref); err != nil {
+	if _, err = checkStage(s.v, cp, ref, s); err != nil {
 		return s.reject("TRACKING", err.Error())
 	}
 	t, err := asTracking(cp)
@@ -220,8 +221,13 @@ func (s *semanticSession) trackingTransition(cp map[string]any, ref, current, ne
 		return nil
 	}
 	currentStage, nextStage := trackedUnits[current], trackedUnits[next]
-	if current == "work-unit.business-ticket-formalization" && text(cp["profile_id"]) == "harness.business-ddd-strategy-handoff" {
-		currentStage = "stage.ticket-formalization"
+	if text(cp["profile_id"]) == "harness.business-ddd-strategy-handoff" {
+		if current == "work-unit.business-ticket-formalization" || current == "work-unit.strategic-design-handoff" {
+			currentStage = "stage.ticket-formalization"
+		}
+		if next == "work-unit.business-ticket-formalization" || next == "work-unit.strategic-design-handoff" {
+			nextStage = "stage.ticket-formalization"
+		}
 	}
 	for _, item := range t.Items {
 		exiting := item.WorkUnit == current || currentStage != "" && currentStage != nextStage && item.Stage == currentStage
@@ -280,6 +286,28 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 	if current == "work-unit.entry-triage" && identity["repository_mode"] == "template-source" {
 		allowed = []string{"work-unit.maintenance-research", "work-unit.ssot-update"}
 	}
+	if profile["profile_id"] == "harness.spec-template" && (current == "work-unit.strategic-design-handoff" || next == "work-unit.strategic-design-handoff") {
+		config, cp, e := progressionLocation(s, cpRef)
+		if e != nil {
+			return e
+		}
+		raw, e := s.bytes(config)
+		if e != nil {
+			return e
+		}
+		intent, e := parseProgressionTarget(raw)
+		if e != nil {
+			return e
+		}
+		if intent.FeatureID != text(cp["feature_id"]) || intent.CheckpointRef != cpRef || !progressionExternalImplementation(intent, s.root) {
+			return s.reject("PROFILE_ROUTE", "Spec 战略交接需要同功能显式外部专职消费者")
+		}
+		if current == "work-unit.strategic-design-handoff" {
+			if e = progressionCheck(s, cpRef, cp, "strategic-handoff-delivery"); e != nil {
+				return e
+			}
+		}
+	}
 	if current == "work-unit.entry-triage" && profile["profile_id"] == specBaselineProfile && state["upstream_spec_baseline"] != nil {
 		if err = verifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
 			return err
@@ -301,15 +329,29 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 		return err
 	}
 	if scope == nil {
+		backendRequested := false
+		if next == "work-unit.backend-delivery" {
+			_, e := progressionBackendAuthorization(s, cpRef, "", false)
+			if e != nil {
+				return e
+			}
+			backendRequested = true
+		}
 		filtered := []string{}
 		for _, route := range allowed {
-			if route != "work-unit.backend-delivery" {
+			if route != "work-unit.backend-delivery" || backendRequested {
 				filtered = append(filtered, route)
 			}
 		}
 		allowed = filtered
 		if current == "work-unit.backend-delivery" {
-			return s.reject("EXECUTION_SCOPE", "后端终点需要显式职责范围")
+			a, e := progressionBackendAuthorization(s, cpRef, "", true)
+			if e != nil {
+				return e
+			}
+			if e = s.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
+				return e
+			}
 		}
 	} else {
 		if !semHas(scope["allowed_work_units"], current) || next != "" && !semHas(scope["allowed_work_units"], next) {
