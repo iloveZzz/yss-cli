@@ -1459,3 +1459,31 @@ func contractTestRetainedRoot(t *testing.T, root, name string) string {
 	}
 	return target
 }
+
+func TestContractSelectLocalUnitSpecialistResponsibilities(t *testing.T) {
+	for _, role := range []string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"} {
+		c := &nativeSlice{Raw: map[string]any{"schema_version": json.Number("3"), "contract_id": "approved"}, Normalized: map[string]any{"common": map[string]any{"project_roots": []any{"project"}, "allowed_write_paths": []any{"src"}}, "work_units": []any{map[string]any{"id": "unit", "role_id": role, "project_root": "project", "allowed_write_paths": []any{"src/owned"}}}, "backend": map[string]any{"status": "required"}, "frontend": map[string]any{"status": "required"}}}
+		before := contractDigest(c.Normalized)
+		selected, err := contractSelectLocalUnit(&semanticSession{}, c, "unit")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if selected.Raw["contract_id"] != "approved" || contractDigest(c.Normalized) != before {
+			t.Fatal("source identity or view mutated")
+		}
+		if got := semMap(selected.Normalized["common"]); !contractSame(got["project_roots"], []any{"project"}) || !contractSame(got["allowed_write_paths"], []any{"src/owned"}) {
+			t.Fatal("frozen scope was not selected", got)
+		}
+		opposite := "backend"
+		if strings.Contains(role, "backend") {
+			opposite = "frontend"
+		}
+		if semMap(selected.Normalized[opposite])["status"] != "not-applicable" {
+			t.Fatal("opposite responsibility retained")
+		}
+		semMap(apFind(c.Normalized["work_units"], "id", "unit"))["role_id"] = "role.requirements-manager"
+		if _, err = contractSelectLocalUnit(&semanticSession{}, c, "unit"); err == nil {
+			t.Fatal("analysis role accepted")
+		}
+	}
+}
