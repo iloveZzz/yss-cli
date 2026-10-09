@@ -23,7 +23,7 @@ func maintenanceSkillMigration(id *Identity, b *bundle.Bundle, command string) b
 	switch {
 	case command == "sync" && id.Native != nil:
 		distribution = id.Native.Distribution
-	case command == "migrate" && id.Native == nil && id.Legacy != nil && id.Profile.Name == "spec":
+	case (command == "migrate" || command == "doctor" || command == "diff") && id.Native == nil && id.Legacy != nil && id.Profile.Name == "spec":
 		old, registered := baseline(id)[".agents/skills/"+oldMaintenanceSkill+"/SKILL.md"]
 		if !registered || old.Ownership != "managed" || !digestPattern.MatchString(old.Applied.Digest) {
 			return false
