@@ -307,7 +307,7 @@ func contractLocalFrontendBackend(s *semanticSession, cpRef string, c *nativeSli
 	if err != nil {
 		return err
 	}
-	delivery, err := backendInspectDelivery(backend, text(semMap(terminal["delivery"])["ref"]), map[string]string{"checkpoint": backend.checkpointRef})
+	delivery, err := backendInspectDeliveryMode(backend, text(semMap(terminal["delivery"])["ref"]), map[string]string{"checkpoint": backend.checkpointRef}, terminal["delivery_mode"] == "local-evidence", backend.checkpointRef)
 	if err != nil {
 		return err
 	}

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const ASSET_PACKAGES = ["./internal/bundle", "./tools/bundle", "./tools/package", "./tools/release"];
 const HELP_PATTERN = "Help|Presentation|Version";
-const sourcePath = value => value.replace(/^tests\/fixtures\/upstream-source\//, "").replace(/^\.codex\/skills\//, ".agents/skills/");
+const sourcePath = value => value.replace(/^tests\/fixtures\/upstream-source\//, "").replace(/^(?:\.codex|\.cursor|\.pi)\/skills\//, ".agents/skills/");
 
 export function selectVerification({ paths = [], sourcePaths = [], versionOnly = false, importGraph = {}, forceFull = false, goChanges = {} }) {
   const packages = new Set(), seeds = new Set(), suites = new Set(), reasons = [], unknown = [];
@@ -42,11 +42,13 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
     const file = sourcePath(original);
     if (/^\.agents\/skills\/yss-(?:ddd|layered-mvc)-scaffold-generator\//.test(file) || /^scripts\/(?:lib\/(?:standalone-backend-scaffold|backend-scaffold-prerequisites|scaffold-local-database)\.mjs|fixtures\/backend-scaffold\/)/.test(file)) suites.add("backend-scaffolds");
     else if (/^(?:scripts\/(?:lib\/backend-platform[^/]*\.mjs|backend-platforms)|tests\/backend-platforms\.test\.mjs|\.template-spec\/engineering\/(?:backend-platforms\.|evidence\/)|\.template-source\/engineering\/evidence\/)/.test(file)) { suites.add("backend-platforms"); suites.add("backend-scaffolds"); }
-    else if (/^(?:\.agents\/skills\/(?:yss-product-lifecycle|harness-orchestrator|architecture-agent|yss-stage-decision)\/|scripts\/lib\/(?:harness-execution-scope|lifecycle-progression|lifecycle-execution-scope|backend-delivery-terminal|frontend-delivery-boundary|slice-task-package|task-package|spec-baseline)\.mjs|tests\/specialist-business-inputs\.test\.mjs)/.test(file) || /^(?:\.template-spec\/(?:agents\/(?:digital-human-roles|yss-skill-registry)\.yaml|process\/(?:lifecycle-[^/]+\.(?:yaml|json|md)|harness-profile\.yaml|implementation-repo-integration\.md|frontend-backend-delivery\.md|schemas/slice-implementation-contract-v3\.schema\.json))|scripts\/lib\/digital-human-roles\.mjs)$/.test(file)) suites.add("specialist-business-inputs");
+    else if (/^(?:\.agents\/skills\/(?:yss-product-lifecycle|yss-strategic-design|harness-orchestrator|architecture-agent|yss-stage-decision)\/|scripts\/lib\/(?:harness-execution-scope|lifecycle-progression|lifecycle-execution-scope|backend-delivery-terminal|frontend-delivery-boundary|slice-task-package|task-package|spec-baseline)\.mjs|tests\/specialist-business-inputs\.test\.mjs)/.test(file) || /^(?:\.template-spec\/(?:agents\/(?:digital-human-roles|yss-skill-registry)\.yaml|process\/(?:lifecycle-[^/]+\.(?:yaml|json|md)|harness-profile\.yaml|implementation-repo-integration\.md|frontend-backend-delivery\.md|schemas\/slice-implementation-contract-v3\.schema\.json))|scripts\/lib\/digital-human-roles\.mjs)$/.test(file)) suites.add("specialist-business-inputs");
     else if (/^(?:AGENTS\.md|README\.md|scripts\/sync-strategic-handoff-tools)$/.test(file)) { suites.add("specialist-business-inputs"); reasons.push("入口与共享分发由 Profile 投影/锁/来源检查核验"); }
     else if (/^\.agents\/skills\/[^/]+\/.*\.md$/.test(file) || /^\.template-source\/profile-skill-patches\//.test(file) || file === ".template-spec/process/harness-process-tailoring.md") { suites.add("specialist-business-inputs"); reasons.push(`技能路径说明及适配由政策、投影和锁核验: ${original}`); }
+    else if (/^\.agents\/skills\/[^/]+$/.test(file)||file===".template-source/derived/harness-work-unit-map.md") reasons.push(`派生投影与工作单元映射由来源/投影检查核验: ${original}`);
     else if (file === "tests/efficiency-distribution.test.mjs") suites.add("distribution");
     else if (/^(?:\.agents\/skills\/\.[^/]+\.json|skills-lock\.json|\.template-source\/(?:distribution\/|profile-skill-sync\.json|process\/template-verification[^/]*\.(?:yaml|json))|submodules\/|tests\/fixtures\/specialist-source-fixtures\.py)/.test(file)) reasons.push(`派生来源由投影/锁和原生消费者门禁核验: ${original}`);
+    else if (/^scripts\/fixtures\/(?:spec-baseline|strategic-handoff|backend-delivery)\/[^/]+\.mjs$/.test(file)) suites.add("specialist-business-inputs");
     else unknown.push("template:" + original);
   }
   if (seeds.size) {
