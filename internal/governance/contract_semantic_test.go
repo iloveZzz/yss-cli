@@ -221,6 +221,9 @@ func TestContractPlatformFingerprintOldOracleUnicode(t *testing.T) {
 	}
 	old := governanceOracleRoot(t)
 	root := apTestRoot(t)
+	if _, err := os.Stat(filepath.Join(old, "scripts/lib/standalone-backend-scaffold.mjs")); err == nil {
+		apTestPut(t, root, "scripts/lib/standalone-backend-scaffold.mjs", "synthetic standalone source\n")
+	}
 	for _, ref := range []string{".agents/skills/yss-ddd-scaffold-generator/scripts/generate_scaffold.mjs", ".agents/skills/yss-layered-mvc-scaffold-generator/scripts/generate_scaffold.mjs", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs", "scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", ".agents/skills/yss-ddd-scaffold-generator/scripts/run_scaffold_verification.mjs", ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper/mvnw"} {
 		apTestPut(t, root, ref, ref+"\n")
 	}
