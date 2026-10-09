@@ -69,6 +69,11 @@ func contractPlatformFingerprint(s *semanticSession, family string) (map[string]
 	}
 	base := ".agents/skills/" + skill
 	generator := []string{base + "/scripts/generate_scaffold.mjs", base + "/assets", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs"}
+	if present, err := s.exists("scripts/lib/standalone-backend-scaffold.mjs"); err != nil {
+		return nil, err
+	} else if present {
+		generator = append(generator, "scripts/lib/standalone-backend-scaffold.mjs")
+	}
 	if family == "layered-mvc" {
 		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper")
 	}
