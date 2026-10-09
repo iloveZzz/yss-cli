@@ -504,6 +504,9 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	if p == nil {
 		return nil, domain.Fail("PLAN", "缺少保存计划")
 	}
+	if p.Command == "doctor" || p.Command == "diff" {
+		return nil, domain.Fail("PLAN", "只读检查计划不能应用；请生成显式同步或迁移计划")
+	}
 	if p.MigrationKind != "" {
 		return nil, domain.Fail("PLAN", "未知迁移类型")
 	}

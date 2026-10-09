@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -490,6 +491,70 @@ func TestLegacyMaintenanceSelectionPreservesOldFiles(t *testing.T) {
 				t.Fatal("current setup entry was not selected")
 			}
 		})
+	}
+}
+
+func TestLegacyMaintenanceReadonlyPreservesIdentity(t *testing.T) {
+	root, original := legacyMaintenanceSelectionFixture(t)
+	oldRef := ".agents/skills/" + oldMaintenanceSkill + "/SKILL.md"
+	target, err := bundle.Load("spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := lockTree(t, root, true)
+	runtimeBefore, err := safefs.Describe(root, ".yss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"doctor", "diff"} {
+		t.Run(command, func(t *testing.T) {
+			if !maintenanceSkillMigration(original, target, command) {
+				t.Fatal("fixed-source replacement was unavailable to the read-only preview")
+			}
+			plan, err := Build(root, "spec", command, nil, nil)
+			if err != nil || plan.Command != command || !plan.ReadyToApply {
+				t.Fatal("legacy read-only inspection was blocked by the retired selection", err)
+			}
+			if asset := upgradeAsset(plan, oldRef); asset.Action != "retired-preserved" || asset.RuleID != "" {
+				t.Fatal("legacy inspection authorized deleting the historical Skill", asset)
+			}
+			for _, change := range plan.Changes {
+				if historicalMaintenanceFile(change.Path) || change.Path == MetadataFile || change.Path == original.LegacyFile {
+					t.Fatal("read-only preview planned an identity or old Skill replacement", change.Path)
+				}
+			}
+			u := &upgradePlanner{id: original, bundle: target, plan: plan, old: baseline(original)}
+			if len(u.maintenanceRetirements()) != 0 {
+				t.Fatal("legacy inspection gained native retirement authority")
+			}
+			id, err := Detect(root, "spec", false)
+			if err != nil || id.Native != nil || id.Legacy == nil {
+				t.Fatal("read-only inspection migrated the old identity", err)
+			}
+			if !reflect.DeepEqual(before, lockTree(t, root, true)) {
+				t.Fatal("legacy inspection changed files or transaction material")
+			}
+			if err := PreflightApplyContext(context.Background(), plan); lockCode(err) != "PLAN" {
+				t.Fatal("read-only plan passed the shared application preflight", err)
+			}
+			if _, err := Apply(plan); lockCode(err) != "PLAN" {
+				t.Fatal("read-only plan obtained an executable application route", err)
+			}
+			if !reflect.DeepEqual(before, lockTree(t, root, true)) {
+				t.Fatal("read-only application refusal wrote files or transaction material")
+			}
+			if runtimeAfter, err := safefs.Describe(root, ".yss"); err != nil || runtimeAfter != runtimeBefore {
+				t.Fatal("read-only application refusal created or changed the runtime directory", err)
+			}
+		})
+	}
+	for _, command := range []string{"sync", "ensure"} {
+		if _, err := Build(root, "spec", command, nil, nil); lockCode(err) != "MIGRATION_REQUIRED" {
+			t.Fatal("old identity obtained an implicit native write route", command, err)
+		}
+		if !reflect.DeepEqual(before, lockTree(t, root, true)) {
+			t.Fatal("implicit migration refusal wrote project files")
+		}
 	}
 }
 
