@@ -1,0 +1,42 @@
+name: Windows release installation
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-release-1.3.5]
+    paths: [.github/workflows/windows-release.yml, tools/windows-release-installation.py]
+permissions:
+  contents: read
+jobs:
+  installation:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          path: tools-source
+      - uses: actions/checkout@v5
+        with:
+          ref: 4494551d28c92c3ad520858cff252bfef91b5bc0
+          path: cli-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and verify the fixed Windows archive
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'yss_1.3.5_windows_amd64.zip'
+          Invoke-WebRequest 'https://github.com/iloveZzz/yss-cli/releases/download/v1.3.5/yss_1.3.5_windows_amd64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne '9c231a6e8dbee483463e3478882c665f75e6a1c3f52d81c8d28273ed7f34f063') { throw 'Pinned archive digest mismatch' }
+      - name: Verify native Windows installation and rollback
+        working-directory: cli-source
+        run: python ../tools-source/tools/windows-release-installation.py "$env:RUNNER_TEMP/yss_1.3.5_windows_amd64.zip" "$env:RUNNER_TEMP/windows-installation"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-release-installation
+          path: |
+            ${{ runner.temp }}/windows-installation/report.json
+            ${{ runner.temp }}/windows-installation/*.log
+          if-no-files-found: error
