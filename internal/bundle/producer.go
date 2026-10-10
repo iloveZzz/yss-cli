@@ -197,7 +197,10 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		if !includedByManifest(ref, policy.Manifest, true) {
 			continue
 		}
-		data := prepareSource(s.Profile, ref, f.data)
+		data, e := prepareSource(s.Profile, ref, f.data)
+		if e != nil {
+			return nil, e
+		}
 		if renderSet[ref] {
 			// Full spec still targets a project-instance with selected runtimes.
 			// Preserve all assets; only the lock stays complete so the consumer

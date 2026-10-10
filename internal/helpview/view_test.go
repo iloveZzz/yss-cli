@@ -55,7 +55,7 @@ func TestHelpViewsMatchFixedSourcesAndProfileExecutionOrder(t *testing.T) {
 	for _, stage := range frontend.Stages {
 		ids = append(ids, stage.ID)
 	}
-	if !reflect.DeepEqual(ids, []string{"stage.harness-entry", "stage.frontend-engineering-design", "stage.slice-contract", "stage.slice-implementation", "stage.verification"}) {
+	if !reflect.DeepEqual(ids, []string{"stage.plan", "stage.spec-architecture", "stage.harness-entry", "stage.frontend-engineering-design", "stage.slice-contract", "stage.slice-implementation", "stage.verification", "stage.product-design"}) {
 		t.Fatalf("前端帮助需消费固定 Profile 的执行顺序: %v", ids)
 	}
 	design, err := Load("design")

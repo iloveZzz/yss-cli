@@ -150,8 +150,8 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		var marker struct {
 			SchemaVersion int `json:"schemaVersion"`
 		}
-		if e := json.Unmarshal(sourceLock, &marker); e == nil && marker.SchemaVersion == 2 {
-			return fail("ARTIFACT", "v2 来源锁缺少发行包来源字段")
+		if e := json.Unmarshal(sourceLock, &marker); e == nil && marker.SchemaVersion >= 2 {
+			return fail("ARTIFACT", "现代来源锁缺少发行包来源字段")
 		}
 		return nil
 	}
@@ -162,7 +162,7 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 	if e := parseJSON(sourceLock, &lock); e != nil {
 		return e
 	}
-	if lock.SchemaVersion != 2 || len(lock.Profiles) != 4 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
 		return fail("ARTIFACT", "发行包缺少固定来源锁")
 	}
 	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
@@ -178,6 +178,13 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		}
 		if !ok || i == nil || (i.SchemaVersion != 2 && i.SchemaVersion != 3) || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
 			return fail("ARTIFACT", "发行包 Profile 来源与锁不一致: "+profile)
+		}
+		if shared := s.SkillsSource; shared != nil {
+			if lock.SchemaVersion != 3 || shared.SourcePath == "" || !commitPattern.MatchString(shared.Commit) || shared.ConfigurationPath == "" || !digestPattern.MatchString(shared.ConfigurationHash) {
+				return fail("ARTIFACT", "发行包共享 Skill 来源不完整: "+profile)
+			}
+		} else if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") {
+			return fail("ARTIFACT", "发行包 v3 来源锁缺少共享 Skill 来源: "+profile)
 		}
 		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {
 			if !digestPattern.MatchString(hash) {

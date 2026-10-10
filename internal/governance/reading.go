@@ -244,7 +244,7 @@ func readingBlockers(value any) []any {
 			sort.Strings(keys)
 			for _, k := range keys {
 				path := p + "/" + k
-				if k == "blockers" || k == "blocking_items" || k == "stale_inputs" {
+				if k == "blockers" || k == "blocking_items" || k == "stale_inputs" || k == "blocking_findings" || k == "readiness_blockers" {
 					if rows, ok := x[k].([]any); ok {
 						for _, row := range rows {
 							result = append(result, map[string]any{"source_pointer": path, "item": row})
@@ -302,9 +302,13 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
-	content["registered_state"] = map[string]any{"status": cp["status"], "gates": readingEvidenceRefs(cp["gates"]), "stage_tracking": readingEvidenceRefs(cp["stage_tracking"]), "pause": readingEvidenceRefs(cp["pause"])}
+	registered := map[string]any{}
+	for _, key := range []string{"status", "gates", "stage_tracking", "pause", "context_reconciliation", "verification", "artifacts"} {
+		registered[key] = readingEvidenceRefs(cp[key], key != "artifacts")
+	}
+	content["registered_state"] = registered
 	content["blockers"] = readingBlockers(cp)
-	content["next_action"] = readingEvidenceRefs(cp["next_action"])
+	content["next_action"] = readingEvidenceRefs(cp["next_action"], true)
 	if content["next_action"] == nil {
 		content["next_action"] = map[string]any{"work_unit": cp["next_work_unit"], "authorization": "not-evaluated"}
 	}
@@ -313,22 +317,22 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 	return content, r.binding(cpRef, cp["feature_id"], cp["schema_version"]), nil
 }
 
-// Evidence records retain their identity and conclusion, never embedded bodies.
-func readingEvidenceRefs(value any) any {
+// Artifact content is a registered constraint; evidence content is an embedded body.
+func readingEvidenceRefs(value any, evidence bool) any {
 	switch x := value.(type) {
 	case map[string]any:
 		out := map[string]any{}
 		for k, v := range x {
-			if k == "body" || k == "text" || k == "stdout" || k == "stderr" || k == "markdown" || k == "content" {
+			if k == "body" || k == "text" || k == "stdout" || k == "stderr" || k == "markdown" || (evidence && k == "content") {
 				continue
 			}
-			out[k] = readingEvidenceRefs(v)
+			out[k] = readingEvidenceRefs(v, evidence || k == "evidence" || k == "evidence_refs")
 		}
 		return out
 	case []any:
 		out := []any{}
 		for _, v := range x {
-			out = append(out, readingEvidenceRefs(v))
+			out = append(out, readingEvidenceRefs(v, evidence))
 		}
 		return out
 	default:
@@ -429,6 +433,7 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 			return nil, nil, domain.Fail("CONTRACT_INVALID", "task 必须指定唯一已登记 --unit")
 		}
 		content["work_units"] = []any{selected}
+		content["reading_stop_conditions"] = "发现 violation、drift 或 new_impacts 时停止受影响工作，保留修改与证据并回交治理；阅读视图不授予批准或执行权。"
 		if n == 3 {
 			scope := semMap(raw["scope"])
 			for _, k := range []string{"project_root", "allowed_write_paths"} {
@@ -535,6 +540,13 @@ func readingEvidenceIndex(value any) []any {
 		switch x := v.(type) {
 		case map[string]any:
 			for _, key := range sortedMapKeys(x) {
+				if key == "evidence_refs" {
+					for i, row := range semList(x[key]) {
+						if ref := text(row); ref != "" {
+							out = append(out, map[string]any{"source_pointer": pointer + "/" + key + "/" + strconv.Itoa(i), "ref": ref})
+						}
+					}
+				}
 				if key == "ref" || strings.HasSuffix(key, "_ref") {
 					if ref := text(x[key]); ref != "" {
 						item := map[string]any{"source_pointer": pointer + "/" + key, "ref": ref}

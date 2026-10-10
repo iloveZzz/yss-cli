@@ -310,3 +310,61 @@ func TestProgramPackageProvenanceMustBeCompleteAndMatchSourceLock(t *testing.T) 
 		})
 	}
 }
+
+func TestProgramPackageSourceLockVersions(t *testing.T) {
+	for _, tc := range []struct {
+		name                                      string
+		version                                   int
+		stripped, missingSkills, badSkills, valid bool
+	}{
+		{"v2", 2, false, false, false, true},
+		{"v3", 3, false, false, false, true},
+		{"v2-stripped", 2, true, false, false, false},
+		{"v3-stripped", 3, true, false, false, false},
+		{"unknown", 4, false, false, false, false},
+		{"unknown-stripped", 4, true, false, false, false},
+		{"v3-missing-skills", 3, false, true, false, false},
+		{"v3-bad-skills", 3, false, false, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, inspections := committedPackageInputs(t)
+			var lock bundle.SourceLock
+			if err := json.Unmarshal(raw, &lock); err != nil {
+				t.Fatal(err)
+			}
+			lock.SchemaVersion = tc.version
+			for profile, source := range lock.Profiles {
+				if tc.version == 2 || tc.missingSkills {
+					source.SkillsSource = nil
+				}
+				if tc.badSkills && source.SkillsSource != nil {
+					source.SkillsSource.Commit = "short"
+				}
+				lock.Profiles[profile] = source
+			}
+			raw, err := json.Marshal(lock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := map[string][]byte{fileName(): []byte("native-binary"), "README.md": []byte("readme"), "docs/source-lock.json": raw, "docs/compatibility.md": []byte("alpha")}
+			archive, sha := fixtureManifest(t, files, runtime.GOOS+"/"+runtime.GOARCH, func(m *Manifest) {
+				if !tc.stripped {
+					m.CLICommit = strings.Repeat("a", 40)
+					m.BinarySHA256 = m.Files[fileName()].Digest
+					m.Bundles = inspections
+				}
+			})
+			tool := filepath.Join(root(t), "tools")
+			_, err = Build(tool, archive, sha)
+			if tc.valid && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.valid && updateErrorCode(err) != "ARTIFACT" {
+				t.Fatalf("expected ARTIFACT refusal, got %v", err)
+			}
+			if _, err = os.Stat(tool); !os.IsNotExist(err) {
+				t.Fatal("package preview created tool root")
+			}
+		})
+	}
+}

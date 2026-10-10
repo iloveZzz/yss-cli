@@ -18,7 +18,11 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 	if bytes.IndexByte(data, 0) >= 0 {
 		return data, nil
 	}
-	text := string(prepareSource(profile, ref, data))
+	prepared, err := prepareSource(profile, ref, data)
+	if err != nil {
+		return nil, err
+	}
+	text := string(prepared)
 	if profile != "spec" {
 		switch ref {
 		case "yss-project.yaml":
@@ -79,8 +83,6 @@ function projectionRootsFor(lock) {
 	case "AGENTS.md":
 		text = renderLabels(text)
 		if selected {
-			re := regexp.MustCompile("(?s)## 4\\. `template-source` 模板维护路由.*?(## 5\\.)")
-			text = re.ReplaceAllString(text, "$1")
 			text = regexp.MustCompile("(?m)\\| 影响面、`not-applicable`、模板维护强度 \\|[^\\n]*\\n").ReplaceAllString(text, "| 影响面与 `not-applicable` | `.template-spec/process/harness-process-tailoring.md` |\n")
 			text += "\n## 按需阶段资产与 Skill\n\n进入后续生命周期阶段前，运行 `create-yss-spec assets ensure <stage-id> --plan` 查看完整依赖，核对后运行 `--apply`。专项任务根据 .template-spec/agents/yss-skill-registry.yaml 选定 Skill，运行 `create-yss-spec skills ensure <skill-id...> --plan`，核对后运行 `--apply`。缺少阶段资产时先补装，不以缺文件推定门禁不适用。若 CLI 快照与实例模板提交不一致，先核对匹配的 CLI 或 `create-yss-spec sync --plan`；不自动扩展同步范围。\n" + skillPreflight
 		}
@@ -360,12 +362,23 @@ func SelectedSourceLock(data []byte, skills, runtimes []string) ([]byte, error) 
 
 // Template maintenance instructions are source-only; project distributions retain
 // the product governance sections exactly as the prior fixed-source producer.
-func prepareSource(profile, ref string, data []byte) []byte {
+func prepareSource(profile, ref string, data []byte) ([]byte, error) {
+	if ref == "AGENTS.md" {
+		start := []byte("<!-- YSS_TEMPLATE_SOURCE_ONLY_START -->")
+		end := []byte("<!-- YSS_TEMPLATE_SOURCE_ONLY_END -->")
+		a, z := bytes.Index(data, start), bytes.Index(data, end)
+		if a >= 0 || z >= 0 {
+			if bytes.Count(data, start) != 1 || bytes.Count(data, end) != 1 || z < a {
+				return nil, fmt.Errorf("AGENTS_SOURCE_ONLY_MARKERS: 缺失、重复或顺序错误")
+			}
+			data = append(append([]byte{}, data[:a]...), data[z+len(end):]...)
+		}
+	}
 	if profile != "spec" {
 		if (profile == "backend" || profile == "frontend") && ref == ".gitignore" {
-			return regexp.MustCompile("(?s)\\n# Generated shared skills; authority: Spec profile-skill-sync.json\\n.*?\\n# End generated shared skills\\n").ReplaceAll(data, nil)
+			return regexp.MustCompile("(?s)\\n# Generated shared skills; authority: Spec profile-skill-sync.json\\n.*?\\n# End generated shared skills\\n").ReplaceAll(data, nil), nil
 		}
-		return data
+		return data, nil
 	}
 	text := string(data)
 	switch ref {
@@ -377,7 +390,7 @@ func prepareSource(profile, ref string, data []byte) []byte {
 	case ".template-spec/process/implementation-repo-integration.md":
 		text = regexp.MustCompile("(?s)\\n## 3\\. 本变更的跨仓库合同.*$").ReplaceAllString(text, "\n")
 	}
-	return []byte(text)
+	return []byte(text), nil
 }
 
 // Native generated entry guidance documents the actual public plan/apply seam.

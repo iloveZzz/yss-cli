@@ -570,7 +570,10 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 				continue
 			}
 		}
-		data := prepareSource("spec", ref, f.data)
+		data, e := prepareSource("spec", ref, f.data)
+		if e != nil {
+			return e
+		}
 		if renderSet[ref] {
 			data, e = renderSource("spec", ref, data, true, skills)
 			if e != nil {
