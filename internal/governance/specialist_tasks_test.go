@@ -11,6 +11,9 @@ import (
 )
 
 func TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker(t *testing.T) {
+	if specialistNativeSeedsMayShare(t.Name()) {
+		t.Parallel()
+	}
 	frontend := specBaselineActualNativeSeed(t, "frontend", true)
 	program := `import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
 const root=process.argv[1],{planTracking,applyTracking}=await import(pathToFileURL(path.join(root,'scripts/lib/stage-tracking-migration.mjs')).href);
@@ -74,6 +77,9 @@ const plan=planTracking(root,{checkpoint_ref:'.work/analysis/checkpoint.json',it
 }
 
 func TestLocalFrontendSpecialistExternalBackendAndLocalBackendTerminal(t *testing.T) {
+	if specialistNativeSeedsMayShare(t.Name()) {
+		t.Parallel()
+	}
 	oracle := governanceOracleRoot(t)
 	seed := backendProfileTestNativeSeed(t)
 	program := `import path from 'node:path';import {pathToFileURL} from 'node:url';
