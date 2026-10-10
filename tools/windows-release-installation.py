@@ -116,7 +116,10 @@ def main():
         call(["update", "plan", "--tool-root", tool, "--artifact", archive, "--sha256", report["candidateArchiveSha256"], "--out", planfile])
         assert inventory(tool) == baseline
         passed("install-plan-read-only")
-        call(["update", "apply", "--tool-root", tool, "--plan-file", planfile])
+        if manifest["stableReady"]:
+            call(["upgrade", "--to", manifest["cliVersion"], "--tool-root", tool])
+        else:
+            call(["update", "apply", "--tool-root", tool, "--plan-file", planfile])
         for ref, data in files.items():
             assert (tool / ref).read_bytes() == data
         assert call(["version"], tool / "yss.exe") == version
@@ -131,6 +134,7 @@ def main():
         call(["update", "recover", "--tool-root", tool])
         assert inventory(tool) == restored
         passed("recover")
+        report["recoveryScope"] = "repeated no-op after successful rollback; interrupted recovery not executed"
         assert inventory(tool)["user-data/readonly.txt"] == baseline["user-data/readonly.txt"]
         passed("user-file-preservation")
         report["status"], report["exitCode"] = "passed", 0

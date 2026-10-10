@@ -1,6 +1,11 @@
 name: Windows release installation
 on:
   workflow_dispatch:
+    inputs:
+      archive_sha256:
+        description: Pinned SHA-256 of the published Windows archive
+        required: true
+        default: 9c231a6e8dbee483463e3478882c665f75e6a1c3f52d81c8d28273ed7f34f063
   push:
     branches: [codex/windows-release-1.3.5]
     paths: [.github/workflows/windows-release.yml, tools/windows-release-installation.py]
@@ -25,10 +30,13 @@ jobs:
           python-version: '3.12'
       - name: Download and verify the fixed Windows archive
         shell: pwsh
+        env:
+          PINNED_ARCHIVE_SHA256: ${{ inputs.archive_sha256 || '9c231a6e8dbee483463e3478882c665f75e6a1c3f52d81c8d28273ed7f34f063' }}
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'yss_1.3.5_windows_amd64.zip'
           Invoke-WebRequest 'https://github.com/iloveZzz/yss-cli/releases/download/v1.3.5/yss_1.3.5_windows_amd64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne '9c231a6e8dbee483463e3478882c665f75e6a1c3f52d81c8d28273ed7f34f063') { throw 'Pinned archive digest mismatch' }
+          if ($env:PINNED_ARCHIVE_SHA256 -notmatch '^[a-f0-9]{64}$') { throw 'Pinned SHA-256 required' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $env:PINNED_ARCHIVE_SHA256) { throw 'Pinned archive digest mismatch' }
       - name: Verify native Windows installation and rollback
         working-directory: cli-source
         run: python ../tools-source/tools/windows-release-installation.py "$env:RUNNER_TEMP/yss_1.3.5_windows_amd64.zip" "$env:RUNNER_TEMP/windows-installation"
