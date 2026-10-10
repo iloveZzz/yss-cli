@@ -15,11 +15,17 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 	if err != nil {
 		return err
 	}
-	policy, err := s.doc(".template-source/process/maintenance-intensity.yaml")
+	history := opts["history"] == "true"
+	policyRef, policyVersion := ".template-source/process/maintenance-intensity.yaml", int64(2)
+	levels := []string{"L1", "L2"}
+	if history {
+		policyRef, policyVersion = ".template-source/process/maintenance-intensity-v1.yaml", 1
+		levels = append(levels, "L3")
+	}
+	policy, err := s.doc(policyRef)
 	if err != nil {
 		return err
 	}
-	levels := []string{"L1", "L2", "L3"}
 	version, ok := integer(doc["schema_version"])
 	if !ok || version < 1 || version > 2 {
 		return s.unavailable("CAPABILITY", "未知维护 checkpoint 版本")
@@ -61,8 +67,14 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 		return -1
 	}
 	pv, valid := integer(policy["schema_version"])
-	if !valid || pv != 1 || rank(text(policy["default_level"])) < 0 {
+	policyLevels := semMap(policy["levels"])
+	if !valid || pv != policyVersion || rank(text(policy["default_level"])) < 0 || len(policyLevels) != len(levels) {
 		return s.unavailable("CAPABILITY", "本地维护强度策略无效")
+	}
+	for level := range policyLevels {
+		if rank(level) < 0 {
+			return s.unavailable("CAPABILITY", "未知维护策略等级: "+level)
+		}
 	}
 	triggers := map[string]int{}
 	for i, level := range levels {
@@ -100,10 +112,17 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 		}
 	}
 	level := text(doc["intensity"])
+	if rank(level) < 0 {
+		return s.reject("MAINTENANCE", "当前 intensity 必须是 L1 或 L2；L3 仅供 --history 历史读取")
+	}
 	if rank(level) < minimum {
 		return s.reject("MAINTENANCE", "维护强度低于当前策略要求")
 	}
-	modes := map[string][]string{"L1": {"self-check", "human-checkpoint"}, "L2": {"self-check", "human-checkpoint", "focused-independent"}, "L3": {"self-check", "human-checkpoint", "focused-independent", "formal-independent"}}
+	modes := map[string][]string{"L1": {"self-check", "human-checkpoint"}, "L2": {"self-check", "human-checkpoint", "focused-independent", "formal-independent"}}
+	if history {
+		modes["L3"] = modes["L2"]
+		modes["L2"] = []string{"self-check", "human-checkpoint", "focused-independent"}
+	}
 	mode := text(doc["review_mode"])
 	if !semHas(modes[level], mode) {
 		return s.reject("MAINTENANCE", "维护审查模式不适用于该强度")
@@ -138,8 +157,13 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 			return err
 		}
 	}
-	required := map[string][]string{"L1": {"relevant-check"}, "L2": {"counterexample", "fresh-verification", "self-check"}, "L3": {"fresh-verification", "self-check"}}[level]
-	if mode == "formal-independent" {
+	required := []string{"fresh-verification", "self-check"}
+	if level == "L1" {
+		required = []string{"relevant-check"}
+	} else if history && level == "L2" {
+		required = append([]string{"counterexample"}, required...)
+	}
+	if history && level == "L3" && mode == "formal-independent" {
 		required = []string{"red", "green", "refactor", "pressure-scenario", "fresh-verification", reviewKind}
 	} else if reviewKind != "" {
 		out := []string{}
@@ -156,7 +180,7 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 			return s.reject("MAINTENANCE_EVIDENCE", "维护证据缺少 "+k)
 		}
 	}
-	if opts["history"] != "true" {
+	if !history {
 		for _, trigger := range semStrings(doc["triggers"]) {
 			if !semHas(policy["counterexample_triggers"], trigger) {
 				continue
@@ -164,15 +188,27 @@ func verifyMaintenanceSemantic(s *semanticSession, ref string, opts map[string]s
 			found := false
 			for _, row := range semList(doc["verification_evidence"]) {
 				e := semMap(row)
-				if e["kind"] == "counterexample" && e["trigger"] == trigger {
+				_, hasRun := e["run_ref"]
+				if e["kind"] == "counterexample" && e["trigger"] == trigger && hasRun {
 					found = true
-					if err = s.maintenanceCounterexample(e, trigger); err != nil {
-						return err
-					}
 				}
 			}
 			if !found {
 				return s.reject("MAINTENANCE_COUNTEREXAMPLE", "触发规则缺少定向反例: "+trigger)
+			}
+		}
+		for _, row := range semList(doc["verification_evidence"]) {
+			e := semMap(row)
+			_, hasRun := e["run_ref"]
+			if e["kind"] != "counterexample" || !hasRun {
+				continue
+			}
+			trigger := text(e["trigger"])
+			if !semHas(doc["triggers"], trigger) {
+				return s.reject("MAINTENANCE_COUNTEREXAMPLE", "自愿反例证据的 trigger 必须属于当前维护范围")
+			}
+			if err = s.maintenanceCounterexample(e, trigger); err != nil {
+				return err
 			}
 		}
 	}

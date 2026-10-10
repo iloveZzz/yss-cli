@@ -160,7 +160,7 @@ func TestReadingStatusKeepsRegisteredConclusionsAndLegacyBlockers(t *testing.T) 
 
 func TestReadingObservationsRejectDriftAndReuseBytes(t *testing.T) {
 	root, _ := readingFixture(t)
-	r := &readingSession{s: newSemanticSession(context.Background(), root, nil), docs: map[string]any{}}
+	r := &readingSession{s: newSemanticSession(context.Background(), root, nil), docs: map[string]map[string]any{}}
 	b, e := r.bytes("spec.md")
 	if e != nil {
 		t.Fatal(e)
