@@ -11,6 +11,8 @@ on:
 permissions:
   contents: read
 env:
+  # 预言机裁决回放自 internal/governance/testdata/oracle；锁升级后用 tools/oracle-record 重录。
+  YSS_ORACLE_MODE: fixture
   YSS_LEGACY_ORACLE_ROOT: ${{ github.workspace }}/template-source
   YSS_SCHEMA_CORPUS_ROOT: ${{ github.workspace }}/template-source
   YSS_NATIVE_SOURCE_ROOT: ${{ github.workspace }}/cli-source
