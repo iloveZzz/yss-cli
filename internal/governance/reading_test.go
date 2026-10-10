@@ -55,8 +55,10 @@ func TestReadingSliceFocusedAndFailures(t *testing.T) {
 	if semMap(r["content"])["full_acceptance_ref"] == nil {
 		t.Fatal("missing full acceptance binding")
 	}
-	if !strings.Contains(text(semMap(r["content"])["reading_stop_conditions"]), "new_impacts") {
-		t.Fatal("missing execution stop conditions")
+	for _, stop := range []string{"violation", "drift", "new_impacts"} {
+		if !strings.Contains(text(semMap(r["content"])["reading_stop_conditions"]), stop) {
+			t.Fatalf("missing execution stop condition: %s", stop)
+		}
 	}
 	full, _ := json.Marshal(readResult(t, "contract", "view", root, map[string]string{"kind": "slice", "file": "slice.yaml", "view": "full"}))
 	if len(b) >= len(full) {
@@ -134,7 +136,7 @@ func TestReadingStatusKeepsRegisteredConclusionsAndLegacyBlockers(t *testing.T) 
 	cp := map[string]any{"schema_version": 1, "repository_mode": "project-instance", "feature_id": "test", "stage": "stage.plan", "next_work_unit": "work-unit.plan-requirements",
 		"context_reconciliation": map[string]any{"status": "blocked", "reason": "术语待核验", "evidence_refs": []any{"context-check.json"}},
 		"verification":           map[string]any{"status": "failed", "evidence_refs": []any{"test.log"}},
-		"artifacts":              map[string]any{"spec": map[string]any{"status": "stale", "content": "必须保留的登记约束"}},
+		"artifacts":              map[string]any{"spec": map[string]any{"status": "stale", "content": "必须保留的登记约束", "evidence": map[string]any{"content": "不要展开资产中的证据正文"}}},
 		"scope":                  map[string]any{"doubt_driven_review": map[string]any{"blocking_findings": []any{"禁止推进"}}, "readiness_blockers": []any{"证据待补齐"}},
 		"evidence":               map[string]any{"body": map[string]any{"blocking_findings": []any{"证据中登记的阻断"}, "evidence_refs": []any{"nested-evidence.json"}, "stdout": "不要展开整个证据正文"}},
 	}
@@ -147,7 +149,7 @@ func TestReadingStatusKeepsRegisteredConclusionsAndLegacyBlockers(t *testing.T) 
 			t.Fatalf("lost registered conclusion/reference: %s", expected)
 		}
 	}
-	if len(semList(content["blockers"])) != 3 || len(semList(content["evidence_refs"])) != 3 || strings.Contains(string(b), "不要展开整个证据正文") {
+	if len(semList(content["blockers"])) != 3 || len(semList(content["evidence_refs"])) != 3 || strings.Contains(string(b), "不要展开整个证据正文") || strings.Contains(string(b), "不要展开资产中的证据正文") {
 		t.Fatalf("incomplete blocker/reference index: %#v", content)
 	}
 	semMap(c["scope"])["doubt_driven_review"] = cp["scope"]

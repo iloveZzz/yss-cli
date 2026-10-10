@@ -13,6 +13,44 @@ import (
 	"testing"
 )
 
+func TestAgentsSourceOnlyMarkers(t *testing.T) {
+	start := "<!-- YSS_TEMPLATE_SOURCE_ONLY_START -->"
+	end := "<!-- YSS_TEMPLATE_SOURCE_ONLY_END -->"
+	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		for _, selected := range []bool{false, true} {
+			input := "product-before\n" + start + "\n## 任意维护标题\nsource-private\n" + end + "\nproduct-after\n"
+			got, err := renderSource(profile, "AGENTS.md", []byte(input), selected, nil)
+			if err != nil || bytes.Contains(got, []byte("source-private")) || !bytes.Contains(got, []byte("product-before\n")) || !bytes.Contains(got, []byte("product-after\n")) {
+				t.Fatalf("%s selected=%v: %q, %v", profile, selected, got, err)
+			}
+			for _, invalid := range []string{start, end, end + start, start + start + end, start + end + end} {
+				if _, err := renderSource(profile, "AGENTS.md", []byte(invalid), selected, nil); err == nil {
+					t.Fatalf("%s accepted malformed markers: %q", profile, invalid)
+				}
+			}
+		}
+		legacy := []byte("# 产品\n\n## 4. `template-source` 模板维护路由\n旧维护\n## 5. 产品规则\n")
+		want := legacy
+		if profile == "spec" {
+			want = []byte("# 产品\n\n## 5. 产品规则\n")
+		}
+		got, err := prepareSource(profile, "AGENTS.md", legacy)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("legacy %s: %q, %v", profile, got, err)
+		}
+		for _, input := range [][]byte{got, []byte("# 已裁剪\n产品规则\n")} {
+			once, err := prepareSource(profile, "AGENTS.md", input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			twice, err := prepareSource(profile, "AGENTS.md", once)
+			if err != nil || !bytes.Equal(once, twice) {
+				t.Fatalf("non-idempotent %s: %q, %v", profile, twice, err)
+			}
+		}
+	}
+}
+
 func fixtureGit(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()

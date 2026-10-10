@@ -105,7 +105,8 @@ func TestBuildComposesCommittedSkillsWithoutTrackedCopies(t *testing.T) {
 func TestDistributedGitignoreKeepsManagedSkillsVisible(t *testing.T) {
 	raw := []byte("user-rule\n\n# Generated shared skills; authority: Spec profile-skill-sync.json\n/.agents/skills/shared/\n# End generated shared skills\n")
 	for _, profile := range []string{"backend", "frontend"} {
-		if got := string(prepareSource(profile, ".gitignore", raw)); got != "user-rule\n" {
+		got, err := prepareSource(profile, ".gitignore", raw)
+		if err != nil || string(got) != "user-rule\n" {
 			t.Fatalf("source-only ignore leaked into %s instance: %q", profile, got)
 		}
 	}
