@@ -36,7 +36,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
-	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native") {
+	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation recover full") {
@@ -60,6 +60,7 @@ func initializeCommands() {
 	defineArgument("base", "<完整SHA>", "已确认实现仓的完整 Git 基线")
 	defineArgument("exit-code", "<整数>", "实际退出码；成功状态必须为 0")
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
+	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
 	defineArgument("kind", "<类型>", "当前命令的领域类型；runtime begin 默认 command")
 	defineArgument("status", "<终态>", "运行记录的终态；成功状态必须匹配退出码 0")
 	defineArgument("project-name", "<名称>", "项目名称，作为模板变量")
@@ -460,6 +461,10 @@ func terminalWidth(s string) int {
 // Finite values belong to their command; project-defined IDs remain unrestricted.
 func commandChoices(key string) map[string][]string {
 	switch key {
+	case "contract view":
+		return map[string][]string{"kind": {"slice"}, "view": {"review", "task", "full"}}
+	case "context query", "lifecycle query", "lifecycle status":
+		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
 		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
 	case "evidence verify":
