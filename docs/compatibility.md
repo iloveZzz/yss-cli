@@ -2,7 +2,7 @@
 
 呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
 
-程序兼容基线：1.2.0；运行协议和 JSON envelope：1；升级计划：v2；Bundle 和 .yss.json：v3（保留 native metadata v1/v2 识别与历史原生事务恢复）。旧保存计划可以诊断，应用返回 `PLAN_VERSION`，须重新生成。来源锁继续使用 schema v2。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
+程序兼容基线：1.2.0；运行协议和 JSON envelope：1；升级计划：v2；Bundle 和 .yss.json：v3（保留 native metadata v1/v2 识别与历史原生事务恢复）。旧保存计划可以诊断，应用返回 `PLAN_VERSION`，须重新生成。内部来源锁支持 schema v2/v3；Backend / Frontend 新组合构建使用 v3，历史 v2 仍可读取。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。历史旧 CLI 基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21、Frontend 0.3.21；固定来源见 source-lock.json。
 
 `attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 

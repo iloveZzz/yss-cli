@@ -1,6 +1,6 @@
 # 模板存储与体积验证
 
-CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend 的完整离线模板。存储改造不更换 source lock 固定的模板提交、来源政策或 producer 谱系，不改变公开 Bundle v3、metadata v3、保存计划 v2、source lock v2 和 envelope / protocol v1。
+CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend 的完整离线模板。存储改造不更换 source lock 固定的模板提交、来源政策或 producer 谱系，不改变公开 Bundle v3、metadata v3、保存计划 v2、历史 source lock v2 和 envelope / protocol v1。
 
 ## 私有归档 v1
 
@@ -44,3 +44,20 @@ go test ./internal/bundle -run '^$' -bench '^BenchmarkLoad$' -benchmem -benchtim
 真实语料等价测试用 `YSS_BUNDLE_BASELINE_ROOT=/absolute/frozen-old-gzip-directory` 启用，逐 Profile 比较完整 Bundle。全套测试用锁定模板作为 `YSS_LEGACY_ORACLE_ROOT` 与 `YSS_SCHEMA_CORPUS_ROOT`，适用平台另跑竞态检查和原生 smoke / recovery。交叉编译仅证明构建和体积，运行资格仍按仓库原生平台要求取得。
 
 CI 上传六平台体积报告与本机性能测量报告。本地工作树的结果属于实现验证；最终 committed SHA 的原生收据、插件 binding、正式安装与回退证明需在提交后重新生成。程序回滚沿用现有升级事务恢复旧二进制及安装文档，不增加项目资产迁移。
+
+## 组合技能来源锁 v3
+
+Backend / Frontend 不再把共享技能副本存入 Git。`tools/bundle` 读取各端固定提交中的流程、专有技能和 `.template-source/profile-skills-source.json`，再读取 `skillsSource` 指定 Spec 提交中的清单、共享目录及适配材料。所有来源为指定 Git 对象，本地生成目录和未提交文件不参与构建。
+
+```json
+"skillsSource": {
+  "sourcePath": ".",
+  "templateCommit": "<Spec完整40位提交>",
+  "configurationPath": ".template-source/profile-skill-sync.json",
+  "configurationHash": "<清单原始字节SHA256>"
+}
+```
+
+内部锁顶层 `schemaVersion` 为 3；Spec / Design 仍保留原来源结构。Backend / Frontend 的子项目来源锁必须与上述字段一致，并核验生成目录的路径、字节和权限摘要。`manifest.skillComposition` 记录 `sourceTemplateCommit`、清单路径/摘要、`skillsDigest` 和技能选择；公开 Bundle v3 与现有安装、ownership、选择性安装和升级事务不变。旧 v2 锁用于重建其已有完整副本，不允许夹带组合来源字段。
+
+共享源先提交，再更新并提交两端来源锁，然后更新 CLI 固定来源及内嵌归档，最后更新父仓 gitlink。工作树锁不是正式构建输入；测试 fixture 的提交不替代真实交付来源。源码准备的忽略规则和入口不会带入业务实例。

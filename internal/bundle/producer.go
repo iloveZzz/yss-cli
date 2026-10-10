@@ -47,6 +47,7 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Source struct {
+	SkillsSource    *SkillSource  `json:"skillsSource,omitempty"`
 	Profile         string        `json:"profile"`
 	Root            string        `json:"-"`
 	SourcePath      string        `json:"sourcePath"`
@@ -158,6 +159,13 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty template source")
 	}
+	if s.SkillsSource != nil {
+		provenance, err := composeCommittedSkills(ctx, s, raw)
+		if err != nil {
+			return nil, err
+		}
+		policy.Manifest["skillComposition"] = provenance
+	}
 	if s.TemplateVersion == "" {
 		s.TemplateVersion = "git:" + s.Commit
 	}
@@ -242,14 +250,20 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	if lock.SchemaVersion != 2 || len(lock.Profiles) != 4 {
-		return nil, fmt.Errorf("source lock v2 requires four profiles")
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 {
+		return nil, fmt.Errorf("source lock v2/v3 requires four profiles")
 	}
 	out := map[string]*Bundle{}
 	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
 		s, ok := lock.Profiles[profile]
 		if !ok || s.Profile != profile {
 			return nil, fmt.Errorf("source lock profile missing: %s", profile)
+		}
+		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
+			return nil, fmt.Errorf("skill composition requires source lock v3")
+		}
+		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil {
+			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
 		}
 		s.Producer = lock.Producer
 		b, e := Build(ctx, s)
