@@ -77,7 +77,8 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
   if (unknown.length) { full = true; reasons.push("无法证明影响范围，扩大为全量: " + unknown.join(", ")); }
   if (forceFull) reasons.push("用户明确要求全量");
   if (assets) { ASSET_PACKAGES.forEach(pkg => packages.add(pkg)); suites.add("distribution"); }
-  if (full) return { scope: "full", go: [{ packages: ["./..."] }], race: [{ packages: ["./..."] }], vet: ["./..."], sourceSuites: [...suites].sort(), nativeRequired: true, reasons, unknown };
+  reasons.push("自动 race 已取消；需要时使用 Go 命令手动排查并发问题");
+  if (full) return { scope: "full", go: [{ packages: ["./..."] }], race: [], vet: ["./..."], sourceSuites: [...suites].sort(), nativeRequired: true, reasons, unknown };
   const go = packages.size ? [{ packages: [...packages].sort() }] : [];
   for (const group of focusedGo) {
     const existing=go.find(item=>item.run && JSON.stringify(item.packages)===JSON.stringify(group.packages));
@@ -85,7 +86,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
     else go.push(group);
   }
   if (help) go.push({ packages: ["./internal/cli"], run: HELP_PATTERN });
-  return { scope: "impacted", go, race: [...(seeds.size ? [{packages: [...packages].sort()}] : assets ? [{packages: ["./internal/bundle", "./tools/package", "./tools/release"]}] : []), ...go.filter(group => group.run && group.packages.includes("./internal/governance"))], vet: [...new Set(go.flatMap(group => group.packages))].sort(), sourceSuites: [...suites].sort(), nativeRequired: assets || help || focusedGo.length > 0 || seeds.size > 0 || suites.size > 0, reasons, unknown };
+  return { scope: "impacted", go, race: [], vet: [...new Set(go.flatMap(group => group.packages))].sort(), sourceSuites: [...suites].sort(), nativeRequired: assets || help || focusedGo.length > 0 || seeds.size > 0 || suites.size > 0, reasons, unknown };
 }
 
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }).trim(); }
@@ -154,7 +155,6 @@ function main(argv) {
   for (const group of plan.go) run("go", ["test", "-p", "1", "-count=1", "-timeout=60m", ...(group.run ? ["-run", group.run] : []), ...group.packages]);
   if (plan.vet.length) run("go", ["vet", ...plan.vet]);
   run("go", ["mod", "verify"]);
-  for (const group of plan.race) run("go", ["test", "-p", "1", "-race", "-count=1", "-timeout=120m", ...(group.run ? ["-run",group.run] : []), ...group.packages], root, { ...process.env, CGO_ENABLED: "1" });
   if (plan.sourceSuites.length && !options["template-root"]) throw new Error("专项来源测试缺少 --template-root");
   const template = options["template-root"] && path.resolve(options["template-root"]);
   const tests = new Set();

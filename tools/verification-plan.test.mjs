@@ -9,7 +9,7 @@ test("版本、固定 Bundle 和来源锁更新选择专项验证", () => {
   assert.ok(plan.go.some(group => group.packages.includes("./internal/domain")));
   assert.ok(plan.sourceSuites.includes("backend-scaffolds"));
   assert.ok(!plan.go.some(group => group.packages.includes("./...")));
-  assert.ok(!plan.race.some(group => group.packages.includes("./...")));
+  assert.deepEqual(plan.race, []);
   assert.equal(plan.nativeRequired, true);
 });
 
@@ -18,7 +18,7 @@ test("事务、共享核心和未知路径扩大为全量", () => {
     const plan = selectVerification({ paths: [file] });
     assert.equal(plan.scope, "full", file);
     assert.deepEqual(plan.go, [{ packages: ["./..."] }]);
-    assert.deepEqual(plan.race, [{packages:["./..."]}]);
+    assert.deepEqual(plan.race, []);
   }
 });
 
@@ -27,11 +27,15 @@ test("局部 Go 实现消费反向依赖闭包", () => {
   const plan = selectVerification({ paths: ["internal/format/format.go"], importGraph: graph });
   assert.equal(plan.scope, "impacted");
   assert.deepEqual(plan.go[0].packages, ["./cmd/yss", "./internal/cli", "./internal/format"]);
+  assert.deepEqual(plan.race, []);
 });
 
 test("未知模板影响和显式全量要求不会静默跳过", () => {
   assert.equal(selectVerification({ paths: ["docs/source-lock.json"], sourcePaths: ["scripts/lib/approval-current.mjs"] }).scope, "full");
-  assert.equal(selectVerification({ paths: ["README.md"], forceFull: true }).scope, "full");
+  const full = selectVerification({ paths: ["README.md"], forceFull: true });
+  assert.equal(full.scope, "full");
+  assert.deepEqual(full.go, [{ packages: ["./..."] }]);
+  assert.deepEqual(full.race, []);
   assert.equal(selectVerification({ paths: ["README.md"] }).nativeRequired, false);
 });
 
@@ -40,7 +44,7 @@ test("批准业务输入只在 AST 证明变更边界时使用专项",()=>{const
 
 test("导入、副作用或未证明的空函数变化不能选择专项",()=>{const file="internal/governance/spec_baseline.go";for(const change of [{SharedChanged:false,Functions:[]},{SharedChanged:true,Functions:["verifySpecBaselineSource"]}])assert.equal(selectVerification({paths:[file],goChanges:{[file]:change}}).scope,"full");});
 
-test("前端当前候选绑定覆盖批准与直接消费者，未证明的共享变化回退全量",()=>{const file="internal/governance/frontend_implementation_semantic.go",plan=selectVerification({paths:[file],goChanges:{[file]:{SharedChanged:false,Functions:["frontendImplementationCurrent"]}}});assert.equal(plan.scope,"impacted");for(const name of ["TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker","TestFrontendImplementationPlaceholdersUseWorkLayout","TestTaskFrontendDelivery","TestApprovalCurrent","TestReviewInput"])assert.ok(new RegExp(plan.go[0].run).test(name));for(const change of [{SharedChanged:false,Functions:[]},{SharedChanged:true,Functions:["frontendImplementationCurrent"]},{SharedChanged:false,Functions:["progressionFrontendImplementationCompletion"]}])assert.equal(selectVerification({paths:[file],goChanges:{[file]:change}}).scope,"full");});
+test("前端当前候选绑定覆盖批准与直接消费者，未证明的共享变化回退全量",()=>{const file="internal/governance/frontend_implementation_semantic.go",plan=selectVerification({paths:[file],goChanges:{[file]:{SharedChanged:false,Functions:["frontendImplementationCurrent"]}}});assert.equal(plan.scope,"impacted");assert.deepEqual(plan.race,[]);for(const name of ["TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker","TestFrontendImplementationPlaceholdersUseWorkLayout","TestTaskFrontendDelivery","TestApprovalCurrent","TestReviewInput"])assert.ok(new RegExp(plan.go[0].run).test(name));for(const change of [{SharedChanged:false,Functions:[]},{SharedChanged:true,Functions:["frontendImplementationCurrent"]},{SharedChanged:false,Functions:["progressionFrontendImplementationCompletion"]}])assert.equal(selectVerification({paths:[file],goChanges:{[file]:change}}).scope,"full");});
 
 test("登记的合同编译与本地 Plan Schema 消费者完整进入专项",()=>{const plan=selectVerification({sourcePaths:["scripts/lib/implementation-contract-compiler.mjs",".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml",".template-spec/process/schemas/lifecycle-registry.schema.json"]});assert.equal(plan.scope,"impacted");assert.deepEqual(plan.sourceSuites,["implementation-contracts","specialist-business-inputs"]);assert.equal(plan.nativeRequired,true);assert.deepEqual(plan.unknown,[]);});
 

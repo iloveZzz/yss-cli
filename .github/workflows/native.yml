@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: Explicit full Go and race verification
+        description: Explicit full Go verification (race is manual)
         type: boolean
         default: false
   push:

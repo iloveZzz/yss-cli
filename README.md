@@ -16,7 +16,7 @@ yss help tutorial
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
 
-编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试默认使用 `node tools/verification-plan.mjs --base <完整基线SHA> --template-root <固定模板源> --out <仓库外计划> --execute`，按差异及依赖执行专项 Go、竞态和来源消费者；共享核心、事务/安装/安全或未知范围扩大到全量，明确全量使用 `--full`。真实证据只在源码、工具、参数、环境和输入一致时复用。
+编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试默认使用 `node tools/verification-plan.mjs --base <完整基线SHA> --template-root <固定模板源> --out <仓库外计划> --execute`，按差异及依赖执行专项 Go 和来源消费者；共享核心、事务/安装/安全或未知范围扩大到全量，明确全量使用 `--full`。本地、CI 和发布不自动运行 race，`--full` 也不恢复 race；并发排障时可手动执行 `CGO_ENABLED=1 go test -p 1 -race -count=1 -timeout=120m <包>`。真实证据只在源码、工具、参数、环境和输入一致时复用。
 
 ```sh
 yss init --profile spec --root ./my-project --project-name 项目名称

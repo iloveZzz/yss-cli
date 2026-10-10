@@ -41,7 +41,7 @@ go test ./internal/bundle -run '^$' -bench '^BenchmarkLoad$' -benchmem -benchtim
 
 性能工具当前使用 macOS 原生 `/usr/bin/time -l`，RSS 单位为字节。每个命令先预热每个二进制一次，再至少运行十个独立进程，成对测量并交替先后顺序；报告保留实际命令、退出码、每次耗时和峰值 RSS、摘要与输入漂移状态。p95 用 nearest-rank；新 p95 必须 ≤ `max(旧 p95 × 1.10, 旧 p95 + 5ms)`，Backend / Frontend 的 RSS 中位数按指定降低比例验收。未来比较已优化版本时可按任务设置比例，默认仅要求内存不增长。无旧二进制时状态为 `measured`，明确记录未执行基线比较，不声称通过优化比例。
 
-真实语料等价测试用 `YSS_BUNDLE_BASELINE_ROOT=/absolute/frozen-old-gzip-directory` 启用，逐 Profile 比较完整 Bundle。全套测试用锁定模板作为 `YSS_LEGACY_ORACLE_ROOT` 与 `YSS_SCHEMA_CORPUS_ROOT`，适用平台另跑竞态检查和原生 smoke / recovery。交叉编译仅证明构建和体积，运行资格仍按仓库原生平台要求取得。
+真实语料等价测试用 `YSS_BUNDLE_BASELINE_ROOT=/absolute/frozen-old-gzip-directory` 启用，逐 Profile 比较完整 Bundle。全套测试用锁定模板作为 `YSS_LEGACY_ORACLE_ROOT` 与 `YSS_SCHEMA_CORPUS_ROOT`，适用平台另跑原生 smoke / recovery；race 仅在明确排查并发问题时手动执行。交叉编译仅证明构建和体积，运行资格仍按仓库原生平台要求取得。
 
 CI 上传六平台体积报告与本机性能测量报告。本地工作树的结果属于实现验证；最终 committed SHA 的原生收据、插件 binding、正式安装与回退证明需在提交后重新生成。程序回滚沿用现有升级事务恢复旧二进制及安装文档，不增加项目资产迁移。
 
