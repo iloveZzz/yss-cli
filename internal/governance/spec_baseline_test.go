@@ -693,11 +693,7 @@ func specBaselineActualNativeSeed(t *testing.T, profile string, full ...bool) st
 	if len(full) != 0 && full[0] {
 		args = append(args, "--full")
 	}
-	cmd := exec.Command(binary, args...)
-	if raw, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("actual native %s init: %v %s", profile, err, raw)
-	}
-	return root
+	return runActualNativeSeed(t, binary, root, args)
 }
 
 // These current synthetic approvals exercise the native evaluator against the
