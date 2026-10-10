@@ -1461,11 +1461,14 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 		}
 	}
 	for _, p := range semStrings(scope["project_roots"]) {
-		if regexp.MustCompile(`^app/(backend|frontend)(/|$)`).MatchString(p) {
-			return nil, s.reject("PATH", "禁止 app/backend 或 app/frontend")
-		}
-		if text(scope["implementation_path_policy"]) != "external-repository-native" && !regexp.MustCompile(`^apps/(backend|frontend)/[^/]+`).MatchString(p) {
-			return nil, s.reject("PATH", "Harness 工程需具体 project 根")
+		if text(scope["implementation_path_policy"]) != "external-repository-native" {
+			clean := strings.TrimSuffix(p, "/")
+			if !contractPath(clean) || semHas(strings.Split(clean, "/"), ".") {
+				return nil, s.reject("PATH", "Harness 工程根须为明确相对路径")
+			}
+			if regexp.MustCompile(`^apps/(backend|frontend)(/|$)`).MatchString(clean) && !regexp.MustCompile(`^apps/(backend|frontend)/[a-z][a-z0-9-]*(/|$)`).MatchString(clean) {
+				return nil, s.reject("PATH", "Harness 工程需具体 project 根")
+			}
 		}
 	}
 	acceptance, verification := semMap(raw["acceptance"]), semMap(raw["verification"])

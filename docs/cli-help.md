@@ -878,6 +878,7 @@ YSS 离线入门教程
 | `contract` | 校验 contract 的结构或原生领域语义。 | `yss help examples contract` |
 | `contract check` | 执行显式 Schema 结构校验。 | `yss help examples contract check` |
 | `contract verify` | 执行当前领域规则和独立消费者绑定校验。 | `yss help examples contract verify` |
+| `contract view` | 按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。 | `yss help examples contract view` |
 | `diff` | 查看当前文件相对固定模板的差异和同步计划。 | `yss help examples diff` |
 | `doctor` | 检查项目身份、受管基线和冲突。 | `yss help examples doctor` |
 | `evidence` | 校验 evidence 的结构或原生领域语义。 | `yss help examples evidence` |
@@ -2120,6 +2121,7 @@ yss context query --root ./demo-spec --json
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --term-refs <值>                按当前命令说明指定
   -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
@@ -2198,6 +2200,7 @@ yss 1.3.5 — contract
 子命令:
 check  执行显式 Schema 结构校验。
 verify  执行当前领域规则和独立消费者绑定校验。
+view  按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
 
 前置条件:
 合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
@@ -2334,6 +2337,51 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples contract verify
+```
+
+### contract view
+
+```text
+yss 1.3.5 — contract view
+──────────────────────
+按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
+
+用法: yss contract view --root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。
+
+最小示例:
+yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view task --unit work-unit.slice-backend
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --unit <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: review|task|full
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend|frontend>  必需或从项目身份检测
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract view
 ```
 
 ### diff
@@ -2935,6 +2983,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
@@ -2979,6 +3028,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
   --work-unit <值>                按当前命令说明指定
 
 参数说明与条件:
@@ -3071,6 +3121,7 @@ yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
@@ -7556,6 +7607,58 @@ NOT_FOUND — 项目身份或路径无法核验
 处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTRACT_INVALID
+
+```text
+CONTRACT_INVALID — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTRACT_SCHEMA
+
+```text
+CONTRACT_SCHEMA — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LOCATOR_INVALID
+
+```text
+LOCATOR_INVALID — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 STALE
+
+```text
+STALE — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
 ```
 

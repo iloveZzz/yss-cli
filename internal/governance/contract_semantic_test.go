@@ -193,11 +193,37 @@ func TestContractSliceV3OldOracleDifferential(t *testing.T) {
 		apTestPut(t, meta["root"], ref, raw)
 	}
 	apTestPut(t, meta["root"], ".template-spec/process/harness-profile.yaml", map[string]any{"schema_version": 2, "profile_id": "harness.spec-template"})
+	compilerRef := ".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml"
+	compiler, err := os.ReadFile(filepath.Join(old, filepath.FromSlash(compilerRef)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	apTestPut(t, meta["root"], compilerRef, compiler)
 	s := apTestSession(t, meta["root"])
 	s.args["tool-root"] = old
 	c, e := loadNativeSlice(s, meta["ref"])
 	if e != nil {
 		t.Fatal(e)
+	}
+	for _, policy := range []string{"harness-apps-multi-project", "external-repository-native"} {
+		for _, projectRoot := range []string{"app/backend/", "app/frontend/", "app/backend/project1/"} {
+			t.Run(policy+"/"+projectRoot, func(t *testing.T) {
+				raw := contractCopy(c.Raw)
+				scope := semMap(raw["scope"])
+				scope["implementation_path_policy"] = policy
+				scope["project_roots"] = []any{projectRoot}
+				for _, v := range semMap(raw["verification"]) {
+					semMap(v)["cwd"] = projectRoot
+				}
+				for _, unit := range semList(raw["work_units"]) {
+					semMap(unit)["project_root"] = projectRoot
+				}
+				apTestPut(t, meta["root"], "app-path-slice.yaml", map[string]any{"slice_contract": raw})
+				if _, err := loadNativeSlice(apTestSession(t, meta["root"]), "app-path-slice.yaml"); err != nil {
+					t.Fatalf("registered app root rejected: %v", err)
+				}
+			})
+		}
 	}
 	if e = contractSliceFresh(s, c, map[string]string{"approval-ref": meta["approval"], "unit": "work-unit.slice-backend"}); e != nil {
 		t.Fatal(e)

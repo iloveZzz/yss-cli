@@ -104,9 +104,21 @@ func registry(root string) (map[string]any, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	if err := validateRegistry(m); err != nil {
+		return nil, "", err
+	}
+	p, _ := safefs.Path(root, ref)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, "", err
+	}
+	return m, "sha256:" + safefs.Digest(b), nil
+}
+
+func validateRegistry(m map[string]any) error {
 	version, ok := integer(m["schema_version"])
 	if !ok || version != 1 {
-		return nil, "", domain.Fail("LIFECYCLE", "未知生命周期注册表 schema")
+		return domain.Fail("LIFECYCLE", "未知生命周期注册表 schema")
 	}
 	seen := map[string]bool{}
 	stableID := regexp.MustCompile(`^(stage|gate|check|artifact|work-unit|evidence)\.[a-z0-9][a-z0-9-]*$`)
@@ -117,29 +129,24 @@ func registry(root string) (map[string]any, string, error) {
 		}
 		rows, ok := m[kind].([]any)
 		if !ok {
-			return nil, "", domain.Fail("LIFECYCLE", "注册表集合必须是数组: "+kind)
+			return domain.Fail("LIFECYCLE", "注册表集合必须是数组: "+kind)
 		}
 		for _, v := range rows {
 			row, ok := object(v)
 			if !ok || text(row["id"]) == "" {
-				return nil, "", domain.Fail("LIFECYCLE", "注册表条目缺少稳定 ID")
+				return domain.Fail("LIFECYCLE", "注册表条目缺少稳定 ID")
 			}
 			id := text(row["id"])
 			if !stableID.MatchString(id) || len(id) <= len(prefixes[kind]) || id[:len(prefixes[kind])] != prefixes[kind] {
-				return nil, "", domain.Fail("LIFECYCLE_ID", "稳定 ID 格式或类别非法: "+id)
+				return domain.Fail("LIFECYCLE_ID", "稳定 ID 格式或类别非法: "+id)
 			}
 			if seen[id] {
-				return nil, "", domain.Fail("LIFECYCLE", "稳定 ID 重复: "+id)
+				return domain.Fail("LIFECYCLE", "稳定 ID 重复: "+id)
 			}
 			seen[id] = true
 		}
 	}
-	p, _ := safefs.Path(root, ref)
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return nil, "", err
-	}
-	return m, "sha256:" + safefs.Digest(b), nil
+	return nil
 }
 
 func findRegistry(m map[string]any, id string) (string, map[string]any, bool) {
@@ -220,12 +227,33 @@ func lifecycleRun(ctx context.Context, group, action, root string, args map[stri
 	if !ok || version != 1 || text(cp["repository_mode"]) != "project-instance" {
 		return nil, domain.Fail("LIFECYCLE", "checkpoint 身份或 schema 不支持")
 	}
+	state, err := lifecycleState(m, cp)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range state {
+		base[key] = value
+	}
+	base["checkpoint_ref"] = ref
+	base["profile_guidance"] = ProfileGuidance(ctx, root, ref, cp)
+	projection, progressionErr := progressionRead(ctx, root, ref)
+	if progressionErr == nil {
+		for _, key := range []string{"progression", "coordination", "next_action"} {
+			base[key] = projection[key]
+		}
+	} else {
+		base["progression"] = map[string]any{"enabled": false, "status": "unsupported", "reason": progressionErr.Error(), "read_only": true}
+	}
+	return base, nil
+}
+
+func lifecycleState(m, cp map[string]any) (map[string]any, error) {
+	base := map[string]any{}
 	stageID := text(cp["stage"])
 	kind, stage, found := findRegistry(m, stageID)
 	if !found || kind != "stages" {
 		return nil, domain.Fail("LIFECYCLE_ID", "checkpoint 阶段未登记: "+stageID)
 	}
-	base["checkpoint_ref"] = ref
 	base["current_stage"] = stage
 	base["next_work_unit"] = cp["next_work_unit"]
 	base["blockers"] = cp["blockers"]
@@ -286,15 +314,6 @@ func lifecycleRun(ctx context.Context, group, action, root string, args map[stri
 	}
 	base["diagnostics"] = diagnostics
 	base["next_stage_candidates"] = ids
-	base["profile_guidance"] = ProfileGuidance(ctx, root, ref, cp)
-	projection, progressionErr := progressionRead(ctx, root, ref)
-	if progressionErr == nil {
-		for _, key := range []string{"progression", "coordination", "next_action"} {
-			base[key] = projection[key]
-		}
-	} else {
-		base["progression"] = map[string]any{"enabled": false, "status": "unsupported", "reason": progressionErr.Error(), "read_only": true}
-	}
 	return base, nil
 }
 
