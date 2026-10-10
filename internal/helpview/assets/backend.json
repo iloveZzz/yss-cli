@@ -1,10 +1,22 @@
 {
   "schemaVersion": 1,
   "profile": "backend",
-  "templateCommit": "2a5f253cade0e23becb86ae81db98ad9a329be13",
-  "registrySHA256": "3bdc65cc74c2dc6fa32a8e1473dad763ee95b2f02db6cbb4a1fc9c37eecae450",
-  "profileSHA256": "eaffafd6b92ae258a4c7812fb6109a48ca919d04a92b382dd7b92153bb5117e2",
+  "templateCommit": "a89f59d1f25951f3d40b23240ab9553219f1241b",
+  "registrySHA256": "6fa2b28b4838182e46f5f5b0b4222382153dbe89e5ede7245e23bef5dbd54a85",
+  "profileSHA256": "daf3ad0ce3ca83ee539ea10913fe2f1bf39767e17eae3b463095abb6f942b59c",
   "stages": [
+    {
+      "id": "stage.plan",
+      "name": "Plan（战略规划）",
+      "goal": "确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。",
+      "exitCriteria": "命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。"
+    },
+    {
+      "id": "stage.spec-architecture",
+      "name": "Spec / 功能架构",
+      "goal": "固化解决方案和功能边界。",
+      "exitCriteria": "Spec 基线和功能边界可审查。"
+    },
     {
       "id": "stage.harness-entry",
       "name": "Harness 入口",

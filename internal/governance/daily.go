@@ -201,6 +201,14 @@ func (d *dailySession) run(action string, args map[string]string) error {
 			return d.govern(action, "风险影响需要正式治理: "+impact)
 		}
 	}
+	if d.report.Profile != "spec" {
+		if err := d.specialistInput(action, impacts); err != nil {
+			return err
+		}
+		if d.report.DeliveryPath == "governed" {
+			return nil
+		}
+	}
 	for _, key := range []string{"skills", "inputs"} {
 		rows, ok := d.record[key].([]any)
 		if !ok || key == "skills" && len(rows) == 0 {
@@ -229,6 +237,14 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	}
 	if err = d.observeDiff(paths); err != nil {
 		return err
+	}
+	if d.report.Profile != "spec" {
+		if err = d.specialistPaths(action, d.report.ChangedFiles); err != nil {
+			return err
+		}
+		if d.report.DeliveryPath == "governed" {
+			return nil
+		}
 	}
 	if err = d.checkAPI(action); err != nil {
 		return err
@@ -335,7 +351,7 @@ func (d *dailySession) identity(requested string) error {
 	if family == "" {
 		return d.s.unavailable("UNPORTED", "缺少可核验的 Profile metadata")
 	}
-	if family != "spec" {
+	if !semHas([]string{"spec", "backend", "frontend"}, family) {
 		return d.s.unavailable("UNPORTED", "此 Profile 尚未提供日常路线")
 	}
 	if requested != "" && requested != family {
@@ -358,7 +374,7 @@ func (d *dailySession) identity(requested string) error {
 	return nil
 }
 func (d *dailySession) readPolicy() error {
-	m, err := d.s.doc(dailyPolicyRef)
+	m, err := d.s.doc(guidanceContractRef(d.report.Profile))
 	if err != nil {
 		return d.s.unavailable("UNPORTED", "缺少日常路线能力策略")
 	}
@@ -368,7 +384,16 @@ func (d *dailySession) readPolicy() error {
 	if !ok || !valid || v != 1 {
 		return d.s.unavailable("UNPORTED", "未知日常路线策略版本")
 	}
-	required := map[string][]string{"enabled_profiles": {"spec"}, "eligible_requirements": {"goal", "acceptance", "single_repository", "current_baseline", "skills", "commands", "rollback", "known_risk"}, "excluded_impacts": {"data-migration", "cross-repository", "platform-conversion", "architecture-conversion", "permission-change", "deployment", "release", "external-approval", "breaking-api", "unknown-api"}, "read_only_capabilities": {"lifecycle.route", "lifecycle.verify-daily"}, "completion_requires": {"current-scope", "passing-actual-tests", "independent-review", "no-open-blocking-findings", "current-api-evidence-if-applicable"}}
+	enabled, valid := dailyStrings(p["enabled_profiles"])
+	if !valid || len(enabled) == 0 || !semHas(enabled, d.report.Profile) {
+		return d.s.unavailable("UNPORTED", "此 Profile 的日常政策尚未迁移")
+	}
+	for _, profile := range enabled {
+		if !semHas([]string{"spec", "backend", "frontend"}, profile) {
+			return d.s.unavailable("UNPORTED", "未知日常 Profile 能力")
+		}
+	}
+	required := map[string][]string{"eligible_requirements": {"goal", "acceptance", "single_repository", "current_baseline", "skills", "commands", "rollback", "known_risk"}, "excluded_impacts": {"data-migration", "cross-repository", "platform-conversion", "architecture-conversion", "permission-change", "deployment", "release", "external-approval", "breaking-api", "unknown-api"}, "read_only_capabilities": {"lifecycle.route", "lifecycle.verify-daily"}, "completion_requires": {"current-scope", "passing-actual-tests", "independent-review", "no-open-blocking-findings", "current-api-evidence-if-applicable"}}
 	for key, want := range required {
 		got, ok := dailyStrings(p[key])
 		if !ok || !equalStringSets(got, want) {
@@ -929,4 +954,74 @@ func (d *dailySession) relatedFormal(m map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// Analysis authority never expands a specialist's implementation side.
+func (d *dailySession) specialistInput(action string, impacts []string) error {
+	side := d.report.Profile
+	opposite := "frontend"
+	if side == "frontend" {
+		opposite = "backend"
+	}
+	scope, _ := object(d.record["scope"])
+	paths, _ := dailyStrings(scope["paths"])
+	repository, _ := object(d.record["repository"])
+	paths = append(paths, filepath.ToSlash(text(repository["root"])))
+	if declared := text(repository["side"]); declared != "" && declared != side {
+		return d.govern(action, "实现仓登记侧别与本端 Profile 不一致")
+	}
+	if err := d.specialistPaths(action, paths); err != nil || d.report.DeliveryPath == "governed" {
+		return err
+	}
+	if semHas(impacts, opposite) {
+		return d.govern(action, "本端 Profile 不允许另一端实现，需协调交付")
+	}
+	input, ok := object(d.record["business_input"])
+	if !ok || text(input["side"]) != side || !semHas([]string{"standalone", "upstream"}, text(input["mode"])) {
+		return d.info("本端需要明确 standalone/upstream 业务输入及 side")
+	}
+	conflicts, ok := dailyStrings(input["conflicts"])
+	if !ok {
+		return d.info("必须明确登记业务输入冲突")
+	}
+	if len(conflicts) > 0 {
+		return d.govern(action, "上游/本地规则冲突需由权威方确认")
+	}
+	if text(input["digest"]) == "" {
+		return d.info("业务输入缺少当前字节摘要")
+	}
+	if _, err := d.basisRef(text(input["ref"]), text(input["digest"])); err != nil {
+		return err
+	}
+	if side == "frontend" {
+		dependency, ok := object(d.record["backend_dependency"])
+		if !ok || !semHas([]string{"not-applicable", "aligned"}, text(dependency["mode"])) {
+			return d.info("前端需要后端依赖对齐证据或不适用依据")
+		}
+		api, _ := object(d.record["api"])
+		if text(dependency["mode"]) == "not-applicable" && (text(api["mode"]) != "none" || semHas(impacts, "compatible-additive-api")) {
+			return d.govern(action, "真实 API 依赖不能声明后端不适用")
+		}
+		if text(dependency["reason"]) == "" || text(dependency["digest"]) == "" {
+			return d.info("后端依赖缺少原因和当前依据摘要")
+		}
+		if _, err := d.basisRef(text(dependency["ref"]), text(dependency["digest"])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *dailySession) specialistPaths(action string, paths []string) error {
+	opposite := "frontend"
+	if d.report.Profile == "frontend" {
+		opposite = "backend"
+	}
+	for _, ref := range paths {
+		ref = "/" + strings.Trim(filepath.ToSlash(ref), "/") + "/"
+		if strings.Contains(ref, "/apps/"+opposite+"/") || strings.Contains(ref, "/app/"+opposite+"/") {
+			return d.govern(action, "本端 Profile 不允许另一端工程写范围")
+		}
+	}
+	return nil
 }

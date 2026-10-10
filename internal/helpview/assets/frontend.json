@@ -1,10 +1,22 @@
 {
   "schemaVersion": 1,
   "profile": "frontend",
-  "templateCommit": "47c0cc7fe1581dc9cd276d886875e987ac3a8473",
-  "registrySHA256": "3a5627facb1e8858bf36d6a1027e8d118629600979464aab2e92702fed3225cf",
-  "profileSHA256": "4ee76c84117222a24af02254e91e64ac898de06169c3a128d840b434a05ac527",
+  "templateCommit": "115bd21e677cad4351a68b053054c958965e005b",
+  "registrySHA256": "347a8002f15be52cb67a819392d6b26a75b74895a9bcfbb8436b036ff175a2b1",
+  "profileSHA256": "c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a",
   "stages": [
+    {
+      "id": "stage.plan",
+      "name": "Plan（战略规划）",
+      "goal": "确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。",
+      "exitCriteria": "命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。"
+    },
+    {
+      "id": "stage.spec-architecture",
+      "name": "Spec / 功能架构",
+      "goal": "固化解决方案和功能边界。",
+      "exitCriteria": "Spec 基线和功能边界可审查。"
+    },
     {
       "id": "stage.harness-entry",
       "name": "Harness 入口",
@@ -34,6 +46,12 @@
       "name": "独立验证",
       "goal": "由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。",
       "exitCriteria": "所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。"
+    },
+    {
+      "id": "stage.product-design",
+      "name": "产品设计",
+      "goal": "在存在产品设计影响时校准页面流和状态。",
+      "exitCriteria": "命中的设计门禁通过；未命中项记录 not-applicable 及原因。"
     }
   ],
   "entryWorkUnit": "work-unit.harness-entry",

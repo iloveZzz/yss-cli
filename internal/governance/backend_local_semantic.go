@@ -62,7 +62,15 @@ func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[s
 	if apNumber(record["schema_version"]) != 1 || record["kind"] != "backend-delivery-terminal" || record["business_completed"] != false || record["release_authorized"] != false || record["delivery_mode"] != "local-evidence" {
 		return backendReject(s, "本地交付记录不能自报业务完成或发布批准")
 	}
-	if a.Mode != "feature-target" || record["checkpoint_ref"] != a.CheckpointRef || record["bundle_ref"] != nil || record["bundle_digest"] != nil {
+	localProfile := false
+	if a.Mode == "backend-profile" {
+		profile, policy, err := progressionPolicy(s)
+		if err != nil {
+			return err
+		}
+		localProfile = profile == "backend" && policy["local_implementation_inputs"] == "native-profile-current-feature-approved-assets"
+	}
+	if (a.Mode != "feature-target" && !localProfile) || record["checkpoint_ref"] != a.CheckpointRef || record["bundle_ref"] != nil || record["bundle_digest"] != nil {
 		return backendReject(s, "本地交付证据必须绑定当前Spec功能且不得伪造交付包")
 	}
 	for _, key := range []string{"delivery", "review_state"} {
@@ -76,6 +84,11 @@ func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[s
 	}
 	if backendOnly {
 		if err = backendTerminalSliceScope(s, delivery); err != nil {
+			return err
+		}
+	}
+	if localProfile {
+		if err = backendProfileFresh(s, a.CheckpointRef, delivery); err != nil {
 			return err
 		}
 	}

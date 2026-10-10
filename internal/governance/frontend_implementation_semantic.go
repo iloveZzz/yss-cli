@@ -426,7 +426,7 @@ func frontendImplementationCurrent(s *semanticSession, cpRef string, cp map[stri
 	}
 	unit := text(input["work_unit_id"])
 	selected := semanticDefinition(c.Normalized, "work_units", unit)
-	if selected == nil || selected["role_id"] != "role.frontend-engineer" {
+	if selected == nil || !semHas([]string{"role.frontend-engineer", "role.frontend-agent"}, text(selected["role_id"])) {
 		return s.reject("FRONTEND_CANDIDATE", "前端完成须选择当前批准前端工作单元")
 	}
 	root, err := backendProjectRoot(s, input)
@@ -435,7 +435,7 @@ func frontendImplementationCurrent(s *semanticSession, cpRef string, cp map[stri
 	}
 	for _, row := range semList(c.Normalized["work_units"]) {
 		item := semMap(row)
-		if item["role_id"] != "role.frontend-engineer" {
+		if !semHas([]string{"role.frontend-engineer", "role.frontend-agent"}, text(item["role_id"])) {
 			continue
 		}
 		project := text(item["project_root"])

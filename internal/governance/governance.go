@@ -74,6 +74,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if semantic {
 		return semanticRun(ctx, group, action, root, args)
 	}
+	if group == "contract" && action == "view" || args["view"] != "" {
+		return readingRun(ctx, group, action, root, args)
+	}
 	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
 		return dailyRun(ctx, action, root, args)
 	}
@@ -121,13 +124,15 @@ func ArgumentKeys(group, action string) []string {
 	allowed := []string{"json", "profile", "root", "target-dir"}
 	switch group + "." + action {
 	case "context.query":
-		allowed = append(allowed, "id", "term-refs", "allowed-context-ids", "arg0")
+		allowed = append(allowed, "id", "term-refs", "allowed-context-ids", "arg0", "view")
 	case "context.verify", "context.check":
 		allowed = append(allowed, "term-refs", "snapshot", "file", "allowed-context-ids", "arg0")
 	case "lifecycle.query":
-		allowed = append(allowed, "id", "work-unit", "stage", "arg0")
+		allowed = append(allowed, "id", "work-unit", "stage", "arg0", "view")
 	case "lifecycle.status":
-		allowed = append(allowed, "checkpoint", "file", "arg0")
+		allowed = append(allowed, "checkpoint", "file", "arg0", "view")
+	case "contract.view":
+		allowed = append(allowed, "kind", "file", "unit", "view")
 	case "lifecycle.target":
 		allowed = append(allowed, "checkpoint", "input", "plan", "out", "apply", "plan-file")
 	case "lifecycle.route", "lifecycle.verify-daily":
