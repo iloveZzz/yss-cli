@@ -20,10 +20,7 @@ func backendProfileTestNativeSeed(t *testing.T) string {
 		t.Fatal(err)
 	}
 	root := filepath.Join(parent, "backend")
-	cmd := exec.Command(binary, "init", "--profile", "backend", "--root", root, "--full", "--project-name", "synthetic-native-backend", "--business-domain", "test-only", "--team-size", "2", "--json")
-	if raw, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("actual native Backend init: %v %s", err, raw)
-	}
+	root = runActualNativeSeed(t, binary, root, []string{"init", "--profile", "backend", "--root", root, "--full", "--project-name", "synthetic-native-backend", "--business-domain", "test-only", "--team-size", "2", "--json"})
 	for _, ref := range []string{".yss.json", "scripts/lib/implementation-contract-compiler.mjs", "scripts/lib/slice-contract-preparation.mjs", "scripts/lib/slice-contract.mjs"} {
 		if _, err := os.Stat(filepath.Join(root, ref)); err != nil {
 			t.Fatalf("actual native Backend Bundle missing %s: %v", ref, err)

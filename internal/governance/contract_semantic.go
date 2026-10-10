@@ -958,6 +958,17 @@ func contractPath(v string) bool {
 	}
 	return true
 }
+func contractHarnessProjectRoot(value string) bool {
+	clean := strings.TrimSuffix(value, "/")
+	if !contractPath(clean) || semHas(strings.Split(clean, "/"), ".") || regexp.MustCompile(`[\x00-\x1f]`).MatchString(clean) {
+		return false
+	}
+	parts := strings.Split(clean, "/")
+	if len(parts) >= 2 && parts[0] == "apps" && semHas([]string{"backend", "frontend"}, parts[1]) {
+		return len(parts) >= 3 && regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(parts[2])
+	}
+	return true
+}
 func contractDate(v any) bool { _, e := time.Parse(time.RFC3339Nano, text(v)); return e == nil }
 func contractUnion(groups ...[]string) []string {
 	seen := map[string]bool{}
@@ -1460,14 +1471,10 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 			return nil, s.reject("PATH", "写范围须为明确相对路径: "+p)
 		}
 	}
-	for _, p := range semStrings(scope["project_roots"]) {
-		if text(scope["implementation_path_policy"]) != "external-repository-native" {
-			clean := strings.TrimSuffix(p, "/")
-			if !contractPath(clean) || semHas(strings.Split(clean, "/"), ".") {
-				return nil, s.reject("PATH", "Harness 工程根须为明确相对路径")
-			}
-			if regexp.MustCompile(`^apps/(backend|frontend)(/|$)`).MatchString(clean) && !regexp.MustCompile(`^apps/(backend|frontend)/[a-z][a-z0-9-]*(/|$)`).MatchString(clean) {
-				return nil, s.reject("PATH", "Harness 工程需具体 project 根")
+	if text(scope["implementation_path_policy"]) != "external-repository-native" {
+		for _, p := range semStrings(scope["project_roots"]) {
+			if !contractHarnessProjectRoot(p) {
+				return nil, s.reject("PATH", "Harness 工程需已登记的具体项目相对路径")
 			}
 		}
 	}
