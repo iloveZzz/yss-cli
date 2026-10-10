@@ -2,7 +2,7 @@
 
 统一入口版本为 `yss 1.3.5`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。按验证推进 Spec → Design → Backend → Frontend，真实项目仅使用隔离副本，原地迁移另行安排。
 
-`tools/bundle` 独立读取模板根及三个 Agent 模板源的固定 Git 对象，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定来源提交和策略摘要；公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
+`tools/bundle` 独立读取模板根及三个 Agent 模板源的固定 Git 对象，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定历史来源提交和策略摘要；v3 额外绑定 Backend / Frontend 的 Spec 技能源，公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 
 Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统一 CLI 身份；来源锁保留 schema v2，运行协议与 JSON envelope 保留 v1。旧 metadata v1/v2 及历史原生事务继续可识别、恢复；旧保存计划应用返回 `PLAN_VERSION`。Bundle 的兼容生成记录绑定旧固定模板字节和新的原生消费者，不能掩盖 producer 的 `working-tree` 状态。最终生态发行清单汇总源码、Bundle、平台二进制、插件及恢复包摘要，保存为仓外发行产物，不循环嵌入参与仓库的提交哈希。
 

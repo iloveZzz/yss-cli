@@ -21,7 +21,7 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("bundle", flag.ContinueOnError)
 	sourceRoot := f.String("source-root", "", "root containing the four Git template repositories")
-	lockPath := f.String("lock", "docs/source-lock.json", "source lock v2")
+	lockPath := f.String("lock", "docs/source-lock.json", "source lock v2/v3")
 	out := f.String("out", "internal/bundle/assets", "output shared embedded archive directory")
 	if e := f.Parse(args); e != nil {
 		return e
@@ -48,6 +48,16 @@ func run(ctx context.Context, args []string) error {
 			source.Root, e = safefs.Path(root, source.SourcePath)
 			if e != nil {
 				return e
+			}
+		}
+		if source.SkillsSource != nil {
+			if source.SkillsSource.SourcePath == "." {
+				source.SkillsSource.Root = root
+			} else {
+				source.SkillsSource.Root, e = safefs.Path(root, source.SkillsSource.SourcePath)
+				if e != nil {
+					return e
+				}
 			}
 		}
 		lock.Profiles[key] = source

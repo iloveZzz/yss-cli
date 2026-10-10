@@ -362,6 +362,9 @@ func SelectedSourceLock(data []byte, skills, runtimes []string) ([]byte, error) 
 // the product governance sections exactly as the prior fixed-source producer.
 func prepareSource(profile, ref string, data []byte) []byte {
 	if profile != "spec" {
+		if (profile == "backend" || profile == "frontend") && ref == ".gitignore" {
+			return regexp.MustCompile("(?s)\\n# Generated shared skills; authority: Spec profile-skill-sync.json\\n.*?\\n# End generated shared skills\\n").ReplaceAll(data, nil)
+		}
 		return data
 	}
 	text := string(data)
