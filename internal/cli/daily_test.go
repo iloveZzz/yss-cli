@@ -16,6 +16,7 @@ import (
 
 type dailyFixture struct {
 	root, repo, base string
+	profile          string
 	evidence         map[string]any
 	sections         string
 }
@@ -197,7 +198,12 @@ func TestDailyRouteNeedsExplicitParametersAndReadableFacts(t *testing.T) {
 }
 func (f *dailyFixture) run(t *testing.T, action string, extra ...string) (int, map[string]any) {
 	t.Helper()
-	args := []string{"lifecycle", action, "--root", f.root, "--implementation-root", f.repo, "--base", f.base, "--task", "task.md", "--profile", "spec", "--json"}
+	args := []string{"lifecycle", action, "--root", f.root, "--implementation-root", f.repo, "--base", f.base, "--task", "task.md", "--profile", func() string {
+		if f.profile != "" {
+			return f.profile
+		}
+		return "spec"
+	}(), "--json"}
 	args = append(args, extra...)
 	var out, stderr bytes.Buffer
 	code := Run(context.Background(), args, &out, &stderr)
@@ -633,5 +639,100 @@ func TestDailyActualAPIAndReviewFactsCannotBeRenewedOnlyInMetadata(t *testing.T)
 	f.save(t)
 	if code, env = f.run(t, "verify-daily"); code != 0 {
 		t.Fatalf("all current actual facts were rejected: %d %#v", code, env)
+	}
+}
+
+func specialistDailyFixture(t *testing.T, side, mode string) *dailyFixture {
+	f := newDailyFixture(t)
+	f.profile = side
+	raw, _ := os.ReadFile(filepath.Join(f.root, ".yss.json"))
+	var meta map[string]any
+	json.Unmarshal(raw, &meta)
+	meta["profile"] = side
+	meta["profileId"] = domain.Profiles[side].ID
+	raw, _ = json.Marshal(meta)
+	dailyWrite(t, f.root, ".yss.json", raw)
+	ref := ".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml"
+	raw, _ = os.ReadFile(filepath.Join(f.root, filepath.FromSlash(ref)))
+	dailyWrite(t, f.root, ref, bytes.Replace(raw, []byte("enabled_profiles: [spec]"), []byte("enabled_profiles: [spec, backend, frontend]"), 1))
+	input := []byte("# 本地业务事实\n需求、规则和验收。\n")
+	dailyWrite(t, f.root, "business.md", input)
+	f.evidence["business_input"] = map[string]any{"mode": mode, "side": side, "ref": "business.md", "digest": "sha256:" + safefs.Digest(input), "conflicts": []any{}}
+	if side == "frontend" {
+		f.evidence["backend_dependency"] = map[string]any{"mode": "not-applicable", "reason": "纯 UI，无 API、数据或后端变更", "ref": "business.md", "digest": "sha256:" + safefs.Digest(input)}
+	}
+	raw, _ = os.ReadFile(filepath.Join(f.root, filepath.FromSlash(ref)))
+	dailyWrite(t, f.root, ".agents/skills/harness-orchestrator/references/orchestration-contract.yaml", raw)
+	f.save(t)
+	return f
+}
+func TestDailySpecialistStandaloneAndUpstreamOwnSide(t *testing.T) {
+	for _, side := range []string{"backend", "frontend"} {
+		for _, mode := range []string{"standalone", "upstream"} {
+			t.Run(side+"-"+mode, func(t *testing.T) {
+				f := specialistDailyFixture(t, side, mode)
+				dailyWrite(t, f.repo, "main.txt", []byte("after\n"))
+				f.complete(t)
+				if code, env := f.run(t, "verify-daily"); code != 0 {
+					t.Fatalf("own side rejected %d %#v", code, env)
+				}
+			})
+		}
+	}
+}
+func TestDailySpecialistConflictsAndOppositeSideNeverBecomeDaily(t *testing.T) {
+	for _, kind := range []string{"conflict", "opposite", "ui-api", "input-drift", "old-policy"} {
+		t.Run(kind, func(t *testing.T) {
+			f := specialistDailyFixture(t, "frontend", "upstream")
+			switch kind {
+			case "conflict":
+				f.evidence["business_input"].(map[string]any)["conflicts"] = []any{"规则与上游不一致"}
+			case "opposite":
+				f.evidence["scope"].(map[string]any)["impacts"] = []any{"backend"}
+			case "ui-api":
+				f.evidence["scope"].(map[string]any)["impacts"] = []any{"compatible-additive-api"}
+			case "input-drift":
+				dailyWrite(t, f.root, "business.md", []byte("changed\n"))
+			case "old-policy":
+				ref := ".agents/skills/harness-orchestrator/references/orchestration-contract.yaml"
+				raw, _ := os.ReadFile(filepath.Join(f.root, filepath.FromSlash(ref)))
+				dailyWrite(t, f.root, ref, bytes.Replace(raw, []byte("[spec, backend, frontend]"), []byte("[spec]"), 1))
+			}
+			f.save(t)
+			code, env := f.run(t, "route")
+			if code == 0 && env["result"].(map[string]any)["delivery_path"] == "daily" {
+				t.Fatalf("unsafe daily route: %#v", env)
+			}
+		})
+	}
+}
+
+func TestDailySpecialistActualOppositePathsAndBaseline(t *testing.T) {
+	for _, side := range []string{"backend", "frontend"} {
+		for _, kind := range []string{"direct", "parent", "baseline"} {
+			t.Run(side+"-"+kind, func(t *testing.T) {
+				f := specialistDailyFixture(t, side, "standalone")
+				opposite := "frontend"
+				if side == "frontend" {
+					opposite = "backend"
+				}
+				f.evidence["scope"].(map[string]any)["impacts"] = []any{}
+				scope := "apps/" + opposite + "/"
+				if kind == "parent" {
+					scope = "apps/"
+				}
+				f.evidence["scope"].(map[string]any)["paths"] = []any{scope}
+				dailyWrite(t, f.repo, "apps/"+opposite+"/current.txt", []byte("new code\n"))
+				if kind == "baseline" {
+					f.evidence["scope"].(map[string]any)["paths"] = []any{"apps/"}
+					f.evidence["repository"].(map[string]any)["side"] = opposite
+				}
+				f.save(t)
+				code, env := f.run(t, "route")
+				if code == 0 && env["result"].(map[string]any)["delivery_path"] == "daily" {
+					t.Fatalf("opposite-side change accepted: %#v", env)
+				}
+			})
+		}
 	}
 }

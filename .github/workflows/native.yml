@@ -1,6 +1,11 @@
 name: Native verification
 on:
   workflow_dispatch:
+    inputs:
+      full:
+        description: Explicit full Go and race verification
+        type: boolean
+        default: false
   push:
   pull_request:
 permissions:
@@ -32,6 +37,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: cli-source
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: cli-source/go.mod
@@ -99,46 +105,42 @@ jobs:
           const digest = createHash('sha256').update(fs.readFileSync(binary)).digest('hex');
           fs.appendFileSync(process.env.GITHUB_ENV, `YSS_NATIVE_BINARY=${binary}\nYSS_NATIVE_BINARY_SHA256=${digest}\n`);
           JS
-      - run: go test -timeout=60m -count=1 ./...
-      - run: go vet ./...
-      - run: go mod verify
-      - name: Verify Windows AMD64 race compiler
-        if: matrix.platform == 'windows-amd64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $compiler = 'C:\mingw64\bin\gcc.exe'
-          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
-            throw "Required runner MinGW compiler is missing: $compiler"
-          }
-          $target = (& $compiler -dumpmachine).Trim()
-          if ($LASTEXITCODE -ne 0 -or $target -ne 'x86_64-w64-mingw32') {
-            throw "Required Windows AMD64 compiler target is unavailable: $target"
-          }
-          & $compiler --version
-          if ($LASTEXITCODE -ne 0) { throw 'MinGW compiler version command failed' }
-          $library = (& $compiler --print-file-name libsynchronization.a).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not [IO.Path]::IsPathRooted($library) -or
-              -not (Test-Path -LiteralPath $library -PathType Leaf)) {
-            throw "MinGW-w64 runtime 8 or later is required: $library"
-          }
-          Write-Output "Race compiler: $compiler; target: $target; synchronization library: $library"
-          "CC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          (Split-Path -Parent $compiler) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Race
-        if: matrix.platform != 'windows-arm64'
+      - name: Execute verification selected by changes and dependencies
+        id: verification
+        shell: bash
         env:
-          CGO_ENABLED: 1
-        run: go test -timeout=120m -count=1 -race ./...
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FULL_REQUESTED: ${{ inputs.full }}
+        run: |
+          base="$EVENT_BASE"
+          if ! [[ "$base" =~ ^[a-f0-9]{40}$ ]] || [[ "$base" == 0000000000000000000000000000000000000000 ]]; then
+            base=$(git rev-parse HEAD^)
+          fi
+          args=(--base "$base" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/verification-plan.json" --execute)
+          if [[ "$FULL_REQUESTED" == true ]]; then args+=(--full); fi
+          node tools/verification-plan.mjs "${args[@]}"
       - name: Exact release binary native acceptance
+        if: steps.verification.outputs.native_required == 'true'
         shell: bash
         run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-${{ matrix.platform }}" --commit "$GITHUB_SHA"
-      - name: Six platform size limits
+      - name: Windows AMD64 trial compile and size only
+        if: steps.verification.outputs.native_required == 'true'
         shell: bash
-        run: go run ./tools/package "$RUNNER_TEMP/yss-size-package"
+        env:
+          CGO_ENABLED: 0
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit=$GITHUB_SHA -X github.com/iloveZzz/yss-cli/internal/domain.BuildSourceState=committed" -o "$RUNNER_TEMP/yss-release-native/yss-trial-windows-amd64.exe" ./cmd/yss
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const size=fs.statSync(`${process.env.RUNNER_TEMP}/yss-release-native/yss-trial-windows-amd64.exe`).size;
+          if(size>35_000_000)throw new Error('Windows AMD64 binary size exceeds limit');
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/windows-trial-size.json`,JSON.stringify({platform:'windows/amd64',size,stableReady:false,nativeRuntimeVerified:false}));
+          JS
       - name: Native performance measurement
         shell: bash
-        if: matrix.platform == 'darwin-arm64'
+        if: steps.verification.outputs.native_required == 'true'
         run: |
           python3 tools/size-performance.py --self-check
           python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --out "$RUNNER_TEMP/yss-size-performance"
@@ -158,6 +160,6 @@ jobs:
             ${{ runner.temp }}/yss-native-recovery/output-*.json
             ${{ runner.temp }}/yss-plugin-native-smoke/report.json
             ${{ runner.temp }}/yss-plugin-native-smoke/*.log
-            ${{ runner.temp }}/yss-size-package/size-report.json
-            ${{ runner.temp }}/yss-size-package/checksums.json
+            ${{ runner.temp }}/verification-plan.json
+            ${{ runner.temp }}/windows-trial-size.json
             ${{ runner.temp }}/yss-size-performance/report.json

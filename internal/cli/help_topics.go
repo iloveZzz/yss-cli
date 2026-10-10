@@ -8,6 +8,7 @@ const governanceNotes = "读取当前项目的治理资产；校验通过不会�
 // The registry is shared by root, group and leaf help. It describes public
 // behavior only; command execution and its authority checks remain unchanged.
 func init() {
+	helpTopics["contract view"] = helpTopic{"按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。", "--root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]", projectFlags, "yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view task --unit work-unit.slice-backend", "默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。", false}
 	helpTopics["attach"] = helpTopic{"首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags + "\n--full  选择完整资源集合\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
 	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。", false}
 	for _, action := range []string{"doctor", "diff"} {

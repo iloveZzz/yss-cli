@@ -193,11 +193,37 @@ func TestContractSliceV3OldOracleDifferential(t *testing.T) {
 		apTestPut(t, meta["root"], ref, raw)
 	}
 	apTestPut(t, meta["root"], ".template-spec/process/harness-profile.yaml", map[string]any{"schema_version": 2, "profile_id": "harness.spec-template"})
+	compilerRef := ".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml"
+	compiler, err := os.ReadFile(filepath.Join(old, filepath.FromSlash(compilerRef)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	apTestPut(t, meta["root"], compilerRef, compiler)
 	s := apTestSession(t, meta["root"])
 	s.args["tool-root"] = old
 	c, e := loadNativeSlice(s, meta["ref"])
 	if e != nil {
 		t.Fatal(e)
+	}
+	for _, policy := range []string{"harness-apps-multi-project", "external-repository-native"} {
+		for _, projectRoot := range []string{"app/backend/", "app/frontend/", "app/backend/project1/"} {
+			t.Run(policy+"/"+projectRoot, func(t *testing.T) {
+				raw := contractCopy(c.Raw)
+				scope := semMap(raw["scope"])
+				scope["implementation_path_policy"] = policy
+				scope["project_roots"] = []any{projectRoot}
+				for _, v := range semMap(raw["verification"]) {
+					semMap(v)["cwd"] = projectRoot
+				}
+				for _, unit := range semList(raw["work_units"]) {
+					semMap(unit)["project_root"] = projectRoot
+				}
+				apTestPut(t, meta["root"], "app-path-slice.yaml", map[string]any{"slice_contract": raw})
+				if _, err := loadNativeSlice(apTestSession(t, meta["root"]), "app-path-slice.yaml"); err != nil {
+					t.Fatalf("registered app root rejected: %v", err)
+				}
+			})
+		}
 	}
 	if e = contractSliceFresh(s, c, map[string]string{"approval-ref": meta["approval"], "unit": "work-unit.slice-backend"}); e != nil {
 		t.Fatal(e)
@@ -221,6 +247,9 @@ func TestContractPlatformFingerprintOldOracleUnicode(t *testing.T) {
 	}
 	old := governanceOracleRoot(t)
 	root := apTestRoot(t)
+	if _, err := os.Stat(filepath.Join(old, "scripts/lib/standalone-backend-scaffold.mjs")); err == nil {
+		apTestPut(t, root, "scripts/lib/standalone-backend-scaffold.mjs", "synthetic standalone source\n")
+	}
 	for _, ref := range []string{".agents/skills/yss-ddd-scaffold-generator/scripts/generate_scaffold.mjs", ".agents/skills/yss-layered-mvc-scaffold-generator/scripts/generate_scaffold.mjs", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs", "scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", ".agents/skills/yss-ddd-scaffold-generator/scripts/run_scaffold_verification.mjs", ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper/mvnw"} {
 		apTestPut(t, root, ref, ref+"\n")
 	}
@@ -1455,4 +1484,32 @@ func contractTestRetainedRoot(t *testing.T, root, name string) string {
 		t.Fatal(e)
 	}
 	return target
+}
+
+func TestContractSelectLocalUnitSpecialistResponsibilities(t *testing.T) {
+	for _, role := range []string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"} {
+		c := &nativeSlice{Raw: map[string]any{"schema_version": json.Number("3"), "contract_id": "approved"}, Normalized: map[string]any{"common": map[string]any{"project_roots": []any{"project"}, "allowed_write_paths": []any{"src"}}, "work_units": []any{map[string]any{"id": "unit", "role_id": role, "project_root": "project", "allowed_write_paths": []any{"src/owned"}}}, "backend": map[string]any{"status": "required"}, "frontend": map[string]any{"status": "required"}}}
+		before := contractDigest(c.Normalized)
+		selected, err := contractSelectLocalUnit(&semanticSession{}, c, "unit")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if selected.Raw["contract_id"] != "approved" || contractDigest(c.Normalized) != before {
+			t.Fatal("source identity or view mutated")
+		}
+		if got := semMap(selected.Normalized["common"]); !contractSame(got["project_roots"], []any{"project"}) || !contractSame(got["allowed_write_paths"], []any{"src/owned"}) {
+			t.Fatal("frozen scope was not selected", got)
+		}
+		opposite := "backend"
+		if strings.Contains(role, "backend") {
+			opposite = "frontend"
+		}
+		if semMap(selected.Normalized[opposite])["status"] != "not-applicable" {
+			t.Fatal("opposite responsibility retained")
+		}
+		semMap(apFind(c.Normalized["work_units"], "id", "unit"))["role_id"] = "role.requirements-manager"
+		if _, err = contractSelectLocalUnit(&semanticSession{}, c, "unit"); err == nil {
+			t.Fatal("analysis role accepted")
+		}
+	}
 }

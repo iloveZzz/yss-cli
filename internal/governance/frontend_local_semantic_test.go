@@ -56,15 +56,18 @@ type localImplementationTestFixture struct {
 }
 
 func actualLocalImplementationFixture(t *testing.T, seed string, backendRequired bool, business ...bool) localImplementationTestFixture {
+	return actualLocalImplementationFixtureForProfile(t, seed, "", backendRequired, business...)
+}
+func actualLocalImplementationFixtureForProfile(t *testing.T, seed, frontendSeed string, backendRequired bool, business ...bool) localImplementationTestFixture {
 	t.Helper()
 	oracle := governanceOracleRoot(t)
 	program := `import fs from 'node:fs';import path from 'node:path';import {pathToFileURL} from 'node:url';
-const [source,seed,backend,business]=process.argv.slice(1);
+const [source,seed,backend,business,frontendSeed]=process.argv.slice(1);
 const {localImplementationFixture}=await import(pathToFileURL(path.join(source,'scripts/fixtures/spec-baseline/local-implementation-fixture.mjs')).href);
 const {attachArtifactApproval}=await import(pathToFileURL(path.join(source,'scripts/fixtures/backend-delivery/approval-fixture.mjs')).href);
 const {read,json,hash}=await import(pathToFileURL(path.join(source,'scripts/lib/strategic-handoff-io.mjs')).href);
 const {buildDecisionFixture}=await import(pathToFileURL(path.join(source,'scripts/lib/testing/user-decision-fixture.mjs')).href);
-const f=await localImplementationFixture({nativeSeed:seed,backendRequired:backend==='true'}),put=(ref,value)=>fs.writeFileSync(path.join(f.root,ref),json(value)),bound=ref=>({ref,digest:hash(fs.readFileSync(path.join(f.root,ref))).slice(7)});
+const f=await localImplementationFixture({nativeSeed:seed,backendRequired:backend==='true',...(frontendSeed?{nativeFrontendSeed:frontendSeed}:{})}),put=(ref,value)=>fs.writeFileSync(path.join(f.root,ref),json(value)),bound=ref=>({ref,digest:hash(fs.readFileSync(path.join(f.root,ref))).slice(7)});
 const {compileSliceTaskPackage}=await import(pathToFileURL(path.join(f.root,'scripts/lib/slice-task-package.mjs')).href),taskRef='frontend/current-worker-task.json';
 put(taskRef,compileSliceTaskPackage(f.taskBinding,{root:f.root,work_unit_id:f.frontendWorkUnitId,task_id:'task.local-current-frontend',actor_id:'synthetic-local-frontend-worker',runtime_id:'runtime.generic',execution_state:'Worker'}));
 // Capture the original immutable implementation tree before its current review.
@@ -96,7 +99,7 @@ if(business==='true') {
 put(f.checkpointRef,cp);
 console.log(JSON.stringify({root:f.root,checkpointRef:f.checkpointRef,sliceRef:f.sliceRef,sliceID:f.sliceID,backendTerminalRef:f.backendTerminalRef,frontendPlanRef:f.frontendPlanRef,frontendVerificationRef:f.frontendVerificationRef,frontendWorkUnitId:f.frontendWorkUnitId,taskRef,projectRoot:f.project}));`
 	withBusiness := len(business) != 0 && business[0]
-	cmd := exec.Command("node", "--input-type=module", "-e", program, oracle, seed, fmt.Sprint(backendRequired), fmt.Sprint(withBusiness))
+	cmd := exec.Command("node", "--input-type=module", "-e", program, oracle, seed, fmt.Sprint(backendRequired), fmt.Sprint(withBusiness), frontendSeed)
 	cmd.Dir = oracle
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
@@ -107,8 +110,13 @@ console.log(JSON.stringify({root:f.root,checkpointRef:f.checkpointRef,sliceRef:f
 		t.Fatalf("local implementation result: %v %s", err, raw)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(f.Root) })
-	for _, ref := range []string{".yss.json", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/digital-human-roles.yaml", guidanceContractRef("spec")} {
-		if !bytes.Equal(mustReadSpecBaselineTestFile(t, filepath.Join(seed, ref)), mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, ref))) {
+	authority := seed
+	family := "spec"
+	if frontendSeed != "" {
+		authority, family = frontendSeed, "frontend"
+	}
+	for _, ref := range []string{".yss.json", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/digital-human-roles.yaml", guidanceContractRef(family)} {
+		if !bytes.Equal(mustReadSpecBaselineTestFile(t, filepath.Join(authority, ref)), mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, ref))) {
 			t.Fatalf("local fixture changed native policy: %s", ref)
 		}
 	}
@@ -625,5 +633,29 @@ func TestFrontendVerificationTaskPreservesExternalRoute(t *testing.T) {
 		t.Fatal("local formal verification invented a checkpoint")
 	} else {
 		apTestCode(t, err, "FRONTEND_DELIVERY")
+	}
+}
+
+func TestLocalFrontendSpecialistPolicySelectsOwnApprovedAssets(t *testing.T) {
+	root := localFrontendPolicyFixture(t)
+	metadata := semMap(mustParseContract(mustReadSpecBaselineTestFile(t, filepath.Join(root, ".yss.json"))))
+	metadata["profile"] = "frontend"
+	metadata["profileId"] = "harness.frontend-delivery"
+	apTestPut(t, root, ".yss.json", metadata)
+	apTestPut(t, root, ".template-spec/process/harness-profile.yaml", map[string]any{"schema_version": 2, "profile_id": "harness.frontend-delivery"})
+	oracle := governanceOracleRoot(t)
+	contract := semMap(mustParseContract(mustReadSpecBaselineTestFile(t, filepath.Join(oracle, guidanceContractRef("spec")))))
+	policy := semMap(contract["progression_target"])
+	policy["local_implementation_inputs"] = "native-profile-current-feature-approved-assets"
+	policy["writer_profiles"] = []any{}
+	apTestPut(t, root, guidanceContractRef("frontend"), contract)
+	s := newSemanticSession(context.Background(), root, nil)
+	selected, err := hasLocalImplementationInputs(s)
+	if err != nil || !selected {
+		t.Fatalf("specialist policy rejected: %t %v", selected, err)
+	}
+	// Policy selection alone never replaces current feature, Plan/Spec or Slice validation.
+	if err = contractLocalFrontendInputs(s, nil, map[string]string{"phase": "implementation", "checkpoint": "missing-checkpoint.yaml"}); err == nil {
+		t.Fatal("missing approved input accepted")
 	}
 }

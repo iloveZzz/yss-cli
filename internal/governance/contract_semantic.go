@@ -69,6 +69,11 @@ func contractPlatformFingerprint(s *semanticSession, family string) (map[string]
 	}
 	base := ".agents/skills/" + skill
 	generator := []string{base + "/scripts/generate_scaffold.mjs", base + "/assets", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs"}
+	if present, err := s.exists("scripts/lib/standalone-backend-scaffold.mjs"); err != nil {
+		return nil, err
+	} else if present {
+		generator = append(generator, "scripts/lib/standalone-backend-scaffold.mjs")
+	}
 	if family == "layered-mvc" {
 		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper")
 	}
@@ -1456,11 +1461,14 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 		}
 	}
 	for _, p := range semStrings(scope["project_roots"]) {
-		if regexp.MustCompile(`^app/(backend|frontend)(/|$)`).MatchString(p) {
-			return nil, s.reject("PATH", "禁止 app/backend 或 app/frontend")
-		}
-		if text(scope["implementation_path_policy"]) != "external-repository-native" && !regexp.MustCompile(`^apps/(backend|frontend)/[^/]+`).MatchString(p) {
-			return nil, s.reject("PATH", "Harness 工程需具体 project 根")
+		if text(scope["implementation_path_policy"]) != "external-repository-native" {
+			clean := strings.TrimSuffix(p, "/")
+			if !contractPath(clean) || semHas(strings.Split(clean, "/"), ".") {
+				return nil, s.reject("PATH", "Harness 工程根须为明确相对路径")
+			}
+			if regexp.MustCompile(`^apps/(backend|frontend)(/|$)`).MatchString(clean) && !regexp.MustCompile(`^apps/(backend|frontend)/[a-z][a-z0-9-]*(/|$)`).MatchString(clean) {
+				return nil, s.reject("PATH", "Harness 工程需具体 project 根")
+			}
 		}
 	}
 	acceptance, verification := semMap(raw["acceptance"]), semMap(raw["verification"])
@@ -2088,8 +2096,8 @@ func contractSelectLocalUnit(s *semanticSession, c *nativeSlice, unit string) (*
 		return nil, s.reject("WORK_UNIT", "未知当前批准工作单元")
 	}
 	role := text(u["role_id"])
-	if !semHas([]string{"role.backend-engineer", "role.frontend-engineer"}, role) {
-		return c, nil
+	if !semHas([]string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"}, role) {
+		return nil, s.reject("WORK_UNIT", "单仓职责选择需要明确后端或前端角色")
 	}
 	selected := *c
 	selected.Normalized = contractCopy(c.Normalized)
@@ -2098,7 +2106,7 @@ func contractSelectLocalUnit(s *semanticSession, c *nativeSlice, unit string) (*
 	common["allowed_write_paths"] = u["allowed_write_paths"]
 	selected.Normalized["common"] = common
 	selected.Normalized["work_units"] = []any{u}
-	if role == "role.backend-engineer" {
+	if role == "role.backend-engineer" || role == "role.backend-agent" {
 		selected.Normalized["frontend"] = map[string]any{"status": "not-applicable"}
 	} else {
 		selected.Normalized["backend"] = map[string]any{"status": "not-applicable"}

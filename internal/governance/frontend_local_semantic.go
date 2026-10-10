@@ -1,6 +1,10 @@
 package governance
 
-import "strings"
+import (
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"path/filepath"
+	"strings"
+)
 
 // This selects a policy path only. All current feature and approval facts are
 // revalidated by contractLocalFrontendInputs at an actual consumption seam.
@@ -12,36 +16,29 @@ func hasLocalImplementationInputs(s *semanticSession) (bool, error) {
 	if identity["repository_mode"] != "project-instance" {
 		return false, nil
 	}
-	for _, ref := range []string{".yss.json", ".template-spec/process/harness-profile.yaml", guidanceContractRef("spec")} {
-		present, err := s.exists(ref)
-		if err != nil {
-			return false, err
-		}
-		if !present {
-			return false, nil
-		}
-	}
-	profile, err := s.doc(".template-spec/process/harness-profile.yaml")
-	if err != nil {
+	present, err := s.exists(".yss.json")
+	if err != nil || !present {
 		return false, err
 	}
 	metadata, err := s.doc(".yss.json")
 	if err != nil {
 		return false, err
 	}
-	if metadata["profile"] != "spec" || metadata["profileId"] != "harness.spec-template" {
-		if profile["profile_id"] == "harness.spec-template" {
-			return false, s.reject("IDENTITY", "本机Spec身份与Harness Profile不一致")
-		}
+	family := text(metadata["profile"])
+	if !semHas([]string{"spec", "frontend"}, family) {
 		return false, nil
 	}
-	if profile["profile_id"] != "harness.spec-template" {
-		return false, s.reject("IDENTITY", "本机Spec身份与Harness Profile不一致")
+	profile, err := s.doc(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		return false, err
+	}
+	if metadata["profileId"] != domain.Profiles[family].ID || profile["profile_id"] != domain.Profiles[family].ID {
+		return false, s.reject("IDENTITY", "本地业务输入 Profile 身份不一致")
 	}
 	if err = projectIdentity(s.v); err != nil {
 		return false, err
 	}
-	contract, err := s.doc(guidanceContractRef("spec"))
+	contract, err := s.doc(guidanceContractRef(family))
 	if err != nil {
 		return false, err
 	}
@@ -49,10 +46,10 @@ func hasLocalImplementationInputs(s *semanticSession) (bool, error) {
 	if policy["local_implementation_inputs"] == nil {
 		return false, nil
 	}
-	if contractN(contract["schema_version"]) != 1 || contractN(policy["schema_version"]) != 1 || policy["config_file"] != progressionFile || !semSameSet(policy["required_capabilities"], []any{"lifecycle-target-v1"}) || !semHas(policy["writer_profiles"], "spec") {
+	if contractN(contract["schema_version"]) != 1 || contractN(policy["schema_version"]) != 1 || policy["config_file"] != progressionFile || !semSameSet(policy["required_capabilities"], []any{"lifecycle-target-v1"}) || (family == "spec" && !semHas(policy["writer_profiles"], "spec")) {
 		return false, s.unavailable("CAPABILITY", "已声明本地实现输入，但政策版本或能力不受支持")
 	}
-	if policy["local_implementation_inputs"] != "native-spec-current-feature-approved-assets" {
+	if !((family == "spec" && policy["local_implementation_inputs"] == "native-spec-current-feature-approved-assets") || (family == "frontend" && policy["local_implementation_inputs"] == "native-profile-current-feature-approved-assets")) {
 		return false, s.unavailable("CAPABILITY", "未知本地实现输入政策")
 	}
 	return true, nil
@@ -69,7 +66,7 @@ func contractLocalFrontendInputs(s *semanticSession, c *nativeSlice, opts map[st
 	if err != nil {
 		return err
 	}
-	if profile != "spec" || policy["local_implementation_inputs"] != "native-spec-current-feature-approved-assets" {
+	if !((profile == "spec" && policy["local_implementation_inputs"] == "native-spec-current-feature-approved-assets") || (profile == "frontend" && policy["local_implementation_inputs"] == "native-profile-current-feature-approved-assets")) {
 		return s.unavailable("CAPABILITY", "当前工程未授权本地前端批准资产输入")
 	}
 	if err = projectIdentity(s.v); err != nil {
@@ -105,7 +102,7 @@ func contractLocalFrontendInputs(s *semanticSession, c *nativeSlice, opts map[st
 		}
 	}
 	coordination, participants := progressionConsumers(s, profile, cpRef, cp, intent)
-	source, _, err := verifySpecBaselineSource(s, cpRef)
+	source, _, err := verifySpecBaselineSource(s, cpRef, profile == "frontend")
 	if err != nil {
 		return err
 	}
@@ -162,7 +159,7 @@ func contractLocalFrontendInputs(s *semanticSession, c *nativeSlice, opts map[st
 	}
 	if c != nil && opts["unit"] != "" {
 		unit := apFind(c.Normalized["work_units"], "id", opts["unit"])
-		if unit == nil || unit["role_id"] != "role.frontend-engineer" {
+		if unit == nil || !semHas([]string{"role.frontend-engineer", "role.frontend-agent"}, text(unit["role_id"])) {
 			return s.reject("FRONTEND_BINDING", "前端输入须显式选择批准的前端工作单元")
 		}
 		c, err = contractSelectLocalUnit(s, c, opts["unit"])
@@ -251,13 +248,52 @@ func contractLocalFrontendBackend(s *semanticSession, cpRef string, c *nativeSli
 	for _, consumer := range intent.Consumers {
 		declared = declared || consumer.Profile == "backend"
 	}
-	if !declared {
-		return backendBusinessLocalEvidence(s, cpRef)
-	}
 	backend := participants["backend"]
-	row := semMap(coordination["backend"])
-	if backend == nil || row["input_status"] != "verified" || row["completion_status"] != "reached" {
-		return s.reject("FRONTEND_INPUTS", "显式后端当前来源、完整交付及本端验收尚未核验")
+	if !declared {
+		profile, _, err := progressionPolicy(s)
+		if err != nil {
+			return err
+		}
+		if profile != "frontend" {
+			return backendBusinessLocalEvidence(s, cpRef)
+		}
+		binding := semMap(semMap(semMap(c.Raw["extensions"])["frontend"])["backend_dependency"])
+		dependency, err := contractBoundDoc(s, binding)
+		if err != nil {
+			return err
+		}
+		if contractN(dependency["schema_version"]) != 1 || dependency["kind"] != "frontend-backend-dependency" || len(dependency) != 4 {
+			return s.reject("FRONTEND_BINDING", "本地前端实际后端依赖须为明确外部工程与checkpoint")
+		}
+		root, ref := text(dependency["root"]), text(dependency["checkpoint_ref"])
+		if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == s.root || ref == "" {
+			return s.reject("FRONTEND_BINDING", "后端依赖不得指向前端本身或猜测工程")
+		}
+		backend = newSemanticSession(s.ctx, root, map[string]string{"checkpoint": ref})
+		s.children = append(s.children, backend)
+		_, backendCP, err := progressionLocation(backend, ref)
+		if err != nil {
+			return err
+		}
+		identity, err := backend.doc(".template-spec/process/harness-profile.yaml")
+		if err != nil {
+			return err
+		}
+		cp, err := s.doc(cpRef)
+		if err != nil {
+			return err
+		}
+		if identity["profile_id"] != "harness.backend-delivery" || backendCP["feature_id"] != cp["feature_id"] {
+			return s.reject("FRONTEND_BINDING", "后端依赖必须是同功能当前专职Backend工程")
+		}
+		if status, reason := progressionProfileTerminal(backend, "backend", ref, backendCP); status != "reached" {
+			return s.reject("FRONTEND_INPUTS", "明确后端职责终点尚未完成："+reason)
+		}
+	} else {
+		row := semMap(coordination["backend"])
+		if backend == nil || row["input_status"] != "verified" || row["completion_status"] != "reached" {
+			return s.reject("FRONTEND_INPUTS", "显式后端当前来源、完整交付及本端验收尚未核验")
+		}
 	}
 	a, err := progressionBackendAuthorization(backend, backend.checkpointRef, "", true)
 	if err != nil {
@@ -267,7 +303,7 @@ func contractLocalFrontendBackend(s *semanticSession, cpRef string, c *nativeSli
 	if err != nil {
 		return err
 	}
-	delivery, err := backendInspectDelivery(backend, text(semMap(terminal["delivery"])["ref"]), map[string]string{"checkpoint": backend.checkpointRef})
+	delivery, err := backendInspectDeliveryMode(backend, text(semMap(terminal["delivery"])["ref"]), map[string]string{"checkpoint": backend.checkpointRef}, terminal["delivery_mode"] == "local-evidence", backend.checkpointRef)
 	if err != nil {
 		return err
 	}
