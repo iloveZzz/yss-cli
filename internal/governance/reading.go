@@ -158,7 +158,11 @@ func readingRun(ctx context.Context, group, action, root string, args map[string
 	for _, ref := range refs {
 		inputs = append(inputs, r.binding(ref, nil, nil))
 	}
-	return map[string]any{"view": mode, "kind": group, "binding": binding, "project_identity": identity, "content": content, "blockers": readingBlockers(content), "checks": map[string]any{"scope": scope, "inputs": inputs, "input_drift": false, "approval_validity": "not-checked", "repository_regression": "not-run"}, "read_only": true, "execution_allowed": false, "execution_authorization": "not-evaluated", "approval_created": false}, nil
+	blockers := readingBlockers(content)
+	if group == "lifecycle" && action == "status" {
+		blockers = semList(content["blockers"])
+	}
+	return map[string]any{"view": mode, "kind": group, "binding": binding, "project_identity": identity, "content": content, "blockers": blockers, "checks": map[string]any{"scope": scope, "inputs": inputs, "input_drift": false, "approval_validity": "not-checked", "repository_regression": "not-run"}, "read_only": true, "execution_allowed": false, "execution_authorization": "not-evaluated", "approval_created": false}, nil
 }
 
 func (r *readingSession) context(args map[string]string) (map[string]any, map[string]any, error) {
@@ -244,7 +248,7 @@ func readingBlockers(value any) []any {
 			sort.Strings(keys)
 			for _, k := range keys {
 				path := p + "/" + k
-				if k == "blockers" || k == "blocking_items" || k == "stale_inputs" {
+				if k == "blockers" || k == "blocking_items" || k == "stale_inputs" || k == "blocking_findings" || k == "readiness_blockers" {
 					if rows, ok := x[k].([]any); ok {
 						for _, row := range rows {
 							result = append(result, map[string]any{"source_pointer": path, "item": row})
@@ -302,9 +306,9 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
-	content["registered_state"] = map[string]any{"status": cp["status"], "gates": readingEvidenceRefs(cp["gates"]), "stage_tracking": readingEvidenceRefs(cp["stage_tracking"]), "pause": readingEvidenceRefs(cp["pause"])}
+	content["registered_state"] = readingEvidenceRefs(cp, false)
 	content["blockers"] = readingBlockers(cp)
-	content["next_action"] = readingEvidenceRefs(cp["next_action"])
+	content["next_action"] = readingEvidenceRefs(cp["next_action"], false)
 	if content["next_action"] == nil {
 		content["next_action"] = map[string]any{"work_unit": cp["next_work_unit"], "authorization": "not-evaluated"}
 	}
@@ -314,21 +318,21 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 }
 
 // Evidence records retain their identity and conclusion, never embedded bodies.
-func readingEvidenceRefs(value any) any {
+func readingEvidenceRefs(value any, inEvidence bool) any {
 	switch x := value.(type) {
 	case map[string]any:
 		out := map[string]any{}
 		for k, v := range x {
-			if k == "body" || k == "text" || k == "stdout" || k == "stderr" || k == "markdown" || k == "content" {
+			if k == "stdout" || k == "stderr" || (inEvidence && (k == "body" || k == "text" || k == "markdown" || k == "content")) {
 				continue
 			}
-			out[k] = readingEvidenceRefs(v)
+			out[k] = readingEvidenceRefs(v, inEvidence || k == "evidence")
 		}
 		return out
 	case []any:
 		out := []any{}
 		for _, v := range x {
-			out = append(out, readingEvidenceRefs(v))
+			out = append(out, readingEvidenceRefs(v, inEvidence))
 		}
 		return out
 	default:
@@ -367,6 +371,7 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		return nil, nil, err
 	}
 	content := contractCopy(raw)
+	content["reading_stop_conditions"] = "来源或批准过期、越界、缺少证据、验证失败、drift / violation / new_impacts 时停止并回交。"
 	if mode != "task" {
 		if source, ok := object(sources["ticket"]); ok {
 			b, e := r.bytes(text(source["ref"]))
@@ -544,6 +549,13 @@ func readingEvidenceIndex(value any) []any {
 							}
 						}
 						out = append(out, item)
+					}
+				}
+				if strings.HasSuffix(key, "_refs") {
+					for i, item := range semList(x[key]) {
+						if ref := text(item); ref != "" {
+							out = append(out, map[string]any{"source_pointer": pointer + "/" + key + "/" + strconv.Itoa(i), "ref": ref})
+						}
 					}
 				}
 				walk(x[key], pointer+"/"+key)
