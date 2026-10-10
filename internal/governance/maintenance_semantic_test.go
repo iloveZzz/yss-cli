@@ -38,18 +38,23 @@ func TestMaintenanceIntensityTwoLevels(t *testing.T) {
 		if (err == nil) != pass || err != nil && !strings.Contains(err.Error(), diagnostic) {
 			t.Fatalf("pass=%v diagnostic=%q err=%v", pass, diagnostic, err)
 		}
-		if source := os.Getenv("YSS_LEGACY_ORACLE_ROOT"); source != "" {
-			args := []string{filepath.Join(source, "scripts/verify-maintenance-checkpoint")}
-			if history {
-				args = append(args, "--history")
+		input, _ := json.Marshal(doc)
+		var flags []string
+		if history {
+			flags = []string{"--history"}
+		}
+		code, out := oracleVerdict(t, "maintenance", oracleRequest{Script: "verify-maintenance-checkpoint", Args: flags, Stdin: string(input)}, t.Name(), func() (int, string) {
+			source := os.Getenv("YSS_LEGACY_ORACLE_ROOT")
+			if source == "" {
+				t.Fatal("live/record 模式需要 YSS_LEGACY_ORACLE_ROOT")
 			}
-			cmd := exec.Command("node", args...)
-			input, _ := json.Marshal(doc)
+			cmd := exec.Command("node", append([]string{filepath.Join(source, "scripts/verify-maintenance-checkpoint")}, flags...)...)
 			cmd.Stdin = strings.NewReader(string(input))
-			out, oracleErr := cmd.CombinedOutput()
-			if (oracleErr == nil) != pass {
-				t.Fatalf("Node/Go verdict differs: %s", out)
-			}
+			output, oracleErr := cmd.CombinedOutput()
+			return oracleExitCode(oracleErr), oracleNormalize(string(output), [2]string{source, "<oracle>"})
+		})
+		if (code == 0) != pass {
+			t.Fatalf("Node/Go verdict differs: %s", out)
 		}
 	}
 	verify(t, checkpoint, false, true, "")

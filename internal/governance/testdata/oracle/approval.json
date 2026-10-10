@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "template_commit": "cad38300106f3abebd4d7f6e17484b761641c107",
+  "entries": {
+    "1781c483de3ed8ac5cf42dce7cd7525651bfef7fc9fbaafc944c3e58023aa631": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/design",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 0,
+      "output": "会签当前绑定及适用用户决定校验通过；不授予执行或发布\n"
+    },
+    "408d2be27bbbc2b2ddfc0a28f5e26ddc7c5aae0293be26513e2d9c3760be3ba9": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/backend",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 0,
+      "output": "会签当前绑定及适用用户决定校验通过；不授予执行或发布\n"
+    },
+    "490b38ac5dece7fd0f4e0c84c14c3a85db2e58473ed3e492e7a68f7fd17a7e5e": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/spec",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 缺少独立审查身份或起草者自签\n"
+    },
+    "49e9bb952370c5d2015229fe6506ed3bbf9c86f06d8990fb89b41340f18f40b4": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/role",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: check.domain-strategy-approved 会签角色必须是 role.product-manager\n"
+    },
+    "4cb691af115191b8967af1d431fc0727c9e42a98e0a6b5a07316f9611b3e4dce": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/unlisted",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CONTEXT_REQUIRED: 当前消费边界缺少主体或批准范围\n"
+    },
+    "508be22c25013046fa51faef69095dbc84b11e9e423e63d4f44293b1a5acb495": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/frontend",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 缺少独立审查身份或起草者自签\n"
+    },
+    "650728db44070d58f52f0d58729afdfff8009a9560badcf4aca7896d04e332db": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/frontend",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 0,
+      "output": "会签当前绑定及适用用户决定校验通过；不授予执行或发布\n"
+    },
+    "741801cb012c462eeb7e50f369a402c4fac302a8e9e72d0e61c0d63b3e2004d7": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/backend",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 缺少独立审查身份或起草者自签\n"
+    },
+    "7973193a464060cff9d4cdb3dbefbd021a6bd9a18f9a88e8a2586cc61aefd1b2": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/basis-bytes",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 当前消费上下文 证据过期: basis.json\n"
+    },
+    "883b9612f9c9346e478fe7172764c3adc94390c7683b76f48f82b9d1b5a39b0c": {
+      "test": "TestApprovalFourProfilesCurrentAndRefusal/design",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 缺少独立审查身份或起草者自签\n"
+    },
+    "8cf6e48ccf2377abb4ace80eb47bd151ce74cb5394b3ba5c57d3cfdbbdfc8bd6": {
+      "test": "TestApprovalCurrentFixedSourceOracle",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 0,
+      "output": "会签当前绑定及适用用户决定校验通过；不授予执行或发布\n"
+    },
+    "a792a5a63625a54b25ebe6e63350f3970eef158a798d9ea06ec654cf1879ed6d": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/scope",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 审查范围不匹配\n"
+    },
+    "d16ca4cdf9e2a1aab9978425baee14e6ed9c0b9a0dea6b7423edac728d314685": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/author",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 起草者身份与当前消费上下文不匹配\n"
+    },
+    "d9578b93a016b9daf47361aa6d0e26c5cf052b9838b90b34819ae2f20032c8e4": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/veto",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: check.domain-strategy-approved 已被生物人否决，不能标为 approved\n"
+    },
+    "e23c19cac833ef32bf7b2a2cf320a6a2ff01198857ad4cb3d850097c8f2f70e2": {
+      "test": "TestApprovalCurrentRejectsScopeBasisRoleAndVetoDrift/subject-bytes",
+      "script": "verify-approval-record",
+      "args": [
+        "--root",
+        "\u003croot\u003e",
+        "--checkpoint",
+        "\u003croot\u003e/checkpoint.json",
+        "\u003croot\u003e/approval.json"
+      ],
+      "exit_code": 1,
+      "output": "会签记录校验失败: APPROVAL_CURRENT_INVALID: 审查资产摘要不匹配；批准依据过期\n"
+    }
+  }
+}
