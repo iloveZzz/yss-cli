@@ -145,7 +145,8 @@ func TestRenderedSkillLockPreservesOrderedSourceMetadataAndModes(t *testing.T) {
 	}
 }
 
-// Fixed spec a18b89e7: rendered tree hash independently checked with Node treeHash.
+// Fixed spec cad38300: rendered tree hash independently checked with Node treeHash
+// (scripts/lib/skill-supply-chain.mjs) and the template skills-lock.json at the same commit.
 func TestRenderedSkillLockCurrentFullSpecGolden(t *testing.T) {
 	b, err := Load("spec")
 	if err != nil {
@@ -164,7 +165,7 @@ func TestRenderedSkillLockCurrentFullSpecGolden(t *testing.T) {
 	if entry := skills["shared"].(map[string]any)["yss-design-system"].(map[string]any); entry["effectiveHash"] != "3207008f4b7975747cd32352a643b8f35769e7a971ae8b40ba320024e9118546" {
 		t.Fatalf("rendered design-system golden mismatch: %+v", entry)
 	}
-	if entry := skills["platform"].(map[string]any)[".codex/skills"].(map[string]any)["product-design"].(map[string]any); entry["effectiveHash"] != "5e49d34d508ea4aa4af203d45337d43e3137b9bb0c86531be693c62593fc4c08" {
+	if entry := skills["platform"].(map[string]any)[".codex/skills"].(map[string]any)["product-design"].(map[string]any); entry["effectiveHash"] != "b16d083a12da462cc92d1a77d599d7f774acccc0b65053bba12b89a4a30cc99d" {
 		t.Fatalf("nested platform group golden mismatch: %+v", entry)
 	}
 }
