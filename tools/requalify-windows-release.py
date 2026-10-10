@@ -83,7 +83,7 @@ def main():
         "install-plan-read-only", "install-apply", "rollback", "recover", "user-file-preservation"])
     assert all(row["status"] == "passed" for row in report["cases"])
     assert report["githubRunId"] and report["githubRunAttempt"]
-    assert len(report["commands"]) == 13
+    assert len(report["commands"]) == 12
     for row in report["commands"]:
         assert row["exitCode"] == 0
         for stream in ("stdout", "stderr"):
