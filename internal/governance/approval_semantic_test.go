@@ -503,12 +503,47 @@ func TestReviewBundleV1V2IdentityAndCurrentBinding(t *testing.T) {
 
 // Optional fixed-source oracle is for differential test evidence only.
 // Normal native governance tests never require Node or invoke a legacy runtime.
+// Scripts registered in oracleFixtureScripts replay recorded verdicts by default
+// (see oracle_fixture_test.go); all others keep the original live-only behavior.
 func apTestLegacy(t *testing.T, script, root, ref string, args ...string) (bool, string, bool) {
+	t.Helper()
+	fixture := oracleFixtureFor(script)
+	if fixture == "" {
+		return apTestLegacyLive(t, script, root, ref, args...)
+	}
+	argv := append([]string{"--root", root}, args...)
+	argv = append(argv, filepath.Join(root, filepath.FromSlash(ref)))
+	request := oracleRequest{Script: script, Args: oracleRelative(argv, root), Tree: oracleTreeDigest(t, root)}
+	code, output := oracleVerdict(t, fixture, request, t.Name(), func() (int, string) {
+		source := os.Getenv("YSS_LEGACY_ORACLE_ROOT")
+		if source == "" {
+			t.Fatal("live/record 模式需要 YSS_LEGACY_ORACLE_ROOT")
+		}
+		code, output := apOracleRun(t, source, script, root, ref, args...)
+		return code, oracleNormalize(output, [2]string{root, "<root>"}, [2]string{source, "<oracle>"})
+	})
+	return code == 0, output, true
+}
+
+func apTestLegacyLive(t *testing.T, script, root, ref string, args ...string) (bool, string, bool) {
 	t.Helper()
 	source := os.Getenv("YSS_LEGACY_ORACLE_ROOT")
 	if source == "" {
 		return false, "", false
 	}
+	exitCode, output := apOracleRun(t, source, script, root, ref, args...)
+	argv := append([]string{filepath.Join(source, "scripts", script), "--root", root}, args...)
+	argv = append(argv, filepath.Join(root, filepath.FromSlash(ref)))
+	record, err := json.Marshal(map[string]any{"test": t.Name(), "source": source, "argv": argv, "exit_code": exitCode, "raw_output": output})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("legacy-oracle-record %s", record)
+	return exitCode == 0, output, true
+}
+
+func apOracleRun(t *testing.T, source, script, root, ref string, args ...string) (int, string) {
+	t.Helper()
 	if _, e := exec.LookPath("node"); e != nil {
 		t.Fatal(e)
 	}
@@ -518,18 +553,5 @@ func apTestLegacy(t *testing.T, script, root, ref string, args ...string) (bool,
 	cmd := exec.Command("node", argv...)
 	cmd.Dir = source
 	output, e := cmd.CombinedOutput()
-	exitCode := 0
-	if e != nil {
-		exitCode = -1
-		var exited *exec.ExitError
-		if errors.As(e, &exited) {
-			exitCode = exited.ExitCode()
-		}
-	}
-	record, err := json.Marshal(map[string]any{"test": t.Name(), "source": source, "argv": argv, "exit_code": exitCode, "raw_output": string(output)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("legacy-oracle-record %s", record)
-	return e == nil, string(output), true
+	return oracleExitCode(e), string(output)
 }

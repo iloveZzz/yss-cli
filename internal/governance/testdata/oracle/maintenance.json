@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "template_commit": "cad38300106f3abebd4d7f6e17484b761641c107",
+  "entries": {
+    "0ba8c8c40217101cbea5e44c21d0becc1ef8ea9f60cb039d433a16e1643386a7": {
+      "test": "TestMaintenanceIntensityTwoLevels/permission-boundary",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: permission-boundary 缺少定向 counterexample 运行证据\n"
+    },
+    "0f08aa3fcb51bc892cefd59a4ffafbd2c609288f611ac7c4ed85d5636ea5553a": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-aggregate-behavior-change",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: aggregate-behavior-change 至少要求 L3，不得声明为 L2\n"
+    },
+    "10a40e95986919c50b1b9957cf84cbe7baac01df95398fb7e2b6e29e6cf98d2d": {
+      "test": "TestMaintenanceIntensityTwoLevels/template-structure",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "23dfa79eb8da35f05fe3d02ff392631347ad79ea83f0aca6cf0fbbd9ec223b7a": {
+      "test": "TestMaintenanceIntensityTwoLevels",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: L2 缺少 self-check 证据\n"
+    },
+    "337a191c96a094ac2dc516b5ce3d6f64e790a3adfcf157e6787ffc8dddec323a": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-release-candidate",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 未知 trigger: release-candidate\n"
+    },
+    "34e568b54472f08b56ef15aa2238c906cc2eba2f0b803dad02cdb9529ccba1d8": {
+      "test": "TestMaintenanceIntensityTwoLevels/permission-boundary",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: permission-boundary 缺少定向 counterexample 运行证据\n"
+    },
+    "3938e65c5c8756ace1cc9a5162f025ff1b0d9f914d6396e84d2657776da33f6a": {
+      "test": "TestMaintenanceIntensityTwoLevels/lifecycle-gate",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: lifecycle-gate 缺少定向 counterexample 运行证据\n"
+    },
+    "3cc6970f0abe3cfbf05b82859f67e9a17020d21890becc96a143775d212410c9": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-release-candidate",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: release-candidate 至少要求 L3，不得声明为 L2\n"
+    },
+    "424b19151630e181b4ed1935f0c963809e6327a99de80174e06a38ae1fbb0a4f": {
+      "test": "TestMaintenanceIntensityTwoLevels/local-rule",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "43da18518340c02ac7691675fc4a2af37fda69587cb1c9767c2df9694d4cbbaf": {
+      "test": "TestMaintenanceIntensityTwoLevels/unknown",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 未知 trigger: unknown\n"
+    },
+    "4436e3dad6d49996275a79d81550c8b52440e4a35c217b8611c024177306b46c": {
+      "test": "TestMaintenanceIntensityTwoLevels/current-l3",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 当前 intensity 必须是 L1 或 L2；L3 仅供 --history 历史读取\n"
+    },
+    "575915d136fda8bf8d784f37484939706163e06c128818308f5aaa9103228656": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-aggregate-behavior-change",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 0,
+      "output": "历史兼容只读；不证明当前交付。模板维护 checkpoint 验证通过（L3，最低 L3，historical-only）\n"
+    },
+    "68893e99bd24e334d8f82c959b77d82ccdbd229b7346180de107ef729bf2ed8b": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-historical-important-escape",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 0,
+      "output": "历史兼容只读；不证明当前交付。模板维护 checkpoint 验证通过（L3，最低 L3，historical-only）\n"
+    },
+    "7b8cf5bef4c8e6f67a40f14356734f45dfa65e99fad20c688f769989bb8503c3": {
+      "test": "TestMaintenanceIntensityTwoLevels/history-l3",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 0,
+      "output": "历史兼容只读；不证明当前交付。模板维护 checkpoint 验证通过（L3，最低 L3，historical-only）\n"
+    },
+    "866467e995d16f84197fe5717c6e69266a8e897ec7b0f16901c2186c96bd5605": {
+      "test": "TestMaintenanceIntensityTwoLevels",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: counterexample core-validator: 缺少实际运行 run_ref\n"
+    },
+    "8a5b51926f0442895bdb4dc9000e9e9839a26cedabe61dc30e675ed2bb8bfb92": {
+      "test": "TestMaintenanceIntensityTwoLevels/history-l2-evidence",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: L2 缺少 counterexample 证据\n"
+    },
+    "8b5720b81e846081dc0ff995d1c18276013c355a7bce61787455ad3be8c9009f": {
+      "test": "TestMaintenanceIntensityTwoLevels/core-validator",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "a0fe20c7e96832e9c373fca9b29cc9a3a34b600290acce60fd1ee1aac8ac0d34": {
+      "test": "TestMaintenanceIntensityTwoLevels/default",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "a93a3611e8e28b556c2228ae0538114b6b8543252baa8d3bb4d07f7ea3b1c19f": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-ticket-state",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 未知 trigger: ticket-state\n"
+    },
+    "aabc6aa7751f7599528b1b37f6927afc51f4ebefc9850ec60f30a6981165c186": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-release-candidate",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 0,
+      "output": "历史兼容只读；不证明当前交付。模板维护 checkpoint 验证通过（L3，最低 L3，historical-only）\n"
+    },
+    "af77380ff76fa1dc57b364f8c2c186297eddd09c62e2b1a64ee8ef0a778fa0f5": {
+      "test": "TestMaintenanceIntensityTwoLevels/generation-semantics",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "b48600536092642254513f1aa94bc60d5ef04602b425af2d9598afa7f8430218": {
+      "test": "TestMaintenanceIntensityTwoLevels/cross-repo-contract",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "b4a66be7ba4d3e7a4c439e76c0d0f58b4014ac6471ee0d0a138ba6b8e17c2e59": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-historical-important-escape",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: historical-important-escape 至少要求 L3，不得声明为 L2\n"
+    },
+    "b5b33224d28107054179b92a97f9d242355219aff4220d2408b29bf1d2b76cff": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-ticket-state",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 0,
+      "output": "历史兼容只读；不证明当前交付。模板维护 checkpoint 验证通过（L3，最低 L3，historical-only）\n"
+    },
+    "b87dac18c1da5d8b3d13146a8e3b9288d94fc2af0859d801961b2d57fdb9ba82": {
+      "test": "TestMaintenanceIntensityTwoLevels/lifecycle-gate",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: lifecycle-gate 缺少定向 counterexample 运行证据\n"
+    },
+    "ba69076fa9930da620f21c5886e0d0aa450d47c4962ca05542334ba4f7f74073": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-ticket-state",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: ticket-state 至少要求 L3，不得声明为 L2\n"
+    },
+    "bd1a799ffb4addcdbacd0f250c16ce23dff484e9b2b4595055b2b1663abe9642": {
+      "test": "TestMaintenanceIntensityTwoLevels/release-semantics",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: release-semantics 缺少定向 counterexample 运行证据\n"
+    },
+    "d2f89da7aa81de412de0ed21ad2fb8e4a54991e2bda6cb3d7f04aff5d579643c": {
+      "test": "TestMaintenanceIntensityTwoLevels/history-minimum",
+      "script": "verify-maintenance-checkpoint",
+      "args": [
+        "--history"
+      ],
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: core-validator 至少要求 L3，不得声明为 L2\n"
+    },
+    "d71af982fcbf226e239c30dc95aa47b16a1a1afbe1ee073ffbe9beb8eb905d96": {
+      "test": "TestMaintenanceIntensityTwoLevels",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "db3e6a0cb19dc9c68a62e4ac36a321fd26147ca717192c2a74fd6ed9fe9daf18": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-aggregate-behavior-change",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 未知 trigger: aggregate-behavior-change\n"
+    },
+    "df5b9f8d3955687d1429ee1a41a93e16409bac9f8f91435a762b04fa81a81f3f": {
+      "test": "TestMaintenanceIntensityTwoLevels/release-semantics",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: release-semantics 缺少定向 counterexample 运行证据\n"
+    },
+    "e1a2786a9de6b70176b6be7eb3e55028da4d8851ee33ddaba8c2417d8cdecdf2": {
+      "test": "TestMaintenanceIntensityTwoLevels",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: L2 缺少 fresh-verification 证据\n"
+    },
+    "e35ab1290383adc02fecddfdc4572c8f29a8236d99cf0017f2db4bfafc1831d2": {
+      "test": "TestMaintenanceIntensityTwoLevels/current-l1-minimum",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: core-validator 至少要求 L2，不得声明为 L1\n"
+    },
+    "ebbc5adf3c4a4c8bfd4b173e882a73ae7870a54ccbf4b12f46565fe9e94f0e06": {
+      "test": "TestMaintenanceIntensityTwoLevels/non-core-validator",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 0,
+      "output": "模板维护 checkpoint 验证通过（L2，最低 L2，implementation-ready）\n"
+    },
+    "fd8c7d28d5b8f86496f24cccca73e878f81649475ee84d9a665fccc0040913c9": {
+      "test": "TestMaintenanceIntensityTwoLevels/retired-historical-important-escape",
+      "script": "verify-maintenance-checkpoint",
+      "exit_code": 1,
+      "output": "模板维护 checkpoint 验证失败: 未知 trigger: historical-important-escape\n"
+    }
+  }
+}
