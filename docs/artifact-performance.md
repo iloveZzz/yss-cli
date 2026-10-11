@@ -14,10 +14,10 @@
 
 测量前必须核对两份构建收据与实际二进制、源码清单的绑定，并确认资产摘要、Go 环境和构建参数相同；输入读取失败也保存失败收据。
 
-测量 `--help`、`version --json` 以及四个 Profile 的 `bundle inspect --json`。Linux 的 wait4.ru_maxrss 单位为 KiB，macOS 为 bytes，报告统一为 bytes；不能使用累计子进程最大值冒充单个进程峰值。原始样本、失败、工具源码摘要与构建收据一起保存。
+测量 `--help`、`version --json` 以及四个 Profile 的 `bundle inspect --json`。Linux 的 wait4.ru_maxrss 单位为 KiB，macOS 为 bytes，报告统一为 bytes；不能使用累计子进程最大值冒充单个进程峰值。测量器通过轻量父进程采集 CLI 子进程的 wait4，避免证据清单驻留内存污染短命令 RSS；轻量父进程的启动不计入 CLI 耗时。原始样本、失败、工具源码摘要与构建收据一起保存。
 
-- 每个改动：全部命令的 p95 ≤ max(基线 p95 × 1.10, 基线 p95 + 5ms)，RSS 中位数不回归。
-- 本轮集成：Backend/Frontend 检查耗时中位数与峰值 RSS 中位数均较固定基线降低至少 20%。
+- 每个改动：全部命令的 p95 ≤ max(基线 p95 × 1.10, 基线 p95 + 5ms)；记录所有命令的 RSS 中位数。
+- 本轮集成：Backend/Frontend 检查耗时中位数与峰值 RSS 中位数均较固定基线降低至少 20%；其他测量命令的 RSS 中位数不回归。
 - 工具与生成检查改动不单独要求达到最终 20% 目标。
 - 没有基线只标记 measured；未执行、失败、输入漂移不产生 passed 收据。
 - 旧 `e665da8` 的测量只作历史背景，不能替代新基线验收。
