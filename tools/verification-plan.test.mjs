@@ -49,3 +49,10 @@ test("前端当前候选绑定覆盖批准与直接消费者，未证明的共�
 test("登记的合同编译与本地 Plan Schema 消费者完整进入专项",()=>{const plan=selectVerification({sourcePaths:["scripts/lib/implementation-contract-compiler.mjs",".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml",".template-spec/process/schemas/lifecycle-registry.schema.json"]});assert.equal(plan.scope,"impacted");assert.deepEqual(plan.sourceSuites,["implementation-contracts","specialist-business-inputs"]);assert.equal(plan.nativeRequired,true);assert.deepEqual(plan.unknown,[]);});
 
 test("共享前端边界及直接准备/派发调用者单独变化仍核验编译与派发",()=>{for(const name of ["frontend-delivery-boundary","slice-contract","slice-contract-preparation","slice-task-package","task-package"]){const plan=selectVerification({sourcePaths:[`scripts/lib/${name}.mjs`]});assert.ok(plan.sourceSuites.includes("implementation-contracts"),name);assert.equal(plan.nativeRequired,true);}});
+
+test("来源锁刷新脚本及其测试只触发 Node 自检，不扩大为全量", () => {
+  const plan = selectVerification({ paths: ["tools/refresh-source-lock.mjs", "tools/refresh-source-lock.test.mjs"] });
+  assert.notEqual(plan.scope, "full");
+  assert.deepEqual(plan.go, []);
+  assert.equal(plan.nativeRequired, false);
+});
