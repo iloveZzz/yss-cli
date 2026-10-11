@@ -24,7 +24,10 @@ func pauseChild(cmd *exec.Cmd) error {
 		if err != nil {
 			return err
 		}
-		if !status.Stopped() {
+		// WUNTRACED requests stop events, without WCONTINUED. BSD's Go
+		// WaitStatus.Stopped excludes the SIGSTOP encoding as "continued";
+		// inspect the POSIX stop tag directly for this stop-only wait.
+		if status&0xff != 0x7f {
 			return fmt.Errorf("native child exited before suspension: %v", status)
 		}
 		return nil
