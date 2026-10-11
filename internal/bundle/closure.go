@@ -8,16 +8,28 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
-var imports = []*regexp.Regexp{regexp.MustCompile(`\b(?:import|export)\s+(?:[^'";]*?\s+from\s*)?['"]([^'"]+)['"]`), regexp.MustCompile(`\b(?:require|import)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)`)}
-var fixedResources = regexp.MustCompile(`['"]((?:scripts/[\p{L}\p{N}_.\/-]+\.py|\.template-spec/[\p{L}\p{N}_.\/-]+\.(?:json|yaml)))['"]`)
-var urlResources = regexp.MustCompile(`\bnew\s+URL\(\s*['"\x60](\.[^'"\x60]+\.(?:json|yaml|py))['"\x60]\s*,\s*import\.meta\.url\s*\)`)
-var subprocessEntries = regexp.MustCompile(`\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?:(?:process\.execPath|['"](?:node|python3)['"])\s*,\s*\[\s*)?(?:path\.)?(?:join|resolve)\(\s*(?:ROOT|TEMPLATE_ROOT)\s*,\s*['"](scripts/[\p{L}\p{N}_.\/-]+)['"]\s*\)`)
-var localScriptDirectory = regexp.MustCompile(`\bconst\s+SCRIPT_DIR\s*=\s*path\.dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)`)
-var localSubprocessBinding = regexp.MustCompile(`\bconst\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*path\.(?:join|resolve)\(\s*SCRIPT_DIR\s*,\s*['"]([\p{L}\p{N}_.\/-]+)['"]\s*\)`)
-var boundSubprocessEntries = regexp.MustCompile(`\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?:process\.execPath|['"](?:node|python3)['"])\s*,\s*\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\b`)
-var skillRefs = regexp.MustCompile(`(?:\.template-spec|scripts)/[\p{L}\p{N}_.\/-]+`)
+// Source dependency scanners are only needed while building an archive. Keep
+// their large Unicode regular expressions out of ordinary CLI startup.
+type referencePatterns struct {
+	imports                                                                                                                          []*regexp.Regexp
+	fixedResources, urlResources, subprocessEntries, localScriptDirectory, localSubprocessBinding, boundSubprocessEntries, skillRefs *regexp.Regexp
+}
+
+var sourceReferencePatterns = sync.OnceValue(func() referencePatterns {
+	return referencePatterns{
+		imports:                []*regexp.Regexp{regexp.MustCompile(`\b(?:import|export)\s+(?:[^'";]*?\s+from\s*)?['"]([^'"]+)['"]`), regexp.MustCompile(`\b(?:require|import)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)`)},
+		fixedResources:         regexp.MustCompile(`['"]((?:scripts/[\p{L}\p{N}_.\/-]+\.py|\.template-spec/[\p{L}\p{N}_.\/-]+\.(?:json|yaml)))['"]`),
+		urlResources:           regexp.MustCompile(`\bnew\s+URL\(\s*['"\x60](\.[^'"\x60]+\.(?:json|yaml|py))['"\x60]\s*,\s*import\.meta\.url\s*\)`),
+		subprocessEntries:      regexp.MustCompile(`\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?:(?:process\.execPath|['"](?:node|python3)['"])\s*,\s*\[\s*)?(?:path\.)?(?:join|resolve)\(\s*(?:ROOT|TEMPLATE_ROOT)\s*,\s*['"](scripts/[\p{L}\p{N}_.\/-]+)['"]\s*\)`),
+		localScriptDirectory:   regexp.MustCompile(`\bconst\s+SCRIPT_DIR\s*=\s*path\.dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)`),
+		localSubprocessBinding: regexp.MustCompile(`\bconst\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*path\.(?:join|resolve)\(\s*SCRIPT_DIR\s*,\s*['"]([\p{L}\p{N}_.\/-]+)['"]\s*\)`),
+		boundSubprocessEntries: regexp.MustCompile(`\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?:process\.execPath|['"](?:node|python3)['"])\s*,\s*\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\b`),
+		skillRefs:              regexp.MustCompile(`(?:\.template-spec|scripts)/[\p{L}\p{N}_.\/-]+`),
+	}
+})
 
 type requiredSkill struct{ skill, from string }
 
@@ -291,7 +303,7 @@ func (c *closure) module(ref string) error {
 	}
 	c.modules[ref] = true
 	text, active := moduleSyntax(string(c.raw[ref].data))
-	for _, re := range imports {
+	for _, re := range sourceReferencePatterns().imports {
 		for _, m := range syntaxMatches(re, text, active) {
 			if strings.Contains(m[1], "${") && strings.Contains(m[0], "`") {
 				continue
@@ -328,7 +340,7 @@ func (c *closure) module(ref string) error {
 			}
 		}
 	}
-	for _, m := range syntaxMatches(fixedResources, text, active) {
+	for _, m := range syntaxMatches(sourceReferencePatterns().fixedResources, text, active) {
 		target := m[1]
 		if _, ok := c.raw[target]; !ok && !strings.HasSuffix(target, ".py") && !strings.HasSuffix(target, ".schema.json") {
 			continue
@@ -337,7 +349,7 @@ func (c *closure) module(ref string) error {
 			return e
 		}
 	}
-	for _, m := range syntaxMatches(urlResources, text, active) {
+	for _, m := range syntaxMatches(sourceReferencePatterns().urlResources, text, active) {
 		if strings.Contains(m[1], "${") && strings.Contains(m[0], "`") {
 			continue
 		}
@@ -349,7 +361,7 @@ func (c *closure) module(ref string) error {
 			return e
 		}
 	}
-	for _, m := range syntaxMatches(subprocessEntries, text, active) {
+	for _, m := range syntaxMatches(sourceReferencePatterns().subprocessEntries, text, active) {
 		target := m[1]
 		var e error
 		if strings.HasSuffix(target, ".py") || strings.HasSuffix(target, ".json") || strings.HasSuffix(target, ".yaml") {
@@ -361,12 +373,12 @@ func (c *closure) module(ref string) error {
 			return e
 		}
 	}
-	if len(syntaxMatches(localScriptDirectory, text, active)) > 0 {
+	if len(syntaxMatches(sourceReferencePatterns().localScriptDirectory, text, active)) > 0 {
 		bindings := map[string]string{}
-		for _, m := range syntaxMatches(localSubprocessBinding, text, active) {
+		for _, m := range syntaxMatches(sourceReferencePatterns().localSubprocessBinding, text, active) {
 			bindings[m[1]] = path.Clean(path.Join(path.Dir(ref), m[2]))
 		}
-		for _, m := range syntaxMatches(boundSubprocessEntries, text, active) {
+		for _, m := range syntaxMatches(sourceReferencePatterns().boundSubprocessEntries, text, active) {
 			target, bound := bindings[m[1]]
 			if !bound {
 				continue
@@ -392,7 +404,7 @@ func (c *closure) skill(skill string) error {
 		if !strings.HasSuffix(p, ".md") && !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".json") {
 			continue
 		}
-		for _, ref := range skillRefs.FindAllString(string(c.raw[p].data), -1) {
+		for _, ref := range sourceReferencePatterns().skillRefs.FindAllString(string(c.raw[p].data), -1) {
 			ref = strings.TrimRight(ref, ".,;")
 			// Skill commands are relative to their canonical Skill root. Resolve
 			// documented own-script entries before falling back to shared scripts;
