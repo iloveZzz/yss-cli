@@ -2,8 +2,8 @@
 
 本工程是普通 Go CLI 源码仓，路径相对本仓根，使用简体中文维护文档。本地维护不要求产品实例的 yss-project.yaml、CONTEXT.md、阶段 checkpoint 或 Slice，不补造这些文件。父级 YSS 产品路由不定义本仓流程；共同授权、用户工作保护与允许写范围继续有效。模板治理资产继续来自固定来源快照；不在本工程重新定义生命周期门禁、批准或业务规则。
 
-Go 代码使用 gofmt。默认按差异与直接/传递依赖验证：先运行 `node tools/verification-plan.mjs --base <完整基线SHA> --template-root <固定模板源> --out <仓库外计划>`，再加 `--execute` 执行。版本常量、固定 Bundle/来源锁和派生帮助选专项包及消费者；日常/本地批准输入选对应公共入口和下游验证，其他 Go 变化消费反向导入闭包。事务、安装、安全或广泛共享核心扩大到全量；未知先分析，不能证明范围时扩大，用户明确要求全量使用 `--full`。本地、CI 和发布验证不自动执行 race；`--full` 只扩大普通验证。需要排查并发问题时手动执行 Go race 命令。正式发行仍保留原生 82、恢复 12、插件 44 和安装 5/历史迁移 48/来源消费者 9 门禁。 核心目录（governance、bundle、project、updater、transaction、domain 与 tools/{bundle,package,release}）下只有 `_test.go` 或 `testdata` 的变化只核验本包，不升为全量；生产代码变化、`go.mod`、来源锁引入的未知模板路径仍升为全量。已知超长的测试（`SLOW_TESTS`，目前是 `TestLifecycleTargetNativeSpecDesignBusinessSequence`）不在默认通道里跑，用 `node tools/verification-plan.mjs --slow` 单独执行，CI 只在 main 推送与手动全量时运行且不阻断；单个测试二进制超时 30 分钟。
+Go 代码使用 gofmt。本仓已移除 Go／Node 自动化测试源码、测试数据、测试专用执行与验收工具，以及 GitHub Actions 测试 workflow。维护时使用 `CGO_ENABLED=0 go build ./...` 检查构建，不再调用已删除的验证选择器或测试命令。构建成功只证明可编译，不能称为测试通过或正式发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
-只有源码、工具、参数、环境与所有输入仍一致的真实证据可复用；变化使受影响证据失效。定向通过不能称全量通过，未执行/取消/失败必须记录。CI 执行同一选择器，无条件跳过禁止。发布构建 CGO_ENABLED=0。程序版本、协议版本、各 Profile 模板来源和旧 CLI 兼容版本分别记录。不得把交叉编译作为平台运行验收。
+CLI 的业务校验、事务恢复、来源与摘要检查，以及发行包证据校验属于产品和装配能力，继续保留。发行工具仍消费既有证据合同；删除测试不产生通过回执，也不授予发行资格。真实证据仅在源码、工具、参数、环境及所有输入一致时可复用；未执行、取消与失败如实记录。发布构建 CGO_ENABLED=0。程序版本、协议版本、各 Profile 模板来源和旧 CLI 兼容版本分别记录。不得把交叉编译作为平台运行验收。
 
 提交、推送、正式发布按当前会话的用户授权执行。未覆盖的能力明确返回未迁移状态，不得回退成放宽校验或自动批准。
