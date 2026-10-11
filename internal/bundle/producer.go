@@ -53,6 +53,7 @@ type Source struct {
 	SourcePath      string        `json:"sourcePath"`
 	Commit          string        `json:"templateCommit"`
 	TemplateVersion string        `json:"templateVersion"`
+	TemplateTag     string        `json:"templateTag,omitempty"`
 	PolicyPath      string        `json:"policyPath"`
 	PolicyHash      string        `json:"policyHash"`
 	Legacy          LegacyLineage `json:"legacy"`
@@ -110,6 +111,9 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	}
 	if strings.TrimSpace(string(kindBytes)) != "commit" {
 		return nil, fmt.Errorf("templateCommit must name a Git commit")
+	}
+	if e := verifyTemplateTag(ctx, root, &s); e != nil {
+		return nil, e
 	}
 	if s.PolicyPath == "" {
 		s.PolicyPath = ".template-source/distribution/bundle-profile.json"

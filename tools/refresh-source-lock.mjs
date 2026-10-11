@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// 把 docs/source-lock.json 里指定模板的固定提交刷新到该模板当前 HEAD，并按 README 的顺序重新生成 Bundle。
+// 把 docs/source-lock.json 里指定模板的固定提交刷新到目标，并按 README 的顺序重新生成 Bundle。
+// 目标有两种：默认是该模板当前 HEAD（只用于还没有发布模板 tag 的来源）；--tag vX.Y.Z 是模板的发布 tag，这是 CLI 发布流程里的一步：
+// 锁里同时记录 tag、tag 指向的提交和不带 v 的语义化版本，打包时校验三者一致。已经钉在 tag 上的来源不能再按 HEAD 刷新。
 // 默认只预演；--apply 才写锁；--regenerate 在写锁后依次运行生成与校验命令。
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -16,7 +18,9 @@ function git(repo, args) {
 }
 
 /** 逐个模板检查并算出新的固定值；不写任何文件。errors 非空时不得应用。 */
-export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false, skillsSource = false }) {
+export const RELEASE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false, skillsSource = false, tag = null }) {
   const entries = [];
   const errors = [];
   const warnings = [];
@@ -28,7 +32,18 @@ export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false,
     const status = git(repo, ["status", "--porcelain", "--untracked-files=all"]);
     if (status.status !== 0) { errors.push(`${profile}: 无法读取工作区状态（${status.stderr}）`); continue; }
     if (status.stdout) { errors.push(`${profile}: 工作区不干净；Bundle 要求来源是 committed，先提交或还原`); continue; }
-    const target = git(repo, ["rev-parse", "HEAD"]).stdout;
+    if (!tag && source.templateTag) {
+      errors.push(`${profile}: 来源已钉在 tag ${source.templateTag}，不能再按 HEAD 刷新；用 --tag 指定新的发布 tag`);
+      continue;
+    }
+    let target;
+    if (tag) {
+      const tagged = git(repo, ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}^{commit}`]);
+      if (tagged.status !== 0 || !tagged.stdout) { errors.push(`${profile}: ${source.sourcePath} 里没有 tag ${tag}`); continue; }
+      target = tagged.stdout;
+    } else {
+      target = git(repo, ["rev-parse", "HEAD"]).stdout;
+    }
     // 策略哈希必须按原始字节算（git 的文本输出会被去掉末尾换行）
     const policy = spawnSync("git", ["-C", repo, "show", `${target}:${source.policyPath}`], { maxBuffer: 64 * 1024 * 1024 });
     if (policy.status !== 0) { errors.push(`${profile}: 目标提交 ${target.slice(0, 8)} 里没有 ${source.policyPath}`); continue; }
@@ -44,13 +59,18 @@ export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false,
       }
     }
     const policyTo = createHash("sha256").update(policy.stdout).digest("hex");
+    const versionTo = tag ? tag.slice(1) : `git:${target}`;
     entries.push({
       profile,
       from: source.templateCommit,
       to: target,
       policyFrom: source.policyHash,
       policyTo,
-      changed: target !== source.templateCommit || policyTo !== source.policyHash,
+      versionFrom: source.templateVersion,
+      versionTo,
+      tagFrom: source.templateTag ?? null,
+      tagTo: tag,
+      changed: target !== source.templateCommit || policyTo !== source.policyHash || source.templateVersion !== versionTo || (source.templateTag ?? null) !== tag,
     });
     const skills = source.skillsSource;
     if (skills && skillsSource && (profile === "backend" || profile === "frontend")) {
@@ -116,8 +136,26 @@ export function applyPlan(lockText, entries) {
       text = text.slice(0, at) + `"${key}": "${newValue}"` + text.slice(at + needle.length);
       return at;
     };
+    // templateTag 紧跟在 templateVersion 之后：已有就替换，没有就插入一行（沿用 templateVersion 那一行的缩进）。
+    const replaceTag = (index, item) => {
+      if (item.tagTo === item.tagFrom) return;
+      if (item.tagTo === null) throw new Error(`${item.profile}: 不支持把 tag 钉住的来源改回按提交钉住`);
+      const nextProfile = text.indexOf('"profile": "', index + 1);
+      const inRange = (at) => at >= 0 && (nextProfile < 0 || at < nextProfile);
+      if (item.tagFrom !== null) {
+        replaceAfter(index, "templateTag", item.tagFrom, item.tagTo);
+        return;
+      }
+      const versionAt = text.indexOf(`"templateVersion": "${item.versionTo}"`, index);
+      if (!inRange(versionAt)) throw new Error(`${item.profile}: 锁文本里找不到 templateVersion，拒绝插入 templateTag`);
+      const lineStart = text.lastIndexOf("\n", versionAt) + 1;
+      const indent = text.slice(lineStart, versionAt);
+      const lineEnd = text.indexOf("\n", versionAt);
+      text = text.slice(0, lineEnd + 1) + `${indent}"templateTag": "${item.tagTo}",\n` + text.slice(lineEnd + 1);
+    };
     replaceAfter(anchor, "templateCommit", entry.from, entry.to);
-    replaceAfter(anchor, "templateVersion", `git:${entry.from}`, `git:${entry.to}`);
+    replaceAfter(anchor, "templateVersion", entry.versionFrom, entry.versionTo);
+    replaceTag(anchor, entry);
     replaceAfter(anchor, "policyHash", entry.policyFrom, entry.policyTo);
     if (entry.skills?.changed) {
       const skillsAnchor = text.indexOf('"skillsSource"', anchor);
@@ -160,15 +198,16 @@ function defaultRun(command, args) {
 function usage() {
   return [
     "用法: node tools/refresh-source-lock.mjs --source-root <四模板根的绝对路径> --profile <spec|design|backend|frontend|all> [--profile ...]",
-    "                                         [--lock docs/source-lock.json] [--apply] [--regenerate] [--allow-unpushed] [--skills-source]",
+    "                                         [--tag vX.Y.Z] [--lock docs/source-lock.json] [--apply] [--regenerate] [--allow-unpushed] [--skills-source]",
     "默认只预演。--apply 写锁；--regenerate 写锁后重新生成 Bundle、helpview、cli-help 并校验。",
+    "--tag：CLI 发布流程里的一步。把所选模板钉到该发布 tag：锁里记录 templateTag、tag 指向的提交和不带 v 的 templateVersion；没有 --tag 时按模板当前 HEAD 刷新，已钉在 tag 上的来源拒绝。",
     "目标提交必须已推送（本地远端跟踪分支包含它），否则拒绝；--allow-unpushed 仅用于本机试验。",
     "--skills-source：同时把 backend / frontend 的 skillsSource 刷新为各自 profile-skills-source.json 记录的提交与配置哈希（需已推送）。",
   ].join("\n");
 }
 
 export function parseArgs(argv) {
-  const options = { profiles: [], lock: "docs/source-lock.json", apply: false, regenerate: false, allowUnpushed: false, skillsSource: false, sourceRoot: null };
+  const options = { profiles: [], lock: "docs/source-lock.json", apply: false, regenerate: false, allowUnpushed: false, skillsSource: false, sourceRoot: null, tag: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--source-root") options.sourceRoot = argv[++index];
@@ -182,7 +221,10 @@ export function parseArgs(argv) {
     else if (arg === "--regenerate") { options.regenerate = true; options.apply = true; }
     else if (arg === "--allow-unpushed") options.allowUnpushed = true;
     else if (arg === "--skills-source") options.skillsSource = true;
-    else if (arg === "--help") options.help = true;
+    else if (arg === "--tag") {
+      options.tag = argv[++index];
+      if (!RELEASE_TAG.test(options.tag ?? "")) throw new Error(`--tag 必须是 vX.Y.Z 形式的正式发布 tag: ${options.tag}`);
+    } else if (arg === "--help") options.help = true;
     else throw new Error(`未知参数 ${arg}`);
   }
   if (options.help) return options;
@@ -197,10 +239,10 @@ function main(argv) {
   if (options.help) { process.stdout.write(`${usage()}\n`); return 0; }
   const lockPath = path.resolve(CLI_ROOT, options.lock);
   const lockText = readFileSync(lockPath, "utf8");
-  const plan = planRefresh({ lock: JSON.parse(lockText), sourceRoot: options.sourceRoot, profiles: options.profiles, allowUnpushed: options.allowUnpushed, skillsSource: options.skillsSource });
+  const plan = planRefresh({ lock: JSON.parse(lockText), sourceRoot: options.sourceRoot, profiles: options.profiles, allowUnpushed: options.allowUnpushed, skillsSource: options.skillsSource, tag: options.tag });
   for (const entry of plan.entries) {
     process.stdout.write(entry.changed
-      ? `${entry.profile}: ${entry.from.slice(0, 8)} → ${entry.to.slice(0, 8)}，policyHash ${entry.policyFrom.slice(0, 8)} → ${entry.policyTo.slice(0, 8)}\n`
+      ? `${entry.profile}: ${entry.from.slice(0, 8)} → ${entry.to.slice(0, 8)}，policyHash ${entry.policyFrom.slice(0, 8)} → ${entry.policyTo.slice(0, 8)}${entry.tagTo ? `，tag ${entry.tagFrom ?? "（无）"} → ${entry.tagTo}，templateVersion ${entry.versionFrom} → ${entry.versionTo}` : ""}\n`
       : `${entry.profile}: 已是 ${entry.to.slice(0, 8)}，无需刷新\n`);
     if (entry.skills?.changed) process.stdout.write(`${entry.profile}: skillsSource ${entry.skills.from.commit.slice(0, 8)} → ${entry.skills.to.commit.slice(0, 8)}，configurationHash ${entry.skills.from.hash.slice(0, 8)} → ${entry.skills.to.hash.slice(0, 8)}\n`);
   }
