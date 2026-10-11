@@ -197,7 +197,7 @@ for(const row of set.tickets){fs.appendFileSync(path.join(source.root,row.ref),'
 fs.writeFileSync(path.join(source.root,setRef),JSON.stringify(set));const review=read(path.join(source.root,set.review_ref));review.subject_digest=hash(fs.readFileSync(path.join(source.root,setRef)));fs.writeFileSync(path.join(source.root,set.review_ref),JSON.stringify(review));
 await designFixture(process.argv[2],{nativeSeed:process.argv[4]});`
 	specSeed, designSeed := specBaselineTestNativeSeed(t, "spec"), specBaselineTestNativeSeed(t, "design")
-	cmd := exec.Command("node", "--input-type=module", "-e", program, sourceRoot, targetRoot, specSeed, designSeed)
+	cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, sourceRoot, targetRoot, specSeed, designSeed)
 	cmd.Dir = oracle
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("synthetic current approval fixture: %v %s", err, out)
@@ -717,7 +717,7 @@ fs.copyFileSync(path.join(process.argv[2],'.template-spec/agents/digital-human-r
 f.state.stage='stage.product-design';f.state.next_work_unit='work-unit.technical-analysis';
 if(!productDesign){const ref=f.state.artifacts['artifact.stage-decision-package'].ref;f.state.gates['gate.product-design-approved']={status:'not-applicable',reason:'已批准当前影响评估不要求产品设计',evidence_refs:[ref],basis:[{ref,digest:hash(fs.readFileSync(path.join(f.root,ref)))}]};}
 f.plan.write(f.checkpointRef,f.state);f.plan.write('docs/.scratch/feature.supplier/map.md','---\ncheckpoint_ref: '+f.checkpointRef+'\n---\n# Synthetic active feature\n');`
-			cmd := exec.Command("node", "--input-type=module", "-e", program, root, seed, fmt.Sprint(productDesign))
+			cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, root, seed, fmt.Sprint(productDesign))
 			cmd.Dir = oracle
 			if raw, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("current approved fixture: %v %s", err, raw)
@@ -803,7 +803,7 @@ func TestLifecycleTargetNativeApplicableProductDesignCompleted(t *testing.T) {
 	oracle := governanceOracleRoot(t)
 	specSeed, designSeed := specBaselineActualNativeSeed(t, "spec"), specBaselineActualNativeSeed(t, "design")
 	seedBefore := map[string]map[string]string{specSeed: progressionInventory(t, specSeed), designSeed: progressionInventory(t, designSeed)}
-	cmd := exec.Command("node", filepath.Join(oracle, "scripts/fixtures/spec-baseline/scenarios.mjs"))
+	cmd := governanceNodeCommand(t, filepath.Join(oracle, "scripts/fixtures/spec-baseline/scenarios.mjs"))
 	cmd.Dir = oracle
 	cmd.Env = append(os.Environ(), "YSS_SPEC_BASELINE_NATIVE_SEED="+specSeed, "YSS_DESIGN_BASELINE_NATIVE_SEED="+designSeed, "YSS_SPEC_BASELINE_NATIVE_CLI="+os.Getenv("YSS_NATIVE_BINARY"))
 	raw, err := cmd.CombinedOutput()
@@ -872,7 +872,7 @@ cp.gates['gate.product-design-approved']={status:'approved',...completeContext,s
 put(dst,'intake-checkpoint.json',cp);put(dst,'docs/.scratch/'+feature+'/map.md','---\ncheckpoint_ref: intake-checkpoint.json\n---\n# Synthetic current applicable Design\n');
 put(src,'docs/.scratch/'+feature+'/map.md','---\ncheckpoint_ref: '+cpRef+'\n---\n# Synthetic current Spec\n');
 console.log(JSON.stringify({receipt_ref:cp.upstream_spec_baseline.receipt_ref,verification_ref:'current-prototype-evidence.json'}));`
-	cmd = exec.Command("node", "--input-type=module", "-e", program, f.Spec, f.Design, f.Checkpoint, specSeed, designSeed)
+	cmd = governanceNodeCommand(t, "--input-type=module", "-e", program, f.Spec, f.Design, f.Checkpoint, specSeed, designSeed)
 	cmd.Dir = oracle
 	raw, err = cmd.CombinedOutput()
 	if err != nil {
@@ -919,7 +919,7 @@ console.log(JSON.stringify({receipt_ref:cp.upstream_spec_baseline.receipt_ref,ve
 	// The actual native local facade can prepare against these current original
 	// Spec/Design approvals before a future implementation Slice or backend.
 	// It still cannot issue formal frontend inputs without the approved Slice.
-	local := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Spec, "--kind", "frontend-delivery", "--file", f.Checkpoint, "--checkpoint", f.Checkpoint, "--phase", "contract", "--json")
+	local := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Spec, "--kind", "frontend-delivery", "--file", f.Checkpoint, "--checkpoint", f.Checkpoint, "--phase", "contract", "--json")
 	localRaw, err := local.CombinedOutput()
 	if err != nil {
 		t.Fatalf("native current local preparation facade: %v %s", err, localRaw)
@@ -935,7 +935,7 @@ console.log(JSON.stringify({receipt_ref:cp.upstream_spec_baseline.receipt_ref,ve
 	if facade.Status != "ok" || facade.Code != "OK" || facade.Result == nil || !facade.Result.ReadOnly || facade.Result.ApprovalCreated || facade.Result.ExecutionAuthorization != "not-evaluated" || facade.Result.Coverage["delivery_mode"] != "local-approved-assets" || facade.Result.Coverage["phase"] != "contract" || facade.Result.Coverage["ready_for_agent"] != false || facade.Result.Coverage["inputs_current"] != true || facade.Result.Coverage["slice_id"] != nil {
 		t.Fatalf("local preparation overstated execution: %s", localRaw)
 	}
-	formal := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Spec, "--kind", "frontend-delivery", "--file", f.Checkpoint, "--checkpoint", f.Checkpoint, "--phase", "inputs", "--json")
+	formal := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Spec, "--kind", "frontend-delivery", "--file", f.Checkpoint, "--checkpoint", f.Checkpoint, "--phase", "inputs", "--json")
 	if raw, err := formal.CombinedOutput(); err == nil {
 		t.Fatalf("formal frontend inputs invented a future approved Slice/backend: %s", raw)
 	}
@@ -989,7 +989,7 @@ func TestLifecycleTargetNativeSpecDesignBusinessSequence(t *testing.T) {
 	for _, seed := range []string{specSeed, designSeed, backendSeed} {
 		seedBefore[seed] = progressionInventory(t, seed)
 	}
-	cmd := exec.Command("node", filepath.Join(oracle, "scripts/fixtures/spec-baseline/scenarios.mjs"))
+	cmd := governanceNodeCommand(t, filepath.Join(oracle, "scripts/fixtures/spec-baseline/scenarios.mjs"))
 	cmd.Dir = oracle
 	cmd.Env = append(os.Environ(), "YSS_SPEC_BASELINE_NO_DESIGN=1", "YSS_SPEC_BASELINE_NATIVE_SEED="+specSeed, "YSS_DESIGN_BASELINE_NATIVE_SEED="+designSeed, "YSS_SPEC_BASELINE_NATIVE_CLI="+os.Getenv("YSS_NATIVE_BINARY"))
 	raw, err := cmd.CombinedOutput()
@@ -1058,7 +1058,7 @@ const intake=await importBundle({bundle:finalized.delivery,targetRoot:backend.ro
 reconcile(backend.root,'business-intake-context.json',{receiptRef:intake.receipt_ref,sourceContextRef:intakeRecord.package_ref+'/payload/files/source-context.snapshot.md'});
 const backendCP=read(path.join(backend.root,backend.checkpointRef));backendCP.feature_id=current.feature_id;backendCP.context_reconciliation={status:'reconciled',ref:'business-intake-context.json',evidence_refs:[intake.receipt_ref]};put(backend.root,backend.checkpointRef,backendCP);
 console.log(JSON.stringify({receipt_ref:cp.upstream_spec_baseline.receipt_ref,delivery_ref:deliveryRef,source_stage:sourceStage,backend_root:backend.root,backend_checkpoint:backend.checkpointRef,backend_slice:backend.binding.ref,backend_terminal:backend.terminalRef,backend_receipt:intake.receipt_ref}));`
-	cmd = exec.Command("node", "--input-type=module", "-e", program, f.Spec, f.Design, f.Checkpoint, specSeed, backendSeed)
+	cmd = governanceNodeCommand(t, "--input-type=module", "-e", program, f.Spec, f.Design, f.Checkpoint, specSeed, backendSeed)
 	cmd.Dir = oracle
 	raw, err = cmd.CombinedOutput()
 	if err != nil {

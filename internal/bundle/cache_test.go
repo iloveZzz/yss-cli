@@ -3,9 +3,92 @@ package bundle
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"sync"
 	"testing"
 )
+
+func TestLoadWarmAllocationBudget(t *testing.T) {
+	if _, err := Load("spec"); err != nil {
+		t.Fatal(err)
+	}
+	allocations := testing.AllocsPerRun(3, func() {
+		if _, err := Load("spec"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// A warm read should copy its mutable view, not decode and validate the
+	// entire 30 MB archive again (the regression allocated >175,000 objects).
+	if allocations > 50_000 {
+		t.Fatalf("warm Bundle allocation budget exceeded: %.0f", allocations)
+	}
+}
+
+func TestLoadNestedMutationDoesNotChangeLaterReaders(t *testing.T) {
+	a, err := Load("spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mutate func(any)
+	mutate = func(value any) {
+		switch v := value.(type) {
+		case map[string]any:
+			for _, child := range v {
+				mutate(child)
+			}
+			v["caller-mutation"] = true
+		case []any:
+			for _, child := range v {
+				mutate(child)
+			}
+			if len(v) > 0 {
+				v[0] = "caller-mutation"
+			}
+		}
+	}
+	mutate(a.Manifest)
+	mutate(a.Distribution)
+	for key := range a.Initial {
+		delete(a.Initial, key)
+		break
+	}
+	for _, group := range []map[string]Requirement{a.StageRequirements, a.SkillRequirements} {
+		for _, req := range group {
+			if len(req.Paths) > 0 {
+				req.Paths[0] = "caller-mutation"
+			}
+			if len(req.Skills) > 0 {
+				req.Skills[0] = "caller-mutation"
+			}
+		}
+	}
+	if a.Upgrade != nil {
+		for i := range a.Upgrade.Assets {
+			if len(a.Upgrade.Assets[i].Prefixes) > 0 {
+				a.Upgrade.Assets[i].Prefixes[0] = "caller-mutation"
+			}
+			if len(a.Upgrade.Assets[i].Paths) > 0 {
+				a.Upgrade.Assets[i].Paths[0] = "caller-mutation"
+			}
+		}
+		a.Upgrade.Rules = append(a.Upgrade.Rules, MigrationRule{ID: "caller-mutation"})
+	}
+	if len(a.NativeTransforms) > 0 {
+		a.NativeTransforms[0].Source.Data = "caller-mutation"
+	}
+	b, err := Load("spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(b)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("nested caller mutation reached later reader", err)
+	}
+}
 
 func compressed(t *testing.T, s string) []byte {
 	t.Helper()

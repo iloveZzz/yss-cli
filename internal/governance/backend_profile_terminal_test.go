@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -60,7 +59,7 @@ const {backendProfileTerminalFixture}=await import(pathToFileURL(path.join(sourc
 const f=await backendProfileTerminalFixture({nativeSeed:seed});
 const repeated=await f.terminalModule.verifyBackendDeliveryTerminal(f.root,{checkpointRef:f.checkpointRef});
 console.log(JSON.stringify({root:f.root,checkpoint:f.checkpointRef,terminal:f.terminalRef,result:f.result,repeated}));`
-	cmd := exec.Command("node", "--input-type=module", "-e", program, oracle, seed)
+	cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, oracle, seed)
 	cmd.Dir = oracle
 	raw, err := cmd.CombinedOutput()
 	if err != nil {

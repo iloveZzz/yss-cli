@@ -29,12 +29,15 @@ var specialistNativeAssets = struct {
 }{entries: map[string]nativeSeedAssets{}}
 
 func specialistNativeSeedsMayShare(name string) bool {
-	// Exported fixture roots may be shared by callers outside these two tests.
+	// Exported fixture roots may be shared by callers outside this allowlist.
 	if os.Getenv("YSS_NATIVE_FIXTURE_DIR") != "" || os.Getenv("YSS_NATIVE_FIXTURE_ROOT") != "" {
 		return false
 	}
 	switch strings.Split(name, "/")[0] {
-	case "TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker", "TestLocalFrontendSpecialistExternalBackendAndLocalBackendTerminal":
+	case "TestLocalFrontendSpecialistPublicAnalysisAndApprovedWorker", "TestLocalFrontendSpecialistExternalBackendAndLocalBackendTerminal",
+		"TestLocalFrontendNativeCurrentImplementationEvidence", "TestLocalFrontendNativeMixedBusinessGoalSequence",
+		"TestLocalBackendNativeMixedShortMilestone", "TestLifecycleTargetNativeProductDesignApplicability",
+		"TestLifecycleTargetNativeApplicableProductDesignCompleted", "TestLifecycleTargetNativeSpecDesignBusinessSequence":
 		return true
 	}
 	return false
@@ -45,7 +48,7 @@ func runActualNativeSeed(t *testing.T, binary, root string, args []string) strin
 	if specialistNativeSeedsMayShare(t.Name()) {
 		return cachedActualNativeSeed(t, binary, args)
 	}
-	if raw, err := exec.Command(binary, args...).CombinedOutput(); err != nil {
+	if raw, err := governanceCommand(t, binary, args...).CombinedOutput(); err != nil {
 		t.Fatalf("actual native init: %v %s", err, raw)
 	}
 	return root
@@ -174,7 +177,7 @@ func cachedActualNativeSeed(t *testing.T, binary string, args []string) string {
 	assets, hit := specialistNativeAssets.entries[key]
 	if !hit {
 		start := time.Now()
-		if raw, err := exec.Command(binary, args...).CombinedOutput(); err != nil {
+		if raw, err := governanceCommand(t, binary, args...).CombinedOutput(); err != nil {
 			t.Fatalf("actual native cache initialization: %v %s", err, raw)
 		}
 		root := ""

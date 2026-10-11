@@ -10,6 +10,9 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: native-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   # 预言机裁决回放自 internal/governance/testdata/oracle；锁升级后用 tools/oracle-record 重录。
   YSS_ORACLE_MODE: fixture
@@ -18,21 +21,17 @@ env:
   YSS_NATIVE_SOURCE_ROOT: ${{ github.workspace }}/cli-source
   PYTHONDONTWRITEBYTECODE: 1
 jobs:
-  native:
+  prepare:
+    runs-on: macos-15
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.verification.outputs.matrix }}
+      native_required: ${{ steps.verification.outputs.native_required }}
     defaults:
       run:
         working-directory: cli-source
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # 1.0 qualification is scoped to the user's current darwin/arm64 platform.
-          - runner: macos-15
-            platform: darwin-arm64
-            binary: yss-bin
-    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Preserve committed source bytes on native checkouts
+      - name: Preserve committed source bytes
         shell: bash
         working-directory: ${{ github.workspace }}
         run: git config --global core.autocrlf false
@@ -40,65 +39,14 @@ jobs:
         with:
           path: cli-source
           fetch-depth: 0
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: cli-source/go.mod
-          cache-dependency-path: cli-source/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Verify Python entry and install governance dependency
-        shell: bash
-        run: |
-          python3 --version
-          python3 -m pip install jsonschema==4.23.0
-      - name: Read fixed template source
-        id: template-source
-        shell: bash
-        run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const commit = JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
-          if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed template commit required');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${commit}\n`);
-          JS
-      - name: Checkout fixed template before integration tests
-        uses: actions/checkout@v5
-        with:
-          repository: iloveZzz/yss-spec-project-template
-          ref: ${{ steps.template-source.outputs.commit }}
-          path: template-source
-          submodules: false
-          fetch-depth: 1
-      - name: Verify fixed template revision
-        shell: bash
-        run: test "$(git -C "$GITHUB_WORKSPACE/template-source" rev-parse HEAD)" = "${{ steps.template-source.outputs.commit }}"
-      - name: Initialize fixed Profile oracles
-        shell: bash
-        run: git -C "$GITHUB_WORKSPACE/template-source" submodule update --init --depth 1 -- submodules/yss-harness-backend-agent submodules/yss-harness-frontend-agent submodules/yss-harness-design-agent
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.15.0'
-      - name: Install fixed governance tooling
-        shell: bash
-        run: |
-          pnpm --dir "$GITHUB_WORKSPACE/template-source/.template-source/tooling/node" install --frozen-lockfile
-          for profile in backend frontend design; do
-            tooling="$GITHUB_WORKSPACE/template-source/submodules/yss-harness-$profile-agent/.template-source/tooling/node"
-            if test -f "$tooling/package.json"; then
-              pnpm --dir "$tooling" install --frozen-lockfile
-            fi
-          done
+      - uses: ./cli-source/.github/actions/native-setup
       - name: Build the exact native release candidate
         shell: bash
         env:
           CGO_ENABLED: 0
         run: |
           mkdir -p "$RUNNER_TEMP/yss-release-native"
-          binary="$RUNNER_TEMP/yss-release-native/${{ matrix.binary }}"
+          binary="$RUNNER_TEMP/yss-release-native/yss-bin"
           go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit=$GITHUB_SHA -X github.com/iloveZzz/yss-cli/internal/domain.BuildSourceState=committed" -o "$binary" ./cmd/yss
           node --input-type=module - "$binary" <<'JS'
           import fs from 'node:fs';
@@ -107,7 +55,7 @@ jobs:
           const digest = createHash('sha256').update(fs.readFileSync(binary)).digest('hex');
           fs.appendFileSync(process.env.GITHUB_ENV, `YSS_NATIVE_BINARY=${binary}\nYSS_NATIVE_BINARY_SHA256=${digest}\n`);
           JS
-      - name: Execute verification selected by changes and dependencies
+      - name: Discover verification selected by changes and dependencies
         id: verification
         shell: bash
         env:
@@ -118,15 +66,100 @@ jobs:
           if ! [[ "$base" =~ ^[a-f0-9]{40}$ ]] || [[ "$base" == 0000000000000000000000000000000000000000 ]]; then
             base=$(git rev-parse HEAD^)
           fi
-          args=(--base "$base" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/verification-plan.json" --execute)
+          args=(--base "$base" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-release-native/verification-plan.json" --tasks-out "$RUNNER_TEMP/yss-release-native/verification-tasks.json")
           if [[ "$FULL_REQUESTED" == true ]]; then args+=(--full); fi
           node tools/verification-plan.mjs "${args[@]}"
-      - name: Exact release binary native acceptance
-        if: steps.verification.outputs.native_required == 'true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-candidate
+          if-no-files-found: error
+          path: ${{ runner.temp }}/yss-release-native/*
+  verify:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: cli-source
+    steps:
+      - name: Preserve committed source bytes
         shell: bash
-        run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-${{ matrix.platform }}" --commit "$GITHUB_SHA"
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          path: cli-source
+          fetch-depth: 0
+      - uses: ./cli-source/.github/actions/native-setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-candidate
+          path: ${{ runner.temp }}/yss-release-native
+      - name: Restore exact candidate permissions
+        shell: bash
+        run: |
+          chmod 755 "$RUNNER_TEMP/yss-release-native/yss-bin"
+          echo "YSS_NATIVE_BINARY=$RUNNER_TEMP/yss-release-native/yss-bin" >> "$GITHUB_ENV"
+      - name: Execute verification selected by changes and dependencies
+        shell: bash
+        run: node tools/verification-tasks.mjs --manifest "$RUNNER_TEMP/yss-release-native/verification-tasks.json" --task "${{ matrix.task }}" --report-dir "$RUNNER_TEMP/verification/${{ matrix.task }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.task }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/verification/${{ matrix.task }}
+  native:
+    needs: [prepare, verify]
+    if: always()
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: cli-source
+    steps:
+      - name: Preserve committed source bytes
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          path: cli-source
+          fetch-depth: 0
+      - uses: ./cli-source/.github/actions/native-setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-candidate
+          path: ${{ runner.temp }}/yss-release-native
+      - name: Restore exact candidate permissions
+        shell: bash
+        run: |
+          chmod 755 "$RUNNER_TEMP/yss-release-native/yss-bin"
+          echo "YSS_NATIVE_BINARY=$RUNNER_TEMP/yss-release-native/yss-bin" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: verification-*
+          path: ${{ runner.temp }}/verification
+      - name: Require every selected task and test to finish
+        shell: bash
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          test "$PREPARE_RESULT" = success
+          test "$VERIFY_RESULT" = success
+          node tools/verification-tasks.mjs --manifest "$RUNNER_TEMP/yss-release-native/verification-tasks.json" --collect "$RUNNER_TEMP/verification" > "$RUNNER_TEMP/verification-summary.json"
+          cat "$RUNNER_TEMP/verification-summary.json"
+      - name: Exact release binary native acceptance
+        if: needs.prepare.outputs.native_required == 'true'
+        shell: bash
+        run: node tools/native-release-receipt.mjs --binary "$YSS_NATIVE_BINARY" --template-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP" --artifact-prefix "native-darwin-arm64" --commit "$GITHUB_SHA"
       - name: Windows AMD64 trial compile and size only
-        if: steps.verification.outputs.native_required == 'true'
+        if: needs.prepare.outputs.native_required == 'true'
         shell: bash
         env:
           CGO_ENABLED: 0
@@ -142,27 +175,14 @@ jobs:
           JS
       - name: Native performance measurement
         shell: bash
-        if: steps.verification.outputs.native_required == 'true'
+        if: needs.prepare.outputs.native_required == 'true'
         run: |
           python3 tools/size-performance.py --self-check
           python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --out "$RUNNER_TEMP/yss-size-performance"
-      # 已知超长的测试（见 tools/verification-plan.mjs 的 SLOW_TESTS）不在 PR 与分支推送的路径里：
-      # 上一次它在 internal/governance 里跑满 60 分钟超时。这里只在 main 推送与手动全量时单独执行，
-      # 不阻断；失败会留下警告，并写入步骤日志。
-      - name: Known slow tests (main and manual full runs only)
-        if: github.ref == 'refs/heads/main' || inputs.full == true
-        continue-on-error: true
-        timeout-minutes: 100
-        shell: bash
-        run: |
-          if ! node tools/verification-plan.mjs --slow; then
-            echo "::warning title=Known slow tests failed::已知慢测试未通过或超时；这一步不阻断，日志见本步骤"
-            exit 1
-          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-${{ matrix.platform }}
+          name: native-darwin-arm64
           path: |
             ${{ runner.temp }}/yss-release-native/*
             ${{ runner.temp }}/native-receipt.json
@@ -175,6 +195,6 @@ jobs:
             ${{ runner.temp }}/yss-native-recovery/output-*.json
             ${{ runner.temp }}/yss-plugin-native-smoke/report.json
             ${{ runner.temp }}/yss-plugin-native-smoke/*.log
-            ${{ runner.temp }}/verification-plan.json
+            ${{ runner.temp }}/verification-summary.json
             ${{ runner.temp }}/windows-trial-size.json
             ${{ runner.temp }}/yss-size-performance/report.json
