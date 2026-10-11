@@ -241,6 +241,25 @@ func (n *orderedJSON) set(k string, v *orderedJSON) {
 	}
 	n.values[k] = v
 }
+
+// setAfter 写入键；键已存在时原位替换，缺失时插到 after 之后（after 也缺失则追加到末尾），
+// 这样模板锁不再提交 effectiveHash 时，渲染出的实例锁键序仍与旧格式一致。
+func (n *orderedJSON) setAfter(k string, v *orderedJSON, after string) {
+	if _, ok := n.values[k]; ok {
+		n.values[k] = v
+		return
+	}
+	n.values[k] = v
+	for i, key := range n.keys {
+		if key == after {
+			n.keys = append(n.keys, "")
+			copy(n.keys[i+2:], n.keys[i+1:])
+			n.keys[i+1] = k
+			return
+		}
+	}
+	n.keys = append(n.keys, k)
+}
 func arrayNode(s []string) *orderedJSON {
 	n := &orderedJSON{kind: 'a', array: []*orderedJSON{}}
 	for _, v := range s {

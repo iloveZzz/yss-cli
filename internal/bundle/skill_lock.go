@@ -115,6 +115,8 @@ func hashSkillTree(files map[string]File, prefix string, entries []string, vars 
 
 // RenderedSkillLock binds only effectiveHash to the distributed trees. Source
 // revisions, upstream hashes, unknown metadata and canonical ordering survive.
+// The template lock does not need to commit effectiveHash: it is always
+// recomputed here and inserted right after skillPath when absent.
 func RenderedSkillLock(data []byte, files map[string]File, vars map[string]string) ([]byte, error) {
 	root, err := decodeOrdered(data)
 	if err != nil {
@@ -164,7 +166,7 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 				}
 			}
 		}
-		entry.set("effectiveHash", &orderedJSON{scalar: digest})
+		entry.setAfter("effectiveHash", &orderedJSON{scalar: digest}, "skillPath")
 	}
 	if platform := section.values["platform"]; platform != nil {
 		if platform.kind != 'o' {
@@ -185,7 +187,7 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 				if err != nil {
 					return nil, err
 				}
-				entry.set("effectiveHash", &orderedJSON{scalar: digest})
+				entry.setAfter("effectiveHash", &orderedJSON{scalar: digest}, "skillPath")
 			}
 		}
 	}
