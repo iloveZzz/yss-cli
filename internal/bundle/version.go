@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"regexp"
@@ -157,6 +158,31 @@ func (r VersionRange) overlaps(o VersionRange) bool {
 		return false
 	}
 	return true
+}
+
+// verifyTemplateTag 校验来源锁里的模板 tag（architecture-iteration-v1 FR-001）：tag 必须是 vX.Y.Z 形式的语义化版本，
+// 并且指向锁里的 templateCommit；templateVersion 写成不带 v 的版本号，使实例记录语义化的模板版本。
+// 没有 tag 的来源保持原样（git:<commit>），所以发布第一个模板 tag 之前的锁照常可用。
+func verifyTemplateTag(ctx context.Context, root string, s *Source) error {
+	if s.TemplateTag == "" {
+		return nil
+	}
+	if !strings.HasPrefix(s.TemplateTag, "v") || !IsSemver(s.TemplateTag[1:]) || strings.Contains(s.TemplateTag, "-") {
+		return domain.Fail("BUNDLE_RULE", "templateTag 必须是 vX.Y.Z 形式的正式语义化版本: "+s.TemplateTag)
+	}
+	out, e := git(ctx, root, "rev-parse", "--verify", "--quiet", "refs/tags/"+s.TemplateTag+"^{commit}")
+	if e != nil {
+		return domain.Fail("BUNDLE_RULE", "模板仓库里没有 tag "+s.TemplateTag)
+	}
+	if strings.TrimSpace(string(out)) != s.Commit {
+		return domain.Fail("BUNDLE_RULE", "tag "+s.TemplateTag+" 指向 "+strings.TrimSpace(string(out))+"，与来源锁的 templateCommit "+s.Commit+" 不一致")
+	}
+	version := s.TemplateTag[1:]
+	if s.TemplateVersion != "" && s.TemplateVersion != version {
+		return domain.Fail("BUNDLE_RULE", "templateVersion "+s.TemplateVersion+" 与 tag "+s.TemplateTag+" 不一致")
+	}
+	s.TemplateVersion = version
+	return nil
 }
 
 // 「commit → 版本」对照表：只记录语义化版本发布之前的历史来源，由 tools/version-table.mjs

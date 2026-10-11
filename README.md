@@ -55,11 +55,13 @@ yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 模板前进后刷新来源锁用脚本，不要手改 `docs/source-lock.json`：
 
 ```sh
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec            # 预演，不写文件
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --regenerate # 写锁并按上面的顺序重新生成、校验
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z            # 预演，不写文件
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z --regenerate # 写锁并按上面的顺序重新生成、校验
 ```
 
-脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`policyHash`；目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝。Backend / Frontend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。模板侧的 `scripts/verify-source-lock-lag` 在候选与发布验证里检查锁没有落后太多。
+**发布流程里的一步**：模板发布 tag（`vX.Y.Z`）之后，发布 CLI 时用 `--tag` 把所选模板钉到该 tag。锁里记录 `templateTag`、tag 指向的 `templateCommit`、不带 `v` 的 `templateVersion`；打包时校验三者一致，tag 指向别的提交、tag 不存在、预发布 tag、`templateVersion` 与 tag 不符都拒绝。实例因此记录语义化的模板版本。Bundle 只在这一步重新生成：模板的普通提交不需要重钉，也不需要刷新 CLI。已经钉在 tag 上的来源不再接受按 HEAD 刷新。
+
+还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend / Frontend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
 
 来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
