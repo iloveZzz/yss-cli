@@ -8,6 +8,25 @@ import { fileURLToPath } from "node:url";
 
 const ASSET_PACKAGES = ["./internal/bundle", "./tools/bundle", "./tools/package", "./tools/release"];
 const HELP_PATTERN = "Help|Presentation|Version";
+// 共享核心、事务、安装与安全边界所在目录：生产代码变化一律全量。
+const CORE_DIRECTORIES = String.raw`(?:internal\/(?:transaction|updater|project|governance|bundle|domain)|tools\/(?:bundle|package|release))`;
+// 其下的 _test.go 与 testdata 不会被任何其他包导入，变化只可能影响本包自己的测试。
+const TEST_ONLY = new RegExp(`^(${CORE_DIRECTORIES}(?:\\/[^/]+)*?)\\/(?:[^/]+_test\\.go|testdata\\/.+)$`);
+// 单个测试二进制的超时。曾经是 60 分钟，一个卡住的测试要等满一小时才失败；
+// 取 30 分钟是因为 internal/project 在本机就要 8 分钟以上，runner 更慢，15 分钟会误杀。拿到 runner 数据后再收紧。
+export const PACKAGE_TIMEOUT = "30m";
+export const SLOW_TIMEOUT = "90m";
+// 已知超长的测试不在 PR 路径里跑：默认通道用 -skip 排除，--slow 通道只跑它们，
+// 由 native.yml 在 main 推送与手动全量时单独执行。上一次它在 internal/governance 里跑满 60 分钟超时。
+export const SLOW_TESTS = [{ package: "./internal/governance", names: ["TestLifecycleTargetNativeSpecDesignBusinessSequence"] }];
+const slowPattern = names => `^(?:${names.join("|")})$`;
+
+/** 默认通道：排除已知慢测试；slow 通道：只跑它们。 */
+export function goTestArgs(group, { slow = false } = {}) {
+  if (slow) return SLOW_TESTS.map(item => ["test", "-p", "1", "-count=1", `-timeout=${SLOW_TIMEOUT}`, "-run", slowPattern(item.names), item.package]);
+  const skip = slowPattern(SLOW_TESTS.flatMap(item => item.names));
+  return [["test", "-p", "1", "-count=1", `-timeout=${PACKAGE_TIMEOUT}`, ...(group.run ? ["-run", group.run] : []), "-skip", skip, ...group.packages]];
+}
 const sourcePath = value => value.replace(/^tests\/fixtures\/upstream-source\//, "").replace(/^(?:\.codex|\.cursor|\.pi)\/skills\//, ".agents/skills/");
 
 export function selectVerification({ paths = [], sourcePaths = [], versionOnly = false, importGraph = {}, forceFull = false, goChanges = {} }) {
@@ -40,6 +59,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
       reasons.push("AST 确认专职任务范围与前端入口：任务、批准、审查及本地/外部消费路径专项");
     }
     else if (/^tools\/verification-scope\/[^/]+\.go$/.test(file)) packages.add("./tools/verification-scope");
+    else if (TEST_ONLY.test(file)) { packages.add("./" + file.match(TEST_ONLY)[1]); reasons.push(`仅测试文件或 testdata 变化，不会被其他包导入，只核验本包: ${file}`); }
     else if (/^(?:go\.(?:mod|sum)|(?:internal\/(?:transaction|updater|project|governance|bundle|domain)|tools\/(?:bundle|package|release))\/.*\.go)$/.test(file)) { full = true; reasons.push(`共享核心或事务/安装/安全边界: ${file}`); }
     else if (/^(?:internal|cmd|tools)\/.*\.go$/.test(file)) seeds.add("./" + path.posix.dirname(file));
     else if (/^(?:README\.md|AGENTS\.md|docs\/[^/]+\.md|compat\/README\.md|\.github\/workflows\/native\.yml|tools\/verification-plan(?:\.test)?\.mjs)$/.test(file)) reasons.push(`文档或验证策略自检: ${file}`);
@@ -105,11 +125,20 @@ function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (["--full", "--execute"].includes(flag)) options[flag.slice(2)] = true;
+    if (["--full", "--execute", "--slow"].includes(flag)) options[flag.slice(2)] = true;
     else if (["--base", "--template-root", "--out"].includes(flag) && argv[i + 1]) options[flag.slice(2)] = argv[++i];
     else throw new Error(`不支持或缺值的参数: ${flag}`);
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  if (options.slow) {
+    if (options.full || options.execute || options.base) throw new Error("--slow 单独使用：只运行已知慢测试，不做影响分析");
+    for (const args of goTestArgs({}, { slow: true })) {
+      const result = spawnSync("go", args, { cwd: root, env: process.env, stdio: "inherit" });
+      if (result.error) throw result.error;
+      if (result.status !== 0) process.exit(result.status ?? 1);
+    }
+    return;
+  }
   const base = options.base || git(["rev-parse", "HEAD^"], root);
   if (!/^[a-f0-9]{40}$/.test(base)) throw new Error("--base 必须是完整提交 SHA");
   const paths = [...new Set([...lines(git(["diff", "--name-only", base], root)), ...lines(git(["ls-files", "--others", "--exclude-standard"], root))])].sort();
@@ -152,7 +181,8 @@ function main(argv) {
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
   run(process.execPath, ["--test", "tools/verification-plan.test.mjs"]);
-  for (const group of plan.go) run("go", ["test", "-p", "1", "-count=1", "-timeout=60m", ...(group.run ? ["-run", group.run] : []), ...group.packages]);
+  process.stderr.write(`已知慢测试不在本通道运行，由 --slow 单独执行: ${SLOW_TESTS.flatMap(item => item.names).join(", ")}\n`);
+  for (const group of plan.go) for (const args of goTestArgs(group)) run("go", args);
   if (plan.vet.length) run("go", ["vet", ...plan.vet]);
   run("go", ["mod", "verify"]);
   if (plan.sourceSuites.length && !options["template-root"]) throw new Error("专项来源测试缺少 --template-root");
