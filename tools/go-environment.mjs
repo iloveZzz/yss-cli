@@ -15,10 +15,10 @@ export function checkModuleInputs(root,env) {
   if ((mod.Replace ?? []).some(replacement=>!replacement.New.Version)) throw new Error('local module replacements are outside the fixed build contract');
 }
 
-export function checkPackageInputs(root,env,inputs) {
-  const fields=['GoFiles','SFiles','SysoFiles','EmbedFiles'];
+export function checkPackageInputs(root,env,inputs,targets=['./cmd/yss']) {
+  const fields=['GoFiles','SFiles','HFiles','SysoFiles','EmbedFiles'];
   const template='{{if and .Module .Module.Main}}{{.Dir}}'+fields.map(field=>'{{range .'+field+'}}{{"\\t"}}{{.}}{{end}}').join('')+'{{end}}';
-  const listed=execFileSync('go',['list','-mod=readonly','-deps','-f',template,'./cmd/yss'],{cwd:root,env,encoding:'utf8'});
+  const listed=execFileSync('go',['list','-mod=readonly','-deps','-f',template,...targets],{cwd:root,env,encoding:'utf8'});
   for(const row of listed.split('\n').filter(Boolean)) {
     const [directory,...files]=row.split('\t');
     for(const file of files) {
