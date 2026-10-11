@@ -25,7 +25,7 @@ node tools/verification-plan.mjs --base <完整基线SHA> \
 
 `--tasks-out <文件>` 只生成可审查清单；随后可用 `node tools/verification-tasks.mjs --manifest <文件> --task <任务ID> --report-dir <目录>` 独立执行。`--fail-fast` 供定位首错，后续未运行项目仍记为未执行，不能汇总为通过。`--slow` 单跑生命周期，不代表全量验收。源码、候选、工具版本、平台或固定模板输入发生变化后必须重新生成清单。
 
-每个任务保留 `test-events.jsonl`、`test-timings.json`、`commands.log`。30 秒心跳列出活动测试，报告按耗时排序；真实非零退出、超时、中断、没有收到预期测试终态都失败。显式 skip 会出现在汇总中，不能称为零跳过全量验收。包级 30 分钟超时是累计时间；治理 fixture 子进程最多 10 分钟，并预留包退出前的清理时间。
+每个任务保留 `test-events.jsonl`、`test-timings.json`、`commands.log`。30 秒心跳列出活动测试，报告按耗时排序；真实非零退出、超时、中断、没有收到预期测试终态都失败。显式 skip 会出现在汇总中，不能称为零跳过全量验收。包级 30 分钟超时是累计时间；普通治理 fixture 子进程最多 10 分钟。完整 Spec/Design/业务生命周期的 Node 生成步骤在首次完整测量中超过 10 分钟，因此单独给出 20 分钟预算；所有子进程仍在包级期限前 5 秒清理。这是防止预算误杀，不是通过延长超时声称性能改善。
 
 ## GitHub Actions
 
