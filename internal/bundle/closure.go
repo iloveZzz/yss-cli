@@ -573,7 +573,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 				continue
 			}
 		}
-		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") {
+		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") || strings.HasPrefix(ref, ".claude/skills/") {
 			continue
 		}
 		if strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".codex/skills/") {
