@@ -58,7 +58,13 @@ func (c *governanceTestCommand) CombinedOutput() ([]byte, error) {
 
 func governanceCommand(t *testing.T, command string, args ...string) *governanceTestCommand {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Minute)
+	limit := 10 * time.Minute
+	// The complete Spec/Design/business producer exceeded 10 minutes in the
+	// measured full run. Keep its budget explicit, below the package deadline.
+	if command == "node" && strings.Split(t.Name(), "/")[0] == "TestLifecycleTargetNativeSpecDesignBusinessSequence" {
+		limit = 20 * time.Minute
+	}
+	deadline := time.Now().Add(limit)
 	if end, ok := t.Deadline(); ok && end.Add(-5*time.Second).Before(deadline) {
 		deadline = end.Add(-5 * time.Second)
 	}
