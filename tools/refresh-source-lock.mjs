@@ -16,7 +16,7 @@ function git(repo, args) {
 }
 
 /** 逐个模板检查并算出新的固定值；不写任何文件。errors 非空时不得应用。 */
-export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false }) {
+export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false, skillsSource = false }) {
   const entries = [];
   const errors = [];
   const warnings = [];
@@ -53,18 +53,53 @@ export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false 
       changed: target !== source.templateCommit || policyTo !== source.policyHash,
     });
     const skills = source.skillsSource;
-    if (skills && skills.templateCommit !== target && profile !== "spec") {
-      warnings.push(`${profile}: skillsSource 固定在 ${skills.templateCommit.slice(0, 8)}，本脚本不改它，需要时单独核对`);
+    if (skills && skillsSource && (profile === "backend" || profile === "frontend")) {
+      const result = planSkillsSource({ profile, source, repo, target, sourceRoot, allowUnpushed });
+      if (result.error) errors.push(result.error);
+      else {
+        const entry = entries[entries.length - 1];
+        entry.skills = result.skills;
+        entry.changed = entry.changed || result.skills.changed;
+      }
+    } else if (skills && skills.templateCommit !== target && profile !== "spec") {
+      warnings.push(`${profile}: skillsSource 固定在 ${skills.templateCommit.slice(0, 8)}，没有传 --skills-source，本脚本不改它，需要时单独核对`);
     }
   }
   for (const other of Object.keys(lock.profiles ?? {})) {
     const skills = lock.profiles[other].skillsSource;
     const specEntry = entries.find((entry) => entry.profile === "spec");
-    if (specEntry && skills && skills.templateCommit !== specEntry.to) {
+    if (!skillsSource && specEntry && skills && skills.templateCommit !== specEntry.to) {
       warnings.push(`${other}: skillsSource 的 Spec 来源 ${skills.templateCommit.slice(0, 8)} 不等于刷新后的 spec ${specEntry.to.slice(0, 8)}，本脚本不改它`);
     }
   }
   return { entries, errors, warnings: [...new Set(warnings)] };
+}
+
+/**
+ * backend / frontend 的技能由「技能来源」（spec 的某个提交加它的 profile-skill-sync.json）组合而成；打包器要求 Profile 已提交的
+ * profile-skills-source.json 与锁里的 skillsSource 提交、配置哈希完全一致。所以取值只能来自 Profile 自己的清单，不能自己挑。
+ */
+function planSkillsSource({ profile, source, repo, target, sourceRoot, allowUnpushed }) {
+  const manifestFile = spawnSync("git", ["-C", repo, "show", `${target}:.template-source/profile-skills-source.json`], { maxBuffer: 16 * 1024 * 1024 });
+  if (manifestFile.status !== 0) return { error: `${profile}: 目标提交里没有 .template-source/profile-skills-source.json，无法确定技能来源` };
+  let manifest;
+  try { manifest = JSON.parse(manifestFile.stdout.toString("utf8")); } catch { return { error: `${profile}: profile-skills-source.json 不是有效 JSON` }; }
+  if (manifest.schemaVersion !== 1 || manifest.profile !== profile || manifest.sourceState !== "committed" || !/^[0-9a-f]{40}$/.test(manifest.sourceCommit ?? "")) {
+    return { error: `${profile}: profile-skills-source.json 必须是 schemaVersion 1、同名模板、sourceState committed 且带完整 sourceCommit` };
+  }
+  const specRepo = path.resolve(sourceRoot, source.skillsSource.sourcePath);
+  if (git(specRepo, ["cat-file", "-e", `${manifest.sourceCommit}^{commit}`]).status !== 0) {
+    return { error: `${profile}: 技能来源提交 ${manifest.sourceCommit.slice(0, 8)} 在 ${source.skillsSource.sourcePath} 里不存在` };
+  }
+  if (!git(specRepo, ["branch", "-r", "--contains", manifest.sourceCommit]).stdout && !allowUnpushed) {
+    return { error: `${profile}: 技能来源提交 ${manifest.sourceCommit.slice(0, 8)} 尚未推送到任何远端分支；先推送，或明确传 --allow-unpushed` };
+  }
+  const config = spawnSync("git", ["-C", specRepo, "show", `${manifest.sourceCommit}:${source.skillsSource.configurationPath}`], { maxBuffer: 16 * 1024 * 1024 });
+  if (config.status !== 0) return { error: `${profile}: 技能来源提交里没有 ${source.skillsSource.configurationPath}` };
+  const hash = createHash("sha256").update(config.stdout).digest("hex");
+  if (hash !== manifest.configurationHash) return { error: `${profile}: 技能来源提交里配置的哈希 ${hash.slice(0, 8)} 与 Profile 清单记录的 ${String(manifest.configurationHash).slice(0, 8)} 不符` };
+  const from = source.skillsSource;
+  return { skills: { from: { commit: from.templateCommit, hash: from.configurationHash }, to: { commit: manifest.sourceCommit, hash }, changed: from.templateCommit !== manifest.sourceCommit || from.configurationHash !== hash } };
 }
 
 /** 只替换每个模板自己的 templateCommit / templateVersion / policyHash，保留文件其余字节；旧值与解析结果不符就拒绝。 */
@@ -84,6 +119,13 @@ export function applyPlan(lockText, entries) {
     replaceAfter(anchor, "templateCommit", entry.from, entry.to);
     replaceAfter(anchor, "templateVersion", `git:${entry.from}`, `git:${entry.to}`);
     replaceAfter(anchor, "policyHash", entry.policyFrom, entry.policyTo);
+    if (entry.skills?.changed) {
+      const skillsAnchor = text.indexOf('"skillsSource"', anchor);
+      const nextProfile = text.indexOf('"profile": "', anchor + 1);
+      if (skillsAnchor < 0 || (nextProfile >= 0 && skillsAnchor > nextProfile)) throw new Error(`${entry.profile}: 锁文本里找不到 skillsSource，拒绝改写`);
+      replaceAfter(skillsAnchor, "templateCommit", entry.skills.from.commit, entry.skills.to.commit);
+      replaceAfter(skillsAnchor, "configurationHash", entry.skills.from.hash, entry.skills.to.hash);
+    }
   }
   return text;
 }
@@ -121,14 +163,15 @@ function defaultRun(command, args) {
 function usage() {
   return [
     "用法: node tools/refresh-source-lock.mjs --source-root <四模板根的绝对路径> --profile <spec|design|backend|frontend|all> [--profile ...]",
-    "                                         [--lock docs/source-lock.json] [--apply] [--regenerate] [--allow-unpushed]",
+    "                                         [--lock docs/source-lock.json] [--apply] [--regenerate] [--allow-unpushed] [--skills-source]",
     "默认只预演。--apply 写锁；--regenerate 写锁后重新生成 Bundle、helpview、cli-help 并校验。",
     "目标提交必须已推送（本地远端跟踪分支包含它），否则拒绝；--allow-unpushed 仅用于本机试验。",
+    "--skills-source：同时把 backend / frontend 的 skillsSource 刷新为各自 profile-skills-source.json 记录的提交与配置哈希（需已推送）。",
   ].join("\n");
 }
 
 export function parseArgs(argv) {
-  const options = { profiles: [], lock: "docs/source-lock.json", apply: false, regenerate: false, allowUnpushed: false, sourceRoot: null };
+  const options = { profiles: [], lock: "docs/source-lock.json", apply: false, regenerate: false, allowUnpushed: false, skillsSource: false, sourceRoot: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--source-root") options.sourceRoot = argv[++index];
@@ -141,6 +184,7 @@ export function parseArgs(argv) {
     else if (arg === "--apply") options.apply = true;
     else if (arg === "--regenerate") { options.regenerate = true; options.apply = true; }
     else if (arg === "--allow-unpushed") options.allowUnpushed = true;
+    else if (arg === "--skills-source") options.skillsSource = true;
     else if (arg === "--help") options.help = true;
     else throw new Error(`未知参数 ${arg}`);
   }
@@ -156,11 +200,12 @@ function main(argv) {
   if (options.help) { process.stdout.write(`${usage()}\n`); return 0; }
   const lockPath = path.resolve(CLI_ROOT, options.lock);
   const lockText = readFileSync(lockPath, "utf8");
-  const plan = planRefresh({ lock: JSON.parse(lockText), sourceRoot: options.sourceRoot, profiles: options.profiles, allowUnpushed: options.allowUnpushed });
+  const plan = planRefresh({ lock: JSON.parse(lockText), sourceRoot: options.sourceRoot, profiles: options.profiles, allowUnpushed: options.allowUnpushed, skillsSource: options.skillsSource });
   for (const entry of plan.entries) {
     process.stdout.write(entry.changed
       ? `${entry.profile}: ${entry.from.slice(0, 8)} → ${entry.to.slice(0, 8)}，policyHash ${entry.policyFrom.slice(0, 8)} → ${entry.policyTo.slice(0, 8)}\n`
       : `${entry.profile}: 已是 ${entry.to.slice(0, 8)}，无需刷新\n`);
+    if (entry.skills?.changed) process.stdout.write(`${entry.profile}: skillsSource ${entry.skills.from.commit.slice(0, 8)} → ${entry.skills.to.commit.slice(0, 8)}，configurationHash ${entry.skills.from.hash.slice(0, 8)} → ${entry.skills.to.hash.slice(0, 8)}\n`);
   }
   for (const warning of plan.warnings) process.stdout.write(`注意 ${warning}\n`);
   if (plan.errors.length) { process.stderr.write(`${plan.errors.join("\n")}\n拒绝刷新。\n`); return 1; }
