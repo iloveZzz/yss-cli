@@ -31,17 +31,48 @@ func IgnoredSkillFile(name string) bool {
 // names in English collation order, NUL separators, and CRLF normalization for
 // text. File mode is protected separately by transaction descriptors.
 func SkillTreeHash(files map[string]File, prefix string, vars map[string]string) (string, error) {
+	refs := []string{}
+	for ref := range files {
+		if strings.HasPrefix(ref, prefix+"/") {
+			refs = append(refs, ref)
+		}
+	}
+	return hashSkillTree(files, prefix, refs, vars)
+}
+
+// Only known runtime roots are indexed. Presence includes ignored files so an
+// existing empty projection still fails rather than masquerading as omitted.
+type skillTreeIndex map[string][]string
+
+func indexSkillTrees(files map[string]File) skillTreeIndex {
+	index := skillTreeIndex{}
+	for ref := range files {
+		parts := strings.SplitN(ref, "/", 4)
+		if len(parts) != 4 || parts[1] != "skills" {
+			continue
+		}
+		switch parts[0] {
+		case ".agents", ".codex", ".cursor", ".pi":
+			prefix := strings.Join(parts[:3], "/")
+			index[prefix] = append(index[prefix], ref)
+		}
+	}
+	return index
+}
+
+func hashSkillTree(files map[string]File, prefix string, entries []string, vars map[string]string) (string, error) {
 	if err := safefs.ValidateRef(prefix); err != nil {
 		return "", err
 	}
-	refs := []string{}
-	for ref := range files {
-		if strings.HasPrefix(ref, prefix+"/") && !IgnoredSkillFile(strings.TrimPrefix(ref, prefix+"/")) {
-			if err := safefs.ValidateRef(ref); err != nil {
-				return "", err
-			}
-			refs = append(refs, ref)
+	refs := make([]string, 0, len(entries))
+	for _, ref := range entries {
+		if IgnoredSkillFile(strings.TrimPrefix(ref, prefix+"/")) {
+			continue
 		}
+		if err := safefs.ValidateRef(ref); err != nil {
+			return "", err
+		}
+		refs = append(refs, ref)
 	}
 	if len(refs) == 0 {
 		return "", fmt.Errorf("distributed Skill tree missing: %s", prefix)
@@ -70,10 +101,7 @@ func SkillTreeHash(files map[string]File, prefix string, vars map[string]string)
 				}
 			}
 			if vars != nil {
-				b, err = f.Render(vars)
-			}
-			if err != nil {
-				return "", err
+				b = renderDecoded(b, vars)
 			}
 			b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 		}
@@ -103,13 +131,14 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 	if shared == nil || shared.kind != 'o' {
 		return nil, fmt.Errorf("invalid shared Skill section")
 	}
+	index := indexSkillTrees(files)
 	for _, name := range shared.keys {
 		entry := shared.values[name]
 		if entry.kind != 'o' || path.Base(name) != name {
 			return nil, fmt.Errorf("invalid shared Skill entry: %s", name)
 		}
 		prefix := ".agents/skills/" + name
-		digest, err := SkillTreeHash(files, prefix, vars)
+		digest, err := hashSkillTree(files, prefix, index[prefix], vars)
 		if err != nil {
 			return nil, err
 		}
@@ -126,14 +155,10 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 					continue
 				}
 				projection := ref + "/" + name
-				present := false
-				for file := range files {
-					present = present || strings.HasPrefix(file, projection+"/")
-				}
-				if !present {
+				if _, present := index[projection]; !present {
 					continue // Source policy may omit an entire runtime projection.
 				}
-				actual, err := SkillTreeHash(files, projection, vars)
+				actual, err := hashSkillTree(files, projection, index[projection], vars)
 				if err != nil || actual != digest {
 					return nil, fmt.Errorf("distributed Skill projection disagrees: %s", projection)
 				}
@@ -155,7 +180,8 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 				if entry.kind != 'o' || path.Base(name) != name {
 					return nil, fmt.Errorf("invalid platform Skill entry: %s/%s", ref, name)
 				}
-				digest, err := SkillTreeHash(files, ref+"/"+name, vars)
+				prefix := ref + "/" + name
+				digest, err := hashSkillTree(files, prefix, index[prefix], vars)
 				if err != nil {
 					return nil, err
 				}
