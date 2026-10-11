@@ -109,7 +109,11 @@ func main() {
 				}
 				time.Sleep(time.Millisecond)
 			}
-			must(interruptChild(child, kind))
+			if kind == "kill" {
+				must(killAtPublishedBoundary(child, root, deadline))
+			} else {
+				must(interruptChild(child, kind))
+			}
 			exitErr := <-done
 			raw = append([]byte(nil), output.Bytes()...)
 			must(os.WriteFile(filepath.Join(out, "output-"+label+"-apply.json"), raw, 0644))
