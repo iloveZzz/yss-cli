@@ -25,7 +25,7 @@ func HelpGuide(reference bool) (string, error) {
 		}
 		fmt.Fprintf(&out, "## 教程：%s\n\n```text\n%s\n```\n\n", name, content)
 	}
-	out.WriteString("## 案例材料与验证\n\n公开示例的占位符须替换为真实目录、合同、完整基线和当前证据。批准、独立审查和外部操作由对应负责人取得。源码中的 `internal/cli/testdata/tutorial`、日常测试和治理测试是内部案例，不构成业务批准。\n\n案例实际执行结果记录在候选验证报告，区分通过、预期阻断和未执行。CLI 核验消费已有测试记录，不代替执行测试。阶段计划重定向保存原始结果，不添加 `--json`；envelope 不能当作 `--plan-file` 输入。项目计划用 `--out` 保存。\n\n")
+	out.WriteString("## 案例材料与验证\n\n公开示例的占位符须替换为真实目录、合同、完整基线和当前证据。批准、独立审查和外部操作由对应负责人取得。文档案例只说明协议，不构成业务批准。\n\n案例实际执行结果记录在候选验证报告，区分通过、预期阻断和未执行。CLI 核验消费已有测试记录，不代替执行测试。阶段计划重定向保存原始结果，不添加 `--json`；envelope 不能当作 `--plan-file` 输入。项目计划用 `--out` 保存。\n\n")
 	keys := []string{}
 	for key := range commands {
 		keys = append(keys, key)

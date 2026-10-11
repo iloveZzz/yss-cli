@@ -5,6 +5,5 @@
   "main": "index.cjs",
   "type": "commonjs",
   "engines": { "node": ">=18" },
-  "scripts": { "test": "node --test index.test.cjs" },
   "description": "Opt-in synchronous Spec API v1 transport; legacy defaults remain unchanged."
 }
