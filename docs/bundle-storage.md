@@ -24,26 +24,20 @@ CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend �
 
 `SnapshotHash`、`ManifestHash`、`BundleHash` 和来源记录是逻辑身份；私有归档和可执行文件 SHA-256 是物理身份。改变存储编码只能改变后者。公开 `bundle inspect/export` 及旧 `--base-bundle` 完整 JSON 读取路径保持原格式。程序版本及二进制绑定按新产物更新；旧保存计划仍需通过现有重建与漂移校验，插件通过公开升级流程更新 binding。
 
-## 可重复验证
+## 构建与体积记录
 
 在源码仓运行：
 
 ```sh
 go run ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
-go test -count=1 ./internal/bundle ./tools/release
 go run ./tools/package /absolute/new-package-directory
-python3 tools/size-performance.py --self-check
-python3 tools/size-performance.py --binary /absolute/new/yss --baseline-binary /absolute/old/yss --min-memory-reduction 0.30 --out /absolute/new-performance-directory
-go test ./internal/bundle -run '^$' -bench '^BenchmarkLoad$' -benchmem -benchtime=10x
 ```
 
 打包输出的 `size-report.json` 记录各平台二进制字节数和摘要、内嵌归档字节数与摘要；二进制超过 35,000,000 字节立即失败。正式或候选装配也检查二进制上限。公开安装包、checksums 与 release manifest 的结构保持原有形式。
 
-性能工具当前使用 macOS 原生 `/usr/bin/time -l`，RSS 单位为字节。每个命令先预热每个二进制一次，再至少运行十个独立进程，成对测量并交替先后顺序；报告保留实际命令、退出码、每次耗时和峰值 RSS、摘要与输入漂移状态。p95 用 nearest-rank；新 p95 必须 ≤ `max(旧 p95 × 1.10, 旧 p95 + 5ms)`，Backend / Frontend 的 RSS 中位数按指定降低比例验收。未来比较已优化版本时可按任务设置比例，默认仅要求内存不增长。无旧二进制时状态为 `measured`，明确记录未执行基线比较，不声称通过优化比例。
+本仓的 Bundle 测试、基准测试、性能测量工具及测试 CI 已移除，见 [测试与 CI 状态](ci-verification.md)。交叉编译和体积记录不代表原生平台运行或性能验收。
 
-真实语料等价测试用 `YSS_BUNDLE_BASELINE_ROOT=/absolute/frozen-old-gzip-directory` 启用，逐 Profile 比较完整 Bundle。全套测试用锁定模板作为 `YSS_LEGACY_ORACLE_ROOT` 与 `YSS_SCHEMA_CORPUS_ROOT`，适用平台另跑原生 smoke / recovery；race 仅在明确排查并发问题时手动执行。交叉编译仅证明构建和体积，运行资格仍按仓库原生平台要求取得。
-
-CI 上传六平台体积报告与本机性能测量报告。本地工作树的结果属于实现验证；最终 committed SHA 的原生收据、插件 binding、正式安装与回退证明需在提交后重新生成。程序回滚沿用现有升级事务恢复旧二进制及安装文档，不增加项目资产迁移。
+程序回滚沿用现有升级事务恢复旧二进制及安装文档，不增加项目资产迁移。
 
 ## 组合技能来源锁 v3
 

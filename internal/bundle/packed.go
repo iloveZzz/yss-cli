@@ -118,6 +118,10 @@ func loadPacked(raw []byte, profile string) (*Bundle, error) {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return nil, domain.Wrap("BUNDLE", err)
 	}
+	return loadPackedProfile(&a, profile)
+}
+
+func loadPackedProfile(a *packedArchive, profile string) (*Bundle, error) {
 	if a.StorageFormatVersion != storageFormatVersion || a.Profiles == nil || a.Objects == nil {
 		return nil, domain.Fail("BUNDLE", "内嵌存储格式不支持或不完整")
 	}

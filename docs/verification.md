@@ -1,5 +1,7 @@
 # alpha.2 历史实现与验证记录
 
+本页保留历史观察。仓库现已删除测试源码及测试 CI，下文命令与结果不代表当前可执行测试或当前版本验收；现状见 [测试与 CI 状态](ci-verification.md)。
+
 日期：2026-10-05。当前版本：`1.0.0-alpha.2`，运行协议 1；独立工程位于 `/Users/zhudaoming/Projects/yss-cli`，Git 分支 `codex/unified-go-cli`，尚无提交。**已实现可运行的预发布核心；整份重构方案未完成，稳定发布验收未通过。**
 
 四种固定 Profile 快照、统一 Go 命令、原生读写核心、离线程序安装与恢复回退已经落地。完整能力及未迁移边界见 [迁移清单](/Users/zhudaoming/Projects/yss-cli/docs/porting-status.md)。原模板仓库、旧 npm 默认执行器、插件和 Skills 的现有执行路径尚未切换。
