@@ -61,14 +61,18 @@ func (f File) Render(vars map[string]string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return renderDecoded(b, vars), nil
+}
+
+func renderDecoded(b []byte, vars map[string]string) []byte {
 	if bytes.IndexByte(b, 0) >= 0 {
-		return b, nil
+		return b
 	}
 	text := string(b)
 	for k, token := range map[string]string{"projectName": "__YSS_PROJECT_NAME__", "businessDomain": "__YSS_BUSINESS_DOMAIN__", "teamSize": "__YSS_TEAM_SIZE__"} {
 		text = strings.ReplaceAll(text, token, vars[k])
 	}
-	return []byte(text), nil
+	return []byte(text)
 }
 
 func validate(out *Bundle, profile string) error {
