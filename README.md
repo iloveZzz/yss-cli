@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前源码版本为 1.3.6，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。支持内置技能详情查询、按条件解析与就绪核验，Agent 可补装后在当前会话读取已核验入口。1.3.6 优化 Bundle 校验复用、技能索引与分段 JSON 编码，降低读取耗时和内存占用，并补齐固定来源的生成一致性及容量检查；公开格式、摘要合同与离线能力保持兼容。优化验证范围见 [验收记录](docs/artifact-refactor-results.md)，接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend、Frontend 的 Go CLI。当前源码版本为 1.3.7，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。支持内置技能详情查询、按条件解析与就绪核验，Agent 可补装后在当前会话读取已核验入口。1.3.7 更新四类固定模板来源，纳入配置化工作目录、审查预约适配、Claude 技能投影及按运行时分发修复；沿用 Bundle 校验复用、技能索引与分段 JSON 编码优化。优化验证范围见 [验收记录](docs/artifact-refactor-results.md)，接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -86,7 +86,7 @@ yss migrate rollback --root ./old-project --json
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.3.6 沿用 `darwin/arm64` 正式发行验收范围。只有本版本固定二进制的真实原生验收收据和必要门禁通过，才装配正式包；其他平台的资格须单独验证，并以公开发行资产的 manifest 为准。六平台交叉构建成功不授予稳定发行资格；缺少证据的候选包保持 `stableReady=false`、`nativeRuntimeVerified=false`。Windows 只读文件操作的 `UNPORTED` 限制保持。
+1.3.7 沿用 `darwin/arm64` 正式发行验收范围。只有本版本固定二进制的真实原生验收收据和必要门禁通过，才装配正式包；其他平台的资格须单独验证，并以公开发行资产的 manifest 为准。六平台交叉构建成功不授予稳定发行资格；缺少证据的候选包保持 `stableReady=false`、`nativeRuntimeVerified=false`。Windows 只读文件操作的 `UNPORTED` 限制保持。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 

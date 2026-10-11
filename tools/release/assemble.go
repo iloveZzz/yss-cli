@@ -538,7 +538,7 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 			Commit string `json:"templateCommit"`
 		} `json:"profiles"`
 	}
-	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || lock.Schema != 2 || len(lock.Profiles) != 4 {
+	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3) || len(lock.Profiles) != 4 {
 		return reject("PROVENANCE", "invalid fixed source lock")
 	}
 	for p, b := range input.Bundles {
