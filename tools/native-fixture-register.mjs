@@ -4,6 +4,7 @@
  * receives the explicit source root it already accepts as nativeSeed.
  */
 import { registerHooks } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -16,7 +17,9 @@ export function bindNativeFixtureSource(source) {
 }
 
 if (process.env.YSS_LEGACY_ORACLE_ROOT) {
-  const fixtureURL = pathToFileURL(path.join(process.env.YSS_LEGACY_ORACLE_ROOT, "scripts/fixtures/existing-backend/fixture.mjs")).href;
+  // Node resolves module URLs through symlinks (including macOS /var -> /private/var).
+  // Keep the exact-file boundary after applying the same canonicalization.
+  const fixtureURL = pathToFileURL(fs.realpathSync(path.join(process.env.YSS_LEGACY_ORACLE_ROOT, "scripts/fixtures/existing-backend/fixture.mjs"))).href;
   registerHooks({
     load(url, context, nextLoad) {
       const loaded = nextLoad(url, context);
