@@ -1,7 +1,7 @@
 /** Execute real commands and retain evidence even when a test crashes or is cancelled. */
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
 export async function runCommands(commands, {
@@ -39,16 +39,34 @@ export async function runCommands(commands, {
           cwd: command.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32",
         });
         let stopped, killTimer;
+        const groups = new Set([child.pid]);
+        const captureDescendantGroups = () => {
+          if (!child.pid || process.platform === "win32") return;
+          const rows = execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], { encoding: "utf8", timeout: 5000 })
+            .trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+          const descendants = new Set([child.pid]);
+          let previous;
+          do {
+            previous = descendants.size;
+            for (const [pid, parent] of rows) if (descendants.has(parent)) descendants.add(pid);
+          } while (descendants.size !== previous);
+          // Governance commands own separate groups for their individual deadlines.
+          // Capture them before killing Go, while their parent identities still exist.
+          for (const [pid, , group] of rows) if (descendants.has(pid) && descendants.has(group)) groups.add(group);
+        };
         const kill = signal => {
           if (!child.pid) return;
           try {
             if (process.platform === "win32") child.kill(signal);
-            else process.kill(-child.pid, signal);
+            else for (const group of [...groups].reverse()) {
+              try { process.kill(-group, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
+            }
           } catch (error) { if (error.code !== "ESRCH") row.cleanupError = error.message; }
         };
         stop = reason => {
           if (stopped) return;
           stopped = reason;
+          try { captureDescendantGroups(); } catch (error) { row.cleanupError = error.message; }
           kill("SIGTERM");
           killTimer = setTimeout(() => kill("SIGKILL"), 1000);
         };
