@@ -273,6 +273,11 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 		}
 	}
 	for ref := range refs {
+		// Claude projections are fixed source assets, not a supported selected runtime.
+		if strings.HasPrefix(ref, ".claude/skills/") {
+			delete(refs, ref)
+			continue
+		}
 		for runtime, root := range roots {
 			if strings.HasPrefix(ref, root) {
 				active := false
