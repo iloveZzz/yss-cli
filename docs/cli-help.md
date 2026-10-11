@@ -661,7 +661,7 @@ Profile frontend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（frontend）
-来源摘要：template=de7415425b3022e4ae0600a84c18675b422efd6d；registry=347a8002f15be52cb67a819392d6b26a75b74895a9bcfbb8436b036ff175a2b1；profile=c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a；policy=尚未登记
+来源摘要：template=fad472ddf9247183564d67b4d06b6542aa25b021；registry=347a8002f15be52cb67a819392d6b26a75b74895a9bcfbb8436b036ff175a2b1；profile=c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a；policy=尚未登记
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
