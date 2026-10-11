@@ -146,6 +146,19 @@ jobs:
         run: |
           python3 tools/size-performance.py --self-check
           python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --out "$RUNNER_TEMP/yss-size-performance"
+      # 已知超长的测试（见 tools/verification-plan.mjs 的 SLOW_TESTS）不在 PR 与分支推送的路径里：
+      # 上一次它在 internal/governance 里跑满 60 分钟超时。这里只在 main 推送与手动全量时单独执行，
+      # 不阻断；失败会留下警告，并写入步骤日志。
+      - name: Known slow tests (main and manual full runs only)
+        if: github.ref == 'refs/heads/main' || inputs.full == true
+        continue-on-error: true
+        timeout-minutes: 100
+        shell: bash
+        run: |
+          if ! node tools/verification-plan.mjs --slow; then
+            echo "::warning title=Known slow tests failed::已知慢测试未通过或超时；这一步不阻断，日志见本步骤"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
