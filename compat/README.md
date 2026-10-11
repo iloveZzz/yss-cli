@@ -1,6 +1,6 @@
 # 旧入口与 Spec API 兼容矩阵
 
-本页保留早期 alpha 的固定观察记录；下文中的旧消费者和未覆盖清单是当时快照，不能视为本次退役的当前状态。当前统一 Bundle、插件迁移和历史恢复合同见 [退役合同](../docs/cli-retirement.md)。本次按实际消费者迁移，未使用的旧成功 JSON/私有 API 全等测试可退出；当前接口及真实旧实例恢复验证继续作为必要项。
+本页保留早期 alpha 的固定观察记录；下文中的旧消费者和未覆盖清单是当时快照，不能视为本次退役的当前状态。当前统一 Bundle、插件迁移和历史恢复合同见 [退役合同](../docs/cli-retirement.md)。本次按实际消费者迁移，未使用的旧成功 JSON/私有 API 全等测试可退出；当前接口与恢复合同仍保留；本仓测试源码已移除，下文执行结果仅为历史记录。
 
 当前可交付的是保留旧默认实现的兼容分发层和显式原生 API。四个旧 npm 包、插件包和全局入口没有被修改、安装或替换。完整旧接口等价迁移尚未完成，不能依据这些测试宣布兼容完成或稳定发布。
 
@@ -54,4 +54,4 @@ Backend plugin 的 `project.mjs:57-61` 和 `pack-cli.mjs:19-23` 当前 `createRe
 
 Design plugin 的 `project.mjs:51-67` 仍调用旧 Node bin，并要求 `.yss-harness-design.json` schema 2、旧 coreDigest。不能只换执行命令：需要单独迁移 project-binding 与 `.yss.json` schema、固定版本和新事务回执消费者；本次没有修改插件或其 pin。
 
-验证命令：`YSS_LEGACY_SOURCE=/Users/zhudaoming/Projects/yss-spec-project-template GOTOOLCHAIN=go1.27.1 go test -count=1 -v ./internal/compat`，以及 `GOTOOLCHAIN=go1.27.1 go vet ./internal/compat`。没有 `YSS_LEGACY_SOURCE` 时，Go 测试明确 skip 两个外部 oracle 测试；不能把 skip 记为差分通过。最终输出见本目录 `verification.log` 与 `workflow-result.json`；本记录不替代主控的独立审查与 Fresh Verification。
+历史验证输出见本目录 `verification.log`、`js-verification.log` 与 `workflow-result.json`；`input-sha256.txt` 是当时的输入清单，可能包含已删除的测试路径。这些记录不代表当前版本通过验证。

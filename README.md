@@ -16,7 +16,7 @@ yss help tutorial
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
 
-编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试默认使用 `node tools/verification-plan.mjs --base <完整基线SHA> --template-root <固定模板源> --out <仓库外计划> --execute`，按差异及依赖执行专项 Go 和来源消费者；共享核心、事务/安装/安全或未知范围扩大到全量，明确全量使用 `--full`。本地、CI 和发布不自动运行 race，`--full` 也不恢复 race；并发排障时可手动执行 `CGO_ENABLED=1 go test -p 1 -race -count=1 -timeout=120m <包>`。真实证据只在源码、工具、参数、环境和输入一致时复用。 核心目录（governance、bundle、project、updater、transaction、domain 与 tools/{bundle,package,release}）下只有 `_test.go` 或 `testdata` 的变化只核验本包，不升为全量；生产代码变化、`go.mod`、来源锁引入的未知模板路径仍升为全量。验证先发现实际测试名称，再使用同一份清单供本地与 CI 分片；最多并行 3 个任务，分片内 `-p 1`。全量包含生命周期测试并阻断失败；`--slow` 仅供单独诊断，不替代全量。每个 Go 测试二进制超时 30 分钟，普通治理子进程最多 10 分钟，已知完整生命周期的 Node 生成步骤最多 20 分钟，仍受包级期限约束。未执行、缺失报告、输入漂移、空匹配均不能通过；跳过项逐项写入报告。用 `--report-dir <仓库外目录>` 保存 JSON 事件、耗时与心跳日志，`--jobs 1` 可降低本地资源占用。详见 [CI 验证说明](docs/ci-verification.md)。
+编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。本仓已移除自动化测试源码、测试专用工具及 GitHub Actions 测试 workflow；本地可使用 `CGO_ENABLED=0 go build ./...` 检查构建。编译成功不代表功能或发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
 ```sh
 yss init --profile spec --root ./my-project --project-name 项目名称
@@ -165,7 +165,7 @@ yss -V --json
 
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 
-更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。源码内部教程 fixture 只验证协议，不构成真实批准。
+更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。文档案例只说明协议，不构成真实批准。
 
 原生命令的未知命令、子命令、选项、无效取值或缺少参数值返回 `ARGUMENT`，退出码为 `2`，同时给出帮助入口和适用的拼写建议。比如 `yss upadate` 会建议 `update`，并说明在线程序升级使用 `upgrade`。建议不会自动执行。已有升级错误码和 JSON envelope 版本保持不变；其他治理和兼容消费者保留自身领域校验。
 
