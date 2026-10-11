@@ -3,11 +3,15 @@ package updater
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +21,7 @@ import (
 )
 
 // This helper exercises the real public installation API in a process that the
-// parent terminates after the first target mutation. No fake journals or hooks.
+// parent terminates after an observed real preparation or target mutation.
 func TestProgramCrashHelper(t *testing.T) {
 	tool := os.Getenv("YSS_TEST_PROGRAM_ROOT")
 	if tool == "" {
@@ -27,9 +31,40 @@ func TestProgramCrashHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = Apply(context.Background(), p); err != nil {
+	var ctx context.Context = context.Background()
+	if os.Getenv("YSS_TEST_PREPARATION_BARRIER") == "1" {
+		ctx = &preparationObservationContext{Context: ctx, root: tool}
+	}
+	if _, err = Apply(ctx, p); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// The public Context seam observes the producer's persisted plan at a real
+// cancellation checkpoint. It never fabricates a journal or changes Apply.
+// Holding stdin open lets the parent terminate this exact unpublished state.
+type preparationObservationContext struct {
+	context.Context
+	root string
+	once sync.Once
+}
+
+func (c *preparationObservationContext) Err() error {
+	paths, err := filepath.Glob(filepath.Join(c.root, ".yss", "transactions", ".preparing-*"))
+	if err != nil {
+		return err
+	}
+	if len(paths) == 1 {
+		c.once.Do(func() {
+			if err := json.NewEncoder(os.Stdout).Encode(paths[0]); err != nil {
+				panic(err)
+			}
+			if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+				panic(err)
+			}
+		})
+	}
+	return c.Context.Err()
 }
 
 func interruptProgram(t *testing.T, tool string) {
@@ -310,48 +345,68 @@ func TestProgramStatusReportsForeignPendingWithoutClaimingRecovery(t *testing.T)
 
 func TestProgramStatusRetainsUnpublishedPreparationSummary(t *testing.T) {
 	tool := filepath.Join(root(t), "tools")
-	files := programFiles("preparation-only")
-	files["docs/compatibility.md"] = bytes.Repeat([]byte("preparation-data-"), (32<<20)/len("preparation-data-"))
-	archive, sha := fixture(t, files, runtime.GOOS+"/"+runtime.GOARCH)
+	archive, sha := fixture(t, programFiles("preparation-only"), runtime.GOOS+"/"+runtime.GOARCH)
 	child := exec.Command(os.Args[0], "-test.run=^TestProgramCrashHelper$")
-	child.Env = append(os.Environ(), "YSS_TEST_PROGRAM_ROOT="+tool, "YSS_TEST_PROGRAM_ARCHIVE="+archive, "YSS_TEST_PROGRAM_SHA="+sha)
-	var output bytes.Buffer
-	child.Stdout = &output
-	child.Stderr = &output
+	child.Env = append(os.Environ(), "YSS_TEST_PROGRAM_ROOT="+tool, "YSS_TEST_PROGRAM_ARCHIVE="+archive, "YSS_TEST_PROGRAM_SHA="+sha, "YSS_TEST_PREPARATION_BARRIER=1")
+	input, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	child.Stderr = &stderr
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
 	waited := false
 	t.Cleanup(func() {
+		_ = input.Close()
 		if !waited {
 			_ = child.Process.Kill()
 			_ = child.Wait()
 		}
 	})
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		paths, err := filepath.Glob(filepath.Join(tool, ".yss", "transactions", ".preparing-*"))
-		if err != nil {
-			t.Fatal(err)
+	type observation struct {
+		path string
+		err  error
+	}
+	ready := make(chan observation, 1)
+	go func() {
+		var ref string
+		err := json.NewDecoder(output).Decode(&ref)
+		ready <- observation{ref, err}
+	}()
+	var preparing string
+	select {
+	case observed := <-ready:
+		if observed.err != nil {
+			t.Fatalf("producer did not report preparation: %v", observed.err)
 		}
-		if len(paths) > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			_ = child.Process.Kill()
-			_ = child.Wait()
-			waited = true
-			t.Fatalf("preparation not observed: %s", output.String())
-		}
-		time.Sleep(time.Millisecond)
+		preparing = observed.path
+	case <-time.After(30 * time.Second):
+		t.Fatal("producer did not reach preparation checkpoint")
+	}
+	if filepath.Dir(preparing) != filepath.Join(tool, ".yss", "transactions") || !strings.HasPrefix(filepath.Base(preparing), ".preparing-") {
+		t.Fatalf("producer reported unrelated preparation: %q", preparing)
+	}
+	before, err := os.ReadFile(filepath.Join(preparing, "plan.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := child.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	err := child.Wait()
+	err = child.Wait()
 	waited = true
 	if err == nil {
-		t.Fatalf("child finished before preparation interruption: %s", output.String())
+		t.Fatalf("child finished before preparation interruption: %s", stderr.String())
+	}
+	afterPlan, err := os.ReadFile(filepath.Join(preparing, "plan.json"))
+	if err != nil || !bytes.Equal(before, afterPlan) {
+		t.Fatalf("killed producer's preparation changed: %v", err)
 	}
 	out, err := Status(tool)
 	if err != nil {
