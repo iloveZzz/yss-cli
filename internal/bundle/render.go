@@ -43,7 +43,11 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 	case "scripts/lib/skill-supply-chain.mjs":
 		if selected {
 			marker := `export const PROJECTION_ROOTS = [".codex/skills", ".cursor/skills", ".pi/skills"];`
-			if !strings.Contains(text, marker) {
+			currentMarker := `export const PROJECTION_ROOTS = [".codex/skills", ".cursor/skills", ".pi/skills", ".claude/skills"];`
+			if strings.Contains(text, currentMarker) {
+				marker = currentMarker
+			}
+			if strings.Count(text, marker) != 1 {
 				return nil, fmt.Errorf("Skill 投影脚本分发基线变化")
 			}
 			addition := `
