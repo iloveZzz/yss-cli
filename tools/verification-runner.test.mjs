@@ -5,6 +5,29 @@ import os from "node:os";
 import path from "node:path";
 import { runCommands } from "./verification-runner.mjs";
 
+test("外层超时清理另建进程组的治理子进程", { skip: process.platform === "win32" }, async t => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "yss-verification-detached-"));
+  const pidFile = path.join(outDir, "child.pid");
+  t.after(() => {
+    if (fs.existsSync(pidFile)) { try { process.kill(-Number(fs.readFileSync(pidFile)), "SIGKILL"); } catch {} }
+    fs.rmSync(outDir, { recursive: true, force: true });
+  });
+  const program = `const {spawn}=require('node:child_process');
+    const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
+    require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
+    setInterval(()=>{},1000);`;
+  const report = await runCommands([{ id: "detached", command: process.execPath, args: ["-e", program] }], {
+    outDir, timeoutMs: 300, output: () => {},
+  });
+  assert.equal(report.commands[0].status, "timed_out");
+  const pid = Number(fs.readFileSync(pidFile));
+  // A reparented zombie has terminated; the container's init may reap it later.
+  const { execFileSync } = await import("node:child_process");
+  let state = "";
+  try { state = execFileSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).trim(); } catch {}
+  assert.ok(!state || state.startsWith("Z"), `detached child still running: ${state}`);
+});
+
 test("退出码为零但没有匹配测试也必须失败", async t => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "yss-verification-"));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));

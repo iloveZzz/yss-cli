@@ -85,6 +85,7 @@ function sourceDigest(cwd) {
     if (!fs.existsSync(file)) { digest.update(`${name}\0deleted\0`); continue; }
     const info = fs.lstatSync(file);
     digest.update(`${name}\0${info.mode & 0o111}\0`);
+    if (info.isDirectory()) { digest.update("gitlink\0"); continue; }
     digest.update(info.isSymbolicLink() ? fs.readlinkSync(file) : fs.readFileSync(file));
     digest.update("\0");
   }
@@ -92,15 +93,76 @@ function sourceDigest(cwd) {
 }
 
 function inputs(cwd, templateRoot) {
-  const templateSources = templateRoot ? [templateRoot, ...["backend", "frontend", "design"].map(role => path.join(templateRoot, "submodules", `yss-harness-${role}-agent`))]
+  const templateRoots = templateRoot ? [templateRoot, ...["backend", "frontend", "design"].map(role => path.join(templateRoot, "submodules", `yss-harness-${role}-agent`))] : [];
+  const templateSources = templateRoot ? templateRoots
     .map(root => ({ commit: readCommand("git", ["rev-parse", "HEAD"], root),
-      diff: hash(readCommand("git", ["diff", "--binary", "HEAD", "--"], root)) })) : null;
+      sourceDigest: sourceDigest(root) })) : null;
+  const aliases = [[process.env.YSS_NATIVE_BINARY, "@binary"], [templateRoot, "@template"], [cwd, "@cli"],
+    [process.env.RUNNER_TEMP, "@temp"]].filter(([root]) => root).sort((a, b) => b[0].length - a[0].length);
+  const normalize = value => aliases.reduce((result, [root, alias]) => result.split(root).join(alias), value);
+  const environment = Object.entries(process.env).filter(([key]) => (key.startsWith("YSS_") && key !== "YSS_NATIVE_BINARY_SHA256") ||
+    ["GOFLAGS", "GOTOOLCHAIN", "GOEXPERIMENT", "CGO_ENABLED", "GOOS", "GOARCH", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME"].includes(key))
+    .sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, normalize(value)]);
+  const externalInputs = {};
+  for (const key of ["YSS_LEGACY_SOURCE", "YSS_RETAINED_STAGE_MODULE", "YSS_RESEARCH_ORACLE_NODE", "YSS_PROFILE_GUIDANCE_REPORT",
+    "YSS_PLAN_ORACLE_FIXTURE", "YSS_READING_ORACLE_FIXTURE", "YSS_LOCAL_PLAN_HANDOFF_ROOT", "YSS_BACKEND_COMPLETED_TASK_ROOT",
+    "YSS_SCHEMA_CORPUS_ROOT", "YSS_NATIVE_SOURCE_ROOT", "YSS_LEGACY_ORACLE_ROOT"]) {
+    const root = process.env[key];
+    if (!root || root === cwd || root === templateRoot) continue;
+    externalInputs[key] = fs.existsSync(root) ? externalInputDigest(root) : "missing";
+  }
   return { cliCommit: readCommand("git", ["rev-parse", "HEAD"], cwd), sourceDigest: sourceDigest(cwd),
     sourceLockSha256: hash(fs.readFileSync(path.join(cwd, "docs/source-lock.json"))),
     templateSources,
     binarySha256: process.env.YSS_NATIVE_BINARY ? hash(fs.readFileSync(process.env.YSS_NATIVE_BINARY)) : null,
-    platform: `${process.platform}/${process.arch}`, go: readCommand("go", ["env", "GOVERSION"], cwd), node: process.version,
-    oracleMode: process.env.YSS_ORACLE_MODE ?? null };
+    platform: `${process.platform}/${process.arch}`,
+    go: JSON.parse(readCommand("go", ["env", "-json", "GOVERSION", "GOOS", "GOARCH", "GOFLAGS", "GOEXPERIMENT", "CGO_ENABLED"], cwd)), node: process.version,
+    python: templateRoot ? JSON.parse(readCommand("python3", ["-c", "import sys,json,importlib.metadata as m; print(json.dumps([sys.version,{p:m.version(p) for p in ['jsonschema','referencing','jsonschema-specifications','rpds-py','attrs']}]))"], cwd)) : null,
+    pnpm: templateRoot ? readCommand("pnpm", ["--version"], cwd) : null,
+    nodeDependencies: templateRoots.map(root => dependencyDigest(path.join(root, ".template-source/tooling/node/node_modules"), normalize)),
+    environmentSha256: hash(JSON.stringify(environment)), externalInputs };
+}
+
+function dependencyDigest(root, normalize) {
+  if (!fs.existsSync(root)) return "missing";
+  const digest = createHash("sha256");
+  const visit = (file, relative) => {
+    const info = fs.lstatSync(file);
+    digest.update(`${relative}\0${info.mode & 0o111}\0`);
+    if (info.isSymbolicLink()) digest.update(fs.readlinkSync(file));
+    else if (info.isFile()) {
+      const bytes = fs.readFileSync(file);
+      digest.update(relative.split("/").includes(".bin") && !bytes.includes(0) ? normalize(bytes.toString("utf8")) : bytes);
+    }
+    else if (info.isDirectory()) for (const name of fs.readdirSync(file).sort()) {
+      // pnpm's machine-local store/cache metadata is not executable input.
+      if (relative === "." && [".modules.yaml", ".pnpm-workspace-state-v1.json"].includes(name)) continue;
+      visit(path.join(file, name), relative + "/" + name);
+    }
+    else throw new Error(`依赖不是普通文件/目录: ${file}`);
+    digest.update("\0");
+  };
+  visit(root, ".");
+  return digest.digest("hex");
+}
+
+function externalInputDigest(root) {
+  const digest = createHash("sha256"), visiting = new Set();
+  const visit = (file, relative) => {
+    const real = fs.realpathSync(file);
+    if (visiting.has(real)) throw new Error(`验证输入包含循环链接: ${file}`);
+    visiting.add(real);
+    const info = fs.statSync(file);
+    digest.update(`${relative}\0${info.mode & 0o111}\0`);
+    if (info.isFile()) digest.update(fs.readFileSync(file));
+    else if (info.isDirectory()) for (const name of fs.readdirSync(file).sort()) {
+      if (name !== ".git" && name !== "node_modules") visit(path.join(file, name), relative + "/" + name);
+    }
+    else throw new Error(`验证输入不是普通文件/目录: ${file}`);
+    digest.update("\0"); visiting.delete(real);
+  };
+  visit(root, ".");
+  return digest.digest("hex");
 }
 
 export function buildTaskManifest(plan, checks, { cwd, templateRoot, durations } = {}) {
