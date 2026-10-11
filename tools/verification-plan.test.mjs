@@ -5,6 +5,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PACKAGE_TIMEOUT, SLOW_TESTS, SLOW_TIMEOUT, goTestArgs, selectVerification } from "./verification-plan.mjs";
 
+test("性能工具变更执行 Python 自检及原生比较，不触发无关 Go 全量", () => {
+  const plan = selectVerification({ paths: ["tools/size-performance.py", "tools/size_performance_test.py"] });
+  assert.equal(plan.scope, "impacted");
+  assert.equal(plan.performance, true);
+  assert.equal(plan.nativeRequired, true);
+  assert.deepEqual(plan.go, []);
+});
+
 test("版本、固定 Bundle 和来源锁更新选择专项验证", () => {
   const plan = selectVerification({ paths: ["internal/domain/domain.go", "internal/bundle/assets/bundles.json.gz", "docs/source-lock.json"], versionOnly: true, sourcePaths: [".agents/skills/yss-ddd-scaffold-generator/scripts/generate_scaffold.mjs"] });
   assert.equal(plan.scope, "impacted");

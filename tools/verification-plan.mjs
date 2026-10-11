@@ -31,7 +31,7 @@ const sourcePath = value => value.replace(/^tests\/fixtures\/upstream-source\//,
 
 export function selectVerification({ paths = [], sourcePaths = [], versionOnly = false, importGraph = {}, forceFull = false, goChanges = {} }) {
   const packages = new Set(), seeds = new Set(), suites = new Set(), reasons = [], unknown = [];
-  let assets = false, help = false, full = forceFull;
+  let assets = false, help = false, performance = false, full = forceFull;
   const focusedGo = [];
   for (const file of paths) {
     if (file === "internal/domain/domain.go" && versionOnly) { packages.add("./internal/domain"); help = true; reasons.push("版本常量只改变版本显示；原生入口单独验收"); }
@@ -59,6 +59,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
       reasons.push("AST 确认专职任务范围与前端入口：任务、批准、审查及本地/外部消费路径专项");
     }
     else if (/^tools\/verification-scope\/[^/]+\.go$/.test(file)) packages.add("./tools/verification-scope");
+    else if (/^tools\/(?:size-performance|size_performance_test)\.py$/.test(file)) { performance = true; reasons.push("性能采样工具：Python 自检及原生基线比较"); }
     else if (TEST_ONLY.test(file)) { packages.add("./" + file.match(TEST_ONLY)[1]); reasons.push(`仅测试文件或 testdata 变化，不会被其他包导入，只核验本包: ${file}`); }
     else if (/^(?:go\.(?:mod|sum)|(?:internal\/(?:transaction|updater|project|governance|bundle|domain)|tools\/(?:bundle|package|release))\/.*\.go)$/.test(file)) { full = true; reasons.push(`共享核心或事务/安装/安全边界: ${file}`); }
     else if (/^(?:internal|cmd|tools)\/.*\.go$/.test(file)) seeds.add("./" + path.posix.dirname(file));
@@ -98,7 +99,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
   if (forceFull) reasons.push("用户明确要求全量");
   if (assets) { ASSET_PACKAGES.forEach(pkg => packages.add(pkg)); suites.add("distribution"); }
   reasons.push("自动 race 已取消；需要时使用 Go 命令手动排查并发问题");
-  if (full) return { scope: "full", go: [{ packages: ["./..."] }], race: [], vet: ["./..."], sourceSuites: [...suites].sort(), nativeRequired: true, reasons, unknown };
+  if (full) return { scope: "full", performance, go: [{ packages: ["./..."] }], race: [], vet: ["./..."], sourceSuites: [...suites].sort(), nativeRequired: true, reasons, unknown };
   const go = packages.size ? [{ packages: [...packages].sort() }] : [];
   for (const group of focusedGo) {
     const existing=go.find(item=>item.run && JSON.stringify(item.packages)===JSON.stringify(group.packages));
@@ -106,7 +107,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
     else go.push(group);
   }
   if (help) go.push({ packages: ["./internal/cli"], run: HELP_PATTERN });
-  return { scope: "impacted", go, race: [], vet: [...new Set(go.flatMap(group => group.packages))].sort(), sourceSuites: [...suites].sort(), nativeRequired: assets || help || focusedGo.length > 0 || seeds.size > 0 || suites.size > 0, reasons, unknown };
+  return { scope: "impacted", performance, go, race: [], vet: [...new Set(go.flatMap(group => group.packages))].sort(), sourceSuites: [...suites].sort(), nativeRequired: performance || assets || help || focusedGo.length > 0 || seeds.size > 0 || suites.size > 0, reasons, unknown };
 }
 
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }).trim(); }
@@ -181,6 +182,7 @@ function main(argv) {
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
   run(process.execPath, ["--test", "tools/verification-plan.test.mjs"]);
+  if (plan.performance || plan.scope === "full") run("python3", ["-m", "unittest", "discover", "-s", "tools", "-p", "size_performance_test.py"], root, { ...process.env, PYTHONDONTWRITEBYTECODE: "1" });
   process.stderr.write(`已知慢测试不在本通道运行，由 --slow 单独执行: ${SLOW_TESTS.flatMap(item => item.names).join(", ")}\n`);
   for (const group of plan.go) for (const args of goTestArgs(group)) run("go", args);
   if (plan.vet.length) run("go", ["vet", ...plan.vet]);

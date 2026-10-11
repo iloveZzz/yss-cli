@@ -145,7 +145,16 @@ jobs:
         if: steps.verification.outputs.native_required == 'true'
         run: |
           python3 tools/size-performance.py --self-check
-          python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --out "$RUNNER_TEMP/yss-size-performance"
+          python3 -m unittest discover -s tools -p size_performance_test.py
+          base=$(node -e 'process.stdout.write(require(process.argv[1]).baseCommit)' "$RUNNER_TEMP/verification-plan.json")
+          baseline_source="$RUNNER_TEMP/yss-performance-baseline-source"
+          baseline_binary="$RUNNER_TEMP/yss-performance-baseline"
+          git worktree add --detach "$baseline_source" "$base"
+          (
+            cd "$baseline_source"
+            CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit=$base -X github.com/iloveZzz/yss-cli/internal/domain.BuildSourceState=committed" -o "$baseline_binary" ./cmd/yss
+          )
+          python3 tools/size-performance.py --binary "$YSS_NATIVE_BINARY" --baseline-binary "$baseline_binary" --baseline-source-root "$baseline_source" --samples 20 --out "$RUNNER_TEMP/yss-size-performance"
       # 已知超长的测试（见 tools/verification-plan.mjs 的 SLOW_TESTS）不在 PR 与分支推送的路径里：
       # 上一次它在 internal/governance 里跑满 60 分钟超时。这里只在 main 推送与手动全量时单独执行，
       # 不阻断；失败会留下警告，并写入步骤日志。
