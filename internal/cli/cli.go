@@ -548,7 +548,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				return nil, profile, e
 			}
 			for ref := range b.Files {
-				if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/")) {
+				if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/")) {
 					continue
 				}
 				selection = append(selection, ref)

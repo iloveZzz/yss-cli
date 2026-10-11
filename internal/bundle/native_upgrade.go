@@ -30,12 +30,12 @@ func nativeUpgradeSource(raw map[string]sourceFile) ([]NativeTransform, error) {
 		".agents/skills/yss-harness-upgrade/references/project-operations.md": "project-operations.md",
 		".template-spec/process/harness-upgrade.md":                           "harness-upgrade.md",
 	}
-	for _, root := range []string{".codex", ".cursor", ".pi"} {
+	for _, root := range []string{".codex", ".cursor", ".pi", ".claude"} {
 		inputs[root+"/skills/yss-harness-upgrade/SKILL.md"] = "upgrade-SKILL.md"
 		inputs[root+"/skills/yss-harness-upgrade/references/project-operations.md"] = "project-operations.md"
 	}
 	// The old paths above are fixed historical inputs, not discovery aliases.
-	for _, root := range []string{".agents", ".codex", ".cursor", ".pi"} {
+	for _, root := range []string{".agents", ".codex", ".cursor", ".pi", ".claude"} {
 		inputs[root+"/skills/setup-yss-harness/SKILL.md"] = "setup-SKILL.md"
 		inputs[root+"/skills/setup-yss-harness/references/project-operations.md"] = "setup-project-operations.md"
 		inputs[root+"/skills/setup-yss-harness/references/operation-contract.md"] = "setup-operation-contract.md"

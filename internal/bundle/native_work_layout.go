@@ -60,7 +60,7 @@ func nativeWorkLayoutSource(raw map[string]sourceFile) ([]NativeTransform, error
 		}
 		record(ref, data, !exists)
 		if strings.HasPrefix(ref, ".agents/skills/") {
-			for _, platform := range []string{".codex", ".cursor", ".pi"} {
+			for _, platform := range []string{".codex", ".cursor", ".pi", ".claude"} {
 				projected := platform + strings.TrimPrefix(ref, ".agents")
 				if _, ok := raw[projected]; ok {
 					record(projected, data, false)
@@ -75,7 +75,7 @@ func nativeWorkLayoutSource(raw map[string]sourceFile) ([]NativeTransform, error
 	// Only active authoring guidance is transformed. Fixtures, asset snapshots,
 	// schemas and history remain unchanged; Profile-specific text stays intact.
 	for _, ref := range sortedKeys(raw) {
-		if !(strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/")) {
+		if !(strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/")) {
 			continue
 		}
 		if strings.Contains(ref, "/tests/") || strings.Contains(ref, "/assets/") || strings.Contains(ref, "/schemas/") || strings.Contains(ref, "/scripts/") || ref == ".template-spec/agents/issue-tracker.md" || ref == ".template-spec/process/work-layout.md" {
