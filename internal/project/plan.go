@@ -44,6 +44,8 @@ type Plan struct {
 	Profile          string                       `json:"profile"`
 	TemplateCommit   string                       `json:"templateCommit"`
 	SnapshotHash     string                       `json:"snapshotHash"`
+	SourceVersion    string                       `json:"sourceVersion,omitempty"`
+	Notices          []string                     `json:"notices,omitempty"`
 	Changes          []Change                     `json:"changes"`
 	Conflicts        []string                     `json:"conflicts"`
 	Preserved        []string                     `json:"preserved"`
@@ -58,7 +60,15 @@ func (p *Plan) Public() map[string]any {
 	for _, c := range p.Changes {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
-	return map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "migrationKind": p.MigrationKind, "workLayout": p.WorkLayout, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "migrationKind": p.MigrationKind, "workLayout": p.WorkLayout, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	// 只在目标 Bundle 含版本区间规则时才出现，其余计划的输出保持不变。
+	if p.SourceVersion != "" {
+		public["sourceVersion"] = p.SourceVersion
+	}
+	if len(p.Notices) > 0 {
+		public["notices"] = p.Notices
+	}
+	return public
 }
 
 func jsonBytes(v any) ([]byte, error) {

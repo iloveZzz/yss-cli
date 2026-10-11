@@ -85,8 +85,14 @@ func ReadResolutionFile(file string) (ResolutionFile, error) {
 	}
 	return out, nil
 }
+
+// resolvable 判断资产是否可接受用户决定：冲突项，以及规则提议的删除（用户可以拒绝，保留该文件）。
+func resolvable(a AssetResult) bool {
+	return a.Action == "conflict" || a.Action == "delete" && len(a.Options) > 0
+}
+
 func validateResolution(a AssetResult, r Resolution) error {
-	if a.Action != "conflict" || a.Before != r.Before || a.Target != r.Target || a.RuleID != r.RuleID || a.TargetPath != r.TargetPath {
+	if !resolvable(a) || a.Before != r.Before || a.Target != r.Target || a.RuleID != r.RuleID || a.TargetPath != r.TargetPath {
 		return domain.Fail("RESOLUTION_STALE", "决议描述与原冲突不匹配: "+r.Path)
 	}
 	if (a.DestinationBefore == nil) != (r.DestinationBefore == nil) || a.DestinationBefore != nil && *a.DestinationBefore != *r.DestinationBefore {
@@ -252,7 +258,7 @@ func ExportReview(p *Plan, out string) error {
 		}
 	}
 	for _, a := range p.Assets {
-		if a.Action != "conflict" {
+		if !resolvable(a) {
 			continue
 		}
 		entry := map[string]any{"asset": a, "decision": Resolution{Path: a.Path, Before: a.Before, Target: a.Target, RuleID: a.RuleID, TargetPath: a.TargetPath, DestinationBefore: a.DestinationBefore}}
@@ -302,7 +308,7 @@ func ExportReview(p *Plan, out string) error {
 			return e
 		}
 	}
-	readme := []byte("# YSS 受管资产审查\n\nplan.json 为原计划。conflicts.json 提供逐项描述和可选决定。\n将选定项填入 decisions.json 的 decisions，choice 使用资产允许的值。\nuse-merged 必须填写候选 candidateFile 与原始字节 SHA-256 candidateDigest。\n候选不会直接写入项目；clean=true 也需要显式决定。\n基线不可用时仅有双向对照；不要推测旧模板。\n修改材料后重新生成决议计划，再应用保存计划。\n")
+	readme := []byte("# YSS 受管资产审查\n\nplan.json 为原计划。conflicts.json 提供逐项描述和可选决定。\n将选定项填入 decisions.json 的 decisions，choice 使用资产允许的值。\nuse-merged 必须填写候选 candidateFile 与原始字节 SHA-256 candidateDigest。\n候选不会直接写入项目；clean=true 也需要显式决定。\n基线不可用时仅有双向对照；不要推测旧模板。\nconflicts.json 也列出规则提议的删除（action 为 delete）：不想删除就选 keep-local，该文件原样保留，升级不会失败；不填写则按计划删除。\n修改材料后重新生成决议计划，再应用保存计划。\n")
 	if e = write("README.md", readme); e != nil {
 		return e
 	}
