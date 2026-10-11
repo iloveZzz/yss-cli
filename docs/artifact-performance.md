@@ -6,11 +6,13 @@
 
 `node tools/build-candidate.mjs --out <仓库外新目录>` 构建 CGO_ENABLED=0 的候选，并写入 `build-receipt.json`。用 `--root <独立基线工作区>` 构建基线；两次使用同一个 Go 工具链与环境。
 
-收据记录提交、工作区状态、实际文件内容、工具链、目标平台、构建参数、二进制字节数与 SHA-256。输入在构建期间变化即失败。跨平台编译始终保留 `nativeRuntimeVerified=false`；产物不得据此取得发行资格。
+收据记录提交、工作区状态、文件清单、工具链、目标平台、构建参数、二进制字节数与 SHA-256。固定 GOENV=off、GOWORK=off、空 GOFLAGS/GOEXPERIMENT 和默认 CPU 目标，禁用工具链自动切换，记录有效 Go 环境；拒绝未入册的本地 module replace 与链接输入。输入在构建期间变化即失败。跨平台编译始终保留 `nativeRuntimeVerified=false`；产物不得据此取得发行资格。
 
 ## 仓库外性能验收合同
 
 在同机、相同工具链、相同来源资产条件下，对基线和候选交替执行。每个命令先预热，再取至少 10 次、建议 20 次独立进程样本。不能与编译或其他性能测量并行争抢资源。
+
+测量前必须核对两份构建收据与实际二进制、源码清单的绑定，并确认资产摘要、Go 环境和构建参数相同；输入读取失败也保存失败收据。
 
 测量 `--help`、`version --json` 以及四个 Profile 的 `bundle inspect --json`。Linux 的 wait4.ru_maxrss 单位为 KiB，macOS 为 bytes，报告统一为 bytes；不能使用累计子进程最大值冒充单个进程峰值。原始样本、失败、工具源码摘要与构建收据一起保存。
 
