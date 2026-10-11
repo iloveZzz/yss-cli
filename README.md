@@ -52,6 +52,15 @@ yss bundle inspect --profile spec --json
 yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 ```
 
+模板前进后刷新来源锁用脚本，不要手改 `docs/source-lock.json`：
+
+```sh
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec            # 预演，不写文件
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --regenerate # 写锁并按上面的顺序重新生成、校验
+```
+
+脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`policyHash`；目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝。Backend / Frontend 的 `skillsSource` 不会被改，只给出提示。`product-design` 渲染黄金值（`internal/bundle/skill_lock_test.go`）是对 Node `treeHash` 与模板 `skills-lock.json` 的独立三方核对，测试失败时人工核对后再更新，脚本不改写。模板侧的 `scripts/verify-source-lock-lag` 在候选与发布验证里检查锁没有落后太多。
+
 来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
 离线程序安装与项目迁移分开，先生成计划，再显式应用：

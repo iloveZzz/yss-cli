@@ -42,7 +42,7 @@ export function selectVerification({ paths = [], sourcePaths = [], versionOnly =
     else if (/^tools\/verification-scope\/[^/]+\.go$/.test(file)) packages.add("./tools/verification-scope");
     else if (/^(?:go\.(?:mod|sum)|(?:internal\/(?:transaction|updater|project|governance|bundle|domain)|tools\/(?:bundle|package|release))\/.*\.go)$/.test(file)) { full = true; reasons.push(`共享核心或事务/安装/安全边界: ${file}`); }
     else if (/^(?:internal|cmd|tools)\/.*\.go$/.test(file)) seeds.add("./" + path.posix.dirname(file));
-    else if (/^(?:README\.md|AGENTS\.md|docs\/[^/]+\.md|compat\/README\.md|\.github\/workflows\/native\.yml|tools\/verification-plan(?:\.test)?\.mjs)$/.test(file)) reasons.push(`文档或验证策略自检: ${file}`);
+    else if (/^(?:README\.md|AGENTS\.md|docs\/[^/]+\.md|compat\/README\.md|\.github\/workflows\/native\.yml|tools\/(?:verification-plan|refresh-source-lock)(?:\.test)?\.mjs)$/.test(file)) reasons.push(`文档或验证策略自检: ${file}`);
     else unknown.push(file);
   }
   for (const original of sourcePaths) {
@@ -151,7 +151,7 @@ function main(argv) {
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
-  run(process.execPath, ["--test", "tools/verification-plan.test.mjs"]);
+  run(process.execPath, ["--test", "tools/verification-plan.test.mjs", "tools/refresh-source-lock.test.mjs"]);
   for (const group of plan.go) run("go", ["test", "-p", "1", "-count=1", "-timeout=60m", ...(group.run ? ["-run", group.run] : []), ...group.packages]);
   if (plan.vet.length) run("go", ["vet", ...plan.vet]);
   run("go", ["mod", "verify"]);
