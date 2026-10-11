@@ -3,6 +3,7 @@ package project
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -341,6 +342,57 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 	p.Resolutions = o.Resolutions
 	return u, nil
 }
+
+// previousVersion 识别实例当前的模板版本：先查历史对照表，再用实例自己记录的语义化版本。
+// 两者都没有时返回 ok=false，调用方必须如实报告，不得猜测。
+func (u *upgradePlanner) previousVersion() (string, bool, error) {
+	if commit, _, _ := u.previousSource(); commit != "" {
+		if version, ok, e := bundle.LookupTemplateVersion(u.id.Profile.Name, commit); e != nil || ok {
+			return version, ok, e
+		}
+	}
+	if u.id.Native != nil && bundle.IsSemver(u.id.Native.TemplateVersion) {
+		return u.id.Native.TemplateVersion, true, nil
+	}
+	return "", false, nil
+}
+
+// matchesSource 判断迁移规则是否适用于该实例的旧来源：精确来源逐项相等，版本区间按识别出的版本匹配。
+func (u *upgradePlanner) matchesSource(from bundle.SourceMatch) (bool, error) {
+	if from.Versions != nil {
+		version, ok, e := u.previousVersion()
+		if e != nil || !ok {
+			return false, e
+		}
+		return from.Versions.Contains(version), nil
+	}
+	commit, snapshot, hash := u.previousSource()
+	return from.TemplateCommit == commit && from.SnapshotHash == snapshot && (from.BundleHash == "" || from.BundleHash == hash), nil
+}
+
+// noteSourceVersion 只在目标 Bundle 含版本区间规则时报告实例的模板版本；识别不了就明说，规则不适用。
+func (u *upgradePlanner) noteSourceVersion(rules []bundle.MigrationRule) error {
+	ranged := 0
+	for _, rule := range rules {
+		if rule.From.Versions != nil {
+			ranged++
+		}
+	}
+	if ranged == 0 {
+		return nil
+	}
+	version, ok, e := u.previousVersion()
+	if e != nil {
+		return e
+	}
+	if ok {
+		u.plan.SourceVersion = version
+		return nil
+	}
+	commit, _, _ := u.previousSource()
+	u.plan.Notices = append(u.plan.Notices, fmt.Sprintf("来源版本无法识别：模板 commit %q 不在版本对照表，实例也没有记录语义化版本；%d 条按版本区间匹配的迁移规则未适用", commit, ranged))
+	return nil
+}
 func (u *upgradePlanner) previousSource() (string, string, string) {
 	if u.id.Native != nil {
 		return u.id.Native.TemplateCommit, u.id.Native.SnapshotHash, u.id.Native.BundleHash
@@ -437,9 +489,15 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		if e := u.bundle.Upgrade.Validate(u.bundle); e != nil {
 			return nil, e
 		}
-		commit, snapshot, hash := u.previousSource()
+		if e := u.noteSourceVersion(u.bundle.Upgrade.Rules); e != nil {
+			return nil, e
+		}
 		for _, rule := range u.bundle.Upgrade.Rules {
-			if rule.From.TemplateCommit == commit && rule.From.SnapshotHash == snapshot && (rule.From.BundleHash == "" || rule.From.BundleHash == hash) {
+			matched, e := u.matchesSource(rule.From)
+			if e != nil {
+				return nil, e
+			}
+			if matched {
 				if _, ok := u.old[rule.SourcePath]; ok {
 					retire[rule.SourcePath] = rule
 					if rule.Action == "rename" {
@@ -675,13 +733,24 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 				a.TargetData = base64.StdEncoding.EncodeToString(targetData)
 				pristine = pristine && d.Type == "missing"
 			}
-			keptException := documentedRetirement && previous.Disposition != nil && previous.Disposition.Choice == "keep-local" && previous.Disposition.RuleID == rule.ID && previous.Disposition.Applied == before
+			// 同一条规则、同样的字节上已登记过 keep-local，就继续保留：版本区间规则在实例升级到区间内的
+			// 新版本后仍会命中，用户拒绝过的删除不能每次重新提议。
+			keptException := previous.Disposition != nil && previous.Disposition.Choice == "keep-local" && previous.Disposition.RuleID == rule.ID && previous.Disposition.Applied == before
 			if keptException {
 				a.Action = "retired-preserved"
-				a.Reason = "继续执行已登记的历史技能退役保留例外"
+				if documentedRetirement {
+					a.Reason = "继续执行已登记的历史技能退役保留例外"
+				} else {
+					a.Reason = "继续执行已登记的退役保留决定"
+				}
 			} else if pristine {
 				a.Action = rule.Action
 				a.Reason = "固定来源规则及旧字节已核验"
+				if rule.Action == "delete" {
+					// 删除必须可审阅、可逐文件拒绝：keep-local 保留该文件，升级不失败。
+					a.Options = []string{"keep-local", "use-template"}
+					a.Reason = "固定来源规则及旧字节已核验；可选择 keep-local 拒绝删除并保留该文件"
+				}
 			} else {
 				u.conflict(&a, "删除/改名需要可信旧基线且源未定制、目标未占用")
 				if rule.Action == "rename" || before.Type != "file" {

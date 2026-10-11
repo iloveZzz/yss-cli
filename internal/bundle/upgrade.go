@@ -24,12 +24,33 @@ type AssetPolicy struct {
 	Kind      string   `json:"kind"`
 	Generator string   `json:"generator,omitempty"`
 }
+
+// SourceMatch 描述迁移规则适用的旧来源，二选一：
+//   - 精确来源：TemplateCommit 与 SnapshotHash（可再加 BundleHash）；
+//   - 版本区间：Versions，按实例的模板版本匹配，实例版本无法识别时规则不适用。
 type SourceMatch struct {
-	Profile        string `json:"profile"`
-	TemplateCommit string `json:"templateCommit"`
-	SnapshotHash   string `json:"sourceSnapshotHash"`
-	BundleHash     string `json:"bundleHash,omitempty"`
+	Profile        string        `json:"profile"`
+	TemplateCommit string        `json:"templateCommit,omitempty"`
+	SnapshotHash   string        `json:"sourceSnapshotHash,omitempty"`
+	BundleHash     string        `json:"bundleHash,omitempty"`
+	Versions       *VersionRange `json:"versions,omitempty"`
 }
+
+// sourcesOverlap 判断两条规则的适用来源是否可能同时命中同一个实例。
+// 精确来源与版本区间混用时无法静态判断，按重叠处理。
+func sourcesOverlap(a, b SourceMatch) bool {
+	if a.Profile != b.Profile {
+		return false
+	}
+	switch {
+	case a.Versions != nil && b.Versions != nil:
+		return a.Versions.overlaps(*b.Versions)
+	case a.Versions != nil || b.Versions != nil:
+		return true
+	}
+	return a.TemplateCommit == b.TemplateCommit && a.SnapshotHash == b.SnapshotHash && (a.BundleHash == "" || b.BundleHash == "" || a.BundleHash == b.BundleHash)
+}
+
 type MigrationRule struct {
 	ID         string      `json:"id"`
 	From       SourceMatch `json:"from"`
@@ -104,12 +125,22 @@ func (p *UpgradePolicy) Validate(b *Bundle) error {
 		}
 	}
 	for index, r := range p.Rules {
-		if !regexp.MustCompile(`^[a-z0-9][a-z0-9._-]+$`).MatchString(r.ID) || seen[r.ID] || r.From.Profile != b.Profile || !fullCommit.MatchString(r.From.TemplateCommit) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(r.From.SnapshotHash) || r.From.BundleHash != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(r.From.BundleHash) {
+		if !regexp.MustCompile(`^[a-z0-9][a-z0-9._-]+$`).MatchString(r.ID) || seen[r.ID] || r.From.Profile != b.Profile {
+			return domain.Fail("BUNDLE_RULE", "迁移规则来源或 ID 不合法")
+		}
+		if r.From.Versions != nil {
+			if r.From.TemplateCommit != "" || r.From.SnapshotHash != "" || r.From.BundleHash != "" {
+				return domain.Fail("BUNDLE_RULE", "迁移规则来源只能是精确来源或版本区间之一")
+			}
+			if e := r.From.Versions.Validate(); e != nil {
+				return e
+			}
+		} else if !fullCommit.MatchString(r.From.TemplateCommit) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(r.From.SnapshotHash) || r.From.BundleHash != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(r.From.BundleHash) {
 			return domain.Fail("BUNDLE_RULE", "迁移规则来源或 ID 不合法")
 		}
 		seen[r.ID] = true
 		for _, previous := range p.Rules[:index] {
-			if previous.From.Profile != r.From.Profile || previous.From.TemplateCommit != r.From.TemplateCommit || previous.From.SnapshotHash != r.From.SnapshotHash || previous.From.BundleHash != "" && r.From.BundleHash != "" && previous.From.BundleHash != r.From.BundleHash {
+			if !sourcesOverlap(previous.From, r.From) {
 				continue
 			}
 			if strings.EqualFold(previous.SourcePath, r.SourcePath) || previous.TargetPath != "" && r.TargetPath != "" && strings.EqualFold(previous.TargetPath, r.TargetPath) {
