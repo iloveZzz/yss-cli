@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -10,6 +11,26 @@ import (
 
 func configureChild(cmd *exec.Cmd) {}
 func supportsTerminate() bool      { return true }
+func pauseChild(cmd *exec.Cmd) error {
+	if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
+		return err
+	}
+	var status syscall.WaitStatus
+	for {
+		_, err := syscall.Wait4(cmd.Process.Pid, &status, syscall.WUNTRACED, nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !status.Stopped() {
+			return fmt.Errorf("native child exited before suspension: %v", status)
+		}
+		return nil
+	}
+}
+func resumeChild(cmd *exec.Cmd) error { return cmd.Process.Signal(syscall.SIGCONT) }
 func interruptChild(cmd *exec.Cmd, kind string) error {
 	switch kind {
 	case "cancel":
