@@ -206,15 +206,11 @@ func Export(ctx context.Context, profile, out string) (result *ExportResult, err
 	if e != nil {
 		return nil, e
 	}
-	snapshot, e := json.Marshal(b)
-	if e != nil {
-		return nil, e
-	}
 	sf, e := root.OpenFile(SnapshotFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if e != nil {
 		return nil, e
 	}
-	_, e = sf.Write(append(snapshot, '\n'))
+	e = writeSnapshot(ctx, sf, b)
 	if ce := sf.Close(); e == nil {
 		e = ce
 	}

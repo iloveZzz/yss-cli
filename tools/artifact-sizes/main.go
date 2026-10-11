@@ -31,6 +31,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		if len(raw)+1 > bundle.MaxSnapshotBytes {
+			return fmt.Errorf("%s public snapshot exceeds %d bytes", profile, bundle.MaxSnapshotBytes)
+		}
 		report[profile] = map[string]any{"snapshotBytes": len(raw) + 1, "bundleHash": b.BundleHash, "templateCommit": b.TemplateCommit}
 	}
 	return json.NewEncoder(os.Stdout).Encode(report)
