@@ -3,7 +3,6 @@ package governance
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -60,7 +59,7 @@ const approveGate=(id,subjectRef,extraBasis=[])=>{
 approveGate(gate.id,technical,[...proofRows,...architectureRefs.map(bound)]);
 put(cpRef,cp);
 `
-	cmd := exec.Command("node", "--input-type=module", "-e", program, f.Root, f.CheckpointRef, f.SliceRef, governanceOracleRoot(t))
+	cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, f.Root, f.CheckpointRef, f.SliceRef, governanceOracleRoot(t))
 	if raw, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("current native engineering aggregate: %v %s", err, raw)
 	}

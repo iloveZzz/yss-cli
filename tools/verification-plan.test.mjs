@@ -89,15 +89,14 @@ test("非核心目录的测试文件沿用原有的包加反向导入闭包", ()
   assert.deepEqual(plan.go[0].packages, ["./internal/cli", "./internal/format"]);
 });
 
-test("默认通道排除已知慢测试并使用收紧的超时，--slow 通道只跑它们", () => {
+test("完整选择不跳过慢测试，--slow 仍可作诊断专项", () => {
   const [full] = goTestArgs({ packages: ["./..."] });
   assert.ok(full.includes(`-timeout=${PACKAGE_TIMEOUT}`) && PACKAGE_TIMEOUT !== "60m");
-  const skip = full[full.indexOf("-skip") + 1];
-  for (const item of SLOW_TESTS) for (const name of item.names) assert.match(name, new RegExp(skip), name);
+  assert.ok(!full.includes("-skip"));
   assert.ok(!full.includes("-run"));
   const [focused] = goTestArgs({ packages: ["./internal/governance"], run: "Approval|Task" });
   assert.equal(focused[focused.indexOf("-run") + 1], "Approval|Task");
-  assert.ok(focused.includes("-skip"));
+  assert.ok(!focused.includes("-skip"));
   const slow = goTestArgs({}, { slow: true });
   assert.equal(slow.length, SLOW_TESTS.length);
   for (const [index, args] of slow.entries()) {
@@ -108,7 +107,7 @@ test("默认通道排除已知慢测试并使用收紧的超时，--slow 通道�
   }
 });
 
-test("被排除的慢测试在源码里确实存在，改名后不会让 -skip 悄悄失效", () => {
+test("独立生命周期分片的测试在源码里确实存在", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   for (const item of SLOW_TESTS) {
     const directory = path.join(root, item.package);

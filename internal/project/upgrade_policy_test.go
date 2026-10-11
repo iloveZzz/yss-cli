@@ -41,12 +41,12 @@ func TestUpgradeFixedRulesPlanDeletionRenameAndMissingBase(t *testing.T) {
 	// contains its exact baseline, so no network/source inference is needed.
 	for _, action := range []string{"delete", "rename"} {
 		b := copyUpgradeBundle(t)
-		ref := ".codex/config.toml"
+		ref := ".nvmrc"
 		delete(b.Initial, ref)
 		delete(b.Files, ref)
 		rule := bundle.MigrationRule{ID: "config-" + action, From: bundle.SourceMatch{Profile: "spec", TemplateCommit: id.Native.TemplateCommit, SnapshotHash: id.Native.SnapshotHash, BundleHash: id.Native.BundleHash}, Action: action, SourcePath: ref}
 		if action == "rename" {
-			rule.TargetPath = ".codex/yss-config.toml"
+			rule.TargetPath = ".node-version"
 			data := []byte("# renamed fixed config\n")
 			f := bundle.File{Data: base64.StdEncoding.EncodeToString(data), Digest: safefs.Digest(data), Mode: 0644, Ownership: "managed"}
 			b.Files[rule.TargetPath] = f
@@ -101,14 +101,14 @@ func TestUpgradeFixedRulesPlanDeletionRenameAndMissingBase(t *testing.T) {
 		t.Fatal(e)
 	}
 	b := copyUpgradeBundle(t)
-	delete(b.Initial, ".codex/config.toml")
-	delete(b.Files, ".codex/config.toml")
-	b.Upgrade.Rules = []bundle.MigrationRule{{ID: "without-base", From: bundle.SourceMatch{Profile: "spec", TemplateCommit: id.Native.TemplateCommit, SnapshotHash: id.Native.SnapshotHash}, Action: "delete", SourcePath: ".codex/config.toml"}}
+	delete(b.Initial, ".nvmrc")
+	delete(b.Files, ".nvmrc")
+	b.Upgrade.Rules = []bundle.MigrationRule{{ID: "without-base", From: bundle.SourceMatch{Profile: "spec", TemplateCommit: id.Native.TemplateCommit, SnapshotHash: id.Native.SnapshotHash}, Action: "delete", SourcePath: ".nvmrc"}}
 	p, e := BuildWithOptions(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if p.ReadyToApply || upgradeAsset(p, ".codex/config.toml").BaselineAvailable {
+	if p.ReadyToApply || upgradeAsset(p, ".nvmrc").BaselineAvailable {
 		t.Fatal("missing historical material authorized automatic deletion")
 	}
 }
@@ -275,7 +275,7 @@ func TestUpgradeRejectsOverlappingRetirementRules(t *testing.T) {
 	b.Upgrade.Rules[1].SourcePath = "scripts/another-old-file"
 	for i := range b.Upgrade.Rules {
 		b.Upgrade.Rules[i].Action = "rename"
-		b.Upgrade.Rules[i].TargetPath = ".codex/config.toml"
+		b.Upgrade.Rules[i].TargetPath = ".nvmrc"
 	}
 	if e := b.Upgrade.Validate(b); lockCode(e) != "BUNDLE_RULE" {
 		t.Fatal("overlapping rule destinations accepted", e)

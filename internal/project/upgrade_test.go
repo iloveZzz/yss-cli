@@ -26,8 +26,8 @@ func TestUpgradeAddsNewBaseAndReportsRetiredAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delete(id.Native.Managed, ".codex/config.toml")
-	if err := os.Remove(filepath.Join(root, ".codex/config.toml")); err != nil {
+	delete(id.Native.Managed, ".nvmrc")
+	if err := os.Remove(filepath.Join(root, ".nvmrc")); err != nil {
 		t.Fatal(err)
 	}
 	retiredRecord := id.Native.Managed["AGENTS.md"]
@@ -47,7 +47,7 @@ func TestUpgradeAddsNewBaseAndReportsRetiredAssets(t *testing.T) {
 	}
 	added := false
 	for _, c := range p.Changes {
-		added = added || c.Path == ".codex/config.toml"
+		added = added || c.Path == ".nvmrc"
 	}
 	if !added {
 		t.Fatal("sync silently omitted a new base asset")

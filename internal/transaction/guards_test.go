@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -91,33 +90,22 @@ func TestGuardDriftDuringApplyRestoresTargetsAndPreservesFactEdit(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	type completion struct {
-		out transaction.Result
-		err error
-	}
-	done := make(chan completion, 1)
-	go func() {
-		out, e := transaction.ApplyWithGuards(root, "sync", ops, map[string]domain.Descriptor{"CONTEXT.md": d})
-		done <- completion{out, e}
-	}()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		b, _ := os.ReadFile(filepath.Join(root, "first"))
-		if string(b) == "after" {
-			break
+	observed := false
+	defer transaction.SetTemporaryWriterForTest(func(f *os.File, data []byte) (int, error) {
+		n, err := f.Write(data)
+		if err == nil && filepath.Dir(f.Name()) == filepath.Join(root, "generated") {
+			b, readErr := os.ReadFile(filepath.Join(root, "first"))
+			if readErr != nil || string(b) != "after" {
+				t.Fatalf("drift point precedes target mutation: %v", readErr)
+			}
+			observed = true
+			err = os.WriteFile(filepath.Join(root, "CONTEXT.md"), []byte("human edit"), 0644)
 		}
-		if time.Now().After(deadline) {
-			<-done
-			t.Fatal("apply did not reach target writes")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if e = os.WriteFile(filepath.Join(root, "CONTEXT.md"), []byte("human edit"), 0644); e != nil {
-		t.Fatal(e)
-	}
-	result := <-done
-	if errorCode(result.err) != "INPUT_DRIFT" || result.out.Status != "recovered" {
-		t.Fatalf("drift did not restore targets: %+v %v", result.out, result.err)
+		return n, err
+	})()
+	out, err := transaction.ApplyWithGuards(root, "sync", ops, map[string]domain.Descriptor{"CONTEXT.md": d})
+	if !observed || errorCode(err) != "INPUT_DRIFT" || out.Status != "recovered" {
+		t.Fatalf("drift did not restore targets: %+v %v", out, err)
 	}
 	for ref, want := range map[string]string{"first": "original", "CONTEXT.md": "human edit"} {
 		b, e := os.ReadFile(filepath.Join(root, ref))
@@ -193,32 +181,22 @@ func TestCancelledActiveTransactionRestoresAllTouchedFiles(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type completion struct {
-		result transaction.Result
-		err    error
-	}
-	done := make(chan completion, 1)
-	go func() {
-		out, err := transaction.ApplyContext(ctx, root, "cancel-test", ops)
-		done <- completion{out, err}
-	}()
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		b, _ := os.ReadFile(filepath.Join(root, "first"))
-		if string(b) == "after" {
-			break
-		}
-		if time.Now().After(deadline) {
+	observed := false
+	defer transaction.SetTemporaryWriterForTest(func(f *os.File, data []byte) (int, error) {
+		n, err := f.Write(data)
+		if err == nil && filepath.Dir(f.Name()) == filepath.Join(root, "generated") {
+			b, readErr := os.ReadFile(filepath.Join(root, "first"))
+			if readErr != nil || string(b) != "after" {
+				t.Fatalf("cancel point precedes target mutation: %v", readErr)
+			}
+			observed = true
 			cancel()
-			<-done
-			t.Fatal("apply did not reach cancellable target writes")
 		}
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	out := <-done
-	if !errors.Is(out.err, context.Canceled) || out.result.Status != "recovered" {
-		t.Fatalf("cancellation did not restore transaction: %+v %v", out.result, out.err)
+		return n, err
+	})()
+	out, err := transaction.ApplyContext(ctx, root, "cancel-test", ops)
+	if !observed || !errors.Is(err, context.Canceled) || out.Status != "recovered" {
+		t.Fatalf("cancellation did not restore transaction: %+v %v", out, err)
 	}
 	b, err := os.ReadFile(filepath.Join(root, "first"))
 	if err != nil || string(b) != "original" {

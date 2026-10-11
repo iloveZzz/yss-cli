@@ -47,11 +47,7 @@ func Load(profile string) (*Bundle, error) {
 	if _, err := domain.GetProfile(profile); err != nil {
 		return nil, err
 	}
-	raw, err := snapshots.load("packed-v1", packedData)
-	if err != nil {
-		return nil, err
-	}
-	return loadPacked(raw, profile)
+	return embeddedBundles.load(profile)
 }
 func (f File) Render(vars map[string]string) ([]byte, error) {
 	b, err := base64.StdEncoding.DecodeString(f.Data)

@@ -3,11 +3,11 @@ package transaction_test
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -20,10 +20,10 @@ func crashOperations(root string) ([]transaction.Operation, error) {
 		return nil, err
 	}
 	ops := []transaction.Operation{{Path: "first", Before: &before, Data: []byte("after"), Mode: 0644}}
-	// Enough fsynced operations for the parent to terminate a real process between
-	// target mutations. No production hooks or synthetic journal fixtures are used.
+	// Observe a completed real producer write instead of racing hundreds of
+	// writes: an arbitrary partial temporary is correctly refused by recovery.
 	data := bytes.Repeat([]byte("payload"), 8192)
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 2; i++ {
 		ops = append(ops, transaction.Operation{Path: fmt.Sprintf("generated/%03d", i), Data: data, Mode: 0600})
 	}
 	ops = append(ops, transaction.Operation{Path: ".yss.json", Data: []byte("{\"schemaVersion\":1,\"profile\":\"spec\"}\n"), Mode: 0644})
@@ -32,9 +32,31 @@ func crashOperations(root string) ([]transaction.Operation, error) {
 
 func TestTransactionCrashHelper(t *testing.T) {
 	root := os.Getenv("YSS_TRANSACTION_CRASH_ROOT")
+	partial := false
+	if root == "" {
+		root = os.Getenv("YSS_TRANSACTION_PARTIAL_CRASH_ROOT")
+		partial = root != ""
+	}
 	if root == "" {
 		return
 	}
+	defer transaction.SetTemporaryWriterForTest(func(f *os.File, b []byte) (int, error) {
+		if partial && filepath.Dir(f.Name()) == filepath.Join(root, "generated") && strings.HasSuffix(f.Name(), "-apply.tmp") {
+			n, err := f.Write(b[:len(b)/2])
+			if err == nil {
+				err = retainProducerWrite(f)
+			}
+			return n, err
+		}
+		n, err := f.Write(b)
+		if err == nil && filepath.Dir(f.Name()) == filepath.Join(root, "generated") && strings.HasSuffix(f.Name(), "-apply.tmp") {
+			if n != len(b) {
+				return n, io.ErrShortWrite
+			}
+			err = retainProducerWrite(f)
+		}
+		return n, err
+	})()
 	ops, err := crashOperations(root)
 	if err != nil {
 		t.Fatal(err)
@@ -44,45 +66,50 @@ func TestTransactionCrashHelper(t *testing.T) {
 	}
 }
 
-func startAndInterrupt(t *testing.T, root string) {
-	t.Helper()
-	child := exec.Command(os.Args[0], "-test.run=^TestTransactionCrashHelper$")
-	child.Env = append(os.Environ(), "YSS_TRANSACTION_CRASH_ROOT="+root)
-	var output bytes.Buffer
-	child.Stdout = &output
-	child.Stderr = &output
-	if err := child.Start(); err != nil {
+func TestKilledPartialProducerTemporaryRemainsRefused(t *testing.T) {
+	root := testRoot(t)
+	if err := os.WriteFile(filepath.Join(root, "first"), []byte("original"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	waited := false
-	t.Cleanup(func() {
-		if !waited {
-			_ = child.Process.Kill()
-			_ = child.Wait()
+	expected := bytes.Repeat([]byte("payload"), 4096)
+	ref := killObservedProducer(t, root, "TestTransactionCrashHelper", "YSS_TRANSACTION_PARTIAL_CRASH_ROOT", func(ref string) {
+		b, err := os.ReadFile(ref)
+		if err != nil || !bytes.Equal(b, expected) {
+			t.Fatalf("partial producer bytes not observed: %v", err)
 		}
 	})
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		b, _ := os.ReadFile(filepath.Join(root, "first"))
-		if string(b) == "after" {
-			break
+	if _, err := transaction.Recover(root); errorCode(err) != "RECOVERY_FAILED" {
+		t.Fatalf("ambiguous partial temporary was accepted: %v", err)
+	}
+	b, err := os.ReadFile(ref)
+	if err != nil || !bytes.Equal(b, expected) {
+		t.Fatal("refused temporary changed")
+	}
+	b, err = os.ReadFile(filepath.Join(root, "first"))
+	if err != nil || string(b) != "after" {
+		t.Fatal("refusal partially restored transaction")
+	}
+}
+
+func startAndInterrupt(t *testing.T, root string) {
+	t.Helper()
+	observed := false
+	killObservedProducer(t, root, "TestTransactionCrashHelper", "YSS_TRANSACTION_CRASH_ROOT", func(ref string) {
+		b, err := os.ReadFile(filepath.Join(root, "first"))
+		if err != nil || string(b) != "after" {
+			t.Fatalf("first target not mutated: %q %v", b, err)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("child did not reach the first target mutation")
+		b, err = os.ReadFile(ref)
+		if err != nil || !bytes.Equal(b, bytes.Repeat([]byte("payload"), 8192)) {
+			t.Fatal("incomplete producer temporary", err)
 		}
-		time.Sleep(time.Millisecond)
-	}
-	if _, err := transaction.Apply(root, "competing", []transaction.Operation{{Path: "competitor", Data: []byte("must not appear")}}); errorCode(err) != "LOCKED" {
-		t.Fatalf("concurrent process did not retain exclusive ownership: %v", err)
-	}
-	if err := child.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	err := child.Wait()
-	waited = true
-	if err == nil {
-		t.Fatalf("process finished before crash injection: %s", output.String())
-	}
+		if !observed {
+			if _, err := transaction.Apply(root, "competing", []transaction.Operation{{Path: "competitor", Data: []byte("must not appear")}}); errorCode(err) != "LOCKED" {
+				t.Fatalf("concurrent process did not retain exclusive ownership: %v", err)
+			}
+		}
+		observed = true
+	})
 	state, err := transaction.Status(root)
 	if err != nil {
 		t.Fatal(err)

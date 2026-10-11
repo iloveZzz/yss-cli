@@ -99,7 +99,7 @@ if(business==='true') {
 put(f.checkpointRef,cp);
 console.log(JSON.stringify({root:f.root,checkpointRef:f.checkpointRef,sliceRef:f.sliceRef,sliceID:f.sliceID,backendTerminalRef:f.backendTerminalRef,frontendPlanRef:f.frontendPlanRef,frontendVerificationRef:f.frontendVerificationRef,frontendWorkUnitId:f.frontendWorkUnitId,taskRef,projectRoot:f.project}));`
 	withBusiness := len(business) != 0 && business[0]
-	cmd := exec.Command("node", "--input-type=module", "-e", program, oracle, seed, fmt.Sprint(backendRequired), fmt.Sprint(withBusiness), frontendSeed)
+	cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, oracle, seed, fmt.Sprint(backendRequired), fmt.Sprint(withBusiness), frontendSeed)
 	cmd.Dir = oracle
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
@@ -133,7 +133,7 @@ func actualLocalImplementationNativeSeed(t *testing.T) string {
 	// Those Skills are review discovery knowledge, not this Slice's execution set.
 	plan := filepath.Join(t.TempDir(), "local-compiler-plan.json")
 	for _, args := range [][]string{{"skills", "ensure", "alibaba-java-code-style", "lombok", "mapstruct", "yss-cache", "yss-web-controller", "yss-dto", "yss-validation", "yss-exception", "yss-application", "yss-audit-log", "yss-distributed-id", "yss-excel-mvc", "yss-mybatis", "yss-resilience4j", "yss-security-algorithm", "yss-userinfo", "yss-implementation-contract-compiler", "yss-tactical-design", "yss-layered-mvc-scaffold-generator", "yss-ddd-scaffold-generator", "yss-frontend-scaffold-generator", "--root", seed, "--plan", "--out", plan, "--json"}, {"skills", "--root", seed, "--apply", "--plan-file", plan, "--json"}} {
-		if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), args...).CombinedOutput(); err != nil {
+		if raw, err := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), args...).CombinedOutput(); err != nil {
 			t.Fatalf("public required implementation closure: %v %s", err, raw)
 		}
 	}
@@ -168,7 +168,7 @@ func TestLocalFrontendNativeCurrentImplementationEvidence(t *testing.T) {
 	t.Run("actual-public-short-goal-stops-old-worker-and-resumes", func(t *testing.T) {
 		native := os.Getenv("YSS_NATIVE_BINARY")
 		original := progressionInventory(t, f.Root)
-		run := func(args ...string) ([]byte, error) { return exec.Command(native, args...).CombinedOutput() }
+		run := func(args ...string) ([]byte, error) { return governanceCommand(t, native, args...).CombinedOutput() }
 		worker := []string{"contract", "verify", "--root", f.Root, "--kind", "task", "--file", f.TaskRef, "--json"}
 		if raw, err := run(worker...); err != nil {
 			t.Fatalf("public original Worker: %v %s", err, raw)
@@ -546,7 +546,7 @@ func localFrontendPolicyFixture(t *testing.T) string {
 	program := `import path from 'node:path';import {pathToFileURL} from 'node:url';
 const source=process.argv[1];const {localBackendTerminalFixture,registerLocalBackendFeature}=await import(pathToFileURL(path.join(source,'scripts/fixtures/backend-delivery/local-terminal-fixture.mjs')).href);
 const f=localBackendTerminalFixture();registerLocalBackendFeature(f);console.log(JSON.stringify({root:f.root}));`
-	cmd := exec.Command("node", "--input-type=module", "-e", program, oracle)
+	cmd := governanceNodeCommand(t, "--input-type=module", "-e", program, oracle)
 	cmd.Dir = oracle
 	raw, err := cmd.CombinedOutput()
 	if err != nil {

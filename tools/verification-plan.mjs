@@ -2,9 +2,12 @@
 /** 按真实差异选择验证；未知影响扩大，计划不代表执行通过。 */
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { buildTaskManifest, executeTask, collectReports, PACKAGE_TIMEOUT, SLOW_TIMEOUT, SLOW_TESTS } from "./verification-tasks.mjs";
+export { PACKAGE_TIMEOUT, SLOW_TIMEOUT, SLOW_TESTS };
 
 const ASSET_PACKAGES = ["./internal/bundle", "./tools/bundle", "./tools/package", "./tools/release"];
 const HELP_PATTERN = "Help|Presentation|Version";
@@ -12,20 +15,12 @@ const HELP_PATTERN = "Help|Presentation|Version";
 const CORE_DIRECTORIES = String.raw`(?:internal\/(?:transaction|updater|project|governance|bundle|domain)|tools\/(?:bundle|package|release))`;
 // 其下的 _test.go 与 testdata 不会被任何其他包导入，变化只可能影响本包自己的测试。
 const TEST_ONLY = new RegExp(`^(${CORE_DIRECTORIES}(?:\\/[^/]+)*?)\\/(?:[^/]+_test\\.go|testdata\\/.+)$`);
-// 单个测试二进制的超时。曾经是 60 分钟，一个卡住的测试要等满一小时才失败；
-// 取 30 分钟是因为 internal/project 在本机就要 8 分钟以上，runner 更慢，15 分钟会误杀。拿到 runner 数据后再收紧。
-export const PACKAGE_TIMEOUT = "30m";
-export const SLOW_TIMEOUT = "90m";
-// 已知超长的测试不在 PR 路径里跑：默认通道用 -skip 排除，--slow 通道只跑它们，
-// 由 native.yml 在 main 推送与手动全量时单独执行。上一次它在 internal/governance 里跑满 60 分钟超时。
-export const SLOW_TESTS = [{ package: "./internal/governance", names: ["TestLifecycleTargetNativeSpecDesignBusinessSequence"] }];
 const slowPattern = names => `^(?:${names.join("|")})$`;
 
-/** 默认通道：排除已知慢测试；slow 通道：只跑它们。 */
+/** 定向命令兼容入口；实际执行由发现清单统一分片，完整选择不排除慢测试。 */
 export function goTestArgs(group, { slow = false } = {}) {
-  if (slow) return SLOW_TESTS.map(item => ["test", "-p", "1", "-count=1", `-timeout=${SLOW_TIMEOUT}`, "-run", slowPattern(item.names), item.package]);
-  const skip = slowPattern(SLOW_TESTS.flatMap(item => item.names));
-  return [["test", "-p", "1", "-count=1", `-timeout=${PACKAGE_TIMEOUT}`, ...(group.run ? ["-run", group.run] : []), "-skip", skip, ...group.packages]];
+  if (slow) return SLOW_TESTS.map(item => ["test", "-json", "-p", "1", "-count=1", `-timeout=${SLOW_TIMEOUT}`, "-run", slowPattern(item.names), item.package]);
+  return [["test", "-json", "-p", "1", "-count=1", `-timeout=${PACKAGE_TIMEOUT}`, ...(group.run ? ["-run", group.run] : []), ...group.packages]];
 }
 const sourcePath = value => value.replace(/^tests\/fixtures\/upstream-source\//, "").replace(/^(?:\.codex|\.cursor|\.pi)\/skills\//, ".agents/skills/");
 
@@ -121,23 +116,55 @@ function sourceDiff(root, before, after) {
   return lines(git(["diff", "--name-only", before, after], root));
 }
 
-function main(argv) {
+async function main(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (["--full", "--execute", "--slow"].includes(flag)) options[flag.slice(2)] = true;
-    else if (["--base", "--template-root", "--out"].includes(flag) && argv[i + 1]) options[flag.slice(2)] = argv[++i];
+    if (["--full", "--execute", "--slow", "--fail-fast"].includes(flag)) options[flag.slice(2)] = true;
+    else if (["--base", "--template-root", "--out", "--report-dir", "--tasks-out", "--jobs", "--timings"].includes(flag) && argv[i + 1]) options[flag.slice(2)] = argv[++i];
     else throw new Error(`不支持或缺值的参数: ${flag}`);
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const commands = [];
+  const run = (command, args, cwd = root) => commands.push({ id: `command-${commands.length + 1}`, command, args, cwd, goJSON: command === "go" && args.includes("-json") });
+  const template = options["template-root"] ? path.resolve(options["template-root"]) : process.env.YSS_LEGACY_ORACLE_ROOT;
+  const execute = async plan => {
+    const durations = options.timings ? Object.fromEntries(JSON.parse(fs.readFileSync(options.timings)).tests.filter(t => t.test && t.status === "pass").map(t => [`${t.package}/${t.test}`, t.elapsed])) : {};
+    const manifest = buildTaskManifest(plan, commands, { cwd: root, templateRoot: template, durations });
+    const outDir = options["report-dir"] ?? fs.mkdtempSync(path.join(os.tmpdir(), "yss-verification-"));
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(options["tasks-out"] ?? path.join(outDir, "verification-tasks.json"), JSON.stringify(manifest, null, 2) + "\n");
+    if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: manifest.tasks.map(t => ({ task: t.id })) })}\n`);
+    if (!options.execute && !options.slow) return;
+    const jobs = Number(options.jobs ?? 3);
+    if (!Number.isInteger(jobs) || jobs < 1 || jobs > 3) throw new Error("--jobs 必须是 1 到 3");
+    process.stderr.write(`验证报告: ${outDir}；并发任务: ${jobs}\n`);
+    const reports = [], pending = [...manifest.tasks];
+    let cancelled = false;
+    const cancel = () => { cancelled = true; };
+    process.on("SIGINT", cancel); process.on("SIGTERM", cancel);
+    try { await Promise.all(Array.from({ length: jobs }, async () => {
+      while (pending.length && !cancelled) {
+        const task = pending.shift();
+        try {
+          const report = await executeTask(manifest, task.id, { cwd: root, templateRoot: template,
+            outDir: path.join(outDir, task.id), failFast: options["fail-fast"] });
+          reports.push(report);
+          process.exitCode ||= report.exitCode;
+          if (report.exitCode && options["fail-fast"]) pending.length = 0;
+        } catch (error) {
+          process.stderr.write(`${task.id}: ${error.message}\n`); process.exitCode = 1;
+          if (options["fail-fast"]) pending.length = 0;
+        }
+      }
+    })); } finally { process.off("SIGINT", cancel); process.off("SIGTERM", cancel); }
+    const summary = collectReports(manifest, reports);
+    fs.writeFileSync(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
+    process.stderr.write(`完成 ${summary.tasks.length} 个任务；记录 ${summary.skipped.filter(t => t.test).length} 个显式测试跳过（见 summary.json）。\n`);
+  };
   if (options.slow) {
-    if (options.full || options.execute || options.base) throw new Error("--slow 单独使用：只运行已知慢测试，不做影响分析");
-    for (const args of goTestArgs({}, { slow: true })) {
-      const result = spawnSync("go", args, { cwd: root, env: process.env, stdio: "inherit" });
-      if (result.error) throw result.error;
-      if (result.status !== 0) process.exit(result.status ?? 1);
-    }
-    return;
+    if (options.full || options.execute || options.base) throw new Error("--slow 单独使用：只运行生命周期专项，不做影响分析");
+    return execute({ go: SLOW_TESTS.map(s => ({ packages: [s.package], run: slowPattern(s.names) })) });
   }
   const base = options.base || git(["rev-parse", "HEAD^"], root);
   if (!/^[a-f0-9]{40}$/.test(base)) throw new Error("--base 必须是完整提交 SHA");
@@ -173,20 +200,12 @@ function main(argv) {
   if (options.out) fs.writeFileSync(options.out, JSON.stringify(plan, null, 2) + "\n");
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `native_required=${plan.nativeRequired}\nsource_changed=${sourceChanged}\nscope=${plan.scope}\n`);
   process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
-  if (!options.execute) return;
+  if (!options.execute && !options["tasks-out"]) return;
   if (plan.sourceAnalysisPending) throw new Error("来源变化尚未分析；先提供 --template-root，不能执行未闭合的验证计划");
-  function run(command, args, cwd = root, env = process.env) {
-    const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
-    if (result.error) throw result.error;
-    if (result.status !== 0) process.exit(result.status ?? 1);
-  }
-  run(process.execPath, ["--test", "tools/verification-plan.test.mjs"]);
-  process.stderr.write(`已知慢测试不在本通道运行，由 --slow 单独执行: ${SLOW_TESTS.flatMap(item => item.names).join(", ")}\n`);
-  for (const group of plan.go) for (const args of goTestArgs(group)) run("go", args);
+  run("node", ["--test", ...fs.readdirSync(path.join(root, "tools")).filter(f => /^(?:verification-.*|native-fixture-register)\.test\.mjs$/.test(f)).sort().map(f => "tools/" + f)]);
   if (plan.vet.length) run("go", ["vet", ...plan.vet]);
   run("go", ["mod", "verify"]);
   if (plan.sourceSuites.length && !options["template-root"]) throw new Error("专项来源测试缺少 --template-root");
-  const template = options["template-root"] && path.resolve(options["template-root"]);
   const tests = new Set();
   for (const suite of plan.sourceSuites) {
     if (suite === "implementation-contracts") for(const file of ["tests/implementation-contract-compiler.test.mjs",".agents/skills/yss-implementation-contract-compiler/tests/backend-profiles.test.mjs","tests/slice-task-package-frontend-boundary.test.mjs"])tests.add(file);
@@ -199,8 +218,9 @@ function main(argv) {
       else if (!ref.endsWith("standalone.test.mjs")) throw new Error("来源专项测试缺失: " + file);
     }
   }
-  if (tests.size) run(process.execPath, ["--test", "--test-concurrency=1", ...tests], template);
+  if (tests.size) run("node", ["--test", "--test-concurrency=1", ...tests], template);
+  await execute(plan);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { main(process.argv.slice(2)); } catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 1; }
+  try { await main(process.argv.slice(2)); } catch (error) { process.stderr.write(error.message + "\n"); process.exitCode = 1; }
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -20,7 +19,7 @@ const root=process.argv[1],{planTracking,applyTracking}=await import(pathToFileU
 const base=path.join(root,'.work/analysis');fs.mkdirSync(base,{recursive:true});
 const cp=JSON.parse(fs.readFileSync(path.join(root,'.template-spec/process/templates/lifecycle-checkpoint-template.json'),'utf8'));Object.assign(cp,{feature_id:'feature.analysis',repository_mode:'project-instance',stage:'stage.plan',next_work_unit:'work-unit.plan-requirements'});if(cp.stage_trace)cp.stage_trace.stage=cp.stage;fs.writeFileSync(path.join(base,'checkpoint.json'),JSON.stringify(cp));fs.writeFileSync(path.join(base,'map.md'),'---\ncheckpoint_ref: .work/analysis/checkpoint.json\n---\n');
 const plan=planTracking(root,{checkpoint_ref:'.work/analysis/checkpoint.json',items:[{id:'requirements',title:'Synthetic local requirements',stage:'stage.plan',work_unit:'work-unit.plan-requirements',owner:'synthetic-analysis',scope:'Confirm same-side business requirements',acceptance:['Current source rules recorded'],source_refs:['CONTEXT.md']}]});applyTracking(root,plan);`
-	if raw, err := exec.Command("node", "--input-type=module", "-e", program, frontend).CombinedOutput(); err != nil {
+	if raw, err := governanceNodeCommand(t, "--input-type=module", "-e", program, frontend).CombinedOutput(); err != nil {
 		t.Fatalf("actual public analysis tracking: %v %s", err, raw)
 	}
 	s := apTestSession(t, frontend)
@@ -32,18 +31,18 @@ const plan=planTracking(root,{checkpoint_ref:'.work/analysis/checkpoint.json',it
 		role := taskRole(s, roleID)
 		task := map[string]any{"schema_version": 1, "task_id": "synthetic.local-analysis", "work_unit_id": unit, "actor_id": "synthetic.analysis", "role_id": roleID, "runtime_id": "runtime.generic", "execution_state": "Drafter", "workflow_status": "active", "stage_id": stage, "skill_source": map[string]any{"registry_ref": approvalRolesRef, "defaults_ref": "taskPackageDefaults(" + roleID + ")", "core_skills": role["core_skills"], "forbidden_skills": role["forbidden_skills"]}, "contract": map[string]any{"kind": "lifecycle-work-unit", "contract_id": "synthetic.current", "contract_version": 1, "status": "issued", "contract_ref": guidanceContractRef("frontend"), "lifecycle_ref": approvalRegistryRef}, "inputs": []any{"CONTEXT.md"}, "objective": "Synthetic local analysis consumer; no real approval", "allowed_write_paths": []any{".work/analysis/plan.md"}, "checkpoint_ref": ".work/analysis/checkpoint.json", "forbidden_actions": []any{"publish"}, "expected_outputs": []any{"analysis"}, "expected_evidence_files": []any{"AGENTS.md"}, "verification_commands": []any{"synthetic check"}, "verification_results": []any{}, "downstream_consumers": []any{"test"}, "convergence": map[string]any{"parent_work_unit": unit, "convergence_ref": "AGENTS.md"}}
 		apTestPut(t, frontend, "task.json", task)
-		if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", frontend, "--kind", "task", "--file", "task.json", "--json").CombinedOutput(); err != nil {
+		if raw, err := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", frontend, "--kind", "task", "--file", "task.json", "--json").CombinedOutput(); err != nil {
 			t.Fatalf("public local analysis %s: %v %s", unit, err, raw)
 		}
 		task["execution_state"] = "Worker"
 		apTestPut(t, frontend, "task.json", task)
-		if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", frontend, "--kind", "task", "--file", "task.json", "--json").CombinedOutput(); err == nil {
+		if raw, err := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", frontend, "--kind", "task", "--file", "task.json", "--json").CombinedOutput(); err == nil {
 			t.Fatalf("analysis granted Worker: %s", raw)
 		}
 	}
 	spec := actualLocalImplementationNativeSeed(t)
 	f := actualLocalImplementationFixtureForProfile(t, spec, frontend, false)
-	if raw, err := exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Root, "--kind", "task", "--file", f.TaskRef, "--json").CombinedOutput(); err != nil {
+	if raw, err := governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "contract", "verify", "--root", f.Root, "--kind", "task", "--file", f.TaskRef, "--json").CombinedOutput(); err != nil {
 		t.Fatalf("actual Frontend approved local Worker: %v %s", err, raw)
 	}
 	completion := func() error {
@@ -85,7 +84,7 @@ func TestLocalFrontendSpecialistExternalBackendAndLocalBackendTerminal(t *testin
 	program := `import path from 'node:path';import {pathToFileURL} from 'node:url';
 const [source,seed]=process.argv.slice(1),{backendProfileTerminalFixture}=await import(pathToFileURL(path.join(source,'scripts/fixtures/backend-delivery/backend-profile-terminal-fixture.mjs')).href);
 const f=await backendProfileTerminalFixture({nativeSeed:seed,localEvidence:true});console.log(JSON.stringify({root:f.root,checkpoint:f.checkpointRef,terminal:f.terminalRef,slice:f.binding.ref,sliceID:f.contract.slice_id,specDigest:f.contract.basis.spec.digest,apiDigest:f.delivery.openapi.digest}));`
-	raw, err := exec.Command("node", "--input-type=module", "-e", program, oracle, seed).CombinedOutput()
+	raw, err := governanceNodeCommand(t, "--input-type=module", "-e", program, oracle, seed).CombinedOutput()
 	if err != nil {
 		t.Fatalf("current Backend local evidence fixture: %v %s", err, raw)
 	}
@@ -96,7 +95,7 @@ const f=await backendProfileTerminalFixture({nativeSeed:seed,localEvidence:true}
 	t.Cleanup(func() { os.RemoveAll(f.Root) })
 	apTestPut(t, f.Root, "local-deployment.json", mustReadSpecBaselineTestFile(t, filepath.Join(f.Root, "profile-deployment.json")))
 	qualifyLocalBackendMilestoneEngineering(t, localImplementationTestFixture{Root: f.Root, CheckpointRef: f.Checkpoint, SliceRef: f.Slice})
-	if raw, err = exec.Command(os.Getenv("YSS_NATIVE_BINARY"), "lifecycle", "status", "--root", f.Root, "--checkpoint", f.Checkpoint, "--json").CombinedOutput(); err != nil {
+	if raw, err = governanceCommand(t, os.Getenv("YSS_NATIVE_BINARY"), "lifecycle", "status", "--root", f.Root, "--checkpoint", f.Checkpoint, "--json").CombinedOutput(); err != nil {
 		t.Fatalf("public actual Backend local terminal: %v %s", err, raw)
 	}
 	var status map[string]any
