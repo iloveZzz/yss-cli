@@ -2,17 +2,17 @@
   "schemaVersion": 3,
   "producer": {
     "version": "bundle-producer-v3",
-    "commit": "9e1fc2ce816019e2911bd897f9684988d161d13c",
+    "commit": "eb5d43574b765f2cfcd5c59708d18dc678c4b919",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "3a04d7424acdf2859c74f6652ff7c6256a3c8545",
-      "templateVersion": "git:3a04d7424acdf2859c74f6652ff7c6256a3c8545",
+      "templateCommit": "4f8a96b97f4c017545ab68f11ace868d4bb7976a",
+      "templateVersion": "git:4f8a96b97f4c017545ab68f11ace868d4bb7976a",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "9cfeb8d892baba7dc20a1d7273d96118ac044ac854a64a0a17cefeb9f2f55b26",
+      "policyHash": "3205c0c397d49c62adafcfc6409d2e2c8dabf514a69b3d30f177743473985bf8",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
@@ -23,10 +23,10 @@
     "design": {
       "profile": "design",
       "sourcePath": "submodules/yss-harness-design-agent",
-      "templateCommit": "9c17657857002fb7fd9591151e1f1e6c2691b3fb",
-      "templateVersion": "git:9c17657857002fb7fd9591151e1f1e6c2691b3fb",
+      "templateCommit": "df6d76bff75eca9b2b48f7ec30969ea189439cc7",
+      "templateVersion": "git:df6d76bff75eca9b2b48f7ec30969ea189439cc7",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "cfdf8672e3775a7ebb3097e88f9e2b09c705d77c70dbc4be0faa4b53e05bf290",
+      "policyHash": "20c67efc7043f3aaea146e63d5f30e985bb9513ad98ffccc23787cc3de6c9fd1",
       "legacy": {
         "version": "0.8.17",
         "cliCommit": "7d2f9008d998ca87298a130f31019ffd6a87b3a5",
@@ -37,10 +37,10 @@
     "backend": {
       "profile": "backend",
       "sourcePath": "submodules/yss-harness-backend-agent",
-      "templateCommit": "c229b7194a74b6559486c9cd642295e840767d91",
-      "templateVersion": "git:c229b7194a74b6559486c9cd642295e840767d91",
+      "templateCommit": "0fb939c2ae26b676bc601c28ae3a5e2c99ce07c2",
+      "templateVersion": "git:0fb939c2ae26b676bc601c28ae3a5e2c99ce07c2",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "dcc7d59aec79464df95b212d01fe59af9f140c3f8005e1aac1eaf7f90dd5c177",
+      "policyHash": "4333147c81a55472b9a243034e36e8758684d1bea118ccef259ed03cd18fcd06",
       "legacy": {
         "version": "0.4.21",
         "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
@@ -49,18 +49,18 @@
       },
       "skillsSource": {
         "sourcePath": ".",
-        "templateCommit": "d947b648aa5feac74bd17ddb407a666a28cf5dd2",
+        "templateCommit": "b4782ccb7682937d9d49f719227f1c557675acfd",
         "configurationPath": ".template-source/profile-skill-sync.json",
-        "configurationHash": "2f556d8dc3b75bd442953a9a60536c3a3ab73dea23bc36789fb55abe37e7e680"
+        "configurationHash": "d931b3eca88cab5b3ed1d6a3c1bfbf9c7c703935ca322316520f5a3a74dba8c7"
       }
     },
     "frontend": {
       "profile": "frontend",
       "sourcePath": "submodules/yss-harness-frontend-agent",
-      "templateCommit": "85ebd4fa0e9041b09aa8fc393cfd9ba9e12cac7c",
-      "templateVersion": "git:85ebd4fa0e9041b09aa8fc393cfd9ba9e12cac7c",
+      "templateCommit": "de7415425b3022e4ae0600a84c18675b422efd6d",
+      "templateVersion": "git:de7415425b3022e4ae0600a84c18675b422efd6d",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "0224b9178265b43dce5e9230006883a3aca55199fc8df9d2678b7a5a65e2c344",
+      "policyHash": "e94865842ae0dbd6b9191200160762633ef115b99056c30751e3a9e68f2e3038",
       "legacy": {
         "version": "0.3.21",
         "cliCommit": "3833ba6083f64fd057ba31f9012c979273cc7154",
@@ -69,9 +69,9 @@
       },
       "skillsSource": {
         "sourcePath": ".",
-        "templateCommit": "d947b648aa5feac74bd17ddb407a666a28cf5dd2",
+        "templateCommit": "b4782ccb7682937d9d49f719227f1c557675acfd",
         "configurationPath": ".template-source/profile-skill-sync.json",
-        "configurationHash": "2f556d8dc3b75bd442953a9a60536c3a3ab73dea23bc36789fb55abe37e7e680"
+        "configurationHash": "d931b3eca88cab5b3ed1d6a3c1bfbf9c7c703935ca322316520f5a3a74dba8c7"
       }
     }
   }
