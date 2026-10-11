@@ -57,8 +57,8 @@
     "frontend": {
       "profile": "frontend",
       "sourcePath": "submodules/yss-harness-frontend-agent",
-      "templateCommit": "de7415425b3022e4ae0600a84c18675b422efd6d",
-      "templateVersion": "git:de7415425b3022e4ae0600a84c18675b422efd6d",
+      "templateCommit": "fad472ddf9247183564d67b4d06b6542aa25b021",
+      "templateVersion": "git:fad472ddf9247183564d67b4d06b6542aa25b021",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "e94865842ae0dbd6b9191200160762633ef115b99056c30751e3a9e68f2e3038",
       "legacy": {
