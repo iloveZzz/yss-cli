@@ -198,10 +198,20 @@ func ReadSnapshot(file, profile string) (*Bundle, string, string, error) {
 		return nil, "", "", domain.Fail("BASE_BUNDLE", "旧 Bundle 不接受链接路径")
 	}
 	info, e = os.Lstat(abs)
-	if e != nil || !info.Mode().IsRegular() || info.Size() > 128*1024*1024 {
+	if e != nil || !info.Mode().IsRegular() || info.Size() > MaxSnapshotBytes {
 		return nil, "", "", domain.Fail("BASE_BUNDLE", "旧 Bundle 必须是最多 128 MiB 的普通 JSON 文件")
 	}
-	raw, e := os.ReadFile(abs)
+	fileHandle, e := os.Open(abs)
+	if e != nil {
+		return nil, "", "", e
+	}
+	defer fileHandle.Close()
+	opened, e := fileHandle.Stat()
+	if e != nil || !opened.Mode().IsRegular() || opened.Size() > MaxSnapshotBytes || !os.SameFile(info, opened) {
+		return nil, "", "", domain.Fail("BASE_BUNDLE", "旧 Bundle 必须是最多 128 MiB 的普通 JSON 文件")
+	}
+	// Check the opened file and bound the actual read, including concurrent growth.
+	raw, e := readSnapshotData(fileHandle)
 	if e != nil {
 		return nil, "", "", e
 	}

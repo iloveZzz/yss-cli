@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -591,20 +590,12 @@ func contentHash(b *Bundle) string {
 	clone := *b
 	clone.BundleHash = ""
 	h := sha256.New()
-	if err := json.NewEncoder(jsonHashWriter{h}).Encode(&clone); err != nil {
+	if err := writeBundleJSON(h, &clone); err != nil {
 		return safefs.Digest(nil)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Compact Encoder output adds one newline to the exact Marshal bytes. Hash
-// directly from its buffer instead of allocating a second full JSON copy.
-type jsonHashWriter struct{ hash.Hash }
-
-func (w jsonHashWriter) Write(p []byte) (int, error) {
-	_, err := w.Hash.Write(bytes.TrimSuffix(p, []byte("\n")))
-	return len(p), err
-}
 func sortedKeys[V any](m map[string]V) []string {
 	a := make([]string, 0, len(m))
 	for k := range m {
