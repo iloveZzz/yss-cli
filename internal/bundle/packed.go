@@ -122,6 +122,10 @@ func loadPacked(raw []byte, profile string) (*Bundle, error) {
 }
 
 func loadPackedProfile(a *packedArchive, profile string) (*Bundle, error) {
+	return loadPackedProfileWith(a, profile, newValidationOp())
+}
+
+func loadPackedProfileWith(a *packedArchive, profile string, op *validationOp) (*Bundle, error) {
 	if a.StorageFormatVersion != storageFormatVersion || a.Profiles == nil || a.Objects == nil {
 		return nil, domain.Fail("BUNDLE", "内嵌存储格式不支持或不完整")
 	}
@@ -143,7 +147,7 @@ func loadPackedProfile(a *packedArchive, profile string) (*Bundle, error) {
 	}); err != nil {
 		return nil, err
 	}
-	if err := validate(&b, profile); err != nil {
+	if err := validateWith(&b, profile, op); err != nil {
 		return nil, err
 	}
 	if b.SchemaVersion < 2 || b.BundleHash != contentHash(&b) {
