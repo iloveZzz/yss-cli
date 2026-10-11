@@ -18,9 +18,9 @@ CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend �
 
 生产入口先验证完整 Bundle 和逻辑摘要，复制内容容器后提取对象，拒绝同摘要的不同编码内容。按标准库 JSON 的确定性键序编码，用 `gzip.BestCompression` 和固定头压缩；生成结果经真实加载器验证后才以临时文件和重命名替换归档。输入 Bundle 不被改写。同一固定输入重复生成，归档字节与摘要必须一致。
 
-`Load(profile)` 保持原接口。精确嵌入的私有压缩字节只读使用，避免 `embed.FS.ReadFile` 在每次加载时复制压缩资产。缓存只保存不可变解压字节，键包含私有格式标识和压缩字节 SHA-256，保留并发合并、容量限制及失败不缓存。每次独立解析元数据和对象池，只还原所选 Profile；同次加载可共享不可变内容字符串，调用者拥有独立的可变 Bundle。解析直接使用 `json.Unmarshal`，避免流式 Decoder 再复制整份 JSON 到临时缓冲。
+`Load(profile)` 保持原接口。精确嵌入的私有压缩字节只读使用，避免 `embed.FS.ReadFile` 在每次加载时复制压缩资产。解压缓存以私有格式标识和压缩字节 SHA-256 为键，保留并发合并、容量限制及失败不缓存。内嵌归档另缓存已解析对象池和四个 Profile 的已验证 Bundle，外部归档仍逐次验证。Load 返回独立的可变容器副本，只共享不可变内容字符串。解析直接使用 `json.Unmarshal`，避免流式 Decoder 再复制整份 JSON 到临时缓冲。
 
-加载继续执行原有路径、内容摘要、权限、ownership、转换记录和 BundleHash 校验。逻辑摘要用标准库 JSON Encoder 直接写入 SHA-256，去掉 Encoder 添加的末尾换行，产生与原 `json.Marshal` 完全相同的摘要字节，避免另分配整份 JSON 副本。未知存储版本、缺失引用、错误内容、截断 gzip 和解压超限均失败。解压上限仍为 512 MiB；构建另限制压缩归档为 10,000,000 字节。帮助、版本不加载模板。
+加载继续执行原有路径、内容摘要、权限、ownership、转换记录和 BundleHash 校验。逻辑摘要和公开导出共用 Bundle 专用分段 writer，依 Bundle 字段顺序和省略规则逐项输出，文件 map 排序后逐记录编码，叶节点仍使用标准库 JSON。摘要不含换行，字节必须与 `json.Marshal` 完全一致；公开导出添加一个换行。读写共用 128 MiB 公开快照上限，实际读取也受限。未知存储版本、缺失引用、错误内容、截断 gzip 和解压超限均失败。解压上限仍为 512 MiB；构建另限制压缩归档为 10,000,000 字节。帮助、版本不加载模板。
 
 `SnapshotHash`、`ManifestHash`、`BundleHash` 和来源记录是逻辑身份；私有归档和可执行文件 SHA-256 是物理身份。改变存储编码只能改变后者。公开 `bundle inspect/export` 及旧 `--base-bundle` 完整 JSON 读取路径保持原格式。程序版本及二进制绑定按新产物更新；旧保存计划仍需通过现有重建与漂移校验，插件通过公开升级流程更新 binding。
 
@@ -55,3 +55,12 @@ Backend / Frontend 不再把共享技能副本存入 Git。`tools/bundle` 读取
 内部锁顶层 `schemaVersion` 为 3；Spec / Design 仍保留原来源结构。Backend / Frontend 的子项目来源锁必须与上述字段一致，并核验生成目录的路径、字节和权限摘要。`manifest.skillComposition` 记录 `sourceTemplateCommit`、清单路径/摘要、`skillsDigest` 和技能选择；公开 Bundle v3 与现有安装、ownership、选择性安装和升级事务不变。旧 v2 锁用于重建其已有完整副本，不允许夹带组合来源字段。
 
 共享源先提交，再更新并提交两端来源锁，然后更新 CLI 固定来源及内嵌归档，最后更新父仓 gitlink。工作树锁不是正式构建输入；测试 fixture 的提交不替代真实交付来源。源码准备的忽略规则和入口不会带入业务实例。
+# 固定产物的统一生成与检查
+
+`node tools/artifacts.mjs check --scope derived --out <仓库外新证据目录>` 检查当前归档派生的四个帮助视图与完整帮助；不证明归档与来源锁一致。
+
+`node tools/artifacts.mjs check --scope all --source-root <固定来源仓根> --out <仓库外新证据目录>` 从 `docs/source-lock.json` 的 Git 提交重建全部产物，再逐字节比较。将 `check` 改成 `generate` 才会写回产物。来源不齐时明确失败，不回退到最新 HEAD。
+
+工具固定子进程 umask 为 0022，先在证据目录生成候选，再通过 Go overlay 重新编译下一层工具，使 `go:embed` 读取候选。帮助固定包含 `--reference`。检查归档 10,000,000 B 预算和公开快照 128 MiB 上限（包括最后一个换行）。普通文件的非执行权限差异不构成内容漂移；发布前仍核对完整目标身份，以发现并发编辑。
+
+生成使用 Git 工作区中的 `yss-artifacts.lock` 防止同时发布；替换前重新核对输入和目标。文件逐项原子替换，不承诺跨文件崩溃原子性。中断后保留收据，确认没有生成进程运行再移除该运行的残留锁，运行 `check --scope all` 确认真实状态。不要自动删除未知锁或覆盖检查期间的人工修改。

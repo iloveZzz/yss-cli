@@ -20,9 +20,9 @@ type decodedBundleCache struct {
 	profiles map[string]*Bundle
 }
 
-func (c *decodedBundleCache) load(profile string) (*Bundle, error) {
+func (c *decodedBundleCache) load(profile string, op *validationOp) (*Bundle, error) {
 	c.mu.Lock()
-	b, err := c.validated(profile)
+	b, err := c.validated(profile, op)
 	c.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func (c *decodedBundleCache) load(profile string) (*Bundle, error) {
 
 // Both the parsed archive and each logical Profile become visible only after
 // successful validation. Failures are never memoized.
-func (c *decodedBundleCache) validated(profile string) (*Bundle, error) {
+func (c *decodedBundleCache) validated(profile string, op *validationOp) (*Bundle, error) {
 	if b := c.profiles[profile]; b != nil {
 		return b, nil
 	}
@@ -47,7 +47,7 @@ func (c *decodedBundleCache) validated(profile string) (*Bundle, error) {
 			return nil, domain.Wrap("BUNDLE", err)
 		}
 	}
-	b, err := loadPackedProfile(a, profile)
+	b, err := loadPackedProfileWith(a, profile, op)
 	if err != nil {
 		return nil, err
 	}

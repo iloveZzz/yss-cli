@@ -44,27 +44,42 @@ type Bundle struct {
 }
 
 func Load(profile string) (*Bundle, error) {
+	b, _, err := loadForOperation(profile)
+	return b, err
+}
+
+func loadForOperation(profile string) (*Bundle, *validationOp, error) {
 	if _, err := domain.GetProfile(profile); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return embeddedBundles.load(profile)
+	op := newValidationOp()
+	b, err := embeddedBundles.load(profile, op)
+	return b, op, err
 }
 func (f File) Render(vars map[string]string) ([]byte, error) {
 	b, err := base64.StdEncoding.DecodeString(f.Data)
 	if err != nil {
 		return nil, err
 	}
+	return renderDecoded(b, vars), nil
+}
+
+func renderDecoded(b []byte, vars map[string]string) []byte {
 	if bytes.IndexByte(b, 0) >= 0 {
-		return b, nil
+		return b
 	}
 	text := string(b)
 	for k, token := range map[string]string{"projectName": "__YSS_PROJECT_NAME__", "businessDomain": "__YSS_BUSINESS_DOMAIN__", "teamSize": "__YSS_TEAM_SIZE__"} {
 		text = strings.ReplaceAll(text, token, vars[k])
 	}
-	return []byte(text), nil
+	return []byte(text)
 }
 
 func validate(out *Bundle, profile string) error {
+	return validateWith(out, profile, newValidationOp())
+}
+
+func validateWith(out *Bundle, profile string, op *validationOp) error {
 	if (out.SchemaVersion < 1 || out.SchemaVersion > 3) || out.Profile != profile || out.SourceState != "committed" {
 		return domain.Fail("BUNDLE", "快照身份或来源不合法")
 	}
@@ -77,8 +92,8 @@ func validate(out *Bundle, profile string) error {
 			if err := paths.Add(ref); err != nil {
 				return err
 			}
-			data, err := base64.StdEncoding.DecodeString(f.Data)
-			if err != nil || safefs.Digest(data) != f.Digest {
+			_, err := op.content(f)
+			if err != nil {
 				return domain.Fail("BUNDLE", "快照摘要不一致: "+ref)
 			}
 			if !stringSet([]string{"managed", "managed-customizable", "generated", "user-owned", "protected"})[f.Ownership] {
