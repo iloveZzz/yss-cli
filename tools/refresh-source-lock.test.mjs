@@ -197,3 +197,99 @@ test("命令行端到端：预演不写文件，--apply 才写锁", (t) => {
   const refused = spawnSync(process.execPath, [TOOL, "--source-root", "relative", "--profile", "spec"], { encoding: "utf8" });
   assert.equal(refused.status, 2);
 });
+
+// ---- --skills-source：backend / frontend 的技能来源取自 Profile 自己已提交的 profile-skills-source.json ----
+
+const CONFIG_REF = ".template-source/profile-skill-sync.json";
+const CONFIG_BYTES = '{"schema_version":1,"profiles":{}}\n';
+
+/** spec 仓库（含技能配置、已推送）加一个嵌在其中的 backend Profile 仓库（也已推送），Profile 的清单指向 spec 的某个提交。 */
+function skillsWorkspace(t, { manifestOverrides = {}, pushProfile = true } = {}) {
+  const { base, repo: spec, first } = template(t);
+  fs.mkdirSync(path.join(spec, ".template-source"), { recursive: true });
+  fs.writeFileSync(path.join(spec, CONFIG_REF), CONFIG_BYTES);
+  const specConfigCommit = commit(spec, "config.txt");
+  git(spec, "push", "-q", "origin", "main");
+  fs.appendFileSync(path.join(spec, ".git/info/exclude"), "sub/\n");
+  const profileDir = path.join(spec, "sub/backend");
+  fs.mkdirSync(path.join(profileDir, "tools"), { recursive: true });
+  git(profileDir, "init", "-q", "-b", "main");
+  fs.writeFileSync(path.join(profileDir, POLICY), POLICY_BYTES);
+  const profileFirst = commit(profileDir, "p1.txt");
+  const profileOrigin = path.join(base, "backend-origin.git");
+  git(base, "init", "-q", "--bare", profileOrigin);
+  git(profileDir, "remote", "add", "origin", profileOrigin);
+  const manifest = { schemaVersion: 1, profile: "backend", sourceCommit: specConfigCommit, sourceState: "committed", configurationHash: sha256(CONFIG_BYTES), ...manifestOverrides };
+  fs.mkdirSync(path.join(profileDir, ".template-source"), { recursive: true });
+  fs.writeFileSync(path.join(profileDir, ".template-source/profile-skills-source.json"), `${JSON.stringify(manifest)}\n`);
+  const profileHead = commit(profileDir, "p2.txt");
+  if (pushProfile) git(profileDir, "push", "-q", "origin", "main");
+  const lock = lockFor(first);
+  lock.profiles.spec.policyHash = sha256(POLICY_BYTES);
+  lock.profiles.backend = {
+    profile: "backend", sourcePath: "sub/backend", templateCommit: profileFirst, templateVersion: `git:${profileFirst}`, policyPath: POLICY, policyHash: "1".repeat(64),
+    skillsSource: { sourcePath: ".", templateCommit: first, configurationPath: CONFIG_REF, configurationHash: "2".repeat(64) },
+  };
+  return { spec, lock, first, specConfigCommit, profileFirst, profileHead };
+}
+
+test("--skills-source：skillsSource 取自 Profile 清单记录的提交与配置哈希，并核对配置哈希", (t) => {
+  const { spec, lock, first, specConfigCommit } = skillsWorkspace(t);
+  const plan = planRefresh({ lock, sourceRoot: spec, profiles: ["backend"], skillsSource: true });
+  assert.deepEqual(plan.errors, []);
+  const entry = plan.entries[0];
+  assert.equal(entry.skills.to.commit, specConfigCommit);
+  assert.equal(entry.skills.to.hash, sha256(CONFIG_BYTES));
+  assert.equal(entry.skills.from.commit, first);
+  assert.equal(entry.skills.changed, true);
+  assert.equal(entry.changed, true);
+  assert.deepEqual(plan.warnings, [], "取了清单里的值就不再提示 skillsSource 没改");
+});
+
+test("不传 --skills-source：skillsSource 保持不动并给出提示", (t) => {
+  const { spec, lock } = skillsWorkspace(t);
+  const plan = planRefresh({ lock, sourceRoot: spec, profiles: ["backend"] });
+  assert.equal(plan.entries[0].skills, undefined);
+  assert.ok(plan.warnings.some((warning) => /没有传 --skills-source/.test(warning)));
+});
+
+test("--skills-source 拒绝：清单不是 committed、配置哈希不符、来源提交未推送", (t) => {
+  const workingTree = skillsWorkspace(t, { manifestOverrides: { sourceState: "working-tree" } });
+  assert.match(planRefresh({ lock: workingTree.lock, sourceRoot: workingTree.spec, profiles: ["backend"], skillsSource: true }).errors[0], /sourceState committed/);
+
+  const badHash = skillsWorkspace(t, { manifestOverrides: { configurationHash: "f".repeat(64) } });
+  assert.match(planRefresh({ lock: badHash.lock, sourceRoot: badHash.spec, profiles: ["backend"], skillsSource: true }).errors[0], /与 Profile 清单记录的 .* 不符/);
+
+  const unpushed = skillsWorkspace(t);
+  const local = commit(unpushed.spec, "unpushed.txt");
+  const manifestFile = path.join(unpushed.spec, "sub/backend/.template-source/profile-skills-source.json");
+  fs.writeFileSync(manifestFile, `${JSON.stringify({ schemaVersion: 1, profile: "backend", sourceCommit: local, sourceState: "committed", configurationHash: sha256(CONFIG_BYTES) })}\n`);
+  commit(path.join(unpushed.spec, "sub/backend"), "p3.txt");
+  git(path.join(unpushed.spec, "sub/backend"), "push", "-q", "origin", "main");
+  assert.match(planRefresh({ lock: unpushed.lock, sourceRoot: unpushed.spec, profiles: ["backend"], skillsSource: true }).errors[0], /技能来源提交 .* 尚未推送/);
+  assert.deepEqual(planRefresh({ lock: unpushed.lock, sourceRoot: unpushed.spec, profiles: ["backend"], skillsSource: true, allowUnpushed: true }).errors, []);
+});
+
+test("写锁：只改 skillsSource 的提交与配置哈希，不碰同值的 templateCommit 和别的条目", () => {
+  const same = "a".repeat(40);
+  const lock = lockFor(same);
+  lock.profiles.backend.templateCommit = same;
+  lock.profiles.backend.templateVersion = `git:${same}`;
+  lock.profiles.backend.skillsSource.templateCommit = same;
+  const text = `${JSON.stringify(lock, null, 2)}\n`;
+  const entry = {
+    profile: "backend", from: same, to: same, policyFrom: lock.profiles.backend.policyHash, policyTo: lock.profiles.backend.policyHash, changed: true,
+    skills: { from: { commit: same, hash: "2".repeat(64) }, to: { commit: "c".repeat(40), hash: "9".repeat(64) }, changed: true },
+  };
+  const out = JSON.parse(applyPlan(text, [entry]));
+  assert.equal(out.profiles.backend.skillsSource.templateCommit, "c".repeat(40));
+  assert.equal(out.profiles.backend.skillsSource.configurationHash, "9".repeat(64));
+  assert.equal(out.profiles.backend.templateCommit, same, "Profile 自己的提交号不受影响");
+  assert.equal(out.profiles.spec.templateCommit, same, "spec 条目不受影响");
+  assert.throws(() => applyPlan(text, [{ ...entry, skills: { ...entry.skills, from: { commit: "d".repeat(40), hash: "2".repeat(64) } } }]), /旧值与锁文本不符/);
+});
+
+test("命令行参数：--skills-source 被识别", () => {
+  assert.equal(parseArgs(["--source-root", "/x", "--profile", "backend", "--skills-source"]).skillsSource, true);
+  assert.equal(parseArgs(["--source-root", "/x", "--profile", "backend"]).skillsSource, false);
+});
