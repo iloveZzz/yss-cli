@@ -55,3 +55,12 @@ Backend / Frontend 不再把共享技能副本存入 Git。`tools/bundle` 读取
 内部锁顶层 `schemaVersion` 为 3；Spec / Design 仍保留原来源结构。Backend / Frontend 的子项目来源锁必须与上述字段一致，并核验生成目录的路径、字节和权限摘要。`manifest.skillComposition` 记录 `sourceTemplateCommit`、清单路径/摘要、`skillsDigest` 和技能选择；公开 Bundle v3 与现有安装、ownership、选择性安装和升级事务不变。旧 v2 锁用于重建其已有完整副本，不允许夹带组合来源字段。
 
 共享源先提交，再更新并提交两端来源锁，然后更新 CLI 固定来源及内嵌归档，最后更新父仓 gitlink。工作树锁不是正式构建输入；测试 fixture 的提交不替代真实交付来源。源码准备的忽略规则和入口不会带入业务实例。
+# 固定产物的统一生成与检查
+
+`node tools/artifacts.mjs check --scope derived --out <仓库外新证据目录>` 检查当前归档派生的四个帮助视图与完整帮助；不证明归档与来源锁一致。
+
+`node tools/artifacts.mjs check --scope all --source-root <固定来源仓根> --out <仓库外新证据目录>` 从 `docs/source-lock.json` 的 Git 提交重建全部产物，再逐字节比较。将 `check` 改成 `generate` 才会写回产物。来源不齐时明确失败，不回退到最新 HEAD。
+
+工具固定子进程 umask 为 0022，先在证据目录生成候选，再通过 Go overlay 重新编译下一层工具，使 `go:embed` 读取候选。帮助固定包含 `--reference`。检查归档 10,000,000 B 预算和公开快照 128 MiB 上限（包括最后一个换行）。普通文件的非执行权限差异不构成内容漂移；发布前仍核对完整目标身份，以发现并发编辑。
+
+生成使用 Git 工作区中的 `yss-artifacts.lock` 防止同时发布；替换前重新核对输入和目标。文件逐项原子替换，不承诺跨文件崩溃原子性。中断后保留收据，确认没有生成进程运行再移除该运行的残留锁，运行 `check --scope all` 确认真实状态。不要自动删除未知锁或覆盖检查期间的人工修改。
