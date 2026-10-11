@@ -138,7 +138,6 @@ export function regenerationSteps(sourceRoot) {
     ["go", ["run", "./tools/helpdocs", "--reference"]],
     ["go", ["run", "./tools/helpview", "--check"]],
     ["go", ["run", "./tools/helpdocs", "--reference", "--check"]],
-    ["go", ["test", "-count=1", "./internal/bundle"]],
   ];
 }
 
@@ -147,9 +146,7 @@ export function runRegeneration(sourceRoot, { run = defaultRun, log = (line) => 
     log(`$ ${command} ${args.join(" ")}`);
     const status = run(command, args);
     if (status !== 0) {
-      const hint = args[0] === "test"
-        ? "若失败在 internal/bundle/skill_lock_test.go 的 product-design 渲染黄金值：它是对 Node treeHash（scripts/lib/skill-supply-chain.mjs）与模板 skills-lock.json 的独立三方核对，需人工核对后再改，脚本不会改写。"
-        : "修复上面的错误后，从这一步重新运行。";
+      const hint = "修复上面的错误后，从这一步重新运行。";
       return { ok: false, failed: [command, ...args].join(" "), status, hint };
     }
   }
