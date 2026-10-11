@@ -58,14 +58,18 @@ type ExportResult struct {
 }
 
 func Inspect(profile string) (*Inspection, error) {
-	b, e := Load(profile)
+	b, op, e := loadForOperation(profile)
 	if e != nil {
 		return nil, e
 	}
-	return inspectBundle(b)
+	return inspectBundleWith(b, op)
 }
 func inspectBundle(b *Bundle) (*Inspection, error) {
-	if e := validate(b, b.Profile); e != nil {
+	return inspectBundleWith(b, newValidationOp())
+}
+
+func inspectBundleWith(b *Bundle, op *validationOp) (*Inspection, error) {
+	if e := validateWith(b, b.Profile, op); e != nil {
 		return nil, e
 	}
 	version := b.TemplateVersion
@@ -82,11 +86,11 @@ func inspectBundle(b *Bundle) (*Inspection, error) {
 	}
 	i := &Inspection{SchemaVersion: b.SchemaVersion, Profile: b.Profile, Legacy: b.Legacy, TemplateVersion: version, TemplateCommit: b.TemplateCommit, SourceState: b.SourceState, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, BundleHash: hash, LegacyVersion: b.LegacyVersion, LegacyCLICommit: legacyCommit, Producer: b.Producer, SourcePolicy: b.SourcePolicy, Manifest: b.Manifest, Distribution: b.Distribution, Files: map[string]FileDescriptor{}, InitialPaths: sortedKeys(b.Initial), StageRequirements: b.StageRequirements, SkillRequirements: b.SkillRequirements}
 	for p, f := range b.Files {
-		data, e := base64.StdEncoding.DecodeString(f.Data)
+		facts, e := op.content(f)
 		if e != nil {
 			return nil, e
 		}
-		i.Files[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: len(data)}
+		i.Files[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: facts.size}
 	}
 	i.Upgrade = b.Upgrade
 	for _, t := range b.NativeTransforms {
@@ -94,11 +98,11 @@ func inspectBundle(b *Bundle) (*Inspection, error) {
 	}
 	i.Initial = map[string]FileDescriptor{}
 	for p, f := range b.Initial {
-		data, e := base64.StdEncoding.DecodeString(f.Data)
+		facts, e := op.content(f)
 		if e != nil {
 			return nil, e
 		}
-		i.Initial[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: len(data)}
+		i.Initial[p] = FileDescriptor{Digest: f.Digest, Mode: f.Mode, Ownership: f.Ownership, Size: facts.size}
 	}
 	return i, nil
 }
@@ -109,11 +113,11 @@ func Export(ctx context.Context, profile, out string) (result *ExportResult, err
 	if e := ctx.Err(); e != nil {
 		return nil, e
 	}
-	b, e := Load(profile)
+	b, op, e := loadForOperation(profile)
 	if e != nil {
 		return nil, e
 	}
-	i, e := inspectBundle(b)
+	i, e := inspectBundleWith(b, op)
 	if e != nil {
 		return nil, e
 	}
