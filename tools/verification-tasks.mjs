@@ -104,7 +104,7 @@ function inputs(cwd, templateRoot) {
     ["GOFLAGS", "GOTOOLCHAIN", "GOEXPERIMENT", "CGO_ENABLED", "GOOS", "GOARCH", "NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "PYTHONHOME"].includes(key))
     .sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, normalize(value)]);
   const externalInputs = {};
-  for (const key of ["YSS_LEGACY_SOURCE", "YSS_RETAINED_STAGE_MODULE", "YSS_RESEARCH_ORACLE_NODE", "YSS_PROFILE_GUIDANCE_REPORT",
+  for (const key of ["YSS_LEGACY_SOURCE", "YSS_RETAINED_STAGE_MODULE", "YSS_RESEARCH_ORACLE_NODE",
     "YSS_PLAN_ORACLE_FIXTURE", "YSS_READING_ORACLE_FIXTURE", "YSS_LOCAL_PLAN_HANDOFF_ROOT", "YSS_BACKEND_COMPLETED_TASK_ROOT",
     "YSS_SCHEMA_CORPUS_ROOT", "YSS_NATIVE_SOURCE_ROOT", "YSS_LEGACY_ORACLE_ROOT"]) {
     const root = process.env[key];

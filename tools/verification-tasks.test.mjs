@@ -14,9 +14,12 @@ test("真实 Go 发现到执行与汇总闭环拒绝空报告、遗漏、重复�
   const previousFixture = process.env.YSS_READING_ORACLE_FIXTURE;
   process.env.YSS_READING_ORACLE_FIXTURE = fixture;
   t.after(() => { if (previousFixture === undefined) delete process.env.YSS_READING_ORACLE_FIXTURE; else process.env.YSS_READING_ORACLE_FIXTURE = previousFixture; });
+  const previousReport = process.env.YSS_PROFILE_GUIDANCE_REPORT;
+  process.env.YSS_PROFILE_GUIDANCE_REPORT = path.join(outDir, "generated-report.json");
+  t.after(() => { if (previousReport === undefined) delete process.env.YSS_PROFILE_GUIDANCE_REPORT; else process.env.YSS_PROFILE_GUIDANCE_REPORT = previousReport; });
   t.after(() => { fs.rmSync(cwd, { recursive: true, force: true }); fs.rmSync(outDir, { recursive: true, force: true }); });
   fs.writeFileSync(path.join(cwd, "go.mod"), "module example.com/contract\n\ngo 1.24\n");
-  fs.writeFileSync(path.join(cwd, "contract_test.go"), 'package contract\nimport "testing"\nfunc TestRuns(t *testing.T) {}\nfunc TestOptional(t *testing.T) { t.Skip("recorded optional test") }\n');
+  fs.writeFileSync(path.join(cwd, "contract_test.go"), 'package contract\nimport ("testing";"os")\nfunc TestRuns(t *testing.T) { if err:=os.WriteFile(os.Getenv("YSS_PROFILE_GUIDANCE_REPORT"),[]byte("report"),0600);err!=nil {t.Fatal(err)} }\nfunc TestOptional(t *testing.T) { t.Skip("recorded optional test") }\n');
   fs.mkdirSync(path.join(cwd, "docs"));
   fs.writeFileSync(path.join(cwd, "docs/source-lock.json"), "{}");
   const git = args => execFileSync("git", args, { cwd, stdio: "pipe" });
