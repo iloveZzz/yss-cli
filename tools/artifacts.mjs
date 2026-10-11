@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fixed-source generation. Receipts are evidence, never a new source authority.
 import fs from 'node:fs';
+import {fixedGoEnvironment,GO_ENV_KEYS,checkModuleInputs,checkPackageInputs} from './go-environment.mjs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
@@ -35,6 +36,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
   if (!relative || (!relative.startsWith('..'+path.sep) && relative !== '..' && !path.isAbsolute(relative))) throw new Error('--out must be outside the repository');
   fs.mkdirSync(out); // Never reuse or overwrite another run's evidence.
   const receipt = {schemaVersion:1, kind:'generated-artifacts', mode, scope, status:'running', root, createdAt:new Date().toISOString(), commands:[], sources:[], outputs:{}, published:[]};
+  const env = fixedGoEnvironment();
   const receiptFile = path.join(out,'receipt.json');
   const save = () => fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2)+'\n');
   let lockPath, ownsLock = false;
@@ -44,7 +46,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     const index = receipt.commands.length;
     const record = {command,args,cwd,status:'running'};
     receipt.commands.push(record); save();
-    const result = spawnSync(command,args,{cwd,encoding:'utf8',maxBuffer:64*1024*1024});
+    const result = spawnSync(command,args,{cwd,env,encoding:'utf8',maxBuffer:64*1024*1024});
     fs.writeFileSync(path.join(out,`${index}.stdout.log`),result.stdout ?? '');
     fs.writeFileSync(path.join(out,`${index}.stderr.log`),result.stderr ?? '');
     record.exitCode = result.status; record.signal = result.signal;
@@ -67,11 +69,17 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
       ownsLock = true;
       try {fs.writeFileSync(fd,JSON.stringify({pid:process.pid,out,createdAt:receipt.createdAt})+'\n')} finally {fs.closeSync(fd)}
     }
+    checkModuleInputs(root,env);
+    receipt.goEnvironment = JSON.parse(run('go',['env','-json',...GO_ENV_KEYS]));
     receipt.goVersion = run('go',['version']); receipt.nodeVersion = process.version;
     const before = inputs(); receipt.inputDigest = sha(JSON.stringify(before));
     receipt.inputs = before;
+    if (Object.values(before).some(value=>value?.link)) throw new Error('generator inputs must be ordinary files');
+    const generatorPackages = ['./tools/helpview','./tools/helpdocs','./tools/artifact-sizes'];
+    if (scope === 'all') generatorPackages.push('./tools/bundle');
     const prior = Object.fromEntries(TARGETS.map(ref=>[ref,identity(path.join(root,ref))]));
     if (Object.values(prior).some(value=>value?.link)) throw new Error('generated targets must be ordinary files');
+    checkPackageInputs(root,env,{...before,...prior},generatorPackages);
     const expectedTargets = {...prior};
     const checkTargets = () => {
       for (const ref of TARGETS) {
@@ -151,6 +159,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     }
     if (!equal(before,inputs())) throw new Error('generator inputs changed during publication');
     checkTargets();
+    checkPackageInputs(root,env,{...inputs(),...expectedTargets},generatorPackages);
     receipt.status = mode === 'check' ? 'checked' : 'generated'; save();
     return receipt;
   } catch (error) {
