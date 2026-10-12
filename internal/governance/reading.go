@@ -3,33 +3,33 @@ package governance
 import (
 	"context"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 // Reading keeps byte and parse reuse local; finishInputs still reobserves inputs.
 type readingSession struct {
-	s    *semanticSession
+	s    *kernel.SemanticSession
 	docs map[string]map[string]any
 }
 
 func (r *readingSession) bytes(ref string) ([]byte, error) {
-	if err := r.s.guard(); err != nil {
+	if err := r.s.Guard(); err != nil {
 		return nil, err
 	}
-	p, err := safefs.Path(r.s.root, ref)
+	p, err := safefs.Path(r.s.Root, ref)
 	if err != nil {
 		return nil, err
 	}
 	ref = filepath.ToSlash(filepath.Clean(ref))
-	if b, ok := r.s.v.overlay[ref]; ok {
+	if b, ok := r.s.V.Overlay[ref]; ok {
 		return b, nil
 	}
 	before, err := os.Lstat(p)
@@ -44,15 +44,15 @@ func (r *readingSession) bytes(ref string) ([]byte, error) {
 		return nil, err
 	}
 	after, err := os.Lstat(p)
-	if err != nil || !sameObservedIdentity(before, after) {
+	if err != nil || !kernel.SameObservedIdentity(before, after) {
 		return nil, domain.Fail("INPUT_DRIFT", "读取期间输入变化: "+ref)
 	}
-	r.s.v.observed[ref] = domain.Descriptor{Type: "file", Digest: safefs.Digest(b), Mode: uint32(before.Mode().Perm())}
-	if r.s.v.identities == nil {
-		r.s.v.identities = map[string]os.FileInfo{}
+	r.s.V.Observed[ref] = domain.Descriptor{Type: "file", Digest: safefs.Digest(b), Mode: uint32(before.Mode().Perm())}
+	if r.s.V.Identities == nil {
+		r.s.V.Identities = map[string]os.FileInfo{}
 	}
-	r.s.v.identities[ref] = before
-	r.s.v.overlay[ref] = b
+	r.s.V.Identities[ref] = before
+	r.s.V.Overlay[ref] = b
 	return b, nil
 }
 
@@ -66,7 +66,7 @@ func (r *readingSession) doc(ref string) (map[string]any, error) {
 		return m, nil
 	}
 	if strings.HasSuffix(ref, ".md") {
-		b, _, err = frontmatter(b)
+		b, _, err = kernel.Frontmatter(b)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +75,7 @@ func (r *readingSession) doc(ref string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, ok := object(v)
+	m, ok := kernel.Object(v)
 	if !ok {
 		return nil, domain.Fail("INPUT", "治理资产必须为对象: "+ref)
 	}
@@ -85,16 +85,16 @@ func (r *readingSession) doc(ref string) (map[string]any, error) {
 
 func (r *readingSession) binding(ref string, id, version any) map[string]any {
 	ref = filepath.ToSlash(filepath.Clean(ref))
-	return map[string]any{"ref": ref, "id": id, "version": version, "digest": "sha256:" + r.s.v.observed[filepath.ToSlash(filepath.Clean(ref))].Digest}
+	return map[string]any{"ref": ref, "id": id, "version": version, "digest": "sha256:" + r.s.V.Observed[filepath.ToSlash(filepath.Clean(ref))].Digest}
 }
 
 func (r *readingSession) validate(ref string, value any) error {
-	p, err := safefs.Path(r.s.root, ref)
+	p, err := safefs.Path(r.s.Root, ref)
 	if err != nil {
 		return err
 	}
 	issues, err := schema.ValidateValueWithReader(p, value, func(file string) ([]byte, error) {
-		local, e := filepath.Rel(r.s.root, file)
+		local, e := filepath.Rel(r.s.Root, file)
 		if e != nil {
 			return nil, e
 		}
@@ -110,7 +110,7 @@ func (r *readingSession) validate(ref string, value any) error {
 }
 
 func readingRun(ctx context.Context, group, action, root string, args map[string]string) (any, error) {
-	r := &readingSession{s: newSemanticSession(ctx, root, args), docs: map[string]map[string]any{}}
+	r := &readingSession{s: kernel.NewSemanticSession(ctx, root, args), docs: map[string]map[string]any{}}
 	mode := args["view"]
 	if group == "contract" {
 		if mode == "" {
@@ -126,8 +126,8 @@ func readingRun(ctx context.Context, group, action, root string, args map[string
 	if err != nil {
 		return nil, err
 	}
-	n, ok := integer(identity["schema_version"])
-	if !ok || n != 1 || (text(identity["repository_mode"]) != "project-instance" && !(group == "context" && text(identity["repository_mode"]) == "template-source")) {
+	n, ok := kernel.Integer(identity["schema_version"])
+	if !ok || n != 1 || (kernel.Text(identity["repository_mode"]) != "project-instance" && !(group == "context" && kernel.Text(identity["repository_mode"]) == "template-source")) {
 		return nil, domain.Fail("IDENTITY", "阅读入口需要合法 schema v1 工程身份")
 	}
 	var content, binding map[string]any
@@ -146,11 +146,11 @@ func readingRun(ctx context.Context, group, action, root string, args map[string
 	if err != nil {
 		return nil, err
 	}
-	if err = r.s.finishInputs(); err != nil {
+	if err = r.s.FinishInputs(); err != nil {
 		return nil, err
 	}
 	refs := []string{}
-	for ref := range r.s.v.observed {
+	for ref := range r.s.V.Observed {
 		refs = append(refs, ref)
 	}
 	sort.Strings(refs)
@@ -169,24 +169,24 @@ func (r *readingSession) context(args map[string]string) (map[string]any, map[st
 	if strings.Contains(id, ",") {
 		return nil, nil, domain.Fail("ARGUMENT", "--id 只选择一个术语")
 	}
-	if err := scanContext(r.s.root); err != nil {
+	if err := scanContext(r.s.Root); err != nil {
 		return nil, nil, err
 	}
 	// Bind the uniqueness scan as well as the selected document's bytes.
-	inventory, err := r.s.contextFiles()
+	inventory, err := r.s.ContextFiles()
 	if err != nil {
 		return nil, nil, err
 	}
-	r.s.contextInventory = inventory
+	r.s.ContextInventory = inventory
 	b, err := r.bytes("CONTEXT.md")
 	if err != nil {
 		return nil, nil, err
 	}
-	m, err := contextContractBytes(b)
+	m, err := kernel.ContextContractBytes(b)
 	if err != nil {
 		return nil, nil, err
 	}
-	all := m["business_terms"].([]Term)
+	all := m["business_terms"].([]kernel.Term)
 	if args["allowed-context-ids"] != "" {
 		allowed := map[string]bool{}
 		for _, v := range strings.Split(args["allowed-context-ids"], ",") {
@@ -198,8 +198,8 @@ func (r *readingSession) context(args map[string]string) (map[string]any, map[st
 			}
 		}
 	}
-	selected := []Term{}
-	wanted := strings.Split(first(id, refs), ",")
+	selected := []kernel.Term{}
+	wanted := strings.Split(kernel.First(id, refs), ",")
 	seen := map[string]bool{}
 	for _, v := range wanted {
 		v = strings.TrimSpace(v)
@@ -219,7 +219,7 @@ func (r *readingSession) context(args map[string]string) (map[string]any, map[st
 		}
 		seen[v] = true
 	}
-	digest, err := termsDigest(selected)
+	digest, err := kernel.TermsDigest(selected)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -280,7 +280,7 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 		if id == "" {
 			return nil, nil, domain.Fail("ARGUMENT", "agent lifecycle query 必须指定 --id")
 		}
-		kind, entry, ok := findRegistry(m, id)
+		kind, entry, ok := kernel.FindRegistry(m, id)
 		if !ok {
 			return nil, nil, domain.Fail("LIFECYCLE_ID", "未登记稳定 ID: "+id)
 		}
@@ -294,8 +294,8 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 	if err != nil {
 		return nil, nil, err
 	}
-	n, ok := integer(cp["schema_version"])
-	if !ok || n != 1 || text(cp["repository_mode"]) != "project-instance" {
+	n, ok := kernel.Integer(cp["schema_version"])
+	if !ok || n != 1 || kernel.Text(cp["repository_mode"]) != "project-instance" {
 		return nil, nil, domain.Fail("LIFECYCLE", "checkpoint 身份或 schema 不支持")
 	}
 	content, err := lifecycleState(m, cp)
@@ -350,10 +350,10 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		return nil, nil, err
 	}
 	raw := doc
-	if wrapped, ok := object(doc["slice_contract"]); ok {
+	if wrapped, ok := kernel.Object(doc["slice_contract"]); ok {
 		raw = wrapped
 	}
-	n, ok := integer(raw["schema_version"])
+	n, ok := kernel.Integer(raw["schema_version"])
 	if !ok || (n != 2 && n != 3) {
 		return nil, nil, domain.Fail("CONTRACT_SCHEMA", "Slice 阅读仅支持 v2/v3")
 	}
@@ -372,23 +372,23 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 	}
 	content := contractCopy(raw)
 	if mode != "task" {
-		if source, ok := object(sources["ticket"]); ok {
-			b, e := r.bytes(text(source["ref"]))
+		if source, ok := kernel.Object(sources["ticket"]); ok {
+			b, e := r.bytes(kernel.Text(source["ref"]))
 			if e != nil {
 				return nil, nil, e
 			}
 			content["ticket_summary"] = readingTicketSummary(b)
 		}
 	}
-	units := semList(raw["work_units"])
+	units := kernel.SemList(raw["work_units"])
 	seen := map[string]bool{}
 	var selected map[string]any
 	for _, v := range units {
-		u := semMap(v)
-		if nested, ok := object(u["work_unit"]); ok {
+		u := kernel.SemMap(v)
+		if nested, ok := kernel.Object(u["work_unit"]); ok {
 			u = nested
 		}
-		id := text(u["id"])
+		id := kernel.Text(u["id"])
 		if id == "" || seen[id] {
 			return nil, nil, domain.Fail("CONTRACT_INVALID", "工作单元缺失或重复: "+id)
 		}
@@ -402,25 +402,25 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 	}
 	acceptance := map[string]any{}
 	if n == 3 {
-		for id, v := range semMap(raw["acceptance"]) {
-			a := semMap(v)
-			src, ok := sources[text(a["source"])]
+		for id, v := range kernel.SemMap(raw["acceptance"]) {
+			a := kernel.SemMap(v)
+			src, ok := sources[kernel.Text(a["source"])]
 			if !ok {
 				return nil, nil, domain.Fail("CONTRACT_INVALID", "验收来源缺失: "+id)
 			}
-			source := semMap(src)
-			b, e := r.bytes(text(source["ref"]))
+			source := kernel.SemMap(src)
+			b, e := r.bytes(kernel.Text(source["ref"]))
 			if e != nil {
 				return nil, nil, e
 			}
-			excerpt, e := r.locate(text(source["ref"]), b, text(a["locator"]))
+			excerpt, e := r.locate(kernel.Text(source["ref"]), b, kernel.Text(a["locator"]))
 			if e != nil {
 				return nil, nil, e
 			}
 			acceptance[id] = map[string]any{"text": excerpt, "source": a, "binding": src}
 		}
 	} else {
-		if ticket := text(semMap(raw["lifecycle_refs"])["ticket"]); ticket != "" {
+		if ticket := kernel.Text(kernel.SemMap(raw["lifecycle_refs"])["ticket"]); ticket != "" {
 			b, e := r.bytes(ticket)
 			if e != nil {
 				return nil, nil, e
@@ -435,11 +435,11 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		content["work_units"] = []any{selected}
 		content["reading_stop_conditions"] = "发现 violation、drift 或 new_impacts 时停止受影响工作，保留修改与证据并回交治理；阅读视图不授予批准或执行权。"
 		if n == 3 {
-			scope := semMap(raw["scope"])
+			scope := kernel.SemMap(raw["scope"])
 			for _, k := range []string{"project_root", "allowed_write_paths"} {
 				if selected[k] == nil {
 					if k == "project_root" {
-						roots := semList(scope["project_roots"])
+						roots := kernel.SemList(scope["project_roots"])
 						if len(roots) != 1 {
 							return nil, nil, domain.Fail("CONTRACT_INVALID", "多仓工作单元必须指定 project_root")
 						}
@@ -450,24 +450,24 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 				}
 			}
 			checks := map[string]any{}
-			for id, v := range semMap(raw["verification"]) {
-				if semMap(v)["required_for_all"] == true {
+			for id, v := range kernel.SemMap(raw["verification"]) {
+				if kernel.SemMap(v)["required_for_all"] == true {
 					checks[id] = v
 				}
 			}
-			for _, id := range semStrings(selected["verification_refs"]) {
-				v, ok := semMap(raw["verification"])[id]
+			for _, id := range kernel.SemStrings(selected["verification_refs"]) {
+				v, ok := kernel.SemMap(raw["verification"])[id]
 				if !ok {
 					return nil, nil, domain.Fail("CONTRACT_INVALID", "未知验证: "+id)
 				}
 				checks[id] = v
 			}
 			wanted := map[string]bool{}
-			for _, id := range semStrings(selected["acceptance_refs"]) {
+			for _, id := range kernel.SemStrings(selected["acceptance_refs"]) {
 				wanted[id] = true
 			}
 			for _, v := range checks {
-				for _, id := range semStrings(semMap(v)["acceptance_refs"]) {
+				for _, id := range kernel.SemStrings(kernel.SemMap(v)["acceptance_refs"]) {
 					wanted[id] = true
 				}
 			}
@@ -508,7 +508,7 @@ func sortedMapKeys(m map[string]any) []string {
 func readingTicketSummary(b []byte) string {
 	body := string(b)
 	if strings.HasPrefix(body, "---\n") || strings.HasPrefix(body, "---\r\n") {
-		_, raw, e := frontmatter(b)
+		_, raw, e := kernel.Frontmatter(b)
 		if e == nil {
 			body = string(raw)
 		}
@@ -541,14 +541,14 @@ func readingEvidenceIndex(value any) []any {
 		case map[string]any:
 			for _, key := range sortedMapKeys(x) {
 				if key == "evidence_refs" {
-					for i, row := range semList(x[key]) {
-						if ref := text(row); ref != "" {
+					for i, row := range kernel.SemList(x[key]) {
+						if ref := kernel.Text(row); ref != "" {
 							out = append(out, map[string]any{"source_pointer": pointer + "/" + key + "/" + strconv.Itoa(i), "ref": ref})
 						}
 					}
 				}
 				if key == "ref" || strings.HasSuffix(key, "_ref") {
-					if ref := text(x[key]); ref != "" {
+					if ref := kernel.Text(x[key]); ref != "" {
 						item := map[string]any{"source_pointer": pointer + "/" + key, "ref": ref}
 						for _, field := range []string{"digest", "status", "result", "summary"} {
 							if x[field] != nil {
@@ -575,28 +575,28 @@ func (r *readingSession) sliceV2(raw map[string]any) error {
 	if err != nil {
 		return err
 	}
-	for section, fields := range semMap(compiler["slice_contract_required"]) {
+	for section, fields := range kernel.SemMap(compiler["slice_contract_required"]) {
 		target := raw
 		if section != "root" {
-			target = semMap(raw[section])
+			target = kernel.SemMap(raw[section])
 		}
-		for _, field := range semStrings(fields) {
+		for _, field := range kernel.SemStrings(fields) {
 			if _, ok := target[field]; !ok {
 				return domain.Fail("CONTRACT_INVALID", "缺少 "+section+"."+field)
 			}
 		}
 	}
 	for _, section := range []string{"common", "resolution", "backend"} {
-		if _, ok := semMap(raw[section])["required_skills"].([]any); !ok {
+		if _, ok := kernel.SemMap(raw[section])["required_skills"].([]any); !ok {
 			return domain.Fail("CONTRACT_INVALID", section+".required_skills 须为数组")
 		}
 	}
-	if len(semList(raw["work_units"])) == 0 {
+	if len(kernel.SemList(raw["work_units"])) == 0 {
 		return domain.Fail("CONTRACT_INVALID", "缺少工作单元")
 	}
-	for _, v := range semList(raw["work_units"]) {
-		u := semMap(v)
-		if !contractSame(u["contract_id"], raw["contract_id"]) || !contractSame(u["contract_version"], raw["contract_version"]) || text(semMap(u["work_unit"])["primary_skill"]) == "" {
+	for _, v := range kernel.SemList(raw["work_units"]) {
+		u := kernel.SemMap(v)
+		if !contractSame(u["contract_id"], raw["contract_id"]) || !contractSame(u["contract_version"], raw["contract_version"]) || kernel.Text(kernel.SemMap(u["work_unit"])["primary_skill"]) == "" {
 			return domain.Fail("CONTRACT_INVALID", "工作单元身份冲突")
 		}
 	}
@@ -604,12 +604,12 @@ func (r *readingSession) sliceV2(raw map[string]any) error {
 }
 
 func (r *readingSession) sliceSources(raw map[string]any) (map[string]any, error) {
-	basis := semMap(raw["basis"])
+	basis := kernel.SemMap(raw["basis"])
 	out := map[string]any{}
 	active := map[string]bool{}
 	var resolve func(string) (map[string]any, error)
 	resolve = func(key string) (map[string]any, error) {
-		if v, ok := object(out[key]); ok {
+		if v, ok := kernel.Object(out[key]); ok {
 			return v, nil
 		}
 		if active[key] {
@@ -628,15 +628,15 @@ func (r *readingSession) sliceSources(raw map[string]any) (map[string]any, error
 			}
 			return b, e
 		}
-		b, ok := object(v)
+		b, ok := kernel.Object(v)
 		if !ok {
 			return nil, domain.Fail("CONTRACT_INVALID", "依据必须为绑定: "+key)
 		}
-		ref := text(b["ref"])
+		ref := kernel.Text(b["ref"])
 		if _, e := r.bytes(ref); e != nil {
 			return nil, e
 		}
-		if text(b["digest"]) != "sha256:"+r.s.v.observed[filepath.ToSlash(filepath.Clean(ref))].Digest {
+		if kernel.Text(b["digest"]) != "sha256:"+r.s.V.Observed[filepath.ToSlash(filepath.Clean(ref))].Digest {
 			return nil, domain.Fail("STALE", "依据原字节变化: "+key)
 		}
 		out[key] = b
@@ -648,9 +648,9 @@ func (r *readingSession) sliceSources(raw map[string]any) (map[string]any, error
 		}
 	}
 	// v2's named lifecycle references are explicit reading inputs, not approval checks.
-	if _, ok := integer(raw["schema_version"]); ok && contractN(raw["schema_version"]) == 2 {
-		for _, value := range semMap(raw["lifecycle_refs"]) {
-			ref := text(value)
+	if _, ok := kernel.Integer(raw["schema_version"]); ok && kernel.ContractN(raw["schema_version"]) == 2 {
+		for _, value := range kernel.SemMap(raw["lifecycle_refs"]) {
+			ref := kernel.Text(value)
 			if ref != "" {
 				if _, err := r.bytes(ref); err != nil {
 					return nil, err
@@ -727,7 +727,7 @@ func (r *readingSession) locate(ref string, b []byte, locator string) (string, e
 	}
 	body := string(b)
 	if strings.HasPrefix(body, "---\n") || strings.HasPrefix(body, "---\r\n") {
-		_, raw, e := frontmatter(b)
+		_, raw, e := kernel.Frontmatter(b)
 		if e != nil {
 			return "", e
 		}

@@ -3,19 +3,19 @@ package governance
 import (
 	"bytes"
 	"encoding/xml"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"io"
 	"os"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 func xmlRun(action, root string, args map[string]string) (any, error) {
 	if action != "inspect" && action != "query" {
 		return nil, domain.Fail("UNPORTED", "XML 动作尚未迁移: "+action)
 	}
-	ref := first(args["file"], args["arg0"])
+	ref := kernel.First(args["file"], args["arg0"])
 	p, err := safefs.Path(root, ref)
 	if err != nil {
 		return nil, err

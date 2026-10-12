@@ -3,17 +3,17 @@ package governance
 import (
 	"context"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/identitymeta"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/identitymeta"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/transaction"
-	"github.com/iloveZzz/yss-cli/internal/worklayout"
 )
 
 type ProfileRecommendation struct {
@@ -26,6 +26,7 @@ type ProfileRecommendation struct {
 	Missing           []string   `json:"missing"`
 	Commands          [][]string `json:"commands"`
 }
+
 type ProfileGuidanceResult struct {
 	SchemaVersion    int                     `json:"schema_version"`
 	Status           string                  `json:"status"`
@@ -39,19 +40,8 @@ type ProfileGuidanceResult struct {
 	Missing          []string                `json:"missing"`
 }
 
-func guidanceContractRef(profile string) string {
-	skill := "yss-product-lifecycle"
-	if profile == "design" {
-		skill = "yss-strategic-design"
-	}
-	if profile == "backend" || profile == "frontend" {
-		skill = "harness-orchestrator"
-	}
-	return ".agents/skills/" + skill + "/references/orchestration-contract.yaml"
-}
-
-func guidancePolicy(s *semanticSession) (string, map[string]any, error) {
-	p, err := s.doc(".template-spec/process/harness-profile.yaml")
+func guidancePolicy(s *kernel.SemanticSession) (string, map[string]any, error) {
+	p, err := s.Doc(".template-spec/process/harness-profile.yaml")
 	if err != nil {
 		return "", nil, err
 	}
@@ -62,37 +52,37 @@ func guidancePolicy(s *semanticSession) (string, map[string]any, error) {
 		}
 	}
 	if profile == "" {
-		return "", nil, s.unavailable("IDENTITY", "无法识别当前 Profile")
+		return "", nil, s.Unavailable("IDENTITY", "无法识别当前 Profile")
 	}
-	doc, err := s.doc(guidanceContractRef(profile))
+	doc, err := s.Doc(kernel.GuidanceContractRef(profile))
 	if err != nil {
 		return profile, nil, err
 	}
-	policy := semMap(doc["profile_guidance"])
-	if contractN(policy["schema_version"]) != 1 || policy["links_file"] != ".yss-profile-links.json" || len(semMap(semMap(policy["routes"])[profile])) == 0 {
-		return profile, nil, s.unavailable("CAPABILITY", "当前实例不支持 Profile 引导；先同步模板")
+	policy := kernel.SemMap(doc["profile_guidance"])
+	if kernel.ContractN(policy["schema_version"]) != 1 || policy["links_file"] != ".yss-profile-links.json" || len(kernel.SemMap(kernel.SemMap(policy["routes"])[profile])) == 0 {
+		return profile, nil, s.Unavailable("CAPABILITY", "当前实例不支持 Profile 引导；先同步模板")
 	}
-	for _, capability := range semStrings(policy["required_capabilities"]) {
-		if !semHas([]string{"profile-guidance-v1", "profile-prepare", "spec-baseline-v1"}, capability) {
-			return profile, nil, s.unavailable("CAPABILITY", "当前 CLI 不支持引导合同所需能力："+capability)
+	for _, capability := range kernel.SemStrings(policy["required_capabilities"]) {
+		if !kernel.SemHas([]string{"profile-guidance-v1", "profile-prepare", "spec-baseline-v1"}, capability) {
+			return profile, nil, s.Unavailable("CAPABILITY", "当前 CLI 不支持引导合同所需能力："+capability)
 		}
 	}
 	return profile, policy, nil
 }
 
 func guidanceArtifact(cp map[string]any, id string, fallback ...string) string {
-	if ref := text(semMap(semMap(cp["artifacts"])[id])["ref"]); ref != "" {
+	if ref := kernel.Text(kernel.SemMap(kernel.SemMap(cp["artifacts"])[id])["ref"]); ref != "" {
 		return ref
 	}
 	for _, k := range fallback {
-		if ref := text(cp[k]); ref != "" {
+		if ref := kernel.Text(cp[k]); ref != "" {
 			return ref
 		}
 	}
 	return ""
 }
 
-func guidanceStrategicHandoff(s *semanticSession, cp map[string]any) (*nativeHandoff, bool, error) {
+func guidanceStrategicHandoff(s *kernel.SemanticSession, cp map[string]any) (*nativeHandoff, bool, error) {
 	if ref, present, err := guidanceStrategicDeliveryRef(s, cp); present || err != nil {
 		if err != nil {
 			return nil, present, err
@@ -112,15 +102,15 @@ func guidanceStrategicHandoff(s *semanticSession, cp map[string]any) (*nativeHan
 		if ref == "" {
 			continue
 		}
-		declared := semMap(semMap(cp["artifacts"])[asset.id])
+		declared := kernel.SemMap(kernel.SemMap(cp["artifacts"])[asset.id])
 		if declared["ref"] == ref && declared["status"] != nil && declared["status"] != "approved" {
-			return nil, true, s.reject("PROFILE_BLOCKED", "当前显式战略交接资产尚未批准或已过期")
+			return nil, true, s.Reject("PROFILE_BLOCKED", "当前显式战略交接资产尚未批准或已过期")
 		}
 		if asset.delivery {
 			h, _, err := contractOpenStrategicDelivery(s, ref)
 			return h, true, err
 		}
-		if err := s.authorities(); err != nil {
+		if err := s.Authorities(); err != nil {
 			return nil, true, err
 		}
 		h, err := contractInspectHandoff(s, ref)
@@ -131,13 +121,13 @@ func guidanceStrategicHandoff(s *semanticSession, cp map[string]any) (*nativeHan
 
 // Finalization records live under the registered handoff's evidence references;
 // this does not invent a new checkpoint asset ID.
-func guidanceStrategicDeliveryRef(s *semanticSession, cp map[string]any) (string, bool, error) {
-	asset := semMap(semMap(cp["artifacts"])["artifact.strategic-design-handoff"])
+func guidanceStrategicDeliveryRef(s *kernel.SemanticSession, cp map[string]any) (string, bool, error) {
+	asset := kernel.SemMap(kernel.SemMap(cp["artifacts"])["artifact.strategic-design-handoff"])
 	refs := []string{}
-	for _, row := range semList(asset["evidence_refs"]) {
-		ref := text(row)
+	for _, row := range kernel.SemList(asset["evidence_refs"]) {
+		ref := kernel.Text(row)
 		if ref == "" {
-			ref = text(semMap(row)["ref"])
+			ref = kernel.Text(kernel.SemMap(row)["ref"])
 		}
 		if path.Base(ref) == "delivery-record.json" {
 			refs = append(refs, ref)
@@ -147,40 +137,40 @@ func guidanceStrategicDeliveryRef(s *semanticSession, cp map[string]any) (string
 		return "", false, nil
 	}
 	if len(refs) != 1 || asset["status"] != "approved" {
-		return "", true, s.reject("HANDOFF_DELIVERY", "战略交接交付记录不唯一或资产尚未批准")
+		return "", true, s.Reject("HANDOFF_DELIVERY", "战略交接交付记录不唯一或资产尚未批准")
 	}
 	h, record, err := contractOpenStrategicDelivery(s, refs[0])
 	if err != nil {
 		return "", true, err
 	}
 	if h.Manifest["handoff_ref"] != asset["ref"] {
-		return "", true, s.reject("HANDOFF_DELIVERY", "交付记录未绑定checkpoint当前战略Handoff")
+		return "", true, s.Reject("HANDOFF_DELIVERY", "交付记录未绑定checkpoint当前战略Handoff")
 	}
-	verification := semMap(semMap(cp["verification"])["strategic_delivery"])
+	verification := kernel.SemMap(kernel.SemMap(cp["verification"])["strategic_delivery"])
 	if verification["bundle_digest"] != record["bundle_digest"] {
-		return "", true, s.reject("HANDOFF_DELIVERY", "checkpoint战略交付验证未绑定当前包版本")
+		return "", true, s.Reject("HANDOFF_DELIVERY", "checkpoint战略交付验证未绑定当前包版本")
 	}
 	return refs[0], true, nil
 }
 
 // A completed string is never a qualification. These are the same readers used
 // by handoff consumers; every call observes and rechecks current evidence.
-func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any) (map[string]string, string, error) {
+func guidanceSource(s *kernel.SemanticSession, profile, cpRef string, cp map[string]any) (map[string]string, string, error) {
 	if cpRef == "" {
-		return nil, "", s.unavailable("CHECKPOINT_REQUIRED", "缺少当前 checkpoint；输入待核验")
+		return nil, "", s.Unavailable("CHECKPOINT_REQUIRED", "缺少当前 checkpoint；输入待核验")
 	}
 	if cp == nil {
 		var err error
-		cp, err = s.doc(cpRef)
+		cp, err = s.Doc(cpRef)
 		if err != nil {
 			return nil, "", err
 		}
 	}
 	if cp["profile_id"] != nil && cp["profile_id"] != domain.Profiles[profile].ID {
-		return nil, "", s.reject("IDENTITY", "checkpoint Profile 不匹配")
+		return nil, "", s.Reject("IDENTITY", "checkpoint Profile 不匹配")
 	}
-	if len(semList(cp["blockers"])) > 0 {
-		return nil, "", s.reject("PROFILE_BLOCKED", "当前工作存在已登记阻断项")
+	if len(kernel.SemList(cp["blockers"])) > 0 {
+		return nil, "", s.Reject("PROFILE_BLOCKED", "当前工作存在已登记阻断项")
 	}
 	switch profile {
 	case "spec":
@@ -192,8 +182,8 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 			routes["design"] = "not-applicable"
 			return routes, "当前 Spec 的战略交接、来源批准和消费者路由已核验", nil
 		}
-		if semMap(semMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved" {
-			return nil, "", s.reject("WAITING_PROFILE_INPUT", "等待当前 Spec 基线批准")
+		if kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved" {
+			return nil, "", s.Reject("WAITING_PROFILE_INPUT", "等待当前 Spec 基线批准")
 		}
 		source, _, err := verifySpecBaselineSource(s, cpRef)
 		if err != nil {
@@ -209,7 +199,7 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 			return nil, "", err
 		}
 		if !present {
-			return nil, "", s.reject("WAITING_PROFILE_INPUT", "等待当前战略交接及来源批准")
+			return nil, "", s.Reject("WAITING_PROFILE_INPUT", "等待当前战略交接及来源批准")
 		}
 		return guidanceConsumerRoutes(h.Handoff), "当前战略交接、来源批准和消费者路由已核验", nil
 	case "backend":
@@ -219,27 +209,27 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 			if err != nil {
 				return nil, "", err
 			}
-			present, err := s.exists(a.TerminalRef)
+			present, err := s.Exists(a.TerminalRef)
 			if err != nil {
 				return nil, "", err
 			}
 			if !present {
-				return nil, "", s.reject("WAITING_PROFILE_INPUT", "等待真实后端交付记录")
+				return nil, "", s.Reject("WAITING_PROFILE_INPUT", "等待真实后端交付记录")
 			}
-			if err = s.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); err != nil {
+			if err = s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); err != nil {
 				return nil, "", err
 			}
-			doc, err := s.doc(a.TerminalRef)
+			doc, err := s.Doc(a.TerminalRef)
 			if err != nil {
 				return nil, "", err
 			}
-			ref = text(semMap(doc["delivery"])["ref"])
+			ref = kernel.Text(kernel.SemMap(doc["delivery"])["ref"])
 		}
 		delivery, err := backendInspectDelivery(s, ref, nil)
 		if err != nil {
 			return nil, "", err
 		}
-		h, err := backendOpenStrategicInput(s, text(delivery["strategic_bundle_ref"]))
+		h, err := backendOpenStrategicInput(s, kernel.Text(delivery["strategic_bundle_ref"]))
 		if err != nil {
 			return nil, "", err
 		}
@@ -247,14 +237,15 @@ func guidanceSource(s *semanticSession, profile, cpRef string, cp map[string]any
 	case "frontend":
 		return map[string]string{}, "当前 Profile 无下游初始化职责", nil
 	}
-	return nil, "", s.unavailable("CAPABILITY", "不支持的 Profile 引导")
+	return nil, "", s.Unavailable("CAPABILITY", "不支持的 Profile 引导")
 }
+
 func guidanceConsumerRoutes(h map[string]any) map[string]string {
 	result := map[string]string{}
 	for profile, capability := range map[string]string{"backend": "backend-technical-design", "frontend": "frontend-engineering-design"} {
-		route := apFind(h["consumer_routes"], "capability", capability)
+		route := kernel.ApFind(h["consumer_routes"], "capability", capability)
 		if route != nil {
-			result[profile] = text(route["activation"])
+			result[profile] = kernel.Text(route["activation"])
 		}
 	}
 	return result
@@ -279,26 +270,26 @@ func guidanceEngineering(root, profile string) (string, string) {
 	if len(entries) == 0 {
 		return "not-initialized", ""
 	}
-	s := newSemanticSession(context.Background(), root, nil)
+	s := kernel.NewSemanticSession(context.Background(), root, nil)
 	profileRef := ".template-spec/process/harness-profile.yaml"
-	present, err := s.exists(profileRef)
+	present, err := s.Exists(profileRef)
 	if err != nil {
 		return "needs-attention", err.Error()
 	}
 	if !present {
 		return "needs-attention", "目标目录为已有普通工程；请先 yss attach"
 	}
-	p, err := s.doc(profileRef)
+	p, err := s.Doc(profileRef)
 	if err != nil {
 		return "needs-attention", err.Error()
 	}
 	if p["profile_id"] != domain.Profiles[profile].ID {
 		return "needs-attention", "目标工程 Profile 冲突；选择正确目录并显式重新登记关联"
 	}
-	if err := s.authorities(); err != nil {
+	if err := s.Authorities(); err != nil {
 		return "needs-attention", err.Error()
 	}
-	raw, err := s.bytes(domain.MetadataFile)
+	raw, err := s.Bytes(domain.MetadataFile)
 	if err != nil {
 		return "needs-attention", "当前工程需要迁移 native 身份；已有普通工程请先 yss attach"
 	}
@@ -306,7 +297,7 @@ func guidanceEngineering(root, profile string) (string, string) {
 	if err != nil || meta.Profile != profile {
 		return "needs-attention", "目标原生身份不能核验"
 	}
-	if err = s.finish(); err != nil {
+	if err = s.Finish(); err != nil {
 		return "needs-attention", err.Error()
 	}
 	state, err := transaction.Status(root)
@@ -321,11 +312,11 @@ func guidanceEngineering(root, profile string) (string, string) {
 
 // Source approval qualifies the recommendation, not the target's inputs. Only
 // an explicit receipt and a registered target checkpoint can qualify intake.
-func guidanceTargetInput(ctx context.Context, source *semanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string) (string, string, []string) {
+func guidanceTargetInput(ctx context.Context, source *kernel.SemanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string) (string, string, []string) {
 	return guidanceTargetInputSession(ctx, source, profile, cpRef, cp, targetRoot, target, engineering, nil)
 }
 
-func guidanceTargetInputSession(ctx context.Context, source *semanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string, targetSession *semanticSession) (string, string, []string) {
+func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string, targetSession *kernel.SemanticSession) (string, string, []string) {
 	specBaseline := profile == "spec" && target == "design"
 	if engineering == "needs-attention" {
 		return "blocked", "目标身份或未完成事务需要处理后才能核验输入", nil
@@ -335,17 +326,17 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 	}
 	if cp == nil {
 		var err error
-		cp, err = source.doc(cpRef)
+		cp, err = source.Doc(cpRef)
 		if err != nil {
 			return "blocked", err.Error(), nil
 		}
 	}
-	feature := text(cp["feature_id"])
+	feature := kernel.Text(cp["feature_id"])
 	receiptRef, sourceDigest := "", ""
 	var sourceHandoff map[string]any
 	var sourceDelivery map[string]any
 	if specBaseline {
-		version := text(cp["version"])
+		version := kernel.Text(cp["version"])
 		if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(version) {
 			version = "v1"
 		}
@@ -357,7 +348,7 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 			var present bool
 			h, present, err = guidanceStrategicHandoff(source, cp)
 			if err == nil && !present {
-				err = source.reject("WAITING_PROFILE_INPUT", "等待当前战略交接及来源批准")
+				err = source.Reject("WAITING_PROFILE_INPUT", "等待当前战略交接及来源批准")
 			}
 		} else {
 			ref := guidanceArtifact(cp, "artifact.backend-delivery", "backend_delivery_ref")
@@ -366,40 +357,40 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
-				if e = source.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
+				if e = source.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
 					return "blocked", e.Error(), nil
 				}
-				terminal, e := source.doc(a.TerminalRef)
+				terminal, e := source.Doc(a.TerminalRef)
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
-				ref = text(semMap(terminal["delivery"])["ref"])
+				ref = kernel.Text(kernel.SemMap(terminal["delivery"])["ref"])
 			}
 			delivery, e := backendInspectDelivery(source, ref, nil)
 			if e != nil {
 				return "blocked", e.Error(), nil
 			}
 			sourceDelivery = delivery
-			h, err = backendOpenStrategicInput(source, text(delivery["strategic_bundle_ref"]))
+			h, err = backendOpenStrategicInput(source, kernel.Text(delivery["strategic_bundle_ref"]))
 		}
 		if err != nil {
 			return "blocked", err.Error(), nil
 		}
 		sourceHandoff = h.Handoff
-		receiptRef = path.Join("docs/handoffs", text(h.Handoff["handoff_id"]), text(h.Handoff["handoff_version"]), "import-receipt.json")
-		sourceDigest = text(h.Manifest["bundle_digest"])
+		receiptRef = path.Join("docs/handoffs", kernel.Text(h.Handoff["handoff_id"]), kernel.Text(h.Handoff["handoff_version"]), "import-receipt.json")
+		sourceDigest = kernel.Text(h.Manifest["bundle_digest"])
 	}
-	s := newSemanticSession(ctx, targetRoot, nil)
+	s := kernel.NewSemanticSession(ctx, targetRoot, nil)
 	if targetSession != nil {
 		s = targetSession
 	}
-	present, err := s.exists(receiptRef)
+	present, err := s.Exists(receiptRef)
 	if err != nil {
 		return "blocked", err.Error(), nil
 	}
 	if !present {
 		if specBaseline {
-			return "waiting-input", "等待接入当前来源包和接收记录：" + receiptRef, []string{"yss", "handoff", "export", "--root", source.root, "--kind", "spec-baseline", "--checkpoint", cpRef, "--out", "<新基线包目录>"}
+			return "waiting-input", "等待接入当前来源包和接收记录：" + receiptRef, []string{"yss", "handoff", "export", "--root", source.Root, "--kind", "spec-baseline", "--checkpoint", cpRef, "--out", "<新基线包目录>"}
 		}
 		return "waiting-input", "等待接入当前来源包和接收记录：" + receiptRef, nil
 	}
@@ -412,7 +403,7 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 			return "blocked", e.Error(), nil
 		}
 	} else {
-		receipt, e := s.doc(receiptRef)
+		receipt, e := s.Doc(receiptRef)
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
@@ -422,7 +413,7 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 		if sourceDigest != "" && receipt["bundle_digest"] != sourceDigest {
 			return "blocked", "目标接收记录未绑定当前战略交接", nil
 		}
-		bundle, e := contractOpenHandoff(s, text(receipt["package_ref"]))
+		bundle, e := contractOpenHandoff(s, kernel.Text(receipt["package_ref"]))
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
@@ -434,7 +425,7 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 			return "blocked", e.Error(), nil
 		}
 	}
-	trackerBytes, err := s.bytes(worklayout.TrackerRef)
+	trackerBytes, err := s.Bytes(worklayout.TrackerRef)
 	if err != nil {
 		return "pending-verification", "目标尚未登记当前工作：" + err.Error(), nil
 	}
@@ -449,18 +440,18 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 	if targetCPRef == "" {
 		return "pending-verification", "接收记录已核验；等待明确登记目标自己的当前 checkpoint 和 Context 对账", nil
 	}
-	if targetSession != nil && targetSession.checkpointRef != "" && targetSession.checkpointRef != targetCPRef {
+	if targetSession != nil && targetSession.CheckpointRef != "" && targetSession.CheckpointRef != targetCPRef {
 		return "blocked", "显式消费者checkpoint与Tracker登记入口不一致", nil
 	}
-	s.checkpointRef = targetCPRef
-	recon := semMap(targetCP["context_reconciliation"])
-	if recon["status"] != "reconciled" || text(recon["ref"]) == "" {
+	s.CheckpointRef = targetCPRef
+	recon := kernel.SemMap(targetCP["context_reconciliation"])
+	if recon["status"] != "reconciled" || kernel.Text(recon["ref"]) == "" {
 		return "pending-verification", "目标 Context 尚未对账", nil
 	}
 	if specBaseline {
 		_, _, err = verifySpecBaselineReceipt(s, receiptRef, true)
 	} else {
-		err = s.verify("context-reconciliation", text(recon["ref"]), map[string]string{"import-receipt": receiptRef})
+		err = s.Verify("context-reconciliation", kernel.Text(recon["ref"]), map[string]string{"import-receipt": receiptRef})
 		if err == nil {
 			err = guidanceHandoffContext(s, sourceHandoff)
 		}
@@ -469,26 +460,26 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 			if acceptance == "" {
 				return "waiting-input", "等待前端对真实后端交付的接收合同", nil
 			}
-			doc, e := s.doc(acceptance)
+			doc, e := s.Doc(acceptance)
 			if e != nil {
 				return "blocked", e.Error(), nil
 			}
-			binding := semMap(doc["strategic_handoff"])
+			binding := kernel.SemMap(doc["strategic_handoff"])
 			if binding["import_receipt_ref"] != receiptRef || binding["bundle_digest"] != sourceDigest {
 				return "blocked", "前端接收合同未绑定当前战略输入", nil
 			}
-			slice := text(semMap(sourceDelivery["scope"])["slice_id"])
-			err = s.verify("frontend-delivery", acceptance, map[string]string{"slice": slice, "phase": "inputs"})
+			slice := kernel.Text(kernel.SemMap(sourceDelivery["scope"])["slice_id"])
+			err = s.Verify("frontend-delivery", acceptance, map[string]string{"slice": slice, "phase": "inputs"})
 			if err == nil {
-				backendReceipt, e := s.doc(text(semMap(doc["backend_delivery"])["import_receipt_ref"]))
+				backendReceipt, e := s.Doc(kernel.Text(kernel.SemMap(doc["backend_delivery"])["import_receipt_ref"]))
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
-				manifest, imported, e := backendOpenDelivery(s, text(backendReceipt["package_ref"]), map[string]string{"phase": "inputs"})
+				manifest, imported, e := backendOpenDelivery(s, kernel.Text(backendReceipt["package_ref"]), map[string]string{"phase": "inputs"})
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
-				current, e := imported.doc(text(manifest["delivery_ref"]))
+				current, e := imported.Doc(kernel.Text(manifest["delivery_ref"]))
 				if e != nil {
 					return "blocked", e.Error(), nil
 				}
@@ -499,30 +490,30 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 		}
 	}
 	if err == nil {
-		err = s.finish()
+		err = s.Finish()
 	}
 	if err == nil {
-		err = source.finish()
+		err = source.Finish()
 	}
 	if err != nil {
 		return "blocked", err.Error(), nil
 	}
-	receipt, err := s.doc(receiptRef)
+	receipt, err := s.Doc(receiptRef)
 	if err != nil {
 		return "blocked", err.Error(), nil
 	}
-	raw, err := s.bytes(receiptRef)
+	raw, err := s.Bytes(receiptRef)
 	if err != nil {
 		return "blocked", err.Error(), nil
 	}
-	s.profileInput = map[string]any{"source_profile": profile, "source_root": source.root, "source_checkpoint_ref": cpRef, "receipt_ref": receiptRef, "receipt_digest": "sha256:" + safefs.Digest(raw), "package_ref": receipt["package_ref"], "bundle_digest": receipt["bundle_digest"]}
+	s.ProfileInput = map[string]any{"source_profile": profile, "source_root": source.Root, "source_checkpoint_ref": cpRef, "receipt_ref": receiptRef, "receipt_digest": "sha256:" + safefs.Digest(raw), "package_ref": receipt["package_ref"], "bundle_digest": receipt["bundle_digest"]}
 	if specBaseline {
-		s.profileInput["baseline_id"], s.profileInput["version"] = receipt["baseline_id"], receipt["version"]
+		s.ProfileInput["baseline_id"], s.ProfileInput["version"] = receipt["baseline_id"], receipt["version"]
 	} else {
-		s.profileInput["handoff_id"], s.profileInput["version"] = sourceHandoff["handoff_id"], sourceHandoff["handoff_version"]
+		s.ProfileInput["handoff_id"], s.ProfileInput["version"] = sourceHandoff["handoff_id"], sourceHandoff["handoff_version"]
 	}
 	if sourceDelivery != nil {
-		s.profileInput["backend_delivery_id"], s.profileInput["backend_delivery_version"] = sourceDelivery["delivery_id"], sourceDelivery["version"]
+		s.ProfileInput["backend_delivery_id"], s.ProfileInput["backend_delivery_version"] = sourceDelivery["delivery_id"], sourceDelivery["version"]
 	}
 	if specBaseline {
 		return "verified", "", []string{"yss", "handoff", "verify", "--root", targetRoot, "--kind", "spec-baseline", "--file", receiptRef, "--checkpoint", targetCPRef, "--json"}
@@ -532,32 +523,32 @@ func guidanceTargetInputSession(ctx context.Context, source *semanticSession, pr
 
 // Intake uses the approved Context delta, as the strategic consumption reader
 // does. A receiver's self-consistent snapshot cannot redefine incoming terms.
-func guidanceHandoffContext(s *semanticSession, handoff map[string]any) error {
-	context, err := s.contextContract()
+func guidanceHandoffContext(s *kernel.SemanticSession, handoff map[string]any) error {
+	context, err := s.ContextContract()
 	if err != nil {
 		return err
 	}
-	terms := map[string]Term{}
-	for _, term := range context["business_terms"].([]Term) {
+	terms := map[string]kernel.Term{}
+	for _, term := range context["business_terms"].([]kernel.Term) {
 		terms[term.TermRef] = term
 	}
 	for _, operation := range []string{"added", "updated", "deprecated"} {
-		for _, row := range semList(semMap(handoff["context_delta"])[operation]) {
-			expected := semMap(row)
-			term, present := terms[text(expected["term_ref"])]
+		for _, row := range kernel.SemList(kernel.SemMap(handoff["context_delta"])[operation]) {
+			expected := kernel.SemMap(row)
+			term, present := terms[kernel.Text(expected["term_ref"])]
 			if operation == "deprecated" {
 				if present {
-					return s.reject("HANDOFF_CONTEXT", "废弃术语仍存在")
+					return s.Reject("HANDOFF_CONTEXT", "废弃术语仍存在")
 				}
 				continue
 			}
 			if !present {
-				return s.reject("HANDOFF_CONTEXT", "目标术语未对账")
+				return s.Reject("HANDOFF_CONTEXT", "目标术语未对账")
 			}
-			actual := semMap(mustParseContract(mustMarshalContract(term)))
+			actual := kernel.SemMap(mustParseContract(mustMarshalContract(term)))
 			for _, key := range []string{"term", "meaning", "english_identifier", "context_id", "forbidden_aliases"} {
 				if !contractSame(expected[key], actual[key]) {
-					return s.reject("HANDOFF_CONTEXT", "目标术语字段未对账")
+					return s.Reject("HANDOFF_CONTEXT", "目标术语字段未对账")
 				}
 			}
 		}
@@ -565,12 +556,12 @@ func guidanceHandoffContext(s *semanticSession, handoff map[string]any) error {
 	return nil
 }
 
-func guidanceRegisteredCheckpoint(s *semanticSession, workRoot, feature string) (string, map[string]any, error) {
-	present, err := s.exists(workRoot)
+func guidanceRegisteredCheckpoint(s *kernel.SemanticSession, workRoot, feature string) (string, map[string]any, error) {
+	present, err := s.Exists(workRoot)
 	if err != nil || !present {
 		return "", nil, err
 	}
-	names, err := s.list(workRoot)
+	names, err := s.List(workRoot)
 	if err != nil {
 		return "", nil, err
 	}
@@ -578,24 +569,24 @@ func guidanceRegisteredCheckpoint(s *semanticSession, workRoot, feature string) 
 	var checkpoint map[string]any
 	for _, name := range names {
 		mapRef := path.Join(workRoot, name, "map.md")
-		present, e := s.exists(mapRef)
+		present, e := s.Exists(mapRef)
 		if e != nil || !present {
 			continue
 		}
-		registration, e := contractTicketMetadata(s, mapRef)
+		registration, e := kernel.ContractTicketMetadata(s, mapRef)
 		if e != nil {
 			continue
 		}
-		ref := text(registration["checkpoint_ref"])
+		ref := kernel.Text(registration["checkpoint_ref"])
 		if ref == "" {
 			continue
 		}
-		cp, e := s.doc(ref)
+		cp, e := s.Doc(ref)
 		if e != nil || cp["feature_id"] != feature {
 			continue
 		}
 		if selected != "" {
-			return "", nil, s.reject("PROFILE_INPUT_AMBIGUOUS", "同一来源功能登记了多个目标 checkpoint；先明确当前工作入口")
+			return "", nil, s.Reject("PROFILE_INPUT_AMBIGUOUS", "同一来源功能登记了多个目标 checkpoint；先明确当前工作入口")
 		}
 		selected, checkpoint = ref, cp
 	}
@@ -606,20 +597,20 @@ func guidanceRegisteredCheckpoint(s *semanticSession, workRoot, feature string) 
 // breaks the pre-existing lifecycle status response.
 func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any) *ProfileGuidanceResult {
 	g := &ProfileGuidanceResult{SchemaVersion: 1, Status: "unsupported", ReadOnly: true, DefaultCommands: [][]string{}, Recommendations: []ProfileRecommendation{}, Missing: []string{}}
-	s := newSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
+	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
 	profile, policy, err := guidancePolicy(s)
 	g.Profile = profile
 	if err != nil {
 		g.Missing = append(g.Missing, err.Error())
-		if profile != "" && semanticCode(err) == "CAPABILITY" {
+		if profile != "" && kernel.SemanticCode(err) == "CAPABILITY" {
 			g.DefaultCommands = append(g.DefaultCommands, []string{"yss", "sync", "--root", root, "--plan", "--out", "<新同步计划文件>"})
 		}
 		return g
 	}
 	g.Status = "available"
-	entry := semMap(semMap(policy["routes"])[profile])
-	g.Default = text(entry["default"])
-	if len(semStrings(entry["targets"])) == 0 {
+	entry := kernel.SemMap(kernel.SemMap(policy["routes"])[profile])
+	g.Default = kernel.Text(entry["default"])
+	if len(kernel.SemStrings(entry["targets"])) == 0 {
 		g.Reason = "当前 Profile 没有下游初始化职责"
 		return g
 	}
@@ -630,20 +621,20 @@ func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any)
 		return g
 	}
 	if cp == nil && cpRef != "" {
-		cp, _ = s.doc(cpRef)
+		cp, _ = s.Doc(cpRef)
 	}
 	explicitSpecHandoff := profile == "spec" && (guidanceArtifact(cp, "artifact.strategic-handoff-delivery", "strategic_delivery_ref") != "" || guidanceArtifact(cp, "artifact.strategic-design-handoff", "strategic_handoff_ref", "handoff_ref") != "")
 	routes, basis, sourceErr := guidanceSource(s, profile, cpRef, cp)
 	if sourceErr == nil {
-		sourceErr = s.finish()
+		sourceErr = s.Finish()
 	}
 	if sourceErr == nil && g.Default == "continue-current-spec" && cp != nil {
-		next := text(cp["next_work_unit"])
-		if s.registry != nil && semanticDefinition(s.registry, "work_units", next) != nil {
+		next := kernel.Text(cp["next_work_unit"])
+		if s.Registry != nil && kernel.SemanticDefinition(s.Registry, "work_units", next) != nil {
 			g.DefaultCommands = append(g.DefaultCommands, []string{"yss", "lifecycle", "query", "--root", root, "--id", next, "--json"})
 		}
 	}
-	for _, target := range semStrings(entry["targets"]) {
+	for _, target := range kernel.SemStrings(entry["targets"]) {
 		if _, valid := domain.Profiles[target]; !valid {
 			g.Status = "blocked"
 			g.Missing = append(g.Missing, "未知下游 Profile: "+target)
@@ -654,15 +645,15 @@ func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any)
 		r := ProfileRecommendation{Profile: target, Recommendation: "pending-verification", Basis: basis, TargetRoot: targetRoot, EngineeringStatus: engineering, InputStatus: "waiting-input", Missing: []string{}, Commands: [][]string{}}
 		if sourceErr != nil {
 			r.InputStatus = "pending-verification"
-			if semanticExit(sourceErr) == 1 || explicitSpecHandoff {
+			if kernel.SemanticExit(sourceErr) == 1 || explicitSpecHandoff {
 				r.InputStatus = "blocked"
 			}
-			if semanticCode(sourceErr) == "WAITING_PROFILE_INPUT" {
+			if kernel.SemanticCode(sourceErr) == "WAITING_PROFILE_INPUT" {
 				r.InputStatus = "waiting-input"
 			}
 			r.Missing = append(r.Missing, sourceErr.Error())
-			r.Commands = append(r.Commands, []string{"yss", "lifecycle", "verify", "--root", root, "--checkpoint", first(cpRef, "<当前checkpoint>"), "--json"})
-		} else if activation := routes[target]; semHas([]string{"required", "optional", "not-applicable"}, activation) {
+			r.Commands = append(r.Commands, []string{"yss", "lifecycle", "verify", "--root", root, "--checkpoint", kernel.First(cpRef, "<当前checkpoint>"), "--json"})
+		} else if activation := routes[target]; kernel.SemHas([]string{"required", "optional", "not-applicable"}, activation) {
 			r.Recommendation = activation
 			if activation != "not-applicable" {
 				var missing string
@@ -710,7 +701,7 @@ func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any)
 				}
 				r.Commands = append(r.Commands, append(argv, "--json"))
 			} else if engineering != "initialized" && engineering != "needs-attention" {
-				r.Commands = append(r.Commands, []string{"yss", "profile", "prepare", "--root", root, "--" + target + "-root", first(targetRoot, "<"+target+"目录>"), "--checkpoint", cpRef, "--plan", "--out", "<新计划文件>"})
+				r.Commands = append(r.Commands, []string{"yss", "profile", "prepare", "--root", root, "--" + target + "-root", kernel.First(targetRoot, "<"+target+"目录>"), "--checkpoint", cpRef, "--plan", "--out", "<新计划文件>"})
 			}
 		}
 		g.Recommendations = append(g.Recommendations, r)
@@ -722,17 +713,17 @@ func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any)
 // Directory preparation is allowed while downstream inputs are still pending;
 // an explicitly supplied checkpoint must verify before it can bind the plan.
 func ProfilePreparationSource(ctx context.Context, root, cpRef string, targets []string) ([]string, error) {
-	s := newSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
+	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
 	profile, policy, err := guidancePolicy(s)
 	if err != nil {
 		return nil, err
 	}
 	for _, target := range targets {
-		if !semHas(semMap(semMap(policy["routes"])[profile])["targets"], target) {
+		if !kernel.SemHas(kernel.SemMap(kernel.SemMap(policy["routes"])[profile])["targets"], target) {
 			return nil, domain.Fail("PROFILE_ROUTE", fmt.Sprintf("当前 %s 不支持准备 %s", profile, target))
 		}
 	}
-	if _, err = s.contextContract(); err != nil {
+	if _, err = s.ContextContract(); err != nil {
 		return nil, err
 	}
 	if cpRef != "" {
@@ -740,11 +731,11 @@ func ProfilePreparationSource(ctx context.Context, root, cpRef string, targets [
 			return nil, err
 		}
 	}
-	if err = s.finish(); err != nil {
+	if err = s.Finish(); err != nil {
 		return nil, err
 	}
 	refs := []string{}
-	for _, input := range s.inputs() {
+	for _, input := range s.Inputs() {
 		prefix, err := filepath.Rel(root, input.Root)
 		if err != nil || prefix == ".." || strings.HasPrefix(prefix, ".."+string(filepath.Separator)) {
 			continue

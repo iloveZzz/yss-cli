@@ -1,4 +1,4 @@
-package governance
+package kernel
 
 import (
 	"encoding/binary"
@@ -12,6 +12,7 @@ type nativeWorktreeFile struct {
 	Kind    byte
 	Content []byte
 }
+
 type nativeWorktreeSnapshot struct {
 	Manifest    map[string]any
 	Stream      []byte
@@ -21,50 +22,50 @@ type nativeWorktreeSnapshot struct {
 
 // This only parses and validates a saved candidate. The backend consumer must
 // independently compare it with its current registered Git/worktree inputs.
-func (s *semanticSession) worktreeCandidate(ref string) (*nativeWorktreeSnapshot, error) {
-	manifest, err := s.doc(ref)
+func (s *SemanticSession) WorktreeCandidate(ref string) (*nativeWorktreeSnapshot, error) {
+	manifest, err := s.Doc(ref)
 	if err != nil {
 		return nil, err
 	}
 	if manifest["storage"] != "packed-stream" {
-		return nil, s.reject("MAINTENANCE_CANDIDATE", "只支持 packed-stream candidate")
+		return nil, s.Reject("MAINTENANCE_CANDIDATE", "只支持 packed-stream candidate")
 	}
-	v, local, err := s.referenceView(ref)
+	v, local, err := s.ReferenceView(ref)
 	if err != nil {
 		return nil, err
 	}
 	inspector := s
-	if v != s.v {
-		inspector = newSemanticSession(s.ctx, v.root, s.args)
-		s.children = append(s.children, inspector)
+	if v != s.V {
+		inspector = NewSemanticSession(s.Ctx, v.Root, s.Args)
+		s.Children = append(s.Children, inspector)
 	}
-	members, err := inspector.list(path.Dir(local))
+	members, err := inspector.List(path.Dir(local))
 	if err != nil {
 		return nil, err
 	}
 	sort.Strings(members)
-	if !equalStrings(members, []string{"candidate-manifest.yaml", "candidate.bin", "tracked.diff"}) {
-		return nil, s.reject("MAINTENANCE_CANDIDATE", "packed candidate 目录须恰好含三个规范成员")
+	if !EqualStrings(members, []string{"candidate-manifest.yaml", "candidate.bin", "tracked.diff"}) {
+		return nil, s.Reject("MAINTENANCE_CANDIDATE", "packed candidate 目录须恰好含三个规范成员")
 	}
 	if path.Base(local) != "candidate-manifest.yaml" {
-		return nil, s.reject("MAINTENANCE_CANDIDATE", "候选 Manifest 文件名不规范")
+		return nil, s.Reject("MAINTENANCE_CANDIDATE", "候选 Manifest 文件名不规范")
 	}
 	record := map[string]any{"candidate_snapshot_ref": ref, "candidate_digest": manifest["candidate_digest"]}
 	if err = s.maintenanceCandidate(manifest, record); err != nil {
 		return nil, err
 	}
-	streamRef, diffRef := text(manifest["snapshot_stream_ref"]), text(manifest["tracked_diff_ref"])
-	if version, _ := integer(manifest["schema_version"]); version == 2 {
+	streamRef, diffRef := Text(manifest["snapshot_stream_ref"]), Text(manifest["tracked_diff_ref"])
+	if version, _ := Integer(manifest["schema_version"]); version == 2 {
 		base := path.Dir(ref)
 		streamRef, diffRef = base+"/"+streamRef, base+"/"+diffRef
 	} else if streamRef != path.Dir(ref)+"/candidate.bin" || diffRef != path.Dir(ref)+"/tracked.diff" {
-		return nil, s.reject("MAINTENANCE_CANDIDATE", "packed candidate 引用须绑定同目录规范文件")
+		return nil, s.Reject("MAINTENANCE_CANDIDATE", "packed candidate 引用须绑定同目录规范文件")
 	}
-	stream, err := s.bytes(streamRef)
+	stream, err := s.Bytes(streamRef)
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.bytes(diffRef)
+	diff, err := s.Bytes(diffRef)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +76,7 @@ func (s *semanticSession) worktreeCandidate(ref string) (*nativeWorktreeSnapshot
 	trackedLength := int(binary.BigEndian.Uint64(stream[position : position+8]))
 	position += 8 + trackedLength
 	for position < len(stream) {
-		if err = s.guard(); err != nil {
+		if err = s.Guard(); err != nil {
 			return nil, err
 		}
 		position++
