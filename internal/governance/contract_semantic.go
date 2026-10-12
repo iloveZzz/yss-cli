@@ -557,6 +557,7 @@ func init() {
 		return contractBusinessCheckpoint(s, cp, opts["required"] == "true")
 	})
 	registerSemanticValidator("frontend-delivery", verifyFrontendDeliverySemantic)
+	registerSemanticValidator("openapi-validation", verifyOpenAPIValidationSemantic)
 	registerSemanticValidator("technical-completion", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		doc, e := s.Doc(ref)
 		if e != nil {
@@ -4387,6 +4388,32 @@ func contractAPIDecision(s *kernel.SemanticSession, binding map[string]any) (map
 	return doc, nil
 }
 
+// 单独校验 OpenAPI Draft validation record（Node 入口 scripts/verify-openapi-draft-validation-record 的唯一实现）。
+// --allow-template 只接受模板记录，仅做 Schema 与模板标记检查；正式记录走与冻结校验同一份 contractOpenAPIValidation。
+func verifyOpenAPIValidationSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	record, e := s.Doc(ref)
+	if e != nil {
+		return e
+	}
+	template := opts["allow-template"] == "true"
+	if template {
+		if e = s.ValidateSchema(".template-spec/process/schemas/openapi-draft-validation-record.schema.json", record); e != nil {
+			return e
+		}
+		if record["template"] != true {
+			return s.Reject("OPENAPI_VALIDATION", "--allow-template 只接受模板记录")
+		}
+	} else if e = contractOpenAPIValidation(s, record); e != nil {
+		return e
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	draft := kernel.SemMap(record["draft"])
+	s.Report.Coverage["openapi_validation"] = map[string]any{"template": template, "draft_ref": draft["ref"], "draft_sha256": draft["sha256"]}
+	return nil
+}
+
 func contractOpenAPIValidation(s *kernel.SemanticSession, record map[string]any) error {
 	if e := s.ValidateSchema(".template-spec/process/schemas/openapi-draft-validation-record.schema.json", record); e != nil {
 		return e
@@ -4451,8 +4478,11 @@ func contractOpenAPIReferences(s *kernel.SemanticSession, draftRef string, doc m
 		if !kernel.ContractPath(file) || !contractWithin(file, apiRoot) {
 			return nil, "", s.Reject("OPENAPI_REF", "引用越出 feature API 目录")
 		}
-		value := any(cache[file])
-		if value == nil {
+		// 未缓存的文件必须现读：nil map 装进 any 后不等于 nil，不能用 any(cache[file]) == nil 判断。
+		var value any
+		if cached, ok := cache[file]; ok {
+			value = cached
+		} else {
 			parsed, e := s.Doc(file)
 			if e != nil {
 				return nil, "", e

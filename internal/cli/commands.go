@@ -39,7 +39,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation from-record recover full") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation from-record allow-template recover full") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend", "frontend")
@@ -466,7 +466,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
@@ -499,6 +499,8 @@ func verificationOptions(group, kind string) []string {
 			options = append(options, "slice", "phase", "unit")
 		case "contract.task":
 			options = append(options, "history")
+		case "contract.openapi-validation":
+			options = append(options, "allow-template")
 		case "evidence.approval":
 			options = append(options, "require-approved", "history", "gate", "boundary", "task", "expected", "binding")
 		case "evidence.user-decision":
