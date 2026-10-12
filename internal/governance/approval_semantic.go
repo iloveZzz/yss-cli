@@ -2,6 +2,7 @@ package governance
 
 import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"strings"
 )
 
@@ -26,6 +27,9 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 		if e = s.ValidateSchema(kernel.ApprovalSchemaRef, record); e != nil {
 			return e
 		}
+	}
+	if opts["expected"] != "" && (opts["task"] != "" || opts["checkpoint"] != "" || s.CheckpointRef != "") {
+		return kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "--expected 不能与 checkpoint 或 task 同用")
 	}
 	if opts["history"] == "true" {
 		if opts["checkpoint"] != "" || s.CheckpointRef != "" || opts["task"] != "" || opts["require-approved"] == "true" {
@@ -91,6 +95,9 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 				state = kernel.ApMap(kernel.ApMap(checkpoint["checks"])[gate])
 			}
 			expected, e = kernel.ApprovalExpectationFromState(s, gate, state)
+		} else if opts["expected"] != "" {
+			// 调用方独立给出的当前消费期望（Node 适配层或其他消费者），与 checkpoint、task 互斥。
+			expected, e = approvalExplicitExpectation(s, opts["expected"], gate)
 		} else if opts["task"] != "" {
 			task, e2 := s.Doc(opts["task"])
 			if e2 != nil {
@@ -116,4 +123,25 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 	}
 	s.Report.Applicability = append(s.Report.Applicability, map[string]any{"kind": "approval", "mode": "current-binding", "execution_authorization": "not-evaluated"})
 	return nil
+}
+
+// expected 文件可以是单个期望对象，或按 boundary 区分的数组；只取与当前 gate 对应的一项。
+func approvalExplicitExpectation(s *kernel.SemanticSession, ref, gate string) (map[string]any, error) {
+	b, e := s.Bytes(ref)
+	if e != nil {
+		return nil, e
+	}
+	value, e := schema.Parse(b)
+	if e != nil {
+		return nil, s.Unavailable("INPUT", e.Error())
+	}
+	if single, ok := value.(map[string]any); ok {
+		return single, nil
+	}
+	if rows, ok := value.([]any); ok {
+		if row := kernel.ApFind(rows, "boundary", gate); row != nil {
+			return row, nil
+		}
+	}
+	return nil, kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "期望文件没有对应当前 gate 的项")
 }
