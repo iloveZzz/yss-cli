@@ -829,6 +829,7 @@ var nodeDelegation = []string{
 	"approval.rule-rows.v1",
 	"task.directory-write-scope.v1",
 	"lifecycle.legacy-untracked-checkpoint.v1",
+	"handoff.package-identity.v1",
 	"template-source.verify-root.v1",
 }
 
