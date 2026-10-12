@@ -13,3 +13,14 @@ Source lock 使用 `schemaVersion: 2`；四个 `profiles` 的 key 必须为 `spe
 `bundle.Inspect(profile)` 返回同二进制完整 manifest、provenance、分发和每个文件的摘要、权限、ownership、字节长度，不含私有源码入口。`bundle.Export(ctx,profile,out)` 要求新普通目录，拒绝符号链祖先、已有目标及不安全路径；输出资产 bytes/mode、`.yss-bundle.json`（Inspection）和 `.yss-bundle.snapshot.json`（完整 JSON Bundle，包含 full/initial 变体与来源材料）。它不替代 init 的实例变量渲染。`attach`、`sync`、`migrate plan` 的 `--base-bundle` 可显式读取该导出目录或完整 JSON 文件，最大 128MiB；默认不联网，不接受内部 gzip 资产作为公开输入。
 
 程序 JSON envelope 与运行协议继续使用 v1；Bundle/metadata 使用 v3，保存计划使用 v2，source lock 仍为 v2。模板版本与 legacy lineage 单独登记。旧 metadata 和历史事务可识别及恢复；旧保存计划应用返回 `PLAN_VERSION`，要求重新生成。新的实例入口文案使用 `yss assets/skills ensure --plan --out` 和 `--apply --plan-file`，保留生物人审批和业务资产保护边界。完整旧源 oracle 比对覆盖文件 bytes/mode/ownership、Spec 初始资产及阶段/Skill 依赖；原生命令文案是明确记录的行为迁移差异。
+
+## 内核 + 覆盖层来源
+
+来源锁里的 Profile 条目可以带 `overlayPath`（例如 `profiles/backend`）。这时该 Profile 不再读取整个子仓，而是从同一仓库、同一提交读取：
+
+- 内核目录：`.agents/skills`、`scripts`、`.template-spec/process`、`.template-spec/templates`；
+- 覆盖层目录：`overlayPath` 下的全部内容，按去掉前缀后的路径参与组合。
+
+两边出现同一路径时覆盖层优先。Profile 的分发清单（`policyPath` 指向的 `bundle-profile.json`，通常放在覆盖层里）同时约束两边：内核里不属于该 Profile 的文件，在清单的 `excludePaths` 里列出即可，被排除的路径不会被读取或校验。`overlayPath` 不能落在内核目录里或包含内核目录，也不能与 `skillsSource` 同时使用。没有 `overlayPath` 的条目仍按原来的整仓来源构建。
+
+覆盖层目录里的 `.gitignore` 只管该目录之下的路径，会让覆盖层文件在提交时被忽略；覆盖层文件需要被提交时，不要用它忽略覆盖层自己的内容。

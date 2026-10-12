@@ -46,7 +46,10 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Source struct {
-	SkillsSource    *SkillSource  `json:"skillsSource,omitempty"`
+	SkillsSource *SkillSource `json:"skillsSource,omitempty"`
+	// OverlayPath 非空时，该 Profile 由同一仓库同一提交的内核目录与这个覆盖层目录组合而成；
+	// 为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
+	OverlayPath     string        `json:"overlayPath,omitempty"`
 	Profile         string        `json:"profile"`
 	Root            string        `json:"-"`
 	SourcePath      string        `json:"sourcePath"`
@@ -155,7 +158,15 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if e = validatePolicy(policy); e != nil {
 		return nil, e
 	}
-	raw, e := readGitFiles(ctx, root, s.Commit, policy.Manifest)
+	if s.OverlayPath != "" && s.SkillsSource != nil {
+		return nil, fmt.Errorf("overlayPath 与 skillsSource 不能同时使用")
+	}
+	var raw map[string]sourceFile
+	if s.OverlayPath != "" {
+		raw, e = readOverlaySource(ctx, root, s.Commit, s.OverlayPath, policy.Manifest)
+	} else {
+		raw, e = readGitFiles(ctx, root, s.Commit, policy.Manifest)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -268,7 +279,7 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
 			return nil, fmt.Errorf("skill composition requires source lock v3")
 		}
-		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil {
+		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil && s.OverlayPath == "" {
 			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
 		}
 		s.Producer = lock.Producer
@@ -328,6 +339,20 @@ func git(ctx context.Context, root string, args ...string) ([]byte, error) {
 	return o, nil
 }
 func readGitFiles(ctx context.Context, root, commit string, manifest map[string]any) (map[string]sourceFile, error) {
+	out, e := readGitFilesUnder(ctx, root, commit, "", func(ref string) bool { return includedByManifest(ref, manifest, false) })
+	if e != nil {
+		return nil, e
+	}
+	if e = expandProjectionLinks(out); e != nil {
+		return nil, e
+	}
+	return out, nil
+}
+
+// readGitFilesUnder reads the Git tree below prefix ("" means the whole tree) and reports every file
+// under its prefix-relative path. include decides on the relative path before any entry is validated,
+// so excluded entries never influence the result.
+func readGitFilesUnder(ctx context.Context, root, commit, prefix string, include func(string) bool) (map[string]sourceFile, error) {
 	listing, e := git(ctx, root, "ls-tree", "-rz", "--full-tree", commit)
 	if e != nil {
 		return nil, e
@@ -347,7 +372,13 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 		}
 		header := strings.Fields(string(pair[0]))
 		ref := string(pair[1])
-		if !includedByManifest(ref, manifest, false) {
+		if prefix != "" {
+			if !strings.HasPrefix(ref, prefix+"/") {
+				continue
+			}
+			ref = strings.TrimPrefix(ref, prefix+"/")
+		}
+		if !include(ref) {
 			continue
 		}
 		if e = safefs.ValidateRef(ref); e != nil {
@@ -427,6 +458,11 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 	if e != nil {
 		return nil, fmt.Errorf("git cat-file: %w: %s", e, stderr.String())
 	}
+	return out, nil
+}
+
+// expandProjectionLinks replaces every Skill projection link by a copy of the canonical tree it names.
+func expandProjectionLinks(out map[string]sourceFile) error {
 	for _, ref := range sortedKeys(out) {
 		f := out[ref]
 		if f.mode != 0 {
@@ -435,29 +471,29 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 		target := path.Clean(path.Join(path.Dir(ref), string(f.data)))
 		name := strings.Split(ref, "/")[2]
 		if target != ".agents/skills/"+name {
-			return nil, fmt.Errorf("unsafe Skill projection: %s", ref)
+			return fmt.Errorf("unsafe Skill projection: %s", ref)
 		}
 		count := 0
 		for _, source := range sortedKeys(out) {
 			if strings.HasPrefix(source, target+"/") {
 				original := out[source]
 				if original.mode == 0 {
-					return nil, fmt.Errorf("nested projection symlink")
+					return fmt.Errorf("nested projection symlink")
 				}
 				destination := ref + strings.TrimPrefix(source, target)
 				if _, exists := out[destination]; exists {
-					return nil, fmt.Errorf("Skill projection collision")
+					return fmt.Errorf("Skill projection collision")
 				}
 				out[destination] = original
 				count++
 			}
 		}
 		if count == 0 {
-			return nil, fmt.Errorf("missing canonical Skill projection: %s", ref)
+			return fmt.Errorf("missing canonical Skill projection: %s", ref)
 		}
 		delete(out, ref)
 	}
-	return out, nil
+	return nil
 }
 func projectionLink(ref string) bool {
 	p := strings.Split(ref, "/")
