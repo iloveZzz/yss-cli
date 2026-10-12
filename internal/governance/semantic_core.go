@@ -81,7 +81,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption"}}
+		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation", "backend-delivery-terminal"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
