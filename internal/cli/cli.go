@@ -835,6 +835,7 @@ var nodeDelegation = []string{
 	"evidence.context-reconciliation.v1",
 	"contract.openapi-validation.v1",
 	"contract.backend-terminal.v1",
+	"handoff.backend-delivery-package.v1",
 	"template-source.verify-root.v1",
 }
 

@@ -22,6 +22,7 @@ import (
 func init() {
 	registerSemanticValidator("backend-terminal", verifyBackendTerminalSemantic)
 	registerSemanticValidator("backend-delivery-terminal", verifyBackendDeliveryTerminalPublic)
+	registerSemanticValidator("handoff-backend-delivery", verifyBackendDeliveryPackagePublic)
 	registerSemanticValidator("backend-review", verifyBackendReviewSemantic)
 	registerSemanticValidator("backend-delivery", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		_, e := backendInspectDelivery(s, ref, opts)
@@ -40,6 +41,16 @@ func verifyBackendDeliveryTerminalPublic(s *kernel.SemanticSession, ref string, 
 		return s.Reject("PROGRESSION_BINDING", "后端终点校验的输入必须是当前功能 checkpoint 或其固定终点")
 	}
 	return s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": a.CheckpointRef})
+}
+
+// 公开入口 handoff verify --kind backend-delivery --package <目录|ZIP>：离线校验后端交付包，报告 coverage 与 Node 的 backend-delivery verify 同形。
+func verifyBackendDeliveryPackagePublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	manifest, _, e := backendOpenDelivery(s, ref, opts)
+	if e != nil {
+		return e
+	}
+	s.Report.Coverage = map[string]any{"result": "verified", "delivery_id": manifest["delivery_id"], "version": manifest["version"], "bundle_digest": manifest["bundle_digest"], "live_service_checked": false}
+	return nil
 }
 
 func backendReject(s *kernel.SemanticSession, message string) error {
