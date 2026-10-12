@@ -129,6 +129,12 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 		if e = kernel.AssertCurrentApprovalSemantic(s, selected, expected); e != nil {
 			return e
 		}
+		rule, e := kernel.ApprovalRuleSemantic(s, selected)
+		if e != nil {
+			return e
+		}
+		validated, _ := s.Report.Coverage["approval_validated"].([]any)
+		s.Report.Coverage["approval_validated"] = append(validated, map[string]any{"gate_id": gate, "rule": rule})
 	}
 	if opts["gate"] != "" && kernel.ApFind(rows, "gate_id", opts["gate"]) == nil {
 		return kernel.ApFail(s, "APPROVAL_BUNDLE_INVALID", "批准资产不包含消费者 gate")
@@ -187,17 +193,45 @@ func approvalBindingExpectation(s *kernel.SemanticSession, ref, gate string) (ma
 	if boundary == "" {
 		boundary = gate
 	}
+	var expected map[string]any
 	switch kernel.ApText(row["mode"]) {
 	case "state":
-		return kernel.ApprovalExpectationFromStateWith(s, boundary, kernel.ApMap(row["state"]), row["review_package"])
+		expected, e = kernel.ApprovalExpectationFromStateWith(s, boundary, kernel.ApMap(row["state"]), row["review_package"])
 	case "subject":
-		return kernel.ApprovalExpectationFromSubject(s, boundary, kernel.ApText(row["subject_ref"]), row["review_package"])
+		expected, e = kernel.ApprovalExpectationFromSubject(s, boundary, kernel.ApText(row["subject_ref"]), row["review_package"])
 	case "bound-asset":
 		var scope []string
 		if row["scope"] != nil {
 			scope = kernel.ApStrings(row["scope"])
 		}
-		return kernel.ApprovalExpectationForBoundAsset(s, boundary, row["binding"], scope, row["review_package"])
+		expected, e = kernel.ApprovalExpectationForBoundAsset(s, boundary, row["binding"], scope, row["review_package"])
+	default:
+		return nil, kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "绑定模式必须是 state、subject 或 bound-asset")
 	}
-	return nil, kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "绑定模式必须是 state、subject 或 bound-asset")
+	if e != nil {
+		return nil, e
+	}
+	// 调用方在算出期望时冻结的值：校验当下按绑定重算出的期望必须与之一致，保持「期望冻结」语义，
+	// 避免主体在算出期望之后被改动、记录又随之改动时被放行。
+	if frozen := kernel.ApMap(row["frozen"]); frozen != nil {
+		same := kernel.ApText(frozen["subject_ref"]) == kernel.ApText(expected["subject_ref"]) &&
+			strings.TrimPrefix(kernel.ApText(frozen["subject_digest"]), "sha256:") == strings.TrimPrefix(kernel.ApText(expected["subject_digest"]), "sha256:") &&
+			kernel.ApSetEqual(frozen["approval_scope"], expected["approval_scope"]) &&
+			kernel.ApText(frozen["drafter_principal_ref"]) == kernel.ApText(expected["drafter_principal_ref"])
+		if same {
+			for _, item := range kernel.ApRows(frozen["basis"]) {
+				found := false
+				for _, got := range kernel.ApRows(expected["basis"]) {
+					if kernel.ApText(item["ref"]) == kernel.ApText(got["ref"]) && strings.TrimPrefix(kernel.ApText(item["digest"]), "sha256:") == strings.TrimPrefix(kernel.ApText(got["digest"]), "sha256:") {
+						found = true
+					}
+				}
+				same = same && found
+			}
+		}
+		if !same {
+			return nil, kernel.ApFail(s, "APPROVAL_CURRENT_INVALID", "当前主体摘要与消费边界冻结摘要不匹配")
+		}
+	}
+	return expected, nil
 }

@@ -813,3 +813,8 @@ func stringsToAny(values []string) []any {
 	}
 	return out
 }
+
+// 已通过当前批准校验的记录所适用的会签规则（桶、会签角色等），供调用方了解它按哪类门禁关闭。
+func ApprovalRuleSemantic(s *SemanticSession, record map[string]any) (map[string]any, error) {
+	return assertApprovalSignerSemantic(s, record)
+}

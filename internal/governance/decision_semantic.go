@@ -178,12 +178,16 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 	}
 	if continuation {
 		rows := []map[string]any{}
+		decisionCoverage(s, rows)
 		for _, want := range selected {
 			validated, e := kernel.AssertUserDecisionRequirementSemantic(s, want)
 			if e != nil {
 				return e
 			}
 			rows = append(rows, validated.Rows()...)
+			if continued, reviewRef := validated.Continuation(); continued {
+				s.Report.Coverage["user_decision_continuation"] = map[string]any{"continued": true, "review_ref": reviewRef}
+			}
 		}
 		decisionCoverage(s, rows)
 		return nil
