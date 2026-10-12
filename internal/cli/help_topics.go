@@ -64,7 +64,7 @@ func init() {
 	helpTopics["handoff export"] = helpTopic{"导出当前已批准的 Spec 基线及来源证据。", "--root <Spec工程> --kind spec-baseline --checkpoint <当前检查点> --out <新目录>", projectFlags + "\n--kind spec-baseline\n--checkpoint <文件>\n--out <新目录>", "yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline", "保留源批准、业务票稳定 ID 和原始字节摘要；导出不会推进源阶段。", false}
 	helpTopics["handoff import"] = helpTopic{"将批准 Spec 基线接入独立 Design。", "--root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>", projectFlags + "\n--kind spec-baseline\n--package <目录包>\n" + planFlags, "yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json\nyss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json", "初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。", false}
 	for group, conditions := range map[string]string{
-		"contract": "--kind <slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行\n--allow-template  仅 openapi-validation；只接受模板记录\n--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出",
+		"contract": "--kind <slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal|scaffold-decisions>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行\n--allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录\n--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出",
 		"evidence": "--kind <approval|user-decision|verification|context-reconciliation>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
 		"handoff":  "--kind <package|consumption|spec-baseline|backend-delivery>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包、spec-baseline 基线包或 backend-delivery 后端交付包（目录或 ZIP）；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
@@ -121,7 +121,7 @@ func registerGovernanceHelp() {
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes, true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
 	for _, group := range []string{"contract", "evidence", "handoff"} {
-		kinds := "slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal"
+		kinds := "slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal|scaffold-decisions"
 		example := "yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json"
 		if group == "evidence" {
 			kinds = "approval|user-decision|verification|context-reconciliation"
