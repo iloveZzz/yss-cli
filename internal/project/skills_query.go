@@ -130,7 +130,7 @@ func skillDeclared(id *Identity, name string, locked bool) bool {
 		}
 	}
 	for ref := range baseline(id) {
-		for _, root := range []string{".agents/skills", ".codex/skills", ".cursor/skills", ".pi/skills"} {
+		for _, root := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills"} {
 			if strings.HasPrefix(ref, root+"/"+name+"/") {
 				return true
 			}
@@ -249,9 +249,15 @@ func retiredSkillIDs(b *bundle.Bundle) (map[string]bool, error) {
 	return out, nil
 }
 
+// legacyRuntimeRoot 只服务升级前的旧实例；新实例没有运行时投影，调用方不传运行时。
+func legacyRuntimeRoot(runtime string) string {
+	return map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}[runtime]
+}
+
 func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, when string) (*SkillResolution, error) {
-	if len(requested) == 0 || runtime != "codex" {
-		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...> --agent-runtime codex")
+	runtimeRoot := legacyRuntimeRoot(runtime)
+	if len(requested) == 0 || (runtime != "" && runtimeRoot == "") {
+		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...>；旧实例可加 --agent-runtime codex|cursor|pi")
 	}
 	r, source, err := querySkillRegistry(b)
 	if err != nil {
@@ -376,7 +382,10 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 		}
 		item := ResolvedSkill{SkillDetail: d, Status: "blocked"}
 		start := len(out.Issues)
-		prefixes := []string{".agents/skills/" + name, ".codex/skills/" + name}
+		prefixes := []string{".agents/skills/" + name}
+		if runtimeRoot != "" {
+			prefixes = append(prefixes, runtimeRoot+"/"+name)
+		}
 		present := false
 		for _, prefix := range prefixes {
 			p, e := safefs.Path(id.Root, prefix)
@@ -416,8 +425,8 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 					issue(name, "skill-source-mismatch", "技能来源锁字段不匹配: "+key)
 				}
 			}
-			if !containsString(installed.ProjectionRoots, ".codex/skills") || !containsString(stringsOf(entry["targets"]), ".codex/skills") {
-				issue(name, "runtime-unavailable", "Codex 投影未登记")
+			if runtimeRoot != "" && (!containsString(installed.ProjectionRoots, runtimeRoot) || !containsString(stringsOf(entry["targets"]), runtimeRoot)) {
+				issue(name, "runtime-unavailable", "所选运行时投影未登记")
 			}
 			expected, err := bundle.SkillTreeHash(b.Files, prefixes[0], vars)
 			if err != nil {

@@ -67,7 +67,7 @@ func initializeCommands() {
 	defineArgument("business-domain", "<领域>", "项目业务领域，作为模板变量")
 	defineArgument("team-size", "<规模>", "团队规模，作为模板变量")
 	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
-	defineArgument("agent-runtime", "<运行时>", "技能入口核验的目标运行时；本轮支持 Codex", "codex")
+	defineArgument("agent-runtime", "<运行时>", "仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传", "codex", "cursor", "pi")
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 
 	for _, row := range []struct{ key, description string }{

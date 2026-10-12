@@ -42,8 +42,8 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		}
 	case "scripts/lib/skill-supply-chain.mjs":
 		if selected {
-			marker := `export const PROJECTION_ROOTS = [".codex/skills", ".cursor/skills", ".pi/skills"];`
-			if !strings.Contains(text, marker) {
+			marker := regexp.MustCompile(`(?m)^export const PROJECTION_ROOTS = \[[^\]]*\];`).FindString(text)
+			if marker == "" {
 				return nil, fmt.Errorf("Skill 投影脚本分发基线变化")
 			}
 			addition := `
@@ -52,7 +52,7 @@ function projectionRootsFor(lock) {
   const isInstance = existsSync(identityPath) && /^repository_mode:\s*project-instance\s*$/m.test(readFileSync(identityPath, "utf8"));
   if (!isInstance) return PROJECTION_ROOTS;
   const roots = lock?.projectionRoots;
-  if (!Array.isArray(roots) || !roots.length || roots.some((root) => !PROJECTION_ROOTS.includes(root))) throw new TypeError("project-instance skills-lock.json 缺少有效 projectionRoots");
+  if (!Array.isArray(roots) || roots.some((root) => !PROJECTION_ROOTS.includes(root))) throw new TypeError("project-instance skills-lock.json 缺少有效 projectionRoots");
   return [...new Set(roots)];
 }
 `
@@ -89,7 +89,7 @@ function projectionRootsFor(lock) {
 	case "README.md":
 		platform := "legacy-all"
 		if selected {
-			platform = "codex"
+			platform = "agents"
 		}
 		guidance := "专项 Skill 使用 `create-yss-spec skills ensure <skill-id> --plan/--apply`。"
 		if selected {
@@ -295,7 +295,7 @@ func orderedBytes(root *orderedJSON) ([]byte, error) {
 }
 
 func selectedSourceLock(data []byte, skills []string) ([]byte, error) {
-	return SelectedSourceLock(data, skills, []string{"codex"})
+	return SelectedSourceLock(data, skills, []string{})
 }
 
 // SelectedSourceLock filters a fixed source lock without reconstructing its
@@ -312,9 +312,6 @@ func SelectedSourceLock(data []byte, skills, runtimes []string) ([]byte, error) 
 		}
 		seen[runtime] = true
 		roots = append(roots, ref)
-	}
-	if len(roots) == 0 {
-		return nil, fmt.Errorf("selected Skill lock requires a runtime")
 	}
 	root, e := decodeOrdered(data)
 	if e != nil {

@@ -75,7 +75,7 @@ func nativeWorkLayoutSource(raw map[string]sourceFile) ([]NativeTransform, error
 	// Only active authoring guidance is transformed. Fixtures, asset snapshots,
 	// schemas and history remain unchanged; Profile-specific text stays intact.
 	for _, ref := range sortedKeys(raw) {
-		if !(strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/")) {
+		if !(strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/")) {
 			continue
 		}
 		if strings.Contains(ref, "/tests/") || strings.Contains(ref, "/assets/") || strings.Contains(ref, "/schemas/") || strings.Contains(ref, "/scripts/") || ref == ".template-spec/agents/issue-tracker.md" || ref == ".template-spec/process/work-layout.md" {

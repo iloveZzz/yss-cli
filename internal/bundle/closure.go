@@ -556,7 +556,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 	}
 	paths := stringSet(initial.Paths)
 	selected := stringSet(initial.Skills)
-	b.Distribution = map[string]any{"mode": "selected", "runtimes": []string{"codex"}, "installedSkills": skills, "assetProfile": "stage-selective", "installedStages": stages, "resourceSkills": []string{}}
+	b.Distribution = map[string]any{"mode": "selected", "runtimes": []string{}, "installedSkills": skills, "assetProfile": "stage-selective", "installedStages": stages, "resourceSkills": []string{}}
 	for ref, f := range raw {
 		if !includedByManifest(ref, p.Manifest, true) || ref == ".cursorrules" {
 			continue
@@ -576,7 +576,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") {
 			continue
 		}
-		if strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".codex/skills/") {
+		if strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".codex/skills/") {
 			name := strings.Split(ref, "/")[2]
 			if !strings.HasPrefix(name, ".") && !selected[name] {
 				continue

@@ -28,7 +28,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：cad38300106f3abebd4d7f6e17484b761641c107；来源摘要：57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321
+  固定模板：6fd8d0d1b4d1c8aa7c8f53d8e5418149ac597d2d；来源摘要：57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 独立审查 → verify-daily（当前 Spec 政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -124,7 +124,7 @@ Profile 职责:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=cad38300106f3abebd4d7f6e17484b761641c107；registry=57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321；profile=尚未登记；policy=f66f0b269349165b23208a4cee421fc15fe94d90e0cd7c7439d4311bc829c778
+来源摘要：template=6fd8d0d1b4d1c8aa7c8f53d8e5418149ac597d2d；registry=57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321；profile=尚未登记；policy=2c530709d5b153a15277270cd081684503dc16d27ed1f95b28ad185e93df741c
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -269,7 +269,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 ```text
 日常交付（Spec）
-来源摘要：template=cad38300106f3abebd4d7f6e17484b761641c107；policy=f66f0b269349165b23208a4cee421fc15fe94d90e0cd7c7439d4311bc829c778；日常能力=true
+来源摘要：template=6fd8d0d1b4d1c8aa7c8f53d8e5418149ac597d2d；policy=2c530709d5b153a15277270cd081684503dc16d27ed1f95b28ad185e93df741c；日常能力=true
 前置条件：当前 Spec 实例启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、独立审查和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 独立审查 → verify-daily。
@@ -308,7 +308,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=cad38300106f3abebd4d7f6e17484b761641c107；registry=57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321；profile=尚未登记；policy=f66f0b269349165b23208a4cee421fc15fe94d90e0cd7c7439d4311bc829c778
+来源摘要：template=6fd8d0d1b4d1c8aa7c8f53d8e5418149ac597d2d；registry=57644a5ae989d8edbdb310d33436803e682cc6bdc1e645d2ee30a8a6ae1e2321；profile=尚未登记；policy=2c530709d5b153a15277270cd081684503dc16d27ed1f95b28ad185e93df741c
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4925,7 +4925,7 @@ yss skills resolve code-review codebase-design --agent-runtime codex --root ./de
 yss skills resolve code-review --agent-runtime codex --when lifecycle-document-output --root ./demo-spec --json
 
 参数:
-  --agent-runtime <运行时>        技能入口核验的目标运行时；本轮支持 Codex；可选值: codex
+  --agent-runtime <运行时>        仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传；可选值: codex|cursor|pi
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
