@@ -94,7 +94,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		for _, flag := range map[string][]string{
 			"slice": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
 			"frontend-delivery": {"slice", "phase", "unit"},
-			"task":              {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task"},
+			"task":              {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected"},
 			"user-decision":   {"requirements", "continuation", "from-record", "task"},
 			"handoff-package": {"package"}, "handoff-consumption": {"consumer", "slice"}, "checkpoint": {"history"},
 		}[kind] {
@@ -108,7 +108,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		}
 	}
 	if err == nil {
-		for flag, kinds := range map[string][]string{"requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "gate": {"approval"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package"}, "require-approved": {"approval"}, "history": {"approval", "task", "checkpoint"}} {
+		for flag, kinds := range map[string][]string{"requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "gate": {"approval"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package"}, "require-approved": {"approval"}, "expected": {"approval"}, "history": {"approval", "task", "checkpoint"}} {
 			if _, provided := args[flag]; provided && !kernel.SemHas(kinds, kind) {
 				err = s.Unavailable("ARGUMENT", "该领域类型不接受参数: --"+flag)
 				break
