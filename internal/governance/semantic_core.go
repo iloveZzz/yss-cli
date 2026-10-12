@@ -81,7 +81,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery"}}
+		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
@@ -92,7 +92,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 			allowedFlags[flag] = true
 		}
 		for _, flag := range map[string][]string{
-			"slice": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
+			"slice": {"approval-ref", "unit"}, "slice-preflight": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
 			"frontend-delivery": {"slice", "phase", "unit"}, "openapi-validation": {"allow-template"}, "scaffold-decisions": {"allow-template"},
 			"task": {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected", "binding"},
 			"user-decision":   {"requirements", "continuation", "from-record", "task"},

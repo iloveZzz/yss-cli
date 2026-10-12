@@ -837,6 +837,7 @@ var nodeDelegation = []string{
 	"contract.backend-terminal.v1",
 	"handoff.backend-delivery-package.v1",
 	"contract.scaffold-decisions.v1",
+	"contract.slice-preflight-report.v1",
 	"template-source.verify-root.v1",
 }
 
