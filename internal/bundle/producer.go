@@ -461,7 +461,7 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 }
 func projectionLink(ref string) bool {
 	p := strings.Split(ref, "/")
-	return len(p) == 3 && (p[0] == ".codex" || p[0] == ".cursor" || p[0] == ".pi") && p[1] == "skills" && !strings.HasPrefix(p[2], ".")
+	return len(p) == 3 && (p[0] == ".claude" || p[0] == ".codex" || p[0] == ".cursor" || p[0] == ".pi") && p[1] == "skills" && !strings.HasPrefix(p[2], ".")
 }
 func stringsFrom(v any) []string {
 	switch a := v.(type) {
@@ -556,7 +556,7 @@ func ownership(profile, ref string, m map[string]any) string {
 	user := ref == "README.md" || ref == "DESIGN.md"
 	if profile == "design" {
 		managed := false
-		for _, prefix := range []string{".agents/skills", ".codex/skills", ".cursor/skills", ".pi/skills", "scripts", ".template-spec/agents", ".template-spec/process", ".template-spec/templates", ".template-spec/user-guide", ".template-spec/architecture/templates"} {
+		for _, prefix := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", "scripts", ".template-spec/agents", ".template-spec/process", ".template-spec/templates", ".template-spec/user-guide", ".template-spec/architecture/templates"} {
 			managed = managed || beneath(ref, prefix)
 		}
 		for _, p := range []string{".gitignore", ".nvmrc", "AGENTS.md", "CLAUDE.md", ".cursorrules", "skills-lock.json", "yss-project.yaml", "CONTEXT.md"} {

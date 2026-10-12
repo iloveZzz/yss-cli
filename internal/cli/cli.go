@@ -601,7 +601,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 					selection = append(selection, r.Paths...)
 					for _, s := range r.Skills {
 						for ref := range b.Files {
-							if strings.HasPrefix(ref, ".agents/skills/"+s+"/") || strings.HasPrefix(ref, ".codex/skills/"+s+"/") {
+							if strings.HasPrefix(ref, ".agents/skills/"+s+"/") || strings.HasPrefix(ref, ".claude/skills/"+s+"/") {
 								selection = append(selection, ref)
 							}
 						}
@@ -616,7 +616,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 						selection = append(selection, r.Paths...)
 						for _, dep := range r.Skills {
 							for ref := range b.Files {
-								if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".codex/skills/"+dep+"/") {
+								if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".claude/skills/"+dep+"/") {
 									selection = append(selection, ref)
 								}
 							}
@@ -625,7 +625,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 					prefix := ".agents/skills/" + name + "/"
 					count := 0
 					for ref := range b.Files {
-						if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".codex/skills/"+name+"/") {
+						if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".claude/skills/"+name+"/") {
 							selection = append(selection, ref)
 							count++
 						}

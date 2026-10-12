@@ -253,7 +253,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 		if e := safefs.ValidateRef(source); e != nil {
 			return nil, e
 		}
-		if !strings.HasPrefix(source, ".agents/skills/") && !strings.HasPrefix(source, ".codex/skills/") {
+		if !strings.HasPrefix(source, ".agents/skills/") && !strings.HasPrefix(source, ".claude/skills/") && !strings.HasPrefix(source, ".codex/skills/") {
 			return nil, fmt.Errorf("unsupported shared skill source")
 		}
 		allows = append(allows, source)

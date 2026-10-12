@@ -240,7 +240,7 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 		}
 	}
 	runtimes := stringsOf(d["runtimes"])
-	roots := map[string]string{"codex": ".codex/skills/", "cursor": ".cursor/skills/", "pi": ".pi/skills/"}
+	roots := map[string]string{"claude": ".claude/skills/", "codex": ".codex/skills/", "cursor": ".cursor/skills/", "pi": ".pi/skills/"}
 	for _, runtime := range runtimes {
 		if roots[runtime] == "" {
 			return domain.Fail("BUNDLE", "未知运行时: "+runtime)
@@ -321,6 +321,11 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 	}
 	u := &upgradePlanner{id: id, bundle: b, plan: p, old: old, options: o, trustedModes: modes, archive: reader, decisions: map[string]Resolution{}}
 	u.maintenanceRules = u.maintenanceRetirements()
+	for ref, rule := range u.projectionRetirements() {
+		if _, declared := u.maintenanceRules[ref]; !declared {
+			u.maintenanceRules[ref] = rule
+		}
+	}
 	p.materialData = map[string][]byte{}
 	if o.BaseBundlePath != "" {
 		var abs, hash string

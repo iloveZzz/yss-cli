@@ -150,7 +150,7 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 			}
 			for _, target := range targets.array {
 				ref, ok := target.scalar.(string)
-				if !ok || target.kind != 0 || (ref != ".agents/skills" && ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills") {
+				if !ok || target.kind != 0 || (ref != ".agents/skills" && ref != ".claude/skills" && ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills") {
 					return nil, fmt.Errorf("invalid Skill target root: %s", name)
 				}
 				if ref == ".agents/skills" {
