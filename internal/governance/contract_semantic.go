@@ -559,6 +559,7 @@ func init() {
 	registerSemanticValidator("frontend-delivery", verifyFrontendDeliverySemantic)
 	registerSemanticValidator("openapi-validation", verifyOpenAPIValidationSemantic)
 	registerSemanticValidator("scaffold-decisions", verifyScaffoldDecisionsSemantic)
+	registerSemanticValidator("slice-preflight", verifySlicePreflightSemantic)
 	registerSemanticValidator("technical-completion", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		doc, e := s.Doc(ref)
 		if e != nil {
@@ -1979,6 +1980,266 @@ func contractSliceApprovalBinding(s *kernel.SemanticSession, c *nativeSlice, opt
 	return nil
 }
 
+// 选出本次校验的工程与工作单元：本地合同选唯一单元，跨仓合同按工作单元的工程重建依据与解析。
+// 公开入口 contract verify --kind slice-preflight：执行前检查报告，与 Node 的 `scripts/slice-contract verify` 同形
+// （read_only、ref/id/version/digest、checks、approval_validity、execution_allowed、blockers）。可读性与结构、批准、新鲜度是三层不同的证据；
+// 有阻断原因时报告仍写进 coverage.slice_preflight，同时以拒绝收尾（退出码非 0，与 Node 一致）。
+func verifySlicePreflightSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	c, e := loadNativeSlice(s, ref)
+	if e != nil {
+		return e
+	}
+	binding, e := s.Bind(c.Ref)
+	if e != nil {
+		return e
+	}
+	checks := map[string]any{"readable": "passed", "structure": "passed", "approval": "not-checked", "freshness": "not-checked"}
+	blockers := []any{}
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return e
+	}
+	if kernel.ContractN(c.Raw["schema_version"]) == 2 {
+		required := kernel.SemMap(compiler["slice_contract_required"])
+		sections := make([]string, 0, len(required))
+		for section := range required {
+			sections = append(sections, section)
+		}
+		sort.Strings(sections)
+		for _, section := range sections {
+			target := c.Normalized
+			if section != "root" {
+				target = kernel.SemMap(c.Normalized[section])
+			}
+			for _, field := range kernel.SemStrings(required[section]) {
+				if _, ok := target[field]; target == nil || !ok {
+					blockers = append(blockers, "missing:"+section+"."+field)
+				}
+			}
+		}
+		for _, section := range []string{"common", "resolution", "backend"} {
+			if _, ok := kernel.SemMap(c.Normalized[section])["required_skills"].([]any); !ok {
+				blockers = append(blockers, "invalid:"+section+".required_skills")
+			}
+		}
+		units := kernel.SemList(c.Normalized["work_units"])
+		if len(units) == 0 {
+			blockers = append(blockers, "slice-contract-work-units-missing")
+		}
+		for _, v := range units {
+			unit := kernel.SemMap(v)
+			id := kernel.Text(unit["id"])
+			if unit["contract_id"] != c.Normalized["contract_id"] {
+				blockers = append(blockers, "work-unit-contract-id-mismatch:"+id)
+			}
+			if unit["contract_version"] != c.Normalized["contract_version"] {
+				blockers = append(blockers, "work-unit-contract-version-mismatch:"+id)
+			}
+			if kernel.Text(kernel.SemMap(unit["work_unit"])["primary_skill"]) == "" {
+				blockers = append(blockers, "work-unit-primary-skill-missing:"+id)
+			}
+		}
+		if len(blockers) > 0 {
+			checks["structure"] = "failed"
+		}
+	}
+	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
+	if approval != "" && len(blockers) == 0 {
+		bound := map[string]string{}
+		for key, value := range opts {
+			bound[key] = value
+		}
+		bound["approval-ref"] = approval
+		if e := contractSliceApproval(s, c, bound); e != nil {
+			checks["approval"] = "failed"
+			blockers = append(blockers, kernel.SemanticCode(e))
+		} else if code := sliceExecutionContractCode(s, c); code != "" {
+			checks["approval"] = "failed"
+			blockers = append(blockers, code)
+		} else {
+			checks["approval"] = "passed"
+			reasons, e := slicePreflightFreshness(s, c, bound)
+			if e != nil {
+				return e
+			}
+			checks["freshness"] = "passed"
+			if len(reasons) > 0 {
+				checks["freshness"] = "failed"
+			}
+			for _, reason := range reasons {
+				blockers = append(blockers, reason)
+			}
+		}
+	}
+	allowed := approval != "" && len(blockers) == 0 && checks["freshness"] == "passed"
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["slice_preflight"] = map[string]any{"read_only": true, "ref": c.Ref, "id": c.Raw["contract_id"], "version": c.Raw["contract_version"], "digest": binding.Digest,
+		"checks": checks, "approval_validity": checks["approval"], "execution_allowed": allowed, "blockers": blockers}
+	if len(blockers) > 0 {
+		return s.Reject("SLICE_PREFLIGHT_BLOCKED", "Slice 执行前检查有阻断原因")
+	}
+	return nil
+}
+
+// Node 的 createApprovedExecutionContext 在批准阶段还核对合同自身：写范围、就绪条件、Skill/Compiler 冻结摘要、resolution 当前性、架构身份摘要。
+// 返回 Node 的原因码（空串表示通过）；这些属于「批准」层，不是「新鲜度」层。
+func sliceExecutionContractCode(s *kernel.SemanticSession, c *nativeSlice) string {
+	n := c.Normalized
+	if !contractUnique(kernel.SemMap(n["common"])["allowed_write_paths"], true) {
+		return "EXECUTION_SCOPE_MISSING"
+	}
+	readiness := kernel.SemMap(n["readiness"])
+	if len(kernel.SemList(readiness["blockers"])) > 0 || len(kernel.SemList(readiness["stale_inputs"])) > 0 {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	r := kernel.SemMap(n["resolution"])
+	if kernel.Text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") || kernel.Text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") || kernel.Text(r["freshness"]) != "current" {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	if identity := kernel.SemMap(r["architecture_identity"]); len(identity) > 0 && kernel.Text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	return ""
+}
+
+// 逐项独立评估新鲜度，原因码与 Node 的 evaluateContractFreshness 一致（顺序也一致）。
+func slicePreflightFreshness(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) ([]string, error) {
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return nil, e
+	}
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return nil, e
+	}
+	if kernel.ContractN(registry["schema_version"]) != 3 || kernel.ContractN(compiler["schema_version"]) != 2 {
+		return nil, s.Unavailable("CAPABILITY", "未知 Skill/Compiler 协议")
+	}
+	ctx, n, r, e := contractSliceSelect(s, c, opts)
+	if e != nil {
+		return []string{"EXECUTION_APPROVAL_INVALID"}, nil
+	}
+	reasons := []string{}
+	if design := kernel.SemMap(r["technical_design"]); len(design) > 0 {
+		doc, e := contractBoundDoc(s, design)
+		if e == nil && (kernel.Text(design["version"]) == "" || kernel.Text(doc["version"]) != kernel.Text(design["version"])) {
+			e = s.Reject("TECHNICAL_DESIGN_STALE", "技术设计版本变化")
+		}
+		if e == nil {
+			e = contractTechnicalDesign(s, kernel.Text(design["ref"]), doc, ctx, opts)
+		}
+		if e != nil {
+			reasons = append(reasons, "technical-design-stale-or-unavailable")
+		}
+	} else if kernel.Text(kernel.SemMap(n["backend"])["status"]) == "required" {
+		reasons = append(reasons, "technical-design-stale-or-unavailable")
+	}
+	if kernel.Text(kernel.SemMap(n["frontend"])["status"]) == "required" {
+		delivery := kernel.SemMap(r["frontend_delivery"])
+		if len(delivery) == 0 {
+			delivery = kernel.SemMap(kernel.SemMap(n["frontend"])["delivery"])
+		}
+		var e error
+		if len(delivery) == 0 {
+			e = contractLocalFrontendInputs(s, ctx, opts)
+		} else {
+			e = contractFrontendDelivery(s, delivery, ctx, opts)
+		}
+		if e != nil {
+			reasons = append(reasons, "frontend-delivery-stale-or-unavailable")
+		}
+	}
+	if kernel.Text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") {
+		reasons = append(reasons, "registry-digest-changed")
+	}
+	if kernel.Text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") {
+		reasons = append(reasons, "compiler-contract-digest-changed")
+	}
+	if identity := kernel.SemMap(r["architecture_identity"]); len(identity) > 0 {
+		if e := contractArchitecture(s, identity, ctx, registry, opts); e != nil {
+			switch kernel.SemanticCode(e) {
+			case "ARCH_IDENTITY_SHAPE", "ARCH_PROFILE_UNSUPPORTED", "ARCH_SOURCE_UNSUPPORTED":
+				reasons = append(reasons, "architecture-identity-invalid")
+			default:
+				reasons = append(reasons, "architecture-evidence-stale-or-unavailable")
+			}
+		}
+		if kernel.Text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
+			reasons = append(reasons, "architecture-identity-digest-changed")
+		}
+	}
+	if e := contractComponents(s, r, registry); e != nil {
+		reasons = append(reasons, "component-binding-drift")
+	}
+	return reasons, nil
+}
+
+func contractSliceSelect(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) (*nativeSlice, map[string]any, map[string]any, error) {
+	n := c.Normalized
+	r := kernel.SemMap(n["resolution"])
+	var e error
+	unit := opts["unit"]
+	selectedContext := c
+	if len(c.Repositories) == 0 {
+		selectedContext, e = contractSelectLocalUnit(s, c, unit)
+		if e != nil {
+			return nil, nil, nil, e
+		}
+		n = selectedContext.Normalized
+		r = kernel.SemMap(n["resolution"])
+	}
+	if len(c.Repositories) > 0 {
+		if unit == "" && len(kernel.SemList(n["work_units"])) == 1 {
+			unit = kernel.Text(kernel.SemMap(kernel.SemList(n["work_units"])[0])["id"])
+		}
+		if unit == "" {
+			return nil, nil, nil, s.Reject("WORK_UNIT", "跨仓校验须显式工作单元")
+		}
+		found := false
+		for _, v := range kernel.SemList(n["work_units"]) {
+			u := kernel.SemMap(v)
+			if kernel.Text(u["id"]) == unit {
+				repo := c.Repositories[kernel.Text(u["project_root"])]
+				if repo == nil {
+					return nil, nil, nil, s.Reject("REPOSITORY", "工作单元未登记")
+				}
+				r = kernel.SemMap(repo["resolution"])
+				copyContext := *c
+				copyContext.Basis = map[string]map[string]any{}
+				for key, value := range c.Basis {
+					copyContext.Basis[key] = value
+				}
+				for key, value := range kernel.SemMap(repo["basis"]) {
+					copyContext.Basis[key] = kernel.SemMap(value)
+				}
+				copyContext.Normalized = contractCopy(n)
+				common := contractCopy(kernel.SemMap(n["common"]))
+				common["allowed_write_paths"] = u["allowed_write_paths"]
+				common["project_roots"] = []any{u["project_root"]}
+				copyContext.Normalized["common"] = common
+				copyContext.Normalized["resolution"] = r
+				selectedContext = &copyContext
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, nil, nil, s.Reject("WORK_UNIT", "工作单元未唯一选择工程")
+		}
+	}
+	return selectedContext, n, r, nil
+}
+
 func contractSliceFresh(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) error {
 	if e := contractSliceApproval(s, c, opts); e != nil {
 		return e
@@ -2005,54 +2266,9 @@ func contractSliceFresh(s *kernel.SemanticSession, c *nativeSlice, opts map[stri
 	if !contractUnique(kernel.SemMap(n["common"])["allowed_write_paths"], true) {
 		return s.Reject("PATH", "合同缺少写范围")
 	}
-	unit := opts["unit"]
-	selectedContext := c
-	if len(c.Repositories) == 0 {
-		selectedContext, e = contractSelectLocalUnit(s, c, unit)
-		if e != nil {
-			return e
-		}
-		n = selectedContext.Normalized
-		r = kernel.SemMap(n["resolution"])
-	}
-	if len(c.Repositories) > 0 {
-		if unit == "" && len(kernel.SemList(n["work_units"])) == 1 {
-			unit = kernel.Text(kernel.SemMap(kernel.SemList(n["work_units"])[0])["id"])
-		}
-		if unit == "" {
-			return s.Reject("WORK_UNIT", "跨仓校验须显式工作单元")
-		}
-		found := false
-		for _, v := range kernel.SemList(n["work_units"]) {
-			u := kernel.SemMap(v)
-			if kernel.Text(u["id"]) == unit {
-				repo := c.Repositories[kernel.Text(u["project_root"])]
-				if repo == nil {
-					return s.Reject("REPOSITORY", "工作单元未登记")
-				}
-				r = kernel.SemMap(repo["resolution"])
-				copyContext := *c
-				copyContext.Basis = map[string]map[string]any{}
-				for key, value := range c.Basis {
-					copyContext.Basis[key] = value
-				}
-				for key, value := range kernel.SemMap(repo["basis"]) {
-					copyContext.Basis[key] = kernel.SemMap(value)
-				}
-				copyContext.Normalized = contractCopy(n)
-				common := contractCopy(kernel.SemMap(n["common"]))
-				common["allowed_write_paths"] = u["allowed_write_paths"]
-				common["project_roots"] = []any{u["project_root"]}
-				copyContext.Normalized["common"] = common
-				copyContext.Normalized["resolution"] = r
-				selectedContext = &copyContext
-				found = true
-				break
-			}
-		}
-		if !found {
-			return s.Reject("WORK_UNIT", "工作单元未唯一选择工程")
-		}
+	selectedContext, n, r, e := contractSliceSelect(s, c, opts)
+	if e != nil {
+		return e
 	}
 	identity := kernel.SemMap(r["architecture_identity"])
 	if len(identity) > 0 {

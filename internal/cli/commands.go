@@ -466,7 +466,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
@@ -493,6 +493,8 @@ func verificationOptions(group, kind string) []string {
 	}
 	for _, k := range kinds {
 		switch group + "." + k {
+		case "contract.slice-preflight":
+			options = append(options, "approval-ref", "unit")
 		case "contract.slice":
 			options = append(options, "approval-ref", "unit")
 		case "contract.frontend-delivery":
