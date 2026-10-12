@@ -48,7 +48,14 @@ type nativeHandoff struct {
 }
 
 func verifyHandoffPackageSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
-	_, e := contractOpenHandoff(s, ref)
+	h, e := contractOpenHandoff(s, ref)
+	if e == nil && h != nil {
+		// 命令行薄壳需要的包身份摘要，与 Node 的 strategic-handoff verify 输出一致。
+		if s.Report.Coverage == nil {
+			s.Report.Coverage = map[string]any{}
+		}
+		s.Report.Coverage["handoff_package"] = map[string]any{"bundle_id": h.Manifest["bundle_id"], "version": h.Manifest["version"], "bundle_digest": h.Manifest["bundle_digest"], "rules": len(h.Rules), "scenarios": len(h.Scenarios)}
+	}
 	return e
 }
 
