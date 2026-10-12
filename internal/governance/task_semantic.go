@@ -167,7 +167,12 @@ func taskSafePath(s *kernel.SemanticSession, ref string, maintenance bool) error
 		_, _, e := s.ReferenceView(ref)
 		return e
 	}
-	if _, e := safefs.Path(s.Root, ref); e != nil {
+	// 写范围条目允许以单个「/」结尾表示目录（模板生成的任务包就是这样写的）；其余仍按可移植项目相对路径校验。
+	checked := ref
+	if len(checked) > 1 && strings.HasSuffix(checked, "/") && !strings.HasSuffix(checked, "//") {
+		checked = strings.TrimSuffix(checked, "/")
+	}
+	if _, e := safefs.Path(s.Root, checked); e != nil {
 		return kernel.ApFail(s, "TASK_SCOPE", e.Error())
 	}
 	return nil
