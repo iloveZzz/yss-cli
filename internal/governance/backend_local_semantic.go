@@ -1,13 +1,14 @@
 package governance
 
 import (
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"regexp"
 	"strings"
 )
 
 // Local Spec milestones consume the same approved Slice, independent review
 // and actual contract/deployment records without inventing a strategic package.
-func backendVerifyLocalTerminal(s *semanticSession, ref string, record map[string]any, a backendAuthorization, opts map[string]string) error {
+func backendVerifyLocalTerminal(s *kernel.SemanticSession, ref string, record map[string]any, a backendAuthorization, opts map[string]string) error {
 	fullFeature, err := backendLocalFullFeature(s, a)
 	if err != nil {
 		return err
@@ -18,7 +19,7 @@ func backendVerifyLocalTerminal(s *semanticSession, ref string, record map[strin
 // A full Spec feature may contain approved frontend work while its backend
 // evidence is consumed. An explicit external owner cannot be replaced locally;
 // permanent execution scopes and dedicated profiles retain their responsibility.
-func backendLocalFullFeature(s *semanticSession, a backendAuthorization) (bool, error) {
+func backendLocalFullFeature(s *kernel.SemanticSession, a backendAuthorization) (bool, error) {
 	if a.Mode != "feature-target" {
 		return false, nil
 	}
@@ -26,18 +27,18 @@ func backendLocalFullFeature(s *semanticSession, a backendAuthorization) (bool, 
 	if err != nil || !local {
 		return false, err
 	}
-	configRef, cp, err := progressionLocation(s, a.CheckpointRef)
+	configRef, cp, err := kernel.ProgressionLocation(s, a.CheckpointRef)
 	if err != nil {
 		return false, err
 	}
-	present, err := s.exists(configRef)
+	present, err := s.Exists(configRef)
 	if err != nil {
 		return false, err
 	}
 	if !present {
 		return true, nil
 	}
-	raw, err := s.bytes(configRef)
+	raw, err := s.Bytes(configRef)
 	if err != nil {
 		return false, err
 	}
@@ -45,11 +46,11 @@ func backendLocalFullFeature(s *semanticSession, a backendAuthorization) (bool, 
 	if err != nil {
 		return false, err
 	}
-	if intent.FeatureID != text(cp["feature_id"]) || intent.CheckpointRef != a.CheckpointRef {
-		return false, s.reject("PROGRESSION_BINDING", "本地后端证据目标未绑定当前功能")
+	if intent.FeatureID != kernel.Text(cp["feature_id"]) || intent.CheckpointRef != a.CheckpointRef {
+		return false, s.Reject("PROGRESSION_BINDING", "本地后端证据目标未绑定当前功能")
 	}
 	for _, consumer := range intent.Consumers {
-		if consumer.Profile == "backend" && consumer.Root != s.root {
+		if consumer.Profile == "backend" && consumer.Root != s.Root {
 			return false, nil
 		}
 	}
@@ -58,13 +59,13 @@ func backendLocalFullFeature(s *semanticSession, a backendAuthorization) (bool, 
 
 // Both full Spec milestones and business implementation consume this existing
 // evidence closure. The narrower scope mode remains explicit at its callers.
-func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[string]any, a backendAuthorization, opts map[string]string, backendOnly bool) error {
-	if apNumber(record["schema_version"]) != 1 || record["kind"] != "backend-delivery-terminal" || record["business_completed"] != false || record["release_authorized"] != false || record["delivery_mode"] != "local-evidence" {
+func backendVerifyLocalTerminalMode(s *kernel.SemanticSession, ref string, record map[string]any, a backendAuthorization, opts map[string]string, backendOnly bool) error {
+	if kernel.ApNumber(record["schema_version"]) != 1 || record["kind"] != "backend-delivery-terminal" || record["business_completed"] != false || record["release_authorized"] != false || record["delivery_mode"] != "local-evidence" {
 		return backendReject(s, "本地交付记录不能自报业务完成或发布批准")
 	}
 	localProfile := false
 	if a.Mode == "backend-profile" {
-		profile, policy, err := progressionPolicy(s)
+		profile, policy, err := kernel.ProgressionPolicy(s)
 		if err != nil {
 			return err
 		}
@@ -78,7 +79,7 @@ func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[s
 			return err
 		}
 	}
-	delivery, err := backendInspectDeliveryMode(s, text(semMap(record["delivery"])["ref"]), opts, true, a.CheckpointRef)
+	delivery, err := backendInspectDeliveryMode(s, kernel.Text(kernel.SemMap(record["delivery"])["ref"]), opts, true, a.CheckpointRef)
 	if err != nil {
 		return err
 	}
@@ -96,20 +97,20 @@ func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[s
 		return err
 	}
 	if !backendOnly {
-		cp, err := s.doc(a.CheckpointRef)
+		cp, err := s.Doc(a.CheckpointRef)
 		if err != nil {
 			return err
 		}
-		if err = s.gateChecks(cp, a.CheckpointRef, "gate.slice-contract-approved"); err != nil {
+		if err = s.GateChecks(cp, a.CheckpointRef, "gate.slice-contract-approved"); err != nil {
 			return err
 		}
 	}
-	state, err := s.doc(text(semMap(record["review_state"])["ref"]))
+	state, err := s.Doc(kernel.Text(kernel.SemMap(record["review_state"])["ref"]))
 	if err != nil {
 		return err
 	}
-	input := semMap(state["review_input"])
-	if input["scope_kind"] != "change" || input["slice_contract_ref"] != semMap(delivery["slice_contract"])["ref"] {
+	input := kernel.SemMap(state["review_input"])
+	if input["scope_kind"] != "change" || input["slice_contract_ref"] != kernel.SemMap(delivery["slice_contract"])["ref"] {
 		return backendReject(s, "独立审查未绑定本地交付的批准Slice")
 	}
 	result, err := backendReview(s, state, opts)
@@ -127,70 +128,70 @@ func backendVerifyLocalTerminalMode(s *semanticSession, ref string, record map[s
 	if err != nil {
 		return err
 	}
-	if semMap(delivery["build"])["source_commit"] != buildSource {
+	if kernel.SemMap(delivery["build"])["source_commit"] != buildSource {
 		return backendReject(s, "本地构建并非当前已审查源码提交")
 	}
 	for _, key := range []string{"owner", "ticket_ref", "verification_plan", "target_version"} {
-		if strings.TrimSpace(text(semMap(record["downstream"])[key])) == "" {
+		if strings.TrimSpace(kernel.Text(kernel.SemMap(record["downstream"])[key])) == "" {
 			return backendReject(s, "本地交付缺少下游接收责任："+key)
 		}
 	}
-	cp, err := s.doc(a.CheckpointRef)
+	cp, err := s.Doc(a.CheckpointRef)
 	if err != nil {
 		return err
 	}
-	s.report.Coverage = map[string]any{"result": "backend-delivered", "delivery_mode": "local-evidence", "checkpoint_ref": a.CheckpointRef, "terminal_ref": ref, "delivery_id": delivery["delivery_id"], "version": delivery["version"], "next_work_unit": cp["next_work_unit"], "business_completed": false, "release_authorized": false, "live_service_checked": false, "downstream": record["downstream"]}
+	s.Report.Coverage = map[string]any{"result": "backend-delivered", "delivery_mode": "local-evidence", "checkpoint_ref": a.CheckpointRef, "terminal_ref": ref, "delivery_id": delivery["delivery_id"], "version": delivery["version"], "next_work_unit": cp["next_work_unit"], "business_completed": false, "release_authorized": false, "live_service_checked": false, "downstream": record["downstream"]}
 	return nil
 }
 
-func backendBusinessLocalEvidence(s *semanticSession, cpRef string) error {
+func backendBusinessLocalEvidence(s *kernel.SemanticSession, cpRef string) error {
 	a, err := progressionBackendAuthorization(s, cpRef, "", true)
 	if err != nil {
 		return err
 	}
-	record, err := s.doc(a.TerminalRef)
+	record, err := s.Doc(a.TerminalRef)
 	if err != nil {
 		return err
 	}
 	return backendVerifyLocalTerminalMode(s, a.TerminalRef, record, a, map[string]string{"checkpoint": cpRef}, false)
 }
 
-func backendTerminalSliceScope(s *semanticSession, delivery map[string]any) error {
-	c, err := loadNativeSlice(s, text(semMap(delivery["slice_contract"])["ref"]))
+func backendTerminalSliceScope(s *kernel.SemanticSession, delivery map[string]any) error {
+	c, err := loadNativeSlice(s, kernel.Text(kernel.SemMap(delivery["slice_contract"])["ref"]))
 	if err != nil {
 		return err
 	}
-	if semMap(c.Normalized["backend"])["status"] != "required" || semMap(c.Normalized["frontend"])["status"] != "not-applicable" || semHas(semMap(c.Normalized["common"])["impacted_areas"], "ui") || semHas(semMap(c.Normalized["common"])["impacted_areas"], "frontend") {
+	if kernel.SemMap(c.Normalized["backend"])["status"] != "required" || kernel.SemMap(c.Normalized["frontend"])["status"] != "not-applicable" || kernel.SemHas(kernel.SemMap(c.Normalized["common"])["impacted_areas"], "ui") || kernel.SemHas(kernel.SemMap(c.Normalized["common"])["impacted_areas"], "frontend") {
 		return backendReject(s, "后端终点不能扩大前端实现批准")
 	}
-	for _, unit := range semList(c.Normalized["work_units"]) {
-		if semMap(unit)["role_id"] == "role.frontend-engineer" {
+	for _, unit := range kernel.SemList(c.Normalized["work_units"]) {
+		if kernel.SemMap(unit)["role_id"] == "role.frontend-engineer" {
 			return backendReject(s, "后端终点不能承接前端实施单元")
 		}
 	}
 	return nil
 }
 
-func backendCurrentCheckpointSlice(s *semanticSession, cpRef string, record, delivery map[string]any) error {
+func backendCurrentCheckpointSlice(s *kernel.SemanticSession, cpRef string, record, delivery map[string]any) error {
 	if cpRef == "" {
 		return nil
 	} // Historical explicit scope readers have no feature selector.
-	cp, err := s.doc(cpRef)
+	cp, err := s.Doc(cpRef)
 	if err != nil {
 		return err
 	}
-	if registered := text(record["checkpoint_ref"]); registered != "" && registered != cpRef {
+	if registered := kernel.Text(record["checkpoint_ref"]); registered != "" && registered != cpRef {
 		return backendReject(s, "终点记录绑定不同功能checkpoint")
 	}
-	current := first(text(semMap(semMap(cp["human_review"])["implementation"])["slice_contract_ref"]), text(semMap(cp["review_input"])["slice_contract_ref"]), checkpointAsset(cp, "slice_contract_ref", "artifact.slice-implementation-contract"), text(semMap(cp["slice_contract"])["ref"]), text(semMap(semMap(cp["gates"])["gate.slice-contract-approved"])["subject_ref"]))
-	if current == "" || current != semMap(delivery["slice_contract"])["ref"] {
+	current := kernel.First(kernel.Text(kernel.SemMap(kernel.SemMap(cp["human_review"])["implementation"])["slice_contract_ref"]), kernel.Text(kernel.SemMap(cp["review_input"])["slice_contract_ref"]), checkpointAsset(cp, "slice_contract_ref", "artifact.slice-implementation-contract"), kernel.Text(kernel.SemMap(cp["slice_contract"])["ref"]), kernel.Text(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])["subject_ref"]))
+	if current == "" || current != kernel.SemMap(delivery["slice_contract"])["ref"] {
 		return backendReject(s, "交付终点不是当前显式checkpoint的批准Slice")
 	}
 	return nil
 }
 
-func backendLocalSpecCoverage(s *semanticSession, cpRef string, c *nativeSlice, delivery, tests map[string]any) error {
-	cp, err := s.doc(cpRef)
+func backendLocalSpecCoverage(s *kernel.SemanticSession, cpRef string, c *nativeSlice, delivery, tests map[string]any) error {
+	cp, err := s.Doc(cpRef)
 	if err != nil {
 		return err
 	}
@@ -198,7 +199,7 @@ func backendLocalSpecCoverage(s *semanticSession, cpRef string, c *nativeSlice, 
 	if len(spec) == 0 || spec["ref"] != checkpointAsset(cp, "spec_ref", "artifact.spec") {
 		return backendReject(s, "本地交付Slice没有绑定当前Spec")
 	}
-	if digest := semMap(semMap(cp["artifacts"])["artifact.spec"])["digest"]; digest != nil && digest != spec["digest"] {
+	if digest := kernel.SemMap(kernel.SemMap(cp["artifacts"])["artifact.spec"])["digest"]; digest != nil && digest != spec["digest"] {
 		return backendReject(s, "本地交付当前Spec原字节绑定不一致")
 	}
 	specRaw, err := backendBound(s, spec)
@@ -208,7 +209,7 @@ func backendLocalSpecCoverage(s *semanticSession, cpRef string, c *nativeSlice, 
 	var entries []contractPlanEntry
 	supported := false
 	if strings.HasPrefix(strings.TrimSpace(string(specRaw)), "---\n") {
-		entries, supported, err = contractPlan(s, text(spec["ref"]))
+		entries, supported, err = contractPlan(s, kernel.Text(spec["ref"]))
 		if err != nil {
 			return err
 		}
@@ -234,22 +235,22 @@ func backendLocalSpecCoverage(s *semanticSession, cpRef string, c *nativeSlice, 
 			return backendReject(s, "既有批准Spec缺少稳定FR/AC ID")
 		}
 	}
-	ids := semStrings(semMap(delivery["scope"])["source_ids"])
+	ids := kernel.SemStrings(kernel.SemMap(delivery["scope"])["source_ids"])
 	for _, id := range ids {
-		if !semHas(known, id) {
+		if !kernel.SemHas(known, id) {
 			return backendReject(s, "本地交付包含未知当前Spec来源ID")
 		}
 	}
 	count := 0
-	for id := range semMap(c.Raw["acceptance"]) {
-		if !strings.HasPrefix(id, "AC-") || !semHas(known, id) || !semHas(ids, id) {
+	for id := range kernel.SemMap(c.Raw["acceptance"]) {
+		if !strings.HasPrefix(id, "AC-") || !kernel.SemHas(known, id) || !kernel.SemHas(ids, id) {
 			return backendReject(s, "本地交付未覆盖当前Slice验收ID")
 		}
 		count++
 		for _, outcome := range []string{"success", "failure"} {
 			found := false
-			for _, coverage := range semList(tests["coverage"]) {
-				item := semMap(coverage)
+			for _, coverage := range kernel.SemList(tests["coverage"]) {
+				item := kernel.SemMap(coverage)
 				if item["source_id"] == id && item["outcome"] == outcome {
 					found = true
 				}
@@ -262,8 +263,8 @@ func backendLocalSpecCoverage(s *semanticSession, cpRef string, c *nativeSlice, 
 	if count == 0 {
 		return backendReject(s, "本地交付缺少当前Slice验收条件")
 	}
-	for _, id := range semStrings(semMap(delivery["scope"])["operation_ids"]) {
-		if !semHas(tests["operation_ids"], id) {
+	for _, id := range kernel.SemStrings(kernel.SemMap(delivery["scope"])["operation_ids"]) {
+		if !kernel.SemHas(tests["operation_ids"], id) {
 			return backendReject(s, "本地契约验证未覆盖批准接口")
 		}
 	}

@@ -3,26 +3,17 @@ package governance
 import (
 	"context"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-type Term struct {
-	TermRef           string   `json:"term_ref"`
-	Term              string   `json:"term"`
-	Meaning           string   `json:"meaning"`
-	EnglishIdentifier string   `json:"english_identifier"`
-	ContextID         string   `json:"context_id"`
-	ForbiddenAliases  []string `json:"forbidden_aliases"`
-	Notes             string   `json:"notes"`
-	Line              int      `json:"line"`
-}
-
 func Run(group, action, root string, args map[string]string) (any, error) {
 	return RunContext(context.Background(), group, action, root, args)
 }
+
 func RunContext(ctx context.Context, group, action, root string, args map[string]string) (any, error) {
 	if ctx == nil {
 		return nil, domain.Fail("ARGUMENT", "治理执行取消上下文不可为空")
@@ -64,10 +55,10 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	allowed := ArgumentKeys(group, action)
 	if err := rejectUnportedArgs(args, allowed...); err != nil {
 		if semantic || group == "project-ci" && (action == "check" || action == "verify") && args["scope"] != "native-go" {
-			s := newSemanticSession(ctx, root, args)
-			err = s.unavailable("ARGUMENT", err.Error())
-			s.diagnostic("arguments", err)
-			return s.report, &semanticFailure{cause: err, report: s.report}
+			s := kernel.NewSemanticSession(ctx, root, args)
+			err = s.Unavailable("ARGUMENT", err.Error())
+			s.Diagnostic("arguments", err)
+			return s.Report, &semanticFailure{cause: err, report: s.Report}
 		}
 		return nil, err
 	}
