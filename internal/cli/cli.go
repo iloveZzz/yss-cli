@@ -830,6 +830,7 @@ var nodeDelegation = []string{
 	"task.directory-write-scope.v1",
 	"lifecycle.legacy-untracked-checkpoint.v1",
 	"handoff.package-identity.v1",
+	"handoff.consumption-report.v1",
 	"template-source.verify-root.v1",
 }
 

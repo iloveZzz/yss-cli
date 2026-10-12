@@ -1545,9 +1545,19 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 		}
 		rows[id] = row
 	}
-	blocked := false
-	mark := func(row map[string]any) {
-		blocked = blocked || slice == "" || kernel.Text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) || kernel.SemHas(row["dependent_slice_refs"], slice)
+	// 与 Node 的 verifyConsumption 同形：记录每条阻断原因；依赖未知或未声明时阻断整个消费者，否则只阻断依赖它的切片。
+	all := false
+	blockedSlices := map[string]bool{}
+	issues := []any{}
+	mark := func(id, reason string, row map[string]any) {
+		issues = append(issues, map[string]any{"source_id": id, "reason": reason})
+		if kernel.Text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) {
+			all = true
+			return
+		}
+		for _, ref := range kernel.SemStrings(row["dependent_slice_refs"]) {
+			blockedSlices[ref] = true
+		}
 	}
 	ids, seams, e := contractDesignTargets(s, data)
 	if e != nil {
@@ -1564,8 +1574,12 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 	}
 	for id, source := range known {
 		row := rows[id]
-		if row == nil || row["source_digest"] != source["source_digest"] {
-			mark(row)
+		if row == nil {
+			mark(id, "missing-mapping", nil)
+			continue
+		}
+		if row["source_digest"] != source["source_digest"] {
+			mark(id, "stale-source", row)
 			continue
 		}
 		if !kernel.SemHas([]string{"known", "unknown"}, kernel.Text(row["dependency_status"])) || row["dependent_slice_refs"] == nil {
@@ -1606,12 +1620,12 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 			} else if !kernel.SemHas([]string{"pending", "conflict"}, kernel.Text(row["disposition"])) {
 				return s.Reject("HANDOFF_MAPPING", "非法接收状态")
 			}
-			mark(row)
+			mark(id, kernel.Text(row["disposition"]), row)
 		}
 	}
 	for id, row := range rows {
 		if known[id] == nil {
-			mark(row)
+			mark(id, "removed-or-unknown-source", row)
 		}
 	}
 	if current.Business != nil {
@@ -1629,13 +1643,14 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 					incomplete = incomplete || !kernel.SemHas(mapped["dependent_slice_refs"], ref)
 				}
 				if incomplete {
-					mark(row)
+					mark(kernel.Text(ticket["id"]), "business-rule-scenario-dependency-incomplete", row)
 				}
 			}
 		}
 	}
 	if current.Business != nil && original.Business != nil && !contractSame(current.Business["coverage_deferred"], original.Business["coverage_deferred"]) {
-		blocked = true
+		all = true
+		issues = append(issues, map[string]any{"source_id": "business-ticket-coverage", "reason": "deferred-scope-stale"})
 	}
 	if current.Business != nil && original.Business != nil {
 		prior := map[string]any{}
@@ -1646,7 +1661,7 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 		for _, value := range kernel.SemList(current.Business["tickets"]) {
 			ticket := kernel.SemMap(value)
 			if !contractSame(prior[kernel.Text(ticket["id"])], ticket["source_digest"]) {
-				mark(rows[kernel.Text(ticket["id"])])
+				mark(kernel.Text(ticket["id"]), "business-ticket-stale", rows[kernel.Text(ticket["id"])])
 			}
 		}
 	}
@@ -1655,7 +1670,8 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 			continue
 		}
 		if kernel.SemMap(kernel.SemMap(current.Handoff["source"])[key])["digest"] != kernel.SemMap(kernel.SemMap(original.Handoff["source"])[key])["digest"] {
-			blocked = true
+			all = true
+			issues = append(issues, map[string]any{"source_id": key, "reason": "upstream-asset-stale"})
 		}
 	}
 	strategyBasis := func(v map[string]any) map[string]any {
@@ -1668,9 +1684,38 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 		return out
 	}
 	if !contractSame(strategyBasis(current.Strategy), strategyBasis(original.Strategy)) || !contractSame(contractWithout(current.Stage, "package_version", "approval", "domain_strategy_ref"), contractWithout(original.Stage, "package_version", "approval", "domain_strategy_ref")) || contractHandoffUIKind(current.Handoff) != contractHandoffUIKind(original.Handoff) || !contractSame(current.Config["prototype"], original.Config["prototype"]) {
-		blocked = true
+		all = true
+		issues = append(issues, map[string]any{"source_id": "strategic-design-basis", "reason": "upstream-design-stale"})
 	}
-	if blocked {
+	blockedHere := all || (slice != "" && blockedSlices[slice]) || (slice == "" && len(issues) > 0)
+	blockedRefs := []string{}
+	for ref := range blockedSlices {
+		blockedRefs = append(blockedRefs, ref)
+	}
+	sort.Strings(blockedRefs)
+	complete := true
+	for id := range known {
+		complete = complete && rows[id] != nil
+	}
+	scope := slice
+	if scope == "" {
+		scope = "whole-" + consumer + "-design"
+	}
+	report := map[string]any{"result": map[bool]string{true: "blocked", false: "verified"}[blockedHere], "bundle_digest": current.Manifest["bundle_digest"], "consumed_bundle_digest": receipt["bundle_digest"], "scope": scope, "coverage_complete": complete, "block_all": all, "blocked_slice_refs": blockedRefs, "issues": issues}
+	if consumer == "frontend" {
+		report["frontend_acceptance_digest"] = kernel.ApDigest(data)
+	} else {
+		report["tactical_digest"] = kernel.ApDigest(data)
+		if kernel.ContractN(data["schema_version"]) == 2 {
+			report["technical_design_digest"] = kernel.ApDigest(data)
+		}
+	}
+	// 命令行薄壳按 Node 的 verify-strategic-handoff-consumption 输出形态读取这份报告。
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["handoff_consumption"] = report
+	if blockedHere {
 		return s.Reject("HANDOFF_STALE", "来源变化、缺失/延期承接或未知依赖阻断当前范围")
 	}
 	return nil
