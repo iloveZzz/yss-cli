@@ -74,8 +74,9 @@ func contractPlatformFingerprint(s *semanticSession, family string) (map[string]
 	} else if present {
 		generator = append(generator, "scripts/lib/standalone-backend-scaffold.mjs")
 	}
+	generator = append(generator, "scripts/lib/scaffold-reference-example.mjs", ".agents/skills/yss-dto/references/openapi-wire-profile.yaml")
 	if family == "layered-mvc" {
-		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper")
+		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper", ".agents/skills/yss-ddd-scaffold-generator/assets/reference")
 	}
 	verifier := []string{"scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", ".agents/skills/yss-ddd-scaffold-generator/scripts/run_scaffold_verification.mjs"}
 	fileMap := func(refs []string) (string, error) {
@@ -200,7 +201,7 @@ func contractPlatform(s *semanticSession, binding map[string]any, verified bool)
 			found := false
 			for _, v := range semList(report["commands"]) {
 				row := semMap(v)
-				if text(row["command"]) != "./mvnw "+phase {
+				if text(row["command"]) != "./mvnw "+phase && !(text(row["phase"]) == phase && strings.HasPrefix(text(row["command"]), "./mvnw "+phase+" ") && !strings.Contains(text(row["command"]), "skipTests") && !strings.Contains(text(row["command"]), "maven.test.skip")) {
 					continue
 				}
 				exit, ok := integer(row["exit_code"])
@@ -305,7 +306,7 @@ func contractRetirement(v any) bool {
 }
 func contractPlatformArtifact(s *semanticSession, b map[string]any, role string, expected map[string]any, snapshot, resolved bool) error {
 	status := text(b["status"])
-	if role == "" || text(b["role"]) != role || status != "candidate" && !(resolved && status == "resolved") || text(b["group_id"]) == "" || text(b["artifact_id"]) == "" || !contractExactVersion(b["declared_version"]) || snapshot != strings.HasSuffix(text(b["declared_version"]), "-SNAPSHOT") {
+	if role == "" || text(b["role"]) != role || status != "candidate" && !(resolved && status == "resolved") && !(expected != nil && status == "resolved-pom") || text(b["group_id"]) == "" || text(b["artifact_id"]) == "" || !contractExactVersion(b["declared_version"]) || snapshot != strings.HasSuffix(text(b["declared_version"]), "-SNAPSHOT") {
 		return s.reject("PLATFORM_ARTIFACT", "平台候选产物坐标或角色冲突")
 	}
 	if expected != nil && (b["group_id"] != expected["group_id"] || b["artifact_id"] != expected["artifact_id"] || b["declared_version"] != expected["version"]) {
@@ -320,6 +321,10 @@ func contractPlatformArtifact(s *semanticSession, b map[string]any, role string,
 		}
 		if !apIsArray(b["evidence"]) || len(semList(b["evidence"])) != 0 || len(semList(b["blockers"])) == 0 {
 			return s.reject("PLATFORM_ARTIFACT", "候选产物必须保持有阻断且未解析")
+		}
+	} else if status == "resolved-pom" {
+		if (role != "parent" && role != "bom") || !snapshot || !regexp.MustCompile(`^\d+\.\d+\.\d+-\d{8}\.\d{6}-\d+$`).MatchString(text(b["resolved_version"])) || !contractSHA(b["pom_sha256"]) || !contractGitTree(b["source_tree"]) || b["jar_sha256"] != nil || b["sources_jar_sha256"] != nil || len(semList(b["evidence"])) == 0 || !apIsArray(b["blockers"]) || len(semList(b["blockers"])) != 0 {
+			return s.reject("PLATFORM_ARTIFACT", "平台 POM 缺少精确 SNAPSHOT 及源码证据")
 		}
 	} else {
 		if snapshot || b["resolved_version"] != b["declared_version"] || !contractSHA(b["pom_sha256"]) || !contractSHA(b["jar_sha256"]) || !contractSHA(b["sources_jar_sha256"]) || b["published_at"] != nil && text(b["published_at"]) == "" || b["source_tree"] != nil && !contractGitTree(b["source_tree"]) || !apIsArray(b["evidence"]) || !apIsArray(b["blockers"]) {
@@ -410,6 +415,21 @@ func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
 				resolutions[text(a["group_id"])+":"+text(a["artifact_id"])+":"+text(a["declared_version"])] = a
 			}
 		}
+		for _, value := range semMap(entry["platform_artifact_bindings"]) {
+			b := semMap(value)
+			if text(b["status"]) != "resolved-pom" {
+				continue
+			}
+			a := resolutions[text(b["group_id"])+":"+text(b["artifact_id"])+":"+text(b["declared_version"])]
+			if a == nil || b["resolved_version"] != a["resolved_version"] || text(b["pom_sha256"]) != "sha256:"+text(a["pom_sha256"]) || b["source_tree"] != a["source_tree"] || a["pom_matches_source_tree"] != true {
+				return nil, s.reject("PLATFORM_ARTIFACT", "平台 POM 与解析证据冲突")
+			}
+			for _, evidence := range semList(b["evidence"]) {
+				if _, err := contractBoundDoc(s, semMap(evidence)); err != nil {
+					return nil, err
+				}
+			}
+		}
 		if entry["component_capabilities"] == nil {
 			continue
 		}
@@ -492,6 +512,9 @@ func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
 			}
 			expected := map[string]string{"contract.request-validation": "org.springframework.boot:spring-boot-starter-validation:" + text(profile["spring_boot_version"]), "component.cache": "com.yss.cloud:yss-component-cache-starter:3.1.0-SNAPSHOT", "component.distributed-id": "com.yss.cloud:yss-component-distributed-id:3.1.0-SNAPSHOT", "component.excel-import-export": "com.yss.cloud:yss-component-excel-mvc:3.0.0-SNAPSHOT"}
 			for id, coordinate := range expected {
+				if id != "contract.request-validation" && text(semMap(entry["bom"])["version"]) != "3.0.0-SNAPSHOT" {
+					continue
+				}
 				a := semList(semMap(components[id])["artifacts"])
 				if len(a) != 1 {
 					return nil, s.reject("PLATFORM_COMPONENT", "Boot3组件坐标缺失")
@@ -500,6 +523,9 @@ func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
 				if text(b["group_id"])+":"+text(b["artifact_id"])+":"+text(b["declared_version"]) != coordinate {
 					return nil, s.reject("PLATFORM_COMPONENT", "Boot3组件固定坐标变化")
 				}
+			}
+			if text(semMap(entry["bom"])["version"]) != "3.0.0-SNAPSHOT" {
+				continue
 			}
 			for _, raw := range components {
 				item := semMap(raw)
@@ -645,146 +671,9 @@ func contractTransitionContext(s *semanticSession, reconciliation map[string]any
 	return s.verify("context-reconciliation", text(reconciliation["ref"]), opts)
 }
 func contractServiceTransition(s *semanticSession, ref string, opts map[string]string) error {
-	state, e := s.transitionState(ref, opts["task-ref"])
-	if e != nil {
-		return e
-	}
-	request := semMap(state["service_project_initialization"])
-	if e = contractRequired(s, request, "project_id", "contract_ref", "contract_digest", "project_root"); e != nil {
-		return e
-	}
-	contractRef, e := contractVerificationRef(s, text(request["contract_ref"]))
-	if e != nil {
-		return e
-	}
-	contract, e := contractBoundDoc(s, map[string]any{"ref": contractRef, "digest": request["contract_digest"]})
-	if e != nil {
-		return e
-	}
-	if e = s.verify("scaffold", contractRef, opts); e != nil {
-		return e
-	}
-	projectRoot := text(request["project_root"])
-	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot || filepath.Dir(projectRoot) != text(contract["target_output_dir"]) {
-		return s.reject("SERVICE_INITIALIZATION", "服务目标必须是批准输出目录内的规范绝对工程根")
-	}
-	if text(contract["architecture_profile"]) != "mvc-data-analysis-v1" || text(contract["scaffold_kind"]) != "backend-mvc-data-analysis" || text(contract["generator_skill"]) != "yss-layered-mvc-scaffold-generator" || contract["init_git"] != true || contract["project_name"] != request["project_id"] || filepath.Join(text(contract["target_output_dir"]), text(contract["project_name"])) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "服务初始化合同身份或目标不一致")
-	}
-	handoffRef := path.Join(path.Dir(contractRef), text(contract["context_handoff_ref"]))
-	if !contractWithin(handoffRef, path.Dir(contractRef)) || handoffRef == path.Dir(contractRef) || filepath.IsAbs(text(contract["context_handoff_ref"])) {
-		return s.reject("SERVICE_INITIALIZATION", "CONTEXT交接必须位于合同目录内部")
-	}
-	handoff, e := s.bytes(handoffRef)
-	if e != nil {
-		return e
-	}
-	digest := "sha256:" + safefs.Digest(handoff)
-	if text(contract["context_handoff_digest"]) != digest || text(request["context_handoff_digest"]) != digest {
-		return s.reject("SERVICE_INITIALIZATION", "CONTEXT交接摘要变化")
-	}
-	parent := filepath.Dir(projectRoot)
-	if opts["completed"] != "true" {
-		return s.observedExternalAbsence(projectRoot, contractRef)
-	}
-	if e = s.registerExternalRoot(parent, contractRef); e != nil {
-		return e
-	}
-	child := newSemanticSession(s.ctx, parent, s.args)
-	child.v = s.externalViews[parent]
-	s.children = append(s.children, child)
-	name := filepath.Base(projectRoot)
-	// Read the contract-owned files below individually. A recursive inventory
-	// of the project would wrongly treat its independently required .git tree
-	// as a governance asset and violate the safe reference policy.
-	manifestRef, e := contractVerificationRef(s, text(request["manifest_ref"]))
-	if e != nil {
-		return e
-	}
-	verificationRef, e := contractVerificationRef(s, text(request["verification_ref"]))
-	if e != nil {
-		return e
-	}
-	resultRef, e := contractVerificationRef(s, text(request["result_ref"]))
-	if e != nil {
-		return e
-	}
-	manifest, e := contractVerificationDoc(s, manifestRef)
-	if e != nil {
-		return e
-	}
-	verification, e := contractVerificationDoc(s, verificationRef)
-	if e != nil {
-		return e
-	}
-	result, e := contractVerificationDoc(s, resultRef)
-	if e != nil {
-		return e
-	}
-	if text(result["result_schema"]) != "workflow-execution-result-v1" || text(result["work_unit"]) != "work-unit.service-project-initialization" || text(result["result"]) != "completed" || !semHas(result["evidence_refs"], text(request["manifest_ref"])) || !semHas(result["evidence_refs"], text(request["verification_ref"])) {
-		return s.reject("SERVICE_INITIALIZATION", "缺少持久化已完成初始化执行结果")
-	}
-	if contractN(manifest["schema_version"]) != 4 || text(manifest["kind"]) != "service-project-initialization" || text(manifest["architecture_profile"]) != "mvc-data-analysis-v1" || manifest["project_name"] != request["project_id"] || manifest["contract_digest"] != request["contract_digest"] || text(manifest["completion_level"]) != "empty-scaffold-verified" {
-		return s.reject("SERVICE_INITIALIZATION", "服务Manifest不是当前已验证空骨架")
-	}
-	if text(verification["status"]) != "passed" || text(verification["completion_level"]) != "empty-scaffold-verified" || text(verification["project_root"]) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "服务验证身份或完成度错误")
-	}
-	for _, phase := range []string{"validate", "test", "package"} {
-		found := false
-		for _, v := range semList(verification["commands"]) {
-			row := semMap(v)
-			if text(row["phase"]) != phase {
-				continue
-			}
-			exit, ok := integer(row["exit_code"])
-			if !ok || exit != 0 || !strings.HasPrefix(text(row["command"]), "./mvnw "+phase) {
-				return s.reject("SERVICE_INITIALIZATION", "Maven实际执行结果未通过")
-			}
-			for _, key := range []string{"stdout_ref", "stderr_ref"} {
-				ref, e := contractVerificationRef(s, text(row[key]))
-				if e != nil {
-					return e
-				}
-				if _, e = contractVerificationBytes(s, ref); e != nil {
-					return e
-				}
-			}
-			found = true
-		}
-		if !found {
-			return s.reject("SERVICE_INITIALIZATION", "缺少Maven阶段: "+phase)
-		}
-	}
-	context, e := child.bytes(path.Join(name, "CONTEXT.md"))
-	if e != nil {
-		return e
-	}
-	if string(context) != string(handoff) {
-		return s.reject("SERVICE_INITIALIZATION", "子项目CONTEXT与批准交接不一致")
-	}
-	if e = s.registerExternalRoot(projectRoot, contractRef); e != nil {
-		return e
-	}
-	top, e := s.git(projectRoot, "rev-parse", "--show-toplevel")
-	if e != nil || filepath.Clean(strings.TrimSpace(string(top))) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "子工程Git身份缺失")
-	}
-	if _, e = child.bytes("skillUtils/skills-lock.json"); e != nil {
-		return e
-	}
-	initialization, e := child.doc(path.Join(name, ".template-spec/process/service-initialization.json"))
-	if e != nil {
-		return e
-	}
-	if initialization["contract_id"] != contract["contract_id"] || text(initialization["context_handoff_digest"]) != digest {
-		return s.reject("SERVICE_INITIALIZATION", "子工程初始化身份变化")
-	}
-	return nil
+	return s.reject("SCAFFOLD_RETIRED", "mvc-data-analysis-v1 仅允许历史只读审计；使用通用 MVC 后按需 setup-yss-harness")
 }
 
-// These helpers preserve the old JS digest contract: UTF-16 key ordering,
-// JSON.stringify scalars, unescaped Unicode, and no trailing newline.
 func contractJSON(v any) (string, error) {
 	var b strings.Builder
 	var write func(any) error
@@ -2779,14 +2668,14 @@ func verifyRepositoryReadySemantic(s *semanticSession, ref string, opts map[stri
 				}
 			case "initialized-and-verified":
 				c := semMap(p["scaffold_contract"])
-				if text(c["status"]) != "approved" || c["persisted"] != true || c["current_version"] != true || contractN(c["schema_version"]) != 4 {
+				if text(c["status"]) != "approved" || c["persisted"] != true || c["current_version"] != true || (contractN(c["schema_version"]) != 4 && contractN(c["schema_version"]) != 5) {
 					return s.reject("SCAFFOLD_CONTRACT", "非当前批准的 v4 脚手架合同")
 				}
 				manifest, e := s.doc(text(p["scaffold_manifest_ref"]))
 				if e != nil {
 					return e
 				}
-				if role == "backend" && (contractN(manifest["schema_version"]) != 4 || text(manifest["completion_level"]) != "empty-scaffold-verified" || !contractSame(manifest["design_prerequisites"], p["design_prerequisites"])) {
+				if role == "backend" && (contractN(manifest["schema_version"]) != contractN(c["schema_version"]) || text(manifest["architecture_profile"]) == "mvc-data-analysis-v1" || text(manifest["completion_level"]) != "empty-scaffold-verified" || !contractSame(manifest["design_prerequisites"], p["design_prerequisites"])) {
 					return s.reject("SCAFFOLD_MANIFEST", "生成资产与准备依据冲突")
 				}
 				verification := semMap(p["scaffold_verification"])
@@ -2818,6 +2707,9 @@ func contractArchitecture(s *semanticSession, identity map[string]any, c *native
 		return s.reject("ARCH_SOURCE_UNSUPPORTED", "未知架构身份来源")
 	}
 	profile := semMap(semMap(registry["architecture_profiles"])[text(identity["architecture_profile"])])
+	if text(profile["maturity"]) == "deprecated" {
+		return s.reject("SCAFFOLD_RETIRED", "退役架构仅供历史审计，不能编译当前实现合同")
+	}
 	if len(profile) == 0 || profile["architecture_family"] != identity["architecture_family"] || profile["generator_skill"] != identity["generator_skill"] || text(identity["verification_database"]) != "h2" || text(identity["production_database"]) != "not-bound" || !contractUnique(identity["requested_capabilities"], false) {
 		return s.reject("ARCH_IDENTITY_SHAPE", "脚手架架构/Profile/验证数据库不一致")
 	}
@@ -3941,7 +3833,7 @@ func verifyScaffoldSemantic(s *semanticSession, ref string, opts map[string]stri
 	if e = s.validateSchema(".template-spec/process/schemas/project-scaffold-contract.schema.json", doc); e != nil {
 		return e
 	}
-	if contractN(doc["schema_version"]) != 4 || text(doc["status"]) != "approved" || doc["current_version"] != true || text(doc["persisted_ref"]) == "" {
+	if (contractN(doc["schema_version"]) != 4 && contractN(doc["schema_version"]) != 5) || text(doc["status"]) != "approved" || doc["current_version"] != true || text(doc["persisted_ref"]) == "" {
 		return s.reject("SCAFFOLD_CONTRACT", "脚手架合同必须已批准、持久化且当前")
 	}
 	policy := semMap(doc["generation_policy"])
@@ -4010,25 +3902,15 @@ func verifyScaffoldSemantic(s *semanticSession, ref string, opts map[string]stri
 		return e
 	}
 	if text(doc["architecture_profile"]) == "mvc-data-analysis-v1" {
-		if doc["init_git"] != true {
-			return s.reject("SCAFFOLD_POLICY", "数据分析脚手架须显式要求独立 Git 初始化")
-		}
-		handoffRef := path.Join(path.Dir(ref), text(doc["context_handoff_ref"]))
-		if !contractWithin(handoffRef, path.Dir(ref)) || handoffRef == path.Dir(ref) || filepath.IsAbs(text(doc["context_handoff_ref"])) {
-			return s.reject("SCAFFOLD_CONTEXT", "Context handoff必须在批准合同目录内部")
-		}
-		context, e := s.bytes(handoffRef)
-		if e != nil {
+		return s.reject("SCAFFOLD_RETIRED", "数据分析合同仅允许历史只读审计")
+	}
+	if family == "layered-mvc" && doc["init_git"] != false {
+		return s.reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
+	}
+	if contractN(doc["schema_version"]) == 5 {
+		if e = contractReferenceExample(s, semMap(doc["reference_example"])); e != nil {
 			return e
 		}
-		if "sha256:"+safefs.Digest(context) != text(doc["context_handoff_digest"]) {
-			return s.reject("SCAFFOLD_CONTEXT", "Context handoff 摘要冲突")
-		}
-		if _, e = contextContractBytes(context); e != nil {
-			return s.reject("SCAFFOLD_CONTEXT", e.Error())
-		}
-	} else if family == "layered-mvc" && doc["init_git"] != false {
-		return s.reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
 	}
 	if e = contractBackendPrerequisites(s, semMap(doc["design_prerequisites"]), doc, opts); e != nil {
 		return e
@@ -5510,4 +5392,42 @@ func contractProbeBackend(s *semanticSession, delivery map[string]any) error {
 		}
 		return nil
 	})
+}
+
+// Reference assets are owned by the same fixed tool source as the generators.
+func contractReferenceExample(s *semanticSession, value map[string]any) error {
+	tool, err := s.toolSourceSession()
+	if err != nil {
+		return err
+	}
+	prefix := ".agents/skills/yss-ddd-scaffold-generator/assets/reference"
+	refs, err := tool.scan(prefix)
+	if err != nil {
+		return err
+	}
+	sort.Strings(refs)
+	var bytes []byte
+	for _, ref := range refs {
+		content, e := tool.bytes(ref)
+		if e != nil {
+			return e
+		}
+		bytes = append(bytes, []byte(strings.TrimPrefix(ref, prefix+"/"))...)
+		bytes = append(bytes, 0)
+		bytes = append(bytes, content...)
+		bytes = append(bytes, 0)
+	}
+	wireRef := ".agents/skills/yss-dto/references/openapi-wire-profile.yaml"
+	wire, err := tool.bytes(wireRef)
+	if err != nil {
+		return err
+	}
+	bytes = append(bytes, []byte(wireRef)...)
+	bytes = append(bytes, 0)
+	bytes = append(bytes, wire...)
+	bytes = append(bytes, 0)
+	if len(refs) == 0 || text(value["template_digest"]) != "sha256:"+safefs.Digest(bytes) {
+		return s.reject("SCAFFOLD_REFERENCE", "参考模板来源摘要变化，须重新编译合同")
+	}
+	return nil
 }

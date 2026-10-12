@@ -36,6 +36,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		return out.String()
 	}
 	title := "查询完成"
+	if command == "scaffold" {
+		title = "脚手架已生成（未执行 Maven 验证）"
+	}
 	if command == "lifecycle" && len(o.args) > 1 && o.args[1] == "route" {
 		title = "路由判定完成"
 	}

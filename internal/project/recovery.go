@@ -79,7 +79,7 @@ func RecoveryIdentity(root, explicit string) (*Identity, error) {
 	if e != nil {
 		return nil, e
 	}
-	if (m.SchemaVersion < 1 || m.SchemaVersion > 3) || m.ProtocolVersion != domain.ProtocolVersion || m.ProfileID != p.ID || m.TemplateSourceState != "committed" || !digestPattern.MatchString(m.SnapshotHash) || !digestPattern.MatchString(m.ManifestHash) {
+	if (m.SchemaVersion < 1 || m.SchemaVersion > 3) || m.ProtocolVersion != domain.ProtocolVersion || m.ProfileID != p.ID || !identitymeta.ValidTemplateSource(&m) || !digestPattern.MatchString(m.SnapshotHash) || !digestPattern.MatchString(m.ManifestHash) {
 		return nil, domain.Fail("STATE", "恢复归档中的 Profile 或来源合同未知")
 	}
 	if len(legacyFiles) == 1 {

@@ -30,3 +30,9 @@ CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss
 如果分支保护或 ruleset 仍要求 `native` 检查，仓库管理员需要移除该必需检查；删除 workflow 不会自动修改仓库设置。
 
 发行装配工具仍要求原有真实证据，产品安装与升级继续校验发行资格。当前仓库已无自动生成这些验收回执的测试工具；需要正式装配时，必须另行提供符合现有合同的证据。删除测试不等同于跳过装配校验或生成通过结果。
+
+## 未提交模板的本地装配
+
+`tools/bundle` 接受来源锁 v4，用于模板维护的本地验收。四个 Profile 与共享技能来源均须声明 `sourceState: working-tree`、基线 `templateCommit` 和已捕获的 Git `sourceTree`，Profile 的 `templateVersion` 为 `worktree:<sourceTree>`，producer 同样为 working-tree。捕获树时使用独立 `GIT_INDEX_FILE`；不修改使用者暂存区、不创建提交。组合锁仍必须匹配 canonical 配置摘要与技能内容摘要。
+
+本地锁保存为 `docs/source-lock.working-tree.json`，使用 `go run ./tools/bundle --source-root <Spec 根仓> --lock docs/source-lock.working-tree.json --out internal/bundle/assets` 重建嵌入资产。旧 v2/v3 锁仍只接受提交来源，v4 不支持混合来源。正式来源锁 `docs/source-lock.json` 保留原固定提交；发布工具继续拒绝 working-tree 包。获得提交授权后，按既有固定来源刷新流程重建正式锁与资产，不能只改状态字段。

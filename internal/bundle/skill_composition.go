@@ -18,6 +18,8 @@ import (
 )
 
 type SkillSource struct {
+	State             string `json:"sourceState,omitempty"`
+	Tree              string `json:"sourceTree,omitempty"`
 	Root              string `json:"-"`
 	SourcePath        string `json:"sourcePath"`
 	Commit            string `json:"templateCommit"`
@@ -203,7 +205,18 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 	if shared.Root == "" || shared.ConfigurationPath != ".template-source/profile-skill-sync.json" {
 		return nil, fmt.Errorf("shared skill source root/configuration missing")
 	}
-	cfgBytes, e := committedSkillFile(ctx, shared.Root, shared.Commit, shared.ConfigurationPath)
+	sharedObject, sharedState, e := sourceObject(ctx, Source{Root: shared.Root, Commit: shared.Commit, State: shared.State, Tree: shared.Tree})
+	if e != nil {
+		return nil, e
+	}
+	object, state, e := sourceObject(ctx, s)
+	if e != nil {
+		return nil, e
+	}
+	if state != sharedState {
+		return nil, fmt.Errorf("mixed committed/worktree skill sources")
+	}
+	cfgBytes, e := committedSkillFile(ctx, shared.Root, sharedObject, shared.ConfigurationPath)
 	if e != nil {
 		return nil, e
 	}
@@ -221,7 +234,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 	if cfg.SchemaVersion != 1 || !ok || p.Materialization != "generated" {
 		return nil, fmt.Errorf("generated skill profile missing")
 	}
-	lockBytes, e := committedSkillFile(ctx, s.Root, s.Commit, ".template-source/profile-skills-source.json")
+	lockBytes, e := committedSkillFile(ctx, s.Root, object, ".template-source/profile-skills-source.json")
 	if e != nil {
 		return nil, e
 	}
@@ -229,7 +242,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 	if e = json.Unmarshal(lockBytes, &lock); e != nil {
 		return nil, e
 	}
-	if lock.SchemaVersion != 1 || lock.Profile != s.Profile || lock.State != "committed" || lock.Commit != shared.Commit || lock.ConfigurationPath != shared.ConfigurationPath || lock.ConfigurationHash != shared.ConfigurationHash {
+	if lock.SchemaVersion != 1 || lock.Profile != s.Profile || lock.State != sharedState || lock.Commit != shared.Commit || lock.ConfigurationPath != shared.ConfigurationPath || lock.ConfigurationHash != shared.ConfigurationHash {
 		return nil, fmt.Errorf("profile skill source lock mismatch")
 	}
 	items := append(append([]skillItem{}, p.Exact...), p.Adapted...)
@@ -258,7 +271,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 		}
 		allows = append(allows, source)
 	}
-	all, e := readGitFiles(ctx, shared.Root, shared.Commit, map[string]any{"allowFiles": allows, "allowRootFiles": []string{shared.ConfigurationPath}})
+	all, e := readGitFiles(ctx, shared.Root, sharedObject, map[string]any{"allowFiles": allows, "allowRootFiles": []string{shared.ConfigurationPath}})
 	if e != nil {
 		return nil, e
 	}
@@ -310,7 +323,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 			if skillTreeDigest(files) != item.SourceTreeHash {
 				return nil, fmt.Errorf("skill patch baseline mismatch: %s", item.ID)
 			}
-			patchBytes, e := committedSkillFile(ctx, shared.Root, shared.Commit, item.Patch)
+			patchBytes, e := committedSkillFile(ctx, shared.Root, sharedObject, item.Patch)
 			if e != nil {
 				return nil, e
 			}
@@ -367,5 +380,10 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 		ids = append(ids, item.ID)
 	}
 	sort.Strings(ids)
-	return map[string]any{"sourceTemplateCommit": shared.Commit, "configurationPath": shared.ConfigurationPath, "configurationHash": shared.ConfigurationHash, "skillsDigest": digest, "skills": ids}, nil
+	provenance := map[string]any{"sourceTemplateCommit": shared.Commit, "configurationPath": shared.ConfigurationPath, "configurationHash": shared.ConfigurationHash, "skillsDigest": digest, "skills": ids}
+	if sharedState == "working-tree" {
+		provenance["sourceState"] = sharedState
+		provenance["sourceTree"] = sharedObject
+	}
+	return provenance, nil
 }
