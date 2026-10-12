@@ -1347,10 +1347,9 @@ func tempCheck(root, base string, i int, r record, role string, d domain.Descrip
 			return nil
 		}
 	}
-	// replace creates the temporary at 0600, writes the exact immutable blob,
-	// then applies its final mode. SIGKILL between Write and Chmod preserves a
-	// complete producer blob at its initial mode. Every other byte or mode is
-	// still a conflict; target Before/After validation is independent and strict.
+	// SIGKILL before Chmod may leave a complete producer blob at 0600.
+	// Every other byte or mode is a conflict; target Before/After validation
+	// remains independent and strict, including for older partial temporaries.
 	initialMode := domain.FileMode(0600)
 	if d.Type != "file" || actual.Type != "file" || actual.Digest != d.Digest || (actual.Mode != d.Mode && actual.Mode != initialMode) {
 		return fail("RECOVERY_FAILED", "事务临时文件含未知修改，保留: "+ref)
@@ -1391,13 +1390,11 @@ func replace(root, base string, i int, r record, wanted domain.Descriptor, role 
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := replacementFile(root, base, tempRef, b)
 	if err != nil {
 		return err
 	}
-	if _, err = writeTemporary(f, b); err == nil {
-		err = f.Chmod(os.FileMode(wanted.Mode))
-	}
+	err = f.Chmod(os.FileMode(wanted.Mode))
 	if err == nil {
 		err = f.Sync()
 	}
