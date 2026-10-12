@@ -558,6 +558,7 @@ func init() {
 	})
 	registerSemanticValidator("frontend-delivery", verifyFrontendDeliverySemantic)
 	registerSemanticValidator("openapi-validation", verifyOpenAPIValidationSemantic)
+	registerSemanticValidator("scaffold-decisions", verifyScaffoldDecisionsSemantic)
 	registerSemanticValidator("technical-completion", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		doc, e := s.Doc(ref)
 		if e != nil {
@@ -2817,6 +2818,122 @@ func verifyRepositoryReadySemantic(s *kernel.SemanticSession, ref string, opts m
 			return s.Reject("REPOSITORY_NOT_READY", role+" 缺少工程或不适用决定")
 		}
 	}
+	return nil
+}
+
+// 公开入口 contract verify --kind scaffold-decisions [--allow-template]：脚手架架构选择记录本身的校验
+// （Node 入口 scripts/verify-scaffold-architecture-decisions 的唯一实现）。模板记录只跳过「必须是正式记录」与用户决定核验。
+func verifyScaffoldDecisionsSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	record, e := s.Doc(ref)
+	if e != nil {
+		return e
+	}
+	if e = s.ValidateSchema(".template-spec/process/schemas/scaffold-architecture-decisions.schema.json", record); e != nil {
+		return e
+	}
+	template := opts["allow-template"] == "true"
+	if !template && record["template"] != false {
+		return s.Reject("SCAFFOLD_DECISION", "正式决策记录必须设置 template: false")
+	}
+	catalog, e := contractPlatformCatalog(s)
+	if e != nil {
+		return e
+	}
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return e
+	}
+	ids, projects := map[string]bool{}, map[string]map[string]any{}
+	decisions := kernel.SemList(record["decisions"])
+	reject := func(message string) error { return s.Reject("SCAFFOLD_DECISION", message) }
+	for _, v := range decisions {
+		decision := kernel.SemMap(v)
+		id, project := kernel.Text(decision["decision_id"]), kernel.Text(decision["project_id"])
+		if ids[id] || projects[project] != nil {
+			return reject("decision_id 与 project_id 必须唯一")
+		}
+		ids[id], projects[project] = true, decision
+		configuration := kernel.SemMap(decision["platform_configuration"])
+		if len(configuration) > 0 {
+			var matches []map[string]any
+			for _, p := range kernel.SemList(catalog["profiles"]) {
+				profile := kernel.SemMap(p)
+				if profile["id"] == decision["platform_profile"] && (configuration["spring_boot_version"] == nil || profile["spring_boot_version"] == configuration["spring_boot_version"]) {
+					matches = append(matches, profile)
+				}
+			}
+			if len(matches) != 1 {
+				return reject("平台选择未知或不唯一: " + kernel.Text(decision["platform_profile"]))
+			}
+			if configuration["profile_id"] != matches[0]["id"] || configuration["spring_boot_version"] != matches[0]["spring_boot_version"] || configuration["java_version"] != matches[0]["java_version"] {
+				return reject("platform_configuration 与平台选择不一致")
+			}
+		} else if decision["platform_profile"] != "spring-boot-2.7-jdk8" {
+			return reject("新平台缺少 platform_configuration")
+		}
+		status := kernel.Text(decision["status"])
+		confirmed := kernel.SemHas([]string{"user-confirmed", "lifecycle-approved", "consumed"}, status)
+		if confirmed {
+			complete := kernel.Text(decision["confirmed_architecture"]) != ""
+			for _, item := range kernel.SemMap(decision["user_confirmation"]) {
+				if item == nil || kernel.Text(item) == "" {
+					complete = false
+				}
+			}
+			if !complete {
+				return reject(project + " 已确认状态必须提供完整用户确认引用")
+			}
+		}
+		if !confirmed && status != "stale" && decision["confirmed_architecture"] != nil {
+			return reject(project + " 未确认状态不得预填 confirmed_architecture")
+		}
+		if decision["confirmed_architecture"] != nil && kernel.Text(decision["confirmed_architecture"]) != "" && decision["confirmed_architecture"] != decision["recommended_architecture"] && kernel.Text(decision["override_reason"]) == "" {
+			return reject(project + " 覆盖 Agent 推荐时必须说明 override_reason")
+		}
+		mode := kernel.Text(decision["inheritance_mode"])
+		if mode == "root-default" && (decision["parent_project_id"] != nil || decision["inherited_from"] != nil) {
+			return reject(project + " 根默认不得声明父项目")
+		}
+		if (mode == "inherit" || mode == "override") && (kernel.Text(decision["parent_project_id"]) == "" || decision["inherited_from"] != decision["parent_project_id"]) {
+			return reject(project + " 子项目继承引用不完整")
+		}
+		if confirmed && record["template"] == false {
+			if e = contractScaffoldUserDecision(s, decision); e != nil {
+				return e
+			}
+		}
+		identity := map[string]any{}
+		for key, value := range decision {
+			identity[key] = value
+		}
+		identity["architecture_family"] = decision["confirmed_architecture"]
+		if kernel.Text(decision["confirmed_architecture"]) == "" {
+			identity["architecture_family"] = decision["recommended_architecture"]
+		}
+		identity["generator_skill"] = kernel.SemMap(kernel.SemMap(registry["architecture_profiles"])[kernel.Text(decision["architecture_profile"])])["generator_skill"]
+		identity["contract_digest"] = decision["decision_inputs_digest"]
+		if e = contractArchitecture(s, identity, nil, registry, opts); e != nil {
+			return e
+		}
+	}
+	for _, v := range decisions {
+		decision := kernel.SemMap(v)
+		if decision["parent_project_id"] == nil {
+			continue
+		}
+		parent := projects[kernel.Text(decision["parent_project_id"])]
+		project := kernel.Text(decision["project_id"])
+		if parent == nil {
+			return reject(project + " 引用了不存在的父项目")
+		}
+		if decision["inheritance_mode"] == "inherit" && kernel.Text(decision["confirmed_architecture"]) != "" && kernel.Text(parent["confirmed_architecture"]) != "" && decision["confirmed_architecture"] != parent["confirmed_architecture"] {
+			return reject(project + " 继承值与父项目不一致；需要改为 override")
+		}
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["scaffold_decisions"] = map[string]any{"template": template, "decisions": len(decisions)}
 	return nil
 }
 
