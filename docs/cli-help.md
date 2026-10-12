@@ -8,21 +8,20 @@
 ## 入口导航
 
 ```text
-yss 1.3.5 — Spec / Design / Backend / Frontend 统一入口
+yss 1.3.5 — Spec / Design / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
 
 Profile 职责:
   spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。
-  design 产品与业务设计；backend/frontend 承担技术设计与专职交付。
+  design 产品与业务设计；backend 承担技术设计与专职交付。
   本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
 
 快速上手（选择一个 Profile，在独立新目录运行）:
   yss init --profile spec --root ./demo-spec --project-name 演示项目
   yss init --profile design --root ./demo-design --project-name 演示项目
   yss init --profile backend --root ./demo-backend --project-name 演示项目
-  yss init --profile frontend --root ./demo-frontend --project-name 演示项目
   yss doctor --root ./demo-spec --human
   yss context verify --root ./demo-spec --json
 
@@ -79,7 +78,7 @@ Profile 职责:
 
 项目常用参数（程序升级不接受这些参数）:
   --root <目录>    项目根，默认当前目录
-  --profile <Profile>  spec|design|backend|frontend；init 必需，其余从身份检测
+  --profile <Profile>  spec|design|backend；init 必需，其余从身份检测
 
 升级、同步与恢复:
   yss upgrade --check                         查询 CLI 稳定版本
@@ -90,7 +89,7 @@ Profile 职责:
 
 帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
 完整离线教程: yss help tutorial
-按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|frontend|maintenance
+按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|maintenance
 示例索引: yss help examples [命令/子命令]
 错误索引: yss help errors [错误码]
 入口区别: upgrade 升级程序；sync 同步模板；migrate 迁移旧实例；recover 恢复未完成事务；rollback 回退最近成功事务。
@@ -103,7 +102,7 @@ Profile 职责:
 
 ```text
 快速上手
-前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend/frontend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -136,7 +135,6 @@ Profile 职责:
   spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
   product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
   backend-deliverable：当前批准合同、适用 API、后端实现、独立审查、构建及契约/部署验证闭合。
-  frontend-accepted：当前前端实现、适用还原验证和独立验收闭合；前端不适用须另核批准影响评估及 Slice。
   business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
 专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
 
@@ -170,8 +168,8 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 本地或独立专职：
   consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
-  外部专职：consumers 每项给 profile（design/backend/frontend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend/Frontend 消费同一冻结战略基线；Backend→Frontend 消费当前接口及运行证据。前端可先准备设计与计划，正式实现仍核验当前依赖。
+  外部专职：consumers 每项给 profile（design/backend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend 消费同一冻结战略基线。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
 
 读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
@@ -320,7 +318,6 @@ Profile spec
   spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
   product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
   backend-deliverable：当前批准合同、适用 API、后端实现、独立审查、构建及契约/部署验证闭合。
-  frontend-accepted：当前前端实现、适用还原验证和独立验收闭合；前端不适用须另核批准影响评估及 Slice。
   business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
 专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
 
@@ -354,8 +351,8 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 本地或独立专职：
   consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
-  外部专职：consumers 每项给 profile（design/backend/frontend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend/Frontend 消费同一冻结战略基线；Backend→Frontend 消费当前接口及运行证据。前端可先准备设计与计划，正式实现仍核验当前依赖。
+  外部专职：consumers 每项给 profile（design/backend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend 消费同一冻结战略基线。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
 
 读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
@@ -592,7 +589,7 @@ Profile backend
   yss stage query --root ./demo-backend --id stage.technical-design --json
   yss handoff verify --root ./demo-backend --kind package --package docs/handoff --json --diagnostics
   yss lifecycle status --root ./demo-backend --checkpoint .work/feature/checkpoint.yaml --json
-  消费当前上游接收与工程约束；适用的技术/前端设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。
+  消费当前上游接收与工程约束；适用的技术设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。
 预期结果：查询/核验当前输入与适用条件。
 下一步条件：新建后端的架构与精确 Spring Boot 版本已由用户确认，既有工程已核验并复用登记架构与实际版本；后端 Technical Design Contract 已批准且当前；数据影响为真时数据架构已批准，否则有可核验的不适用记录；gate.engineering-contract-approved 已通过。
 失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
@@ -639,115 +636,6 @@ Profile backend
 
 ```
 
-## 教程：frontend
-
-```text
-Profile frontend
-职责：核验战略与后端交接输入，在批准合同内完成前端交付。
-日常政策启用：false
-
-前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
-输入材料：项目名称、当前职责对应的合同/交接材料。
-
-  yss init --profile frontend --root ./demo-frontend --project-name 演示项目
-  yss doctor --root ./demo-frontend --json
-  yss context verify --root ./demo-frontend --json
-  yss lifecycle query --root ./demo-frontend --id work-unit.harness-entry --json
-  yss assets list --root ./demo-frontend --json
-  yss skills list --root ./demo-frontend --json
-
-预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。
-下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。
-失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
-
-正式生命周期（frontend）
-来源摘要：template=1afff73a7ade164dad448f5d2c95a12412875112；registry=347a8002f15be52cb67a819392d6b26a75b74895a9bcfbb8436b036ff175a2b1；profile=c4c1a7f9fb065b0b7f2b77fe3b204f81c0d98ce418066f5265e43167fa40690a；policy=尚未登记
-前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
-输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
-
-1. Plan（战略规划）（stage.plan）
-目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
-  yss stage query --root ./demo-frontend --id stage.plan --json
-  yss stage register --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-frontend/docs/stage-plan.json
-  yss stage apply --root ./demo-frontend --plan-file docs/stage-plan.json --json
-  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-2. Spec / 功能架构（stage.spec-architecture）
-目标：固化解决方案和功能边界。
-  yss stage query --root ./demo-frontend --id stage.spec-architecture --json
-  yss stage update --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-frontend/docs/stage-plan-next.json
-  yss lifecycle verify --root ./demo-frontend --checkpoint .work/feature/checkpoint.json --json --diagnostics
-  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：Spec 基线和功能边界可审查。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-3. Harness 入口（stage.harness-entry）
-目标：校验仓库身份、上游输入、影响面和实现仓库上下文。
-  yss stage query --root ./demo-frontend --id stage.harness-entry --json
-  yss doctor --root ./demo-frontend --json
-  yss context verify --root ./demo-frontend --json
-  yss lifecycle query --root ./demo-frontend --id work-unit.harness-entry --json
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-4. 前端工程设计（stage.frontend-engineering-design）
-目标：联合输入通过后定义组件、状态管理、API 消费和前端测试边界。
-  yss stage query --root ./demo-frontend --id stage.frontend-engineering-design --json
-  yss handoff verify --root ./demo-frontend --kind package --package docs/handoff --json --diagnostics
-  yss lifecycle status --root ./demo-frontend --checkpoint .work/feature/checkpoint.yaml --json
-  消费当前上游接收与工程约束；适用的技术/前端设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：前端实现计划可审阅；本地无领域影响已记录 not-applicable，新领域问题回交上游。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-5. Slice Contract（stage.slice-contract）
-目标：将当前前端工程设计、条件化后端交付和冻结契约编译为前端垂直切片实现合同。
-  yss stage query --root ./demo-frontend --id stage.slice-contract --json
-  yss contract verify --root ./demo-frontend --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
-  消费批准且当前的 Slice 合同、条件化交接与工程输入；编译器不创建批准。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-6. 垂直切片实现（stage.slice-implementation）
-目标：由前端、后端和测试 Agent 按同一合同并行实现和验证。
-  yss stage query --root ./demo-frontend --id stage.slice-implementation --json
-  yss skills list --root ./demo-frontend --json
-  yss lifecycle status --root ./demo-frontend --checkpoint .work/feature/checkpoint.yaml --json
-  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端在实际实现仓 pnpm，后端优先根 ./mvnw；记录真实测试并由独立审查者审查。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：行为实现、测试证据、契约一致性和写入边界均满足合同。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-7. 独立验证（stage.verification）
-目标：由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。
-  yss stage query --root ./demo-frontend --id stage.verification --json
-  yss evidence verify --root ./demo-frontend --kind verification --file docs/verification.json --json --diagnostics
-  yss project-ci verify --root ./demo-frontend --base "<已确认40位SHA>" --runtime-store off --json
-  yss lifecycle verify --root ./demo-frontend --checkpoint .work/feature/checkpoint.yaml --json
-  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-8. 产品设计（stage.product-design）
-目标：在存在产品设计影响时校准页面流和状态。
-  yss stage query --root ./demo-frontend --id stage.product-design --json
-  yss assets list --root ./demo-frontend --json
-  yss lifecycle status --root ./demo-frontend --checkpoint .work/feature/checkpoint.yaml --json
-  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的设计门禁通过；未命中项记录 not-applicable 及原因。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-
-```
-
 ## 教程：maintenance
 
 ```text
@@ -766,7 +654,7 @@ YSS 离线入门教程
    yss version --json
    yss capabilities --json
    yss init --profile spec --root ./demo-spec --project-name 演示项目
-   也可选择 design、backend、frontend；在各自的新目录初始化。
+   也可选择 design、backend；在各自的新目录初始化。
 
 2. 检查实例（只读）
    yss doctor --root ./demo-spec --json
@@ -861,7 +749,6 @@ YSS 离线入门教程
 | `compat` | 显式旧命令兼容适配。 | `yss help examples compat` |
 | `compat create-yss-harness-backend` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-harness-backend` |
 | `compat create-yss-harness-design` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-harness-design` |
-| `compat create-yss-harness-frontend` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-harness-frontend` |
 | `compat create-yss-spec` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-spec` |
 | `compat-api` | 供现役 JavaScript 消费者使用的原生传输接口。 | `yss help examples compat-api` |
 | `compat-api native.run` | 版本化兼容传输方法。 | `yss help examples compat-api native.run` |
@@ -976,14 +863,14 @@ yss archive verify --root ./demo-spec --file docs/package.zip --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -1019,7 +906,7 @@ yss archive pack --root ./demo-spec --source docs/handoff --output /tmp/yss-hand
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
   --output <路径>                 文件或目录路径
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --source <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1027,7 +914,7 @@ yss archive pack --root ./demo-spec --source docs/handoff --output /tmp/yss-hand
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --source  输入目录
 --output  仓外绝对路径，输出 ZIP
 
@@ -1065,7 +952,7 @@ yss archive unpack --root ./demo-spec --file docs/handoff.zip --output /tmp/yss-
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
   --output <路径>                 文件或目录路径
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --source <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1073,7 +960,7 @@ yss archive unpack --root ./demo-spec --file docs/handoff.zip --output /tmp/yss-
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  输入 ZIP
 --output  仓外绝对路径，目标须不存在
 
@@ -1110,7 +997,7 @@ yss archive verify --root ./demo-spec --file docs/handoff.zip --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --source <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1118,7 +1005,7 @@ yss archive verify --root ./demo-spec --file docs/handoff.zip --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file / --source  待验 ZIP
 
 预期结果:
@@ -1165,7 +1052,7 @@ yss assets list --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1174,7 +1061,7 @@ yss assets list --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -1217,7 +1104,7 @@ yss assets --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1226,7 +1113,7 @@ yss assets --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 位置参数: 阶段 ID；支持多个
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
 --apply --plan-file <文件>  应用保存计划；输入变化时拒绝
@@ -1271,7 +1158,7 @@ yss assets list --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -1280,7 +1167,7 @@ yss assets list --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 只读查询
 
 预期结果:
@@ -1325,7 +1212,7 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
   --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
@@ -1336,7 +1223,7 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
 --apply --plan-file <文件>  应用保存计划；输入变化时拒绝
 --review-out <新目录>  项目外审查材料与决议模板
@@ -1382,11 +1269,11 @@ yss bundle inspect --profile spec --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
---profile <spec|design|backend|frontend>  必需
+--profile <spec|design|backend>  必需
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -1421,11 +1308,11 @@ yss bundle export --profile spec --out /tmp/yss-spec-bundle --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
---profile <spec|design|backend|frontend>  必需
+--profile <spec|design|backend>  必需
 --out <新目录>  必需且不能已存在
 
 预期结果:
@@ -1460,11 +1347,11 @@ yss bundle inspect --profile spec --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
---profile <spec|design|backend|frontend>  必需
+--profile <spec|design|backend>  必需
 不支持 --out；只读
 
 预期结果:
@@ -1527,7 +1414,6 @@ yss 1.3.5 — compat
 子命令:
 create-yss-harness-backend  固定旧别名的显式原生适配。
 create-yss-harness-design  固定旧别名的显式原生适配。
-create-yss-harness-frontend  固定旧别名的显式原生适配。
 create-yss-spec  固定旧别名的显式原生适配。
 
 前置条件:
@@ -1544,7 +1430,7 @@ yss compat create-yss-spec --help
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
-旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend / create-yss-harness-frontend
+旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -1627,42 +1513,6 @@ yss compat create-yss-harness-design --native doctor --target-dir ./demo-design 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples compat create-yss-harness-design
-```
-
-### compat create-yss-harness-frontend
-
-```text
-yss 1.3.5 — compat create-yss-harness-frontend
-──────────────────────
-固定旧别名的显式原生适配。
-
-用法: yss compat create-yss-harness-frontend --native <命令> [参数]
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-优先使用 yss doctor --root；兼容说明见 compat/README.md。
-
-最小示例:
-yss compat create-yss-harness-frontend --native doctor --target-dir ./demo-frontend --json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat create-yss-harness-frontend
 ```
 
 ### compat create-yss-spec
@@ -2025,14 +1875,14 @@ yss context verify --root ./demo-spec --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2069,7 +1919,7 @@ yss context check --root ./demo-spec --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --snapshot <路径>               文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2078,7 +1928,7 @@ yss context check --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file / --snapshot  可选快照
 
 预期结果:
@@ -2116,7 +1966,7 @@ yss context query --root ./demo-spec --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --term-refs <值>                按当前命令说明指定
@@ -2125,7 +1975,7 @@ yss context query --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --term-refs  选择术语
 --allowed-context-ids  限定责任区
 
@@ -2164,7 +2014,7 @@ yss context verify --root ./demo-spec --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --snapshot <路径>               文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2173,7 +2023,7 @@ yss context verify --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --snapshot / --file  待验快照
 --term-refs / --allowed-context-ids  独立消费范围
 
@@ -2214,14 +2064,14 @@ yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2256,7 +2106,7 @@ yss contract check --root ./demo-spec --file .template-spec/process/lifecycle-re
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --schema <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2264,7 +2114,7 @@ yss contract check --root ./demo-spec --file .template-spec/process/lifecycle-re
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  待验资产
 --schema  项目本地 Schema
 
@@ -2296,6 +2146,7 @@ yss 1.3.5 — contract verify
 yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json
 
 参数:
+  --allow-template                布尔开关，可使用 =true 或 =false；默认 false
   --approval-ref <值>             按当前命令说明指定
   --checkpoint <路径>             文件或目录路径
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
@@ -2305,12 +2156,10 @@ yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice|scaffold|task|frontend-delivery
-  --phase <值>                    按当前命令说明指定；可选值: preflight|design|contract|inputs|implementation|verification
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --run-dir <路径>                文件或目录路径
-  --slice <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --template-checkout <路径>      文件或目录路径
   --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
@@ -2319,13 +2168,13 @@ yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
---kind <slice|scaffold|task|frontend-delivery>
+--profile <spec|design|backend>  必需或从项目身份检测
+--kind <slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight>
 --file / --checkpoint  资产与独立消费期待
---approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元
---slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint
---phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格
+--approval-ref / --unit  slice、slice-preflight
 --history  仅 task；历史结构不授予当前放行
+--allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录
+--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出
 --home / --run-dir / --tool-root / --template-checkout  固定依赖来源
 
 预期结果:
@@ -2362,7 +2211,7 @@ yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view tas
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
   --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --unit <值>                     按当前命令说明指定
@@ -2371,7 +2220,7 @@ yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view tas
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2413,7 +2262,7 @@ yss diff --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2422,7 +2271,7 @@ yss diff --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2464,7 +2313,7 @@ yss doctor --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2473,7 +2322,7 @@ yss doctor --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2511,14 +2360,14 @@ yss evidence verify --root ./demo-spec --kind verification --file docs/verificat
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2553,7 +2402,7 @@ yss evidence check --root ./demo-spec --file .template-spec/process/lifecycle-re
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --schema <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2561,7 +2410,7 @@ yss evidence check --root ./demo-spec --file .template-spec/process/lifecycle-re
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  待验资产
 --schema  项目本地 Schema
 
@@ -2594,19 +2443,22 @@ yss evidence verify --root ./demo-spec --kind verification --file docs/verificat
 
 参数:
   --approval-ref <值>             按当前命令说明指定
+  --binding <路径>                文件或目录路径
   --boundary <值>                 按当前命令说明指定
   --checkpoint <路径>             文件或目录路径
   --continuation                  布尔开关，可使用 =true 或 =false；默认 false
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --expected <路径>               文件或目录路径
   --file <路径>                   文件或目录路径
+  --from-record                   布尔开关，可使用 =true 或 =false；默认 false
   --gate <值>                     按当前命令说明指定
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --history                       布尔开关，可使用 =true 或 =false；默认 false
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: approval|user-decision|verification
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: approval|user-decision|verification|context-reconciliation
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --require-approved              布尔开关，可使用 =true 或 =false；默认 false
   --requirements <路径>           文件或目录路径
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -2619,8 +2471,8 @@ yss evidence verify --root ./demo-spec --kind verification --file docs/verificat
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
---kind <approval|user-decision|verification>
+--profile <spec|design|backend>  必需或从项目身份检测
+--kind <approval|user-decision|verification|context-reconciliation>
 --file / --checkpoint / --task  资产与独立消费期待
 --gate / --boundary / --require-approved / --history  仅 approval
 --requirements / --continuation  仅 user-decision
@@ -2665,14 +2517,14 @@ yss handoff verify --root ./demo-spec --kind package --package docs/handoff --js
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -2707,7 +2559,7 @@ yss handoff check --root ./demo-spec --file .template-spec/process/lifecycle-reg
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --schema <路径>                 文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2715,7 +2567,7 @@ yss handoff check --root ./demo-spec --file .template-spec/process/lifecycle-reg
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  待验资产
 --schema  项目本地 Schema
 
@@ -2758,14 +2610,14 @@ yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature
   --package <路径>                文件或目录路径
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --kind spec-baseline
 --checkpoint <文件>
 --out <新目录>
@@ -2810,14 +2662,14 @@ yss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp
   --package <路径>                文件或目录路径
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --kind spec-baseline
 --package <目录包>
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
@@ -2859,11 +2711,12 @@ yss handoff verify --root ./demo-spec --kind package --package docs/handoff --js
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: package|consumption|spec-baseline
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: package|consumption|spec-baseline|backend-delivery
   --package <路径>                文件或目录路径
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --run-dir <路径>                文件或目录路径
+  --slice <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --template-checkout <路径>      文件或目录路径
   --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
@@ -2871,10 +2724,10 @@ yss handoff verify --root ./demo-spec --kind package --package docs/handoff --js
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
---kind <package|consumption|spec-baseline>
+--profile <spec|design|backend>  必需或从项目身份检测
+--kind <package|consumption|spec-baseline|backend-delivery>
 --file / --checkpoint  资产与独立消费期待
---package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥
+--package  package 包、spec-baseline 基线包或 backend-delivery 后端交付包（目录或 ZIP）；spec-baseline 的 --package 与 --file 互斥
 --consumer  仅 consumption
 --home / --run-dir / --tool-root / --template-checkout  固定依赖来源
 
@@ -2896,7 +2749,7 @@ yss 1.3.5 — init
 ──────────────────────
 创建固定模板来源的项目实例。
 
-用法: yss init --profile <spec|design|backend|frontend> --root <目录> [--project-name <名称>]
+用法: yss init --profile <spec|design|backend> --root <目录> [--project-name <名称>]
 
 前置条件:
 选择一个 Profile 和不存在或空的新目录；需要审阅写范围时先 --plan --out，再应用保存计划。
@@ -2919,7 +2772,7 @@ yss init --profile design --root ./demo-design --plan --out /tmp/yss-init-plan.j
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2979,7 +2832,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -2987,7 +2840,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -3023,7 +2876,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -3033,7 +2886,7 @@ yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --work-unit / --stage  选择注册对象
 
 预期结果:
@@ -3070,7 +2923,7 @@ yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementatio
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --implementation-root <路径>    文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --task <路径>                   文件或目录路径
@@ -3078,7 +2931,7 @@ yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementatio
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --task  同一任务的需求、验收及证据
 --implementation-root  已确认实现仓 Git 根
 --base  完整40位基线 SHA；不接受缩写
@@ -3117,7 +2970,7 @@ yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -3125,7 +2978,7 @@ yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  当前 checkpoint
 progression  本次目标及本端职责/整体业务完成结论
 coordination  显式同功能消费者的当前来源、接收及交付
@@ -3172,18 +3025,18 @@ yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 无 plan/apply：只读核验目标、显式交接与完成依据
 --checkpoint  Tracker/map 唯一登记的当前功能 checkpoint
 --input  项目内 JSON：schema_version、kind、feature_id、checkpoint_ref、target、intent_source、consumers
-JSON target 五选一：spec-approved / product-design-completed / backend-deliverable / frontend-accepted / business-accepted
+JSON target 四选一：spec-approved / product-design-completed / backend-deliverable / business-accepted
 consumers  本地推进用 []；独立专职端显式给 profile、绝对 root、同功能 checkpoint_ref，每种 Profile 最多一个
 --plan --out  保存新计划；输入草稿保留到 apply 完成，计划建议放工程外
 --apply --plan-file  仅消费原保存计划；不要同时传 checkpoint/input/plan/out
@@ -3225,7 +3078,7 @@ yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --run-dir <路径>                文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -3235,7 +3088,7 @@ yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.ya
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  当前 checkpoint
 --history  仅历史结构，不授予当前放行
 --home / --run-dir / --tool-root / --template-checkout  独立依赖来源
@@ -3274,7 +3127,7 @@ yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implem
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --implementation-root <路径>    文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --task <路径>                   文件或目录路径
@@ -3282,7 +3135,7 @@ yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implem
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --task  同一任务的需求、验收及证据
 --implementation-root  已确认实现仓 Git 根
 --base  完整40位基线 SHA；不接受缩写
@@ -3336,7 +3189,7 @@ yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
   --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
@@ -3347,7 +3200,7 @@ yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -3389,7 +3242,7 @@ yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -3398,7 +3251,7 @@ yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --plan-file <文件>  必需；身份、基线与 binding 同一事务
 
 预期结果:
@@ -3443,7 +3296,7 @@ yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
   --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
@@ -3454,7 +3307,7 @@ yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --out <新文件>  保存迁移计划
 
 预期结果:
@@ -3490,14 +3343,14 @@ yss migrate recover --root ./old-project --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 仅消费项目迁移范围
 
 预期结果:
@@ -3533,14 +3386,14 @@ yss migrate rollback --root ./old-project --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 最近成功迁移，拒绝覆盖后续用户修改
 
 预期结果:
@@ -3576,14 +3429,14 @@ yss migrate status --root ./old-project --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 只读查询
 
 预期结果:
@@ -3614,7 +3467,7 @@ prepare  生成或执行单端、联合初始化保存计划。
 已有普通工程使用 attach；关联回退不回退下游工程。
 
 最小示例:
-yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json
 
 参数:
   --apply                         应用已保存计划或显式恢复；写入前检查冲突
@@ -3623,7 +3476,6 @@ yss profile prepare --root ./design --backend-root ./backend --frontend-root ./f
   --checkpoint <路径>             文件或目录路径
   --design-root <路径>            文件或目录路径
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --frontend-root <路径>          文件或目录路径
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
@@ -3637,7 +3489,7 @@ yss profile prepare --root ./design --backend-root ./backend --frontend-root ./f
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -3657,7 +3509,7 @@ yss 1.3.5 — profile prepare
 ──────────────────────
 生成或执行单端、联合初始化保存计划。
 
-用法: yss profile prepare --root <源工程> [--design-root <目录>] [--backend-root <目录>] [--frontend-root <目录>] --plan --out <新文件>
+用法: yss profile prepare --root <源工程> [--design-root <目录>] [--backend-root <目录>] --plan --out <新文件>
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
@@ -3665,7 +3517,7 @@ yss 1.3.5 — profile prepare
 
 最小示例:
 yss profile prepare --root ./spec --design-root ./design --plan --out /tmp/design-prepare.json
-yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json
 yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
 
 参数:
@@ -3675,7 +3527,6 @@ yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.js
   --checkpoint <路径>             文件或目录路径
   --design-root <路径>            文件或目录路径
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --frontend-root <路径>          文件或目录路径
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
@@ -3689,7 +3540,7 @@ yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.js
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
 --apply --plan-file <文件>  应用保存计划；输入变化时拒绝
 --checkpoint <文件>  可选，绑定当前工作及来源证据
@@ -3734,14 +3585,14 @@ yss project-ci check --root ./demo-spec --runtime-store off --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
@@ -3786,7 +3637,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -3801,7 +3652,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --scope native-go  必需
 --plan-file  项目内原始写入计划
 
@@ -3848,7 +3699,7 @@ yss project-ci check --root ./demo-spec --runtime-store off --json
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -3863,7 +3714,7 @@ yss project-ci check --root ./demo-spec --runtime-store off --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --scope native-go  有限原生检查；默认完整治理
 --runtime-store off  当前完整治理支持的存储模式
 --checkpoint / --task  追加当前消费入口
@@ -3912,7 +3763,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -3927,7 +3778,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --scope native-go  必需
 --provider github  当前唯一支持的 provider，默认 github
 --branch  默认项目配置分支或 main
@@ -3979,7 +3830,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -3994,7 +3845,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --scope native-go  必需
 --provider github  当前唯一支持的 provider，默认 github
 --branch  默认项目配置分支或 main
@@ -4045,7 +3896,7 @@ yss project-ci transition --root ./demo-spec --scope native-go --checkpoint .wor
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -4060,7 +3911,7 @@ yss project-ci transition --root ./demo-spec --scope native-go --checkpoint .wor
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --scope native-go  必需
 --checkpoint / --file  当前 checkpoint
 --current-work-unit / --next-work-unit  默认读取 checkpoint
@@ -4108,7 +3959,7 @@ yss project-ci verify --root ./demo-spec --base "<完整40位SHA>" --runtime-sto
   --json                          执行结果输出 JSON；帮助始终输出文本
   --next-work-unit <值>           按当前命令说明指定
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --provider <提供方>             CI 提供方，默认 github；可选值: github
   --recover                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
@@ -4123,7 +3974,7 @@ yss project-ci verify --root ./demo-spec --base "<完整40位SHA>" --runtime-sto
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --base  实现仓完整基线 SHA
 --runtime-store off
 --checkpoint / --task  追加当前消费入口
@@ -4162,14 +4013,14 @@ yss recover --root ./demo-spec --apply --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --apply  执行保护性恢复；默认只查询
 
 预期结果:
@@ -4206,14 +4057,14 @@ yss rollback --root ./demo-spec --apply --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --apply  执行回退；默认只查询
 
 预期结果:
@@ -4260,14 +4111,14 @@ yss runtime inspect --root ./demo-spec --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -4304,7 +4155,7 @@ yss runtime begin --root ./demo-spec --kind command --json
   --input <值>                    按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
   --kind <类型>                   当前命令的领域类型；runtime begin 默认 command
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --report-dir <路径>             文件或目录路径
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4312,7 +4163,7 @@ yss runtime begin --root ./demo-spec --kind command --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储
 --kind  默认 command
 --input / --report-dir 尚未支持，返回 UNPORTED
@@ -4351,14 +4202,14 @@ yss runtime commands --root ./demo-spec --id "<运行ID>" --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储；默认用户运行存储
 --id  已登记运行 ID
 
@@ -4397,7 +4248,7 @@ yss runtime complete --root ./demo-spec --id "<ID>" --token "<token>" --status p
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --status <终态>                 运行记录的终态；成功状态必须匹配退出码 0；可选值: passed|success|completed|ok|failed|failure|cancelled|canceled|timed-out|timeout|error
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4406,7 +4257,7 @@ yss runtime complete --root ./demo-spec --id "<ID>" --token "<token>" --status p
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --token  begin 返回的所有权凭证
 --status  已知终态
 --exit-code  实际整数退出码，passed 必须为 0
@@ -4445,7 +4296,7 @@ yss runtime event --root ./demo-spec --id "<ID>" --token "<token>" --type progre
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --token <值>                    按当前命令说明指定
@@ -4455,7 +4306,7 @@ yss runtime event --root ./demo-spec --id "<ID>" --token "<token>" --type progre
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --token  begin 返回的所有权凭证
 --type  必需
 --value  单个 JSON 值，默认 null
@@ -4494,14 +4345,14 @@ yss runtime events --root ./demo-spec --id "<运行ID>" --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储；默认用户运行存储
 --id  已登记运行 ID
 
@@ -4538,14 +4389,14 @@ yss runtime inspect --root ./demo-spec --json
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储；默认用户运行存储
 --id  已登记运行 ID
 
@@ -4583,7 +4434,7 @@ yss runtime pin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审�
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --reason <值>                   按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4592,7 +4443,7 @@ yss runtime pin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审�
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --token  begin 返回的所有权凭证
 --reason  必需，记录保护标记变更理由
 
@@ -4630,14 +4481,14 @@ yss runtime pins --root ./demo-spec --id "<运行ID>" --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储；默认用户运行存储
 --id  已登记运行 ID
 
@@ -4675,14 +4526,14 @@ yss runtime run --root ./demo-spec --id "<运行ID>" --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储；默认用户运行存储
 --id  已登记运行 ID
 
@@ -4720,7 +4571,7 @@ yss runtime unpin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --reason <值>                   按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4729,7 +4580,7 @@ yss runtime unpin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --id / --token  begin 返回的所有权凭证
 --reason  必需，记录保护标记变更理由
 
@@ -4778,7 +4629,7 @@ yss skills list --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4787,7 +4638,7 @@ yss skills list --root ./demo-spec --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -4830,7 +4681,7 @@ yss skills --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4839,7 +4690,7 @@ yss skills --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 位置参数: Skill 名称；支持多个
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
 --apply --plan-file <文件>  应用保存计划；输入变化时拒绝
@@ -4886,7 +4737,7 @@ yss skills list --details --root ./demo-spec --json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4930,7 +4781,7 @@ yss skills resolve code-review --agent-runtime codex --when lifecycle-document-o
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -4985,7 +4836,7 @@ yss stage query --root ./demo-spec --id stage.spec-architecture --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4994,7 +4845,7 @@ yss stage query --root ./demo-spec --id stage.spec-architecture --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -5034,7 +4885,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --items <路径>                  文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --refresh <值>                  按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5042,7 +4893,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --plan-file  项目内保存的原始写入计划
 
 预期结果:
@@ -5080,7 +4931,7 @@ yss stage check --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5089,7 +4940,7 @@ yss stage check --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  已存在的 checkpoint
 
 预期结果:
@@ -5131,7 +4982,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --items <路径>                  文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --refresh <值>                  按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5139,7 +4990,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
@@ -5181,7 +5032,7 @@ yss stage query --root ./demo-spec --id stage.spec-architecture --json
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5190,7 +5041,7 @@ yss stage query --root ./demo-spec --id stage.spec-architecture --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 无 checkpoint: --id / --stage  阶段 ID
 有 checkpoint: --id  工作项 ID；--work-unit / --stage 筛选尚未支持
 
@@ -5233,7 +5084,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --items <路径>                  文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --refresh <值>                  按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5241,7 +5092,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
@@ -5283,7 +5134,7 @@ yss stage status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml -
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --id <值>                       按当前命令说明指定
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --stage <值>                    按当前命令说明指定
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5292,7 +5143,7 @@ yss stage status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml -
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  已存在的 checkpoint
 
 预期结果:
@@ -5334,7 +5185,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --items <路径>                  文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --refresh <值>                  按当前命令说明指定
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -5342,7 +5193,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
@@ -5391,7 +5242,7 @@ yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
   --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
   --plan                          只生成计划，使用 --out 保存；不应用项目修改
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
   --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
@@ -5402,7 +5253,7 @@ yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --plan --out <新文件>  生成保存计划，输出文件必须不存在
 --apply --plan-file <文件>  应用保存计划；输入变化时拒绝
 --review-out <新目录>  项目外审查材料与决议模板
@@ -5787,14 +5638,14 @@ yss xml inspect --root ./demo-backend --file pom.xml --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -5829,14 +5680,14 @@ yss xml inspect --root ./demo-backend --file pom.xml --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  项目本地 Maven XML，大小上限 16 MiB
 
 预期结果:
@@ -5872,14 +5723,14 @@ yss xml query --root ./demo-backend --file pom.xml --json
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend|frontend
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend|frontend>  必需或从项目身份检测
+--profile <spec|design|backend>  必需或从项目身份检测
 --file  项目本地 Maven XML，大小上限 16 MiB
 
 预期结果:
