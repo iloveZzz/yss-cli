@@ -44,6 +44,7 @@ Profile 职责:
 命令:
   [项目]
     init             创建固定模板来源的项目实例。
+    scaffold         直接生成 DDD 或分层 MVC 后端工程。
     profile          准备独立的下游 Profile 工程并登记显式关联。
     attach           首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。
     doctor           检查项目身份、受管基线和冲突。
@@ -925,6 +926,9 @@ YSS 离线入门教程
 | `runtime pins` | 只读查询运行记录。 | `yss help examples runtime pins` |
 | `runtime run` | 只读查询运行记录。 | `yss help examples runtime run` |
 | `runtime unpin` | 维护运行记录保护标记。 | `yss help examples runtime unpin` |
+| `scaffold` | 直接生成 DDD 或分层 MVC 后端工程。 | `yss help examples scaffold` |
+| `scaffold ddd` | 生成 ddd 后端业务空骨架。 | `yss help examples scaffold ddd` |
+| `scaffold mvc` | 生成 mvc 后端业务空骨架。 | `yss help examples scaffold mvc` |
 | `skills` | 查询或补装 Skill 及其依赖闭包。 | `yss help examples skills` |
 | `skills ensure` | 补装指定 Skill 及其依赖闭包。 | `yss help examples skills ensure` |
 | `skills list` | 列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。 | `yss help examples skills list` |
@@ -4742,6 +4746,182 @@ yss runtime unpin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples runtime unpin
+```
+
+### scaffold
+
+```text
+yss 1.3.6 — scaffold
+──────────────────────
+直接生成 DDD 或分层 MVC 后端工程。
+
+用法: yss scaffold <ddd|mvc> --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+子命令:
+ddd  生成 ddd 后端业务空骨架。
+mvc  生成 mvc 后端业务空骨架。
+
+前置条件:
+PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
+无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+
+最小示例:
+yss scaffold ddd --help
+yss scaffold mvc --help
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold
+```
+
+### scaffold ddd
+
+```text
+yss 1.3.6 — scaffold ddd
+──────────────────────
+生成 ddd 后端业务空骨架。
+
+用法: yss scaffold ddd --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+前置条件:
+PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
+无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+
+最小示例:
+yss scaffold ddd --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+独立生成必填上述平台和 Maven 坐标。--standalone 可省略；不能和合同参数混用。独立模式固定禁用参考工程；正式模式按批准合同决定。--force 不支持。
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold ddd
+```
+
+### scaffold mvc
+
+```text
+yss 1.3.6 — scaffold mvc
+──────────────────────
+生成 mvc 后端业务空骨架。
+
+用法: yss scaffold mvc --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+前置条件:
+PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
+无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+
+最小示例:
+yss scaffold mvc --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+独立生成必填上述平台和 Maven 坐标。--standalone 可省略；不能和合同参数混用。独立模式固定禁用参考工程；正式模式按批准合同决定。--force 不支持。
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold mvc
 ```
 
 ### skills

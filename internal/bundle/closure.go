@@ -223,6 +223,16 @@ func (c *closure) add(ref string) error {
 		return fmt.Errorf("CLI 快照缺少阶段资产: %s", ref)
 	}
 	c.paths[ref] = true
+	if ref == "scripts/lib/scaffold-reference-example.mjs" {
+		if !c.skills["yss-dto"] {
+			return requiredSkill{"yss-dto", ref}
+		}
+		return c.add(".agents/skills/yss-dto/references/openapi-wire-profile.yaml")
+	}
+	// The catalog resolves versioned evidence dynamically rather than through imports.
+	if ref == ".template-spec/engineering/backend-platforms.json" {
+		return c.prefix(".template-spec/engineering/evidence/")
+	}
 	if !strings.HasSuffix(ref, ".schema.json") || c.schemas[ref] {
 		return nil
 	}
