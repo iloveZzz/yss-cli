@@ -234,15 +234,13 @@ func guidanceSource(s *kernel.SemanticSession, profile, cpRef string, cp map[str
 			return nil, "", err
 		}
 		return guidanceConsumerRoutes(h.Handoff), "真实后端交付及下游消费者路由已核验", nil
-	case "frontend":
-		return map[string]string{}, "当前 Profile 无下游初始化职责", nil
 	}
 	return nil, "", s.Unavailable("CAPABILITY", "不支持的 Profile 引导")
 }
 
 func guidanceConsumerRoutes(h map[string]any) map[string]string {
 	result := map[string]string{}
-	for profile, capability := range map[string]string{"backend": "backend-technical-design", "frontend": "frontend-engineering-design"} {
+	for profile, capability := range map[string]string{"backend": "backend-technical-design"} {
 		route := kernel.ApFind(h["consumer_routes"], "capability", capability)
 		if route != nil {
 			result[profile] = kernel.Text(route["activation"])
@@ -420,7 +418,7 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		if !contractSame(bundle.Handoff, sourceHandoff) {
 			return "blocked", "目标包中的战略交接与当前来源不同", nil
 		}
-		capability := map[string]string{"backend": "backend-technical-design", "frontend": "frontend-engineering-design"}[target]
+		capability := map[string]string{"backend": "backend-technical-design"}[target]
 		if e = contractReceiptConsumer(s, receipt, capability); e != nil {
 			return "blocked", e.Error(), nil
 		}
@@ -454,39 +452,6 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		err = s.Verify("context-reconciliation", kernel.Text(recon["ref"]), map[string]string{"import-receipt": receiptRef})
 		if err == nil {
 			err = guidanceHandoffContext(s, sourceHandoff)
-		}
-		if err == nil && profile == "backend" {
-			acceptance := guidanceArtifact(targetCP, "artifact.frontend-delivery-acceptance", "frontend_delivery_ref", "acceptance_ref")
-			if acceptance == "" {
-				return "waiting-input", "等待前端对真实后端交付的接收合同", nil
-			}
-			doc, e := s.Doc(acceptance)
-			if e != nil {
-				return "blocked", e.Error(), nil
-			}
-			binding := kernel.SemMap(doc["strategic_handoff"])
-			if binding["import_receipt_ref"] != receiptRef || binding["bundle_digest"] != sourceDigest {
-				return "blocked", "前端接收合同未绑定当前战略输入", nil
-			}
-			slice := kernel.Text(kernel.SemMap(sourceDelivery["scope"])["slice_id"])
-			err = s.Verify("frontend-delivery", acceptance, map[string]string{"slice": slice, "phase": "inputs"})
-			if err == nil {
-				backendReceipt, e := s.Doc(kernel.Text(kernel.SemMap(doc["backend_delivery"])["import_receipt_ref"]))
-				if e != nil {
-					return "blocked", e.Error(), nil
-				}
-				manifest, imported, e := backendOpenDelivery(s, kernel.Text(backendReceipt["package_ref"]), map[string]string{"phase": "inputs"})
-				if e != nil {
-					return "blocked", e.Error(), nil
-				}
-				current, e := imported.Doc(kernel.Text(manifest["delivery_ref"]))
-				if e != nil {
-					return "blocked", e.Error(), nil
-				}
-				if !contractSame(current, sourceDelivery) {
-					return "blocked", "前端接收的后端交付与当前来源不同", nil
-				}
-			}
 		}
 	}
 	if err == nil {
@@ -696,9 +661,6 @@ func ProfileGuidance(ctx context.Context, root, cpRef string, cp map[string]any)
 					file = "<目标接收记录>"
 				}
 				argv := []string{"yss", "handoff", "verify", "--root", targetRoot, "--kind", kind, "--file", file}
-				if kind == "consumption" && target == "frontend" {
-					argv = append(argv, "--consumer", "frontend")
-				}
 				r.Commands = append(r.Commands, append(argv, "--json"))
 			} else if engineering != "initialized" && engineering != "needs-attention" {
 				r.Commands = append(r.Commands, []string{"yss", "profile", "prepare", "--root", root, "--" + target + "-root", kernel.First(targetRoot, "<"+target+"目录>"), "--checkpoint", cpRef, "--plan", "--out", "<新计划文件>"})

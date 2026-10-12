@@ -17,7 +17,7 @@ func profileCommand(ctx context.Context, root string, o options) (any, string, e
 		if o.values["plan"] == "true" || o.values["plan-file"] == "" {
 			return nil, "", domain.Fail("PLAN_REQUIRED", "联合准备应用需要 --apply --plan-file <保存计划>")
 		}
-		for _, key := range []string{"design-root", "backend-root", "frontend-root", "checkpoint", "project-name", "business-domain", "team-size", "out"} {
+		for _, key := range []string{"design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "out"} {
 			if o.values[key] != "" {
 				return nil, "", domain.Fail("ARGUMENT", "应用使用保存计划，不接受 --"+key)
 			}
@@ -45,7 +45,7 @@ func profileCommand(ctx context.Context, root string, o options) (any, string, e
 	}
 	targets := project.ProfileTargets{}
 	names := []string{}
-	for _, name := range []string{"design", "backend", "frontend"} {
+	for _, name := range []string{"design", "backend"} {
 		if value := o.values[name+"-root"]; value != "" {
 			targets[name] = value
 			names = append(names, name)

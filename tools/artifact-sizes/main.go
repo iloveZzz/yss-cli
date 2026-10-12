@@ -22,7 +22,7 @@ func run() error {
 		return fmt.Errorf("artifact-sizes accepts no arguments")
 	}
 	report := map[string]any{}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		b, err := bundle.Load(profile)
 		if err != nil {
 			return err

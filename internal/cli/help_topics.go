@@ -1,6 +1,6 @@
 package cli
 
-const projectFlags = "--root <目录>  项目根，默认当前目录；推荐显式指定\n--profile <spec|design|backend|frontend>  必需或从项目身份检测"
+const projectFlags = "--root <目录>  项目根，默认当前目录；推荐显式指定\n--profile <spec|design|backend>  必需或从项目身份检测"
 const upgradeFlags = "--review-out <新目录>  项目外审查材料与决议模板\n--base-bundle <路径>  离线历史 Bundle 完整材料\n--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划"
 const planFlags = "--plan --out <新文件>  生成保存计划，输出文件必须不存在\n--apply --plan-file <文件>  应用保存计划；输入变化时拒绝"
 const governanceNotes = "读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。"
@@ -53,18 +53,18 @@ func init() {
 	}
 	helpTopics["skills list"] = helpTopic{"列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。", "[--details] [--json]", "--details  不核验整个技能库；调用前使用 resolve", "yss skills list --root ./demo-spec --json\nyss skills list --details --root ./demo-spec --json", "普通 list 输出保持兼容。详情不是技能就绪证明。", false}
 	helpTopics["skills resolve"] = helpTopic{"只读核验所选内置技能及命中的上下文依赖。", "<标识...> --agent-runtime codex [--when <条件列表>] [--json]", "位置参数: 已登记技能 ID 或别名；支持多个并去重\n--agent-runtime codex  必需\n--when <条件列表>  逗号分隔；只接受已登记条件", "yss skills resolve code-review codebase-design --agent-runtime codex --root ./demo-spec --json\nyss skills resolve code-review --agent-runtime codex --when lifecycle-document-output --root ./demo-spec --json", "消费 result.status：ready 才读取 entryPath；missing 在已有授权内 ensure plan/apply 后重新 resolve；blocked 停止受影响调用。查询退出 0 不授予调用、实施或批准权限。", true}
-	registerGroup("bundle", "读取或导出完整固定 Bundle 与 manifest。", "--profile <Profile>", "--profile <spec|design|backend|frontend>  必需", "yss bundle inspect --profile spec --json", "无需项目或网络；公开资产接口供插件及构建消费者使用。", map[string]helpTopic{
+	registerGroup("bundle", "读取或导出完整固定 Bundle 与 manifest。", "--profile <Profile>", "--profile <spec|design|backend>  必需", "yss bundle inspect --profile spec --json", "无需项目或网络；公开资产接口供插件及构建消费者使用。", map[string]helpTopic{
 		"inspect": {"检查 Bundle 身份、来源及摘要。", "[--json]", "不支持 --out；只读", "yss bundle inspect --profile spec --json", "", false},
 		"export":  {"导出 Bundle 全部 bytes、mode 和 manifest。", "--out <新目录>", "--out <新目录>  必需且不能已存在", "yss bundle export --profile spec --out /tmp/yss-spec-bundle --json", "", false},
 	})
 	registerGovernanceHelp()
-	registerGroup("profile", "准备独立的下游 Profile 工程并登记显式关联。", "--root <源工程>", projectFlags, "yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json", "已有普通工程使用 attach；关联回退不回退下游工程。", map[string]helpTopic{
-		"prepare": {"生成或执行单端、联合初始化保存计划。", "[--design-root <目录>] [--backend-root <目录>] [--frontend-root <目录>] --plan --out <新文件>", planFlags + "\n--checkpoint <文件>  可选，绑定当前工作及来源证据", "yss profile prepare --root ./spec --design-root ./design --plan --out /tmp/design-prepare.json\nyss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json\nyss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json", "全部目标预检后登记关联，再依次初始化；失败保留已成功工程，按原计划重试剩余步骤。初始化不授予阶段实施资格。", false},
+	registerGroup("profile", "准备独立的下游 Profile 工程并登记显式关联。", "--root <源工程>", projectFlags, "yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json", "已有普通工程使用 attach；关联回退不回退下游工程。", map[string]helpTopic{
+		"prepare": {"生成或执行单端、联合初始化保存计划。", "[--design-root <目录>] [--backend-root <目录>] --plan --out <新文件>", planFlags + "\n--checkpoint <文件>  可选，绑定当前工作及来源证据", "yss profile prepare --root ./spec --design-root ./design --plan --out /tmp/design-prepare.json\nyss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json\nyss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json", "全部目标预检后登记关联，再依次初始化；失败保留已成功工程，按原计划重试剩余步骤。初始化不授予阶段实施资格。", false},
 	})
 	helpTopics["handoff export"] = helpTopic{"导出当前已批准的 Spec 基线及来源证据。", "--root <Spec工程> --kind spec-baseline --checkpoint <当前检查点> --out <新目录>", projectFlags + "\n--kind spec-baseline\n--checkpoint <文件>\n--out <新目录>", "yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline", "保留源批准、业务票稳定 ID 和原始字节摘要；导出不会推进源阶段。", false}
 	helpTopics["handoff import"] = helpTopic{"将批准 Spec 基线接入独立 Design。", "--root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>", projectFlags + "\n--kind spec-baseline\n--package <目录包>\n" + planFlags, "yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json\nyss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json", "初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。", false}
 	for group, conditions := range map[string]string{
-		"contract": "--kind <slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice、slice-preflight；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行\n--allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录\n--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出",
+		"contract": "--kind <slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice、slice-preflight\n--history  仅 task；历史结构不授予当前放行\n--allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录\n--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出",
 		"evidence": "--kind <approval|user-decision|verification|context-reconciliation>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
 		"handoff":  "--kind <package|consumption|spec-baseline|backend-delivery>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包、spec-baseline 基线包或 backend-delivery 后端交付包（目录或 ZIP）；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
@@ -100,7 +100,7 @@ func registerGovernanceHelp() {
 		"target": {
 			"读取或事务设置 Spec 单功能的本次推进目标。",
 			"--checkpoint <文件> [--plan --input <JSON> --out <新计划>] 或 --apply --plan-file <原计划>",
-			"无 plan/apply：只读核验目标、显式交接与完成依据\n--checkpoint  Tracker/map 唯一登记的当前功能 checkpoint\n--input  项目内 JSON：schema_version、kind、feature_id、checkpoint_ref、target、intent_source、consumers\nJSON target 五选一：spec-approved / product-design-completed / backend-deliverable / frontend-accepted / business-accepted\nconsumers  本地推进用 []；独立专职端显式给 profile、绝对 root、同功能 checkpoint_ref，每种 Profile 最多一个\n--plan --out  保存新计划；输入草稿保留到 apply 完成，计划建议放工程外\n--apply --plan-file  仅消费原保存计划；不要同时传 checkpoint/input/plan/out",
+			"无 plan/apply：只读核验目标、显式交接与完成依据\n--checkpoint  Tracker/map 唯一登记的当前功能 checkpoint\n--input  项目内 JSON：schema_version、kind、feature_id、checkpoint_ref、target、intent_source、consumers\nJSON target 四选一：spec-approved / product-design-completed / backend-deliverable / business-accepted\nconsumers  本地推进用 []；独立专职端显式给 profile、绝对 root、同功能 checkpoint_ref，每种 Profile 最多一个\n--plan --out  保存新计划；输入草稿保留到 apply 完成，计划建议放工程外\n--apply --plan-file  仅消费原保存计划；不要同时传 checkpoint/input/plan/out",
 			"yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json\nyss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --input .work/feature/tmp/target-input.json --plan --out /tmp/target-plan.json --json\nyss lifecycle target --root ./demo-spec --apply --plan-file /tmp/target-plan.json --json\nyss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json",
 			"新正式 Spec 默认 business-accepted；plan-to-backend 的职责上限只允许前三目标。仅支持 lifecycle-target-v1 政策的 Spec 主控可写；专职只读 profile-terminal 不是可写枚举。写入仅限 progression-target.json 及必要事务记录，不改 checkpoint、批准、冻结包或 Receipt，不授 ready-for-agent。达到目标后停止本次下游写入，保留真实 next_work_unit；续推修改 JSON target/intent_source，再 plan/apply 并重验，从首个合法未完成工作单元继续。能力缺失的旧原生实例先显式 sync；帮助教程见 yss help tutorial spec。草稿使用已有忽略规则覆盖的功能 tmp 目录，不自动添加 ignore。",
 			false,
@@ -121,7 +121,7 @@ func registerGovernanceHelp() {
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes, true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
 	for _, group := range []string{"contract", "evidence", "handoff"} {
-		kinds := "slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight"
+		kinds := "slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight"
 		example := "yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json"
 		if group == "evidence" {
 			kinds = "approval|user-decision|verification|context-reconciliation"
@@ -172,9 +172,9 @@ func registerGovernanceHelp() {
 		"inspect": {"读取 Maven project 结构。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml inspect --root ./demo-backend --file pom.xml --json", "", true},
 		"query":   {"查询 Maven project 读取结果。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml query --root ./demo-backend --file pom.xml --json", "", true},
 	})
-	helpTopics["compat"] = helpTopic{"显式旧命令兼容适配。", "<旧命令> [参数]", "旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend / create-yss-harness-frontend", "yss compat create-yss-spec --help", "仅维护已登记兼容行为；新增用户操作优先使用原生 yss 命令。未迁移行为返回明确错误，详见 compat/README.md。", true}
+	helpTopics["compat"] = helpTopic{"显式旧命令兼容适配。", "<旧命令> [参数]", "旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend", "yss compat create-yss-spec --help", "仅维护已登记兼容行为；新增用户操作优先使用原生 yss 命令。未迁移行为返回明确错误，详见 compat/README.md。", true}
 	helpTopics["compat-api"] = helpTopic{"供现役 JavaScript 消费者使用的原生传输接口。", "<API标识>", "从 stdin 读取版本化请求 JSON", "yss help compat-api", "调用形状见 compat/README.md；不复刻无人消费的私有 CommonJS API。", true}
-	for _, p := range []string{"spec", "design", "backend", "frontend"} {
+	for _, p := range []string{"spec", "design", "backend"} {
 		alias := "create-yss-harness-" + p
 		if p == "spec" {
 			alias = "create-yss-spec"
@@ -196,7 +196,7 @@ const maintenanceTutorial = `YSS 离线入门教程
    yss version --json
    yss capabilities --json
    yss init --profile spec --root ./demo-spec --project-name 演示项目
-   也可选择 design、backend、frontend；在各自的新目录初始化。
+   也可选择 design、backend；在各自的新目录初始化。
 
 2. 检查实例（只读）
    yss doctor --root ./demo-spec --json

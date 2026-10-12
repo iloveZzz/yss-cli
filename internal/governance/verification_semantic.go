@@ -29,7 +29,7 @@ func verifyVerificationSemantic(s *kernel.SemanticSession, ref string, opts map[
 	}
 	switch kind {
 	case "verification":
-		return contractFrontendImplementation(s, ref, opts)
+		return s.Unavailable("CAPABILITY", "前端实现验证已从生命周期移除")
 	case "template-verification-report":
 		return contractTemplateVerification(s, doc, opts)
 	case "frontend-scaffold-verification":

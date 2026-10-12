@@ -359,7 +359,7 @@ func (d *dailySession) identity(requested string) error {
 	if family == "" {
 		return d.s.Unavailable("UNPORTED", "缺少可核验的 Profile metadata")
 	}
-	if !kernel.SemHas([]string{"spec", "backend", "frontend"}, family) {
+	if !kernel.SemHas([]string{"spec", "backend"}, family) {
 		return d.s.Unavailable("UNPORTED", "此 Profile 尚未提供日常路线")
 	}
 	if requested != "" && requested != family {
@@ -398,7 +398,7 @@ func (d *dailySession) readPolicy() error {
 		return d.s.Unavailable("UNPORTED", "此 Profile 的日常政策尚未迁移")
 	}
 	for _, profile := range enabled {
-		if !kernel.SemHas([]string{"spec", "backend", "frontend"}, profile) {
+		if !kernel.SemHas([]string{"spec", "backend"}, profile) {
 			return d.s.Unavailable("UNPORTED", "未知日常 Profile 能力")
 		}
 	}
@@ -980,9 +980,6 @@ func (d *dailySession) relatedFormal(m map[string]any) bool {
 func (d *dailySession) specialistInput(action string, impacts []string) error {
 	side := d.report.Profile
 	opposite := "frontend"
-	if side == "frontend" {
-		opposite = "backend"
-	}
 	scope, _ := kernel.Object(d.record["scope"])
 	paths, _ := dailyStrings(scope["paths"])
 	repository, _ := kernel.Object(d.record["repository"])
@@ -1013,30 +1010,11 @@ func (d *dailySession) specialistInput(action string, impacts []string) error {
 	if _, err := d.basisRef(kernel.Text(input["ref"]), kernel.Text(input["digest"])); err != nil {
 		return err
 	}
-	if side == "frontend" {
-		dependency, ok := kernel.Object(d.record["backend_dependency"])
-		if !ok || !kernel.SemHas([]string{"not-applicable", "aligned"}, kernel.Text(dependency["mode"])) {
-			return d.info("前端需要后端依赖对齐证据或不适用依据")
-		}
-		api, _ := kernel.Object(d.record["api"])
-		if kernel.Text(dependency["mode"]) == "not-applicable" && (kernel.Text(api["mode"]) != "none" || kernel.SemHas(impacts, "compatible-additive-api")) {
-			return d.govern(action, "真实 API 依赖不能声明后端不适用")
-		}
-		if kernel.Text(dependency["reason"]) == "" || kernel.Text(dependency["digest"]) == "" {
-			return d.info("后端依赖缺少原因和当前依据摘要")
-		}
-		if _, err := d.basisRef(kernel.Text(dependency["ref"]), kernel.Text(dependency["digest"])); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
 func (d *dailySession) specialistPaths(action string, paths []string) error {
 	opposite := "frontend"
-	if d.report.Profile == "frontend" {
-		opposite = "backend"
-	}
 	for _, ref := range paths {
 		ref = "/" + strings.Trim(filepath.ToSlash(ref), "/") + "/"
 		if strings.Contains(ref, "/apps/"+opposite+"/") || strings.Contains(ref, "/app/"+opposite+"/") {

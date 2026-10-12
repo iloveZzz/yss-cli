@@ -21,15 +21,10 @@ func nativeNextRoutes(profile string) map[string][]string {
 		}
 		m["work-unit."+current] = rows
 	}
-	if profile == "harness.backend-delivery" || profile == "harness.frontend-delivery" {
-		if profile == "harness.backend-delivery" {
-			put("harness-entry", "technical-design")
-			put("technical-design", "implementation-repository-preparation")
-			put("implementation-repository-preparation", "slice-contract")
-		} else {
-			put("harness-entry", "frontend-engineering-design", "slice-contract")
-			put("frontend-engineering-design", "slice-contract")
-		}
+	if profile == "harness.backend-delivery" {
+		put("harness-entry", "technical-design")
+		put("technical-design", "implementation-repository-preparation")
+		put("implementation-repository-preparation", "slice-contract")
 		put("slice-contract", "slice-implementation")
 		put("slice-implementation", "verification")
 		put("verification")
@@ -75,8 +70,7 @@ func nativeNextRoutes(profile string) map[string][]string {
 	put("implementation-repository-preparation", "service-project-initialization", "ticket-decomposition")
 	put("service-project-initialization", "implementation-repository-preparation")
 	put("ticket-decomposition", "slice-implementation")
-	put("slice-implementation", "frontend-implementation-verification", "code-review")
-	put("frontend-implementation-verification", "code-review")
+	put("slice-implementation", "code-review")
 	put("code-review", "release-and-retrospective", "slice-implementation", "backend-delivery")
 	put("backend-delivery", "release-and-retrospective")
 	put("release-and-retrospective")
@@ -312,9 +306,6 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 				return err
 			}
 		}
-	}
-	if err = taskFrontendDeliverySemantic(s, state); err != nil {
-		return err
 	}
 	if next == "work-unit.implementation-repository-preparation" {
 		if err = s.Verify("technical-transition", cpRef, map[string]string{"task-ref": taskRef}); err != nil {

@@ -15,7 +15,7 @@ func main() {
 	check := flag.Bool("check", false, "只读核验视图与固定 Bundle 一致")
 	out := flag.String("out", "internal/helpview/assets", "派生帮助视图目录")
 	flag.Parse()
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		v, e := helpview.Derive(profile)
 		if e != nil {
 			panic(e)

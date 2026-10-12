@@ -38,7 +38,7 @@ func maintenanceSkillMigration(id *Identity, b *bundle.Bundle, command string) b
 		if text(distribution["mode"]) != "selected" {
 			return false
 		}
-	case "design", "backend", "frontend":
+	case "design", "backend":
 		if text(distribution["mode"]) != "profile-full" || text(b.Distribution["mode"]) != "profile-full" {
 			return false
 		}

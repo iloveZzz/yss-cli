@@ -33,7 +33,7 @@ func init() {
 		}
 		consumer := kernel.First(opts["consumer"], "tactical")
 		version, ok := kernel.Integer(doc["schema_version"])
-		if !ok || !((consumer == "tactical" && (version == 1 || version == 2)) || (consumer == "frontend" && (version == 1 || version == 2 || version == 3))) {
+		if !ok || !(consumer == "tactical" && (version == 1 || version == 2)) {
 			return s.Unavailable("CAPABILITY", "未知 Handoff 消费合同类型或版本")
 		}
 		return contractHandoffConsumption(s, doc, opts)
@@ -1387,7 +1387,10 @@ func contractReceiptConsumer(s *kernel.SemanticSession, receipt map[string]any, 
 
 func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, opts map[string]string) error {
 	consumer, slice := kernel.First(opts["consumer"], "tactical"), opts["slice"]
-	if !kernel.SemHas([]string{"tactical", "frontend"}, consumer) {
+	if consumer == "frontend" {
+		return s.Reject("HANDOFF_CONSUMER", "前端消费者已从生命周期移除")
+	}
+	if consumer != "tactical" {
 		return s.Reject("HANDOFF_CONSUMER", "未知消费者")
 	}
 	if consumer == "tactical" && kernel.ContractN(data["schema_version"]) == 2 && !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, kernel.Text(kernel.SemMap(data["architecture"])["family"])) {
@@ -1400,7 +1403,7 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 	if kernel.Text(identity["repository_mode"]) != "project-instance" {
 		return s.Reject("HANDOFF_CONSUMER", "接收端必须 project-instance")
 	}
-	if slice != "" && kernel.Text(data["status"]) != map[string]string{"tactical": "approved", "frontend": "accepted"}[consumer] {
+	if slice != "" && kernel.Text(data["status"]) != "approved" {
 		return s.Reject("HANDOFF_CONSUMER", "当前切片不能消费未批准接收合同")
 	}
 	binding := kernel.SemMap(data["strategic_handoff"])
@@ -1418,7 +1421,7 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 	if e = contractReceipt(s, receipt); e != nil {
 		return e
 	}
-	capability := map[string]string{"tactical": "backend-technical-design", "frontend": "frontend-engineering-design"}[consumer]
+	capability := "backend-technical-design"
 	if e = contractReceiptConsumer(s, receipt, capability); e != nil {
 		return e
 	}
@@ -1563,15 +1566,6 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 	if e != nil {
 		return e
 	}
-	cases := map[string]map[string]any{}
-	for _, v := range kernel.SemList(data["frontend_cases"]) {
-		m := kernel.SemMap(v)
-		id := kernel.Text(m["case_id"])
-		if cases[id] != nil {
-			return s.Reject("HANDOFF_MAPPING", "前端用例重复")
-		}
-		cases[id] = m
-	}
 	for id, source := range known {
 		row := rows[id]
 		if row == nil {
@@ -1585,30 +1579,7 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 		if !kernel.SemHas([]string{"known", "unknown"}, kernel.Text(row["dependency_status"])) || row["dependent_slice_refs"] == nil {
 			return s.Reject("HANDOFF_MAPPING", "缺少切片依赖判定")
 		}
-		if consumer == "frontend" && kernel.Text(row["disposition"]) == "mapped" {
-			if !contractUnique(row["frontend_case_refs"], true) {
-				return s.Reject("HANDOFF_MAPPING", "前端落点缺失")
-			}
-			for _, ref := range kernel.SemStrings(row["frontend_case_refs"]) {
-				if cases[ref] == nil || !kernel.SemHas(cases[ref]["source_ids"], id) {
-					return s.Reject("HANDOFF_MAPPING", "前端用例未承接源规则")
-				}
-			}
-			if strings.HasPrefix(id, "scenario.") {
-				for _, outcome := range []string{"success", "failure"} {
-					found := false
-					for _, ref := range kernel.SemStrings(row["frontend_case_refs"]) {
-						found = found || kernel.Text(cases[ref]["outcome"]) == outcome
-					}
-					if !found {
-						return s.Reject("HANDOFF_MAPPING", "关键场景缺少前端成功/失败用例")
-					}
-				}
-			}
-			if e = contractEvidence(s, row["evidence_refs"]); e != nil {
-				return e
-			}
-		} else if kernel.Text(row["disposition"]) == "implemented" && consumer == "tactical" || kernel.Text(row["disposition"]) == "not-applicable" {
+		if kernel.Text(row["disposition"]) == "implemented" || kernel.Text(row["disposition"]) == "not-applicable" {
 			if e = contractTraceRow(s, row, source, ids, seams, slice); e != nil {
 				return e
 			}
@@ -1702,13 +1673,9 @@ func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, 
 		scope = "whole-" + consumer + "-design"
 	}
 	report := map[string]any{"result": map[bool]string{true: "blocked", false: "verified"}[blockedHere], "bundle_digest": current.Manifest["bundle_digest"], "consumed_bundle_digest": receipt["bundle_digest"], "scope": scope, "coverage_complete": complete, "block_all": all, "blocked_slice_refs": blockedRefs, "issues": issues}
-	if consumer == "frontend" {
-		report["frontend_acceptance_digest"] = kernel.ApDigest(data)
-	} else {
-		report["tactical_digest"] = kernel.ApDigest(data)
-		if kernel.ContractN(data["schema_version"]) == 2 {
-			report["technical_design_digest"] = kernel.ApDigest(data)
-		}
+	report["tactical_digest"] = kernel.ApDigest(data)
+	if kernel.ContractN(data["schema_version"]) == 2 {
+		report["technical_design_digest"] = kernel.ApDigest(data)
 	}
 	// 命令行薄壳按 Node 的 verify-strategic-handoff-consumption 输出形态读取这份报告。
 	if s.Report.Coverage == nil {

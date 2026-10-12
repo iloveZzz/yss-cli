@@ -58,25 +58,6 @@
         "sourceSnapshotHash": "e53990d44b3de929d8c3c893fdd8670ca19a0180fbd785c59a90580b32d702c7",
         "manifestHash": "188f3c2a97dd2c3a44e3be4a98d3125fbe7ae8e50426cfc7dd769af4d42f2ce6"
       }
-    },
-    "frontend": {
-      "profile": "frontend",
-      "sourcePath": ".",
-      "templateCommit": "1afff73a7ade164dad448f5d2c95a12412875112",
-      "templateVersion": "4.0.0",
-      "templateTag": "v4.0.0",
-      "policyPath": "profiles/frontend/.template-source/distribution/bundle-profile.json",
-      "policyHash": "7b64130019d2e89f332e22b4f699a4cd3ad03ffb6e1cdd692582eddbf7fe0c79",
-      "overlayPaths": [
-        "profiles/_specialist",
-        "profiles/frontend"
-      ],
-      "legacy": {
-        "version": "0.3.21",
-        "cliCommit": "3833ba6083f64fd057ba31f9012c979273cc7154",
-        "sourceSnapshotHash": "add3a174f87143d0b774370d3e537fa4b897df164840629eb31d64fb14779cf3",
-        "manifestHash": "7aa5b118eb9ae4f4a154ca7a875a4e34939e40edf477487840f117f36607619d"
-      }
     }
   }
 }

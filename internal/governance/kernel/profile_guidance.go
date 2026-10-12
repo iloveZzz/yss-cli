@@ -5,7 +5,7 @@ func GuidanceContractRef(profile string) string {
 	if profile == "design" {
 		skill = "yss-strategic-design"
 	}
-	if profile == "backend" || profile == "frontend" {
+	if profile == "backend" {
 		skill = "harness-orchestrator"
 	}
 	return ".agents/skills/" + skill + "/references/orchestration-contract.yaml"

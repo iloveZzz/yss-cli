@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const PROFILES = ["spec", "design", "backend", "frontend"];
+const PROFILES = ["spec", "design", "backend"];
 const CLI_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function git(repo, args) {
@@ -73,7 +73,7 @@ export function planRefresh({ lock, sourceRoot, profiles, allowUnpushed = false,
       changed: target !== source.templateCommit || policyTo !== source.policyHash || source.templateVersion !== versionTo || (source.templateTag ?? null) !== tag,
     });
     const skills = source.skillsSource;
-    if (skills && skillsSource && (profile === "backend" || profile === "frontend")) {
+    if (skills && skillsSource && profile === "backend") {
       const result = planSkillsSource({ profile, source, repo, target, sourceRoot, allowUnpushed });
       if (result.error) errors.push(result.error);
       else {
@@ -197,7 +197,7 @@ function defaultRun(command, args) {
 
 function usage() {
   return [
-    "用法: node tools/refresh-source-lock.mjs --source-root <四模板根的绝对路径> --profile <spec|design|backend|frontend|all> [--profile ...]",
+    "用法: node tools/refresh-source-lock.mjs --source-root <四模板根的绝对路径> --profile <spec|design|backend|all> [--profile ...]",
     "                                         [--tag vX.Y.Z] [--lock docs/source-lock.json] [--apply] [--regenerate] [--allow-unpushed] [--skills-source]",
     "默认只预演。--apply 写锁；--regenerate 写锁后重新生成 Bundle、helpview、cli-help 并校验。",
     "--tag：CLI 发布流程里的一步。把所选模板钉到该发布 tag：锁里记录 templateTag、tag 指向的提交和不带 v 的 templateVersion；没有 --tag 时按模板当前 HEAD 刷新，已钉在 tag 上的来源拒绝。",

@@ -62,8 +62,7 @@ func verifySpecBaselineSource(s *kernel.SemanticSession, cpRef string, local ...
 	if err != nil {
 		return nil, nil, err
 	}
-	localOwnSide := len(local) == 1 && local[0] && profile["profile_id"] == "harness.frontend-delivery"
-	if identity["repository_mode"] != "project-instance" || (profile["profile_id"] != "harness.spec-template" && !localOwnSide) {
+	if identity["repository_mode"] != "project-instance" || profile["profile_id"] != "harness.spec-template" {
 		return nil, nil, s.Reject("SPEC_BASELINE", "导出来源必须为 Spec 项目实例")
 	}
 	cp, err := s.Doc(cpRef)

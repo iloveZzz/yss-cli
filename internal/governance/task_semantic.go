@@ -189,7 +189,7 @@ func taskDeliveryProfile(s *kernel.SemanticSession) (map[string]any, error) {
 			return nil, e
 		}
 	}
-	for _, side := range []string{"backend", "frontend"} {
+	for _, side := range []string{"backend"} {
 		ok, e := s.Exists(".yss-harness-" + side + ".json")
 		if e != nil {
 			return nil, e
@@ -311,7 +311,7 @@ func enforceHarnessTaskSemanticMode(s *kernel.SemanticSession, task map[string]a
 		return e
 	}
 	id := kernel.ApText(profile["profile_id"])
-	if kernel.ApText(identity["repository_mode"]) != "project-instance" || (id != "harness.backend-delivery" && id != "harness.frontend-delivery") {
+	if kernel.ApText(identity["repository_mode"]) != "project-instance" || id != "harness.backend-delivery" {
 		return nil
 	}
 	if kernel.ApText(kernel.ApMap(task["contract"])["kind"]) == "template-maintenance" {
@@ -320,9 +320,6 @@ func enforceHarnessTaskSemanticMode(s *kernel.SemanticSession, task map[string]a
 
 	if kernel.ApContains([]string{"role.requirements-manager", "role.product-manager"}, kernel.ApText(task["role_id"])) {
 		analysisUnits := []string{"work-unit.plan-opportunity", "work-unit.plan-requirements", "work-unit.domain-strategy-design", "work-unit.stage-decision", "work-unit.spec-synthesis"}
-		if id == "harness.frontend-delivery" {
-			analysisUnits = append(analysisUnits, "work-unit.prototype-design-v2")
-		}
 		if kernel.ApText(task["execution_state"]) == "Worker" || !kernel.ApContains(analysisUnits, kernel.ApText(task["work_unit_id"])) {
 			return kernel.ApFail(s, "TASK_SCOPE", "业务分析角色仅能起草/审查本端分析与产品设计，不能实现生产代码")
 		}
@@ -332,143 +329,12 @@ func enforceHarnessTaskSemanticMode(s *kernel.SemanticSession, task map[string]a
 	if !crossReview && !kernel.ApContains(audience["target_user_roles"], kernel.ApText(task["role_id"])) && !kernel.ApContains(audience["control_plane_roles"], kernel.ApText(task["role_id"])) {
 		return kernel.ApFail(s, "TASK_SCOPE", "专职Harness不能派发另一端实现/起草")
 	}
-	opposite := "frontend"
-	if id == "harness.frontend-delivery" {
-		opposite = "backend"
-	}
 	for _, ref := range kernel.ApStrings(task["allowed_write_paths"]) {
-		if ref == "apps/"+opposite || strings.HasPrefix(ref, "apps/"+opposite+"/") {
+		if ref == "apps/frontend" || strings.HasPrefix(ref, "apps/frontend/") {
 			return kernel.ApFail(s, "TASK_SCOPE", "专职Harness不能写入另一端工程")
 		}
 	}
 	return nil
-}
-
-func taskFrontendDeliverySemantic(s *kernel.SemanticSession, task map[string]any) error {
-	profile, e := taskDeliveryProfile(s)
-	if e != nil {
-		return e
-	}
-	identity, e := s.Doc("yss-project.yaml")
-	if e != nil {
-		return e
-	}
-	dedicated := kernel.ApText(identity["repository_mode"]) == "project-instance" && kernel.ApContains([]string{"harness.frontend-delivery", "yss-harness-frontend"}, kernel.ApText(profile["profile_id"]))
-	local, e := hasLocalImplementationInputs(s)
-	if e != nil {
-		return e
-	}
-	taskContract := kernel.ApMap(task["contract"])
-	contractRef := kernel.ApText(taskContract["slice_contract_ref"])
-	cpRef := kernel.First(kernel.ApText(task["checkpoint_ref"]), kernel.ApText(taskContract["lifecycle_ref"]))
-	formalFrontendVerification := kernel.ApText(task["work_unit_id"]) == "work-unit.frontend-implementation-verification"
-	if (!dedicated || local) && contractRef == "" && formalFrontendVerification && task["frontend_delivery"] == nil {
-		local, err := hasLocalImplementationInputs(s)
-		if err != nil {
-			return err
-		}
-		if local {
-			if cpRef == "" {
-				return kernel.ApFail(s, "FRONTEND_DELIVERY", "正式前端验证缺少明确当前功能checkpoint")
-			}
-			cp, err := s.Doc(cpRef)
-			if err != nil {
-				return err
-			}
-			contractRef = progressionSliceRef(cp)
-			if contractRef == "" {
-				return kernel.ApFail(s, "FRONTEND_DELIVERY", "正式前端验证缺少当前功能批准Slice")
-			}
-		}
-	}
-	var contract map[string]any
-	var currentSlice *nativeSlice
-	if contractRef != "" {
-		loaded, e := loadNativeSlice(s, contractRef)
-		if e != nil {
-			return e
-		}
-		currentSlice, contract = loaded, loaded.Normalized
-		if kernel.ApText(kernel.ApMap(task["contract"])["kind"]) == "slice-implementation" && kernel.ContractN(loaded.Raw["schema_version"]) == 3 {
-			unit := kernel.ApFind(contract["work_units"], "id", kernel.ApText(task["work_unit_id"]))
-			if unit == nil || unit["role_id"] != task["role_id"] {
-				return kernel.ApFail(s, "TASK_CONTRACT", "任务须匹配当前批准工作单元角色")
-			}
-			for _, allowed := range kernel.ApStrings(task["allowed_write_paths"]) {
-				if !kernel.ApContains(unit["allowed_write_paths"], allowed) {
-					return kernel.ApFail(s, "TASK_SCOPE", "任务写范围未获当前工作单元批准")
-				}
-			}
-			if len(loaded.Repositories) == 0 {
-				currentSlice, e = contractSelectLocalUnit(s, loaded, kernel.ApText(task["work_unit_id"]))
-			} else {
-				contract, e = backendSelected(s, loaded, kernel.ApText(task["work_unit_id"]))
-			}
-			if e != nil {
-				return e
-			}
-			if len(loaded.Repositories) == 0 {
-				contract = currentSlice.Normalized
-			}
-			if !dedicated && kernel.SemMap(contract["frontend"])["status"] == "not-applicable" {
-				return nil
-			}
-		}
-	}
-	binding := kernel.ApMap(task["frontend_delivery"])
-	direct := kernel.ApMap(kernel.ApMap(contract["frontend"])["delivery"])
-	resolved := kernel.ApMap(kernel.ApMap(contract["resolution"])["frontend_delivery"])
-	if direct != nil && resolved != nil && !kernel.ApEqual(direct, resolved) {
-		return kernel.ApFail(s, "FRONTEND_DELIVERY", "Slice前端交付绑定冲突")
-	}
-	if direct != nil {
-		binding = direct
-	} else if resolved != nil {
-		binding = resolved
-	}
-	status := kernel.ApText(kernel.ApMap(contract["frontend"])["status"])
-	required := status != "" && status != "not-applicable" && status != "disabled"
-	if binding == nil && !required && (!dedicated || local && !formalFrontendVerification && kernel.ApText(taskContract["kind"]) != "slice-implementation" && kernel.ApContains(kernel.ApMap(profile["lifecycle"])["allowed_work_units"], kernel.ApText(task["work_unit_id"]))) {
-		return nil
-	}
-	if dedicated && kernel.ApText(kernel.ApMap(task["contract"])["kind"]) == "template-maintenance" {
-		return kernel.ApFail(s, "FRONTEND_DELIVERY", "前端产品项目不得用维护任务绕过输入")
-	}
-	if (!dedicated || local) && binding == nil && required {
-		if cpRef == "" {
-			cpRef, e = progressionTaskAssetCheckpoint(s, contractRef)
-			if e != nil {
-				return e
-			}
-		}
-		phase := "contract"
-		if kernel.ApText(kernel.ApMap(task["contract"])["kind"]) == "slice-implementation" {
-			phase = "implementation"
-		}
-		if formalFrontendVerification {
-			phase = "verification"
-		}
-		return contractLocalFrontendInputs(s, currentSlice, map[string]string{"checkpoint": cpRef, "slice": kernel.ApText(contract["slice_id"]), "phase": phase})
-	}
-	ref := kernel.ApText(binding["acceptance_ref"])
-	slice := kernel.ApText(contract["slice_id"])
-	if slice == "" {
-		slice = kernel.ApText(task["slice_id"])
-	}
-	if ref == "" || slice == "" {
-		return kernel.ApFail(s, "FRONTEND_DELIVERY", "缺少明确Slice和战略/后端联合接收")
-	}
-	if kernel.ApText(task["slice_id"]) != "" && kernel.ApText(contract["slice_id"]) != "" && task["slice_id"] != contract["slice_id"] {
-		return kernel.ApFail(s, "FRONTEND_DELIVERY", "任务与Slice不一致")
-	}
-	phase := "inputs"
-	if kernel.ApText(kernel.ApMap(task["contract"])["kind"]) == "slice-implementation" {
-		phase = "implementation"
-		if kernel.ApText(contract["status"]) != "approved" || binding["digest"] == nil || direct == nil && resolved == nil {
-			return kernel.ApFail(s, "FRONTEND_DELIVERY", "实现缺少approved持久合同和冻结接收摘要")
-		}
-	}
-	return s.Verify("frontend-delivery", ref, map[string]string{"slice": slice, "expected-digest": kernel.ApText(binding["digest"]), "phase": phase, "contract": contractRef})
 }
 
 func verifyTaskPackageSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -501,12 +367,6 @@ func verifyTaskPackageSemanticMode(s *kernel.SemanticSession, ref string, opts m
 		}
 		if kernel.ApText(identity["repository_mode"]) != "template-source" || kernel.ApText(contract["kind"]) != "template-maintenance" {
 			return kernel.ApFail(s, "TASK_HISTORY", "历史兼容仅适用于模板维护schema v1")
-		}
-	}
-	intake := kernel.ApText(task["execution_state"]) == "Explorer" && len(kernel.ApArray(task["allowed_write_paths"])) == 0 && kernel.ApContains([]string{"work-unit.entry-triage", "work-unit.harness-entry"}, kernel.ApText(task["work_unit_id"]))
-	if !intake {
-		if e = taskFrontendDeliverySemantic(s, task); e != nil {
-			return e
 		}
 	}
 	unit := kernel.ApFind(s.Registry["work_units"], "id", kernel.ApText(task["work_unit_id"]))

@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
-const PROFILES = ["spec", "design", "backend", "frontend"];
+const PROFILES = ["spec", "design", "backend"];
 const BASE = "4.0.0";
 const CLI_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TABLE = path.join(CLI_ROOT, "internal/bundle/assets/version-table.json");
