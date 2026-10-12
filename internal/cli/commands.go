@@ -510,7 +510,7 @@ func verificationOptions(group, kind string) []string {
 		case "handoff.spec-baseline":
 			options = append(options, "package")
 		case "handoff.consumption":
-			options = append(options, "consumer")
+			options = append(options, "consumer", "slice")
 		}
 	}
 	return options
