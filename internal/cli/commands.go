@@ -33,7 +33,7 @@ var commonOptionNames = []string{"help", "json", "version", "human", "diagnostic
 
 func initializeCommands() {
 	// Every flag accepted by the existing dispatchers has a registered type.
-	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected implementation-root template-checkout cli-source report-dir home run-dir") {
+	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
@@ -500,7 +500,7 @@ func verificationOptions(group, kind string) []string {
 		case "contract.task":
 			options = append(options, "history")
 		case "evidence.approval":
-			options = append(options, "require-approved", "history", "gate", "boundary", "task", "expected")
+			options = append(options, "require-approved", "history", "gate", "boundary", "task", "expected", "binding")
 		case "evidence.user-decision":
 			options = append(options, "requirements", "continuation", "from-record", "task")
 		case "evidence.verification":
