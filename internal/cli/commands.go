@@ -470,7 +470,7 @@ func commandChoices(key string) map[string][]string {
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
-		return map[string][]string{"kind": {"package", "consumption", "spec-baseline"}}
+		return map[string][]string{"kind": {"package", "consumption", "spec-baseline", "backend-delivery"}}
 	case "handoff export", "handoff import":
 		return map[string][]string{"kind": {"spec-baseline"}}
 	case "runtime complete":
@@ -510,6 +510,8 @@ func verificationOptions(group, kind string) []string {
 		case "handoff.package":
 			options = append(options, "package")
 		case "handoff.spec-baseline":
+			options = append(options, "package")
+		case "handoff.backend-delivery":
 			options = append(options, "package")
 		case "handoff.consumption":
 			options = append(options, "consumer", "slice")

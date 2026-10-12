@@ -66,7 +66,7 @@ func init() {
 	for group, conditions := range map[string]string{
 		"contract": "--kind <slice|scaffold|task|frontend-delivery|openapi-validation|backend-delivery-terminal>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行\n--allow-template  仅 openapi-validation；只接受模板记录\n--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出",
 		"evidence": "--kind <approval|user-decision|verification|context-reconciliation>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
-		"handoff":  "--kind <package|consumption|spec-baseline>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
+		"handoff":  "--kind <package|consumption|spec-baseline|backend-delivery>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包、spec-baseline 基线包或 backend-delivery 后端交付包（目录或 ZIP）；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
 		key := group + " verify"
 		topic := helpTopics[key]
@@ -128,7 +128,7 @@ func registerGovernanceHelp() {
 			example = "yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json"
 		}
 		if group == "handoff" {
-			kinds = "package|consumption"
+			kinds = "package|consumption|spec-baseline|backend-delivery"
 			example = "yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json"
 		}
 		registerGroup(group, "校验 "+group+" 的结构或原生领域语义。", "--root <目录>", projectFlags, example, governanceNotes, map[string]helpTopic{
