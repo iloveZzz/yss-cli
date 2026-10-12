@@ -26,6 +26,14 @@ func decisionPublicRequirements(s *kernel.SemanticSession, opts map[string]strin
 			count++
 		}
 	}
+	// 显式的 --from-record：调用方声明「待验记录自身的事项就是要核验的范围」，对应旧命令行省略 --requirements 的行为；
+	// 只在单条记录、非延续证明、且没有其他独立范围时可用，默认仍不从记录反推。
+	if opts["from-record"] == "true" {
+		if count != 0 || opts["continuation"] == "true" {
+			return nil, false, kernel.ApFail(s, "USER_DECISION_CONTEXT_REQUIRED", "--from-record 不能与 requirements、checkpoint、task 或 continuation 同用")
+		}
+		return decisionRequirementsFromRecord(s, opts)
+	}
 	if count != 1 {
 		return nil, false, kernel.ApFail(s, "USER_DECISION_CONTEXT_REQUIRED", "须明确提供唯一当前 requirements、checkpoint 或正式 task，不从待验记录反推范围")
 	}
@@ -79,6 +87,9 @@ func decisionPublicRequirements(s *kernel.SemanticSession, opts map[string]strin
 		}
 		value = task["user_decisions"]
 		collection = true
+	}
+	if single, isObject := value.(map[string]any); isObject && !collection {
+		value = []any{single} // requirements 文件可以只写一项
 	}
 	array, ok := value.([]any)
 	if !ok || len(array) == 0 {
@@ -264,4 +275,27 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 		}
 	}
 	return nil
+}
+
+func decisionRequirementsFromRecord(s *kernel.SemanticSession, opts map[string]string) ([]map[string]any, bool, error) {
+	ref := opts["file"]
+	if ref == "" {
+		ref = opts["arg0"]
+	}
+	record, e := s.Doc(ref)
+	if e != nil {
+		return nil, false, e
+	}
+	request := kernel.ApMap(record["request"])
+	items := kernel.ApArray(request["items"])
+	rows := []map[string]any{}
+	for _, raw := range items {
+		item := kernel.ApMap(raw)
+		subject := kernel.ApMap(item["subject"])
+		rows = append(rows, map[string]any{"boundary": item["boundary"], "subject_ref": subject["ref"], "scope": item["scope"], "user_decision_ref": ref})
+	}
+	if len(rows) == 0 {
+		return nil, false, kernel.ApFail(s, "USER_DECISION_CONTEXT_REQUIRED", "待验记录没有可核验的事项")
+	}
+	return rows, false, nil
 }
