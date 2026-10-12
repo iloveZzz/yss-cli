@@ -704,7 +704,7 @@ func AssertCurrentApprovalSemantic(s *SemanticSession, record, expected map[stri
 		if ApText(record["actor_kind"]) == "biological-human" {
 			for _, v := range result.validated {
 				if v.principal != ApText(record["principal_ref"]) {
-					return ApFail(s, "APPROVAL_CURRENT_INVALID", "生物人会签者与原始回复者不一致")
+					return ApFail(s, "APPROVAL_CURRENT_INVALID", "user-decision-responder-mismatch: 生物人会签者与原始回复者不一致")
 				}
 			}
 		}
