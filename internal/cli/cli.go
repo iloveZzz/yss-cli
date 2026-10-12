@@ -834,6 +834,7 @@ var nodeDelegation = []string{
 	"handoff.spec-baseline-package.v1",
 	"evidence.context-reconciliation.v1",
 	"contract.openapi-validation.v1",
+	"contract.backend-terminal.v1",
 	"template-source.verify-root.v1",
 }
 

@@ -21,11 +21,25 @@ import (
 
 func init() {
 	registerSemanticValidator("backend-terminal", verifyBackendTerminalSemantic)
+	registerSemanticValidator("backend-delivery-terminal", verifyBackendDeliveryTerminalPublic)
 	registerSemanticValidator("backend-review", verifyBackendReviewSemantic)
 	registerSemanticValidator("backend-delivery", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		_, e := backendInspectDelivery(s, ref, opts)
 		return e
 	})
+}
+
+// 公开入口 contract verify --kind backend-delivery-terminal：由当前功能 checkpoint（或执行范围）推出固定的终点引用，
+// 再交给同一份终点校验；--file 可以是 checkpoint 或终点引用本身，报告 coverage 与 Node 的 complete-backend-delivery verify 同形。
+func verifyBackendDeliveryTerminalPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	a, e := progressionBackendAuthorization(s, kernel.First(opts["checkpoint"], s.CheckpointRef), "", true)
+	if e != nil {
+		return e
+	}
+	if ref != "" && ref != a.TerminalRef && ref != a.CheckpointRef {
+		return s.Reject("PROGRESSION_BINDING", "后端终点校验的输入必须是当前功能 checkpoint 或其固定终点")
+	}
+	return s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": a.CheckpointRef})
 }
 
 func backendReject(s *kernel.SemanticSession, message string) error {
