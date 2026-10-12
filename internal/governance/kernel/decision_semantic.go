@@ -14,6 +14,15 @@ type decisionValidated struct {
 	scope                       []string
 }
 
+// 已核验事项的公开形态，供 evidence verify 返回给需要「谁回答了哪一项」的调用方。
+func (d decisionValidation) Rows() []map[string]any {
+	rows := []map[string]any{}
+	for _, v := range d.validated {
+		rows = append(rows, map[string]any{"item_id": v.itemID, "boundary": v.boundary, "principal_ref": v.principal, "scope": v.scope})
+	}
+	return rows
+}
+
 type decisionValidation struct {
 	requestID string
 	validated []decisionValidated

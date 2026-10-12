@@ -177,18 +177,25 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 		return kernel.ApFail(s, "USER_DECISION_CONTEXT_REQUIRED", "当前消费者未登记待验记录或延续证明")
 	}
 	if continuation {
+		rows := []map[string]any{}
 		for _, want := range selected {
-			if _, e = kernel.AssertUserDecisionRequirementSemantic(s, want); e != nil {
+			validated, e := kernel.AssertUserDecisionRequirementSemantic(s, want)
+			if e != nil {
 				return e
 			}
+			rows = append(rows, validated.Rows()...)
 		}
+		decisionCoverage(s, rows)
 		return nil
 	}
 	record, e := s.Doc(ref)
 	if e != nil {
 		return e
 	}
-	_, e = kernel.ValidateUserDecisionSemantic(s, record, selected)
+	validated, e := kernel.ValidateUserDecisionSemantic(s, record, selected)
+	if e == nil {
+		decisionCoverage(s, validated.Rows())
+	}
 	return e
 }
 
@@ -298,4 +305,11 @@ func decisionRequirementsFromRecord(s *kernel.SemanticSession, opts map[string]s
 		return nil, false, kernel.ApFail(s, "USER_DECISION_CONTEXT_REQUIRED", "待验记录没有可核验的事项")
 	}
 	return rows, false, nil
+}
+
+func decisionCoverage(s *kernel.SemanticSession, rows []map[string]any) {
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["user_decision_validated"] = rows
 }
