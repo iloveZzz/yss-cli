@@ -412,8 +412,15 @@ func assertApprovalSignerSemantic(s *SemanticSession, record map[string]any) (ma
 			rule = map[string]any{"bucket": "digital_human_review", "countersigners": reviewers}
 		}
 	}
-	if rule == nil || ApText(record["decision"]) != "approved" || record["biological_veto"] == true {
-		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", "会签规则、approved 结论或生物人否决不允许关闭门禁")
+	// 三种拒绝原因分开说明，措辞与 Node 一致，调用方与反例按原因断言。
+	if rule == nil {
+		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", gate+" 不是会签门禁；evidence_only / orchestrator 门禁不写 approval-record")
+	}
+	if ApText(record["decision"]) != "approved" {
+		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", gate+" 会签 decision 必须为 approved 才能关闭门禁")
+	}
+	if record["biological_veto"] == true {
+		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", gate+" 已被生物人否决，不能标为 approved")
 	}
 	if ApText(rule["bucket"]) == "biological_human" {
 		if ApText(record["actor_kind"]) != "biological-human" || ApText(record["role_id"]) != "role.biological-human" {

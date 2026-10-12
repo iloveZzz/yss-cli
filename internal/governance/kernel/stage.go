@@ -462,9 +462,14 @@ func CheckStage(v *View, cp map[string]any, ref string, sessions ...*SemanticSes
 	if err != nil {
 		return nil, err
 	}
-	feature, featureRoot, err := StageFeatureBinding(s, ref, cp)
-	if err != nil {
-		return nil, err
+	// 没有功能身份也没有阶段追踪的 checkpoint（尚未启用追踪的旧实例）不要求登记的功能身份，
+	// 与 Node 的 assertStageTracking 一致；任一出现就必须与路径、登记一致。
+	var feature, featureRoot string
+	if cp["feature_id"] != nil || cp["stage_tracking"] != nil {
+		feature, featureRoot, err = StageFeatureBinding(s, ref, cp)
+		if err != nil {
+			return nil, err
+		}
 	}
 	t, err := AsTracking(cp)
 	if err != nil {

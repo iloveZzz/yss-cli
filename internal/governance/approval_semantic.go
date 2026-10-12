@@ -121,6 +121,10 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 			}
 			expected, e = kernel.ApprovalExpectedFromTaskSemantic(s, opts["task"], task, gate, strings.TrimPrefix(bound.Digest, "sha256:"), nil)
 		} else {
+			// 没有消费期望时仍先核验会签身份与规则（否决、角色等），再要求消费上下文；与 Node 的顺序一致。
+			if _, e = kernel.ApprovalRuleSemantic(s, selected); e != nil {
+				return e
+			}
 			return kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "当前批准必须由 checkpoint 或显式 task 提供期望")
 		}
 		if e != nil {
