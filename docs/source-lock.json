@@ -2,15 +2,15 @@
   "schemaVersion": 3,
   "producer": {
     "version": "bundle-producer-v3",
-    "commit": "eb5d43574b765f2cfcd5c59708d18dc678c4b919",
+    "commit": "68e2a8f6768ca54724cb1e740f387e78ccc1e932",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "4f8a96b97f4c017545ab68f11ace868d4bb7976a",
-      "templateVersion": "git:4f8a96b97f4c017545ab68f11ace868d4bb7976a",
+      "templateCommit": "d88f774a6fd76339b0412ee466d0c38e6d7b845f",
+      "templateVersion": "git:d88f774a6fd76339b0412ee466d0c38e6d7b845f",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "3205c0c397d49c62adafcfc6409d2e2c8dabf514a69b3d30f177743473985bf8",
       "legacy": {
@@ -23,10 +23,10 @@
     "design": {
       "profile": "design",
       "sourcePath": "submodules/yss-harness-design-agent",
-      "templateCommit": "df6d76bff75eca9b2b48f7ec30969ea189439cc7",
-      "templateVersion": "git:df6d76bff75eca9b2b48f7ec30969ea189439cc7",
+      "templateCommit": "2e561954fa08f774e86c34631f149240e5b7a99a",
+      "templateVersion": "git:2e561954fa08f774e86c34631f149240e5b7a99a",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "20c67efc7043f3aaea146e63d5f30e985bb9513ad98ffccc23787cc3de6c9fd1",
+      "policyHash": "e108070e1bfe6d51fc0ad205b237edee45314a6b38b52118e841d6a5d516e5e6",
       "legacy": {
         "version": "0.8.17",
         "cliCommit": "7d2f9008d998ca87298a130f31019ffd6a87b3a5",
@@ -37,10 +37,10 @@
     "backend": {
       "profile": "backend",
       "sourcePath": "submodules/yss-harness-backend-agent",
-      "templateCommit": "0fb939c2ae26b676bc601c28ae3a5e2c99ce07c2",
-      "templateVersion": "git:0fb939c2ae26b676bc601c28ae3a5e2c99ce07c2",
+      "templateCommit": "b4b10f461d301b2b37387a662fbeba6f0df71edc",
+      "templateVersion": "git:b4b10f461d301b2b37387a662fbeba6f0df71edc",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "4333147c81a55472b9a243034e36e8758684d1bea118ccef259ed03cd18fcd06",
+      "policyHash": "fd368e5695688089f90f490e6a891341df648677f251adf0449b6beeed60d548",
       "legacy": {
         "version": "0.4.21",
         "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
@@ -49,18 +49,18 @@
       },
       "skillsSource": {
         "sourcePath": ".",
-        "templateCommit": "b4782ccb7682937d9d49f719227f1c557675acfd",
+        "templateCommit": "1b911385d7b9744d489da9a041f3512e61c95b0a",
         "configurationPath": ".template-source/profile-skill-sync.json",
-        "configurationHash": "d931b3eca88cab5b3ed1d6a3c1bfbf9c7c703935ca322316520f5a3a74dba8c7"
+        "configurationHash": "641a26e988f6aeb378b1db5839aaf17c78e0495a936dce9b54463f694ea88b78"
       }
     },
     "frontend": {
       "profile": "frontend",
       "sourcePath": "submodules/yss-harness-frontend-agent",
-      "templateCommit": "fad472ddf9247183564d67b4d06b6542aa25b021",
-      "templateVersion": "git:fad472ddf9247183564d67b4d06b6542aa25b021",
+      "templateCommit": "7240a6c02120aed07dff61d45413eb1d80a2c9f4",
+      "templateVersion": "git:7240a6c02120aed07dff61d45413eb1d80a2c9f4",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "e94865842ae0dbd6b9191200160762633ef115b99056c30751e3a9e68f2e3038",
+      "policyHash": "f6b00ac14c852355f7dfe0a3aa0c7cd5fae0b87051b01413a0a56bec5deb7400",
       "legacy": {
         "version": "0.3.21",
         "cliCommit": "3833ba6083f64fd057ba31f9012c979273cc7154",
@@ -69,9 +69,9 @@
       },
       "skillsSource": {
         "sourcePath": ".",
-        "templateCommit": "b4782ccb7682937d9d49f719227f1c557675acfd",
+        "templateCommit": "1b911385d7b9744d489da9a041f3512e61c95b0a",
         "configurationPath": ".template-source/profile-skill-sync.json",
-        "configurationHash": "d931b3eca88cab5b3ed1d6a3c1bfbf9c7c703935ca322316520f5a3a74dba8c7"
+        "configurationHash": "641a26e988f6aeb378b1db5839aaf17c78e0495a936dce9b54463f694ea88b78"
       }
     }
   }
