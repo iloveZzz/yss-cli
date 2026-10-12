@@ -833,6 +833,7 @@ var nodeDelegation = []string{
 	"handoff.consumption-report.v1",
 	"handoff.spec-baseline-package.v1",
 	"evidence.context-reconciliation.v1",
+	"contract.openapi-validation.v1",
 	"template-source.verify-root.v1",
 }
 
