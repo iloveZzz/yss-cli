@@ -14,6 +14,9 @@ type decisionValidated struct {
 	scope                       []string
 }
 
+// 延续证明核验通过时返回延续标志与独立审查资产引用。
+func (d decisionValidation) Continuation() (bool, string) { return d.continued, d.reviewRef }
+
 // 已核验事项的公开形态，供 evidence verify 返回给需要「谁回答了哪一项」的调用方。
 func (d decisionValidation) Rows() []map[string]any {
 	rows := []map[string]any{}
@@ -24,6 +27,8 @@ func (d decisionValidation) Rows() []map[string]any {
 }
 
 type decisionValidation struct {
+	continued bool
+	reviewRef string
 	requestID string
 	validated []decisionValidated
 	outcomes  map[string]map[string]any
@@ -657,5 +662,6 @@ func assertDecisionContinuationSemantic(s *SemanticSession, requirement map[stri
 			}
 		}
 	}
+	sourceResult.continued, sourceResult.reviewRef = true, ApText(ApMap(proof["review"])["ref"])
 	return sourceResult, nil
 }
