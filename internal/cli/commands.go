@@ -468,7 +468,7 @@ func commandChoices(key string) map[string][]string {
 	case "contract verify":
 		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
 	case "evidence verify":
-		return map[string][]string{"kind": {"approval", "user-decision", "verification"}}
+		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
 		return map[string][]string{"kind": {"package", "consumption", "spec-baseline"}}
 	case "handoff export", "handoff import":
