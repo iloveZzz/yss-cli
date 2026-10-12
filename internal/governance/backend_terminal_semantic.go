@@ -350,13 +350,7 @@ func backendSelected(s *kernel.SemanticSession, c *nativeSlice, unit string) (ma
 	if role != "backend" {
 		n["backend"] = map[string]any{"status": "not-applicable"}
 	}
-	if role != "frontend" {
-		n["frontend"] = map[string]any{"status": "not-applicable"}
-	} else if delivery := resolution["frontend_delivery"]; delivery != nil {
-		front := kernel.ApCopy(kernel.ApMap(n["frontend"]))
-		front["delivery"] = delivery
-		n["frontend"] = front
-	}
+	n["frontend"] = map[string]any{"status": "not-applicable"}
 	refs := kernel.ApCopy(kernel.ApMap(n["lifecycle_refs"]))
 	for key, value := range kernel.ApMap(repo["basis"]) {
 		refs[key] = kernel.ApMap(value)["ref"]

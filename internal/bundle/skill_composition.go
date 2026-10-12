@@ -197,8 +197,8 @@ func applySkillPatch(ctx context.Context, files map[string]sourceFile, patchByte
 
 func composeCommittedSkills(ctx context.Context, s Source, raw map[string]sourceFile) (map[string]any, error) {
 	shared := s.SkillsSource
-	if s.Profile != "backend" && s.Profile != "frontend" {
-		return nil, fmt.Errorf("skill composition only supports backend/frontend")
+	if s.Profile != "backend" {
+		return nil, fmt.Errorf("skill composition only supports backend")
 	}
 	if shared.Root == "" || shared.ConfigurationPath != ".template-source/profile-skill-sync.json" {
 		return nil, fmt.Errorf("shared skill source root/configuration missing")

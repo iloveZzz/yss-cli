@@ -267,11 +267,11 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 {
-		return nil, fmt.Errorf("source lock v2/v3 requires four profiles")
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 3 {
+		return nil, fmt.Errorf("source lock v2/v3 requires three profiles")
 	}
 	out := map[string]*Bundle{}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		s, ok := lock.Profiles[profile]
 		if !ok || s.Profile != profile {
 			return nil, fmt.Errorf("source lock profile missing: %s", profile)
@@ -279,7 +279,7 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
 			return nil, fmt.Errorf("skill composition requires source lock v3")
 		}
-		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
+		if lock.SchemaVersion == 3 && profile == "backend" && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
 			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
 		}
 		s.Producer = lock.Producer

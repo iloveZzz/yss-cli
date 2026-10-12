@@ -18,7 +18,7 @@ import (
 
 const progressionKind = "lifecycle-target"
 
-var progressionTargets = []string{"spec-approved", "product-design-completed", "backend-deliverable", "frontend-accepted", "business-accepted"}
+var progressionTargets = []string{"spec-approved", "product-design-completed", "backend-deliverable", "business-accepted"}
 
 type ProgressionConsumer struct {
 	Profile       string `json:"profile"`
@@ -51,7 +51,7 @@ func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	}
 	seen := map[string]bool{}
 	for _, c := range target.Consumers {
-		if !kernel.SemHas([]string{"design", "backend", "frontend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !kernel.ContractPath(c.CheckpointRef) {
+		if !kernel.SemHas([]string{"design", "backend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !kernel.ContractPath(c.CheckpointRef) {
 			return target, domain.Fail("PROGRESSION_TARGET", "消费者必须唯一且显式指定 Profile、绝对根和项目内 checkpoint")
 		}
 		seen[c.Profile] = true

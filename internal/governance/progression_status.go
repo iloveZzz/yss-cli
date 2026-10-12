@@ -97,7 +97,7 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 	} else if blockers, ok := cp["blockers"].([]any); !ok || len(blockers) > 0 {
 		status, reason = "blocked", "checkpoint 缺少有效无阻塞事实"
 	} else {
-		owner := map[string]string{"product-design-completed": "design", "backend-deliverable": "backend", "frontend-accepted": "frontend"}[target.Target]
+		owner := map[string]string{"product-design-completed": "design", "backend-deliverable": "backend"}[target.Target]
 		declaredOwner := false
 		for _, c := range target.Consumers {
 			if c.Profile == owner {
@@ -222,7 +222,7 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 }
 
 func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef string, cp map[string]any, target ProgressionTarget, consumer ProgressionConsumer, coordination map[string]any, participants map[string]*kernel.SemanticSession) bool {
-	required := map[string][]string{"product-design-completed": {"design"}, "backend-deliverable": {"design", "backend"}, "frontend-accepted": {"design", "backend", "frontend"}, "business-accepted": {"design", "backend", "frontend"}}
+	required := map[string][]string{"product-design-completed": {"design"}, "backend-deliverable": {"design", "backend"}, "business-accepted": {"design", "backend"}}
 	if !kernel.SemHas(required[target.Target], consumer.Profile) {
 		return false
 	}
@@ -249,23 +249,6 @@ func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef stri
 		}
 		source, sourceRef = design, design.CheckpointRef
 		sourceCP, _ = source.Doc(sourceRef)
-	}
-	if consumer.Profile == "frontend" {
-		for _, c := range target.Consumers {
-			if c.Profile != "backend" {
-				continue
-			}
-			backend := participants["backend"]
-			if backend == nil || kernel.SemMap(coordination["backend"])["input_status"] != "verified" {
-				return false
-			}
-			a, err := progressionBackendAuthorization(backend, backend.CheckpointRef, "", true)
-			if err == nil {
-				err = backend.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": backend.CheckpointRef})
-			}
-			row["source_ready"] = err == nil
-			return err == nil
-		}
 	}
 	err := progressionCheck(source, sourceRef, sourceCP, "strategic-handoff-delivery")
 	row["source_ready"] = err == nil
@@ -299,8 +282,8 @@ func progressionBusinessCompletion(s *kernel.SemanticSession, cpRef string, cp, 
 		return status, reason
 	}
 	conditional := kernel.SemMap(policy["conditional_required_checks"])
-	if conditional["backend-delivery"] == nil || conditional["frontend-implementation"] == nil {
-		return "blocked", "业务完成政策缺少当前后端及前端适用性规则"
+	if conditional["backend-delivery"] == nil {
+		return "blocked", "业务完成政策缺少当前后端适用性规则"
 	}
 	if _, _, err := verifySpecBaselineSource(s, cpRef); err != nil {
 		return "blocked", err.Error()
@@ -311,7 +294,7 @@ func progressionBusinessCompletion(s *kernel.SemanticSession, cpRef string, cp, 
 		return "blocked", err.Error()
 	}
 	impact := kernel.SemMap(stage["impact_assessment"])
-	for _, key := range []string{"backend", "api", "data", "frontend"} {
+	for _, key := range []string{"backend", "api", "data"} {
 		if _, ok := impact[key].(bool); !ok {
 			return "blocked", "当前批准影响评估未明确实现适用性：" + key
 		}
@@ -330,75 +313,12 @@ func progressionBusinessCompletion(s *kernel.SemanticSession, cpRef string, cp, 
 			}
 		}
 	}
-	if condition := conditional["frontend-implementation"]; condition != nil {
-		if condition != "frontend-impact" {
-			return "blocked", "未知业务前端完成条件"
-		}
-		check := kernel.SemMap(kernel.SemMap(cp["checks"])["check.frontend-implementation-verified"])
-		if check["status"] == "not-applicable" {
-			if impact["frontend"] != false || kernel.SemMap(cp["delivery_impacts"])["frontend"] == true || check["applicable"] != false || kernel.Text(check["reason"]) == "" {
-				return "blocked", "前端不适用与当前批准实现范围冲突"
-			}
-			bound := false
-			for _, row := range kernel.SemList(check["basis"]) {
-				if kernel.SemMap(row)["ref"] == stageRef {
-					bound = true
-				}
-			}
-			if !bound {
-				return "blocked", "前端不适用未绑定当前批准影响评估"
-			}
-			if err := s.Basis(check["basis"]); err != nil {
-				return "blocked", err.Error()
-			}
-			// A documentation-only scope has no future implementation Slice. A
-			// backend implementation, however, must explicitly exclude frontend
-			// work in its current approved Slice, local or jointly qualified.
-			owners := []*kernel.SemanticSession{s}
-			if backend := participants["backend"]; backend != nil {
-				owners = append(owners, backend)
-			}
-			checked := false
-			for _, owner := range owners {
-				ownerRef, ownerCP := cpRef, cp
-				if owner != s {
-					ownerRef = owner.CheckpointRef
-					ownerCP, err = owner.Doc(ownerRef)
-					if err != nil {
-						return "blocked", err.Error()
-					}
-				}
-				if progressionSliceRef(ownerCP) == "" {
-					continue
-				}
-				checked = true
-				na, err := progressionSliceNoFrontend(owner, ownerRef, ownerCP)
-				if err != nil {
-					return "blocked", err.Error()
-				}
-				if !na {
-					return "blocked", "当前批准Slice要求前端实现，不能以不适用完成业务"
-				}
-			}
-			if backendRequired && !checked {
-				return "blocked", "前端不适用缺少当前批准Slice"
-			}
-		} else if kernel.SemHas([]string{"passed", "approved"}, kernel.Text(check["status"])) {
-			if participants["frontend"] == nil {
-				if err := progressionCheck(s, cpRef, cp, "frontend-implementation"); err != nil {
-					return "blocked", err.Error()
-				}
-			}
-		} else {
-			return "blocked", "缺少当前实际前端实现验收或可信不适用依据"
-		}
-	}
 	return status, reason
 }
 
 func progressionExternalImplementation(t ProgressionTarget, root string) bool {
 	for _, c := range t.Consumers {
-		if (c.Profile == "backend" || c.Profile == "frontend") && c.Root != root {
+		if c.Profile == "backend" && c.Root != root {
 			return true
 		}
 	}
@@ -463,18 +383,7 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 			return "blocked", err.Error()
 		}
 	}
-	frontendNA := false
-	if target == "frontend-accepted" && policy["no_ui_presentation"] == "not-applicable-with-current-impact-evidence" {
-		noFrontend, err := progressionNoFrontend(s, cpRef, cp)
-		if err != nil {
-			return "blocked", err.Error()
-		}
-		frontendNA = noFrontend
-	}
 	for _, check := range kernel.SemStrings(policy["required_checks"]) {
-		if frontendNA && check == "frontend-implementation" {
-			continue
-		}
 		if err := progressionCheck(s, cpRef, cp, check); err != nil {
 			return "blocked", err.Error()
 		}
@@ -482,53 +391,7 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 	if na && target == "product-design-completed" {
 		return "not-applicable", "当前影响评估确认产品设计不适用；适用前置条件已核验"
 	}
-	if frontendNA {
-		return "not-applicable", "当前批准影响评估及Slice确认前端实现不适用；适用前置门禁已核验"
-	}
 	return "reached", "当前批准、依据与交付检查已核验"
-}
-
-func progressionNoFrontend(s *kernel.SemanticSession, cpRef string, cp map[string]any) (bool, error) {
-	if _, err := progressionNoUI(s, cpRef, cp); err != nil {
-		return false, err
-	}
-	stageRef := checkpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
-	if stageRef == "" {
-		return false, s.Reject("APPLICABILITY", "前端不适用缺少当前批准影响评估")
-	}
-	stage, err := s.Doc(stageRef)
-	if err != nil {
-		return false, err
-	}
-	if kernel.SemMap(stage["impact_assessment"])["frontend"] != false || kernel.SemMap(cp["delivery_impacts"])["frontend"] == true || kernel.SemMap(cp["delivery_impacts"])["ui"] == true {
-		return false, nil
-	}
-	return progressionSliceNoFrontend(s, cpRef, cp)
-}
-
-func progressionSliceNoFrontend(s *kernel.SemanticSession, cpRef string, cp map[string]any) (bool, error) {
-	sliceRef := progressionSliceRef(cp)
-	if sliceRef == "" {
-		return false, s.Reject("APPLICABILITY", "前端不适用缺少当前批准Slice")
-	}
-	if sliceRef != kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])["subject_ref"] {
-		return false, s.Reject("APPLICABILITY", "前端不适用Slice不是当前门禁批准资产")
-	}
-	if err := s.GateChecks(cp, cpRef, "gate.slice-contract-approved"); err != nil {
-		return false, err
-	}
-	c, err := loadNativeSlice(s, sliceRef)
-	if err != nil {
-		return false, err
-	}
-	if c.Normalized["status"] != "approved" || kernel.SemMap(c.Normalized["frontend"])["status"] != "not-applicable" {
-		return false, nil
-	}
-	return true, nil
-}
-
-func progressionSliceRef(cp map[string]any) string {
-	return kernel.First(kernel.Text(kernel.SemMap(kernel.SemMap(cp["human_review"])["implementation"])["slice_contract_ref"]), checkpointAsset(cp, "slice_contract_ref", "artifact.slice-implementation-contract"), kernel.Text(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])["subject_ref"]))
 }
 
 func progressionNoUI(s *kernel.SemanticSession, cpRef string, cp map[string]any) (bool, error) {
@@ -574,23 +437,6 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 			return err
 		}
 		return s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef})
-	case "frontend-implementation":
-		local, err := localFrontendImplementationSelected(s, cpRef, cp)
-		if err != nil {
-			return err
-		}
-		if local {
-			return progressionFrontendImplementationCompletion(s, cpRef, cp)
-		}
-		ref := guidanceArtifact(cp, "artifact.frontend-delivery-acceptance", "frontend_delivery_ref", "acceptance_ref")
-		if ref == "" {
-			return s.Reject("FRONTEND_DELIVERY_REQUIRED", "缺少当前前端交付接收合同")
-		}
-		d, err := s.Doc(ref)
-		if err != nil {
-			return err
-		}
-		return s.Verify("frontend-delivery", ref, map[string]string{"slice": kernel.Text(d["slice_id"]), "phase": "implementation", "checkpoint": cpRef})
 	case "business-acceptance":
 		refs := kernel.SemStrings(kernel.SemMap(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.delivery-accepted"])["evidence"])["evidence.fresh-verification"])
 		if len(refs) == 0 {
@@ -677,7 +523,7 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 		sessions[c.Profile] = child
 		row["completion_status"], row["completion_reason"] = progressionProfileTerminal(child, c.Profile, c.CheckpointRef, localCP)
 	}
-	for _, name := range []string{"design", "backend", "frontend"} {
+	for _, name := range []string{"design", "backend"} {
 		var c ProgressionConsumer
 		for _, candidate := range target.Consumers {
 			if candidate.Profile == name {
@@ -692,7 +538,7 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 			continue
 		}
 		source, sourceProfile, sourceRef, sourceCP := s, profile, cpRef, cp
-		if c.Profile == "backend" || c.Profile == "frontend" {
+		if c.Profile == "backend" {
 			if design := sessions["design"]; design != nil {
 				if kernel.SemMap(rows["design"])["input_status"] != "verified" {
 					row["reason"] = "先核验独立 Design 的当前来源接收"
@@ -700,16 +546,6 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 				}
 				source, sourceProfile, sourceRef = design, "design", design.CheckpointRef
 				sourceCP, _ = design.Doc(sourceRef)
-			}
-		}
-		if c.Profile == "frontend" {
-			if backend := sessions["backend"]; backend != nil {
-				if kernel.SemMap(rows["backend"])["input_status"] != "verified" {
-					row["reason"] = "先核验显式后端的当前来源接收"
-					continue
-				}
-				source, sourceProfile, sourceRef = backend, "backend", backend.CheckpointRef
-				sourceCP, _ = backend.Doc(sourceRef)
 			}
 		}
 		engineering, _ := guidanceEngineering(c.Root, c.Profile)
@@ -743,18 +579,6 @@ func progressionConsumerEvidence(s *kernel.SemanticSession, c ProgressionConsume
 				if e == nil {
 					refs["delivery"] = map[string]any{"ref": binding["ref"], "digest": binding["digest"], "terminal_ref": a.TerminalRef, "delivery_id": delivery["delivery_id"], "version": delivery["version"], "slice_id": kernel.SemMap(delivery["scope"])["slice_id"], "bundle_ref": terminal["bundle_ref"], "bundle_digest": terminal["bundle_digest"], "verification": delivery["verification"]}
 				}
-			}
-		}
-	} else if c.Profile == "frontend" {
-		ref := checkpointAsset(cp, "frontend_delivery_ref", "artifact.frontend-delivery-acceptance")
-		if ref == "" {
-			ref = kernel.First(kernel.Text(cp["acceptance_ref"]), kernel.Text(kernel.SemMap(cp["verification"])["acceptance_ref"]))
-		}
-		if ref != "" {
-			doc, err := s.Doc(ref)
-			raw, e := s.Bytes(ref)
-			if err == nil && e == nil {
-				refs["acceptance"] = map[string]any{"ref": ref, "digest": "sha256:" + safefs.Digest(raw), "slice_id": doc["slice_id"], "backend_delivery": doc["backend_delivery"], "implementation": doc["implementation"], "strategic_handoff": doc["strategic_handoff"]}
 			}
 		}
 	} else if c.Profile == "design" {

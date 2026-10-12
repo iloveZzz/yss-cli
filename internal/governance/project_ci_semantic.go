@@ -118,9 +118,6 @@ func ciDomainKind(v map[string]any) string {
 		return "verification"
 	}
 	if v["strategic_handoff"] != nil {
-		if v["frontend_cases"] != nil || v["frontend_implementation_plan"] != nil || kernel.Text(v["kind"]) == "frontend-implementation-plan" {
-			return "handoff-consumption:frontend"
-		}
 		return "handoff-consumption:tactical"
 	}
 	return ""

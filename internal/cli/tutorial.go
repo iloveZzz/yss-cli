@@ -9,7 +9,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/helpview"
 )
 
-var tutorialTopics = []string{"quickstart", "governed", "daily", "spec", "design", "backend", "frontend", "maintenance"}
+var tutorialTopics = []string{"quickstart", "governed", "daily", "spec", "design", "backend", "maintenance"}
 var placeholderPattern = regexp.MustCompile(`<[^<>\n]+>`)
 
 func safeExampleText(s string) string {
@@ -149,7 +149,7 @@ func renderTutorial(topic string) (string, error) {
 		return dailyTutorial(), nil
 	case "governed":
 		return governedTutorial("spec")
-	case "spec", "design", "backend", "frontend":
+	case "spec", "design", "backend":
 		return profileTutorial(topic)
 	case "maintenance":
 		return maintenanceIntroduction + safeExampleText(maintenanceTutorial), nil
@@ -159,7 +159,7 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
-前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend/frontend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -183,7 +183,6 @@ const specProgressionTutorial = `本次目标、停止与续推（Spec 主控）
   spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
   product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
   backend-deliverable：当前批准合同、适用 API、后端实现、独立审查、构建及契约/部署验证闭合。
-  frontend-accepted：当前前端实现、适用还原验证和独立验收闭合；前端不适用须另核批准影响评估及 Slice。
   business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
 专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
 
@@ -217,8 +216,8 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 本地或独立专职：
   consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
-  外部专职：consumers 每项给 profile（design/backend/frontend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend/Frontend 消费同一冻结战略基线；Backend→Frontend 消费当前接口及运行证据。前端可先准备设计与计划，正式实现仍核验当前依赖。
+  外部专职：consumers 每项给 profile（design/backend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend 消费同一冻结战略基线。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
 
 读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
@@ -300,9 +299,9 @@ func governedTutorial(profile string) (string, error) {
 			if profile == "spec" {
 				out.WriteString("  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。\n")
 			}
-		case "stage.technical-design", "stage.frontend-engineering-design":
+		case "stage.technical-design":
 			fmt.Fprintf(&out, "  yss handoff verify --root %s --kind package --package docs/handoff --json --diagnostics\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
-			out.WriteString("  消费当前上游接收与工程约束；适用的技术/前端设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。\n")
+			out.WriteString("  消费当前上游接收与工程约束；适用的技术设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。\n")
 		case "stage.implementation-repository-preparation":
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind scaffold --file docs/scaffold.json --json --diagnostics\n", root)
 			out.WriteString("  由工程接入或脚手架 Skill 在批准且当前的工程合同下接入真实实现仓；先核对 Scaffold/Preparation 证据。\n")
@@ -339,7 +338,7 @@ func profileTutorial(profile string) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "design": "产品与业务设计；技术设计由前后端工程路线承担。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。", "frontend": "核验战略与后端交接输入，在批准合同内完成前端交付。"}[profile]
+	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "design": "产品与业务设计；技术设计由前后端工程路线承担。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。"}[profile]
 	root := "./demo-" + profile
 	intro := fmt.Sprintf("Profile %s\n职责：%s\n日常政策启用：%t\n\n前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。\n输入材料：项目名称、当前职责对应的合同/交接材料。\n\n  yss init --profile %s --root %s --project-name 演示项目\n  yss doctor --root %s --json\n  yss context verify --root %s --json\n  yss lifecycle query --root %s --id %s --json\n  yss assets list --root %s --json\n  yss skills list --root %s --json\n\n预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。\n下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。\n失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。\n\n", profile, responsibility, v.DailyEnabled, profile, root, root, root, root, v.EntryWorkUnit, root, root)
 	stages, err := governedTutorial(profile)

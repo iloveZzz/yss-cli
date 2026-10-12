@@ -162,10 +162,10 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 	if e := parseJSON(sourceLock, &lock); e != nil {
 		return e
 	}
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 3 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
 		return fail("ARTIFACT", "发行包缺少固定来源锁")
 	}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		i := m.Bundles[profile]
 		s, ok := lock.Profiles[profile]
 		version := s.TemplateVersion
@@ -183,7 +183,7 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 			if lock.SchemaVersion != 3 || shared.SourcePath == "" || !commitPattern.MatchString(shared.Commit) || shared.ConfigurationPath == "" || !digestPattern.MatchString(shared.ConfigurationHash) {
 				return fail("ARTIFACT", "发行包共享 Skill 来源不完整: "+profile)
 			}
-		} else if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") {
+		} else if lock.SchemaVersion == 3 && profile == "backend" {
 			return fail("ARTIFACT", "发行包 v3 来源锁缺少共享 Skill 来源: "+profile)
 		}
 		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {

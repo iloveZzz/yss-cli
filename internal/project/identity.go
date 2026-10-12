@@ -81,6 +81,13 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 	}
 	out := &Identity{Root: root}
 	found := ""
+	// 前端 Profile 已移除：旧前端实例（旧版 metadata）明确拒绝，不识别、不升级、不迁移，文件原样保留。
+	if legacy, e := exists(root, ".yss-harness-frontend.json"); e != nil {
+		return nil, e
+	} else if legacy {
+		_, removed := domain.GetProfile("frontend")
+		return nil, removed
+	}
 	for name, p := range domain.Profiles {
 		ok, err := exists(root, p.Metadata)
 		if err != nil {

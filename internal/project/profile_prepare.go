@@ -235,11 +235,11 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 		previous[name] = root
 	}
 	for name := range targets {
-		if name != "design" && name != "backend" && name != "frontend" {
+		if name != "design" && name != "backend" {
 			return nil, domain.Fail("ARGUMENT", "未知目标 Profile: "+name)
 		}
 	}
-	for _, name := range []string{"design", "backend", "frontend"} {
+	for _, name := range []string{"design", "backend"} {
 		requested, ok := targets[name]
 		if !ok {
 			continue
@@ -374,7 +374,7 @@ func validateProfilesPlan(p *ProfilesPlan) error {
 			return domain.Fail("PLAN", "来源引用缺少守卫")
 		}
 	}
-	order := map[string]int{"design": 1, "backend": 2, "frontend": 3}
+	order := map[string]int{"design": 1, "backend": 2}
 	last := 0
 	previous := ProfileLinks{SchemaVersion: 1, Links: map[string]string{}}
 	for name, root := range p.Links.Links {

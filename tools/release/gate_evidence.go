@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var profiles = []string{"spec", "design", "backend", "frontend"}
+var profiles = []string{"spec", "design", "backend"}
 var legacyCases = []string{"warehouse-fixed-executor-init", "legacy-requires-explicit-migration", "migration-plan-read-only", "migration-apply", "native-doctor", "migration-rollback", "fixed-executor-maintains-restored-instance", "repeat-rollback", "legacy-pending-migration-refusal", "unfinished-fixed-executor-recovery", "modified-after-apply-rollback-refusal", "protection-bytes-and-mode"}
 var realCases = []string{"source-copy-exact", "legacy-doctor-baseline", "legacy-migration-required-refusal", "native-plan-read-only", "migration-apply", "native-doctor", "whole-migration-rollback", "restored-old-doctor", "repeat-rollback", "modified-after-apply-rollback-refusal"}
 var integrationCases = []string{"init", "doctor", "diff", "sync-dry-run", "sync-apply", "migration-plan-read-only", "migration-apply", "idempotency", "rollback", "user-file-preservation"}

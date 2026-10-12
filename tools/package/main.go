@@ -67,7 +67,7 @@ func main() {
 		sourceState = "working-tree"
 	}
 	sources := map[string]any{}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		inspection, e := bundle.Inspect(profile)
 		must(e)
 		sources[profile] = inspection
@@ -186,7 +186,7 @@ func packageNative(input, out, basisFile string, platforms []string, candidate b
 	expected := release.Expected{Identity: release.Identity{CLIVersion: domain.Version, ProtocolVersion: domain.ProtocolVersion, CLICommit: strings.TrimSpace(string(revision)), SourceState: "committed", Bundles: map[string]release.BundleIdentity{}}, Documents: map[string][]byte{}, RepositoryRoot: root}
 	expected.RequiredPlatforms = platforms
 	expected.QualificationScope = release.LocalQualificationScope
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		b, err := bundle.Inspect(profile)
 		if err != nil {
 			return err
