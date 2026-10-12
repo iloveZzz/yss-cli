@@ -65,7 +65,7 @@ func init() {
 	helpTopics["handoff import"] = helpTopic{"将批准 Spec 基线接入独立 Design。", "--root <Design工程> --kind spec-baseline --package <目录包> --plan --out <新计划>", projectFlags + "\n--kind spec-baseline\n--package <目录包>\n" + planFlags, "yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json\nyss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json", "初始化与导入分别保存计划、分别执行事务。完成目标 Context 对账及接入核验后由主控登记当前工作。", false}
 	for group, conditions := range map[string]string{
 		"contract": "--kind <slice|scaffold|task|frontend-delivery>\n--file / --checkpoint  资产与独立消费期待\n--approval-ref / --unit  slice；frontend-delivery 的 --unit 限批准的前端工作单元\n--slice / --phase  仅 frontend-delivery；本地输入 --file 与 --checkpoint 指同一当前 checkpoint\n--phase <preflight|design|contract|inputs|implementation|verification>  准备阶段不授实现资格\n--history  仅 task；历史结构不授予当前放行",
-		"evidence": "--kind <approval|user-decision|verification>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
+		"evidence": "--kind <approval|user-decision|verification|context-reconciliation>\n--file / --checkpoint / --task  资产与独立消费期待\n--gate / --boundary / --require-approved / --history  仅 approval\n--requirements / --continuation  仅 user-decision\n--approval-ref  仅 verification",
 		"handoff":  "--kind <package|consumption|spec-baseline>\n--file / --checkpoint  资产与独立消费期待\n--package  package 包或 spec-baseline 基线包；spec-baseline 的 --package 与 --file 互斥\n--consumer  仅 consumption",
 	} {
 		key := group + " verify"
@@ -124,7 +124,7 @@ func registerGovernanceHelp() {
 		kinds := "slice|scaffold|task|frontend-delivery"
 		example := "yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json"
 		if group == "evidence" {
-			kinds = "approval|user-decision|verification"
+			kinds = "approval|user-decision|verification|context-reconciliation"
 			example = "yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json"
 		}
 		if group == "handoff" {

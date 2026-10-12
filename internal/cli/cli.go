@@ -831,6 +831,8 @@ var nodeDelegation = []string{
 	"lifecycle.legacy-untracked-checkpoint.v1",
 	"handoff.package-identity.v1",
 	"handoff.consumption-report.v1",
+	"handoff.spec-baseline-package.v1",
+	"evidence.context-reconciliation.v1",
 	"template-source.verify-root.v1",
 }
 

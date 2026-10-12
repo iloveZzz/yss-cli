@@ -875,7 +875,15 @@ func specBaselineRun(ctx context.Context, action, root string, args map[string]s
 			}
 			pkg := kernel.NewSemanticSession(ctx, filepath.Dir(packageRoot), nil)
 			pkg.RuleSession = s
-			_, _, e = openSpecBaseline(pkg, filepath.Base(packageRoot))
+			manifest, _, openErr := openSpecBaseline(pkg, filepath.Base(packageRoot))
+			e = openErr
+			if e == nil && manifest != nil {
+				// 命令行薄壳需要的基线身份摘要，与 Node 的 spec-baseline verify --bundle 输出一致。
+				if s.Report.Coverage == nil {
+					s.Report.Coverage = map[string]any{}
+				}
+				s.Report.Coverage["spec_baseline_package"] = map[string]any{"baseline_id": manifest["baseline_id"], "version": manifest["version"], "bundle_digest": manifest["bundle_digest"]}
+			}
 			s.Children = append(s.Children, pkg)
 		} else if args["file"] != "" {
 			_, _, e = verifySpecBaselineReceipt(s, ref, args["checkpoint"] != "")
