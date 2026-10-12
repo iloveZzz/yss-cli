@@ -24,6 +24,11 @@ func (s *SemanticSession) ContextFiles() ([]string, error) {
 		sort.Strings(rows)
 		return rows, nil
 	}
+	// 模板源仓根的 profiles/<name> 是各 Profile 的覆盖层，各有自己的 CONTEXT.md，不属于本仓根的业务语言。
+	skipProfiles := false
+	if identity, e := s.Doc("yss-project.yaml"); e == nil {
+		skipProfiles = Text(identity["repository_mode"]) == "template-source"
+	}
 	skip := map[string]bool{".git": true, ".codegraph": true, ".template-source": true, "node_modules": true, "dist": true, "build": true}
 	rows := []string{}
 	err := filepath.WalkDir(s.Root, func(path string, d fs.DirEntry, e error) error {
@@ -42,7 +47,7 @@ func (s *SemanticSession) ContextFiles() ([]string, error) {
 			return nil
 		}
 		if d.IsDir() && ref != "." {
-			if skip[d.Name()] {
+			if skip[d.Name()] || skipProfiles && ref == "profiles" {
 				return filepath.SkipDir
 			}
 			if _, e = os.Lstat(filepath.Join(path, ".git")); e == nil {

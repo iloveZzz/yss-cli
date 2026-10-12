@@ -841,24 +841,6 @@ func (s *SemanticSession) Authorities() error {
 		}
 		family = meta.Profile
 	}
-	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
-	if err != nil {
-		return err
-	}
-	version, valid := Integer(profile["schema_version"])
-	if !valid || version < 1 || version > 2 {
-		return s.Unavailable("IDENTITY", "未知 Profile schema")
-	}
-	matched := ""
-	for name, p := range domain.Profiles {
-		if p.ID == profile["profile_id"] {
-			matched = name
-		}
-	}
-	if matched == "" || family != "" && family != matched || s.Args["profile"] != "" && s.Args["profile"] != matched {
-		return s.Unavailable("IDENTITY", "本地 Profile 与 metadata 或消费 Profile 矛盾")
-	}
-	s.Report.Profile = matched
 	identity, err := s.Doc("yss-project.yaml")
 	if err != nil {
 		return err
@@ -866,6 +848,31 @@ func (s *SemanticSession) Authorities() error {
 	n, ok := Integer(identity["schema_version"])
 	if !ok || n != 1 || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) {
 		return s.Unavailable("IDENTITY", "未知仓库身份")
+	}
+	// 模板源仓根没有 Profile 身份文件；只有它自己（repository_mode: template-source）可以省略，实例缺失仍是错误。
+	hasProfile, err := s.Exists(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		return err
+	}
+	if hasProfile || Text(identity["repository_mode"]) != "template-source" {
+		profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+		if err != nil {
+			return err
+		}
+		version, valid := Integer(profile["schema_version"])
+		if !valid || version < 1 || version > 2 {
+			return s.Unavailable("IDENTITY", "未知 Profile schema")
+		}
+		matched := ""
+		for name, p := range domain.Profiles {
+			if p.ID == profile["profile_id"] {
+				matched = name
+			}
+		}
+		if matched == "" || family != "" && family != matched || s.Args["profile"] != "" && s.Args["profile"] != matched {
+			return s.Unavailable("IDENTITY", "本地 Profile 与 metadata 或消费 Profile 矛盾")
+		}
+		s.Report.Profile = matched
 	}
 	s.Registry, err = s.Doc(".template-spec/process/lifecycle-registry.yaml")
 	if err != nil {
