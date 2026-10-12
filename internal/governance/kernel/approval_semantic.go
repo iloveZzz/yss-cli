@@ -438,6 +438,11 @@ func assertApprovalSignerSemantic(s *SemanticSession, record map[string]any) (ma
 }
 
 func ApprovalExpectationFromState(s *SemanticSession, boundary string, state map[string]any) (map[string]any, error) {
+	return ApprovalExpectationFromStateWith(s, boundary, state, nil)
+}
+
+// reviewPackage 非空时覆盖状态里的 review_package（对应调用方上下文显式指定）。
+func ApprovalExpectationFromStateWith(s *SemanticSession, boundary string, state map[string]any, reviewPackage any) (map[string]any, error) {
 	ref := ApText(state["subject_ref"])
 	for _, ref := range []string{ref, ApText(state["approval_ref"])} {
 		if err := RejectProgressionEvidence(s, ref); err != nil {
@@ -474,11 +479,14 @@ func ApprovalExpectationFromState(s *SemanticSession, boundary string, state map
 		subject, _ := s.Doc(ref)
 		drafter = subject["drafter_principal_ref"]
 	}
-	reviewPackage := any(strings.HasPrefix(boundary, "gate."))
+	rp := any(strings.HasPrefix(boundary, "gate."))
 	if state["review_package"] != nil {
-		reviewPackage = state["review_package"]
+		rp = state["review_package"]
 	}
-	return map[string]any{"boundary": boundary, "subject_ref": ref, "subject_digest": digest, "approval_scope": state["approval_scope"], "basis": basis, "drafter_principal_ref": drafter, "review_package": reviewPackage, "review_context": state["review_context"], "implementer_principal_ref": state["implementer_principal_ref"], "subject_id": state["subject_id"], "subject_version": state["subject_version"]}, nil
+	if reviewPackage != nil {
+		rp = reviewPackage
+	}
+	return map[string]any{"boundary": boundary, "subject_ref": ref, "subject_digest": digest, "approval_scope": state["approval_scope"], "basis": basis, "drafter_principal_ref": drafter, "review_package": rp, "review_context": state["review_context"], "implementer_principal_ref": state["implementer_principal_ref"], "subject_id": state["subject_id"], "subject_version": state["subject_version"]}, nil
 }
 
 func ReviewBundleRowsSemantic(s *SemanticSession, bundle map[string]any) ([]map[string]any, error) {
@@ -710,4 +718,98 @@ func AssertCurrentApprovalSemantic(s *SemanticSession, record, expected map[stri
 		}
 	}
 	return nil
+}
+
+// 由当前主体资产（结构化审阅包）直接给出期望：范围与依据取自主体本身，对应 Node 的 approvalExpectationFromSubject。
+func ApprovalExpectationFromSubject(s *SemanticSession, boundary, ref string, reviewPackage any) (map[string]any, error) {
+	if err := RejectProgressionEvidence(s, ref); err != nil {
+		return nil, err
+	}
+	b, e := s.Bytes(ref)
+	if e != nil {
+		return nil, e
+	}
+	subject, e := s.Doc(ref)
+	if e != nil {
+		return nil, e
+	}
+	scope := subject["approval_scope"]
+	if scope == nil {
+		scope = subject["scope"]
+	}
+	if !apUnique(scope) || len(ApArray(subject["basis"])) == 0 {
+		return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "当前主体缺少独立范围及依据；请提供 checkpoint/task 消费上下文")
+	}
+	rp := any(strings.HasPrefix(boundary, "gate."))
+	if reviewPackage != nil {
+		rp = reviewPackage
+	}
+	return map[string]any{"boundary": boundary, "subject_ref": ref, "subject_digest": safefs.Digest(b), "approval_scope": scope, "basis": subject["basis"], "drafter_principal_ref": subject["drafter_principal_ref"], "review_package": rp}, nil
+}
+
+// 消费方当前绑定选择审查主体，对应 Node 的 approvalExpectationForBoundAsset：
+// binding 为资产路径，或 {ref, digest, approval_context}；有独立批准上下文时按状态算，否则按主体本身算。
+func ApprovalExpectationForBoundAsset(s *SemanticSession, boundary string, binding any, scope []string, reviewPackage any) (map[string]any, error) {
+	assetRef, digest, context := "", "", map[string]any(nil)
+	if text, ok := binding.(string); ok {
+		assetRef = text
+	} else if m := ApMap(binding); m != nil {
+		assetRef, digest, context = ApText(m["ref"]), ApText(m["digest"]), ApMap(m["approval_context"])
+	}
+	if assetRef == "" {
+		return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "消费方缺少当前资产引用")
+	}
+	b, e := s.Bytes(assetRef)
+	if e != nil {
+		return nil, e
+	}
+	if digest != "" && apHex(digest) != safefs.Digest(b) {
+		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", "消费方当前资产摘要过期")
+	}
+	asset, _ := s.Doc(assetRef)
+	if context == nil && asset != nil {
+		context = ApMap(asset["approval_context"])
+	}
+	if context == nil && asset == nil {
+		return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "原始资产缺少消费方独立批准上下文")
+	}
+	var expected map[string]any
+	if context != nil {
+		expected, e = ApprovalExpectationFromStateWith(s, boundary, context, reviewPackage)
+	} else {
+		expected, e = ApprovalExpectationFromSubject(s, boundary, assetRef, reviewPackage)
+	}
+	if e != nil {
+		return nil, e
+	}
+	if assetRef != ApText(expected["subject_ref"]) {
+		var frozen map[string]any
+		for _, item := range ApRows(expected["basis"]) {
+			if ApText(item["ref"]) == assetRef {
+				frozen = item
+			}
+		}
+		if frozen != nil && apHex(frozen["digest"]) != safefs.Digest(b) {
+			return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", "当前资产批准上下文摘要过期")
+		}
+		if frozen == nil {
+			rows := append([]any{}, ApArray(expected["basis"])...)
+			expected["basis"] = append(rows, map[string]any{"ref": assetRef, "digest": safefs.Digest(b)})
+		}
+	}
+	if scope != nil && !ApSetEqual(stringsToAny(scope), expected["approval_scope"]) {
+		return nil, ApFail(s, "APPROVAL_CURRENT_INVALID", "当前资产消费范围与审阅包不匹配")
+	}
+	if reviewPackage != nil {
+		expected["review_package"] = reviewPackage
+	}
+	return expected, nil
+}
+
+func stringsToAny(values []string) []any {
+	out := make([]any, 0, len(values))
+	for _, v := range values {
+		out = append(out, v)
+	}
+	return out
 }
