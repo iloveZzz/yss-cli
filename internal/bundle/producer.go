@@ -47,9 +47,9 @@ type PolicyProvenance struct {
 }
 type Source struct {
 	SkillsSource *SkillSource `json:"skillsSource,omitempty"`
-	// OverlayPath 非空时，该 Profile 由同一仓库同一提交的内核目录与这个覆盖层目录组合而成；
-	// 为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
-	OverlayPath     string        `json:"overlayPath,omitempty"`
+	// OverlayPaths 非空时，该 Profile 由同一仓库同一提交的内核目录与这些覆盖层目录依次组合而成
+	// （后面的覆盖前面的）；为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
+	OverlayPaths    []string      `json:"overlayPaths,omitempty"`
 	Profile         string        `json:"profile"`
 	Root            string        `json:"-"`
 	SourcePath      string        `json:"sourcePath"`
@@ -158,12 +158,12 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if e = validatePolicy(policy); e != nil {
 		return nil, e
 	}
-	if s.OverlayPath != "" && s.SkillsSource != nil {
-		return nil, fmt.Errorf("overlayPath 与 skillsSource 不能同时使用")
+	if len(s.OverlayPaths) > 0 && s.SkillsSource != nil {
+		return nil, fmt.Errorf("overlayPaths 与 skillsSource 不能同时使用")
 	}
 	var raw map[string]sourceFile
-	if s.OverlayPath != "" {
-		raw, e = readOverlaySource(ctx, root, s.Commit, s.OverlayPath, policy.Manifest)
+	if len(s.OverlayPaths) > 0 {
+		raw, e = readOverlaySource(ctx, root, s.Commit, s.OverlayPaths, policy.Manifest)
 	} else {
 		raw, e = readGitFiles(ctx, root, s.Commit, policy.Manifest)
 	}
@@ -279,7 +279,7 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
 			return nil, fmt.Errorf("skill composition requires source lock v3")
 		}
-		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil && s.OverlayPath == "" {
+		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
 			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
 		}
 		s.Producer = lock.Producer
