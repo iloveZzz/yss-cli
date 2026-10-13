@@ -21,7 +21,8 @@ func inKernelScope(ref string) bool {
 	return false
 }
 
-func validateOverlayPath(overlayPath string) error {
+// ValidateOverlayPath applies the shared portable-path and kernel-boundary rules.
+func ValidateOverlayPath(overlayPath string) error {
 	if e := safefs.ValidateRef(overlayPath); e != nil {
 		return e
 	}
@@ -42,7 +43,7 @@ func validateOverlayPath(overlayPath string) error {
 func readOverlaySource(ctx context.Context, root, commit string, overlayPaths []string, manifest map[string]any) (map[string]sourceFile, error) {
 	seen := map[string]bool{}
 	for _, overlayPath := range overlayPaths {
-		if e := validateOverlayPath(overlayPath); e != nil {
+		if e := ValidateOverlayPath(overlayPath); e != nil {
 			return nil, e
 		}
 		if seen[overlayPath] {
