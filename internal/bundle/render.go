@@ -42,10 +42,11 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		}
 	case "scripts/lib/skill-supply-chain.mjs":
 		if selected {
-			marker := regexp.MustCompile(`(?m)^export const PROJECTION_ROOTS = \[[^\]]*\];`).FindString(text)
-			if marker == "" {
+			markers := regexp.MustCompile(`(?m)^export const PROJECTION_ROOTS = \[[^\]]*\];`).FindAllString(text, -1)
+			if len(markers) != 1 {
 				return nil, fmt.Errorf("Skill 投影脚本分发基线变化")
 			}
+			marker := markers[0]
 			addition := `
 function projectionRootsFor(lock) {
   const identityPath = path.join(ROOT, "yss-project.yaml");
