@@ -9,11 +9,11 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "1afff73a7ade164dad448f5d2c95a12412875112",
-      "templateVersion": "4.0.0",
-      "templateTag": "v4.0.0",
+      "templateCommit": "332560acfbfe59208b3e499074429a4450fb5748",
+      "templateVersion": "4.0.1",
+      "templateTag": "v4.0.1",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "e2a19a182b4e3a73b0c047ea79a54b018fa5049ff0f6065783a99ec556a68c80",
+      "policyHash": "25eccfd97ed57d5e9907a872ef38cca301ad68b88fb27ceb058ac145db64301b",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
@@ -24,11 +24,11 @@
     "design": {
       "profile": "design",
       "sourcePath": ".",
-      "templateCommit": "1afff73a7ade164dad448f5d2c95a12412875112",
-      "templateVersion": "4.0.0",
-      "templateTag": "v4.0.0",
+      "templateCommit": "332560acfbfe59208b3e499074429a4450fb5748",
+      "templateVersion": "4.0.1",
+      "templateTag": "v4.0.1",
       "policyPath": "profiles/design/.template-source/distribution/bundle-profile.json",
-      "policyHash": "324a89415dce5c76e9d2f95e8ae0125ab9109d0dbeffc106476194902f689c5c",
+      "policyHash": "57906f13746011bdbd0b34189e4533e71e950f7adb709e0d0cca965880b4e302",
       "overlayPaths": [
         "profiles/_specialist",
         "profiles/design"
@@ -43,9 +43,9 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "1afff73a7ade164dad448f5d2c95a12412875112",
-      "templateVersion": "4.0.0",
-      "templateTag": "v4.0.0",
+      "templateCommit": "332560acfbfe59208b3e499074429a4450fb5748",
+      "templateVersion": "4.0.1",
+      "templateTag": "v4.0.1",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
       "policyHash": "b12a6065a32de0348ed2c40fa31d6121509605d6cea744d745403b1464d5b357",
       "overlayPaths": [
