@@ -205,11 +205,11 @@
         "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
       },
       "original_sha256": "9f5b7cfc14d294e896ab1e5706ce167112fbd064cad225903b1daaa39c8ed9a6",
-      "adapted_sha256": "40ad4f2d9a6e8b4e1f94d9b378b8ea31402e7f83b824c593f26c069e016d161b",
-      "bytes": 9468,
+      "adapted_sha256": "31c4b7e8de0ca332b5f8263508d78e5d754f7125bdc2759429e88e6c79a35df7",
+      "bytes": 16298,
       "mode": "0o644",
       "role": "active-execution-tool",
-      "adaptation": "Parameterize current input/platform/source/output; original five real update/install/rollback/recover/protection cases retained. Windows zip and raw attribute handling use inspected fixed Windows source; canonical mode is explicit, NTFS ACL is not claimed."
+      "adaptation": "Parameterize current input/platform/source/output; original five real update/install/rollback/recover/protection cases retained. Windows zip and raw attribute handling use inspected fixed Windows source; canonical mode is explicit, NTFS ACL is not claimed. Public follow-up: explicit independent --published-sha256 preserves offline5 and adds real online upgrade from the downloaded archive executor; receipt/status/archive identity, separate log array, rollback repeat/recover repeat and user-file protection. No production-source changes or historical qualification reuse."
     },
     {
       "path": "run-scoped-template.py",
@@ -283,10 +283,10 @@
   "new_files": [
     {
       "path": ".github/workflows/windows-native-release.yml",
-      "sha256": "c2c053538cd1297542e1365635b124bfd6a35ec85dcd8cdd8c89d98d1c1fd168",
-      "bytes": 7360,
+      "sha256": "d9fa4ea6d538d800984e7fea1ea0e8c9b8617404efd84bf0a6be79a5e9d0bd46",
+      "bytes": 7770,
       "mode": "0o644",
-      "purpose": "Adapt fixed 760c16dc Windows workflow to explicit reviewed C/T/W, current build+assembler, real Windows native3 and installation5; no push or dispatch. Historical workflow is only a source."
+      "purpose": "Adapt fixed 760c16dc Windows workflow to explicit reviewed C/T/W, current build+assembler, real Windows native3 and installation5; no push or dispatch. Historical workflow is only a source. Public branch downloads unauthenticated exact URL, pins expected archive SHA and runs both offline5 and the online public upgrade. Candidate branch unchanged."
     },
     {
       "path": "go.mod",
@@ -311,15 +311,63 @@
     },
     {
       "path": "README.md",
-      "sha256": "20b48f8477d968a49b8be75272fba9f2449089e3512d22f308a20eb1b5d79ca4",
-      "bytes": 7025,
+      "sha256": "cb91f43bc8ff79425ecf40c906211fef43ed444786cd90e381135a77a5c4a617",
+      "bytes": 10166,
       "mode": "0o644",
-      "purpose": "Exact current execution sequence and qualification boundary."
+      "purpose": "Exact current execution sequence and qualification boundary. Documents already registered W and pending W2, both-platform post-publication online execution and its bounded evidence scope."
     }
   ],
   "not_qualification": "Historical tools are reused; historical passed reports and native qualification are not reused.",
   "secondary_sources": {
     "run-program-installation.py": "historical/.release-tools/windows-installation.py",
     ".github/workflows/windows-native-release.yml": "historical/.github/workflows/windows-release-1.3.7.yml"
-  }
+  },
+  "revisions": [
+    {
+      "created_at": "2026-10-13T13:57:12.886659+00:00",
+      "parent_tools_commit": "07bd997dd3a73a0f52231ef8636a86e7eeb14988",
+      "kind": "post-publication-online-upgrade-path",
+      "scope": "4 authorized tool files only; no native execution, production source, commits or pushes",
+      "changes": [
+        {
+          "path": "run-program-installation.py",
+          "before_sha256": "40ad4f2d9a6e8b4e1f94d9b378b8ea31402e7f83b824c593f26c069e016d161b",
+          "after_sha256": "31c4b7e8de0ca332b5f8263508d78e5d754f7125bdc2759429e88e6c79a35df7",
+          "before_bytes": 9468,
+          "after_bytes": 16298
+        },
+        {
+          "path": ".github/workflows/windows-native-release.yml",
+          "before_sha256": "c2c053538cd1297542e1365635b124bfd6a35ec85dcd8cdd8c89d98d1c1fd168",
+          "after_sha256": "d9fa4ea6d538d800984e7fea1ea0e8c9b8617404efd84bf0a6be79a5e9d0bd46",
+          "before_bytes": 7360,
+          "after_bytes": 7770
+        },
+        {
+          "path": "README.md",
+          "before_sha256": "20b48f8477d968a49b8be75272fba9f2449089e3512d22f308a20eb1b5d79ca4",
+          "after_sha256": "cb91f43bc8ff79425ecf40c906211fef43ed444786cd90e381135a77a5c4a617",
+          "before_bytes": 7025,
+          "after_bytes": 10166
+        }
+      ],
+      "contract_source": {
+        "repository": "iloveZzz/yss-cli",
+        "observed_commit": "d0bfbd49c50436465ba6c3f9d0e318321d350b99",
+        "paths": [
+          "internal/updater/online.go",
+          "internal/updater/updater.go",
+          "internal/updater/installation.go",
+          "internal/updater/recovery.go",
+          "internal/transaction/transaction.go"
+        ]
+      },
+      "release_requirement": {
+        "template_commit": "c06944b86a53eb1f1f2fe6f0cd97dc9fab4586ee",
+        "path": ".agents/skills/release-yss-cli/references/publish-and-recover.md"
+      },
+      "independent_review": "pending; implementer does not self-review",
+      "real_public_upgrade_executed": false
+    }
+  ]
 }

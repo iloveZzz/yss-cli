@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       published_sha256:
-        description: Optional exact published Windows archive SHA256
+        description: Optional independent public Windows archive SHA256; enables offline five cases and real online upgrade
         required: false
         type: string
       native_run_id:
@@ -108,8 +108,6 @@ jobs:
           run-id: ${{ inputs.native_run_id }}
       - name: Download exact published bytes
         if: ${{ inputs.published_sha256 }}
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $e = Join-Path $env:RUNNER_TEMP 'release-evidence'
@@ -117,16 +115,18 @@ jobs:
           if ($input.cliCommit -ne $env:CLI_COMMIT -or $input.bundles.spec.templateCommit -ne $env:TEMPLATE_COMMIT) { throw 'Prior native evidence source mismatch' }
           $observedTools = Get-Content "$e/native-windows-amd64/source-observation.json" -Raw | ConvertFrom-Json
           if ($observedTools.tools_commit -ne $env:TOOLS_COMMIT -or $observedTools.input_drift) { throw 'Prior native tools source mismatch' }
-          gh release download v2.0.0 --repo iloveZzz/yss-cli --pattern yss_2.0.0_windows_amd64.zip --dir "$e/public"
-          if ($LASTEXITCODE -ne 0) { throw 'Public download failed' }
+          New-Item -ItemType Directory -Path "$e/public" -ErrorAction Stop | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/iloveZzz/yss-cli/releases/download/v2.0.0/yss_2.0.0_windows_amd64.zip' -OutFile "$e/public/yss_2.0.0_windows_amd64.zip" -TimeoutSec 300 -MaximumRedirection 5 -MaximumRetryCount 2 -RetryIntervalSec 2 -ErrorAction Stop
           if ((Get-FileHash "$e/public/yss_2.0.0_windows_amd64.zip" -Algorithm SHA256).Hash.ToLower() -ne $env:PUBLISHED_SHA256) { throw 'Published archive digest mismatch' }
-      - name: Actual Windows installation five cases
+      - name: Actual Windows installation five cases and optional public online upgrade
         shell: pwsh
         run: |
           $e = Join-Path $env:RUNNER_TEMP 'release-evidence'
           $kind = if ($env:PUBLISHED_SHA256) { 'public' } else { 'candidate' }
-          python tools-source/run-program-installation.py --input "$e/native-input.json" --archive "$e/$kind/yss_2.0.0_windows_amd64.zip" --out "$e/$kind-installation" --platform windows/amd64 --cli-root "$env:GITHUB_WORKSPACE/cli-source"
-          if ($LASTEXITCODE -ne 0) { throw 'Real installation or rollback failed' }
+          $installationArgs = @('--input', "$e/native-input.json", '--archive', "$e/$kind/yss_2.0.0_windows_amd64.zip", '--out', "$e/$kind-installation", '--platform', 'windows/amd64', '--cli-root', "$env:GITHUB_WORKSPACE/cli-source")
+          if ($env:PUBLISHED_SHA256) { $installationArgs += @('--published-sha256', $env:PUBLISHED_SHA256) }
+          python tools-source/run-program-installation.py @installationArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Real installation, public online upgrade or rollback failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
