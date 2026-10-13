@@ -15,7 +15,9 @@ assert inp['cliVersion']=='2.0.0' and set(inp['bundles'])=={'spec','design','bac
 assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=C,text=True).strip()==identity['cliCommit']
 assert subprocess.check_output(['git','status','--porcelain=v1','--untracked-files=all'],cwd=C,text=True)==''
 scope='local-platform-impacted-consumers'
-assert inp['qualificationScope']==scope and set(inp['requiredPlatforms'])=={'darwin/arm64','windows/amd64'}
+# This release qualifies only Mac; the separate Windows archive is build-only.
+assert inp['qualificationScope']==scope and inp['requiredPlatforms']==['darwin/arm64']
+assert [x['platform'] for x in inp['artifacts']]==['darwin/arm64']
 assert options.platform=='darwin/arm64','legacy36 gate is bound to the actual Mac binary'
 out=Path(options.out).resolve();out.relative_to(R);assert out!=R;out.mkdir()
 def ref(p):
