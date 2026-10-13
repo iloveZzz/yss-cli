@@ -52,7 +52,7 @@ func indexSkillTrees(files map[string]File) skillTreeIndex {
 			continue
 		}
 		switch parts[0] {
-		case ".agents", ".codex", ".cursor", ".pi":
+		case ".agents", ".codex", ".cursor", ".pi", ".claude":
 			prefix := strings.Join(parts[:3], "/")
 			index[prefix] = append(index[prefix], ref)
 		}
@@ -174,7 +174,7 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 		}
 		for _, ref := range platform.keys {
 			entries := platform.values[ref]
-			if entries.kind != 'o' || (ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills") {
+			if entries.kind != 'o' || (ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills" && ref != ".claude/skills") {
 				return nil, fmt.Errorf("invalid platform Skill root: %s", ref)
 			}
 			for _, name := range entries.keys {

@@ -353,7 +353,7 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 		raw[ref] = f
 		if strings.HasPrefix(ref, ".agents/skills/") {
 			suffix := strings.TrimPrefix(ref, ".agents/")
-			for _, runtime := range []string{".codex", ".cursor", ".pi"} {
+			for _, runtime := range []string{".codex", ".cursor", ".pi", ".claude"} {
 				projection := path.Join(runtime, suffix)
 				if old, ok := raw[projection]; ok && (!bytes.Equal(old.data, f.data) || old.mode != f.mode) {
 					return nil, fmt.Errorf("tracked skill projection differs: %s", projection)

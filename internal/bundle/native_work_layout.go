@@ -60,7 +60,7 @@ func nativeWorkLayoutSource(raw map[string]sourceFile) ([]NativeTransform, error
 		}
 		record(ref, data, !exists)
 		if strings.HasPrefix(ref, ".agents/skills/") {
-			for _, platform := range []string{".codex", ".cursor", ".pi"} {
+			for _, platform := range []string{".codex", ".cursor", ".pi", ".claude"} {
 				projected := platform + strings.TrimPrefix(ref, ".agents")
 				if _, ok := raw[projected]; ok {
 					record(projected, data, false)
