@@ -196,7 +196,7 @@ func (d *dailySession) run(action string, args map[string]string) error {
 			return d.s.Unavailable("PATH", err.Error())
 		}
 	}
-	if err = d.implementationPaths(paths); err != nil {
+	if err = d.implementationPaths(append(paths, filepath.ToSlash(repo))); err != nil {
 		return err
 	}
 	if _, err = d.basisRef(kernel.Text(scope["risk_ref"]), ""); err != nil {
