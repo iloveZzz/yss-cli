@@ -12,6 +12,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"io"
+	_ "modernc.org/sqlite"
 	"net/url"
 	"os"
 	"path/filepath"
