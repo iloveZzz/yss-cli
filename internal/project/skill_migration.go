@@ -186,6 +186,9 @@ func (u *upgradePlanner) maintenanceRetirements() map[string]bundle.MigrationRul
 // 旧实例里这些受管文件按旧来源的精确字节提议删除；用户改过的文件进入冲突，可选择 keep-local 保留。
 // 目标 Bundle 仍含该路径（旧模板线的 Profile）时不提议。
 func retiredProjectionFile(ref string) bool {
+	if ref == ".cursor/skills/.yss-skills-manifest.json" {
+		return true
+	}
 	parts := strings.Split(ref, "/")
 	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") {
 		return false

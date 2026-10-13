@@ -11,6 +11,7 @@ yss lifecycle verify --root /project --checkpoint .work/feature/checkpoint.yaml 
 yss contract verify --root /project --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json
 yss contract verify --root /project --kind scaffold --file docs/scaffold.json --json
 yss contract verify --root /project --kind task --file docs/review-task.json --json
+yss contract verify --root /project --kind business-tickets --file docs/business/set.yaml --mode formal --review-ref docs/business/review.yaml --json
 yss evidence verify --root /project --kind approval --file docs/approval.json --checkpoint .work/feature/checkpoint.yaml --json
 yss evidence verify --root /project --kind user-decision --file docs/decision.json --requirements docs/current-decision-requirements.json --json
 yss evidence verify --root /project --kind verification --file docs/verification.json --json
@@ -20,6 +21,10 @@ yss project-ci check --root /project --runtime-store off --json
 yss project-ci verify --root /project --base FULL_40_HEX_COMMIT --runtime-store off --json
 yss project-ci check --root /project --scope native-go --json
 ```
+
+业务票公开报告使用 `contract verify --kind business-tickets --mode draft|formal [--review-ref <路径>]`，默认 `draft`。能力令牌为 `contract.business-tickets-report.v1`；报告位于 `coverage.business_tickets`，包含多项诊断、票据、未覆盖项、未评估范围和业务来源 `inputs`。该业务闭包仅含集合、Spec、票据、引用来源及适用的审查/延期决定；envelope 的 `inputs` 另保留权威策略、Schema、清单及子来源视图的完整读集。原有五类严格消费者共用相同校验核心，阻断报告不能放行；最终输入重验失败时报告也必须阻断。
+
+该接口支持普通项目内来源，以及 `docs/handoffs/<id>/vN/package/payload/files/` 下经过清单、原始字节、布局与来源策略验证的战略 Handoff v5 快照。仅在已验证快照内将 `CONTEXT.md` 解析为 `source-context.snapshot.md`，输出引用映射回包路径；普通项目不隐式回退。Spec baseline 导入包是不同协议，本接口明确拒绝；ZIP、其他历史/自定义导入布局不在本报告能力范围。`formal` 记录独立审查的结构与来源绑定，仍不评估批准有效性或审查真实性，也不授予实现权限。此能力不表示 Node 调用已迁移。
 
 会签的当前期待来自 checkpoint 或正式审查任务。用户决定须提供一个独立消费者：`--requirements` 事项数组、`--checkpoint` 的当前 human review，或 `--task` 的正式任务。待验记录、批准包或回复不能反向定义自己的 subject、范围与 owner。延续证明使用 `--continuation`，独立事项须以 `continuation_ref` 指向该证明。
 

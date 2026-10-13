@@ -172,6 +172,9 @@ func (s *SemanticSession) ReferenceView(ref string) (*View, string, error) {
 		return s.V, s.LocalRef(local), nil
 	}
 	if strings.HasPrefix(ref, "maintenance:") {
+		if s.V.Virtual != nil {
+			return nil, "", s.Reject("PATH", "归档来源不读取外部物理文件")
+		}
 		identity, err := s.Doc("yss-project.yaml")
 		if err != nil {
 			return nil, "", err
@@ -188,9 +191,20 @@ func (s *SemanticSession) ReferenceView(ref string) (*View, string, error) {
 			return nil, "", err
 		}
 		for _, r := range append(roots, "docs", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project") {
-			if _, err = s.Scan(r); err != nil {
+			entries, err := scanRegistrations(s.Root, r, s.Guard, func(ref string) error {
+				_, err := s.V.Watch(ref)
+				return err
+			})
+			if err != nil {
 				return nil, "", err
 			}
+			if old, ok := s.registrationScans[r]; ok && !EqualStrings(old, entries) {
+				return nil, "", s.Unavailable("INPUT_DRIFT", "登记扫描集合变化: "+r)
+			}
+			if s.registrationScans == nil {
+				s.registrationScans = map[string][]string{}
+			}
+			s.registrationScans[r] = entries
 		}
 		if _, err = s.V.Watch(".gitmodules"); err != nil {
 			return nil, "", err

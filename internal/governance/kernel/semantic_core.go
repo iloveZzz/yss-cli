@@ -90,6 +90,7 @@ type SemanticSession struct {
 	RuleSession       *SemanticSession          `json:"-" yaml:"-"`
 	toolSource        *SemanticSession
 	finalObservations map[string][]func() error
+	registrationScans map[string][]string
 }
 
 func NewSemanticSession(ctx context.Context, root string, args map[string]string) *SemanticSession {
@@ -684,6 +685,15 @@ func (s *SemanticSession) FinishInputs() error {
 		}
 		if !EqualStrings(old, now) {
 			return s.Unavailable("INPUT_DRIFT", "核验结束时扫描集合变化: "+ref)
+		}
+	}
+	for ref, old := range s.registrationScans {
+		now, err := scanRegistrations(s.Root, ref, s.Guard, nil)
+		if err != nil {
+			return err
+		}
+		if !EqualStrings(old, now) {
+			return s.Unavailable("INPUT_DRIFT", "核验结束时登记扫描集合变化: "+ref)
 		}
 	}
 	for _, child := range s.Children {

@@ -154,14 +154,9 @@ func contractDeliveryRecordIdentity(s *kernel.SemanticSession, bundle *nativeHan
 	return nil
 }
 
-func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
-	if strings.EqualFold(path.Ext(prefix), ".zip") {
-		archive, root, e := s.ZipSourceSession(prefix)
-		if e != nil {
-			return nil, e
-		}
-		return contractOpenHandoff(archive, root)
-	}
+// Prepare the immutable view once: inventory, original bytes, layout and source
+// signing policy are shared by full Handoff gates and readonly business reports.
+func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
 	manifest, e := s.Doc(path.Join(prefix, "manifest.json"))
 	if e != nil {
 		return nil, e
@@ -308,6 +303,60 @@ func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHando
 			}
 		}
 	}
+	if e = contractHandoffSourcePolicy(source, kernel.ContractN(handoff["schema_version"])); e != nil {
+		return nil, e
+	}
+	return &nativeHandoff{Manifest: manifest, Handoff: handoff, Source: source, Prefix: prefix}, nil
+}
+
+// Imported business references select an already authenticated v5 source view;
+// a path match alone never creates aliases or accepts a distinct baseline format.
+func contractBusinessSource(s *kernel.SemanticSession, ref, reviewRef string) (*kernel.SemanticSession, string, string, error) {
+	if strings.HasPrefix(ref, "docs/spec-baselines/") {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
+	}
+	if !strings.HasPrefix(ref, "docs/handoffs/") {
+		return s, ref, reviewRef, nil
+	}
+	parts := strings.Split(ref, "/")
+	if !kernel.ContractPath(ref) || len(parts) < 8 || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(parts[3]) || parts[4] != "package" || parts[5] != "payload" || parts[6] != "files" {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告仅支持战略 Handoff v5 的固定 payload/files 来源")
+	}
+	prefix, local := strings.Join(parts[:5], "/"), strings.Join(parts[7:], "/")
+	manifest, e := s.Doc(path.Join(prefix, "manifest.json"))
+	if e != nil {
+		return nil, "", "", e
+	}
+	if kernel.SemHas([]string{"spec-baseline", "spec-baseline-package"}, kernel.Text(manifest["kind"])) {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
+	}
+	opened, e := contractOpenHandoffSource(s, prefix)
+	if e != nil {
+		return nil, "", "", e
+	}
+	if kernel.ContractN(opened.Handoff["schema_version"]) != 5 {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告需要战略 Handoff v5 固定来源布局")
+	}
+	base := prefix + "/payload/files/"
+	if strings.HasPrefix(reviewRef, base) {
+		reviewRef = strings.TrimPrefix(reviewRef, base)
+	}
+	return opened.Source, local, reviewRef, nil
+}
+
+func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
+	if strings.EqualFold(path.Ext(prefix), ".zip") {
+		archive, root, e := s.ZipSourceSession(prefix)
+		if e != nil {
+			return nil, e
+		}
+		return contractOpenHandoff(archive, root)
+	}
+	opened, e := contractOpenHandoffSource(s, prefix)
+	if e != nil {
+		return nil, e
+	}
+	manifest, source := opened.Manifest, opened.Source
 	bundle, e := contractInspectHandoff(source, kernel.Text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
@@ -742,12 +791,6 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 		return e
 	}
 	roles := contractCopy(s.Roles)
-	decisionPolicy := kernel.SemMap(roles["user_decision_policy"])
-	for _, id := range kernel.SemStrings(decisionPolicy["required_capabilities"]) {
-		if !kernel.SemHas([]string{"strategic-decision-reuse-v1", "business-ticket-approval-v1"}, id) {
-			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "不支持的来源决定策略能力: "+id)
-		}
-	}
 	policy := contractCopy(kernel.SemMap(roles["gate_policy"]))
 	review := kernel.SemList(policy["digital_human_review"])
 	for _, v := range kernel.SemList(policy["check_reviews"]) {
@@ -968,6 +1011,11 @@ func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error 
 	_, workUnits := kernel.Object(policy["work_units"])
 	if !valid || version != 1 || s.Roles["status"] != "active" || !gatesPresent || !present || !gateList || !workUnits || !contractUnique(policy["gates"], false) || !contractUnique(policy["source_kinds"], true) {
 		return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "来源批准或真实决定规则缺失、未知或不完整")
+	}
+	for _, id := range kernel.SemStrings(policy["required_capabilities"]) {
+		if !kernel.SemHas([]string{"strategic-decision-reuse-v1", "business-ticket-approval-v1"}, id) {
+			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "不支持的来源决定策略能力: "+id)
+		}
 	}
 	for _, kind := range kernel.SemStrings(policy["source_kinds"]) {
 		if !kernel.SemHas([]string{"platform-message", "session-export", "user-confirmation-file"}, kind) {

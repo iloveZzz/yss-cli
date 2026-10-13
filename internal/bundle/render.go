@@ -63,14 +63,6 @@ function projectionRootsFor(lock) {
 			text = strings.Replace(text, `const targets = [".agents/skills", ...PROJECTION_ROOTS];`, `const targets = [".agents/skills", ...projectionRoots];`, 1)
 			text = strings.Replace(text, "projectionRoots: PROJECTION_ROOTS, sources, skills", "projectionRoots, sources, skills", 1)
 		}
-	case ".template-spec/engineering/backend-platforms.json":
-		if selected {
-			text = strings.ReplaceAll(text, ".template-source/evidence/maintenance/2026-09-18-yss-backend-components/aliyun-artifact-resolution.json", "docs/engineering/evidence/aliyun-artifact-resolution.json")
-		}
-	case ".template-spec/agents/backend-architecture-profiles.md":
-		if selected {
-			text = strings.Replace(text, "；依据见 `.template-source/evidence/maintenance/2026-09-12-existing-project-delivery/maven-adapters-04.json`", "；适配验证证据保留在模板源，项目实例须对自身工程重新验证", 1)
-		}
 	case ".template-spec/user-guide/用户手册.md":
 		if selected {
 			text = "# " + projectToken + " 用户手册\n\n本仓是 `project-instance`，用于 " + domainToken + " 的研发资产。先阅读根 [AGENTS.md](../../AGENTS.md)、[CONTEXT.md](../../CONTEXT.md) 与 [生命周期资产索引](../process/lifecycle-artifact-map.md)。\n\n初始化安装分诊与 Plan 入口资产、入口 Skill 与所选 Agent 平台。进入后续阶段前，运行 `create-yss-spec assets ensure <stage-id> --plan` 核对文件，再运行 `--apply` 原子安装；专项 Skill 使用 `create-yss-spec skills ensure <skill-id...> --plan/--apply`，会补齐该 Skill 引用的实例文件。增加平台使用 `create-yss-spec skills runtime add <codex|cursor|pi> --plan/--apply`。CLI 快照必须与实例记录的模板提交一致；版本不匹配时先核对匹配的 CLI 或 `create-yss-spec sync --plan`，不自动扩展同步范围。\n\n项目校验运行 `scripts/verify-project-instance`；实例 CI 应执行该命令和项目实际的构建、测试。\n" + skillPreflight
@@ -391,20 +383,13 @@ func prepareSource(profile, ref string, data []byte) ([]byte, error) {
 		}
 	}
 	if profile != "spec" {
-		if profile == "backend" && ref == ".gitignore" {
-			return regexp.MustCompile("(?s)\\n# Generated shared skills; authority: Spec profile-skill-sync.json\\n.*?\\n# End generated shared skills\\n").ReplaceAll(data, nil), nil
-		}
 		return data, nil
 	}
 	text := string(data)
 	switch ref {
-	case "AGENTS.md":
-		text = regexp.MustCompile("(?s)\\n## 4\\. `template-source` 模板维护路由.*?(\\n## 5\\.)").ReplaceAllString(text, "$1")
 	case ".template-spec/process/harness-process-tailoring.md":
 		text = regexp.MustCompile("(?s)\\n## 4\\. 模板维护验证与审查强度分级.*?(\\n## 5\\.)").ReplaceAllString(text, "$1")
 		text = regexp.MustCompile("(?s)\\n模板维护默认停在 `implementation-ready`.*$").ReplaceAllString(text, "\n")
-	case ".template-spec/process/implementation-repo-integration.md":
-		text = regexp.MustCompile("(?s)\\n## 3\\. 本变更的跨仓库合同.*$").ReplaceAllString(text, "\n")
 	}
 	return []byte(text), nil
 }

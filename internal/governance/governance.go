@@ -141,7 +141,7 @@ func ArgumentKeys(group, action string) []string {
 	case "handoff.export", "handoff.import":
 		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
-		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "unit", "slice", "phase")
+		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "unit", "slice", "phase", "mode", "review-ref")
 	case "archive.pack", "archive.unpack":
 		allowed = append(allowed, "source", "file", "output", "arg0")
 	case "archive.verify":

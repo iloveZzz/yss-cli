@@ -150,7 +150,7 @@ func verifyMaintenanceSemantic(s *kernel.SemanticSession, ref string, opts map[s
 		reviewKind = "focused-independent-review"
 	}
 	if version == 2 {
-		if err = maintenanceStateSemantic(s, doc, kinds, reviewKind); err != nil {
+		if err = maintenanceStateSemantic(s, doc, kinds, reviewKind, history); err != nil {
 			return err
 		}
 	}
@@ -213,13 +213,17 @@ func verifyMaintenanceSemantic(s *kernel.SemanticSession, ref string, opts map[s
 	return nil
 }
 
-func maintenanceStateSemantic(s *kernel.SemanticSession, doc map[string]any, kinds map[string]bool, reviewKind string) error {
+func maintenanceStateSemantic(s *kernel.SemanticSession, doc map[string]any, kinds map[string]bool, reviewKind string, history bool) error {
 	states := []string{"implementation-ready", "review-ready", "release-ready"}
 	target, current := kernel.Text(doc["target_state"]), kernel.Text(doc["current_state"])
 	profile := kernel.Text(doc["verification_profile"])
 	round, ok := kernel.Integer(doc["review_round"])
 	digest, digestPresent := doc["candidate_digest"]
-	if !digestPresent || !kernel.SemHas(states, target) || !kernel.SemHas(append(append([]string{}, states...), "needs-human"), current) || !kernel.SemHas([]string{"fast", "candidate", "release"}, profile) || !ok || round < 0 || round > 2 || digest != nil && !kernel.IsSHA256(strings.TrimPrefix(kernel.Text(digest), "sha256:")) {
+	profiles := []string{"fast", "release"}
+	if history {
+		profiles = append(profiles, "candidate")
+	}
+	if !digestPresent || !kernel.SemHas(states, target) || !kernel.SemHas(append(append([]string{}, states...), "needs-human"), current) || !kernel.SemHas(profiles, profile) || !ok || round < 0 || round > 2 || digest != nil && !kernel.IsSHA256(strings.TrimPrefix(kernel.Text(digest), "sha256:")) {
 		return s.Reject("MAINTENANCE_STATE", "维护状态、轮次或候选摘要无效")
 	}
 	rank := func(v string) int {
@@ -274,9 +278,11 @@ func maintenanceStateSemantic(s *kernel.SemanticSession, doc map[string]any, kin
 		}
 	}
 	if current == "review-ready" {
-		expected := "candidate"
+		expected := "release"
 		if self {
 			expected = "fast"
+		} else if history {
+			expected = "candidate"
 		}
 		if profile != expected {
 			return s.Reject("MAINTENANCE_STATE", "审查状态与验证 profile 不符")
@@ -284,7 +290,7 @@ func maintenanceStateSemantic(s *kernel.SemanticSession, doc map[string]any, kin
 		return nil
 	}
 	if current == "needs-human" {
-		if target != "release-ready" || round != 2 || !kernel.SemHas([]string{"candidate", "release"}, profile) {
+		if target != "release-ready" || round != 2 || !(profile == "release" || history && profile == "candidate") {
 			return s.Reject("MAINTENANCE_STATE", "needs-human 须来自第二轮发布目标")
 		}
 		return nil
