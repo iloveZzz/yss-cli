@@ -196,6 +196,9 @@ func (d *dailySession) run(action string, args map[string]string) error {
 			return d.s.Unavailable("PATH", err.Error())
 		}
 	}
+	if err = d.implementationPaths(paths); err != nil {
+		return err
+	}
 	if _, err = d.basisRef(kernel.Text(scope["risk_ref"]), ""); err != nil {
 		return d.info("风险依据不可读")
 	}
@@ -203,9 +206,12 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	if !ok {
 		return d.info("scope.impacts 必须明确登记，未知风险先调查")
 	}
+	if kernel.SemHas(impacts, "frontend") || kernel.SemHas(impacts, "ui") || kernel.Text(repository["side"]) == "frontend" {
+		return d.s.Reject("FRONTEND_REMOVED", "前端实现已从生命周期移除；不能路由或验收日常前端任务")
+	}
 	excluded, _ := dailyStrings(d.policy["excluded_impacts"])
 	for _, impact := range impacts {
-		if kernel.SemHas(excluded, impact) || !kernel.SemHas([]string{"no-api", "ui", "backend", "frontend", "compatible-additive-api"}, impact) {
+		if kernel.SemHas(excluded, impact) || !kernel.SemHas([]string{"no-api", "backend", "compatible-additive-api"}, impact) {
 			return d.govern(action, "风险影响需要正式治理: "+impact)
 		}
 	}
@@ -246,13 +252,8 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	if err = d.observeDiff(paths); err != nil {
 		return err
 	}
-	if d.report.Profile != "spec" {
-		if err = d.specialistPaths(action, d.report.ChangedFiles); err != nil {
-			return err
-		}
-		if d.report.DeliveryPath == "governed" {
-			return nil
-		}
+	if err = d.implementationPaths(d.report.ChangedFiles); err != nil {
+		return err
 	}
 	if err = d.checkAPI(action); err != nil {
 		return err
@@ -987,7 +988,7 @@ func (d *dailySession) specialistInput(action string, impacts []string) error {
 	if declared := kernel.Text(repository["side"]); declared != "" && declared != side {
 		return d.govern(action, "实现仓登记侧别与本端 Profile 不一致")
 	}
-	if err := d.specialistPaths(action, paths); err != nil || d.report.DeliveryPath == "governed" {
+	if err := d.implementationPaths(paths); err != nil || d.report.DeliveryPath == "governed" {
 		return err
 	}
 	if kernel.SemHas(impacts, opposite) {
@@ -1013,12 +1014,12 @@ func (d *dailySession) specialistInput(action string, impacts []string) error {
 	return nil
 }
 
-func (d *dailySession) specialistPaths(action string, paths []string) error {
-	opposite := "frontend"
+func (d *dailySession) implementationPaths(paths []string) error {
 	for _, ref := range paths {
+		ext := strings.ToLower(filepath.Ext(strings.TrimSuffix(ref, "/")))
 		ref = "/" + strings.Trim(filepath.ToSlash(ref), "/") + "/"
-		if strings.Contains(ref, "/apps/"+opposite+"/") || strings.Contains(ref, "/app/"+opposite+"/") {
-			return d.govern(action, "本端 Profile 不允许另一端工程写范围")
+		if strings.Contains(ref, "/apps/frontend/") || strings.Contains(ref, "/app/frontend/") || kernel.SemHas([]string{".vue", ".jsx", ".tsx"}, ext) {
+			return d.s.Reject("FRONTEND_REMOVED", "前端实现已从生命周期移除；日常任务不能修改前端工程文件")
 		}
 	}
 	return nil
