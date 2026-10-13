@@ -22,6 +22,6 @@ Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统�
 
 不执行 npm unpublish。本地从未公开发布的固定恢复版本必须另存可获取渠道，不能声称它已在 npm。保留上一版二进制、Bundle、来源锁、插件、旧 gitlink SHA 和恢复材料；不使用 reset/clean 覆盖工作。提交、推送、tag、稳定发布、npm deprecated、旧仓 archive 分别需要授权。
 
-历史 1.0 平台验收限定为本机；当前 2.0.0 由用户明确选择 darwin/arm64 与 windows/amd64，两平台必须各自取得实际证据。工具的 requiredPlatforms 必须与独立 caller 固定范围一致，禁止通过输入自行删减已选平台。
+历史 1.0 平台验收限定为本机。当前 2.0.0 的产物范围为 darwin/arm64 与 windows/amd64；用户随后明确要求仅 Mac 实际验收，其余完成产物即可。本次独立 caller 的 requiredPlatforms 因而固定为 darwin/arm64，Windows 构建包及摘要另行交付，不填造 native 收据、不并入已验收平台集合。工具仍拒绝输入自行改变 caller 范围，在线升级仍拒绝未验收平台。
 
-2.0.0 发行资格范围为 local-platform-impacted-consumers：所选两个平台的原生接口、插件、恢复与安装，以及固定源码、Bundle、三个 Profile 的真实旧实例恢复和受影响模板消费者。模板采用完整变化集驱动的必要验证；未执行的全模板回归、剩余架构任务和其他平台不记为通过。
+2.0.0 发行资格范围为 local-platform-impacted-consumers：Mac ARM64 的原生接口、插件、恢复与安装，以及固定源码、Bundle、三个 Profile 的真实旧实例恢复和受影响模板消费者。Windows 仅验证构建产物的来源、文件与摘要，保持 stableReady=false、nativeRuntimeVerified=false。模板采用完整变化集驱动的必要验证；未执行的全模板回归、Windows 运行验收、剩余架构任务和其他平台不记为通过。

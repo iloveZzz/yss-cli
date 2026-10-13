@@ -105,7 +105,7 @@ yss migrate rollback --root ./old-project --json
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-2.0.0 的 `darwin/arm64` 与 `windows/amd64` 分别取得原生验收证据后才装配正式包；以公开发行资产的 manifest 为准。交叉构建成功不授予稳定发行资格，缺少证据的候选保持 `stableReady=false`、`nativeRuntimeVerified=false`。Windows 只读文件操作的 `UNPORTED` 限制保持。
+2.0.0 交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.0.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
