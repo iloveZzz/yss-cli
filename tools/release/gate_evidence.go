@@ -492,12 +492,12 @@ func (r *reader) legacyGate(s gateSources, binary string) error {
 		}
 		pins[family] = text(p["sha256"])
 	}
-	if len(pins) != 4 {
-		return reject("PROVENANCE", "four historical packages required")
+	if len(pins) != len(profiles) {
+		return reject("PROVENANCE", "%d historical packages required", len(profiles))
 	}
 	rows := items(o["cases"])
-	if len(rows) != 48 {
-		return reject("EVIDENCE", "48 actual historical cases required")
+	if len(rows) != len(RequiredGateCoverage("legacy-recovery")) {
+		return reject("EVIDENCE", "%d actual historical cases required", len(RequiredGateCoverage("legacy-recovery")))
 	}
 	seen := []string{}
 	codes := map[string]string{"legacy-requires-explicit-migration": "MIGRATION_REQUIRED", "legacy-pending-migration-refusal": "LEGACY_INTERRUPTED", "modified-after-apply-rollback-refusal": "CONCURRENT"}

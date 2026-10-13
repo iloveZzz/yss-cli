@@ -276,7 +276,7 @@ func (r *reader) scopedTemplateGate(s gateSources) error {
 		return reject("EVIDENCE", "invalid scoped template consumer report")
 	}
 	commits := object(o["current_sources"])
-	if len(commits) != 4 {
+	if len(commits) != len(profiles) {
 		return reject("PROVENANCE", "scoped template sources incomplete")
 	}
 	for p, b := range r.identity.Bundles {

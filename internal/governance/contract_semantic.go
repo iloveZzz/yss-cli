@@ -555,6 +555,7 @@ func init() {
 	registerSemanticValidator("openapi-validation", verifyOpenAPIValidationSemantic)
 	registerSemanticValidator("scaffold-decisions", verifyScaffoldDecisionsSemantic)
 	registerSemanticValidator("slice-preflight", verifySlicePreflightSemantic)
+	registerSemanticValidator("business-tickets", verifyBusinessTicketsSemantic)
 	registerSemanticValidator("technical-completion", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		doc, e := s.Doc(ref)
 		if e != nil {
@@ -2607,216 +2608,357 @@ func contractBusinessLocator(s *kernel.SemanticSession, binding map[string]any) 
 }
 
 func contractBusinessTicketsMode(s *kernel.SemanticSession, ref, mode string) (map[string]any, error) {
+	out, _, err := contractCollectBusinessTickets(s, ref, mode, "")
+	return out, err
+}
+
+func verifyBusinessTicketsSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	source, local, reviewRef, err := contractBusinessSource(s, ref, opts["review-ref"])
+	mode := kernel.First(opts["mode"], "draft")
+	var report map[string]any
+	if err == nil {
+		_, report, err = contractCollectBusinessTickets(source, local, mode, reviewRef)
+		if source != s {
+			prefix := strings.TrimSuffix(ref, local)
+			mapped := func(ref string) string { return prefix + source.LocalRef(ref) }
+			for _, name := range []string{"inputs", "tickets", "diagnostics"} {
+				key := "ref"
+				if name == "diagnostics" {
+					key = "source_ref"
+				}
+				for _, value := range kernel.SemList(report[name]) {
+					row := kernel.SemMap(value)
+					row[key] = mapped(kernel.Text(row[key]))
+				}
+			}
+			for _, name := range []string{"spec", "semantic_review"} {
+				if value, ok := kernel.Object(report[name]); ok {
+					row := contractCopy(value)
+					row["ref"] = mapped(kernel.Text(row["ref"]))
+					report[name] = row
+				}
+			}
+		}
+	} else {
+		report = contractBusinessReport(mode)
+		report["status"] = "blocked"
+		report["diagnostics"] = []any{map[string]any{"code": kernel.SemanticCode(err), "message": err.Error(), "source_ref": ref, "locator": nil, "recovery": "核对来源、补齐引用或重新审查当前业务 Ticket 集"}}
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["business_tickets"] = report
+	return err
+}
+
+func contractBusinessReport(mode string) map[string]any {
+	return map[string]any{"schema_version": 1, "read_only": true, "execution_authorization": "not-evaluated", "mode": mode, "status": "passed", "diagnostics": []any{}, "inputs": []any{}, "tickets": []any{}, "uncovered": []string{}, "unassessed": []string{"business-granularity", "semantic-fidelity", "approval-validity"}}
+}
+
+// The report and all strict consumers share these rules. Failed IO stops only
+// its dependent branch; independent rules collect diagnostics, never authority.
+func contractCollectBusinessTickets(s *kernel.SemanticSession, ref, mode, reviewRef string) (out, report map[string]any, failure error) {
+	report = contractBusinessReport(mode)
+	issues, inputs := []any{}, []any{}
+	observed := map[string]string{}
+	issue := func(code, message, source string, locator any) {
+		issues = append(issues, map[string]any{"code": code, "message": message, "source_ref": source, "locator": locator, "recovery": "核对来源、补齐引用或重新审查当前业务 Ticket 集"})
+		if failure == nil {
+			failure = s.Reject(code, message)
+		}
+	}
+	problem := func(err error, code, source string, locator any) bool {
+		if err == nil {
+			return false
+		}
+		if code == "" {
+			code = kernel.SemanticCode(err)
+		}
+		issue(code, err.Error(), source, locator)
+		if kernel.SemanticExit(err) == 2 {
+			failure = err
+		}
+		return true
+	}
+	defer func() {
+		report["diagnostics"], report["inputs"] = issues, inputs
+		if failure != nil {
+			report["status"] = "blocked"
+			out = nil
+		}
+	}()
+	read := func(source string) ([]byte, bool) {
+		if !kernel.ContractPath(source) {
+			issue("BUSINESS_PATH_INVALID", "来源必须为项目内规范相对路径", source, nil)
+			return nil, false
+		}
+		bytes, err := s.Bytes(source)
+		if problem(err, "", source, nil) {
+			return nil, false
+		}
+		digest := "sha256:" + safefs.Digest(bytes)
+		if previous, ok := observed[source]; ok {
+			if previous != digest {
+				issue("INPUT_DRIFT", "读取期间来源变化", source, nil)
+				return nil, false
+			}
+		} else {
+			observed[source] = digest
+			inputs = append(inputs, map[string]any{"ref": source, "digest": digest})
+		}
+		return bytes, true
+	}
+	doc := func(source string) (map[string]any, bool) {
+		if _, ok := read(source); !ok {
+			return nil, false
+		}
+		value, err := s.Doc(source)
+		return value, !problem(err, "", source, nil)
+	}
+	binding := func(value any) (map[string]any, bool) {
+		bound, valid := kernel.Object(value)
+		if !valid || kernel.Text(bound["ref"]) == "" || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(bound["version"])) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(kernel.Text(bound["digest"])) {
+			issue("BINDING_INVALID", "需要 ref/version/digest 来源绑定", ref, nil)
+			return nil, false
+		}
+		source := kernel.Text(bound["ref"])
+		if _, ok := read(source); !ok {
+			return nil, false
+		}
+		if observed[source] != bound["digest"] {
+			issue("SOURCE_STALE", "来源原始字节已变化", source, nil)
+		}
+		return bound, true
+	}
+	validate := func(value map[string]any, source string) {
+		err := s.ValidateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", value)
+		code := "SCHEMA_INVALID"
+		if kernel.SemanticExit(err) == 2 {
+			code = "SCHEMA_UNAVAILABLE"
+		}
+		problem(err, code, source, nil)
+	}
 	if mode != "draft" && mode != "formal" {
-		return nil, s.Reject("BUSINESS_MODE_INVALID", "业务票模式必须为 draft 或 formal")
+		issue("MODE_INVALID", "业务票模式必须为 draft 或 formal", ref, nil)
+		return
 	}
-	set, e := s.Doc(ref)
-	if e != nil {
-		return nil, e
+	set, ok := doc(ref)
+	if !ok {
+		return
 	}
-	if e = s.ValidateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", set); e != nil {
-		return nil, e
+	validate(set, ref)
+	if kernel.ContractN(set["schema_version"]) != 1 || set["kind"] != "business-ticket-set" || strings.TrimSpace(kernel.Text(set["id"])) == "" || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(set["version"])) || !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(set["status"])) {
+		issue("BUSINESS_SET_INVALID", "业务票集合身份、版本或状态非法", ref, nil)
 	}
-	if kernel.Text(set["kind"]) != "business-ticket-set" || !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(set["status"])) || mode == "formal" && kernel.Text(set["status"]) != "ready-for-human" {
-		return nil, s.Reject("BUSINESS_TICKETS", "业务票集合不是正式待审资产")
+	report["id"], report["version"], report["spec"] = set["id"], set["version"], set["spec"]
+	report["coverage_deferred"] = append([]any{}, kernel.SemList(set["coverage_deferred"])...)
+	ids, order := map[string]contractPlanEntry{}, []string{}
+	specRef := kernel.Text(kernel.SemMap(set["spec"])["ref"])
+	if bound, valid := binding(set["spec"]); valid {
+		specRef = kernel.Text(bound["ref"])
+		if _, valid = doc(specRef); valid {
+			entries, supported, err := contractPlan(s, specRef)
+			if !problem(err, "", specRef, nil) {
+				if !supported {
+					issue("SPEC_FORMAT_UNASSESSED", "Spec 需显式采用 plan-spec-v1；旧格式不推断覆盖", specRef, nil)
+				}
+				hasFR, hasAC := false, false
+				for _, entry := range entries {
+					if !kernel.SemHas([]string{"FR", "NFR", "AC"}, entry.Kind) {
+						continue
+					}
+					if _, exists := ids[entry.ID]; exists {
+						issue("DUPLICATE_ID", "Spec ID 重复: "+entry.ID, specRef, entry.ID)
+					} else {
+						ids[entry.ID] = entry
+						order = append(order, entry.ID)
+					}
+					hasFR, hasAC = hasFR || entry.Kind == "FR", hasAC || entry.Kind == "AC"
+				}
+				if !hasFR || !hasAC {
+					issue("SPEC_COVERAGE_UNASSESSED", "缺少可机械读取的 FR/AC", specRef, nil)
+				}
+			}
+		}
 	}
-	spec, e := contractBoundDoc(s, set["spec"])
-	if e != nil {
-		return nil, e
+	docs, covered, seenPaths := map[string]any{}, map[string]bool{}, map[string]bool{}
+	reportTickets, ticketOrder := []any{}, []string{}
+	if len(kernel.SemList(set["tickets"])) == 0 {
+		issue("BUSINESS_TICKETS_REQUIRED", "业务票集合必须包含票据", ref, nil)
 	}
-	_ = spec
-	entries, supported, e := contractPlan(s, kernel.Text(kernel.SemMap(set["spec"])["ref"]))
-	if e != nil {
-		return nil, e
-	}
-	if !supported {
-		return nil, s.Reject("BUSINESS_TICKETS", "Spec 未声明 plan-spec-v1")
-	}
-	ids := map[string]contractPlanEntry{}
-	hasFR, hasAC := false, false
-	for _, entry := range entries {
-		if entry.Kind != "FR" && entry.Kind != "NFR" && entry.Kind != "AC" {
+	for _, value := range kernel.SemList(set["tickets"]) {
+		bound, valid := binding(value)
+		if !valid {
 			continue
 		}
-		if _, ok := ids[entry.ID]; ok {
-			return nil, s.Reject("BUSINESS_TICKETS", "Spec ID 不唯一")
+		ticketRef, id := kernel.Text(bound["ref"]), kernel.Text(bound["id"])
+		ticket, valid := doc(ticketRef)
+		if !valid {
+			continue
 		}
-		ids[entry.ID] = entry
-		hasFR = hasFR || entry.Kind == "FR"
-		hasAC = hasAC || entry.Kind == "AC"
-	}
-	if !hasFR || !hasAC {
-		return nil, s.Reject("BUSINESS_TICKETS", "Spec 缺少可机械读取的 FR/AC")
-	}
-	docs, covered := map[string]any{}, map[string]bool{}
-	reportTickets := []any{}
-	seenPaths := map[string]bool{}
-	dependencies := map[string][]string{}
-	for _, v := range kernel.SemList(set["tickets"]) {
-		binding := kernel.SemMap(v)
-		ticket, e := contractBoundDoc(s, binding)
-		if e != nil {
-			return nil, e
+		validate(ticket, ticketRef)
+		if docs[id] != nil || seenPaths[ticketRef] {
+			issue("DUPLICATE_ID", "Ticket ID 或路径重复: "+id, ticketRef, nil)
 		}
-		if e = s.ValidateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", ticket); e != nil {
-			return nil, e
+		seenPaths[ticketRef] = true
+		if kernel.ContractN(ticket["schema_version"]) != 1 || ticket["kind"] != "business-ticket" || !regexp.MustCompile(`^BT-[A-Za-z0-9][A-Za-z0-9._-]*$`).MatchString(kernel.Text(ticket["id"])) || !contractSame(ticket["id"], bound["id"]) || !contractSame(ticket["version"], bound["version"]) {
+			issue("BUSINESS_TICKET_INVALID", "类型、稳定 ID 或版本不匹配", ticketRef, nil)
 		}
-		id := kernel.Text(ticket["id"])
-		if id == "" {
-			id = kernel.Text(ticket["ticket_id"])
+		if !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(ticket["status"])) {
+			issue("BUSINESS_READINESS_FORBIDDEN", "业务票不得声明实现就绪", ticketRef, nil)
 		}
-		if docs[id] != nil || seenPaths[kernel.Text(binding["ref"])] || id != kernel.Text(binding["id"]) || kernel.Text(ticket["kind"]) != "business-ticket" || !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(ticket["status"])) || mode == "formal" && kernel.Text(ticket["status"]) != "ready-for-human" || ticket["version"] != binding["version"] {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票身份、状态或版本非法")
+		if !strings.HasPrefix(ticketRef, path.Join(path.Dir(ref), "business-tickets")+"/") || !strings.HasSuffix(ticketRef, ".md") {
+			issue("BUSINESS_TICKET_LOCATION", "业务票需独立放在 business-tickets/", ticketRef, nil)
 		}
 		if !contractSame(ticket["spec"], set["spec"]) {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票 Spec 绑定冲突")
+			issue("SPEC_BINDING_MISMATCH", "票据与集合的 Spec 依据不一致", ticketRef, nil)
 		}
-		ticketRef := kernel.Text(binding["ref"])
-		seenPaths[ticketRef] = true
-		if !strings.HasPrefix(ticketRef, path.Join(path.Dir(ref), "business-tickets")+"/") || !strings.HasSuffix(ticketRef, ".md") {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票不在集合相邻目录")
-		}
-		raw, e := s.Bytes(ticketRef)
-		if e != nil {
-			return nil, e
-		}
-		body := string(raw)
-		for _, heading := range []string{"业务结果", "范围", "非目标", "验收", "风险"} {
-			if !regexp.MustCompile(`(?m)^##\s+` + heading + `\s*$`).MatchString(body) {
-				return nil, s.Reject("BUSINESS_TICKETS", "业务票缺少正文: "+heading)
+		for _, field := range []string{"requirement_refs", "acceptance_refs", "dependencies"} {
+			if !contractUnique(ticket[field], field != "dependencies") {
+				issue("REQUIRED_FIELD", "缺少或重复 "+field, ticketRef, nil)
 			}
 		}
-		if !contractUnique(ticket["requirement_refs"], true) || !contractUnique(ticket["acceptance_refs"], true) {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票需求/验收引用无效")
+		if len(kernel.SemStrings(ticket["requirement_refs"])) == 0 || len(kernel.SemStrings(ticket["acceptance_refs"])) == 0 {
+			issue("COVERAGE_REQUIRED", "需要需求与验收引用", ticketRef, nil)
 		}
-		for _, id := range kernel.SemStrings(ticket["requirement_refs"]) {
-			if _, ok := ids[id]; !ok {
-				return nil, s.Reject("BUSINESS_TICKETS", "未知 Spec ID: "+id)
+		for _, requirement := range kernel.SemStrings(ticket["requirement_refs"]) {
+			entry, exists := ids[requirement]
+			if !exists || !kernel.SemHas([]string{"FR", "NFR"}, entry.Kind) {
+				issue("DANGLING_REFERENCE", "无效引用 "+requirement, ticketRef, nil)
+			} else {
+				covered[requirement] = true
 			}
-			if !kernel.SemHas([]string{"FR", "NFR"}, ids[id].Kind) {
-				return nil, s.Reject("BUSINESS_TICKETS", "需求引用必须为 FR/NFR")
-			}
-			covered[id] = true
 		}
-		for _, id := range kernel.SemStrings(ticket["acceptance_refs"]) {
-			entry := ids[id]
+		for _, ac := range kernel.SemStrings(ticket["acceptance_refs"]) {
+			entry := ids[ac]
 			if entry.Kind != "AC" {
-				return nil, s.Reject("BUSINESS_TICKETS", "验收引用必须为 AC")
+				issue("DANGLING_REFERENCE", "无效引用 "+ac, ticketRef, nil)
+			} else {
+				covered[ac] = true
 			}
-			covered[id] = true
 			requirements := regexp.MustCompile(`\b(?:FR|NFR)-[A-Za-z0-9][A-Za-z0-9._-]*\b`).FindAllString(entry.Fields["需求引用"], -1)
-			if len(requirements) == 0 {
-				return nil, s.Reject("BUSINESS_TICKETS", "验收缺少原始需求引用")
-			}
+			mismatch := len(requirements) == 0
 			for _, requirement := range requirements {
-				if !kernel.SemHas(ticket["requirement_refs"], requirement) {
-					return nil, s.Reject("BUSINESS_TICKETS", "业务验收缺少需求覆盖")
+				mismatch = mismatch || !kernel.SemHas(ticket["requirement_refs"], requirement)
+			}
+			if mismatch {
+				issue("AC_REQUIREMENT_MISMATCH", "验收 "+ac+" 与本票需求来源不一致", ticketRef, ac)
+			}
+		}
+		for _, value := range kernel.SemList(ticket["source_refs"]) {
+			bound, valid := binding(value)
+			if valid && kernel.Text(bound["locator"]) != "" {
+				problem(contractBusinessLocator(s, bound), "DANGLING_REFERENCE", kernel.Text(bound["ref"]), bound["locator"])
+			}
+		}
+		raw, err := s.Bytes(ticketRef)
+		if !problem(err, "", ticketRef, nil) {
+			for _, heading := range []string{"业务结果", "范围", "非目标", "验收", "风险"} {
+				if !regexp.MustCompile(`(?m)^##\s+` + heading + `\s*$`).Match(raw) {
+					issue("REQUIRED_SECTION", "缺少 "+heading, ticketRef, nil)
 				}
 			}
 		}
-		for _, v := range kernel.SemList(ticket["open_questions"]) {
-			q := kernel.SemMap(v)
-			if e = contractRequired(s, q, "id", "question", "owner", "resolve_by"); e != nil {
-				return nil, e
+		for _, value := range kernel.SemList(ticket["open_questions"]) {
+			q := kernel.SemMap(value)
+			complete := true
+			for _, field := range []string{"id", "question", "owner", "resolve_by"} {
+				complete = complete && strings.TrimSpace(kernel.Text(q[field])) != ""
 			}
-			if _, ok := q["blocking"].(bool); !ok {
-				return nil, s.Reject("BUSINESS_TICKETS", "未决项缺少布尔 blocking")
+			if _, valid := q["blocking"].(bool); !valid || !complete {
+				issue("QUESTION_INCOMPLETE", "未决项需问题、责任人、时点及阻断判断", ticketRef, nil)
 			}
 			if mode == "formal" && q["blocking"] == true {
-				return nil, s.Reject("BUSINESS_TICKETS", "正式业务票仍有阻断问题")
+				issue("OPEN_BLOCKER", kernel.Text(q["question"]), ticketRef, nil)
 			}
 		}
-		for _, v := range kernel.SemList(ticket["source_refs"]) {
-			b, e := contractBinding(s, v)
-			if e != nil {
-				return nil, e
-			}
-			if kernel.Text(b["locator"]) != "" {
-				if e = contractBusinessLocator(s, b); e != nil {
-					return nil, e
-				}
-			}
+		if mode == "formal" && ticket["status"] != "ready-for-human" {
+			issue("TICKET_DRAFT", "正式化仍有草案票", ticketRef, nil)
 		}
-		dependencies[id] = kernel.SemStrings(ticket["dependencies"])
+		if docs[id] == nil {
+			ticketOrder = append(ticketOrder, id)
+		}
 		docs[id] = ticket
-		reportTickets = append(reportTickets, map[string]any{"id": id, "ref": ticketRef, "version": ticket["version"], "source_digest": binding["digest"], "source_refs": ticket["source_refs"], "requirement_refs": ticket["requirement_refs"], "acceptance_refs": ticket["acceptance_refs"], "dependencies": ticket["dependencies"]})
+		reportTickets = append(reportTickets, map[string]any{"id": id, "ref": ticketRef, "version": bound["version"], "source_digest": bound["digest"], "source_refs": ticket["source_refs"], "requirement_refs": ticket["requirement_refs"], "acceptance_refs": ticket["acceptance_refs"], "dependencies": ticket["dependencies"]})
 	}
+	report["tickets"] = reportTickets
 	active, done := map[string]bool{}, map[string]bool{}
-	var visit func(string) error
-	visit = func(id string) error {
+	var visit func(string)
+	visit = func(id string) {
 		if active[id] {
-			return s.Reject("BUSINESS_TICKETS", "业务票依赖循环")
+			issue("DEPENDENCY_CYCLE", "依赖环包含 "+id, ref, nil)
+			return
 		}
 		if done[id] {
-			return nil
+			return
 		}
 		active[id] = true
-		for _, dep := range dependencies[id] {
+		for _, dep := range kernel.SemStrings(kernel.SemMap(docs[id])["dependencies"]) {
 			if docs[dep] == nil {
-				return s.Reject("BUSINESS_TICKETS", "未知业务票依赖")
-			}
-			if e := visit(dep); e != nil {
-				return e
+				issue("DANGLING_DEPENDENCY", id+" 依赖未知票 "+dep, ref, nil)
+			} else {
+				visit(dep)
 			}
 		}
 		delete(active, id)
 		done[id] = true
-		return nil
 	}
-	for id := range docs {
-		if e = visit(id); e != nil {
-			return nil, e
-		}
+	for _, id := range ticketOrder {
+		visit(id)
 	}
 	deferred := map[string]bool{}
-	for _, v := range kernel.SemList(set["coverage_deferred"]) {
-		d := kernel.SemMap(v)
-		id := kernel.First(kernel.Text(d["source_id"]), kernel.Text(d["id"]))
-		if _, ok := ids[id]; !ok || covered[id] || deferred[id] {
-			return nil, s.Reject("BUSINESS_TICKETS", "延期覆盖非法")
+	for _, value := range kernel.SemList(set["coverage_deferred"]) {
+		row := kernel.SemMap(value)
+		id := kernel.First(kernel.Text(row["source_id"]), kernel.Text(row["id"]))
+		if _, exists := ids[id]; !exists || covered[id] || deferred[id] {
+			issue("DEFERRED_COVERAGE_INVALID", "延期引用无效或重复: "+id, ref, nil)
 		}
-		if e = contractRequired(s, d, "reason", "risk", "owner", "target_version", "followup_ticket_ref", "verification_plan"); e != nil {
-			return nil, e
+		complete := true
+		for _, field := range []string{"reason", "risk", "owner", "target_version", "followup_ticket_ref", "verification_plan"} {
+			complete = complete && strings.TrimSpace(kernel.Text(row[field])) != ""
+		}
+		if !complete {
+			issue("DEFERRED_INCOMPLETE", "延期缺少责任或处理计划: "+id, ref, nil)
 		}
 		if mode == "formal" {
-			if _, e = contractBinding(s, d["decision"]); e != nil {
-				return nil, e
+			if row["decision"] == nil {
+				issue("DEFERRED_DECISION_REQUIRED", "延期缺少既有决定绑定: "+id, ref, nil)
+			} else {
+				binding(row["decision"])
 			}
 		}
 		deferred[id] = true
 	}
-	for id := range ids {
+	uncovered := []string{}
+	for _, id := range order {
 		if !covered[id] && !deferred[id] {
-			return nil, s.Reject("BUSINESS_TICKETS", "Spec 未被覆盖: "+id)
+			uncovered = append(uncovered, id)
+			issue("COVERAGE_MISSING", "未覆盖 "+id, specRef, id)
 		}
 	}
+	report["uncovered"] = uncovered
 	if mode == "formal" {
-		reviewRef := kernel.First(kernel.Text(kernel.SemMap(set["review"])["ref"]), kernel.Text(set["review_ref"]))
-		review, e := s.Doc(reviewRef)
-		if e != nil {
-			return nil, e
+		if set["status"] != "ready-for-human" {
+			issue("SET_DRAFT", "业务集合尚未正式化", ref, nil)
 		}
-		if kernel.ContractN(review["schema_version"]) != 1 || kernel.Text(review["kind"]) != "business-ticket-review" || kernel.Text(review["result"]) != "passed" || kernel.Text(review["reviewer"]) == "" || kernel.Text(review["drafter"]) == "" || kernel.Text(review["reviewer"]) == kernel.Text(review["drafter"]) {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票独立审查未通过")
-		}
-		bound, e := s.Bind(ref)
-		if e != nil {
-			return nil, e
-		}
-		if kernel.Text(review["subject_ref"]) != ref || kernel.Text(review["subject_digest"]) != bound.Digest {
-			return nil, s.Reject("BUSINESS_TICKETS", "业务票独立审查未绑定当前集合")
-		}
-		if e = s.Basis(review["evidence"]); e != nil {
-			return nil, e
-		}
-		if e = s.ValidateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", review); e != nil {
-			return nil, e
+		reviewRef = kernel.First(reviewRef, kernel.Text(kernel.SemMap(set["review"])["ref"]), kernel.Text(set["review_ref"]))
+		if review, valid := doc(reviewRef); valid {
+			validate(review, reviewRef)
+			if kernel.ContractN(review["schema_version"]) != 1 || review["kind"] != "business-ticket-review" || review["result"] != "passed" || strings.TrimSpace(kernel.Text(review["reviewer"])) == "" || strings.TrimSpace(kernel.Text(review["drafter"])) == "" || contractSame(review["reviewer"], review["drafter"]) || review["subject_ref"] != ref || review["subject_digest"] != observed[ref] || len(kernel.SemList(review["evidence"])) == 0 {
+				issue("REVIEW_REQUIRED", "需要独立且绑定当前集合的专业审查", reviewRef, nil)
+			}
+			// Keep the existing approval-evidence boundary while collecting business bindings.
+			problem(s.Basis(review["evidence"]), "", reviewRef, nil)
+			for _, evidence := range kernel.SemList(review["evidence"]) {
+				binding(evidence)
+			}
+			report["semantic_review"] = map[string]any{"status": "recorded", "ref": reviewRef, "result": review["result"], "subject_digest": review["subject_digest"]}
+			report["unassessed"] = []string{"approval-validity", "semantic-review-truth"}
 		}
 	}
-	out := contractCopy(set)
-	out["ticket_documents"] = docs
-	out["tickets"] = reportTickets
-	return out, nil
+	out = contractCopy(set)
+	out["ticket_documents"], out["tickets"] = docs, reportTickets
+	return
 }
 
 func contractBusinessCheckpoint(s *kernel.SemanticSession, cp map[string]any, required bool) error {

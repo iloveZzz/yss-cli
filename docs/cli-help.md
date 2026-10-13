@@ -2156,8 +2156,10 @@ yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json
   --home <路径>                   文件或目录路径
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --json                          执行结果输出 JSON；帮助始终输出文本
-  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight|business-tickets
+  --mode <模式>                   业务票报告模式；默认 draft；可选值: draft|formal
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --review-ref <路径>             业务票 formal 报告的显式独立审查来源
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --run-dir <路径>                文件或目录路径
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -2169,10 +2171,11 @@ yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend>  必需或从项目身份检测
---kind <slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight>
+--kind <slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight|business-tickets>
 --file / --checkpoint  资产与独立消费期待
 --approval-ref / --unit  slice、slice-preflight
 --history  仅 task；历史结构不授予当前放行
+--mode <draft|formal> / --review-ref <路径>  仅 business-tickets；默认 draft，报告不授予批准
 --allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录
 --checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出
 --home / --run-dir / --tool-root / --template-checkout  固定依赖来源

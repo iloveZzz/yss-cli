@@ -61,6 +61,8 @@ func initializeCommands() {
 	defineArgument("exit-code", "<整数>", "实际退出码；成功状态必须为 0")
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
+	defineArgument("mode", "<模式>", "业务票报告模式；默认 draft", "draft", "formal")
+	defineArgument("review-ref", "<路径>", "业务票 formal 报告的显式独立审查来源")
 	defineArgument("kind", "<类型>", "当前命令的领域类型；runtime begin 默认 command")
 	defineArgument("status", "<终态>", "运行记录的终态；成功状态必须匹配退出码 0")
 	defineArgument("project-name", "<名称>", "项目名称，作为模板变量")
@@ -466,7 +468,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
@@ -497,6 +499,8 @@ func verificationOptions(group, kind string) []string {
 			options = append(options, "approval-ref", "unit")
 		case "contract.slice":
 			options = append(options, "approval-ref", "unit")
+		case "contract.business-tickets":
+			options = append(options, "mode", "review-ref")
 		case "contract.task":
 			options = append(options, "history")
 		case "contract.scaffold-decisions":
