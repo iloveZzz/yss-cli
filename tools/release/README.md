@@ -21,6 +21,20 @@ go run ./tools/package --native-manifest INPUT.json --required-platforms darwin/
 * 旧实例恢复保留 schema 1 / kind `native-legacy-recovery-matrix` 原始报告，spec/design/backend 三个固定旧公开包、三 Profile × 原 12 case 的 36 项、实际日志、精确 `MIGRATION_REQUIRED` / `LEGACY_INTERRUPTED` / `CONCURRENT`，拒绝 fixture、自述成功、缺项或错误码混淆。包集合由现役 `profiles` 绑定，case 集合与 `RequiredGateCoverage("legacy-recovery")` 精确一致；缺失、重复和额外项均拒绝。旧 tgz 和逐 case 物理日志作为 schema 0 `evidence-file` 依赖保留。
 * 模板消费者来源是 schema 1 / kind `scoped-template-consumer-verification`，只验证九个固定受影响检查。保留原 array 的实际命令、source SHA、cwd、退出和 combined log；通过 spec/design/backend 三个固定来源及 clean 证明核验复用。它不声称完整模板或真实项目迁移已执行。
 
+九项按以下顺序绑定精确命令。`profiles.projection` 验证现役组合目录和无投影边界；`handoff.source-lock` 验证当前 Bundle 来源、字节与封装所有权，不再执行已退役的工具锁脚本。本地化后的设计技能由 `skills.source-contract` 验证锁读取、实例漂移及 canonical 登记边界，不再声称具有旧 design-agent 上游权威。调用方须按当前 `RequiredGateCoverage` 生成真实执行数组与日志，旧 `skills.upstream-source` 报告或旧命令不能换名复用。
+
+| 固定 ID | 命令 |
+| --- | --- |
+| `skills.projection` | `scripts/sync-skills --check` |
+| `skills.lock` | `scripts/update-skill-lock --check` |
+| `profiles.projection` | `node --test --test-concurrency=1 tests/profile-tree.test.mjs tests/advance-maintenance-root.test.mjs` |
+| `handoff.source-lock` | `node --test --test-concurrency=1 tests/verification-artifacts.test.mjs tests/strategic-handoff-sealed-owner.test.mjs` |
+| `lifecycle.registry` | `scripts/verify-lifecycle-registry` |
+| `skills.registry` | `scripts/verify-skill-registry` |
+| `affected-source-contract-tests` | `node --test --test-concurrency=1 tests/read-only-intake.test.mjs tests/verification-execution.test.mjs tests/instance-metadata.test.mjs .template-source/tooling/node/test/retirement.test.mjs` |
+| `source.whitespace` | `git diff --check` |
+| `skills.source-contract` | `node --test --test-concurrency=1 tests/skill-lock-readers.test.mjs .template-source/tooling/node/test/skill-supply-chain.test.mjs` |
+
 正式包输出完整原 inspect `.result`，并绑定 `sourceLockSha256`、`requiredPlatforms`、`supportedPlatforms`、`nativeReceiptSha256`、`releaseGateSha256` 五项证明。归档模式 binary 0755 / 文档 0644，固定时间保持可重复；写入前后复核所有已消费输入，排他创建输出。默认原交叉编译入口仍 `stableReady: false`。工具不执行发布、批准或凭哈希证明报告作者真实性。
 
 未来完整模板模式需显式 `--gate-basis`，资格范围 `complete-template-release`，独立 BEFORE 编译计划、调用与输入摘要，并保留原完整模板/四 CLI/旧恢复/真实实例来源。此模式不是本轮默认前置。
