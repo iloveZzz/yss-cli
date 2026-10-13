@@ -33,6 +33,6 @@ CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss
 
 ## 未提交模板的本地装配
 
-`tools/bundle` 接受来源锁 v4，用于模板维护的本地验收。四个 Profile 与共享技能来源均须声明 `sourceState: working-tree`、基线 `templateCommit` 和已捕获的 Git `sourceTree`，Profile 的 `templateVersion` 为 `worktree:<sourceTree>`，producer 同样为 working-tree。捕获树时使用独立 `GIT_INDEX_FILE`；不修改使用者暂存区、不创建提交。组合锁仍必须匹配 canonical 配置摘要与技能内容摘要。
+`tools/bundle` 接受来源锁 v4，用于模板维护的本地验收。三个现役 Profile 与存在时的共享技能来源均须声明 `sourceState: working-tree`、基线 `templateCommit` 和已捕获的 Git `sourceTree`，Profile 的 `templateVersion` 为 `worktree:<sourceTree>`，producer 同样为 working-tree。捕获树时使用独立 `GIT_INDEX_FILE`；不修改使用者暂存区、不创建提交。组合锁仍必须匹配 canonical 配置摘要与技能内容摘要。
 
 本地锁保存为 `docs/source-lock.working-tree.json`，使用 `go run ./tools/bundle --source-root <Spec 根仓> --lock docs/source-lock.working-tree.json --out internal/bundle/assets` 重建嵌入资产。旧 v2/v3 锁仍只接受提交来源，v4 不支持混合来源。正式来源锁 `docs/source-lock.json` 保留原固定提交；发布工具继续拒绝 working-tree 包。获得提交授权后，按既有固定来源刷新流程重建正式锁与资产，不能只改状态字段。
