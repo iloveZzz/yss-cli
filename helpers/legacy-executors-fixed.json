@@ -1,0 +1,35 @@
+[
+  {
+    "package": "create-yss-spec",
+    "version": "3.5.10",
+    "binary": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/create-yss-spec-installed/node_modules/create-yss-spec/bin/create-yss-spec.js",
+    "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
+    "templateCommit": "49bcbbb259a8c02bc800820a579cbef6c27374a7",
+    "packagePath": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-spec-3.5.10.tgz",
+    "packageSha256": "5cb14b216f82d9ab904f7ef5bcf0310d93e052c1c7488854f847b44f63142789",
+    "snapshotArchive": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-spec-snapshot.tar.gz",
+    "snapshotArchiveSha256": "acfe06ec6d8a668a89004525986a44cd5e866aa494575af0fe995f8ce0b114ed"
+  },
+  {
+    "package": "create-yss-harness-design",
+    "version": "0.8.17",
+    "binary": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/create-yss-harness-design-installed/node_modules/create-yss-harness-design/bin/create-yss-harness-design.js",
+    "cliCommit": "7d2f9008d998ca87298a130f31019ffd6a87b3a5",
+    "templateCommit": "b9f7923ccc0bd5d55443e49cb2fe5857d623c648",
+    "packagePath": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-harness-design-0.8.17.tgz",
+    "packageSha256": "de4762500e339041eefeba78162006c1cbdf761f343e6bb7b009965ae03b6386",
+    "snapshotArchive": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-harness-design-snapshot.tar.gz",
+    "snapshotArchiveSha256": "8c549afc0e6726ffffc67f081676532d0d7533b50deeccba9738976e5931ab7d"
+  },
+  {
+    "package": "create-yss-harness-backend",
+    "version": "0.4.21",
+    "binary": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/create-yss-harness-backend-installed/node_modules/create-yss-harness-backend/bin/create-yss-harness-backend.js",
+    "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
+    "templateCommit": "3eacf7ea0fd95377aef04e0e9ead2c3236be93e1",
+    "packagePath": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-harness-backend-0.4.21.tgz",
+    "packageSha256": "85aab48d6b233e962b8401ec8521194a919a633f454e4a23745c6d9a2a89380c",
+    "snapshotArchive": "/Users/zhudaoming/.yss-harness/runtime/lifecycle-progression-20261008/release-1.3.3/helpers/fixed-legacy-production/archives/create-yss-harness-backend-snapshot.tar.gz",
+    "snapshotArchiveSha256": "be58816309dde0e9de2c5ecda3f7fabba808246fc005f745c273425cf8c6050c"
+  }
+]

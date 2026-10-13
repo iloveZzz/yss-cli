@@ -1,0 +1,136 @@
+name: Windows 2.0.0 fixed native qualification
+run-name: Windows 2.0.0 ${{ inputs.published_sha256 && 'public installation' || 'native candidate' }}
+on:
+  push:
+    branches: [codex/release-tools-2.0.0]
+    paths: [.github/workflows/windows-native-release.yml]
+  workflow_dispatch:
+    inputs:
+      cli_commit:
+        description: Full reviewed production CLI 2.0.0 commit
+        required: true
+        type: string
+      template_commit:
+        description: Full reviewed template v4.0.2 commit
+        required: true
+        type: string
+      tools_commit:
+        description: Full reviewed external tools commit; must equal dispatched workflow SHA
+        required: true
+        type: string
+      published_sha256:
+        description: Optional exact published Windows archive SHA256
+        required: false
+        type: string
+      native_run_id:
+        description: Required with published_sha256; prior same-source native-candidate run
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  windows-native:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CLI_COMMIT: ${{ inputs.cli_commit }}
+      TEMPLATE_COMMIT: ${{ inputs.template_commit }}
+      TOOLS_COMMIT: ${{ inputs.tools_commit }}
+      WORKFLOW_COMMIT: ${{ github.sha }}
+      PUBLISHED_SHA256: ${{ inputs.published_sha256 }}
+      NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+      CGO_ENABLED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Validate fixed references before checkout
+        shell: pwsh
+        run: |
+          foreach ($value in @($env:CLI_COMMIT, $env:TEMPLATE_COMMIT, $env:TOOLS_COMMIT)) {
+            if ($value -notmatch '^[a-f0-9]{40}$') { throw 'Full source commit required' }
+          }
+          if ($env:TOOLS_COMMIT -ne $env:WORKFLOW_COMMIT) { throw 'Dispatch must execute the reviewed tools commit' }
+          if ($env:PUBLISHED_SHA256 -and ($env:PUBLISHED_SHA256 -notmatch '^[a-f0-9]{64}$' -or $env:NATIVE_RUN_ID -notmatch '^[0-9]+$')) { throw 'Pinned public SHA and prior native run required' }
+          git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tools_commit }}
+          path: tools-source
+      - uses: actions/checkout@v5
+        with:
+          repository: iloveZzz/yss-cli
+          ref: ${{ inputs.cli_commit }}
+          path: cli-source
+      - uses: actions/checkout@v5
+        if: ${{ !inputs.published_sha256 }}
+        with:
+          repository: iloveZzz/yss-spec-project-template
+          ref: ${{ inputs.template_commit }}
+          path: template-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v6
+        if: ${{ !inputs.published_sha256 }}
+        with:
+          go-version-file: cli-source/go.mod
+          cache-dependency-path: cli-source/go.sum
+      - name: Native tool prerequisites
+        if: ${{ !inputs.published_sha256 }}
+        run: python -m pip install jsonschema==4.23.0
+      - name: Build and actually run the Windows native checks
+        if: ${{ !inputs.published_sha256 }}
+        shell: pwsh
+        run: |
+          $e = Join-Path $env:RUNNER_TEMP 'release-evidence'
+          New-Item -ItemType Directory -Path $e | Out-Null
+          node cli-source/tools/build-candidate.mjs --root "$env:GITHUB_WORKSPACE/cli-source" --out "$e/build-windows"
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows build failed' }
+          $build = Get-Content "$e/build-windows/build-receipt.json" -Raw | ConvertFrom-Json
+          if ($build.platform -ne 'windows/amd64' -or $build.commit -ne $env:CLI_COMMIT -or $build.sourceState -ne 'committed' -or $build.inputDrift) { throw 'Build identity mismatch' }
+          New-Item -ItemType Directory -Path "$e/native-windows-amd64" | Out-Null
+          node tools-source/tools/native-release-receipt.mjs --binary "$e/build-windows/yss.exe" --binary-sha256 $build.binary.sha256 --cli-root "$env:GITHUB_WORKSPACE/cli-source" --template-root "$env:GITHUB_WORKSPACE/template-source" --commit $env:CLI_COMMIT --template-commit $env:TEMPLATE_COMMIT --tools-commit $env:TOOLS_COMMIT --version 2.0.0 --template-version 4.0.2 --out "$e/native-windows-amd64" --artifact-prefix native-windows-amd64
+          if ($LASTEXITCODE -ne 0) { throw 'Actual native checks failed' }
+          python tools-source/prepare-native-input.py --cli-root "$env:GITHUB_WORKSPACE/cli-source" --cli-commit $env:CLI_COMMIT --template-commit $env:TEMPLATE_COMMIT --evidence-root $e --artifact windows/amd64 build-windows/yss.exe native-windows-amd64/native-receipt.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native input binding failed' }
+          go -C cli-source run ./tools/package --native-candidate-manifest "$e/native-input.json" --required-platforms windows/amd64 "$e/candidate"
+          if ($LASTEXITCODE -ne 0) { throw 'Current independent assembler rejected native evidence' }
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.published_sha256 }}
+        with:
+          name: windows-native-evidence
+          path: ${{ runner.temp }}/release-evidence
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.native_run_id }}
+      - name: Download exact published bytes
+        if: ${{ inputs.published_sha256 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $e = Join-Path $env:RUNNER_TEMP 'release-evidence'
+          $input = Get-Content "$e/native-input.json" -Raw | ConvertFrom-Json
+          if ($input.cliCommit -ne $env:CLI_COMMIT -or $input.bundles.spec.templateCommit -ne $env:TEMPLATE_COMMIT) { throw 'Prior native evidence source mismatch' }
+          $observedTools = Get-Content "$e/native-windows-amd64/source-observation.json" -Raw | ConvertFrom-Json
+          if ($observedTools.tools_commit -ne $env:TOOLS_COMMIT -or $observedTools.input_drift) { throw 'Prior native tools source mismatch' }
+          gh release download v2.0.0 --repo iloveZzz/yss-cli --pattern yss_2.0.0_windows_amd64.zip --dir "$e/public"
+          if ($LASTEXITCODE -ne 0) { throw 'Public download failed' }
+          if ((Get-FileHash "$e/public/yss_2.0.0_windows_amd64.zip" -Algorithm SHA256).Hash.ToLower() -ne $env:PUBLISHED_SHA256) { throw 'Published archive digest mismatch' }
+      - name: Actual Windows installation five cases
+        shell: pwsh
+        run: |
+          $e = Join-Path $env:RUNNER_TEMP 'release-evidence'
+          $kind = if ($env:PUBLISHED_SHA256) { 'public' } else { 'candidate' }
+          python tools-source/run-program-installation.py --input "$e/native-input.json" --archive "$e/$kind/yss_2.0.0_windows_amd64.zip" --out "$e/$kind-installation" --platform windows/amd64 --cli-root "$env:GITHUB_WORKSPACE/cli-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Real installation or rollback failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.published_sha256 && 'windows-public-installation' || 'windows-native-evidence' }}
+          path: ${{ runner.temp }}/release-evidence/
+          include-hidden-files: true
+          if-no-files-found: error

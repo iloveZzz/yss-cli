@@ -1,0 +1,74 @@
+name: Windows 1.3.7 release installation
+run-name: Windows 1.3.7 ${{ inputs.published_sha256 && 'public' || 'candidate' }} installation
+on:
+  push:
+    branches: [codex/windows-distribution-1.3.7]
+    paths: [.github/workflows/windows-release-1.3.7.yml, .release-tools/**]
+  workflow_dispatch:
+    inputs:
+      published_sha256:
+        description: SHA-256 of the qualified public Windows archive; empty builds a candidate
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  installation:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          path: tools-source
+      - uses: actions/checkout@v5
+        with:
+          ref: c398eb50336283aacad6342e26176777a4e16c46
+          path: cli-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v6
+        if: ${{ !inputs.published_sha256 }}
+        with:
+          go-version-file: cli-source/go.mod
+          cache-dependency-path: cli-source/go.sum
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.published_sha256 }}
+        with:
+          node-version: '24'
+      - name: Build and package the fixed Windows candidate
+        if: ${{ !inputs.published_sha256 }}
+        working-directory: cli-source
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          node tools/build-candidate.mjs --out "$env:RUNNER_TEMP/windows-build"
+          if ($LASTEXITCODE -ne 0) { throw 'Fixed Windows build failed' }
+          python ../tools-source/.release-tools/package-windows-candidate.py "$env:RUNNER_TEMP/windows-build" "$env:RUNNER_TEMP/windows-package"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows candidate packaging failed' }
+      - name: Download the pinned public package
+        if: ${{ inputs.published_sha256 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA256: ${{ inputs.published_sha256 }}
+        run: |
+          if ($env:EXPECTED_SHA256 -notmatch '^[a-f0-9]{64}$') { throw 'Invalid pinned SHA-256' }
+          gh release download v1.3.7 --repo iloveZzz/yss-cli --pattern yss_1.3.7_windows_amd64.zip --dir "$env:RUNNER_TEMP/windows-package"
+          if ($LASTEXITCODE -ne 0) { throw 'Public package download failed' }
+          $archive = Join-Path $env:RUNNER_TEMP 'windows-package/yss_1.3.7_windows_amd64.zip'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $env:EXPECTED_SHA256) { throw 'Pinned archive digest mismatch' }
+      - name: Verify native Windows installation and rollback
+        working-directory: cli-source
+        run: python ../tools-source/.release-tools/windows-installation.py "$env:RUNNER_TEMP/windows-package/yss_1.3.7_windows_amd64.zip" "$env:RUNNER_TEMP/windows-installation"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-native-installation
+          path: |
+            ${{ runner.temp }}/windows-installation/report.json
+            ${{ runner.temp }}/windows-installation/*.log
+            ${{ runner.temp }}/windows-package/*
+            ${{ runner.temp }}/windows-build/build-receipt.json
+          if-no-files-found: error

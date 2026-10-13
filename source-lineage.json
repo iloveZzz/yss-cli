@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-13T12:36:57.444171+00:00",
+  "files": [
+    {
+      "path": "tools/native-smoke/main.go",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-smoke/main.go"
+      },
+      "original_sha256": "0bdebd90b60905c0f822973dba9d324b49d574a15ffc8de00c3211f12de44f19",
+      "adapted_sha256": "dc1e1f7b5ff2e714917d04fb297d841989497b1c272e1a929efd796cf55c6636",
+      "bytes": 4967,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Only active profile list becomes spec/design/backend and obsolete frontend branch removed; original actual 20 public commands per profile retained."
+    },
+    {
+      "path": "tools/native-recovery/main.go",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-recovery/main.go"
+      },
+      "original_sha256": "d060a27a3f98f13c8285be68952f802269bfb8219f8a1a5a12dc12f56ef8e6d6",
+      "adapted_sha256": "ac4b542339282026cd9210372665f456b06b5f9b48a28db4d5b7e6a0b0e56e76",
+      "bytes": 6112,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Only active profile list becomes spec/design/backend; actual target-mutation observation, native signals and repeat recovery unchanged."
+    },
+    {
+      "path": "tools/native-recovery/kill_boundary.go",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-recovery/kill_boundary.go"
+      },
+      "original_sha256": "70371fa135390b326577d1f6b9923384e7efe0dbb91e45097f865cadec6b9a9c",
+      "adapted_sha256": "70371fa135390b326577d1f6b9923384e7efe0dbb91e45097f865cadec6b9a9c",
+      "bytes": 1402,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Unchanged fixed historical implementation; actual process stop/kill boundary retained."
+    },
+    {
+      "path": "tools/native-recovery/signals_unix.go",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-recovery/signals_unix.go"
+      },
+      "original_sha256": "d87dd08de808f289dd72c3de8576df367941e2a8076ee279df9e84eac797a6b8",
+      "adapted_sha256": "d87dd08de808f289dd72c3de8576df367941e2a8076ee279df9e84eac797a6b8",
+      "bytes": 1127,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Unchanged fixed historical implementation; actual Darwin signals retained."
+    },
+    {
+      "path": "tools/native-recovery/signals_windows.go",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-recovery/signals_windows.go"
+      },
+      "original_sha256": "bda6189e4ed39fbe63a69fba83aabbb04ae2192fda1b780bb05db90ee4dfa1fd",
+      "adapted_sha256": "bda6189e4ed39fbe63a69fba83aabbb04ae2192fda1b780bb05db90ee4dfa1fd",
+      "bytes": 1258,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Unchanged fixed historical implementation; actual Windows suspend/console/kill retained."
+    },
+    {
+      "path": "tools/plugin-native-smoke.mjs",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/plugin-native-smoke.mjs"
+      },
+      "original_sha256": "14ac38519a0c016614153e86a7e8008f951d9f977c5478e77d4192152a6849d6",
+      "adapted_sha256": "e84fd7366b159961fc73798932fa823d0fc6867e0d993ba72af20dd5c2226b5d",
+      "bytes": 15251,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Explicit fixed CLI root replaces relative source root; original two plugin cases, 44 observed labels and before/after bytes/modes preserved."
+    },
+    {
+      "path": "tools/native-release-receipt.mjs",
+      "source": {
+        "kind": "git",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "c1ea5abdd53315e06449296e9ab0d57fb9966f10",
+        "path": "tools/native-release-receipt.mjs"
+      },
+      "original_sha256": "dc5fbc1cf173569f5c983e92818157af3a3ebb8e72c95832be23ab1a494f0664",
+      "adapted_sha256": "e221453620c9e8cd3dab1a8551be7aa23732356f52902e30ae4bbcb404edd71b",
+      "bytes": 13577,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Explicit full C/T/W, clean physical sources, 2.0.0/v4.0.2, actual binary SHA, three profiles and 62/9-or-6 counts. Strict receipt unchanged; extra source observation kept separate."
+    },
+    {
+      "path": "historical/.github/workflows/windows-release-1.3.7.yml",
+      "source": {
+        "kind": "github-fixed-blob",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "760c16dc1110587f2737301aae11f976bf8ce734",
+        "path": ".github/workflows/windows-release-1.3.7.yml",
+        "git_blob": "701a8969c8c1443e47eb5df9ffb39576e6d2f528"
+      },
+      "original_sha256": "10756e9686025d5779c9234190ea157e916da99caa539ab2a6fc81dda4b4ee7a",
+      "adapted_sha256": "10756e9686025d5779c9234190ea157e916da99caa539ab2a6fc81dda4b4ee7a",
+      "bytes": 3310,
+      "mode": "0o644",
+      "role": "historical-reference-only",
+      "adaptation": "Unchanged reference only; current workflow/installer are adapted separately, not executed as old-version tools."
+    },
+    {
+      "path": "historical/.release-tools/windows-installation.py",
+      "source": {
+        "kind": "github-fixed-blob",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "760c16dc1110587f2737301aae11f976bf8ce734",
+        "path": ".release-tools/windows-installation.py",
+        "git_blob": "1bfa17ddd4831b07bcf4cdb5408236adee166534"
+      },
+      "original_sha256": "388b406eae2d234400eb0f3056c7b9e2d5873a0abefb1f3c4fb03d2be93b65c6",
+      "adapted_sha256": "388b406eae2d234400eb0f3056c7b9e2d5873a0abefb1f3c4fb03d2be93b65c6",
+      "bytes": 7603,
+      "mode": "0o644",
+      "role": "historical-reference-only",
+      "adaptation": "Unchanged reference only; current workflow/installer are adapted separately, not executed as old-version tools."
+    },
+    {
+      "path": "historical/.release-tools/package-windows-candidate.py",
+      "source": {
+        "kind": "github-fixed-blob",
+        "repository": "iloveZzz/yss-cli",
+        "commit": "760c16dc1110587f2737301aae11f976bf8ce734",
+        "path": ".release-tools/package-windows-candidate.py",
+        "git_blob": "56104093dacfe3739ccbec3b86cf6911a843a367"
+      },
+      "original_sha256": "97444eee2b77b0ee4e1298aee91f7cfa98905072b834ba58eba524fbd0f2e3d7",
+      "adapted_sha256": "97444eee2b77b0ee4e1298aee91f7cfa98905072b834ba58eba524fbd0f2e3d7",
+      "bytes": 2972,
+      "mode": "0o644",
+      "role": "historical-reference-only",
+      "adaptation": "Unchanged reference only; current workflow/installer are adapted separately, not executed as old-version tools."
+    },
+    {
+      "path": "helpers/stable-recovery-matrix.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/helpers/stable-recovery-matrix.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "26babd83690f4082ae8603a12bc2dca3927f921495e339f4d2909f7def2839a3",
+      "adapted_sha256": "d90c888a1b6565729f5ea83a93f3ecd91502da58541040d6800b5f60c3e96ecf",
+      "bytes": 25899,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Actual Mac-only 3 x 12 cases; explicit workspace/template root; preserve old packages and real SIGKILL/negative/recovery/protection behavior. Compare installed executor bytes with fixed tgz before isolated copy."
+    },
+    {
+      "path": "helpers/recovery_common.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/helpers/recovery_common.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "92ae98f66bedeb11f0878e4e3a9935389c1ac46f23c02a0e83cf914e1d0cf448",
+      "adapted_sha256": "424593a63d6f33b69dd270a28a540773339e5755ec5e60dcc142f13b1b963db7",
+      "bytes": 7192,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Explicit authorized committed C/T/binary binding and new 2.0.0/4.0.2 identities; no fixed machine Node binary; original scope and read-only safeguards retained."
+    },
+    {
+      "path": "helpers/legacy-executors-fixed.json",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/helpers/legacy-executors-fixed.json",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "8526581e8a0899764e8a7d926e16fadef807ca66a7975153cf2e12868b92eb70",
+      "adapted_sha256": "0d9f94f80550ee614b3c513c70203c452b4aebd5ae313254076bca7236a9f12a",
+      "bytes": 2973,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Select unchanged spec/design/backend package pins from historical four-profile input; retired frontend excluded, no old package updated."
+    },
+    {
+      "path": "run-program-installation.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/run-program-installation.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "9f5b7cfc14d294e896ab1e5706ce167112fbd064cad225903b1daaa39c8ed9a6",
+      "adapted_sha256": "40ad4f2d9a6e8b4e1f94d9b378b8ea31402e7f83b824c593f26c069e016d161b",
+      "bytes": 9468,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Parameterize current input/platform/source/output; original five real update/install/rollback/recover/protection cases retained. Windows zip and raw attribute handling use inspected fixed Windows source; canonical mode is explicit, NTFS ACL is not claimed."
+    },
+    {
+      "path": "run-scoped-template.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/scoped-template-current/run-scoped-template.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "517fbfedb47ecc1bce2848ab4101f86908b8c854876baac6259f9de3c5e33f72",
+      "adapted_sha256": "4e63b7399646b3716bc49226e67773a66773ce4dfaf648dccec1c343e0b0497d",
+      "bytes": 8104,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Single current composite T for three profiles, exact current nine command arrays, actual source inventory and binary digest; wrap this new original execution only."
+    },
+    {
+      "path": "prepare-native-input.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/prepare-native-input.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "fe5bae863c1ca6fefedc03c80342af756edad7f8a9fcaf7a3a71a3d06b36067d",
+      "adapted_sha256": "19271b70686acc21f6e530b699917a09e30c94fddef9fac7d84f542e6ba800fb",
+      "bytes": 3761,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Parameterize one or two actual platform receipts and binaries, full C/T, exact seven production document bytes. Does not mint qualification; current production assembler remains authority."
+    },
+    {
+      "path": "prepare-release-gates.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/prepare-release-gates-corrected.py",
+        "source_note": "historical v1.3.6 execution tool, no Git commit asserted; exact original bytes SHA recorded"
+      },
+      "original_sha256": "1b36e46bb8319f390eb9f116863a1cd9fe70e279ab74bebdbb6c6025176b248b",
+      "adapted_sha256": "378b62cb72218d2856e6dbae6ea96c95d120e822a8557cc9ac101c87a4072c44",
+      "bytes": 6902,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Wrap only new observed report/command evidence for install5, legacy36 and scoped9. Final input requires both actual platform receipts; independent Expected remains production assembler."
+    },
+    {
+      "path": "helpers/validate-matrix.mjs",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/helpers/validate-matrix-current.mjs"
+      },
+      "original_sha256": "ebdf682c984252aab494d0a82fa7b7ef2bf96dd5b2aa88665f4b784696e2d9bd",
+      "adapted_sha256": "084cf438a1ea0209081a3ec907c92ebe04029f6850434ccf89f361593872d00c",
+      "bytes": 820,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Import existing public validator from explicit fixed template source; no copied validator implementation."
+    },
+    {
+      "path": "run-observed.py",
+      "source": {
+        "kind": "existing-external-tool",
+        "path": "/Users/zhudaoming/.codex/tmp/yss-release-1.3.6-_su7kfyn/final/run-observed.py"
+      },
+      "original_sha256": "ceb4a9161e3b88d72976a7bbbad0885f3dc4439c4417675676e1c7cd3d9bc404",
+      "adapted_sha256": "ceb4a9161e3b88d72976a7bbbad0885f3dc4439c4417675676e1c7cd3d9bc404",
+      "bytes": 2329,
+      "mode": "0o644",
+      "role": "active-execution-tool",
+      "adaptation": "Unchanged existing command/output/source-drift observer; raw observation kind remains development-validation-not-release."
+    }
+  ],
+  "new_files": [
+    {
+      "path": ".github/workflows/windows-native-release.yml",
+      "sha256": "c2c053538cd1297542e1365635b124bfd6a35ec85dcd8cdd8c89d98d1c1fd168",
+      "bytes": 7360,
+      "mode": "0o644",
+      "purpose": "Adapt fixed 760c16dc Windows workflow to explicit reviewed C/T/W, current build+assembler, real Windows native3 and installation5; no push or dispatch. Historical workflow is only a source."
+    },
+    {
+      "path": "go.mod",
+      "sha256": "cea05efd0092dcb263fd9cc602fa7742c09859d81cbcb97cdd251dc1ac258942",
+      "bytes": 41,
+      "mode": "0o644",
+      "purpose": "Minimal standard-library helper module for copied native tools; no production imports or test framework."
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "9500a51b00e59ccafd8b3f269f64385158154228bdf8e8ee8ae11677b2abff3f",
+      "bytes": 32,
+      "mode": "0o644",
+      "purpose": "Exclude local preparation logs/caches and Python bytecode from immutable tools checkout."
+    },
+    {
+      "path": "binding.example.json",
+      "sha256": "7b587315f43604b53efe48dc5132f2882f29de2a1dd3a3351d04642e1b036ad1",
+      "bytes": 676,
+      "mode": "0o644",
+      "purpose": "Required execution field example, deliberately unauthorized and invalid SHAs; cannot execute."
+    },
+    {
+      "path": "README.md",
+      "sha256": "20b48f8477d968a49b8be75272fba9f2449089e3512d22f308a20eb1b5d79ca4",
+      "bytes": 7025,
+      "mode": "0o644",
+      "purpose": "Exact current execution sequence and qualification boundary."
+    }
+  ],
+  "not_qualification": "Historical tools are reused; historical passed reports and native qualification are not reused.",
+  "secondary_sources": {
+    "run-program-installation.py": "historical/.release-tools/windows-installation.py",
+    ".github/workflows/windows-native-release.yml": "historical/.github/workflows/windows-release-1.3.7.yml"
+  }
+}

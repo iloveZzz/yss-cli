@@ -1,0 +1,18 @@
+{
+  "authorized_by_root": false,
+  "root_authorization_ref": "REQUIRED_FINAL_FREEZE_EVIDENCE",
+  "version": "2.0.0",
+  "source_state": "committed",
+  "cli_commit": "REQUIRED_FULL_CLI_COMMIT",
+  "cli_root": "REQUIRED_ABSOLUTE_FIXED_CLI_CHECKOUT",
+  "template_root": "REQUIRED_ABSOLUTE_FIXED_TEMPLATE_CHECKOUT",
+  "template_version": "4.0.2",
+  "template_commits": {
+    "spec": "REQUIRED_FULL_TEMPLATE_COMMIT",
+    "design": "REQUIRED_FULL_TEMPLATE_COMMIT",
+    "backend": "REQUIRED_FULL_TEMPLATE_COMMIT"
+  },
+  "binary": "REQUIRED_ABSOLUTE_DARWIN_ARM64_BINARY",
+  "binary_sha256": "REQUIRED_BINARY_SHA256",
+  "legacy_pin_sha256": "REQUIRED_SHA256_OF_THREE_PROFILE_PIN_FILE"
+}
