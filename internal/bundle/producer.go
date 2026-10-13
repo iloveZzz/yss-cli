@@ -46,6 +46,8 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Source struct {
+	State        string       `json:"sourceState,omitempty"`
+	Tree         string       `json:"sourceTree,omitempty"`
 	SkillsSource *SkillSource `json:"skillsSource,omitempty"`
 	// OverlayPaths 非空时，该 Profile 由同一仓库同一提交的内核目录与这些覆盖层目录依次组合而成
 	// （后面的覆盖前面的）；为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
@@ -88,6 +90,32 @@ type sourceFile struct {
 
 var fullCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
+// sourceObject pins an immutable object without treating an uncommitted tree as a commit.
+func sourceObject(ctx context.Context, s Source) (string, string, error) {
+	state := s.State
+	if state == "" {
+		state = "committed"
+	}
+	if !fullCommit.MatchString(s.Commit) {
+		return "", "", fmt.Errorf("templateCommit requires a full Git commit")
+	}
+	kind, err := git(ctx, s.Root, "cat-file", "-t", s.Commit)
+	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
+		return "", "", fmt.Errorf("templateCommit must name a Git commit")
+	}
+	if state == "committed" && s.Tree == "" {
+		return s.Commit, state, nil
+	}
+	if state != "working-tree" || !fullCommit.MatchString(s.Tree) {
+		return "", "", fmt.Errorf("working-tree source requires an immutable sourceTree")
+	}
+	kind, err = git(ctx, s.Root, "cat-file", "-t", s.Tree)
+	if err != nil || strings.TrimSpace(string(kind)) != "tree" {
+		return "", "", fmt.Errorf("sourceTree must name a Git tree")
+	}
+	return s.Tree, state, nil
+}
+
 // Build reads only the named Git object tree. Dirty checkout bytes and legacy CLI
 // directories cannot influence it. The policy digest is a required source lock.
 func Build(ctx context.Context, s Source) (*Bundle, error) {
@@ -107,12 +135,12 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if e != nil {
 		return nil, e
 	}
-	kindBytes, err := git(ctx, root, "cat-file", "-t", s.Commit)
+	object, state, err := sourceObject(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(string(kindBytes)) != "commit" {
-		return nil, fmt.Errorf("templateCommit must name a Git commit")
+	if state == "working-tree" && (s.Producer.SourceState != "working-tree" || s.TemplateVersion != "worktree:"+object) {
+		return nil, fmt.Errorf("working-tree producer/version provenance mismatch")
 	}
 	if e := verifyTemplateTag(ctx, root, &s); e != nil {
 		return nil, e
@@ -121,7 +149,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		s.PolicyPath = ".template-source/distribution/bundle-profile.json"
 	}
 	var policyBytes []byte
-	kind := "committed"
+	kind := state
 	if strings.HasPrefix(s.PolicyPath, "builtin:") {
 		if s.PolicyPath != "builtin:"+s.Profile {
 			return nil, fmt.Errorf("policy profile mismatch")
@@ -132,7 +160,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		if e = safefs.ValidateRef(s.PolicyPath); e != nil {
 			return nil, e
 		}
-		entry, err := git(ctx, root, "ls-tree", s.Commit, "--", s.PolicyPath)
+		entry, err := git(ctx, root, "ls-tree", object, "--", s.PolicyPath)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +168,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		if len(fields) < 3 || fields[0] != "100644" || fields[1] != "blob" {
 			return nil, fmt.Errorf("policy must be a committed regular JSON file")
 		}
-		policyBytes, e = git(ctx, root, "show", s.Commit+":"+s.PolicyPath)
+		policyBytes, e = git(ctx, root, "show", object+":"+s.PolicyPath)
 	}
 	if e != nil {
 		return nil, e
@@ -163,9 +191,9 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	}
 	var raw map[string]sourceFile
 	if len(s.OverlayPaths) > 0 {
-		raw, e = readOverlaySource(ctx, root, s.Commit, s.OverlayPaths, policy.Manifest)
+		raw, e = readOverlaySource(ctx, root, object, s.OverlayPaths, policy.Manifest)
 	} else {
-		raw, e = readGitFiles(ctx, root, s.Commit, policy.Manifest)
+		raw, e = readGitFiles(ctx, root, object, policy.Manifest)
 	}
 	if e != nil {
 		return nil, e
@@ -187,7 +215,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		s.Producer = Provenance{Version: "bundle-producer-v3", SourceState: "unspecified"}
 	}
 	manifestBytes, _ := json.Marshal(policy.Manifest)
-	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: "committed", ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
+	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: state, ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
 	if b.Upgrade == nil {
 		b.Upgrade = DefaultUpgradePolicy()
 	}
@@ -267,8 +295,8 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 3 {
-		return nil, fmt.Errorf("source lock v2/v3 requires three profiles")
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3 && lock.SchemaVersion != 4) || len(lock.Profiles) != 3 {
+		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles")
 	}
 	out := map[string]*Bundle{}
 	for _, profile := range []string{"spec", "design", "backend"} {
@@ -279,8 +307,14 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
 			return nil, fmt.Errorf("skill composition requires source lock v3")
 		}
-		if lock.SchemaVersion == 3 && profile == "backend" && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
+		if lock.SchemaVersion >= 3 && profile == "backend" && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
 			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
+		}
+		if lock.SchemaVersion < 4 && (s.State != "" || s.Tree != "" || s.SkillsSource != nil && (s.SkillsSource.State != "" || s.SkillsSource.Tree != "")) {
+			return nil, fmt.Errorf("worktree objects require source lock v4")
+		}
+		if lock.SchemaVersion == 4 && (s.State != "working-tree" || lock.Producer.SourceState != "working-tree" || s.SkillsSource != nil && s.SkillsSource.State != "working-tree") {
+			return nil, fmt.Errorf("source lock v4 is local working-tree only")
 		}
 		s.Producer = lock.Producer
 		b, e := Build(ctx, s)

@@ -317,6 +317,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "bundle" {
 		return bundleCommand(ctx, o)
 	}
+	if command == "scaffold" {
+		return scaffoldCommand(ctx, o)
+	}
 	if command == "version" || o.values["version"] == "true" {
 		return map[string]any{"version": domain.Version, "protocolVersion": domain.ProtocolVersion, "profiles": domain.Profiles, "source": domain.BuildProvenance(), "cliCommit": domain.BuildProvenance().Commit, "sourceState": domain.BuildProvenance().SourceState}, profile, nil
 	}
@@ -845,6 +848,7 @@ var nodeDelegation = []string{
 func capabilities() map[string]any {
 	m := capabilitiesBase()
 	m["nodeDelegation"] = nodeDelegation
+	m["scaffold"] = map[string]any{"architectures": []string{"ddd", "mvc"}, "runtime": "node", "source": "embedded-spec-bundle", "initializeOnly": true, "buildExecuted": false}
 	return m
 }
 func capabilitiesBase() map[string]any {
