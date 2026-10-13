@@ -80,7 +80,7 @@ func validate(out *Bundle, profile string) error {
 }
 
 func validateWith(out *Bundle, profile string, op *validationOp) error {
-	if (out.SchemaVersion < 1 || out.SchemaVersion > 3) || out.Profile != profile || out.SourceState != "committed" {
+	if (out.SchemaVersion < 1 || out.SchemaVersion > 3) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
 		return domain.Fail("BUNDLE", "快照身份或来源不合法")
 	}
 	if out.Initial == nil {

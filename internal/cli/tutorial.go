@@ -39,6 +39,8 @@ func prerequisite(key string) string {
 	}
 	group := strings.Fields(key)[0]
 	switch group {
+	case "scaffold":
+		return "PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。"
 	case "init":
 		return "选择一个 Profile 和不存在或空的新目录；需要审阅写范围时先 --plan --out，再应用保存计划。"
 	case "attach":
@@ -66,6 +68,9 @@ func exampleKind(key string) string {
 	return "直接运行（替换路径；写入示例在独立演示目录执行）"
 }
 func expectedResult(key string) string {
+	if strings.Fields(key)[0] == "scaffold" {
+		return "在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。"
+	}
 	if key == "lifecycle target" {
 		return "查询只读返回本次目标、显式消费者及当前证据；plan 保存意图配置计划，apply 重验原计划后仅写目标和必要事务记录，不创建批准或执行实现。"
 	}
@@ -88,6 +93,8 @@ func nextReading(key string) string {
 		return "yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。"
 	}
 	switch strings.Fields(key)[0] {
+	case "scaffold":
+		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
 		return "yss doctor --help；核对身份后用 lifecycle 查询当前入口。"
 	case "doctor", "diff", "sync", "migrate", "recover", "rollback":

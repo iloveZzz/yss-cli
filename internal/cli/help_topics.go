@@ -73,6 +73,7 @@ func init() {
 		topic.options = projectFlags + "\n" + conditions + "\n--home / --run-dir / --tool-root / --template-checkout  固定依赖来源"
 		helpTopics[key] = topic
 	}
+	registerScaffoldHelp()
 	initializeCommands()
 }
 

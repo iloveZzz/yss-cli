@@ -91,6 +91,8 @@ func initializeCommands() {
 		parts := strings.Fields(key)
 		opts := append([]string{}, commonOptionNames...)
 		switch parts[0] {
+		case "scaffold":
+			opts = append(opts, strings.Fields(scaffoldValues+" "+scaffoldFlags)...)
 		case "init", "attach", "sync", "doctor", "diff", "migrate", "skills", "assets":
 			opts = append(opts, projectOptionNames...)
 			if key == "skills list" {
