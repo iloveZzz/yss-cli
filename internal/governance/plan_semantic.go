@@ -1,6 +1,9 @@
 package governance
 
+import "github.com/iloveZzz/yss-cli/internal/governance/approval"
+
 import (
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/worklayout"
@@ -10,11 +13,11 @@ import (
 )
 
 func init() {
-	registerSemanticValidator("plan-checkpoint", verifyPlanCheckpointSemantic)
-	registerSemanticValidator("plan-review-task", verifyPlanReviewTaskSemantic)
-	registerSemanticValidator("plan-spec-entry", verifyPlanEntrySemantic)
-	registerSemanticValidator("plan-aggregate", verifyPlanAggregateSemantic)
-	registerSemanticValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
+	kernel.RegisterSemanticValidator("plan-checkpoint", verifyPlanCheckpointSemantic)
+	kernel.RegisterSemanticValidator("plan-review-task", verifyPlanReviewTaskSemantic)
+	kernel.RegisterSemanticValidator("plan-spec-entry", verifyPlanEntrySemantic)
+	kernel.RegisterSemanticValidator("plan-aggregate", verifyPlanAggregateSemantic)
+	kernel.RegisterSemanticValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
 }
 
 func verifySourcePlanApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -170,7 +173,7 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 	if err != nil {
 		return err
 	}
-	c, _, err := s.PlanControl(cp)
+	c, _, err := approval.PlanControl(s, cp)
 	if err != nil {
 		return err
 	}
@@ -181,7 +184,7 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 			a = m
 		}
 	}
-	if a == nil || !kernel.ApEqual(kernel.PlanBinding(c, a), binding) {
+	if a == nil || !kernel.ApEqual(approval.PlanBinding(c, a), binding) {
 		return s.Reject("PLAN_REVIEW_ATTEMPT_UNREGISTERED", "任务不属于当前登记周期")
 	}
 	if kernel.Text(a["task_digest"]) == "" || !kernel.SemHas([]string{"reserved", "dispatched", "completed"}, kernel.Text(a["status"])) || opts["require-completed"] == "true" && a["status"] != "completed" {
@@ -279,7 +282,7 @@ func verifyPlanCheckpointSemantic(s *kernel.SemanticSession, ref string, opts ma
 		return nil
 	}
 	if cp["upstream_spec_baseline"] != nil && (kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" || kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved") {
-		return verifyInheritedSpecCheckpoint(s, ref, cp)
+		return handoff.VerifyInheritedSpecCheckpoint(s, ref, cp)
 	}
 	if cp["next_work_unit"] == "work-unit.spec-synthesis" || cp["stage"] == "stage.spec-architecture" || kernel.SemMap(cp["stage_trace"])["completed_work_unit"] == "work-unit.spec-synthesis" {
 		return s.Verify("plan-spec-entry", ref, opts)
@@ -297,7 +300,7 @@ func verifyPlanCheckpointSemantic(s *kernel.SemanticSession, ref string, opts ma
 	if cp["plan_review_control"] == nil && !prior {
 		return nil
 	}
-	c, p, err := s.PlanControl(cp)
+	c, p, err := approval.PlanControl(s, cp)
 	if err != nil {
 		return err
 	}
@@ -441,7 +444,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 		return err
 	}
 	if cp["upstream_spec_baseline"] != nil && kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" {
-		return verifyInheritedSpecCheckpoint(s, ref, cp)
+		return handoff.VerifyInheritedSpecCheckpoint(s, ref, cp)
 	}
 	reviewRef := kernel.Text(cp["plan_review_ref"])
 	feature := kernel.Text(cp["feature_id"])
@@ -460,7 +463,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 	if !ok || version != 1 || review["kind"] != "plan-entry-review" || review["gate_id"] != "gate.plan-approved" || review["feature_id"] != feature {
 		return s.Reject("PLAN_REVIEW_INVALID", "审阅包身份或范围不匹配")
 	}
-	if review["review_protocol"] != nil && !kernel.SemHas([]string{"bundled-plan-review-v1", kernel.NativePlanProtocol}, kernel.Text(review["review_protocol"])) {
+	if review["review_protocol"] != nil && !kernel.SemHas([]string{"bundled-plan-review-v1", approval.NativePlanProtocol}, kernel.Text(review["review_protocol"])) {
 		return s.Unavailable("CAPABILITY", "未知 Plan 审查协议")
 	}
 	basis := kernel.SemList(review["basis"])
@@ -511,7 +514,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 			return err
 		}
 	}
-	c, p, err := s.PlanControl(cp)
+	c, p, err := approval.PlanControl(s, cp)
 	if err != nil {
 		return err
 	}
@@ -544,7 +547,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 		if err != nil {
 			return err
 		}
-		record, err := kernel.SelectApprovalRecordSemantic(s, source, id)
+		record, err := approval.SelectApprovalRecordSemantic(s, source, id)
 		if err != nil {
 			return err
 		}
@@ -552,7 +555,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 			return s.Reject("PLAN_APPROVAL_CONTEXT", "会签主体或范围不匹配")
 		}
 		if source["kind"] == "review-bundle" {
-			if _, err = kernel.ReviewBundleRowsSemantic(s, source); err != nil {
+			if _, err = approval.ReviewBundleRowsSemantic(s, source); err != nil {
 				return err
 			}
 			v, _ := kernel.Integer(source["schema_version"])
@@ -573,17 +576,17 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 					}
 				}
 				binding := kernel.SemMap(source["plan_review_binding"])
-				if declared == nil || source["bundle_id"] != declared["bundle_id"] || source["work_unit_id"] != declared["work_unit"] || binding["protocol_version"] != kernel.NativePlanProtocol || binding["cycle_id"] != c["cycle_id"] || binding["scope_digest"] != c["scope_digest"] {
+				if declared == nil || source["bundle_id"] != declared["bundle_id"] || source["work_unit_id"] != declared["work_unit"] || binding["protocol_version"] != approval.NativePlanProtocol || binding["cycle_id"] != c["cycle_id"] || binding["scope_digest"] != c["scope_digest"] {
 					return s.Reject("PLAN_REVIEW_BINDING_REQUIRED", "组合结论与本地策略或周期不一致")
 				}
 				reviewIDs := []string{}
 				for _, row := range kernel.SemList(source["reviews"]) {
 					reviewIDs = append(reviewIDs, kernel.Text(kernel.SemMap(row)["gate_id"]))
 				}
-				if !semSameSet(reviewIDs, kernel.SemStrings(binding["check_ids"])) {
+				if !kernel.SameStringSet(reviewIDs, kernel.SemStrings(binding["check_ids"])) {
 					return s.Reject("PLAN_REVIEW_COVERAGE_REQUIRED", "组合结论未覆盖实际检查范围")
 				}
-				a := kernel.PlanLatest(c, id)
+				a := approval.PlanLatest(c, id)
 				if a == nil || a["attempt_id"] != binding["attempt_id"] || a["status"] != "completed" || a["task_ref"] != source["review_task_ref"] || a["task_digest"] != source["review_task_digest"] {
 					return s.Reject("PLAN_REVIEW_RESULT_REQUIRED", "检查缺少登记且通过的当前结论")
 				}
@@ -615,11 +618,11 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 				return s.Reject("PLAN_REVIEW_BUNDLE_REQUIRED", "专业结论缺少当前组合审查")
 			}
 		}
-		expected, err := kernel.PlanExpected(s, id, check, basis, c)
+		expected, err := approval.PlanExpected(s, id, check, basis, c)
 		if err != nil {
 			return err
 		}
-		if err = kernel.AssertCurrentApprovalSemantic(s, record, expected); err != nil {
+		if err = approval.AssertCurrentApprovalSemantic(s, record, expected); err != nil {
 			return err
 		}
 		applicable = append(applicable, id)
@@ -646,11 +649,11 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 	if err = s.Verify("context-reconciliation", reconRef, opts); err != nil {
 		return err
 	}
-	if err = s.PlanEntryControl(cp, c, p, ref, review, basis, applicable); err != nil {
+	if err = approval.PlanEntryControl(s, cp, c, p, ref, review, basis, applicable); err != nil {
 		return err
 	}
-	if _, err = kernel.AssertUserDecisionRequirementSemantic(s, map[string]any{"boundary": "gate.plan-approved", "subject_ref": reviewRef, "scope": []any{feature}, "user_decision_ref": cp["plan_user_decision_ref"], "continuation_ref": cp["plan_continuation_ref"]}); err != nil {
+	if _, err = approval.AssertUserDecisionRequirementSemantic(s, map[string]any{"boundary": "gate.plan-approved", "subject_ref": reviewRef, "scope": []any{feature}, "user_decision_ref": cp["plan_user_decision_ref"], "continuation_ref": cp["plan_continuation_ref"]}); err != nil {
 		return err
 	}
-	return s.PlanAggregateRecord(cp, review, basis, bundles)
+	return approval.PlanAggregateRecord(s, cp, review, basis, bundles)
 }

@@ -1,9 +1,14 @@
 package governance
 
+import "github.com/iloveZzz/yss-cli/internal/governance/approval"
+
 import (
 	"context"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"path"
 )
@@ -73,15 +78,20 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 		p["intent_source"] = target.IntentSource
 	}
 	target.Target = kernel.Text(p["target"])
-	for ref, key := range map[string]string{cpRef: "checkpoint_digest", kernel.GuidanceContractRef(profile): "contract_digest"} {
+	for ref, key := range map[string]string{cpRef: "checkpoint_digest"} {
 		raw, e := s.Bytes(ref)
 		if e != nil {
 			return nil, e
 		}
 		p[key] = "sha256:" + safefs.Digest(raw)
 	}
+	_, _, orchestrationDigest, contractErr := s.OrchestrationDocument(kernel.GuidanceContractRef(profile))
+	if contractErr != nil {
+		return nil, contractErr
+	}
+	p["contract_digest"] = orchestrationDigest
 	if profile == "spec" {
-		materials, err := progressionIntentMaterials(s, cpRef, configRef, cp)
+		materials, err := contracts.ProgressionIntentMaterials(s, cpRef, configRef, cp)
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +248,7 @@ func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef stri
 		if profile != "spec" {
 			return false
 		}
-		_, _, err := verifySpecBaselineSource(s, cpRef)
+		_, _, err := handoff.InspectSpecBaselineSource(s, cpRef)
 		row["source_ready"] = err == nil
 		return err == nil
 	}
@@ -285,10 +295,10 @@ func progressionBusinessCompletion(s *kernel.SemanticSession, cpRef string, cp, 
 	if conditional["backend-delivery"] == nil {
 		return "blocked", "业务完成政策缺少当前后端适用性规则"
 	}
-	if _, _, err := verifySpecBaselineSource(s, cpRef); err != nil {
+	if _, _, err := handoff.InspectSpecBaselineSource(s, cpRef); err != nil {
 		return "blocked", err.Error()
 	}
-	stageRef := checkpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
+	stageRef := handoff.CheckpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
 	stage, err := s.Doc(stageRef)
 	if err != nil {
 		return "blocked", err.Error()
@@ -308,7 +318,7 @@ func progressionBusinessCompletion(s *kernel.SemanticSession, cpRef string, cp, 
 			return "blocked", "未知业务后端完成条件"
 		}
 		if backendRequired && participants["backend"] == nil {
-			if err := backendBusinessLocalEvidence(s, cpRef); err != nil {
+			if err := contracts.BackendBusinessLocalEvidence(s, cpRef); err != nil {
 				return "blocked", err.Error()
 			}
 		}
@@ -345,7 +355,7 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 			if kernel.SemMap(policy["conditional_gates"])[id] != "product-design-impact" || gate["applicable"] != nil && gate["applicable"] != false || kernel.Text(gate["reason"]) == "" {
 				return "blocked", "不适用门禁缺少政策、原因与依据"
 			}
-			stageRef := checkpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
+			stageRef := handoff.CheckpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
 			if stageRef == "" {
 				return "blocked", "不适用产品设计缺少已绑定影响评估"
 			}
@@ -379,7 +389,7 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 			na = true
 			continue
 		}
-		if err := s.GateChecks(cp, cpRef, id); err != nil {
+		if err := approval.GateChecks(s, cp, cpRef, id); err != nil {
 			return "blocked", err.Error()
 		}
 	}
@@ -396,20 +406,20 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 
 func progressionNoUI(s *kernel.SemanticSession, cpRef string, cp map[string]any) (bool, error) {
 	if cp["upstream_spec_baseline"] != nil {
-		if err := verifyInheritedSpecCheckpoint(s, cpRef, cp); err != nil {
+		if err := handoff.VerifyInheritedSpecCheckpoint(s, cpRef, cp); err != nil {
 			return false, err
 		}
-		manifest, _, err := verifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(cp["upstream_spec_baseline"])["receipt_ref"]), true)
+		manifest, _, err := handoff.VerifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(cp["upstream_spec_baseline"])["receipt_ref"]), true)
 		return err == nil && kernel.SemMap(manifest["source"])["product_design_required"] == false, err
 	}
-	source, _, err := verifySpecBaselineSource(s, cpRef)
+	source, _, err := handoff.InspectSpecBaselineSource(s, cpRef)
 	return err == nil && source["product_design_required"] == false, err
 }
 
 func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any, check string) error {
 	switch check {
 	case "business-tickets-draft", "business-tickets-formal":
-		ref := checkpointAsset(cp, "business_ticket_set_ref", "artifact.business-ticket-set")
+		ref := handoff.CheckpointAsset(cp, "business_ticket_set_ref", "artifact.business-ticket-set")
 		if ref == "" {
 			return s.Reject("BUSINESS_TICKETS", "缺少当前业务票集合")
 		}
@@ -417,20 +427,20 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		if check == "business-tickets-formal" {
 			mode = "formal"
 		}
-		set, err := contractBusinessTicketsMode(s, ref, mode)
+		set, err := contracts.ContractBusinessTicketsMode(s, ref, mode)
 		if err != nil {
 			return err
 		}
-		spec := checkpointAsset(cp, "spec_ref", "artifact.spec")
+		spec := handoff.CheckpointAsset(cp, "spec_ref", "artifact.spec")
 		if spec != "" && kernel.SemMap(set["spec"])["ref"] != spec {
 			return s.Reject("PROGRESSION_BINDING", "业务票没有绑定当前 Spec")
 		}
 		if check == "business-tickets-draft" && cp["upstream_spec_baseline"] == nil {
-			_, _, err = verifySpecBaselineSource(s, cpRef)
+			_, _, err = handoff.InspectSpecBaselineSource(s, cpRef)
 		}
 		return err
 	case "inherited-spec-baseline":
-		return verifyInheritedSpecCheckpoint(s, cpRef, cp)
+		return handoff.VerifyInheritedSpecCheckpoint(s, cpRef, cp)
 	case "backend-delivery":
 		a, err := progressionBackendAuthorization(s, cpRef, "", true)
 		if err != nil {
@@ -459,7 +469,7 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		if ref == "" {
 			return s.Reject("WAITING_PROFILE_INPUT", "等待当前战略交接交付包")
 		}
-		_, _, err = contractOpenStrategicDelivery(s, ref)
+		_, _, err = handoff.ContractOpenStrategicDelivery(s, ref)
 		return err
 	default:
 		return s.Unavailable("CAPABILITY", "未知目标完成检查："+check)
@@ -618,7 +628,7 @@ func progressionStage(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		}
 		item := kernel.SemMap(kernel.SemMap(cp["gates"])[kernel.Text(gate["id"])])
 		if item["status"] == "approved" {
-			if err := s.GateChecks(cp, cpRef, kernel.Text(gate["id"])); err != nil {
+			if err := approval.GateChecks(s, cp, cpRef, kernel.Text(gate["id"])); err != nil {
 				return "blocked", err.Error()
 			}
 			found = true
@@ -634,7 +644,7 @@ func progressionStage(s *kernel.SemanticSession, cpRef string, cp map[string]any
 	return "reached", "当前阶段适用门禁的当前批准已核验"
 }
 
-type backendAuthorization struct{ Mode, CheckpointRef, TerminalRef string }
+type backendAuthorization = lifecycle.BackendAuthorization
 
 // A feature target permits one delivery work unit; it never widens a scope or
 // makes another feature inherit this feature's terminal record.

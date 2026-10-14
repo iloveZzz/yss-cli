@@ -23,8 +23,9 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
-	MigrationKind    string               `json:"migrationKind,omitempty"`
-	WorkLayout       *WorkLayoutMigration `json:"workLayout,omitempty"`
+	AssetSchema      *AssetSchemaMigration `json:"assetSchema,omitempty"`
+	MigrationKind    string                `json:"migrationKind,omitempty"`
+	WorkLayout       *WorkLayoutMigration  `json:"workLayout,omitempty"`
 	materialData     map[string][]byte
 	AssetScope       []string                     `json:"assetScope,omitempty"`
 	ReadyToApply     bool                         `json:"readyToApply,omitempty"`
@@ -61,6 +62,9 @@ func (p *Plan) Public() map[string]any {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
 	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "migrationKind": p.MigrationKind, "workLayout": p.WorkLayout, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	if p.AssetSchema != nil {
+		public["assetSchema"] = p.AssetSchema
+	}
 	// 只在目标 Bundle 含版本区间规则时才出现，其余计划的输出保持不变。
 	if p.SourceVersion != "" {
 		public["sourceVersion"] = p.SourceVersion
@@ -481,6 +485,9 @@ func Apply(p *Plan) (transaction.Result, error) {
 	return ApplyContext(context.Background(), p)
 }
 func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
+	if p != nil && p.MigrationKind == "asset-schema" {
+		return applyAssetSchema(ctx, p)
+	}
 	if p != nil && p.MigrationKind == "work-layout" {
 		return applyWorkLayout(ctx, p)
 	}

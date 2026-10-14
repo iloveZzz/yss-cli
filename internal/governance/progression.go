@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
@@ -20,21 +23,8 @@ const progressionKind = "lifecycle-target"
 
 var progressionTargets = []string{"spec-approved", "product-design-completed", "backend-deliverable", "business-accepted"}
 
-type ProgressionConsumer struct {
-	Profile       string `json:"profile"`
-	Root          string `json:"root"`
-	CheckpointRef string `json:"checkpoint_ref"`
-}
-
-type ProgressionTarget struct {
-	SchemaVersion int                   `json:"schema_version"`
-	Kind          string                `json:"kind"`
-	FeatureID     string                `json:"feature_id"`
-	CheckpointRef string                `json:"checkpoint_ref"`
-	Target        string                `json:"target"`
-	IntentSource  string                `json:"intent_source"`
-	Consumers     []ProgressionConsumer `json:"consumers"`
-}
+type ProgressionConsumer = lifecycle.ProgressionConsumer
+type ProgressionTarget = lifecycle.ProgressionTarget
 
 func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	var target ProgressionTarget
@@ -238,7 +228,7 @@ func progressionTargetRun(ctx context.Context, root string, args map[string]stri
 		if abs == filepath.Join(root, plan.Options["config_ref"]) {
 			return nil, domain.Fail("PROTECTED", "计划不能占用目标配置路径")
 		}
-		if err = saveBaselineJSON(abs, plan); err != nil {
+		if err = handoff.SaveBaselineJSON(abs, plan); err != nil {
 			return nil, err
 		}
 		return plan, nil
@@ -275,7 +265,7 @@ func progressionTargetRun(ctx context.Context, root string, args map[string]stri
 		config := fresh.Options["config_ref"]
 		same := len(plan.Operations) == 1 && len(fresh.Operations) == 0 && plan.Operations[0].Path == config && !plan.Operations[0].Delete && !plan.Operations[0].Directory
 		current, readErr := os.ReadFile(filepath.Join(root, config))
-		same = same && readErr == nil && bytes.Equal(current, plan.Operations[0].Data) && len(plan.Observed) == len(fresh.Observed) && contractSame(plan.Options, fresh.Options)
+		same = same && readErr == nil && bytes.Equal(current, plan.Operations[0].Data) && len(plan.Observed) == len(fresh.Observed) && contracts.ContractSame(plan.Options, fresh.Options)
 		for ref, before := range plan.Observed {
 			if ref != config && fresh.Observed[ref] != before {
 				same = false

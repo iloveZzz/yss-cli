@@ -1,5 +1,7 @@
 package governance
 
+import "github.com/iloveZzz/yss-cli/internal/governance/approval"
+
 import (
 	"encoding/json"
 	"fmt"
@@ -11,9 +13,9 @@ import (
 )
 
 func init() {
-	registerSemanticValidator("checkpoint", verifyCheckpointSemantic)
-	registerSemanticValidator("tracking-entry", verifyTrackingEntrySemantic)
-	registerSemanticValidator("checkpoint-boundary", verifyCheckpointBoundarySemantic)
+	kernel.RegisterSemanticValidator("checkpoint", verifyCheckpointSemantic)
+	kernel.RegisterSemanticValidator("tracking-entry", verifyTrackingEntrySemantic)
+	kernel.RegisterSemanticValidator("checkpoint-boundary", verifyCheckpointBoundarySemantic)
 }
 
 func verifyCheckpointBoundarySemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -243,7 +245,7 @@ func verifyCheckpointSemantic(s *kernel.SemanticSession, ref string, opts map[st
 	}
 	for id, row := range kernel.SemMap(cp["gates"]) {
 		if kernel.SemMap(row)["status"] == "approved" {
-			if err = s.GateChecks(cp, ref, id); err != nil {
+			if err = approval.GateChecks(s, cp, ref, id); err != nil {
 				return err
 			}
 		}
