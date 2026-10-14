@@ -34,7 +34,7 @@ func (s *SemanticSession) ExecutionScope() (map[string]any, error) {
 	if plugin != nil && (!SemHas([]string{"yss-plan-to-backend", "yss-backend-delivery"}, Text(plugin["plugin"])) || plugin["execution_scope"] != marker["scope_id"]) {
 		return nil, s.Reject("EXECUTION_SCOPE", "插件与执行范围冲突")
 	}
-	contract, err := s.Doc(".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml")
+	contract, err := s.Doc(".template-spec/process/orchestration-contract.yaml")
 	if err != nil {
 		return nil, err
 	}

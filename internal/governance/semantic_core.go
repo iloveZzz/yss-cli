@@ -1,17 +1,14 @@
 package governance
 
+import "github.com/iloveZzz/yss-cli/internal/governance/approval"
+
 import (
 	"context"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"sort"
 )
-
-func registerSemanticValidator(kind string, fn kernel.SemanticValidator) {
-	if kind == "" || fn == nil || kernel.SemanticValidators[kind] != nil {
-		panic("duplicate or invalid semantic validator: " + kind)
-	}
-	kernel.SemanticValidators[kind] = fn
-}
 
 type semanticFailure struct {
 	cause  error
@@ -32,29 +29,6 @@ func InputFailureReport(ctx context.Context, root, kind string, err error) *kern
 	s.Diagnostic("inputs", err)
 	s.Report.Status = "error"
 	return s.Report
-}
-
-func semSameSet(a, b any) bool {
-	x, y := kernel.SemStrings(a), kernel.SemStrings(b)
-	if len(x) == 0 || len(x) != len(y) {
-		return false
-	}
-	sort.Strings(x)
-	sort.Strings(y)
-	for i := range x {
-		if x[i] == "" || x[i] != y[i] || i > 0 && x[i] == x[i-1] {
-			return false
-		}
-	}
-	return true
-}
-
-func semanticOptions(args map[string]string) map[string]string {
-	out := map[string]string{}
-	for k, v := range args {
-		out[k] = v
-	}
-	return out
 }
 
 func semanticRun(ctx context.Context, group, action, root string, args map[string]string) (any, error) {
@@ -159,7 +133,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	if err == nil {
 		if kind == "handoff-source" {
-			err = handoffSourceAuthorities(s, ref)
+			err = handoff.HandoffSourceAuthorities(s, ref)
 		} else {
 			err = s.Authorities()
 		}
@@ -172,7 +146,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		if err == nil {
 			keys := map[string]string{"plan-entry": "plan_entry", "implementation-scope": "implementation_scope", "checkpoint-user-decisions": "checkpoint_user_decisions", "scaffold-user-decision": "scaffold_user_decision"}
 			if key := keys[kind]; key != "" {
-				semanticCoverage(s, key, map[string]any{"result": "passed"})
+				kernel.SemanticCoverage(s, key, map[string]any{"result": "passed"})
 			}
 		}
 	}
@@ -201,31 +175,24 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 }
 
 func init() {
-	registerSemanticValidator("plan-entry", verifyPlanEntrySemantic)
-	registerSemanticValidator("gate-checks", verifyGateChecksPublic)
-	registerSemanticValidator("checkpoint-approvals", verifyCheckpointApprovalsPublic)
-	registerSemanticValidator("implementation-scope", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	kernel.RegisterSemanticValidator("plan-entry", verifyPlanEntrySemantic)
+	kernel.RegisterSemanticValidator("gate-checks", verifyGateChecksPublic)
+	kernel.RegisterSemanticValidator("checkpoint-approvals", verifyCheckpointApprovalsPublic)
+	kernel.RegisterSemanticValidator("implementation-scope", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		state, err := s.Doc(ref)
 		if err != nil {
 			return err
 		}
-		return assertImplementationScopeSemantic(s, state)
+		return contracts.AssertImplementationScopeSemantic(s, state)
 	})
-	registerSemanticValidator("scaffold-user-decision", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	kernel.RegisterSemanticValidator("scaffold-user-decision", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		decision, err := s.Doc(ref)
 		if err != nil {
 			return err
 		}
-		return contractScaffoldUserDecision(s, decision)
+		return contracts.ContractScaffoldUserDecision(s, decision)
 	})
-	registerSemanticValidator("spec-baseline-binding", verifySpecBaselineBindingSemantic)
-}
-
-func semanticCoverage(s *kernel.SemanticSession, key string, value any) {
-	if s.Report.Coverage == nil {
-		s.Report.Coverage = map[string]any{}
-	}
-	s.Report.Coverage[key] = value
+	kernel.RegisterSemanticValidator("spec-baseline-binding", handoff.VerifySpecBaselineBindingSemantic)
 }
 
 func verifyGateChecksPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -237,7 +204,7 @@ func verifyGateChecksPublic(s *kernel.SemanticSession, ref string, opts map[stri
 	if gate == "" {
 		return s.Unavailable("ARGUMENT", "当前门禁检查需要 --gate")
 	}
-	if e = s.GateChecks(state, ref, gate); e != nil {
+	if e = approval.GateChecks(s, state, ref, gate); e != nil {
 		return e
 	}
 	// Project only the already validated dependency graph in consumer order.
@@ -262,7 +229,7 @@ func verifyGateChecksPublic(s *kernel.SemanticSession, ref string, opts map[stri
 	for _, id := range kernel.SemStrings(definition["requires_checks"]) {
 		collect(id)
 	}
-	semanticCoverage(s, "gate_checks", map[string]any{"gate": gate, "checks": checks, "result": "passed"})
+	kernel.SemanticCoverage(s, "gate_checks", map[string]any{"gate": gate, "checks": checks, "result": "passed"})
 	return nil
 }
 func verifyCheckpointApprovalsPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -285,11 +252,11 @@ func verifyCheckpointApprovalsPublic(s *kernel.SemanticSession, ref string, opts
 			return s.Reject("APPROVAL_CONTEXT_REQUIRED", "门禁状态必须是对象")
 		}
 		if item["status"] == "approved" {
-			if e = s.GateChecks(state, ref, gate); e != nil {
+			if e = approval.GateChecks(s, state, ref, gate); e != nil {
 				return e
 			}
 		}
 	}
-	semanticCoverage(s, "checkpoint_approvals", map[string]any{"result": "passed"})
+	kernel.SemanticCoverage(s, "checkpoint_approvals", map[string]any{"result": "passed"})
 	return nil
 }

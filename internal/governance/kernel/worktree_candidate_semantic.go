@@ -51,7 +51,7 @@ func (s *SemanticSession) WorktreeCandidate(ref string) (*nativeWorktreeSnapshot
 		return nil, s.Reject("MAINTENANCE_CANDIDATE", "候选 Manifest 文件名不规范")
 	}
 	record := map[string]any{"candidate_snapshot_ref": ref, "candidate_digest": manifest["candidate_digest"]}
-	if err = s.maintenanceCandidate(manifest, record); err != nil {
+	if err = s.MaintenanceCandidate(manifest, record); err != nil {
 		return nil, err
 	}
 	streamRef, diffRef := Text(manifest["snapshot_stream_ref"]), Text(manifest["tracked_diff_ref"])

@@ -1,5 +1,7 @@
 package governance
 
+import "github.com/iloveZzz/yss-cli/internal/governance/approval"
+
 import (
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
@@ -12,7 +14,9 @@ import (
 
 const researchValidator = ".agents/skills/yss-research/scripts/validate-research-package.mjs"
 
-func init() { registerSemanticValidator("research-completion", verifyResearchCompletionSemantic) }
+func init() {
+	kernel.RegisterSemanticValidator("research-completion", verifyResearchCompletionSemantic)
+}
 
 // The recorded Node command is an historical identifier, never an executable.
 func verifyResearchCompletionSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -113,7 +117,7 @@ func verifyResearchCompletionSemantic(s *kernel.SemanticSession, ref string, opt
 		if requirement["boundary"] != "template-maintenance-scope" || !kernel.SemHas(requirement["scope"], "work-unit.ssot-update") {
 			return s.Reject("RESEARCH_AUTHORIZATION", "继续维护缺少已有范围授权")
 		}
-		if _, e = kernel.AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
+		if _, e = approval.AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
 			return e
 		}
 	}

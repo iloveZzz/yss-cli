@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"go.yaml.in/yaml/v3"
 	"path"
 	"regexp"
@@ -223,6 +224,23 @@ func (c *closure) add(ref string) error {
 		return fmt.Errorf("CLI 快照缺少阶段资产: %s", ref)
 	}
 	c.paths[ref] = true
+	if ref == ".template-spec/process/orchestration-contract.yaml" {
+		_, refs, _, err := schema.LoadOrchestration(func(name string) ([]byte, error) {
+			file, ok := c.raw[name]
+			if !ok {
+				return nil, fmt.Errorf("CLI 快照缺少合同分片: %s", name)
+			}
+			return file.data, nil
+		}, ref)
+		if err != nil {
+			return err
+		}
+		for _, part := range refs[1:] {
+			if err := c.add(part); err != nil {
+				return err
+			}
+		}
+	}
 	if ref == "scripts/lib/scaffold-reference-example.mjs" {
 		if !c.skills["yss-dto"] {
 			return requiredSkill{"yss-dto", ref}

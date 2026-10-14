@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	handoffdomain "github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
@@ -16,29 +19,8 @@ import (
 	"strings"
 )
 
-type ProfileRecommendation struct {
-	Profile           string     `json:"profile"`
-	Recommendation    string     `json:"recommendation"`
-	Basis             string     `json:"basis"`
-	TargetRoot        string     `json:"target_root,omitempty"`
-	EngineeringStatus string     `json:"engineering_status"`
-	InputStatus       string     `json:"input_status"`
-	Missing           []string   `json:"missing"`
-	Commands          [][]string `json:"commands"`
-}
-
-type ProfileGuidanceResult struct {
-	SchemaVersion    int                     `json:"schema_version"`
-	Status           string                  `json:"status"`
-	Reason           string                  `json:"reason,omitempty"`
-	ReadOnly         bool                    `json:"read_only"`
-	ExecutionAllowed bool                    `json:"execution_allowed"`
-	Profile          string                  `json:"profile,omitempty"`
-	Default          string                  `json:"default,omitempty"`
-	DefaultCommands  [][]string              `json:"default_commands"`
-	Recommendations  []ProfileRecommendation `json:"recommendations"`
-	Missing          []string                `json:"missing"`
-}
+type ProfileRecommendation = lifecycle.ProfileRecommendation
+type ProfileGuidanceResult = lifecycle.ProfileGuidanceResult
 
 func guidancePolicy(s *kernel.SemanticSession) (string, map[string]any, error) {
 	p, err := s.Doc(".template-spec/process/harness-profile.yaml")
@@ -82,12 +64,12 @@ func guidanceArtifact(cp map[string]any, id string, fallback ...string) string {
 	return ""
 }
 
-func guidanceStrategicHandoff(s *kernel.SemanticSession, cp map[string]any) (*nativeHandoff, bool, error) {
+func guidanceStrategicHandoff(s *kernel.SemanticSession, cp map[string]any) (*handoffdomain.NativeHandoff, bool, error) {
 	if ref, present, err := guidanceStrategicDeliveryRef(s, cp); present || err != nil {
 		if err != nil {
 			return nil, present, err
 		}
-		h, _, err := contractOpenStrategicDelivery(s, ref)
+		h, _, err := handoffdomain.ContractOpenStrategicDelivery(s, ref)
 		return h, true, err
 	}
 	for _, asset := range []struct {
@@ -107,13 +89,13 @@ func guidanceStrategicHandoff(s *kernel.SemanticSession, cp map[string]any) (*na
 			return nil, true, s.Reject("PROFILE_BLOCKED", "当前显式战略交接资产尚未批准或已过期")
 		}
 		if asset.delivery {
-			h, _, err := contractOpenStrategicDelivery(s, ref)
+			h, _, err := handoffdomain.ContractOpenStrategicDelivery(s, ref)
 			return h, true, err
 		}
 		if err := s.Authorities(); err != nil {
 			return nil, true, err
 		}
-		h, err := contractInspectHandoff(s, ref)
+		h, err := handoffdomain.ContractInspectHandoff(s, ref)
 		return h, true, err
 	}
 	return nil, false, nil
@@ -139,7 +121,7 @@ func guidanceStrategicDeliveryRef(s *kernel.SemanticSession, cp map[string]any) 
 	if len(refs) != 1 || asset["status"] != "approved" {
 		return "", true, s.Reject("HANDOFF_DELIVERY", "战略交接交付记录不唯一或资产尚未批准")
 	}
-	h, record, err := contractOpenStrategicDelivery(s, refs[0])
+	h, record, err := handoffdomain.ContractOpenStrategicDelivery(s, refs[0])
 	if err != nil {
 		return "", true, err
 	}
@@ -185,7 +167,7 @@ func guidanceSource(s *kernel.SemanticSession, profile, cpRef string, cp map[str
 		if kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved" {
 			return nil, "", s.Reject("WAITING_PROFILE_INPUT", "等待当前 Spec 基线批准")
 		}
-		source, _, err := verifySpecBaselineSource(s, cpRef)
+		source, _, err := handoffdomain.InspectSpecBaselineSource(s, cpRef)
 		if err != nil {
 			return nil, "", err
 		}
@@ -225,11 +207,11 @@ func guidanceSource(s *kernel.SemanticSession, profile, cpRef string, cp map[str
 			}
 			ref = kernel.Text(kernel.SemMap(doc["delivery"])["ref"])
 		}
-		delivery, err := backendInspectDelivery(s, ref, nil)
+		delivery, err := contracts.BackendInspectDelivery(s, ref, nil)
 		if err != nil {
 			return nil, "", err
 		}
-		h, err := backendOpenStrategicInput(s, kernel.Text(delivery["strategic_bundle_ref"]))
+		h, err := contracts.BackendOpenStrategicInput(s, kernel.Text(delivery["strategic_bundle_ref"]))
 		if err != nil {
 			return nil, "", err
 		}
@@ -340,7 +322,7 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		}
 		receiptRef = path.Join("docs/spec-baselines", "spec-baseline."+strings.TrimPrefix(feature, "feature."), version, "receipt.json")
 	} else {
-		var h *nativeHandoff
+		var h *handoffdomain.NativeHandoff
 		var err error
 		if profile == "design" || profile == "spec" {
 			var present bool
@@ -364,12 +346,12 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 				}
 				ref = kernel.Text(kernel.SemMap(terminal["delivery"])["ref"])
 			}
-			delivery, e := backendInspectDelivery(source, ref, nil)
+			delivery, e := contracts.BackendInspectDelivery(source, ref, nil)
 			if e != nil {
 				return "blocked", e.Error(), nil
 			}
 			sourceDelivery = delivery
-			h, err = backendOpenStrategicInput(source, kernel.Text(delivery["strategic_bundle_ref"]))
+			h, err = contracts.BackendOpenStrategicInput(source, kernel.Text(delivery["strategic_bundle_ref"]))
 		}
 		if err != nil {
 			return "blocked", err.Error(), nil
@@ -393,11 +375,11 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		return "waiting-input", "等待接入当前来源包和接收记录：" + receiptRef, nil
 	}
 	if specBaseline {
-		manifest, snapshot, e := verifySpecBaselineReceipt(s, receiptRef, false)
+		manifest, snapshot, e := handoffdomain.VerifySpecBaselineReceipt(s, receiptRef, false)
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
-		if e = guidanceCurrentSpecBaseline(source, cpRef, cp, manifest, snapshot); e != nil {
+		if e = handoffdomain.GuidanceCurrentSpecBaseline(source, cpRef, cp, manifest, snapshot); e != nil {
 			return "blocked", e.Error(), nil
 		}
 	} else {
@@ -405,21 +387,21 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
-		if e = contractReceipt(s, receipt); e != nil {
+		if e = handoffdomain.ContractReceipt(s, receipt); e != nil {
 			return "blocked", e.Error(), nil
 		}
 		if sourceDigest != "" && receipt["bundle_digest"] != sourceDigest {
 			return "blocked", "目标接收记录未绑定当前战略交接", nil
 		}
-		bundle, e := contractOpenHandoff(s, kernel.Text(receipt["package_ref"]))
+		bundle, e := handoffdomain.ContractOpenHandoff(s, kernel.Text(receipt["package_ref"]))
 		if e != nil {
 			return "blocked", e.Error(), nil
 		}
-		if !contractSame(bundle.Handoff, sourceHandoff) {
+		if !contracts.ContractSame(bundle.Handoff, sourceHandoff) {
 			return "blocked", "目标包中的战略交接与当前来源不同", nil
 		}
 		capability := map[string]string{"backend": "backend-technical-design"}[target]
-		if e = contractReceiptConsumer(s, receipt, capability); e != nil {
+		if e = handoffdomain.ContractReceiptConsumer(s, receipt, capability); e != nil {
 			return "blocked", e.Error(), nil
 		}
 	}
@@ -447,7 +429,7 @@ func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSess
 		return "pending-verification", "目标 Context 尚未对账", nil
 	}
 	if specBaseline {
-		_, _, err = verifySpecBaselineReceipt(s, receiptRef, true)
+		_, _, err = handoffdomain.VerifySpecBaselineReceipt(s, receiptRef, true)
 	} else {
 		err = s.Verify("context-reconciliation", kernel.Text(recon["ref"]), map[string]string{"import-receipt": receiptRef})
 		if err == nil {
@@ -510,9 +492,9 @@ func guidanceHandoffContext(s *kernel.SemanticSession, handoff map[string]any) e
 			if !present {
 				return s.Reject("HANDOFF_CONTEXT", "目标术语未对账")
 			}
-			actual := kernel.SemMap(mustParseContract(mustMarshalContract(term)))
+			actual := kernel.SemMap(handoffdomain.MustParseContract(handoffdomain.MustMarshalContract(term)))
 			for _, key := range []string{"term", "meaning", "english_identifier", "context_id", "forbidden_aliases"} {
-				if !contractSame(expected[key], actual[key]) {
+				if !contracts.ContractSame(expected[key], actual[key]) {
 					return s.Reject("HANDOFF_CONTEXT", "目标术语字段未对账")
 				}
 			}
