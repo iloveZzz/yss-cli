@@ -50,7 +50,7 @@ func initializeCommands() {
 	defineArgument("plan-file", "<文件>", "消费已有计划；写入前核验输入摘要")
 	defineArgument("review-out", "<新目录>", "在项目外导出冲突、基线、合并候选和决议模板")
 	defineArgument("base-bundle", "<路径>", "显式提供完整历史 Bundle 材料；默认离线")
-	defineArgument("migration-kind", "<类型>", "工作包目录迁移；缺省保持模板迁移", "work-layout")
+	defineArgument("migration-kind", "<类型>", "目录或资产协议迁移；缺省保持模板迁移", "work-layout", "asset-schema")
 	defineArgument("resolution-file", "<文件>", "结合 --plan-file 原计划重新规划已决议资产")
 	defineArgument("artifact", "<归档>", "本机平台 .tar.gz 或 .zip 发行包")
 	defineArgument("sha256", "<SHA-256>", "发行包的 64 位十六进制 SHA-256")
@@ -104,7 +104,7 @@ func initializeCommands() {
 			if parts[0] == "attach" || parts[0] == "sync" || parts[0] == "migrate" && (len(parts) == 1 || parts[1] == "plan") {
 				opts = append(opts, "review-out", "base-bundle", "resolution-file")
 				if parts[0] == "migrate" {
-					opts = append(opts, "migration-kind")
+					opts = append(opts, "migration-kind", "input")
 				}
 			}
 			if len(parts) > 1 && parts[0] == "migrate" && (parts[1] == "status" || parts[1] == "recover" || parts[1] == "rollback") {
@@ -467,7 +467,7 @@ func commandChoices(key string) map[string][]string {
 	switch key {
 	case "contract view":
 		return map[string][]string{"kind": {"slice"}, "view": {"review", "task", "full"}}
-	case "context query", "lifecycle query", "lifecycle status":
+	case "context query", "lifecycle query", "lifecycle status", "lifecycle route":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
 		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}

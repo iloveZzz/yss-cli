@@ -4,7 +4,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
-func init() { registerSemanticValidator("intake-observation", verifyIntakeObservationSemantic) }
+func init() { kernel.RegisterSemanticValidator("intake-observation", verifyIntakeObservationSemantic) }
 
 func verifyIntakeObservationSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	observation, err := s.Doc(opts["observation"])

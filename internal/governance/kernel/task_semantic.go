@@ -53,7 +53,7 @@ func validateReviewCapabilityPolicySemantic(s *SemanticSession) error {
 		for _, c := range strings.TrimPrefix(id, "capability.") {
 			valid = valid && (c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-')
 		}
-		if !valid || capabilities[id] || strings.TrimSpace(ApText(capability["name"])) == "" || !apUnique(capability["eligible_roles"]) || !apUnique(capability["review_skills"]) {
+		if !valid || capabilities[id] || strings.TrimSpace(ApText(capability["name"])) == "" || !ApUnique(capability["eligible_roles"]) || !ApUnique(capability["review_skills"]) {
 			return ApFail(s, "GATE_POLICY_REQUIRED", "能力身份、名称、角色或技能无效: "+id)
 		}
 		capabilities[id] = true
@@ -76,7 +76,7 @@ func validateReviewCapabilityPolicySemantic(s *SemanticSession) error {
 	}
 	for _, bucket := range []string{"check_reviews", "digital_human_review", "dual_digital_human", "digital_human_review_work_units"} {
 		for _, rule := range ApRows(p[bucket]) {
-			if !apUnique(rule["capability_ids"]) {
+			if !ApUnique(rule["capability_ids"]) {
 				return ApFail(s, "GATE_POLICY_REQUIRED", "专业审查缺少完整能力分类")
 			}
 			for _, id := range ApStrings(rule["capability_ids"]) {
@@ -129,7 +129,7 @@ func CompileReviewCapabilitiesSemantic(s *SemanticSession, checkIDs any, roleID,
 	if state != "Reviewer" && state != "Verifier" {
 		return out, ApFail(s, "REVIEW_CAPABILITY_STATE", "审查能力只允许 Reviewer / Verifier")
 	}
-	if !apUnique(checkIDs) {
+	if !ApUnique(checkIDs) {
 		return out, ApFail(s, "GATE_POLICY_REQUIRED", "check_ids 必须非空唯一")
 	}
 	role := TaskRole(s, roleID)
@@ -140,7 +140,7 @@ func CompileReviewCapabilitiesSemantic(s *SemanticSession, checkIDs any, roleID,
 	for _, id := range ApStrings(checkIDs) {
 		_, row, known := FindRegistry(s.Registry, id)
 		rule := reviewRule(s, id)
-		if !known || rule == nil || !apUnique(rule["capability_ids"]) {
+		if !known || rule == nil || !ApUnique(rule["capability_ids"]) {
 			return out, ApFail(s, "GATE_POLICY_REQUIRED", "未知当前审查边界或能力政策: "+id)
 		}
 		stages[ApText(row["stage"])] = true
@@ -217,7 +217,7 @@ func currentApprovalsFromCheckpointSemantic(s *SemanticSession, ref string, boun
 	if e != nil {
 		return nil, e
 	}
-	if !apUnique(boundaries) {
+	if !ApUnique(boundaries) {
 		return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "缺少当前检查范围")
 	}
 	out := []map[string]any{}
@@ -227,7 +227,7 @@ func currentApprovalsFromCheckpointSemantic(s *SemanticSession, ref string, boun
 			bucket = "checks"
 		}
 		row := ApMap(ApMap(checkpoint[bucket])[boundary])
-		if ApText(row["subject_ref"]) == "" || !apUnique(row["approval_scope"]) || strings.TrimSpace(ApText(row["drafter_principal_ref"])) == "" || len(ApArray(row["basis"])) == 0 {
+		if ApText(row["subject_ref"]) == "" || !ApUnique(row["approval_scope"]) || strings.TrimSpace(ApText(row["drafter_principal_ref"])) == "" || len(ApArray(row["basis"])) == 0 {
 			return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "当前主体、范围、basis或作者来源缺失: "+boundary)
 		}
 		binding, e := s.Bind(ApText(row["subject_ref"]))
@@ -238,7 +238,7 @@ func currentApprovalsFromCheckpointSemantic(s *SemanticSession, ref string, boun
 		if row["subject_digest"] != nil && row["subject_digest"] != digest {
 			return nil, ApFail(s, "REVIEW_BINDING_STALE", "当前主体摘要漂移: "+boundary)
 		}
-		allBasis, e := apBasis(s, row["basis"], "当前检查", "REVIEW_BINDING_STALE")
+		allBasis, e := ApBasis(s, row["basis"], "当前检查", "REVIEW_BINDING_STALE")
 		if e != nil {
 			return nil, e
 		}
@@ -268,7 +268,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 		}
 	}
 	for _, field := range []string{"check_ids", "capability_ids", "approval_scope"} {
-		if !apUnique(context[field]) {
+		if !ApUnique(context[field]) {
 			return ApFail(s, "APPROVAL_CONTEXT_REQUIRED", field+" 无效")
 		}
 	}
@@ -281,7 +281,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 		if e != nil {
 			return e
 		}
-		if !apHashValid(context[pair[1]], false) || strings.TrimPrefix(binding.Digest, "sha256:") != context[pair[1]] {
+		if !ApHashValid(context[pair[1]], false) || strings.TrimPrefix(binding.Digest, "sha256:") != context[pair[1]] {
 			return ApFail(s, "REVIEW_BINDING_STALE", "当前候选或政策摘要过期: "+ref)
 		}
 	}
@@ -294,7 +294,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 	basisSeen := map[string]bool{}
 	for _, asset := range ApRows(context["basis"]) {
 		ref := ApText(asset["ref"])
-		if ref == "" || basisSeen[ref] || !apHashValid(asset["digest"], false) {
+		if ref == "" || basisSeen[ref] || !ApHashValid(asset["digest"], false) {
 			return ApFail(s, "REVIEW_BINDING_STALE", "当前依据重复或摘要非法")
 		}
 		basisSeen[ref] = true
@@ -339,7 +339,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 		}
 	}
 	for _, row := range rows {
-		if !apHashValid(row["subject_digest"], false) {
+		if !ApHashValid(row["subject_digest"], false) {
 			return ApFail(s, "REVIEW_BINDING_STALE", "逐项主体摘要非法")
 		}
 		if !narrow || ApText(row["boundary"]) == boundary {
@@ -351,7 +351,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 				return ApFail(s, "REVIEW_BINDING_STALE", "当前逐项主体已变化")
 			}
 		}
-		if !apUnique(row["approval_scope"]) || strings.TrimSpace(ApText(row["drafter_principal_ref"])) == "" || row["drafter_principal_ref"] == context["reviewer_principal_ref"] {
+		if !ApUnique(row["approval_scope"]) || strings.TrimSpace(ApText(row["drafter_principal_ref"])) == "" || row["drafter_principal_ref"] == context["reviewer_principal_ref"] {
 			return ApFail(s, "REVIEW_NOT_INDEPENDENT", "逐项范围或独立作者来源无效")
 		}
 		for _, scope := range ApStrings(row["approval_scope"]) {
@@ -383,7 +383,7 @@ func currentReviewContextSemantic(s *SemanticSession, context map[string]any, bo
 		return e
 	}
 	source := ApMap(candidate["source_checkpoint"])
-	if ApNumber(candidate["schema_version"]) != 1 || ApText(candidate["kind"]) != "review-subject" || !ApEqual(candidate["current_approvals"], rows) || ApText(source["ref"]) == "" || !apHashValid(source["digest"], false) {
+	if ApNumber(candidate["schema_version"]) != 1 || ApText(candidate["kind"]) != "review-subject" || !ApEqual(candidate["current_approvals"], rows) || ApText(source["ref"]) == "" || !ApHashValid(source["digest"], false) {
 		return ApFail(s, "REVIEW_BINDING_STALE", "审阅包未绑定逐项当前上下文与checkpoint来源")
 	}
 	boundaries := context["check_ids"]
@@ -512,7 +512,7 @@ func ApprovalExpectedFromTaskSemantic(s *SemanticSession, ref string, task map[s
 	if e != nil {
 		return nil, e
 	}
-	if !apHashValid(digest, false) || strings.TrimPrefix(binding.Digest, "sha256:") != digest {
+	if !ApHashValid(digest, false) || strings.TrimPrefix(binding.Digest, "sha256:") != digest {
 		return nil, ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "缺少当前任务文件及摘要")
 	}
 	actual, e := s.Doc(ref)
@@ -530,10 +530,10 @@ func ApprovalExpectedFromTaskSemantic(s *SemanticSession, ref string, task map[s
 	return out, nil
 }
 
-func assertReviewCapabilityBindingSemantic(s *SemanticSession, record, expected map[string]any) error {
+func AssertReviewCapabilityBindingSemantic(s *SemanticSession, record, expected map[string]any) error {
 	ref := ApText(expected["review_task_ref"])
 	digest := ApText(expected["review_task_digest"])
-	if ref == "" || !apHashValid(digest, false) {
+	if ref == "" || !ApHashValid(digest, false) {
 		return ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "缺少消费者当前review task来源")
 	}
 	if ApText(record["review_task_ref"]) != ref || ApText(record["review_task_digest"]) != digest {

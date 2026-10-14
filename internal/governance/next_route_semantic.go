@@ -2,12 +2,14 @@ package governance
 
 import (
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/governance/approval"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
 func init() {
-	registerSemanticValidator("next-route", verifyNextRouteSemantic)
-	registerSemanticValidator("execution-scope", verifyExecutionScopeSemantic)
+	kernel.RegisterSemanticValidator("next-route", verifyNextRouteSemantic)
+	kernel.RegisterSemanticValidator("execution-scope", verifyExecutionScopeSemantic)
 }
 
 // These are the fixed-source transition contracts, selected by the observed
@@ -218,11 +220,11 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 			}
 		}
 	}
-	if current == "work-unit.entry-triage" && profile["profile_id"] == specBaselineProfile && state["upstream_spec_baseline"] != nil {
-		if err = verifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
+	if current == "work-unit.entry-triage" && profile["profile_id"] == handoff.SpecBaselineProfile && state["upstream_spec_baseline"] != nil {
+		if err = handoff.VerifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
 			return err
 		}
-		manifest, _, e := verifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
+		manifest, _, e := handoff.VerifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
 		if e != nil {
 			return e
 		}
@@ -332,5 +334,5 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 		}
 	}
 	review := kernel.SemMap(state["human_review"])
-	return assertWorkUnitUserDecisionSemantic(s, current, map[string]any{"user_decisions": review["user_decisions"], "user_decision_not_applicable": review["not_applicable"]})
+	return approval.AssertWorkUnitUserDecisionSemantic(s, current, map[string]any{"user_decisions": review["user_decisions"], "user_decision_not_applicable": review["not_applicable"]})
 }
