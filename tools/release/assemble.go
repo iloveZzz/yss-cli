@@ -117,12 +117,12 @@ func (r *reader) unchanged() error {
 	return nil
 }
 func validIdentity(got, expected Identity) error {
-	if !stableVersion.MatchString(got.CLIVersion) || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != 4 {
+	if !stableVersion.MatchString(got.CLIVersion) || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != len(profiles) {
 		return reject("PROVENANCE", "incomplete stable source identity")
 	}
-	for _, p := range []string{"spec", "design", "backend", "frontend"} {
+	for _, p := range profiles {
 		b, ok := got.Bundles[p]
-		if !ok || !commitPattern.MatchString(b.TemplateCommit) || b.TemplateVersion != "git:"+b.TemplateCommit || b.SourceState != "committed" || !shaPattern.MatchString(b.SourceSnapshotHash) || !shaPattern.MatchString(b.ManifestHash) || !shaPattern.MatchString(b.BundleHash) {
+		if !ok || !commitPattern.MatchString(b.TemplateCommit) || (b.TemplateVersion != "git:"+b.TemplateCommit && !stableVersion.MatchString(b.TemplateVersion)) || b.SourceState != "committed" || !shaPattern.MatchString(b.SourceSnapshotHash) || !shaPattern.MatchString(b.ManifestHash) || !shaPattern.MatchString(b.BundleHash) {
 			return reject("PROVENANCE", "invalid fixed bundle %s", p)
 		}
 	}
@@ -230,7 +230,7 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 			return reject("EVIDENCE", "invalid native smoke report")
 		}
 		want := map[string]bool{":version": true, ":capabilities": true}
-		for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+		for _, profile := range []string{"spec", "design", "backend"} {
 			for _, command := range []string{"init", "context verify", "diff", "doctor", "lifecycle query", "sync plan", "sync apply", "skills list", "assets list", "migrate status", "runtime begin", "runtime event", "runtime complete", "runtime run", "runtime events", "runtime commands", "runtime pin", "runtime pins", "runtime unpin", "runtime inspect"} {
 				want[profile+":"+command] = true
 			}
@@ -303,7 +303,7 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 			kinds = []string{"cancel", "kill"}
 		}
 		want := map[string]bool{}
-		for _, p := range []string{"spec", "design", "backend", "frontend"} {
+		for _, p := range []string{"spec", "design", "backend"} {
 			for _, kind := range kinds {
 				want[p+"-"+kind] = true
 			}
@@ -535,14 +535,25 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 	var lock struct {
 		Schema   int `json:"schemaVersion"`
 		Profiles map[string]struct {
-			Commit string `json:"templateCommit"`
+			Commit  string `json:"templateCommit"`
+			Version string `json:"templateVersion"`
+			Tag     string `json:"templateTag"`
 		} `json:"profiles"`
 	}
-	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3) || len(lock.Profiles) != 4 {
+	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3) || len(lock.Profiles) != len(profiles) {
 		return reject("PROVENANCE", "invalid fixed source lock")
 	}
 	for p, b := range input.Bundles {
-		if lock.Profiles[p].Commit != b.TemplateCommit {
+		source := lock.Profiles[p]
+		// Match the Producer's version defaults; tag-to-commit verification stays there.
+		version := "git:" + source.Commit
+		if source.Tag != "" {
+			version = strings.TrimPrefix(source.Tag, "v")
+			if source.Tag != "v"+version || !stableVersion.MatchString(version) {
+				return reject("PROVENANCE", "invalid source-lock template tag %s", p)
+			}
+		}
+		if source.Commit != b.TemplateCommit || (source.Version != "" && source.Version != version) || version != b.TemplateVersion {
 			return reject("PROVENANCE", "source-lock template mismatch %s", p)
 		}
 	}
@@ -748,8 +759,8 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 		}
 		return nil
 	}
-	if receipt.VersionCommand == nil || len(receipt.BundleCommands) != 4 {
-		return reject("EVIDENCE", "actual version and four inspect commands are required")
+	if receipt.VersionCommand == nil || len(receipt.BundleCommands) != len(profiles) {
+		return reject("EVIDENCE", "actual version and %d inspect commands are required", len(profiles))
 	}
 	if row := receipt.VersionCommand; row != nil {
 		if row.ID != "native-version" {
@@ -767,7 +778,7 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 		}
 	}
 	if receipt.BundleCommands != nil {
-		if len(receipt.BundleCommands) != 4 {
+		if len(receipt.BundleCommands) != len(profiles) {
 			return reject("EVIDENCE", "incomplete native inspect commands")
 		}
 		seen := map[string]bool{}

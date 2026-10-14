@@ -17,7 +17,7 @@ type helpTopic struct {
 var helpTopics = map[string]helpTopic{
 	"init": {
 		summary:  "创建固定模板来源的项目实例。",
-		usage:    "--profile <spec|design|backend|frontend> --root <目录> [--project-name <名称>]",
+		usage:    "--profile <spec|design|backend> --root <目录> [--project-name <名称>]",
 		options:  "--profile       必需，选择四类模板之一\n--root          项目目录；默认当前目录，推荐显式指定新目录\n--project-name  项目名称\n--business-domain / --team-size  模板变量\n--full          安装该 Profile 的完整资源，默认初始分发集合\n--plan --out <新文件>  只生成计划；默认直接初始化\n--apply --plan-file <文件>  应用已保存计划\n--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置",
 		examples: "yss init --profile spec --root ./demo-spec --project-name 演示项目\nyss init --profile design --root ./demo-design --plan --out /tmp/yss-init-plan.json",
 		notes:    "拒绝覆盖用户文件；初始化使用程序内置 Bundle，无需 Node/Python 或网络。已有工程请先查看 yss attach --help。",
@@ -113,8 +113,8 @@ func renderHelp(args []string) (string, error) {
 
 func rootHelp() string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend / Frontend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  design 产品与业务设计；backend/frontend 承担技术设计与专职交付。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
-	for _, p := range []string{"spec", "design", "backend", "frontend"} {
+	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  design 产品与业务设计；backend 承担技术设计与专职交付。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
+	for _, p := range []string{"spec", "design", "backend"} {
 		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
 	}
 	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss context verify --root ./demo-spec --json\n\n生命周期导航:\n")
@@ -133,7 +133,7 @@ func rootHelp() string {
 		label string
 		names []string
 	}{
-		{"项目", []string{"init", "profile", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
+		{"项目", []string{"init", "scaffold", "profile", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
 		{"资源", []string{"skills", "assets", "bundle"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"context", "lifecycle", "stage", "contract", "evidence", "handoff", "project-ci"}},
@@ -144,7 +144,7 @@ func rootHelp() string {
 			fmt.Fprintf(&out, "    %-16s %s\n", name, commands[name].help.summary)
 		}
 	}
-	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|design|backend|frontend；init 必需，其余从身份检测\n\n")
+	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|design|backend；init 必需，其余从身份检测\n\n")
 	out.WriteString(`升级、同步与恢复:
   yss upgrade --check                         查询 CLI 稳定版本
   yss upgrade                                 升级 CLI 程序
@@ -154,7 +154,7 @@ func rootHelp() string {
 
 帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
 完整离线教程: yss help tutorial
-按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|frontend|maintenance
+按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|maintenance
 示例索引: yss help examples [命令/子命令]
 错误索引: yss help errors [错误码]
 入口区别: upgrade 升级程序；sync 同步模板；migrate 迁移旧实例；recover 恢复未完成事务；rollback 回退最近成功事务。

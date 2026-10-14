@@ -4,46 +4,47 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
-	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
-const ciConfigRef = ".template-spec/process/project-ci.yaml"
 const nativeCIConfigRef = ".template-spec/process/project-ci-native.json"
+
 const nativeCIReceiptRef = ".template-spec/process/project-ci-native-install.json"
+
 const nativeCIWorkflowRef = ".github/workflows/yss-governance-native.yml"
 
 var unportedProjectChecks = []string{"checkpoint-boundary-and-deep-verification", "digital-human-task-role-and-contract", "approval-ownership-and-current-context", "lifecycle-next-route", "slice-contract-approval", "git-base-deletion-protection"}
 
-func governanceScope(v *view) ([]string, map[string]any, error) {
-	if err := projectIdentity(v); err != nil {
+func governanceScope(v *kernel.View) ([]string, map[string]any, error) {
+	if err := kernel.ProjectIdentity(v); err != nil {
 		return nil, nil, err
 	}
-	layout, err := viewWorkLayout(v)
+	layout, err := kernel.ViewWorkLayout(v)
 	if err != nil {
 		return nil, nil, err
 	}
 	config := map[string]any{"schema_version": json.Number("1"), "provider": "github", "branch": "main", "additional_paths": []any{}}
-	d, err := v.watch(ciConfigRef)
+	d, err := v.Watch(kernel.CiConfigRef)
 	if err != nil {
 		return nil, nil, err
 	}
 	if d.Type == "file" {
-		config, err = v.document(ciConfigRef)
+		config, err = v.Document(kernel.CiConfigRef)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	n, ok := integer(config["schema_version"])
+	n, ok := kernel.Integer(config["schema_version"])
 	paths, valid := config["additional_paths"].([]any)
-	if !ok || n != 1 || text(config["provider"]) != "github" || !valid {
+	if !ok || n != 1 || kernel.Text(config["provider"]) != "github" || !valid {
 		return nil, nil, domain.Fail("CI_CONFIG", "project-ci 配置版本、provider 或 additional_paths 无效")
 	}
 	roots := []string{layout.Root}
@@ -54,20 +55,20 @@ func governanceScope(v *view) ([]string, map[string]any, error) {
 		}
 		roots = append(roots, s)
 	}
-	roots = uniqueStrings(roots)
+	roots = kernel.UniqueStrings(roots)
 	// A scoped native installation extends discovery only for its explicitly registered roots.
-	d, err = v.watch(nativeCIConfigRef)
+	d, err = v.Watch(nativeCIConfigRef)
 	if err != nil {
 		return nil, nil, err
 	}
 	if d.Type == "file" {
-		c, err := v.document(nativeCIConfigRef)
+		c, err := v.Document(nativeCIConfigRef)
 		if err != nil {
 			return nil, nil, err
 		}
-		n, valid := integer(c["schema_version"])
+		n, valid := kernel.Integer(c["schema_version"])
 		paths, list := c["roots"].([]any)
-		if !valid || n != 1 || !list || text(c["kind"]) != "project-ci-native-scope" || text(c["scope"]) != "native-go" || c["full_project_governance"] != false {
+		if !valid || n != 1 || !list || kernel.Text(c["kind"]) != "project-ci-native-scope" || kernel.Text(c["scope"]) != "native-go" || c["full_project_governance"] != false {
 			return nil, nil, domain.Fail("CI_CONFIG", "未知原生 CI 范围配置")
 		}
 		for _, p := range paths {
@@ -77,27 +78,16 @@ func governanceScope(v *view) ([]string, map[string]any, error) {
 			}
 			roots = append(roots, s)
 		}
-		roots = uniqueStrings(roots)
+		roots = kernel.UniqueStrings(roots)
 	}
 	for _, ref := range roots {
-		if _, err = safefs.Path(v.root, ref); err != nil {
+		if _, err = safefs.Path(v.Root, ref); err != nil {
 			return nil, nil, err
 		}
 	}
 	return roots, config, nil
 }
-func uniqueStrings(values []string) []string {
-	set := map[string]bool{}
-	for _, s := range values {
-		set[s] = true
-	}
-	out := []string{}
-	for s := range set {
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
-}
+
 func governanceFiles(root string, roots []string) ([]string, error) {
 	files := []string{}
 	seen := map[string]bool{}
@@ -154,21 +144,22 @@ var identityRefs = map[string]bool{"term_refs": true, "skill_refs": true, "princ
 func fileReference(s string) bool {
 	return s != "" && !regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`).MatchString(s) && !regexp.MustCompile(`^(?:gate|artifact|work-unit|stage|evidence|check|skill|runtime|role)\.[a-z0-9-]+$`).MatchString(s) && strings.ContainsAny(s, "./")
 }
-func assetReferences(value any, refs map[string]bool, bindings *[]Binding) {
+
+func assetReferences(value any, refs map[string]bool, bindings *[]kernel.Binding) {
 	if list, ok := value.([]any); ok {
 		for _, v := range list {
 			assetReferences(v, refs, bindings)
 		}
 		return
 	}
-	m, ok := object(value)
+	m, ok := kernel.Object(value)
 	if !ok {
 		return
 	}
-	if ref := text(m["ref"]); ref != "" {
-		digest := first(text(m["digest"]), text(m["sha256"]))
+	if ref := kernel.Text(m["ref"]); ref != "" {
+		digest := kernel.First(kernel.Text(m["digest"]), kernel.Text(m["sha256"]))
 		if digest != "" {
-			*bindings = append(*bindings, Binding{ref, digest})
+			*bindings = append(*bindings, kernel.Binding{ref, digest})
 		}
 	}
 	for key, v := range m {
@@ -176,20 +167,20 @@ func assetReferences(value any, refs map[string]bool, bindings *[]Binding) {
 			continue
 		}
 		if key == "ref" || strings.HasSuffix(key, "_ref") {
-			s := text(v)
+			s := kernel.Text(v)
 			if fileReference(s) {
 				refs[s] = true
 			}
 			if strings.HasSuffix(key, "_ref") {
-				if hash := text(m[strings.TrimSuffix(key, "_ref")+"_digest"]); hash != "" {
-					*bindings = append(*bindings, Binding{s, hash})
+				if hash := kernel.Text(m[strings.TrimSuffix(key, "_ref")+"_digest"]); hash != "" {
+					*bindings = append(*bindings, kernel.Binding{s, hash})
 				}
 			}
 		}
 		if strings.HasSuffix(key, "_refs") || key == "inputs" {
 			if list, ok := v.([]any); ok {
 				for _, x := range list {
-					if s := text(x); fileReference(s) {
+					if s := kernel.Text(x); fileReference(s) {
 						refs[s] = true
 					}
 				}
@@ -198,14 +189,15 @@ func assetReferences(value any, refs map[string]bool, bindings *[]Binding) {
 		assetReferences(v, refs, bindings)
 	}
 }
+
 func claimedAsset(m map[string]any) bool {
-	if contains([]string{"approved", "completed", "ready-for-agent", "running", "paused-human-gate"}, text(m["status"])) || contains([]string{"active", "paused", "failed", "resolved"}, text(m["workflow_status"])) || text(m["result"]) == "completed" || text(m["decision"]) == "approved" {
+	if kernel.Contains([]string{"approved", "completed", "ready-for-agent", "running", "paused-human-gate"}, kernel.Text(m["status"])) || kernel.Contains([]string{"active", "paused", "failed", "resolved"}, kernel.Text(m["workflow_status"])) || kernel.Text(m["result"]) == "completed" || kernel.Text(m["decision"]) == "approved" {
 		return true
 	}
 	for _, key := range []string{"gates", "artifacts"} {
-		if set, ok := object(m[key]); ok {
+		if set, ok := kernel.Object(m[key]); ok {
 			for _, raw := range set {
-				if x, ok := object(raw); ok && text(x["status"]) == "approved" {
+				if x, ok := kernel.Object(raw); ok && kernel.Text(x["status"]) == "approved" {
 					return true
 				}
 			}
@@ -213,8 +205,9 @@ func claimedAsset(m map[string]any) bool {
 	}
 	return false
 }
+
 func nativeProjectCheck(root string) (map[string]any, error) {
-	v := newView(root)
+	v := kernel.NewView(root)
 	if err := pendingOldTransaction(v); err != nil {
 		return nil, err
 	}
@@ -222,14 +215,14 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = v.read("CONTEXT.md"); err != nil {
+	if _, err = v.Read("CONTEXT.md"); err != nil {
 		return nil, err
 	}
 	ctx, err := contextContract(root)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = v.watch("CONTEXT.md"); err != nil {
+	if _, err = v.Watch("CONTEXT.md"); err != nil {
 		return nil, err
 	}
 	files, err := governanceFiles(root, roots)
@@ -251,7 +244,7 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 		if len(seen) > 20000 {
 			return nil, domain.Fail("CI_SCOPE", "引用闭包超过 20000 项")
 		}
-		b, err := v.read(ref)
+		b, err := v.Read(ref)
 		if err != nil {
 			return nil, err
 		}
@@ -267,7 +260,7 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 				}
 				continue
 			}
-			input, _, err = frontmatter(b)
+			input, _, err = kernel.Frontmatter(b)
 			if err != nil {
 				return nil, err
 			}
@@ -276,17 +269,17 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 		if err != nil {
 			return nil, domain.Fail("CI_INPUT", ref+": "+err.Error())
 		}
-		m, ok := object(parsed)
+		m, ok := kernel.Object(parsed)
 		if !ok {
 			continue
 		}
-		isCP := regexp.MustCompile(`(?:^|/)checkpoint\.(?:json|yaml|yml)$`).MatchString(ref) || (text(m["repository_mode"]) != "" && text(m["stage"]) != "" && m["gates"] != nil)
-		isTask := text(m["task_id"]) != "" && text(m["work_unit_id"]) != ""
+		isCP := regexp.MustCompile(`(?:^|/)checkpoint\.(?:json|yaml|yml)$`).MatchString(ref) || (kernel.Text(m["repository_mode"]) != "" && kernel.Text(m["stage"]) != "" && m["gates"] != nil)
+		isTask := kernel.Text(m["task_id"]) != "" && kernel.Text(m["work_unit_id"]) != ""
 		if isCP {
-			if text(m["repository_mode"]) != "project-instance" {
+			if kernel.Text(m["repository_mode"]) != "project-instance" {
 				return nil, domain.Fail("CI_IDENTITY", "checkpoint 身份与项目不一致: "+ref)
 			}
-			stage, err := checkStage(v, m, ref)
+			stage, err := kernel.CheckStage(v, m, ref)
 			if err != nil {
 				return nil, err
 			}
@@ -296,22 +289,22 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 		if isTask {
 			unported = append(unported, map[string]string{"ref": ref, "check": "digital-human-task-role-and-contract"})
 		}
-		if text(m["gate_id"]) != "" && text(m["decision"]) == "approved" {
+		if kernel.Text(m["gate_id"]) != "" && kernel.Text(m["decision"]) == "approved" {
 			unported = append(unported, map[string]string{"ref": ref, "check": "approval-ownership-and-current-context"})
 		} else if claimedAsset(m) && !isCP && !isTask {
 			unported = append(unported, map[string]string{"ref": ref, "check": "claimed-asset-specific-verification"})
 		}
 		refs := map[string]bool{}
-		bindings := []Binding{}
+		bindings := []kernel.Binding{}
 		assetReferences(m, refs, &bindings)
 		for target := range refs {
-			if _, err = v.read(target); err != nil {
+			if _, err = v.Read(target); err != nil {
 				return nil, domain.Fail("CI_REFERENCE", ref+": "+err.Error())
 			}
 			queue = append(queue, target)
 		}
 		for _, binding := range bindings {
-			actual, err := v.bind(binding.Ref)
+			actual, err := v.Bind(binding.Ref)
 			if err != nil {
 				return nil, err
 			}
@@ -328,20 +321,22 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 	if strings.Join(after, "\x00") != strings.Join(files, "\x00") {
 		return nil, domain.Fail("INPUT_DRIFT", "治理范围文件集合变化")
 	}
-	for ref := range v.observed {
-		if _, err = v.watch(ref); err != nil {
+	for ref := range v.Observed {
+		if _, err = v.Watch(ref); err != nil {
 			return nil, err
 		}
 	}
-	return map[string]any{"schema_version": 1, "kind": "project-governance-native-scope-verification", "status": "scoped-passed", "scope": "native-go", "full_project_governance": false, "read_only": true, "approval_created": false, "execution_authorization": "not-evaluated", "checks": checks, "roots": roots, "files": files, "inputs": v.observed, "unported_checks": unported, "unstructured_assets": unstructured}, nil
+	return map[string]any{"schema_version": 1, "kind": "project-governance-native-scope-verification", "status": "scoped-passed", "scope": "native-go", "full_project_governance": false, "read_only": true, "approval_created": false, "execution_authorization": "not-evaluated", "checks": checks, "roots": roots, "files": files, "inputs": v.Observed, "unported_checks": unported, "unstructured_assets": unstructured}, nil
 }
+
 func nativeWorkflow(branch, source string) []byte {
 	// source and branch are validated tokens, so they cannot inject YAML or shell syntax.
 	return []byte(fmt.Sprintf("# Managed by Go project-ci explicit plan/apply. Scope: Context, stage work, local references and digests.\nname: YSS Context and stage work\non:\n  pull_request:\n  push:\n    branches: [%q]\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  native-scope:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          persist-credentials: false\n      - uses: actions/setup-go@v5\n        with:\n          go-version-file: %s/go.mod\n          cache: false\n      - name: Verify native implementation\n        run: go -C %s test ./internal/governance ./internal/schema ./internal/transaction\n      - name: Check Context and stage work only\n        shell: bash\n        run: go -C %s run ./cmd/yss project-ci check --root \"$GITHUB_WORKSPACE\" --scope native-go --json > \"$RUNNER_TEMP/yss-governance-native.json\"\n      - uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: yss-governance-native-scope\n          path: ${{ runner.temp }}/yss-governance-native.json\n          if-no-files-found: error\n", branch, source, source, source))
 }
+
 func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "project-ci-native-go-plan", Root: root, Action: "install", Scope: "native-go", Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
-	v := newView(root)
+	v := kernel.NewView(root)
 	if err := pendingOldTransaction(v); err != nil {
 		return plan, err
 	}
@@ -350,7 +345,7 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 		return plan, err
 	}
 	for _, ref := range []string{".template-spec/process/.project-ci-transaction.json", ".github/workflows/yss-governance.yml", ".template-spec/process/project-ci-install.json"} {
-		d, err := v.watch(ref)
+		d, err := v.Watch(ref)
 		if err != nil {
 			return plan, err
 		}
@@ -358,11 +353,11 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 			return plan, domain.Fail("UNPORTED", "存在旧 CI 安装或事务，不能冒充等价升级: "+ref)
 		}
 	}
-	provider := first(args["provider"], "github")
+	provider := kernel.First(args["provider"], "github")
 	if provider != "github" {
 		return plan, domain.Fail("UNPORTED", "原生 CI 当前只支持 github")
 	}
-	branch := first(args["branch"], text(config["branch"]), "main")
+	branch := kernel.First(args["branch"], kernel.Text(config["branch"]), "main")
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`).MatchString(branch) || strings.Contains(branch, "..") || strings.Contains(branch, "//") || strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") {
 		return plan, domain.Fail("CI_CONFIG", "目标分支无效")
 	}
@@ -373,14 +368,14 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 	if _, err = safefs.Path(root, source); err != nil {
 		return plan, err
 	}
-	mod, err := v.read(source + "/go.mod")
+	mod, err := v.Read(source + "/go.mod")
 	if err != nil {
 		return plan, err
 	}
 	if !regexp.MustCompile(`(?m)^module github\.com/iloveZzz/yss-cli\s*$`).Match(mod) || !regexp.MustCompile(`(?m)^go 1\.27(?:\.\d+)?\s*$`).Match(mod) {
 		return plan, domain.Fail("CI_SOURCE", "CLI 源码 module/Go 版本不符合当前原生合同")
 	}
-	if _, err = v.read(source + "/cmd/yss/main.go"); err != nil {
+	if _, err = v.Read(source + "/cmd/yss/main.go"); err != nil {
 		return plan, err
 	}
 	sourceFiles, err := governanceFiles(root, []string{source})
@@ -388,7 +383,7 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 		return plan, err
 	}
 	for _, ref := range sourceFiles {
-		if _, err = v.read(ref); err != nil {
+		if _, err = v.Read(ref); err != nil {
 			return plan, err
 		}
 	}
@@ -399,7 +394,7 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 			}
 			roots = append(roots, ref)
 		}
-		roots = uniqueStrings(roots)
+		roots = kernel.UniqueStrings(roots)
 	}
 	plan.Options = map[string]string{"scope": "native-go", "provider": provider, "branch": branch, "cli-source": source, "additional-path": args["additional-path"]}
 	nativeConfig := map[string]any{"schema_version": 1, "kind": "project-ci-native-scope", "scope": "native-go", "full_project_governance": false, "provider": provider, "branch": branch, "roots": roots, "cli_source": source, "verification_status": "not-executed"}
@@ -409,35 +404,35 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 	}
 	outputs := map[string][]byte{nativeCIConfigRef: conf, nativeCIWorkflowRef: nativeWorkflow(branch, source)}
 	owned := map[string]any(nil)
-	d, err := v.watch(nativeCIReceiptRef)
+	d, err := v.Watch(nativeCIReceiptRef)
 	if err != nil {
 		return plan, err
 	}
 	if d.Type == "file" {
-		owned, err = v.document(nativeCIReceiptRef)
+		owned, err = v.Document(nativeCIReceiptRef)
 		if err != nil {
 			return plan, err
 		}
-		n, ok := integer(owned["schema_version"])
-		if !ok || n != 1 || text(owned["kind"]) != "project-ci-native-installation" {
+		n, ok := kernel.Integer(owned["schema_version"])
+		if !ok || n != 1 || kernel.Text(owned["kind"]) != "project-ci-native-installation" {
 			return plan, domain.Fail("CI_RECEIPT", "原生 CI 托管凭据无效")
 		}
 	}
 	managed := map[string]string{}
 	for ref, data := range outputs {
-		d, err := v.watch(ref)
+		d, err := v.Watch(ref)
 		if err != nil {
 			return plan, err
 		}
 		expected := ""
-		if m, ok := object(owned["managed"]); ok {
-			expected = text(m[ref])
+		if m, ok := kernel.Object(owned["managed"]); ok {
+			expected = kernel.Text(m[ref])
 		}
 		if (d.Type == "file" && (expected == "" || expected != "sha256:"+d.Digest)) || (d.Type == "missing" && expected != "") {
 			return plan, domain.Fail("CI_CONFLICT", "已有人工文件或托管输出漂移，保留原内容: "+ref)
 		}
 		managed[ref] = "sha256:" + safefs.Digest(data)
-		if err = v.set(ref, data); err != nil {
+		if err = v.Set(ref, data); err != nil {
 			return plan, err
 		}
 	}
@@ -445,17 +440,18 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 	if err != nil {
 		return plan, err
 	}
-	if err = v.set(nativeCIReceiptRef, receipt); err != nil {
+	if err = v.Set(nativeCIReceiptRef, receipt); err != nil {
 		return plan, err
 	}
-	plan.Observed = v.observed
-	plan.Operations, err = v.ops()
+	plan.Observed = v.Observed
+	plan.Operations, err = v.Ops()
 	if err != nil {
 		return plan, err
 	}
 	plan.PlanDigest, err = nativePlanDigest(plan)
 	return plan, err
 }
+
 func projectCIRun(ctx context.Context, action, root string, args map[string]string) (any, error) {
 	if (action == "check" || action == "verify") && args["scope"] != "native-go" {
 		return fullProjectCIRun(ctx, action, root, args)
@@ -482,8 +478,8 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		if ref == "" {
 			return nil, domain.Fail("PLAN_REQUIRED", "CI 写入必须消费 --plan-file")
 		}
-		v := newView(root)
-		b, err := v.read(ref)
+		v := kernel.NewView(root)
+		b, err := v.Read(ref)
 		if err != nil {
 			return nil, err
 		}
@@ -516,21 +512,22 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 	}
 	return buildCIPlan(root, args)
 }
+
 func nativeStageTransition(root string, args map[string]string) (any, error) {
-	ref := first(args["checkpoint"], args["file"], args["arg0"])
-	v := newView(root)
+	ref := kernel.First(args["checkpoint"], args["file"], args["arg0"])
+	v := kernel.NewView(root)
 	if err := pendingOldTransaction(v); err != nil {
 		return nil, err
 	}
-	cp, err := v.document(ref)
+	cp, err := v.Document(ref)
 	if err != nil {
 		return nil, err
 	}
-	result, err := checkStage(v, cp, ref)
+	result, err := kernel.CheckStage(v, cp, ref)
 	if err != nil {
 		return nil, err
 	}
-	t, err := asTracking(cp)
+	t, err := kernel.AsTracking(cp)
 	if err != nil {
 		return nil, err
 	}
@@ -539,36 +536,36 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 	}
 	current := args["current-work-unit"]
 	if current == "" {
-		if trace, ok := object(cp["stage_trace"]); ok {
-			current = text(trace["completed_work_unit"])
+		if trace, ok := kernel.Object(cp["stage_trace"]); ok {
+			current = kernel.Text(trace["completed_work_unit"])
 		}
 	}
-	next := first(args["next-work-unit"], text(cp["next_work_unit"]))
+	next := kernel.First(args["next-work-unit"], kernel.Text(cp["next_work_unit"]))
 	if current == "" || next == "" {
 		return nil, domain.Fail("TRACKING_TRANSITION", "需要明确当前/下一工作单元，不能推断阶段")
 	}
-	r, err := v.document(".template-spec/process/lifecycle-registry.yaml")
+	r, err := v.Document(".template-spec/process/lifecycle-registry.yaml")
 	if err != nil {
 		return nil, err
 	}
 	for _, unit := range []string{current, next} {
-		kind, _, ok := findRegistry(r, unit)
+		kind, _, ok := kernel.FindRegistry(r, unit)
 		if !ok || kind != "work_units" {
 			return nil, domain.Fail("TRACKING_TRANSITION", "工作单元未登记: "+unit)
 		}
 	}
 	units := map[string]string{}
-	for unit, stage := range trackedUnits {
+	for unit, stage := range kernel.TrackedUnits {
 		units[unit] = stage
 	}
-	design, _, err := designProfile(v)
+	design, _, err := kernel.DesignProfile(v)
 	if err != nil {
 		return nil, err
 	}
 	if design {
 		units["work-unit.business-ticket-formalization"] = "stage.ticket-formalization"
 	}
-	byUnit := map[string][]WorkItem{}
+	byUnit := map[string][]kernel.WorkItem{}
 	for _, item := range t.Items {
 		byUnit[item.WorkUnit] = append(byUnit[item.WorkUnit], item)
 	}
@@ -595,7 +592,7 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 		if item.Progress == "cancelled" {
 			continue
 		}
-		if contains(stale, item.ID) {
+		if kernel.Contains(stale, item.ID) {
 			return nil, domain.Fail("TRACKING_STALE", "下一工作项来源漂移")
 		}
 		for _, dep := range item.Dependencies {

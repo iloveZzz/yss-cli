@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-const PROFILES = ['spec', 'design', 'backend', 'frontend'];
+const PROFILES = ['spec', 'design', 'backend'];
 const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
 const VIEWS = PROFILES.map(p => `internal/helpview/assets/${p}.json`);
 const HELP = 'docs/cli-help.md';

@@ -7,7 +7,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"io"
+	_ "modernc.org/sqlite"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,12 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
-	"github.com/iloveZzz/yss-cli/internal/worklayout"
-	_ "modernc.org/sqlite"
 )
 
 const runtimeDDL = `
@@ -34,137 +33,6 @@ CREATE TABLE pins(run_id TEXT NOT NULL REFERENCES runs(id), reason TEXT NOT NULL
 CREATE TABLE run_files(run_id TEXT NOT NULL REFERENCES runs(id), path TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(run_id,path));
 CREATE TABLE checkpoint_index(path TEXT PRIMARY KEY, source_digest TEXT NOT NULL, indexed_at TEXT NOT NULL, value_json TEXT NOT NULL);
 PRAGMA user_version=1;`
-
-var registeredPathPattern = regexp.MustCompile(`["']?(?:local_worktree|project_root|repository_root|local_path|root_path)["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^\r\n"'#,}]+)|\|\s*(?:local_worktree|project_root|repository_root|local_path|root_path)\s*\|\s*([^|\r\n]+)`)
-var gitlinkPattern = regexp.MustCompile(`(?m)^\s*path\s*=\s*(.+)$`)
-
-func protectedRoots(root string) ([]string, error) {
-	roots := []string{root}
-	read := func(p string) error {
-		b, err := os.ReadFile(p)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		for _, match := range registeredPathPattern.FindAllStringSubmatch(string(b), -1) {
-			s := strings.TrimSpace(match[1])
-			if s == "" {
-				s = strings.TrimSpace(match[2])
-			}
-			if strings.HasPrefix(s, "\"") {
-				if err = json.Unmarshal([]byte(s), &s); err != nil {
-					return domain.Fail("PATH", "已登记仓库路径无法解析")
-				}
-			} else if strings.HasPrefix(s, "'") {
-				s = strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(s, "'"), "'"), "''", "'")
-			} else {
-				s = strings.Trim(s, "`")
-			}
-			if s == "" {
-				continue
-			}
-			if !filepath.IsAbs(s) {
-				s = filepath.Join(root, s)
-			}
-			real, err := filepath.EvalSymlinks(s)
-			if err == nil {
-				roots = append(roots, real)
-			} else if !os.IsNotExist(err) {
-				return err
-			}
-		}
-		return nil
-	}
-	scanRoots, err := worklayout.ReadScanRoots(root)
-	if err != nil {
-		return nil, err
-	}
-	for _, ref := range append(scanRoots, "docs", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project") {
-		p, err := safefs.Path(root, ref)
-		if err != nil {
-			return nil, err
-		}
-		err = filepath.WalkDir(p, func(p string, d os.DirEntry, e error) error {
-			if os.IsNotExist(e) {
-				return nil
-			}
-			if e != nil {
-				return e
-			}
-			if d.Type()&os.ModeSymlink != 0 {
-				return domain.Fail("PATH", "登记扫描拒绝符号链接: "+p)
-			}
-			if d.IsDir() {
-				if d.Name() == ".git" || d.Name() == "node_modules" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			ext := filepath.Ext(p)
-			if ext == ".md" || ext == ".json" || ext == ".yaml" || ext == ".yml" {
-				return read(p)
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	p, err := safefs.Path(root, ".gitmodules")
-	if err != nil {
-		return nil, err
-	}
-	b, err := os.ReadFile(p)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	for _, match := range gitlinkPattern.FindAllStringSubmatch(string(b), -1) {
-		ref := strings.TrimSpace(match[1])
-		p, err := safefs.Path(root, ref)
-		if err != nil {
-			return nil, err
-		}
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			roots = append(roots, real)
-		} else if !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-	return roots, nil
-}
-
-func runtimeLocation(root, home string) (string, error) {
-	if home == "" {
-		home = os.Getenv("YSS_RUNTIME_HOME")
-	}
-	if home == "" {
-		base, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		home = filepath.Join(base, ".yss-harness", "runtime")
-	}
-	home, err := externalPath(root, home)
-	if err != nil {
-		return "", err
-	}
-	protected, err := protectedRoots(root)
-	if err != nil {
-		return "", err
-	}
-	for _, p := range protected {
-		if inside(p, home) {
-			return "", domain.Fail("PATH", "运行存储不得进入已登记仓库: "+p)
-		}
-	}
-	dir := filepath.Join(home, safefs.Digest([]byte(root)))
-	if _, err = safefs.Path(dir, "runtime.sqlite"); err != nil {
-		return "", err
-	}
-	return dir, nil
-}
 
 func openRuntime(ctx context.Context, dir string, readOnly bool) (*sql.DB, error) {
 	return openRuntimeMode(ctx, dir, readOnly, false)
@@ -341,15 +209,16 @@ func runtimeOwner(dir, id, token, root string) error {
 	if err != nil {
 		return domain.Fail("RUNTIME_OWNER", "旧运行或未绑定所有权，拒绝更改")
 	}
-	if text(m["root"]) != root {
+	if kernel.Text(m["root"]) != root {
 		return domain.Fail("RUNTIME_OWNER", "运行所有权记录与项目身份不匹配")
 	}
 	actual := safefs.Digest([]byte(token))
-	if subtle.ConstantTimeCompare([]byte(text(m["token_digest"])), []byte(actual)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(kernel.Text(m["token_digest"])), []byte(actual)) != 1 {
 		return domain.Fail("RUNTIME_OWNER", "运行所有权 token 不匹配")
 	}
 	return nil
 }
+
 func schemaOwner(p string) (map[string]any, error) {
 	st, err := os.Lstat(p)
 	if err != nil {
@@ -362,11 +231,11 @@ func schemaOwner(p string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, ok := object(v)
+	m, ok := kernel.Object(v)
 	if !ok {
 		return nil, domain.Fail("RUNTIME_OWNER", "所有权记录格式非法")
 	}
-	version, ok := integer(m["version"])
+	version, ok := kernel.Integer(m["version"])
 	if !ok || version != 1 {
 		return nil, domain.Fail("RUNTIME_OWNER", "所有权协议版本未知")
 	}
@@ -389,7 +258,7 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 	if action == "begin" && (args["input"] != "" || args["report-dir"] != "") {
 		return nil, domain.Fail("UNPORTED", "输入对象与正式报告保护尚未迁移")
 	}
-	dir, err := runtimeLocation(root, args["home"])
+	dir, err := kernel.RuntimeLocation(root, args["home"])
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +273,7 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 		return runtimePin(ctx, action, root, dir, id, args["token"], args["reason"])
 	}
 	if action == "event" || action == "complete" {
-		id := first(args["id"], args["arg0"])
+		id := kernel.First(args["id"], args["arg0"])
 		if err = runtimeOwner(dir, id, args["token"], root); err != nil {
 			return nil, err
 		}

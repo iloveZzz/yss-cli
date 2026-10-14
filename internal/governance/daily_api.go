@@ -3,21 +3,23 @@ package governance
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"net/url"
 	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 const dailyWireProfileRef = ".agents/skills/yss-dto/references/openapi-wire-profile.yaml"
 
 var dailyHTTPMethods = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+
 var dailyExactVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$`)
+
 var dailyRootDeclaration = regexp.MustCompile(`(?m)^\s*(?:openapi|swagger)\s*:|["'](?:openapi|swagger)["']\s*:`)
 
 type dailyOAS struct {
@@ -37,9 +39,9 @@ func (o *dailyOAS) doc(ref string) (map[string]any, error) {
 	var b []byte
 	var err error
 	if o.baseline {
-		b, err = o.d.s.git(o.d.repo, "show", o.d.base+":"+ref)
+		b, err = o.d.s.Git(o.d.repo, "show", o.d.base+":"+ref)
 	} else {
-		b, err = o.d.s.externalViews[o.d.repo].read(ref)
+		b, err = o.d.s.ExternalViews[o.d.repo].Read(ref)
 	}
 	if err != nil {
 		return nil, err
@@ -48,7 +50,7 @@ func (o *dailyOAS) doc(ref string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, ok := object(v)
+	m, ok := kernel.Object(v)
 	if !ok {
 		return nil, fmt.Errorf("OAS/ref document must be an object")
 	}
@@ -56,6 +58,7 @@ func (o *dailyOAS) doc(ref string) (map[string]any, error) {
 	o.digests[ref] = "sha256:" + safefs.Digest(b)
 	return m, nil
 }
+
 func (o *dailyOAS) closure(ref string, v any) (any, error) {
 	closure := map[string]any{}
 	active := map[string]bool{}
@@ -140,6 +143,7 @@ func (o *dailyOAS) closure(ref string, v any) (any, error) {
 	}
 	return map[string]any{"value": normal, "reachable_refs": closure}, nil
 }
+
 func dailyPointer(root any, fragment string) (any, error) {
 	v := root
 	if fragment == "" {
@@ -177,7 +181,7 @@ func (d *dailySession) checkUncoveredAPI(action, declared string) error {
 	if len(changed) == 0 {
 		return nil
 	}
-	files, err := d.s.git(d.repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	files, err := d.s.Git(d.repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return err
 	}
@@ -188,7 +192,7 @@ func (d *dailySession) checkUncoveredAPI(action, declared string) error {
 		if ref == "" {
 			continue
 		}
-		b, e := d.s.externalViews[d.repo].read(ref)
+		b, e := d.s.ExternalViews[d.repo].Read(ref)
 		if e != nil {
 			continue
 		}
@@ -202,13 +206,13 @@ func (d *dailySession) checkUncoveredAPI(action, declared string) error {
 			}
 			continue
 		}
-		m, _ := object(v)
+		m, _ := kernel.Object(v)
 		if m["openapi"] != nil || m["swagger"] != nil {
 			roots[ref] = true
 		}
 	}
 	for ref := range changed {
-		tree, e := d.s.git(d.repo, "ls-tree", d.base, "--", ref)
+		tree, e := d.s.Git(d.repo, "ls-tree", d.base, "--", ref)
 		if e != nil {
 			return e
 		}
@@ -245,19 +249,21 @@ func (d *dailySession) checkUncoveredAPI(action, declared string) error {
 	}
 	return nil
 }
+
 func dailyStructured(ref string) bool {
 	return strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") || strings.HasSuffix(ref, ".json")
 }
+
 func (d *dailySession) checkAPI(action string) error {
-	api, ok := object(d.record["api"])
+	api, ok := kernel.Object(d.record["api"])
 	if !ok {
 		return d.info("必须明确 API 影响")
 	}
-	mode := text(api["mode"])
+	mode := kernel.Text(api["mode"])
 	declaredRoot := ""
 	if mode == "compatible-additive" {
-		candidate, _ := object(api["candidate"])
-		declaredRoot = text(candidate["ref"])
+		candidate, _ := kernel.Object(api["candidate"])
+		declaredRoot = kernel.Text(candidate["ref"])
 	}
 	if err := d.checkUncoveredAPI(action, declaredRoot); err != nil {
 		return err
@@ -266,7 +272,7 @@ func (d *dailySession) checkAPI(action string) error {
 		return nil
 	}
 	if mode == "none" {
-		if strings.TrimSpace(text(api["reason"])) == "" {
+		if strings.TrimSpace(kernel.Text(api["reason"])) == "" {
 			return d.info("无 API 影响需登记依据")
 		}
 		return nil
@@ -274,10 +280,10 @@ func (d *dailySession) checkAPI(action string) error {
 	if mode != "compatible-additive" {
 		return d.govern(action, "API 影响未知或不支持日常兼容校验")
 	}
-	baseline, ok := object(api["baseline"])
-	candidate, cok := object(api["candidate"])
-	ref := text(candidate["ref"])
-	if !ok || !cok || ref == "" || text(baseline["ref"]) != ref {
+	baseline, ok := kernel.Object(api["baseline"])
+	candidate, cok := kernel.Object(api["candidate"])
+	ref := kernel.Text(candidate["ref"])
+	if !ok || !cok || ref == "" || kernel.Text(baseline["ref"]) != ref {
 		return d.info("API baseline/candidate 必须引用同一实现仓内契约")
 	}
 	old := &dailyOAS{d: d, baseline: true, docs: map[string]map[string]any{}, digests: map[string]string{}}
@@ -290,10 +296,10 @@ func (d *dailySession) checkAPI(action string) error {
 	if err != nil {
 		return d.govern(action, "API 候选 YAML 或引用闭包不可解析")
 	}
-	if !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(text(a["openapi"])) || !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(text(b["openapi"])) {
+	if !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(kernel.Text(a["openapi"])) || !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(kernel.Text(b["openapi"])) {
 		return d.govern(action, "日常 API 仅支持 OAS 3.1")
 	}
-	if text(baseline["digest"]) != old.digests[ref] || text(candidate["digest"]) != current.digests[ref] {
+	if kernel.Text(baseline["digest"]) != old.digests[ref] || kernel.Text(candidate["digest"]) != current.digests[ref] {
 		return d.rejected("API baseline/candidate 原字节摘要陈旧")
 	}
 	globalA := map[string]any{}
@@ -316,17 +322,17 @@ func (d *dailySession) checkAPI(action string) error {
 	if err != nil {
 		return d.govern(action, err.Error())
 	}
-	if !apEqual(ca, cb) {
+	if !kernel.ApEqual(ca, cb) {
 		return d.govern(action, "API 全局或继承契约变化需要正式治理")
 	}
 	// Security scheme names and some OAS links are implicit references. Keep
 	// all existing component entries stable rather than overlook such edges;
 	// adding new component entries remains supported.
-	componentsA, _ := object(a["components"])
-	componentsB, _ := object(b["components"])
+	componentsA, _ := kernel.Object(a["components"])
+	componentsB, _ := kernel.Object(b["components"])
 	for category, oldValue := range componentsA {
-		oldEntries, valid := object(oldValue)
-		newEntries, nextValid := object(componentsB[category])
+		oldEntries, valid := kernel.Object(oldValue)
+		newEntries, nextValid := kernel.Object(componentsB[category])
 		if !valid || !nextValid {
 			return d.govern(action, "旧 API components 结构变化")
 		}
@@ -343,13 +349,13 @@ func (d *dailySession) checkAPI(action string) error {
 			if e != nil {
 				return d.govern(action, e.Error())
 			}
-			if !apEqual(left, right) {
+			if !kernel.ApEqual(left, right) {
 				return d.govern(action, "旧 API component 或引用闭包变化")
 			}
 		}
 	}
-	pathsA, aok := object(a["paths"])
-	pathsB, bok := object(b["paths"])
+	pathsA, aok := kernel.Object(a["paths"])
+	pathsB, bok := kernel.Object(b["paths"])
 	if !aok || !bok {
 		return d.govern(action, "OAS paths 结构不可证明")
 	}
@@ -357,23 +363,23 @@ func (d *dailySession) checkAPI(action string) error {
 	newOps := []map[string]any{}
 	operationIDs := map[string]bool{}
 	for p, pv := range pathsA {
-		item, ok := object(pv)
+		item, ok := kernel.Object(pv)
 		if !ok || item["$ref"] != nil {
 			return d.govern(action, "Path Item 引用尚未支持日常比较")
 		}
-		next, ok := object(pathsB[p])
+		next, ok := kernel.Object(pathsB[p])
 		if !ok {
 			return d.govern(action, "旧 API path 被删除")
 		}
 		inherited := map[string]any{}
 		nextInherited := map[string]any{}
 		for k, v := range item {
-			if !semHas(dailyHTTPMethods, k) {
+			if !kernel.SemHas(dailyHTTPMethods, k) {
 				inherited[k] = v
 			}
 		}
 		for k, v := range next {
-			if !semHas(dailyHTTPMethods, k) {
+			if !kernel.SemHas(dailyHTTPMethods, k) {
 				nextInherited[k] = v
 			}
 		}
@@ -395,13 +401,13 @@ func (d *dailySession) checkAPI(action string) error {
 			if err != nil {
 				return d.govern(action, err.Error())
 			}
-			if !apEqual(oa, ob) {
+			if !kernel.ApEqual(oa, ob) {
 				return d.govern(action, "旧 operation 或 reachable $ref closure 有变化")
 			}
 		}
 	}
 	for p, pv := range pathsB {
-		item, ok := object(pv)
+		item, ok := kernel.Object(pv)
 		if !ok || item["$ref"] != nil {
 			return d.govern(action, "Path Item 结构或引用尚未支持")
 		}
@@ -410,15 +416,15 @@ func (d *dailySession) checkAPI(action string) error {
 			if !present {
 				continue
 			}
-			operation, ok := object(value)
-			id := text(operation["operationId"])
+			operation, ok := kernel.Object(value)
+			id := kernel.Text(operation["operationId"])
 			if !ok || id == "" || operationIDs[id] {
 				return d.govern(action, "operationId 缺失或不唯一")
 			}
 			operationIDs[id] = true
 			inherited := map[string]any{}
 			for key, child := range item {
-				if !semHas(dailyHTTPMethods, key) {
+				if !kernel.SemHas(dailyHTTPMethods, key) {
 					inherited[key] = child
 				}
 			}
@@ -434,7 +440,7 @@ func (d *dailySession) checkAPI(action string) error {
 		return d.govern(action, "兼容 API 路线须有新增独立 operation")
 	}
 	sort.Slice(newOps, func(i, j int) bool {
-		return text(newOps[i]["path"])+text(newOps[i]["method"]) < text(newOps[j]["path"])+text(newOps[j]["method"])
+		return kernel.Text(newOps[i]["path"])+kernel.Text(newOps[i]["method"]) < kernel.Text(newOps[j]["path"])+kernel.Text(newOps[j]["method"])
 	})
 	declared, ok := api["new_operations"].([]any)
 	if !ok || len(declared) != len(newOps) {
@@ -442,16 +448,16 @@ func (d *dailySession) checkAPI(action string) error {
 	}
 	declaredRows := []map[string]any{}
 	for _, x := range declared {
-		m, ok := object(x)
+		m, ok := kernel.Object(x)
 		if !ok {
 			return d.info("new_operations 必须为对象集合")
 		}
 		declaredRows = append(declaredRows, m)
 	}
 	sort.Slice(declaredRows, func(i, j int) bool {
-		return text(declaredRows[i]["path"])+text(declaredRows[i]["method"]) < text(declaredRows[j]["path"])+text(declaredRows[j]["method"])
+		return kernel.Text(declaredRows[i]["path"])+kernel.Text(declaredRows[i]["method"]) < kernel.Text(declaredRows[j]["path"])+kernel.Text(declaredRows[j]["method"])
 	})
-	if !apEqual(newOps, declaredRows) {
+	if !kernel.ApEqual(newOps, declaredRows) {
 		return d.rejected("新增 API operation 清单与实际契约不符")
 	}
 	if err = d.lockedTools(api); err != nil {
@@ -469,14 +475,14 @@ func (d *dailySession) checkAPI(action string) error {
 	}
 	rules := map[string]string{}
 	for _, value := range ruleRows {
-		row, ok := object(value)
-		if !ok || text(row["digest"]) == "" {
+		row, ok := kernel.Object(value)
+		if !ok || kernel.Text(row["digest"]) == "" {
 			return d.info("API 规则必须包含原字节摘要")
 		}
-		if _, err := d.basisRef(text(row["ref"]), text(row["digest"])); err != nil {
+		if _, err := d.basisRef(kernel.Text(row["ref"]), kernel.Text(row["digest"])); err != nil {
 			return err
 		}
-		rules[text(row["ref"])] = text(row["digest"])
+		rules[kernel.Text(row["ref"])] = kernel.Text(row["digest"])
 	}
 	if rules[dailyWireProfileRef] == "" {
 		return d.info("API rules 必须绑定 canonical YSS DTO wire profile")
@@ -489,13 +495,13 @@ func (d *dailySession) checkAPI(action string) error {
 	if err != nil {
 		return d.info("YSS wire profile 不可解析")
 	}
-	profile, _ := object(profileValue)
-	version, valid := integer(profile["schema_version"])
-	if !valid || version != 1 || text(profile["kind"]) != "yss-dto-openapi-wire-profile" {
-		return d.s.unavailable("UNPORTED", "YSS wire profile 版本或身份不支持")
+	profile, _ := kernel.Object(profileValue)
+	version, valid := kernel.Integer(profile["schema_version"])
+	if !valid || version != 1 || kernel.Text(profile["kind"]) != "yss-dto-openapi-wire-profile" {
+		return d.s.Unavailable("UNPORTED", "YSS wire profile 版本或身份不支持")
 	}
-	wire, _ := object(api["wire"])
-	d.wireApplicable = dailyHasYSSWire(b) || text(wire["applicability"]) == "applicable"
+	wire, _ := kernel.Object(api["wire"])
+	d.wireApplicable = dailyHasYSSWire(b) || kernel.Text(wire["applicability"]) == "applicable"
 	for _, doc := range current.docs {
 		if dailyHasYSSWire(doc) {
 			d.wireApplicable = true
@@ -516,6 +522,7 @@ func (d *dailySession) checkAPI(action string) error {
 	d.report.APIContractDigest = "sha256:" + safefs.Digest(contractRaw)
 	return nil
 }
+
 func (d *dailySession) lockedTools(api map[string]any) error {
 	rows, ok := api["tools"].([]any)
 	if !ok || len(rows) == 0 {
@@ -523,13 +530,13 @@ func (d *dailySession) lockedTools(api map[string]any) error {
 	}
 	seen := map[string]bool{}
 	for _, v := range rows {
-		m, ok := object(v)
-		name, version := text(m["name"]), text(m["version"])
+		m, ok := kernel.Object(v)
+		name, version := kernel.Text(m["name"]), kernel.Text(m["version"])
 		if !ok || name != "@redocly/cli" || !dailyExactVersion.MatchString(version) || seen[name] {
 			return d.info("API 工具需要唯一名称及精确版本")
 		}
 		seen[name] = true
-		b, err := d.basisRef(text(m["lock_ref"]), text(m["digest"]))
+		b, err := d.basisRef(kernel.Text(m["lock_ref"]), kernel.Text(m["digest"]))
 		if err != nil {
 			return err
 		}
@@ -540,16 +547,17 @@ func (d *dailySession) lockedTools(api map[string]any) error {
 	}
 	return nil
 }
+
 func dailyToolLocked(v any, name, version string) bool {
-	root, ok := object(v)
+	root, ok := kernel.Object(v)
 	if !ok {
 		return false
 	}
 	for _, field := range []string{"packages", "dependencies", "snapshots"} {
-		rows, _ := object(root[field])
+		rows, _ := kernel.Object(root[field])
 		for key, child := range rows {
-			m, _ := object(child)
-			if (key == name || strings.HasSuffix(key, "node_modules/"+name)) && text(m["version"]) == version {
+			m, _ := kernel.Object(child)
+			if (key == name || strings.HasSuffix(key, "node_modules/"+name)) && kernel.Text(m["version"]) == version {
 				return true
 			}
 			if key == name+"@"+version || strings.HasPrefix(key, name+"@"+version+"(") {
@@ -559,13 +567,14 @@ func dailyToolLocked(v any, name, version string) bool {
 	}
 	return false
 }
+
 func dailyHasYSSWire(v any) bool {
 	switch x := v.(type) {
 	case map[string]any:
 		if x["x-yss-response-wrapper"] != nil || x["x-yss-page-query"] != nil {
 			return true
 		}
-		props, _ := object(x["properties"])
+		props, _ := kernel.Object(x["properties"])
 		if props["code"] != nil && (props["data"] != nil || props["dataType"] != nil) {
 			return true
 		}
@@ -589,45 +598,46 @@ func dailyHasYSSWire(v any) bool {
 	}
 	return false
 }
+
 func (d *dailySession) verifyAPIEvidence(api map[string]any, actor string) error {
 	tools, _ := api["tools"].([]any)
 	locked := ""
 	for _, v := range tools {
-		m, _ := object(v)
-		if text(m["name"]) == "@redocly/cli" {
-			locked = text(m["version"])
+		m, _ := kernel.Object(v)
+		if kernel.Text(m["name"]) == "@redocly/cli" {
+			locked = kernel.Text(m["version"])
 		}
 	}
-	lint, ok := object(api["lint"])
+	lint, ok := kernel.Object(api["lint"])
 	argv, valid := dailyStrings(lint["argv"])
-	exit, exitValid := integer(lint["exit_code"])
-	candidate, _ := object(api["candidate"])
-	if !ok || !valid || len(argv) < 5 || !exitValid || text(lint["tool"]) != "@redocly/cli" || text(lint["version"]) != locked || !equalStrings(argv[:4], []string{"pnpm", "exec", "redocly", "lint"}) || !semHas(argv[4:], text(candidate["ref"])) {
+	exit, exitValid := kernel.Integer(lint["exit_code"])
+	candidate, _ := kernel.Object(api["candidate"])
+	if !ok || !valid || len(argv) < 5 || !exitValid || kernel.Text(lint["tool"]) != "@redocly/cli" || kernel.Text(lint["version"]) != locked || !kernel.EqualStrings(argv[:4], []string{"pnpm", "exec", "redocly", "lint"}) || !kernel.SemHas(argv[4:], kernel.Text(candidate["ref"])) {
 		return d.info("API lint 需要锁定 Redocly 及实际 pnpm exec redocly lint <OAS> 命令")
 	}
 	if exit != 0 {
 		return d.rejected("Redocly lint 未通过")
 	}
-	if text(lint["api_digest"]) != d.report.APIContractDigest {
+	if kernel.Text(lint["api_digest"]) != d.report.APIContractDigest {
 		return d.rejected("Redocly lint 未绑定当前 API 输入")
 	}
 	if err := d.executionLog(lint, lint["argv"], d.repo, "api_digest", d.report.APIContractDigest); err != nil {
 		return err
 	}
-	compatibility, ok := object(api["compatibility"])
-	if !ok || text(compatibility["tool"]) != "yss-native-conservative" || text(compatibility["api_digest"]) != d.report.APIContractDigest {
+	compatibility, ok := kernel.Object(api["compatibility"])
+	if !ok || kernel.Text(compatibility["tool"]) != "yss-native-conservative" || kernel.Text(compatibility["api_digest"]) != d.report.APIContractDigest {
 		return d.rejected("兼容证据必须绑定当前原生只读 operation/ref closure 比较")
 	}
-	wire, ok := object(api["wire"])
+	wire, ok := kernel.Object(api["wire"])
 	if !ok {
 		return d.info("缺少 DTO wire 适用性判断")
 	}
-	app := text(wire["applicability"])
+	app := kernel.Text(wire["applicability"])
 	if app == "not-applicable" {
 		if d.wireApplicable {
 			return d.rejected("候选包含 YSS wrapper，不能声称 wire 不适用")
 		}
-		if strings.TrimSpace(text(wire["reason"])) == "" {
+		if strings.TrimSpace(kernel.Text(wire["reason"])) == "" {
 			return d.info("wire 不适用需原因")
 		}
 	} else if app == "applicable" {
@@ -643,8 +653,8 @@ func (d *dailySession) verifyAPIEvidence(api map[string]any, actor string) error
 	if err := d.verifyBoundReview(api["review"], actor, "api_digest", d.report.APIContractDigest); err != nil {
 		return err
 	}
-	freeze, ok := object(api["freeze"])
-	if !ok || text(freeze["digest"]) != d.report.APIContractDigest {
+	freeze, ok := kernel.Object(api["freeze"])
+	if !ok || kernel.Text(freeze["digest"]) != d.report.APIContractDigest {
 		return d.rejected("API Freeze 未绑定当前 OAS、refs、适用规则与工具锁")
 	}
 	return d.verifyTests(api["contract_tests"], false)

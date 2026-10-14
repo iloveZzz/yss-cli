@@ -1,6 +1,6 @@
 # 原生治理校验使用合同
 
-本文件记录 `1.3.0` 固定来源候选的治理接口；整批验收须以冻结输入、独立审查和原始验证记录为依据。实现检查通过不会创建批准、设置 Ticket 状态、授予实现或发布资格。
+本文件记录当前原生治理接口及其边界；整批验收须以冻结输入、独立审查和原始验证记录为依据。实现检查通过不会创建批准、设置 Ticket 状态、授予实现或发布资格。
 
 所有接口读取项目本地资产；不执行资产中登记的验证命令。`check` 保留结构校验语义，`verify` 消费相应领域规则，不能用 `--schema` 绕过。默认完整 CI 与显式有限 CI 分开报告。
 
@@ -11,6 +11,7 @@ yss lifecycle verify --root /project --checkpoint .work/feature/checkpoint.yaml 
 yss contract verify --root /project --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json
 yss contract verify --root /project --kind scaffold --file docs/scaffold.json --json
 yss contract verify --root /project --kind task --file docs/review-task.json --json
+yss contract verify --root /project --kind business-tickets --file docs/business/set.yaml --mode formal --review-ref docs/business/review.yaml --json
 yss evidence verify --root /project --kind approval --file docs/approval.json --checkpoint .work/feature/checkpoint.yaml --json
 yss evidence verify --root /project --kind user-decision --file docs/decision.json --requirements docs/current-decision-requirements.json --json
 yss evidence verify --root /project --kind verification --file docs/verification.json --json
@@ -21,13 +22,17 @@ yss project-ci verify --root /project --base FULL_40_HEX_COMMIT --runtime-store 
 yss project-ci check --root /project --scope native-go --json
 ```
 
+业务票公开报告使用 `contract verify --kind business-tickets --mode draft|formal [--review-ref <路径>]`，默认 `draft`。能力令牌为 `contract.business-tickets-report.v1`；报告位于 `coverage.business_tickets`，包含多项诊断、票据、未覆盖项、未评估范围和业务来源 `inputs`。该业务闭包仅含集合、Spec、票据、引用来源及适用的审查/延期决定；envelope 的 `inputs` 另保留权威策略、Schema、清单及子来源视图的完整读集。原有五类严格消费者共用相同校验核心，阻断报告不能放行；最终输入重验失败时报告也必须阻断。
+
+该接口支持普通项目内来源，以及 `docs/handoffs/<id>/vN/package/payload/files/` 下经过清单、原始字节、布局与来源策略验证的战略 Handoff v5 快照。仅在已验证快照内将 `CONTEXT.md` 解析为 `source-context.snapshot.md`，输出引用映射回包路径；普通项目不隐式回退。Spec baseline 导入包是不同协议，本接口明确拒绝；ZIP、其他历史/自定义导入布局不在本报告能力范围。`formal` 记录独立审查的结构与来源绑定，仍不评估批准有效性或审查真实性，也不授予实现权限。此能力不表示 Node 调用已迁移。
+
 会签的当前期待来自 checkpoint 或正式审查任务。用户决定须提供一个独立消费者：`--requirements` 事项数组、`--checkpoint` 的当前 human review，或 `--task` 的正式任务。待验记录、批准包或回复不能反向定义自己的 subject、范围与 owner。延续证明使用 `--continuation`，独立事项须以 `continuation_ref` 指向该证明。
 
 后端交付和战略交接的专项验证报告需要当前独立消费绑定。正式任务必须完整核验，符合当前专业工作单元与消费者路由，并以其已声明预期证据与实际结果证据共同指向唯一来源记录，再核对报告引用与摘要。普通 Plan 任务的证据声明不能替代专业消费依据。已完成后端终点仅在内部只读消费审计中重验当前 checkpoint、终点记录与完整交付证据；公开任务校验保留原有终点恢复禁令。缺少期待或存在多个候选时拒绝，不能从待验报告反找一个来源证明自己。
 
 历史会签、任务包或 checkpoint 结构检查使用 `--history`；报告范围为历史结构，不满足当前批准或流转。未知版本、未迁移规则或缺少当前阶段能力返回明确拒绝；未来阶段尚未适用的能力不要求预装。
 
-部分领域必须核验固定工具的来源摘要，可用 `--tool-root /fixed-tool-source` 指定只读工具源码。它只提供被观察的工具事实，不能补齐项目或 Handoff 来源中的 Context、注册表、批准、Schema 等权威资产。Frontend Git 模板使用显式 `--template-checkout /checkout`；登记 repository、commit、Git tree/blob 与实际合同分别校验，不执行生成器。ZIP 包在内存中建立只读来源视图，不解压；路径、Unicode 折叠冲突、链接、数量、大小和清单不一致均拒绝。
+部分领域必须核验固定工具的来源摘要，可用 `--tool-root /fixed-tool-source` 指定只读工具源码。它只提供被观察的工具事实，不能补齐项目或 Handoff 来源中的 Context、注册表、批准、Schema 等权威资产。Frontend 独立 Profile 及其合同分支已退役，相关请求明确拒绝。ZIP 包在内存中建立只读来源视图，不解压；路径、Unicode 折叠冲突、链接、数量、大小和清单不一致均拒绝。
 
 一次调用共享读取视图，报告实际读取的文件描述、摘要、扫描集合和 Git 观测。物理文件在读取前后绑定文件身份、修改时间、大小和权限，结束前重读文件与集合；同字节替换、新增、删除或摘要变化导致拒绝。注册一个尚不存在的目标仅观察缺失，不授予其父目录的读取权限。适用的在线探针仅执行固定协议的只读 GET，绑定地址、响应合同与环境输入，并在文件最终核验前重新检查；不运行资产中登记的命令。所有结果包含 `approval_created=false`，失败也保留报告。
 

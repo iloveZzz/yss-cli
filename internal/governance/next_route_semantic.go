@@ -2,7 +2,7 @@ package governance
 
 import (
 	"fmt"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
 func init() {
@@ -21,15 +21,10 @@ func nativeNextRoutes(profile string) map[string][]string {
 		}
 		m["work-unit."+current] = rows
 	}
-	if profile == "harness.backend-delivery" || profile == "harness.frontend-delivery" {
-		if profile == "harness.backend-delivery" {
-			put("harness-entry", "technical-design")
-			put("technical-design", "implementation-repository-preparation")
-			put("implementation-repository-preparation", "slice-contract")
-		} else {
-			put("harness-entry", "frontend-engineering-design", "slice-contract")
-			put("frontend-engineering-design", "slice-contract")
-		}
+	if profile == "harness.backend-delivery" {
+		put("harness-entry", "technical-design")
+		put("technical-design", "implementation-repository-preparation")
+		put("implementation-repository-preparation", "slice-contract")
 		put("slice-contract", "slice-implementation")
 		put("slice-implementation", "verification")
 		put("verification")
@@ -72,64 +67,21 @@ func nativeNextRoutes(profile string) map[string][]string {
 	put("business-ticket-formalization", "technical-analysis", "strategic-design-handoff")
 	put("strategic-design-handoff", "technical-analysis")
 	put("technical-analysis", "implementation-repository-preparation")
-	put("implementation-repository-preparation", "service-project-initialization", "ticket-decomposition")
-	put("service-project-initialization", "implementation-repository-preparation")
+	put("implementation-repository-preparation", "ticket-decomposition")
 	put("ticket-decomposition", "slice-implementation")
-	put("slice-implementation", "frontend-implementation-verification", "code-review")
-	put("frontend-implementation-verification", "code-review")
+	put("slice-implementation", "code-review")
 	put("code-review", "release-and-retrospective", "slice-implementation", "backend-delivery")
 	put("backend-delivery", "release-and-retrospective")
 	put("release-and-retrospective")
 	return m
 }
 
-func (s *semanticSession) executionScope() (map[string]any, error) {
-	plugin, err := s.backendPluginBinding()
-	if err != nil {
-		return nil, err
-	}
-	present, err := s.exists(".yss-execution-scope.yaml")
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		if semHas([]string{"yss-plan-to-backend", "yss-backend-delivery"}, text(plugin["plugin"])) {
-			return nil, s.reject("EXECUTION_SCOPE", "插件项目缺少显式执行范围")
-		}
-		return nil, nil
-	}
-	marker, err := s.doc(".yss-execution-scope.yaml")
-	if err != nil {
-		return nil, err
-	}
-	identity, err := s.doc("yss-project.yaml")
-	if err != nil {
-		return nil, err
-	}
-	version, valid := integer(marker["schema_version"])
-	if !valid || version != 1 || len(marker) != 2 || marker["scope_id"] != "plan-to-backend" || identity["repository_mode"] != "project-instance" {
-		return nil, s.reject("EXECUTION_SCOPE", "执行范围版本、身份或字段非法")
-	}
-	if plugin != nil && (!semHas([]string{"yss-plan-to-backend", "yss-backend-delivery"}, text(plugin["plugin"])) || plugin["execution_scope"] != marker["scope_id"]) {
-		return nil, s.reject("EXECUTION_SCOPE", "插件与执行范围冲突")
-	}
-	contract, err := s.doc(".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml")
-	if err != nil {
-		return nil, err
-	}
-	policy := semMap(semMap(contract["execution_scopes"])["plan-to-backend"])
-	if policy["terminal_work_unit"] != "work-unit.backend-delivery" || len(semStrings(policy["allowed_work_units"])) == 0 {
-		return nil, s.unavailable("CAPABILITY", "本地主控合同缺少执行范围策略")
-	}
-	return policy, nil
-}
-
-func verifyExecutionScopeSemantic(s *semanticSession, ref string, opts map[string]string) error {
-	state, err := s.doc(ref)
+func verifyExecutionScopeSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	state, err := s.Doc(ref)
 	if err != nil {
 		return err
 	}
-	scope, err := s.executionScope()
+	scope, err := s.ExecutionScope()
 	if err != nil {
 		return err
 	}
@@ -141,157 +93,115 @@ func verifyExecutionScopeSemantic(s *semanticSession, ref string, opts map[strin
 	if state["repository_mode"] != nil && state["stage"] != nil {
 		if state["status"] == "completed" {
 			if state["next_work_unit"] != nil {
-				return s.reject("EXECUTION_SCOPE", "后端终点不得继续其他工作单元")
+				return s.Reject("EXECUTION_SCOPE", "后端终点不得继续其他工作单元")
 			}
-			return s.verify("backend-terminal", ".yss-backend-delivery.json", opts)
+			return s.Verify("backend-terminal", ".yss-backend-delivery.json", opts)
 		}
-		next := text(state["next_work_unit"])
-		if next == "" && semHas([]string{"resume", "orchestrate"}, text(state["mode"])) {
+		next := kernel.Text(state["next_work_unit"])
+		if next == "" && kernel.SemHas([]string{"resume", "orchestrate"}, kernel.Text(state["mode"])) {
 			next = "work-unit.entry-triage"
 		}
 		if next != "" {
-			if !semHas(scope["allowed_work_units"], next) {
-				return s.reject("EXECUTION_SCOPE", "下一工作单元超出后端职责范围")
+			if !kernel.SemHas(scope["allowed_work_units"], next) {
+				return s.Reject("EXECUTION_SCOPE", "下一工作单元超出后端职责范围")
 			}
-			terminal, e := s.exists(".yss-backend-delivery.json")
+			terminal, e := s.Exists(".yss-backend-delivery.json")
 			if e != nil {
 				return e
 			}
 			if terminal {
-				if e = s.verify("backend-terminal", ".yss-backend-delivery.json", opts); e != nil {
+				if e = s.Verify("backend-terminal", ".yss-backend-delivery.json", opts); e != nil {
 					return e
 				}
-				if !semHas([]string{"audit", "route"}, text(state["mode"])) {
-					return s.reject("EXECUTION_SCOPE", "后端交付已完成，不允许恢复实现或自动发布")
+				if !kernel.SemHas([]string{"audit", "route"}, kernel.Text(state["mode"])) {
+					return s.Reject("EXECUTION_SCOPE", "后端交付已完成，不允许恢复实现或自动发布")
 				}
 			}
 		}
 	}
-	if semMap(state["delivery_impacts"])["frontend"] == true {
-		return s.reject("EXECUTION_SCOPE", "后端职责禁止派发生产前端实现")
+	if kernel.SemMap(state["delivery_impacts"])["frontend"] == true {
+		return s.Reject("EXECUTION_SCOPE", "后端职责禁止派发生产前端实现")
 	}
 	if state["ui_impact"] == true {
-		deferred := semMap(state["downstream_frontend"])
+		deferred := kernel.SemMap(state["downstream_frontend"])
 		for _, k := range []string{"owner", "ticket_ref", "verification_plan", "target_version"} {
-			if text(deferred[k]) == "" {
-				return s.reject("EXECUTION_SCOPE", "UI 下游职责缺少 "+k)
+			if kernel.Text(deferred[k]) == "" {
+				return s.Reject("EXECUTION_SCOPE", "UI 下游职责缺少 "+k)
 			}
 		}
 	}
 	if state["slice_contract"] != nil {
-		state = semMap(state["slice_contract"])
+		state = kernel.SemMap(state["slice_contract"])
 	}
 	if state["contract_id"] != nil && state["work_units"] != nil {
-		if semMap(state["backend"])["status"] != "required" || semMap(state["frontend"])["status"] != "not-applicable" {
-			return s.reject("EXECUTION_SCOPE", "后端职责仅允许后端 Slice")
+		if kernel.SemMap(state["backend"])["status"] != "required" || kernel.SemMap(state["frontend"])["status"] != "not-applicable" {
+			return s.Reject("EXECUTION_SCOPE", "后端职责仅允许后端 Slice")
 		}
-		for _, area := range semStrings(semMap(state["common"])["impacted_areas"]) {
+		for _, area := range kernel.SemStrings(kernel.SemMap(state["common"])["impacted_areas"]) {
 			if area == "ui" || area == "frontend" {
-				return s.reject("EXECUTION_SCOPE", "Slice 越过后端职责")
+				return s.Reject("EXECUTION_SCOPE", "Slice 越过后端职责")
 			}
 		}
-		for _, row := range semList(state["work_units"]) {
-			if semMap(row)["role_id"] == "role.frontend-engineer" {
-				return s.reject("EXECUTION_SCOPE", "后端职责不能派发前端工程师")
+		for _, row := range kernel.SemList(state["work_units"]) {
+			if kernel.SemMap(row)["role_id"] == "role.frontend-engineer" {
+				return s.Reject("EXECUTION_SCOPE", "后端职责不能派发前端工程师")
 			}
 		}
 	}
 	return nil
 }
 
-func (s *semanticSession) trackingTransition(cp map[string]any, ref, current, next string) error {
-	identity, err := s.doc("yss-project.yaml")
-	if err != nil {
-		return err
-	}
-	if identity["repository_mode"] == "template-source" {
-		return nil
-	}
-	if trackedUnits[current] == "" && trackedUnits[next] == "" {
-		return nil
-	}
-	if _, err = checkStage(s.v, cp, ref, s); err != nil {
-		return s.reject("TRACKING", err.Error())
-	}
-	t, err := asTracking(cp)
-	if err != nil {
-		return err
-	}
-	if t == nil {
-		return nil
-	}
-	currentStage, nextStage := trackedUnits[current], trackedUnits[next]
-	if text(cp["profile_id"]) == "harness.business-ddd-strategy-handoff" {
-		if current == "work-unit.business-ticket-formalization" || current == "work-unit.strategic-design-handoff" {
-			currentStage = "stage.ticket-formalization"
-		}
-		if next == "work-unit.business-ticket-formalization" || next == "work-unit.strategic-design-handoff" {
-			nextStage = "stage.ticket-formalization"
-		}
-	}
-	for _, item := range t.Items {
-		exiting := item.WorkUnit == current || currentStage != "" && currentStage != nextStage && item.Stage == currentStage
-		if exiting && !semHas([]string{"completed", "cancelled", "deferred"}, item.Progress) {
-			return s.reject("TRACKING", "阶段流转仍有未完成工作项: "+item.ID)
-		}
-		if exiting && item.RecheckRequired {
-			return s.reject("TRACKING", "阶段工作项需要重新核验: "+item.ID)
-		}
-	}
-	return nil
-}
-
-func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]string) error {
-	state, err := s.doc(ref)
+func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	state, err := s.Doc(ref)
 	if err != nil {
 		return err
 	}
 	cpRef := ref
 	taskRef := ""
-	current, next := text(semMap(state["stage_trace"])["completed_work_unit"]), text(state["next_work_unit"])
+	current, next := kernel.Text(kernel.SemMap(state["stage_trace"])["completed_work_unit"]), kernel.Text(state["next_work_unit"])
 	if opts["current"] != "" {
 		taskRef = ref
 		current, next = opts["current"], opts["next"]
 		cpRef = opts["checkpoint"]
 		if cpRef == "" {
-			return s.reject("CHECKPOINT_REQUIRED", "正式任务流转缺少当前 checkpoint")
+			return s.Reject("CHECKPOINT_REQUIRED", "正式任务流转缺少当前 checkpoint")
 		}
-		cp, e := s.doc(cpRef)
+		cp, e := s.Doc(cpRef)
 		if e != nil {
 			return e
 		}
 		state = cp
 		// Results may add evidence, never replace current approval expectations.
 	}
-	state, err = s.transitionState(cpRef, taskRef)
+	state, err = s.TransitionState(cpRef, taskRef)
 	if err != nil {
 		return err
 	}
 	if current == "" {
-		return s.reject("TRANSITION_ORIGIN_REQUIRED", "当前流转缺少已完成工作单元")
+		return s.Reject("TRANSITION_ORIGIN_REQUIRED", "当前流转缺少已完成工作单元")
 	}
-	identity, err := s.doc("yss-project.yaml")
+	identity, err := s.Doc("yss-project.yaml")
 	if err != nil {
 		return err
 	}
-	profile, err := s.doc(".template-spec/process/harness-profile.yaml")
+	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
 	if err != nil {
 		return err
 	}
-	routes := nativeNextRoutes(text(profile["profile_id"]))
+	routes := nativeNextRoutes(kernel.Text(profile["profile_id"]))
 	allowed, known := routes[current]
 	if !known {
-		return s.reject("ROUTE", "当前 Profile 不支持工作单元: "+current)
+		return s.Reject("ROUTE", "当前 Profile 不支持工作单元: "+current)
 	}
 	if current == "work-unit.entry-triage" && identity["repository_mode"] == "template-source" {
 		allowed = []string{"work-unit.maintenance-research", "work-unit.ssot-update"}
 	}
 	if profile["profile_id"] == "harness.spec-template" && (current == "work-unit.strategic-design-handoff" || next == "work-unit.strategic-design-handoff") {
-		config, cp, e := progressionLocation(s, cpRef)
+		config, cp, e := kernel.ProgressionLocation(s, cpRef)
 		if e != nil {
 			return e
 		}
-		raw, e := s.bytes(config)
+		raw, e := s.Bytes(config)
 		if e != nil {
 			return e
 		}
@@ -299,8 +209,8 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 		if e != nil {
 			return e
 		}
-		if intent.FeatureID != text(cp["feature_id"]) || intent.CheckpointRef != cpRef || !progressionExternalImplementation(intent, s.root) {
-			return s.reject("PROFILE_ROUTE", "Spec 战略交接需要同功能显式外部专职消费者")
+		if intent.FeatureID != kernel.Text(cp["feature_id"]) || intent.CheckpointRef != cpRef || !progressionExternalImplementation(intent, s.Root) {
+			return s.Reject("PROFILE_ROUTE", "Spec 战略交接需要同功能显式外部专职消费者")
 		}
 		if current == "work-unit.strategic-design-handoff" {
 			if e = progressionCheck(s, cpRef, cp, "strategic-handoff-delivery"); e != nil {
@@ -312,19 +222,19 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 		if err = verifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
 			return err
 		}
-		manifest, _, e := verifySpecBaselineReceipt(s, text(semMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
+		manifest, _, e := verifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
 		if e != nil {
 			return e
 		}
 		allowed = []string{"work-unit.business-ticket-formalization"}
-		if semMap(manifest["source"])["product_design_required"] == true {
+		if kernel.SemMap(manifest["source"])["product_design_required"] == true {
 			allowed = []string{"work-unit.prototype-design"}
 		}
 	}
 	if (current == "work-unit.maintenance-research" || next == "work-unit.maintenance-research") && identity["repository_mode"] != "template-source" {
-		return s.reject("ROUTE", "模板研究仅用于 template-source")
+		return s.Reject("ROUTE", "模板研究仅用于 template-source")
 	}
-	scope, err := s.executionScope()
+	scope, err := s.ExecutionScope()
 	if err != nil {
 		return err
 	}
@@ -349,134 +259,78 @@ func verifyNextRouteSemantic(s *semanticSession, ref string, opts map[string]str
 			if e != nil {
 				return e
 			}
-			if e = s.verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
+			if e = s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef}); e != nil {
 				return e
 			}
 		}
 	} else {
-		if !semHas(scope["allowed_work_units"], current) || next != "" && !semHas(scope["allowed_work_units"], next) {
-			return s.reject("EXECUTION_SCOPE", "阶段超出职责范围")
+		if !kernel.SemHas(scope["allowed_work_units"], current) || next != "" && !kernel.SemHas(scope["allowed_work_units"], next) {
+			return s.Reject("EXECUTION_SCOPE", "阶段超出职责范围")
 		}
-		terminal, e := s.exists(".yss-backend-delivery.json")
+		terminal, e := s.Exists(".yss-backend-delivery.json")
 		if e != nil {
 			return e
 		}
 		if current == "work-unit.backend-delivery" && next == "" {
-			return s.verify("backend-terminal", ".yss-backend-delivery.json", nil)
+			return s.Verify("backend-terminal", ".yss-backend-delivery.json", nil)
 		}
 		if terminal {
-			return s.reject("EXECUTION_SCOPE", "后端交付已完成，不允许恢复实现或自动发布")
+			return s.Reject("EXECUTION_SCOPE", "后端交付已完成，不允许恢复实现或自动发布")
 		}
 		if next == "" {
-			return s.reject("EXECUTION_SCOPE", "不能将中间阶段声明为后端终点")
+			return s.Reject("EXECUTION_SCOPE", "不能将中间阶段声明为后端终点")
 		}
-		if override, ok := semMap(scope["route_overrides"])[current]; ok {
-			allowed = semStrings(override)
+		if override, ok := kernel.SemMap(scope["route_overrides"])[current]; ok {
+			allowed = kernel.SemStrings(override)
 		}
-		if err = s.verify("execution-scope", cpRef, nil); err != nil {
+		if err = s.Verify("execution-scope", cpRef, nil); err != nil {
 			return err
 		}
 	}
-	if next == "" && len(allowed) != 0 || next != "" && !semHas(allowed, next) {
-		return s.reject("ROUTE", fmt.Sprintf("非法流转 %s → %s", current, next))
+	if next == "" && len(allowed) != 0 || next != "" && !kernel.SemHas(allowed, next) {
+		return s.Reject("ROUTE", fmt.Sprintf("非法流转 %s → %s", current, next))
 	}
-	if err = s.trackingTransition(state, cpRef, current, next); err != nil {
+	if err = s.TrackingTransition(state, cpRef, current, next); err != nil {
 		return err
 	}
-	if err = s.verify("reading-transition", cpRef, map[string]string{"current": current}); err != nil {
+	if err = s.Verify("reading-transition", cpRef, map[string]string{"current": current}); err != nil {
 		return err
 	}
-	if text(profile["profile_id"]) == "harness.spec-template" || text(profile["profile_id"]) == "harness.business-ddd-strategy-handoff" {
-		if err = s.verify("business-checkpoint", cpRef, map[string]string{"required": fmt.Sprint(current == "work-unit.business-ticket-formalization")}); err != nil {
+	if kernel.Text(profile["profile_id"]) == "harness.spec-template" || kernel.Text(profile["profile_id"]) == "harness.business-ddd-strategy-handoff" {
+		if err = s.Verify("business-checkpoint", cpRef, map[string]string{"required": fmt.Sprint(current == "work-unit.business-ticket-formalization")}); err != nil {
 			return err
 		}
 		if current == "work-unit.spec-synthesis" || next == "work-unit.spec-synthesis" {
-			if err = s.verify("plan-spec-entry", cpRef, nil); err != nil {
+			if err = s.Verify("plan-spec-entry", cpRef, nil); err != nil {
 				return err
 			}
 		}
 	}
-	if err = taskFrontendDeliverySemantic(s, state); err != nil {
-		return err
-	}
 	if next == "work-unit.implementation-repository-preparation" {
-		if err = s.verify("technical-transition", cpRef, map[string]string{"task-ref": taskRef}); err != nil {
+		if err = s.Verify("technical-transition", cpRef, map[string]string{"task-ref": taskRef}); err != nil {
 			return err
 		}
 	}
-	if next == "work-unit.ticket-decomposition" || next == "work-unit.slice-contract" && text(profile["profile_id"]) == "harness.backend-delivery" {
-		if err = s.verify("repository-ready", cpRef, nil); err != nil {
+	if next == "work-unit.ticket-decomposition" || next == "work-unit.slice-contract" && kernel.Text(profile["profile_id"]) == "harness.backend-delivery" {
+		if err = s.Verify("repository-ready", cpRef, nil); err != nil {
 			return err
 		}
 	}
 	if next == "work-unit.service-project-initialization" || current == "work-unit.service-project-initialization" {
-		if err = s.verify("service-transition", cpRef, map[string]string{"completed": fmt.Sprint(current == "work-unit.service-project-initialization"), "task-ref": taskRef}); err != nil {
+		if err = s.Verify("service-transition", cpRef, map[string]string{"completed": fmt.Sprint(current == "work-unit.service-project-initialization"), "task-ref": taskRef}); err != nil {
 			return err
 		}
 	}
-	if current == "work-unit.code-review" && semHas([]string{"work-unit.backend-delivery", "work-unit.release-and-retrospective"}, next) || current == "work-unit.verification" && next == "" && text(profile["profile_id"]) == "harness.backend-delivery" {
-		if err = s.verify("backend-review", cpRef, nil); err != nil {
+	if current == "work-unit.code-review" && kernel.SemHas([]string{"work-unit.backend-delivery", "work-unit.release-and-retrospective"}, next) || current == "work-unit.verification" && next == "" && kernel.Text(profile["profile_id"]) == "harness.backend-delivery" {
+		if err = s.Verify("backend-review", cpRef, nil); err != nil {
 			return err
 		}
 	}
 	if current == "work-unit.maintenance-research" {
-		if err = s.verify("research-completion", cpRef, map[string]string{"continuing": fmt.Sprint(next != ""), "task-ref": taskRef}); err != nil {
+		if err = s.Verify("research-completion", cpRef, map[string]string{"continuing": fmt.Sprint(next != ""), "task-ref": taskRef}); err != nil {
 			return err
 		}
 	}
-	review := semMap(state["human_review"])
+	review := kernel.SemMap(state["human_review"])
 	return assertWorkUnitUserDecisionSemantic(s, current, map[string]any{"user_decisions": review["user_decisions"], "user_decision_not_applicable": review["not_applicable"]})
-}
-
-func (s *semanticSession) backendPluginBinding() (map[string]any, error) {
-	present, e := s.exists(".yss-backend-plugin.json")
-	if e != nil {
-		return nil, e
-	}
-	ref := ".yss-backend-plugin.json"
-	if !present {
-		ref = ".yss-plugin.json"
-		present, e = s.exists(ref)
-		if e != nil {
-			return nil, e
-		}
-		if !present {
-			return nil, nil
-		}
-	}
-	plugin, e := s.doc(ref)
-	if e != nil {
-		return nil, e
-	}
-	if ref == ".yss-backend-plugin.json" && (apNumber(plugin["schema_version"]) != 2 || plugin["plugin"] != "yss-backend-delivery" || plugin["execution_scope"] != "plan-to-backend") {
-		return nil, s.reject("EXECUTION_SCOPE", "native插件职责绑定无效")
-	}
-	if ref == ".yss-backend-plugin.json" {
-		legacyPresent, err := s.exists(".yss-plugin.json")
-		if err != nil {
-			return nil, err
-		}
-		lineage := semMap(plugin["legacy_binding"])
-		if legacyPresent {
-			legacy, err := s.doc(".yss-plugin.json")
-			if err != nil {
-				return nil, err
-			}
-			if !semHas([]string{"yss-plan-to-backend", "yss-backend-delivery"}, text(legacy["plugin"])) || legacy["execution_scope"] != plugin["execution_scope"] {
-				return nil, s.reject("EXECUTION_SCOPE", "历史插件与native职责绑定不一致")
-			}
-			if len(lineage) != 0 {
-				data, err := s.bytes(".yss-plugin.json")
-				if err != nil {
-					return nil, err
-				}
-				if lineage["path"] != ".yss-plugin.json" || lineage["sha256"] != safefs.Digest(data) {
-					return nil, s.reject("EXECUTION_SCOPE", "历史插件绑定原字节已漂移")
-				}
-			}
-		} else if len(lineage) != 0 {
-			return nil, s.reject("EXECUTION_SCOPE", "历史插件绑定缺失")
-		}
-	}
-	return plugin, nil
 }

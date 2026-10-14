@@ -34,7 +34,7 @@ export function readInstanceMetadata(root){
  ensure(legacy.length<=1,'检测到多个旧家族 metadata');
  if(!native){validateBindings(root,null);return legacy[0]??null;}
  ensure([1,2,3].includes(native.schemaVersion)&&native.protocolVersion===1,'未知 native metadata 或协议');const p=profiles[native.profile];ensure(p&&native.profileId===p.id&&(!legacy.length||legacy[0].profile===native.profile),'native 与家族身份矛盾');
- ensure(native.templateSourceState==='committed'&&/^[a-f0-9]{40}$/.test(native.templateCommit)&&hex(native.snapshotHash)&&hex(native.manifestHash),'native 来源缺失或不合法');
+ ensure((native.templateSourceState==='committed'||native.schemaVersion===3&&native.templateSourceState==='working-tree'&&native.cliSourceState==='working-tree'&&/^worktree:[a-f0-9]{40}$/.test(native.templateVersion))&&/^[a-f0-9]{40}$/.test(native.templateCommit)&&hex(native.snapshotHash)&&hex(native.manifestHash),'native 来源缺失或不合法');
  if(native.schemaVersion>=2)ensure((native.bundleSchemaVersion===2||(native.schemaVersion===3&&native.bundleSchemaVersion===3))&&hex(native.bundleHash)&&['committed','working-tree','unknown'].includes(native.cliSourceState)&&(!native.cliCommit||/^[a-f0-9]{40}$/.test(native.cliCommit))&&(native.cliSourceState!=='committed'||native.cliCommit),'native v2来源不合法');
  ensure(native.variables&&native.distribution&&hex(native.baselineDigest)&&managedDigest(native.managedFiles,native.schemaVersion)===native.baselineDigest,'native 受管基线摘要不一致');
  if(native.schemaVersion===3)for(const [ref,item]of Object.entries(native.managedFiles)){ensure(item.baselineSource,'缺少模板基线来源: '+ref);if(item.disposition)ensure(JSON.stringify(descriptor(item.disposition.target))===JSON.stringify(descriptor(item.baseline))&&JSON.stringify(descriptor(item.disposition.applied,true))===JSON.stringify(descriptor(item.lastApplied,true)),'保留决定与基线矛盾: '+ref);}
@@ -49,7 +49,7 @@ export function nativeInstalledSkillRefs(metadata, lock, { platformSkills = [], 
  const requireContract=(ok,message)=>{if(!ok)throw new TypeError('INSTANCE_DISTRIBUTION: '+message);};
  const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
  const sameSet=(left,right)=>left.length===right.length&&[...left].sort().every((value,index)=>value===[...right].sort()[index]);
- const runtimeRoots={codex:'.codex/skills',cursor:'.cursor/skills',pi:'.pi/skills'};
+ const runtimeRoots={claude:'.claude/skills',codex:'.codex/skills',cursor:'.cursor/skills',pi:'.pi/skills'};
  requireContract(lock?.version===3&&lock.canonicalRoot==='.agents/skills'&&object(lock.skills?.shared)&&object(lock.skills?.platform)&&Array.isArray(lock.projectionRoots),'缺少合法原生 skills-lock 分组合同');
  const roots=lock.projectionRoots,runtimes=metadata.distribution?.runtimes??[];
  requireContract(Array.isArray(runtimes)&&new Set(runtimes).size===runtimes.length&&runtimes.every(runtime=>Object.hasOwn(runtimeRoots,runtime)),'未知或重复运行时声明');

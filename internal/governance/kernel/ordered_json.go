@@ -1,14 +1,13 @@
-package governance
+package kernel
 
 import (
 	"bytes"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"go.yaml.in/yaml/v3"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/schema"
-	"go.yaml.in/yaml/v3"
 )
 
 // This contract preserves source insertion order instead of canonical key order.
@@ -78,7 +77,7 @@ func orderedAssetJSON(raw []byte, fields ...string) ([]byte, error) {
 				if i > 0 {
 					out.WriteByte(',')
 				}
-				out.Write(apCanonical(n.Content[position].Value))
+				out.Write(ApCanonical(n.Content[position].Value))
 				out.WriteByte(':')
 				b, e := emit(n.Content[position+1])
 				if e != nil {
@@ -99,7 +98,7 @@ func orderedAssetJSON(raw []byte, fields ...string) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			return apCanonical(value), nil
+			return ApCanonical(value), nil
 		default:
 			return nil, fmt.Errorf("JSON 摘要不支持 alias 或多文档")
 		}

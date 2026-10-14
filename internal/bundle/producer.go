@@ -46,12 +46,18 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Source struct {
-	SkillsSource    *SkillSource  `json:"skillsSource,omitempty"`
+	State        string       `json:"sourceState,omitempty"`
+	Tree         string       `json:"sourceTree,omitempty"`
+	SkillsSource *SkillSource `json:"skillsSource,omitempty"`
+	// OverlayPaths 非空时，该 Profile 由同一仓库同一提交的内核目录与这些覆盖层目录依次组合而成
+	// （后面的覆盖前面的）；为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
+	OverlayPaths    []string      `json:"overlayPaths,omitempty"`
 	Profile         string        `json:"profile"`
 	Root            string        `json:"-"`
 	SourcePath      string        `json:"sourcePath"`
 	Commit          string        `json:"templateCommit"`
 	TemplateVersion string        `json:"templateVersion"`
+	TemplateTag     string        `json:"templateTag,omitempty"`
 	PolicyPath      string        `json:"policyPath"`
 	PolicyHash      string        `json:"policyHash"`
 	Legacy          LegacyLineage `json:"legacy"`
@@ -84,6 +90,32 @@ type sourceFile struct {
 
 var fullCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
+// sourceObject pins an immutable object without treating an uncommitted tree as a commit.
+func sourceObject(ctx context.Context, s Source) (string, string, error) {
+	state := s.State
+	if state == "" {
+		state = "committed"
+	}
+	if !fullCommit.MatchString(s.Commit) {
+		return "", "", fmt.Errorf("templateCommit requires a full Git commit")
+	}
+	kind, err := git(ctx, s.Root, "cat-file", "-t", s.Commit)
+	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
+		return "", "", fmt.Errorf("templateCommit must name a Git commit")
+	}
+	if state == "committed" && s.Tree == "" {
+		return s.Commit, state, nil
+	}
+	if state != "working-tree" || !fullCommit.MatchString(s.Tree) {
+		return "", "", fmt.Errorf("working-tree source requires an immutable sourceTree")
+	}
+	kind, err = git(ctx, s.Root, "cat-file", "-t", s.Tree)
+	if err != nil || strings.TrimSpace(string(kind)) != "tree" {
+		return "", "", fmt.Errorf("sourceTree must name a Git tree")
+	}
+	return s.Tree, state, nil
+}
+
 // Build reads only the named Git object tree. Dirty checkout bytes and legacy CLI
 // directories cannot influence it. The policy digest is a required source lock.
 func Build(ctx context.Context, s Source) (*Bundle, error) {
@@ -103,18 +135,21 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if e != nil {
 		return nil, e
 	}
-	kindBytes, err := git(ctx, root, "cat-file", "-t", s.Commit)
+	object, state, err := sourceObject(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(string(kindBytes)) != "commit" {
-		return nil, fmt.Errorf("templateCommit must name a Git commit")
+	if state == "working-tree" && (s.Producer.SourceState != "working-tree" || s.TemplateVersion != "worktree:"+object) {
+		return nil, fmt.Errorf("working-tree producer/version provenance mismatch")
+	}
+	if e := verifyTemplateTag(ctx, root, &s); e != nil {
+		return nil, e
 	}
 	if s.PolicyPath == "" {
 		s.PolicyPath = ".template-source/distribution/bundle-profile.json"
 	}
 	var policyBytes []byte
-	kind := "committed"
+	kind := state
 	if strings.HasPrefix(s.PolicyPath, "builtin:") {
 		if s.PolicyPath != "builtin:"+s.Profile {
 			return nil, fmt.Errorf("policy profile mismatch")
@@ -125,7 +160,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		if e = safefs.ValidateRef(s.PolicyPath); e != nil {
 			return nil, e
 		}
-		entry, err := git(ctx, root, "ls-tree", s.Commit, "--", s.PolicyPath)
+		entry, err := git(ctx, root, "ls-tree", object, "--", s.PolicyPath)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +168,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		if len(fields) < 3 || fields[0] != "100644" || fields[1] != "blob" {
 			return nil, fmt.Errorf("policy must be a committed regular JSON file")
 		}
-		policyBytes, e = git(ctx, root, "show", s.Commit+":"+s.PolicyPath)
+		policyBytes, e = git(ctx, root, "show", object+":"+s.PolicyPath)
 	}
 	if e != nil {
 		return nil, e
@@ -151,7 +186,15 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	if e = validatePolicy(policy); e != nil {
 		return nil, e
 	}
-	raw, e := readGitFiles(ctx, root, s.Commit, policy.Manifest)
+	if len(s.OverlayPaths) > 0 && s.SkillsSource != nil {
+		return nil, fmt.Errorf("overlayPaths 与 skillsSource 不能同时使用")
+	}
+	var raw map[string]sourceFile
+	if len(s.OverlayPaths) > 0 {
+		raw, e = readOverlaySource(ctx, root, object, s.OverlayPaths, policy.Manifest)
+	} else {
+		raw, e = readGitFiles(ctx, root, object, policy.Manifest)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -172,7 +215,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		s.Producer = Provenance{Version: "bundle-producer-v3", SourceState: "unspecified"}
 	}
 	manifestBytes, _ := json.Marshal(policy.Manifest)
-	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: "committed", ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
+	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: state, ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
 	if b.Upgrade == nil {
 		b.Upgrade = DefaultUpgradePolicy()
 	}
@@ -252,11 +295,11 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 {
-		return nil, fmt.Errorf("source lock v2/v3 requires four profiles")
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3 && lock.SchemaVersion != 4) || len(lock.Profiles) != 3 {
+		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles")
 	}
 	out := map[string]*Bundle{}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		s, ok := lock.Profiles[profile]
 		if !ok || s.Profile != profile {
 			return nil, fmt.Errorf("source lock profile missing: %s", profile)
@@ -264,8 +307,14 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
 			return nil, fmt.Errorf("skill composition requires source lock v3")
 		}
-		if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") && s.SkillsSource == nil {
+		if lock.SchemaVersion >= 3 && profile == "backend" && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
 			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
+		}
+		if lock.SchemaVersion < 4 && (s.State != "" || s.Tree != "" || s.SkillsSource != nil && (s.SkillsSource.State != "" || s.SkillsSource.Tree != "")) {
+			return nil, fmt.Errorf("worktree objects require source lock v4")
+		}
+		if lock.SchemaVersion == 4 && (s.State != "working-tree" || lock.Producer.SourceState != "working-tree" || s.SkillsSource != nil && s.SkillsSource.State != "working-tree") {
+			return nil, fmt.Errorf("source lock v4 is local working-tree only")
 		}
 		s.Producer = lock.Producer
 		b, e := Build(ctx, s)
@@ -324,6 +373,20 @@ func git(ctx context.Context, root string, args ...string) ([]byte, error) {
 	return o, nil
 }
 func readGitFiles(ctx context.Context, root, commit string, manifest map[string]any) (map[string]sourceFile, error) {
+	out, e := readGitFilesUnder(ctx, root, commit, "", func(ref string) bool { return includedByManifest(ref, manifest, false) })
+	if e != nil {
+		return nil, e
+	}
+	if e = expandProjectionLinks(out); e != nil {
+		return nil, e
+	}
+	return out, nil
+}
+
+// readGitFilesUnder reads the Git tree below prefix ("" means the whole tree) and reports every file
+// under its prefix-relative path. include decides on the relative path before any entry is validated,
+// so excluded entries never influence the result.
+func readGitFilesUnder(ctx context.Context, root, commit, prefix string, include func(string) bool) (map[string]sourceFile, error) {
 	listing, e := git(ctx, root, "ls-tree", "-rz", "--full-tree", commit)
 	if e != nil {
 		return nil, e
@@ -343,7 +406,13 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 		}
 		header := strings.Fields(string(pair[0]))
 		ref := string(pair[1])
-		if !includedByManifest(ref, manifest, false) {
+		if prefix != "" {
+			if !strings.HasPrefix(ref, prefix+"/") {
+				continue
+			}
+			ref = strings.TrimPrefix(ref, prefix+"/")
+		}
+		if !include(ref) {
 			continue
 		}
 		if e = safefs.ValidateRef(ref); e != nil {
@@ -423,6 +492,11 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 	if e != nil {
 		return nil, fmt.Errorf("git cat-file: %w: %s", e, stderr.String())
 	}
+	return out, nil
+}
+
+// expandProjectionLinks replaces every Skill projection link by a copy of the canonical tree it names.
+func expandProjectionLinks(out map[string]sourceFile) error {
 	for _, ref := range sortedKeys(out) {
 		f := out[ref]
 		if f.mode != 0 {
@@ -431,33 +505,33 @@ func readGitFiles(ctx context.Context, root, commit string, manifest map[string]
 		target := path.Clean(path.Join(path.Dir(ref), string(f.data)))
 		name := strings.Split(ref, "/")[2]
 		if target != ".agents/skills/"+name {
-			return nil, fmt.Errorf("unsafe Skill projection: %s", ref)
+			return fmt.Errorf("unsafe Skill projection: %s", ref)
 		}
 		count := 0
 		for _, source := range sortedKeys(out) {
 			if strings.HasPrefix(source, target+"/") {
 				original := out[source]
 				if original.mode == 0 {
-					return nil, fmt.Errorf("nested projection symlink")
+					return fmt.Errorf("nested projection symlink")
 				}
 				destination := ref + strings.TrimPrefix(source, target)
 				if _, exists := out[destination]; exists {
-					return nil, fmt.Errorf("Skill projection collision")
+					return fmt.Errorf("Skill projection collision")
 				}
 				out[destination] = original
 				count++
 			}
 		}
 		if count == 0 {
-			return nil, fmt.Errorf("missing canonical Skill projection: %s", ref)
+			return fmt.Errorf("missing canonical Skill projection: %s", ref)
 		}
 		delete(out, ref)
 	}
-	return out, nil
+	return nil
 }
 func projectionLink(ref string) bool {
 	p := strings.Split(ref, "/")
-	return len(p) == 3 && (p[0] == ".codex" || p[0] == ".cursor" || p[0] == ".pi" || p[0] == ".claude") && p[1] == "skills" && !strings.HasPrefix(p[2], ".")
+	return len(p) == 3 && (p[0] == ".claude" || p[0] == ".codex" || p[0] == ".cursor" || p[0] == ".pi") && p[1] == "skills" && !strings.HasPrefix(p[2], ".")
 }
 func stringsFrom(v any) []string {
 	switch a := v.(type) {
@@ -552,7 +626,7 @@ func ownership(profile, ref string, m map[string]any) string {
 	user := ref == "README.md" || ref == "DESIGN.md"
 	if profile == "design" {
 		managed := false
-		for _, prefix := range []string{".agents/skills", ".codex/skills", ".cursor/skills", ".pi/skills", ".claude/skills", "scripts", ".template-spec/agents", ".template-spec/process", ".template-spec/templates", ".template-spec/user-guide", ".template-spec/architecture/templates"} {
+		for _, prefix := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", "scripts", ".template-spec/agents", ".template-spec/process", ".template-spec/templates", ".template-spec/user-guide", ".template-spec/architecture/templates"} {
 			managed = managed || beneath(ref, prefix)
 		}
 		for _, p := range []string{".gitignore", ".nvmrc", "AGENTS.md", "CLAUDE.md", ".cursorrules", "skills-lock.json", "yss-project.yaml", "CONTEXT.md"} {

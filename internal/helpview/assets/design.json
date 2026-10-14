@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "profile": "design",
-  "templateCommit": "c046268454f059d1f14caa5f3a340d21101cdc85",
-  "registrySHA256": "7e0a6c0ae0cc9b27625551b115d17e442c7fab63360ff70ba530a4fc92d6e907",
-  "profileSHA256": "581e38f7bc9c75f4ffc832ccbb7a8458d29060efb7bd0ea390514936847e1fe0",
+  "templateCommit": "7ac487880dcbda5ca6e121e1641ee7ebc8a55996",
+  "registrySHA256": "c8cfe57f584c5459185fd2821bc40058c70d4cfb1d3c9d297920cf495a35adb1",
+  "profileSHA256": "ce4881e81240eb9fd73dc9a4ad72ad211f317dc8122557e56382068d8a0f87f5",
   "stages": [
     {
       "id": "stage.entry-triage",

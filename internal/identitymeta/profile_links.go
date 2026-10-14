@@ -50,7 +50,7 @@ func ValidateProfileLinks(root string, links *ProfileLinks) error {
 		return domain.Fail("PROFILE_LINKS", "Profile 关联 schema 未知或 links 缺失")
 	}
 	roots := []string{root}
-	for _, name := range []string{"design", "backend", "frontend"} {
+	for _, name := range []string{"design", "backend"} {
 		value, ok := links.Links[name]
 		if !ok {
 			continue
@@ -70,7 +70,10 @@ func ValidateProfileLinks(root string, links *ProfileLinks) error {
 		roots = append(roots, value)
 	}
 	for name := range links.Links {
-		if name != "design" && name != "backend" && name != "frontend" {
+		if name == "frontend" {
+			return domain.Fail("PROFILE_LINKS", "前端 Profile 已移除；请先删除该关联")
+		}
+		if name != "design" && name != "backend" {
 			return domain.Fail("PROFILE_LINKS", "未知目标 Profile: "+name)
 		}
 	}

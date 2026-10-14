@@ -1,26 +1,13 @@
 package governance
 
 import (
-	"context"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
-	"math"
-	"net/http"
-	"net/url"
-	"os"
-	"path"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/yuin/goldmark"
@@ -31,6 +18,15 @@ import (
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
+	"math"
+	"net/url"
+	"path"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func contractPlatformRecipe(profile, entry map[string]any) string {
@@ -52,8 +48,9 @@ func contractPlatformRecipe(profile, entry map[string]any) string {
 	}
 	return contractDigest(map[string]any{"profile": recipe, "entry": map[string]any{"id": entry["id"], "profile_id": entry["profile_id"], "spring_boot_version": entry["spring_boot_version"], "parent": entry["parent"], "bom": entry["bom"], "components": component, "platform_artifact_bindings": artifacts, "external_snapshot_bindings": snapshots, "external_artifact_bindings": external}})
 }
-func contractPlatformFingerprint(s *semanticSession, family string) (map[string]any, error) {
-	tool, e := s.toolSourceSession()
+
+func contractPlatformFingerprint(s *kernel.SemanticSession, family string) (map[string]any, error) {
+	tool, e := s.ToolSourceSession()
 	if e != nil {
 		return nil, e
 	}
@@ -65,42 +62,43 @@ func contractPlatformFingerprint(s *semanticSession, family string) (map[string]
 	case "layered-mvc":
 		skill = "yss-layered-mvc-scaffold-generator"
 	default:
-		return nil, s.reject("PLATFORM_SOURCE", "未知脚手架架构")
+		return nil, s.Reject("PLATFORM_SOURCE", "未知脚手架架构")
 	}
 	base := ".agents/skills/" + skill
 	generator := []string{base + "/scripts/generate_scaffold.mjs", base + "/assets", "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs"}
-	if present, err := s.exists("scripts/lib/standalone-backend-scaffold.mjs"); err != nil {
+	if present, err := s.Exists("scripts/lib/standalone-backend-scaffold.mjs"); err != nil {
 		return nil, err
 	} else if present {
 		generator = append(generator, "scripts/lib/standalone-backend-scaffold.mjs")
 	}
+	generator = append(generator, "scripts/lib/scaffold-reference-example.mjs", ".agents/skills/yss-dto/references/openapi-wire-profile.yaml")
 	if family == "layered-mvc" {
-		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper")
+		generator = append(generator, ".agents/skills/yss-ddd-scaffold-generator/assets/wrapper", ".agents/skills/yss-ddd-scaffold-generator/assets/reference")
 	}
 	verifier := []string{"scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", ".agents/skills/yss-ddd-scaffold-generator/scripts/run_scaffold_verification.mjs"}
 	fileMap := func(refs []string) (string, error) {
 		files := map[string]map[string]any{}
 		for _, ref := range refs {
-			exists, e := s.exists(ref)
+			exists, e := s.Exists(ref)
 			if e != nil {
 				return "", e
 			}
 			if !exists {
-				return "", s.unavailable("CAPABILITY", "固定工具provenance字节缺失，需显式--tool-root: "+ref)
+				return "", s.Unavailable("CAPABILITY", "固定工具provenance字节缺失，需显式--tool-root: "+ref)
 			}
 			inputs := []string{ref}
-			if _, dir := s.scans[s.localRef(ref)]; dir {
-				inputs, e = s.scan(ref)
+			if _, dir := s.Scans[s.LocalRef(ref)]; dir {
+				inputs, e = s.Scan(ref)
 				if e != nil {
 					return "", e
 				}
 			}
 			for _, ref := range inputs {
-				b, e := s.bytes(ref)
+				b, e := s.Bytes(ref)
 				if e != nil {
 					return "", e
 				}
-				d, e := s.v.watch(s.localRef(ref))
+				d, e := s.V.Watch(s.LocalRef(ref))
 				if e != nil {
 					return "", e
 				}
@@ -142,98 +140,99 @@ func contractPlatformFingerprint(s *semanticSession, family string) (map[string]
 	}
 	return map[string]any{"schema_version": 1, "generator_digest": g, "verifier_digest": v}, nil
 }
-func contractPlatform(s *semanticSession, binding map[string]any, verified bool) (map[string]any, map[string]any, []map[string]any, error) {
+
+func contractPlatform(s *kernel.SemanticSession, binding map[string]any, verified bool) (map[string]any, map[string]any, []map[string]any, error) {
 	c, e := contractPlatformCatalog(s)
 	if e != nil {
 		return nil, nil, nil, e
 	}
-	if contractN(binding["schema_version"]) != 2 {
-		return nil, nil, nil, s.reject("PLATFORM_BINDING", "当前运行需要平台配置v2")
+	if kernel.ContractN(binding["schema_version"]) != 2 {
+		return nil, nil, nil, s.Reject("PLATFORM_BINDING", "当前运行需要平台配置v2")
 	}
 	matches := []map[string]any{}
-	for _, v := range semList(c["profiles"]) {
-		p := semMap(v)
+	for _, v := range kernel.SemList(c["profiles"]) {
+		p := kernel.SemMap(v)
 		if p["id"] == binding["profile_id"] && p["spring_boot_version"] == binding["spring_boot_version"] {
 			matches = append(matches, p)
 		}
 	}
 	if len(matches) != 1 {
-		return nil, nil, nil, s.reject("PLATFORM_BINDING", "平台配置必须选择唯一精确Boot patch")
+		return nil, nil, nil, s.Reject("PLATFORM_BINDING", "平台配置必须选择唯一精确Boot patch")
 	}
 	profile := matches[0]
-	entry := apFind(c["compatibility"], "id", text(binding["compatibility_id"]))
+	entry := kernel.ApFind(c["compatibility"], "id", kernel.Text(binding["compatibility_id"]))
 	if entry == nil || entry["profile_id"] != profile["id"] || entry["spring_boot_version"] != profile["spring_boot_version"] {
-		return nil, nil, nil, s.reject("PLATFORM_BINDING", "缺少精确YSS兼容条目")
+		return nil, nil, nil, s.Reject("PLATFORM_BINDING", "缺少精确YSS兼容条目")
 	}
 	expected := map[string]any{"schema_version": 2, "profile_id": profile["id"], "spring_boot_version": profile["spring_boot_version"], "java_version": profile["java_version"], "parent": entry["parent"], "bom": entry["bom"], "compatibility_id": entry["id"], "compatibility_digest": contractPlatformRecipe(profile, entry)}
-	if line := text(profile["component_platform_line"]); line == "boot2-java8" || line == "boot3-java17" {
+	if line := kernel.Text(profile["component_platform_line"]); line == "boot2-java8" || line == "boot3-java17" {
 		expected["component_platform_line"] = line
 	}
 	if !contractSame(binding, expected) {
-		return nil, nil, nil, s.reject("PLATFORM_BINDING", "平台坐标、Java版本或兼容摘要漂移")
+		return nil, nil, nil, s.Reject("PLATFORM_BINDING", "平台坐标、Java版本或兼容摘要漂移")
 	}
 	reports := []map[string]any{}
 	if !verified {
 		return profile, entry, reports, nil
 	}
-	if text(entry["status"]) != "verified" || len(semList(entry["evidence"])) == 0 {
-		return nil, nil, nil, s.reject("PLATFORM_UNVERIFIED", "YSS组合尚未验证")
+	if kernel.Text(entry["status"]) != "verified" || len(kernel.SemList(entry["evidence"])) == 0 {
+		return nil, nil, nil, s.Reject("PLATFORM_UNVERIFIED", "YSS组合尚未验证")
 	}
-	for _, v := range semList(entry["evidence"]) {
-		ev := semMap(v)
+	for _, v := range kernel.SemList(entry["evidence"]) {
+		ev := kernel.SemMap(v)
 		report, e := contractBoundDoc(s, ev)
 		if e != nil {
 			return nil, nil, nil, e
 		}
-		family := text(report["architecture_family"])
-		if text(report["verification_scope"]) != "empty-scaffold" || text(report["recipe_digest"]) != contractPlatformRecipe(profile, entry) || !contractSHA(report["generated_tree_digest"]) || text(report["status"]) != "passed" || report["spring_boot_version"] != profile["spring_boot_version"] || report["java_version"] != profile["java_version"] || report["architecture_family"] != ev["architecture_family"] || !contractSame(report["parent"], entry["parent"]) || !contractSame(report["bom"], entry["bom"]) || text(report["dependency_check"]) != "passed" || text(report["startup_check"]) != "passed" || text(semMap(report["integration_tests"])["status"]) != "passed" {
-			return nil, nil, nil, s.reject("PLATFORM_EVIDENCE", "平台qualification身份或集成检查不完整")
+		family := kernel.Text(report["architecture_family"])
+		if kernel.Text(report["verification_scope"]) != "empty-scaffold" || kernel.Text(report["recipe_digest"]) != contractPlatformRecipe(profile, entry) || !contractSHA(report["generated_tree_digest"]) || kernel.Text(report["status"]) != "passed" || report["spring_boot_version"] != profile["spring_boot_version"] || report["java_version"] != profile["java_version"] || report["architecture_family"] != ev["architecture_family"] || !contractSame(report["parent"], entry["parent"]) || !contractSame(report["bom"], entry["bom"]) || kernel.Text(report["dependency_check"]) != "passed" || kernel.Text(report["startup_check"]) != "passed" || kernel.Text(kernel.SemMap(report["integration_tests"])["status"]) != "passed" {
+			return nil, nil, nil, s.Reject("PLATFORM_EVIDENCE", "平台qualification身份或集成检查不完整")
 		}
 		fingerprint, e := contractPlatformFingerprint(s, family)
 		if e != nil {
 			return nil, nil, nil, e
 		}
 		if !contractSame(report["source_fingerprint"], fingerprint) {
-			return nil, nil, nil, s.reject("PLATFORM_SOURCE", "固定generator/verifier源码变化")
+			return nil, nil, nil, s.Reject("PLATFORM_SOURCE", "固定generator/verifier源码变化")
 		}
 		for _, phase := range []string{"validate", "test", "package"} {
 			found := false
-			for _, v := range semList(report["commands"]) {
-				row := semMap(v)
-				if text(row["command"]) != "./mvnw "+phase {
+			for _, v := range kernel.SemList(report["commands"]) {
+				row := kernel.SemMap(v)
+				if kernel.Text(row["command"]) != "./mvnw "+phase && !(kernel.Text(row["phase"]) == phase && strings.HasPrefix(kernel.Text(row["command"]), "./mvnw "+phase+" ") && !strings.Contains(kernel.Text(row["command"]), "skipTests") && !strings.Contains(kernel.Text(row["command"]), "maven.test.skip")) {
 					continue
 				}
-				exit, ok := integer(row["exit_code"])
+				exit, ok := kernel.Integer(row["exit_code"])
 				// The published qualification protocol records a nonempty timestamp;
 				// historical reports do not define an RFC3339 restriction.
-				if !ok || exit != 0 || text(row["executed_at"]) == "" || text(row["stdout_ref"]) == "" || text(row["stderr_ref"]) == "" {
-					return nil, nil, nil, s.reject("PLATFORM_EVIDENCE", "Maven真实执行证据不完整")
+				if !ok || exit != 0 || kernel.Text(row["executed_at"]) == "" || kernel.Text(row["stdout_ref"]) == "" || kernel.Text(row["stderr_ref"]) == "" {
+					return nil, nil, nil, s.Reject("PLATFORM_EVIDENCE", "Maven真实执行证据不完整")
 				}
 				found = true
 			}
 			if !found {
-				return nil, nil, nil, s.reject("PLATFORM_EVIDENCE", "平台缺少实际Maven阶段")
+				return nil, nil, nil, s.Reject("PLATFORM_EVIDENCE", "平台缺少实际Maven阶段")
 			}
 		}
 		required := []string{"effective-pom.xml", "dependency-trees.json", "platform-tests.xml", "boot-bom-effective.xml", "runtime-jar-entries.log", "startup.stdout.log", "startup.stderr.log"}
 		for _, phase := range []string{"validate", "test", "package"} {
 			required = append(required, "mvnw-"+phase+".stdout.log", "mvnw-"+phase+".stderr.log")
 		}
-		artifacts := semList(report["evidence_artifacts"])
+		artifacts := kernel.SemList(report["evidence_artifacts"])
 		if len(artifacts) == 0 {
-			return nil, nil, nil, s.reject("PLATFORM_EVIDENCE", "平台可移植实际证据缺失")
+			return nil, nil, nil, s.Reject("PLATFORM_EVIDENCE", "平台可移植实际证据缺失")
 		}
 		for _, name := range required {
-			if apFind(artifacts, "ref", name) == nil {
-				return nil, nil, nil, s.reject("PLATFORM_EVIDENCE", "平台缺少可移植证据: "+name)
+			if kernel.ApFind(artifacts, "ref", name) == nil {
+				return nil, nil, nil, s.Reject("PLATFORM_EVIDENCE", "平台缺少可移植证据: "+name)
 			}
 		}
 		for _, v := range artifacts {
-			a := semMap(v)
-			if !contractPath(text(a["ref"])) {
-				return nil, nil, nil, s.reject("PATH", "平台证据路径非法")
+			a := kernel.SemMap(v)
+			if !kernel.ContractPath(kernel.Text(a["ref"])) {
+				return nil, nil, nil, s.Reject("PATH", "平台证据路径非法")
 			}
-			ref := path.Join(path.Dir(text(ev["ref"])), text(a["ref"]))
+			ref := path.Join(path.Dir(kernel.Text(ev["ref"])), kernel.Text(a["ref"]))
 			if _, e = contractBinding(s, map[string]any{"ref": ref, "digest": a["digest"]}); e != nil {
 				return nil, nil, nil, e
 			}
@@ -242,47 +241,56 @@ func contractPlatform(s *semanticSession, binding map[string]any, verified bool)
 	}
 	return profile, entry, reports, nil
 }
-func contractScaffoldUserDecision(s *semanticSession, decision map[string]any) error {
+
+func contractScaffoldUserDecision(s *kernel.SemanticSession, decision map[string]any) error {
 	c, e := contractPlatformCatalog(s)
 	if e != nil {
 		return e
 	}
 	var profile map[string]any
-	for _, v := range semList(c["profiles"]) {
-		p := semMap(v)
-		if p["id"] == decision["platform_profile"] && (semMap(decision["platform_configuration"])["spring_boot_version"] == nil || p["spring_boot_version"] == semMap(decision["platform_configuration"])["spring_boot_version"]) {
+	for _, v := range kernel.SemList(c["profiles"]) {
+		p := kernel.SemMap(v)
+		if p["id"] == decision["platform_profile"] && (kernel.SemMap(decision["platform_configuration"])["spring_boot_version"] == nil || p["spring_boot_version"] == kernel.SemMap(decision["platform_configuration"])["spring_boot_version"]) {
 			if profile != nil {
-				return s.reject("SCAFFOLD_DECISION", "架构决定平台patch不唯一")
+				return s.Reject("SCAFFOLD_DECISION", "架构决定平台patch不唯一")
 			}
 			profile = p
 		}
 	}
 	if profile == nil {
-		return s.reject("SCAFFOLD_DECISION", "架构决定平台未知")
+		return s.Reject("SCAFFOLD_DECISION", "架构决定平台未知")
 	}
-	confirmation := semMap(decision["user_confirmation"])
-	requirement := map[string]any{"boundary": "gate.backend-architecture-platform-approved", "subject_ref": confirmation["decision_subject_ref"], "scope": []any{decision["project_id"], decision["confirmed_architecture"], fmt.Sprintf("%s@%s/java%d", text(profile["id"]), text(profile["spring_boot_version"]), contractN(profile["java_version"])), decision["decision_inputs_digest"]}, "user_decision_ref": confirmation["user_decision_ref"]}
-	if _, e = assertUserDecisionRequirementSemantic(s, requirement); e != nil {
+	confirmation := kernel.SemMap(decision["user_confirmation"])
+	requirement := map[string]any{"boundary": "gate.backend-architecture-platform-approved", "subject_ref": confirmation["decision_subject_ref"], "scope": []any{decision["project_id"], decision["confirmed_architecture"], fmt.Sprintf("%s@%s/java%d", kernel.Text(profile["id"]), kernel.Text(profile["spring_boot_version"]), kernel.ContractN(profile["java_version"])), decision["decision_inputs_digest"]}, "user_decision_ref": confirmation["user_decision_ref"]}
+	if _, e = kernel.AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
 		return e
 	}
-	subject, e := s.doc(text(requirement["subject_ref"]))
+	subject, e := s.Doc(kernel.Text(requirement["subject_ref"]))
 	if e != nil {
 		return e
 	}
 	snapshot := contractWithout(decision, "user_confirmation", "status", "decision_inputs_digest")
 	snapshot["platform_selection"] = map[string]any{"profile_id": profile["id"], "spring_boot_version": profile["spring_boot_version"], "java_version": profile["java_version"]}
 	if !contractSame(subject, snapshot) {
-		return s.reject("user-decision-stale", "脚手架输入与用户所见快照不一致")
+		return s.Reject("user-decision-stale", "脚手架输入与用户所见快照不一致")
 	}
 	return nil
 }
+
 func contractExactVersion(v any) bool {
-	return text(v) != "" && !regexp.MustCompile(`(?i)[\[\](),*+]|\bx\b|latest`).MatchString(text(v))
+	return kernel.Text(v) != "" && !regexp.MustCompile(`(?i)[\[\](),*+]|\bx\b|latest`).MatchString(kernel.Text(v))
 }
-func contractSHA(v any) bool     { return regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(text(v)) }
-func contractGitTree(v any) bool { return regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(text(v)) }
+
+func contractSHA(v any) bool {
+	return regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(kernel.Text(v))
+}
+
+func contractGitTree(v any) bool {
+	return regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(kernel.Text(v))
+}
+
 func contractPlatformGeneration(profile map[string]any) (string, int) {
-	v := strings.Split(text(profile["spring_boot_version"]), ".")[0]
+	v := strings.Split(kernel.Text(profile["spring_boot_version"]), ".")[0]
 	switch v {
 	case "2":
 		return "boot2-java8", 2
@@ -292,85 +300,91 @@ func contractPlatformGeneration(profile map[string]any) (string, int) {
 		return "boot4", 0
 	}
 }
+
 func contractRetirement(v any) bool {
 	required := map[string]bool{"organization-code-search": true, "maven-download-metrics": true, "runtime-bean-and-configuration-scan": true, "30-90-day-zero-usage-window": true}
-	for _, v := range semList(v) {
-		m := semMap(v)
-		if text(m["status"]) != "zero" || text(m["ref"]) == "" {
+	for _, v := range kernel.SemList(v) {
+		m := kernel.SemMap(v)
+		if kernel.Text(m["status"]) != "zero" || kernel.Text(m["ref"]) == "" {
 			return false
 		}
-		delete(required, text(m["kind"]))
+		delete(required, kernel.Text(m["kind"]))
 	}
 	return len(required) == 0
 }
-func contractPlatformArtifact(s *semanticSession, b map[string]any, role string, expected map[string]any, snapshot, resolved bool) error {
-	status := text(b["status"])
-	if role == "" || text(b["role"]) != role || status != "candidate" && !(resolved && status == "resolved") || text(b["group_id"]) == "" || text(b["artifact_id"]) == "" || !contractExactVersion(b["declared_version"]) || snapshot != strings.HasSuffix(text(b["declared_version"]), "-SNAPSHOT") {
-		return s.reject("PLATFORM_ARTIFACT", "平台候选产物坐标或角色冲突")
+func contractPlatformArtifact(s *kernel.SemanticSession, b map[string]any, role string, expected map[string]any, snapshot, resolved bool) error {
+	status := kernel.Text(b["status"])
+	if role == "" || kernel.Text(b["role"]) != role || status != "candidate" && !(resolved && status == "resolved") && !(expected != nil && status == "resolved-pom") || kernel.Text(b["group_id"]) == "" || kernel.Text(b["artifact_id"]) == "" || !contractExactVersion(b["declared_version"]) || snapshot != strings.HasSuffix(kernel.Text(b["declared_version"]), "-SNAPSHOT") {
+		return s.Reject("PLATFORM_ARTIFACT", "平台候选产物坐标或角色冲突")
 	}
 	if expected != nil && (b["group_id"] != expected["group_id"] || b["artifact_id"] != expected["artifact_id"] || b["declared_version"] != expected["version"]) {
-		return s.reject("PLATFORM_ARTIFACT", "候选产物与兼容坐标冲突")
+		return s.Reject("PLATFORM_ARTIFACT", "候选产物与兼容坐标冲突")
 	}
 	if status == "candidate" {
 		for _, field := range []string{"resolved_version", "published_at", "pom_sha256", "jar_sha256", "sources_jar_sha256", "source_tree"} {
 			value, exists := b[field]
 			if !exists || value != nil {
-				return s.reject("PLATFORM_ARTIFACT", "候选产物不得伪造已解析证据")
+				return s.Reject("PLATFORM_ARTIFACT", "候选产物不得伪造已解析证据")
 			}
 		}
-		if !apIsArray(b["evidence"]) || len(semList(b["evidence"])) != 0 || len(semList(b["blockers"])) == 0 {
-			return s.reject("PLATFORM_ARTIFACT", "候选产物必须保持有阻断且未解析")
+		if !kernel.ApIsArray(b["evidence"]) || len(kernel.SemList(b["evidence"])) != 0 || len(kernel.SemList(b["blockers"])) == 0 {
+			return s.Reject("PLATFORM_ARTIFACT", "候选产物必须保持有阻断且未解析")
+		}
+	} else if status == "resolved-pom" {
+		if (role != "parent" && role != "bom") || !snapshot || !regexp.MustCompile(`^\d+\.\d+\.\d+-\d{8}\.\d{6}-\d+$`).MatchString(kernel.Text(b["resolved_version"])) || !contractSHA(b["pom_sha256"]) || !contractGitTree(b["source_tree"]) || b["jar_sha256"] != nil || b["sources_jar_sha256"] != nil || len(kernel.SemList(b["evidence"])) == 0 || !kernel.ApIsArray(b["blockers"]) || len(kernel.SemList(b["blockers"])) != 0 {
+			return s.Reject("PLATFORM_ARTIFACT", "平台 POM 缺少精确 SNAPSHOT 及源码证据")
 		}
 	} else {
-		if snapshot || b["resolved_version"] != b["declared_version"] || !contractSHA(b["pom_sha256"]) || !contractSHA(b["jar_sha256"]) || !contractSHA(b["sources_jar_sha256"]) || b["published_at"] != nil && text(b["published_at"]) == "" || b["source_tree"] != nil && !contractGitTree(b["source_tree"]) || !apIsArray(b["evidence"]) || !apIsArray(b["blockers"]) {
-			return s.reject("PLATFORM_ARTIFACT", "外部发布产物缺少不可变证据")
+		if snapshot || b["resolved_version"] != b["declared_version"] || !contractSHA(b["pom_sha256"]) || !contractSHA(b["jar_sha256"]) || !contractSHA(b["sources_jar_sha256"]) || b["published_at"] != nil && kernel.Text(b["published_at"]) == "" || b["source_tree"] != nil && !contractGitTree(b["source_tree"]) || !kernel.ApIsArray(b["evidence"]) || !kernel.ApIsArray(b["blockers"]) {
+			return s.Reject("PLATFORM_ARTIFACT", "外部发布产物缺少不可变证据")
 		}
 	}
 	return nil
 }
-func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
-	c, e := s.doc(".template-spec/engineering/backend-platforms.json")
+
+func contractPlatformCatalog(s *kernel.SemanticSession) (map[string]any, error) {
+	c, e := s.Doc(".template-spec/engineering/backend-platforms.json")
 	if e != nil {
 		return nil, e
 	}
-	if contractN(c["schema_version"]) != 2 || text(c["kind"]) != "backend-platform-catalog" || !apIsArray(c["profiles"]) || !apIsArray(c["compatibility"]) || c["component_capabilities"] != nil || c["component_capability_ids"] != nil {
-		return nil, s.reject("PLATFORM_CATALOG", "平台目录协议无效")
+	if kernel.ContractN(c["schema_version"]) != 2 || kernel.Text(c["kind"]) != "backend-platform-catalog" || !kernel.ApIsArray(c["profiles"]) || !kernel.ApIsArray(c["compatibility"]) || c["component_capabilities"] != nil || c["component_capability_ids"] != nil {
+		return nil, s.Reject("PLATFORM_CATALOG", "平台目录协议无效")
 	}
 	profiles, entries := map[string]bool{}, map[string]bool{}
-	for _, v := range semList(c["profiles"]) {
-		p := semMap(v)
-		key := text(p["id"]) + ":" + text(p["spring_boot_version"]) + ":" + fmt.Sprint(p["java_version"])
+	for _, v := range kernel.SemList(c["profiles"]) {
+		p := kernel.SemMap(v)
+		key := kernel.Text(p["id"]) + ":" + kernel.Text(p["spring_boot_version"]) + ":" + fmt.Sprint(p["java_version"])
 		line, _ := contractPlatformGeneration(p)
-		if profiles[key] || !regexp.MustCompile(`^\d+[.]\d+[.]\d+$`).MatchString(text(p["spring_boot_version"])) || line != "boot4" && text(p["component_platform_line"]) != line || line == "boot4" && p["component_platform_line"] != nil {
-			return nil, s.reject("PLATFORM_CATALOG", "重复平台或代际冲突")
+		if profiles[key] || !regexp.MustCompile(`^\d+[.]\d+[.]\d+$`).MatchString(kernel.Text(p["spring_boot_version"])) || line != "boot4" && kernel.Text(p["component_platform_line"]) != line || line == "boot4" && p["component_platform_line"] != nil {
+			return nil, s.Reject("PLATFORM_CATALOG", "重复平台或代际冲突")
 		}
 		profiles[key] = true
 	}
-	for _, v := range semList(c["compatibility"]) {
-		entry := semMap(v)
-		id := text(entry["id"])
+	for _, v := range kernel.SemList(c["compatibility"]) {
+		entry := kernel.SemMap(v)
+		id := kernel.Text(entry["id"])
 		if entries[id] || id == "" {
-			return nil, s.reject("PLATFORM_CATALOG", "兼容条目ID重复或为空")
+			return nil, s.Reject("PLATFORM_CATALOG", "兼容条目ID重复或为空")
 		}
 		entries[id] = true
 		var profile map[string]any
-		for _, v := range semList(c["profiles"]) {
-			p := semMap(v)
+		for _, v := range kernel.SemList(c["profiles"]) {
+			p := kernel.SemMap(v)
 			if p["id"] == entry["profile_id"] && p["spring_boot_version"] == entry["spring_boot_version"] {
 				profile = p
 			}
 		}
 		line, major := contractPlatformGeneration(profile)
-		if profile == nil || line == "boot4" || text(profile["component_platform_line"]) != line {
-			return nil, s.reject("PLATFORM_CATALOG", "兼容条目平台代际缺失")
+		if profile == nil || line == "boot4" || kernel.Text(profile["component_platform_line"]) != line {
+			return nil, s.Reject("PLATFORM_CATALOG", "兼容条目平台代际缺失")
 		}
 		if raw := entry["platform_artifact_bindings"]; raw != nil {
-			artifacts := semMap(raw)
+			artifacts := kernel.SemMap(raw)
 			if len(artifacts) != 2 {
-				return nil, s.reject("PLATFORM_ARTIFACT", "平台候选必须完整包含parent和bom")
+				return nil, s.Reject("PLATFORM_ARTIFACT", "平台候选必须完整包含parent和bom")
 			}
 			for _, role := range []string{"parent", "bom"} {
-				if e = contractPlatformArtifact(s, semMap(artifacts[role]), role, semMap(entry[role]), true, false); e != nil {
+				if e = contractPlatformArtifact(s, kernel.SemMap(artifacts[role]), role, kernel.SemMap(entry[role]), true, false); e != nil {
 					return nil, e
 				}
 			}
@@ -379,153 +393,174 @@ func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
 			if entry[field] == nil {
 				continue
 			}
-			if !apIsArray(entry[field]) {
-				return nil, s.reject("PLATFORM_ARTIFACT", "外部绑定不是数组")
+			if !kernel.ApIsArray(entry[field]) {
+				return nil, s.Reject("PLATFORM_ARTIFACT", "外部绑定不是数组")
 			}
 			coordinates := map[string]bool{}
-			for _, v := range semList(entry[field]) {
-				b := semMap(v)
-				key := text(b["group_id"]) + ":" + text(b["artifact_id"])
+			for _, v := range kernel.SemList(entry[field]) {
+				b := kernel.SemMap(v)
+				key := kernel.Text(b["group_id"]) + ":" + kernel.Text(b["artifact_id"])
 				if coordinates[key] {
-					return nil, s.reject("PLATFORM_ARTIFACT", "外部产物坐标重复")
+					return nil, s.Reject("PLATFORM_ARTIFACT", "外部产物坐标重复")
 				}
 				coordinates[key] = true
-				if e = contractPlatformArtifact(s, b, text(b["role"]), nil, field == "external_snapshot_bindings", field == "external_artifact_bindings"); e != nil {
+				if e = contractPlatformArtifact(s, b, kernel.Text(b["role"]), nil, field == "external_snapshot_bindings", field == "external_artifact_bindings"); e != nil {
 					return nil, e
 				}
 			}
 		}
 		resolutions := map[string]map[string]any{}
 		if raw := entry["artifact_resolution_evidence"]; raw != nil {
-			b := semMap(raw)
+			b := kernel.SemMap(raw)
 			report, e := contractBoundDoc(s, b)
 			if e != nil {
 				return nil, e
 			}
-			if contractN(report["schema_version"]) != 1 || text(report["kind"]) != "backend-component-artifact-resolution" || report["report_id"] != b["report_id"] || semMap(report["repository"])["id"] != b["repository_id"] || !apIsArray(report["artifacts"]) {
-				return nil, s.reject("PLATFORM_ARTIFACT", "产物解析证据身份冲突")
+			if kernel.ContractN(report["schema_version"]) != 1 || kernel.Text(report["kind"]) != "backend-component-artifact-resolution" || report["report_id"] != b["report_id"] || kernel.SemMap(report["repository"])["id"] != b["repository_id"] || !kernel.ApIsArray(report["artifacts"]) {
+				return nil, s.Reject("PLATFORM_ARTIFACT", "产物解析证据身份冲突")
 			}
-			for _, v := range semList(report["artifacts"]) {
-				a := semMap(v)
-				resolutions[text(a["group_id"])+":"+text(a["artifact_id"])+":"+text(a["declared_version"])] = a
+			for _, v := range kernel.SemList(report["artifacts"]) {
+				a := kernel.SemMap(v)
+				resolutions[kernel.Text(a["group_id"])+":"+kernel.Text(a["artifact_id"])+":"+kernel.Text(a["declared_version"])] = a
+			}
+		}
+		for _, value := range kernel.SemMap(entry["platform_artifact_bindings"]) {
+			b := kernel.SemMap(value)
+			if kernel.Text(b["status"]) != "resolved-pom" {
+				continue
+			}
+			a := resolutions[kernel.Text(b["group_id"])+":"+kernel.Text(b["artifact_id"])+":"+kernel.Text(b["declared_version"])]
+			if a == nil || b["resolved_version"] != a["resolved_version"] || kernel.Text(b["pom_sha256"]) != "sha256:"+kernel.Text(a["pom_sha256"]) || b["source_tree"] != a["source_tree"] || a["pom_matches_source_tree"] != true {
+				return nil, s.Reject("PLATFORM_ARTIFACT", "平台 POM 与解析证据冲突")
+			}
+			for _, evidence := range kernel.SemList(b["evidence"]) {
+				if _, err := contractBoundDoc(s, kernel.SemMap(evidence)); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if entry["component_capabilities"] == nil {
 			continue
 		}
-		components := semMap(entry["component_capabilities"])
+		components := kernel.SemMap(entry["component_capabilities"])
 		if components == nil {
-			return nil, s.reject("PLATFORM_COMPONENT", "组件能力不是映射")
+			return nil, s.Reject("PLATFORM_COMPONENT", "组件能力不是映射")
 		}
 		for id, raw := range components {
-			item := semMap(raw)
-			if !strings.Contains(id, ".") || !semHas([]string{"candidate", "verified", "blocked"}, text(item["status"])) || !apIsArray(item["verified_architectures"]) || !apIsArray(item["artifacts"]) || !apIsArray(item["evidence"]) || !apIsArray(item["blockers"]) || item["provider_kind"] != nil && !semHas([]string{"yss-component", "platform-managed"}, text(item["provider_kind"])) || !semHas([]string{"active", "maintenance", "deprecated", "retired"}, first(text(item["lifecycle"]), "active")) || !semHas([]string{"allowed", "forbidden"}, first(text(item["adoption_policy"]), "allowed")) {
-				return nil, s.reject("PLATFORM_COMPONENT", "组件能力结构或状态无效")
+			item := kernel.SemMap(raw)
+			if !strings.Contains(id, ".") || !kernel.SemHas([]string{"candidate", "verified", "blocked"}, kernel.Text(item["status"])) || !kernel.ApIsArray(item["verified_architectures"]) || !kernel.ApIsArray(item["artifacts"]) || !kernel.ApIsArray(item["evidence"]) || !kernel.ApIsArray(item["blockers"]) || item["provider_kind"] != nil && !kernel.SemHas([]string{"yss-component", "platform-managed"}, kernel.Text(item["provider_kind"])) || !kernel.SemHas([]string{"active", "maintenance", "deprecated", "retired"}, kernel.First(kernel.Text(item["lifecycle"]), "active")) || !kernel.SemHas([]string{"allowed", "forbidden"}, kernel.First(kernel.Text(item["adoption_policy"]), "allowed")) {
+				return nil, s.Reject("PLATFORM_COMPONENT", "组件能力结构或状态无效")
 			}
-			if text(item["lifecycle"]) == "retired" && !contractRetirement(item["retirement_evidence"]) {
-				return nil, s.reject("PLATFORM_COMPONENT", "退役缺少组织零使用证据")
+			if kernel.Text(item["lifecycle"]) == "retired" && !contractRetirement(item["retirement_evidence"]) {
+				return nil, s.Reject("PLATFORM_COMPONENT", "退役缺少组织零使用证据")
 			}
 			if !contractUnique(item["verified_architectures"], false) {
-				return nil, s.reject("PLATFORM_COMPONENT", "验证架构重复或无效")
+				return nil, s.Reject("PLATFORM_COMPONENT", "验证架构重复或无效")
 			}
-			for _, family := range semStrings(item["verified_architectures"]) {
-				if !semHas([]string{"domain-driven", "layered-mvc"}, family) {
-					return nil, s.reject("PLATFORM_COMPONENT", "未知验证架构")
+			for _, family := range kernel.SemStrings(item["verified_architectures"]) {
+				if !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, family) {
+					return nil, s.Reject("PLATFORM_COMPONENT", "未知验证架构")
 				}
 			}
 			coordinates := map[string]bool{}
-			for _, v := range semList(item["artifacts"]) {
-				a := semMap(v)
-				key := text(a["group_id"]) + ":" + text(a["artifact_id"])
-				if text(a["group_id"]) == "" || text(a["artifact_id"]) == "" || !contractExactVersion(a["declared_version"]) || coordinates[key] || a["resolved_version"] != nil && !contractExactVersion(a["resolved_version"]) || strings.HasSuffix(text(a["declared_version"]), "-SNAPSHOT") && a["resolved_version"] != nil && (a["resolved_version"] == a["declared_version"] || strings.HasSuffix(text(a["resolved_version"]), "-SNAPSHOT")) {
-					return nil, s.reject("PLATFORM_COMPONENT", "组件精确坐标冲突")
+			for _, v := range kernel.SemList(item["artifacts"]) {
+				a := kernel.SemMap(v)
+				key := kernel.Text(a["group_id"]) + ":" + kernel.Text(a["artifact_id"])
+				if kernel.Text(a["group_id"]) == "" || kernel.Text(a["artifact_id"]) == "" || !contractExactVersion(a["declared_version"]) || coordinates[key] || a["resolved_version"] != nil && !contractExactVersion(a["resolved_version"]) || strings.HasSuffix(kernel.Text(a["declared_version"]), "-SNAPSHOT") && a["resolved_version"] != nil && (a["resolved_version"] == a["declared_version"] || strings.HasSuffix(kernel.Text(a["resolved_version"]), "-SNAPSHOT")) {
+					return nil, s.Reject("PLATFORM_COMPONENT", "组件精确坐标冲突")
 				}
 				coordinates[key] = true
-				if text(item["provider_kind"]) == "platform-managed" && (id != "contract.request-validation" || len(semList(item["artifacts"])) != 1 || text(a["group_id"]) != "org.springframework.boot" || text(a["artifact_id"]) != "spring-boot-starter-validation" || a["declared_version"] != profile["spring_boot_version"]) {
-					return nil, s.reject("PLATFORM_COMPONENT", "平台托管validation坐标冲突")
+				if kernel.Text(item["provider_kind"]) == "platform-managed" && (id != "contract.request-validation" || len(kernel.SemList(item["artifacts"])) != 1 || kernel.Text(a["group_id"]) != "org.springframework.boot" || kernel.Text(a["artifact_id"]) != "spring-boot-starter-validation" || a["declared_version"] != profile["spring_boot_version"]) {
+					return nil, s.Reject("PLATFORM_COMPONENT", "平台托管validation坐标冲突")
 				}
 				if entry["artifact_resolution_evidence"] != nil {
-					r := resolutions[key+":"+text(a["declared_version"])]
+					r := resolutions[key+":"+kernel.Text(a["declared_version"])]
 					if r == nil {
-						return nil, s.reject("PLATFORM_COMPONENT", "组件没有实际解析条目")
+						return nil, s.Reject("PLATFORM_COMPONENT", "组件没有实际解析条目")
 					}
 					var pom, jar, tree any
-					if text(r["pom_sha256"]) != "" {
-						pom = "sha256:" + text(r["pom_sha256"])
+					if kernel.Text(r["pom_sha256"]) != "" {
+						pom = "sha256:" + kernel.Text(r["pom_sha256"])
 					}
-					if text(r["jar_sha256"]) != "" {
-						jar = "sha256:" + text(r["jar_sha256"])
+					if kernel.Text(r["jar_sha256"]) != "" {
+						jar = "sha256:" + kernel.Text(r["jar_sha256"])
 					}
 					if r["sources_match_source_tree"] == true && r["pom_matches_source_tree"] == true {
 						tree = r["source_tree"]
 					}
 					if !contractSame(a["resolved_version"], r["resolved_version"]) || !contractSame(a["pom_sha256"], pom) || !contractSame(a["jar_sha256"], jar) || !contractSame(a["source_tree"], tree) {
-						return nil, s.reject("PLATFORM_COMPONENT", "组件绑定与解析证据漂移")
+						return nil, s.Reject("PLATFORM_COMPONENT", "组件绑定与解析证据漂移")
 					}
 				}
-				if text(item["status"]) == "verified" && (!contractExactVersion(a["resolved_version"]) || !contractSHA(a["pom_sha256"]) || !contractSHA(a["jar_sha256"]) || !contractGitTree(a["source_tree"]) || !strings.HasPrefix(text(a["declared_version"]), strconv.Itoa(major)+".")) {
-					return nil, s.reject("PLATFORM_COMPONENT", "verified组件缺少精确代际证据")
+				if kernel.Text(item["status"]) == "verified" && (!contractExactVersion(a["resolved_version"]) || !contractSHA(a["pom_sha256"]) || !contractSHA(a["jar_sha256"]) || !contractGitTree(a["source_tree"]) || !strings.HasPrefix(kernel.Text(a["declared_version"]), strconv.Itoa(major)+".")) {
+					return nil, s.Reject("PLATFORM_COMPONENT", "verified组件缺少精确代际证据")
 				}
 			}
 			recipe := contractWithout(item, "capability_id", "component_digest", "status", "evidence", "blockers")
 			recipe["capability_id"] = id
-			if !contractSHA(item["component_digest"]) || text(item["component_digest"]) != contractDigest(recipe) {
-				return nil, s.reject("PLATFORM_COMPONENT", "组件配方摘要变化")
+			if !contractSHA(item["component_digest"]) || kernel.Text(item["component_digest"]) != contractDigest(recipe) {
+				return nil, s.Reject("PLATFORM_COMPONENT", "组件配方摘要变化")
 			}
-			if text(item["status"]) == "verified" {
-				if text(entry["status"]) != "verified" || len(semList(item["verified_architectures"])) == 0 || len(semList(item["artifacts"])) == 0 || len(semList(item["evidence"])) == 0 || len(semList(item["blockers"])) != 0 {
-					return nil, s.reject("PLATFORM_COMPONENT", "verified组件与平台状态或证据冲突")
+			if kernel.Text(item["status"]) == "verified" {
+				if kernel.Text(entry["status"]) != "verified" || len(kernel.SemList(item["verified_architectures"])) == 0 || len(kernel.SemList(item["artifacts"])) == 0 || len(kernel.SemList(item["evidence"])) == 0 || len(kernel.SemList(item["blockers"])) != 0 {
+					return nil, s.Reject("PLATFORM_COMPONENT", "verified组件与平台状态或证据冲突")
 				}
-				for _, v := range semList(item["evidence"]) {
-					ev := semMap(v)
-					if !contractPath(text(ev["ref"])) || !contractSHA(ev["digest"]) || !semHas(item["verified_architectures"], text(ev["architecture_family"])) {
-						return nil, s.reject("PLATFORM_COMPONENT", "组件证据不可移植或架构不匹配")
+				for _, v := range kernel.SemList(item["evidence"]) {
+					ev := kernel.SemMap(v)
+					if !kernel.ContractPath(kernel.Text(ev["ref"])) || !contractSHA(ev["digest"]) || !kernel.SemHas(item["verified_architectures"], kernel.Text(ev["architecture_family"])) {
+						return nil, s.Reject("PLATFORM_COMPONENT", "组件证据不可移植或架构不匹配")
 					}
 				}
-			} else if len(semList(item["blockers"])) == 0 {
-				return nil, s.reject("PLATFORM_COMPONENT", "未验证能力必须记录阻断")
+			} else if len(kernel.SemList(item["blockers"])) == 0 {
+				return nil, s.Reject("PLATFORM_COMPONENT", "未验证能力必须记录阻断")
 			}
 		}
 		if line == "boot3-java17" {
-			if text(profile["spring_cloud_version"]) != "2025.0.3" || text(profile["spring_cloud_alibaba_version"]) != "2025.0.0.0" || text(profile["validation_namespace"]) != "jakarta" || contractN(profile["jackson_major"]) != 2 || text(profile["auto_configuration_imports_path"]) != "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports" || entry["platform_artifact_bindings"] == nil || !apIsArray(entry["external_snapshot_bindings"]) || !apIsArray(entry["external_artifact_bindings"]) || len(semList(entry["external_snapshot_bindings"])) != 0 {
-				return nil, s.reject("PLATFORM_COMPONENT", "Boot3固定平台政策变化")
+			if kernel.Text(profile["spring_cloud_version"]) != "2025.0.3" || kernel.Text(profile["spring_cloud_alibaba_version"]) != "2025.0.0.0" || kernel.Text(profile["validation_namespace"]) != "jakarta" || kernel.ContractN(profile["jackson_major"]) != 2 || kernel.Text(profile["auto_configuration_imports_path"]) != "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports" || entry["platform_artifact_bindings"] == nil || !kernel.ApIsArray(entry["external_snapshot_bindings"]) || !kernel.ApIsArray(entry["external_artifact_bindings"]) || len(kernel.SemList(entry["external_snapshot_bindings"])) != 0 {
+				return nil, s.Reject("PLATFORM_COMPONENT", "Boot3固定平台政策变化")
 			}
-			expected := map[string]string{"contract.request-validation": "org.springframework.boot:spring-boot-starter-validation:" + text(profile["spring_boot_version"]), "component.cache": "com.yss.cloud:yss-component-cache-starter:3.1.0-SNAPSHOT", "component.distributed-id": "com.yss.cloud:yss-component-distributed-id:3.1.0-SNAPSHOT", "component.excel-import-export": "com.yss.cloud:yss-component-excel-mvc:3.0.0-SNAPSHOT"}
+			expected := map[string]string{"contract.request-validation": "org.springframework.boot:spring-boot-starter-validation:" + kernel.Text(profile["spring_boot_version"]), "component.cache": "com.yss.cloud:yss-component-cache-starter:3.1.0-SNAPSHOT", "component.distributed-id": "com.yss.cloud:yss-component-distributed-id:3.1.0-SNAPSHOT", "component.excel-import-export": "com.yss.cloud:yss-component-excel-mvc:3.0.0-SNAPSHOT"}
 			for id, coordinate := range expected {
-				a := semList(semMap(components[id])["artifacts"])
+				if id != "contract.request-validation" && kernel.Text(kernel.SemMap(entry["bom"])["version"]) != "3.0.0-SNAPSHOT" {
+					continue
+				}
+				a := kernel.SemList(kernel.SemMap(components[id])["artifacts"])
 				if len(a) != 1 {
-					return nil, s.reject("PLATFORM_COMPONENT", "Boot3组件坐标缺失")
+					return nil, s.Reject("PLATFORM_COMPONENT", "Boot3组件坐标缺失")
 				}
-				b := semMap(a[0])
-				if text(b["group_id"])+":"+text(b["artifact_id"])+":"+text(b["declared_version"]) != coordinate {
-					return nil, s.reject("PLATFORM_COMPONENT", "Boot3组件固定坐标变化")
+				b := kernel.SemMap(a[0])
+				if kernel.Text(b["group_id"])+":"+kernel.Text(b["artifact_id"])+":"+kernel.Text(b["declared_version"]) != coordinate {
+					return nil, s.Reject("PLATFORM_COMPONENT", "Boot3组件固定坐标变化")
 				}
+			}
+			if kernel.Text(kernel.SemMap(entry["bom"])["version"]) != "3.0.0-SNAPSHOT" {
+				continue
 			}
 			for _, raw := range components {
-				item := semMap(raw)
-				if text(item["status"]) != "blocked" || len(semList(item["verified_architectures"])) != 0 || len(semList(item["evidence"])) != 0 {
-					return nil, s.reject("PLATFORM_COMPONENT", "Boot3未发布组件必须保持blocked")
+				item := kernel.SemMap(raw)
+				if kernel.Text(item["status"]) != "blocked" || len(kernel.SemList(item["verified_architectures"])) != 0 || len(kernel.SemList(item["evidence"])) != 0 {
+					return nil, s.Reject("PLATFORM_COMPONENT", "Boot3未发布组件必须保持blocked")
 				}
-				for _, v := range semList(item["artifacts"]) {
-					a := semMap(v)
-					if text(a["artifact_id"]) == "yss-component-excel-starter" {
-						return nil, s.reject("PLATFORM_COMPONENT", "移除的Excel starter重新出现")
+				for _, v := range kernel.SemList(item["artifacts"]) {
+					a := kernel.SemMap(v)
+					if kernel.Text(a["artifact_id"]) == "yss-component-excel-starter" {
+						return nil, s.Reject("PLATFORM_COMPONENT", "移除的Excel starter重新出现")
 					}
 					for _, key := range []string{"resolved_version", "pom_sha256", "jar_sha256", "source_tree"} {
 						value, exists := a[key]
 						if !exists || value != nil {
-							return nil, s.reject("PLATFORM_COMPONENT", "Boot3未发布组件不得解析")
+							return nil, s.Reject("PLATFORM_COMPONENT", "Boot3未发布组件不得解析")
 						}
 					}
 				}
 			}
-			external := semList(entry["external_artifact_bindings"])
+			external := kernel.SemList(entry["external_artifact_bindings"])
 			if len(external) != 1 {
-				return nil, s.reject("PLATFORM_COMPONENT", "Boot3 Fesod外部发布绑定缺失")
+				return nil, s.Reject("PLATFORM_COMPONENT", "Boot3 Fesod外部发布绑定缺失")
 			}
-			a := semMap(external[0])
-			if text(a["group_id"])+":"+text(a["artifact_id"])+":"+text(a["declared_version"]) != "org.apache.fesod:fesod-sheet:2.0.2-incubating" || text(a["status"]) != "resolved" {
-				return nil, s.reject("PLATFORM_COMPONENT", "Boot3 Fesod固定发布坐标变化")
+			a := kernel.SemMap(external[0])
+			if kernel.Text(a["group_id"])+":"+kernel.Text(a["artifact_id"])+":"+kernel.Text(a["declared_version"]) != "org.apache.fesod:fesod-sheet:2.0.2-incubating" || kernel.Text(a["status"]) != "resolved" {
+				return nil, s.Reject("PLATFORM_COMPONENT", "Boot3 Fesod固定发布坐标变化")
 			}
 		}
 	}
@@ -535,16 +570,19 @@ func contractPlatformCatalog(s *semanticSession) (map[string]any, error) {
 func init() {
 	registerSemanticValidator("slice", verifySliceSemantic)
 	registerSemanticValidator("scaffold", verifyScaffoldSemantic)
-	registerSemanticValidator("business-checkpoint", func(s *semanticSession, ref string, opts map[string]string) error {
-		cp, e := s.doc(ref)
+	registerSemanticValidator("business-checkpoint", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+		cp, e := s.Doc(ref)
 		if e != nil {
 			return e
 		}
 		return contractBusinessCheckpoint(s, cp, opts["required"] == "true")
 	})
-	registerSemanticValidator("frontend-delivery", verifyFrontendDeliverySemantic)
-	registerSemanticValidator("technical-completion", func(s *semanticSession, ref string, opts map[string]string) error {
-		doc, e := s.doc(ref)
+	registerSemanticValidator("openapi-validation", verifyOpenAPIValidationSemantic)
+	registerSemanticValidator("scaffold-decisions", verifyScaffoldDecisionsSemantic)
+	registerSemanticValidator("slice-preflight", verifySlicePreflightSemantic)
+	registerSemanticValidator("business-tickets", verifyBusinessTicketsSemantic)
+	registerSemanticValidator("technical-completion", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+		doc, e := s.Doc(ref)
 		if e != nil {
 			return e
 		}
@@ -554,237 +592,102 @@ func init() {
 	registerSemanticValidator("technical-transition", contractTechnicalTransition)
 	registerSemanticValidator("service-transition", contractServiceTransition)
 }
-func contractTechnicalTransition(s *semanticSession, ref string, opts map[string]string) error {
-	state, e := s.transitionState(ref, opts["task-ref"])
+
+func contractTechnicalTransition(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	state, e := s.TransitionState(ref, opts["task-ref"])
 	if e != nil {
 		return e
 	}
-	if result, ok := object(state["technical_analysis_result"]); ok {
-		resultRef := text(state["technical_analysis_result_ref"])
-		persisted, e := s.doc(resultRef)
+	if result, ok := kernel.Object(state["technical_analysis_result"]); ok {
+		resultRef := kernel.Text(state["technical_analysis_result_ref"])
+		persisted, e := s.Doc(resultRef)
 		if e != nil {
 			return e
 		}
 		for _, d := range []map[string]any{result, persisted} {
-			if text(d["result_schema"]) != "workflow-execution-result-v1" || text(d["work_unit"]) != "work-unit.technical-analysis" || text(d["result"]) != "completed" || d["current_version"] != true {
-				return s.reject("TECHNICAL_TRANSITION", "缺少当前已完成技术分析执行结果")
+			if kernel.Text(d["result_schema"]) != "workflow-execution-result-v1" || kernel.Text(d["work_unit"]) != "work-unit.technical-analysis" || kernel.Text(d["result"]) != "completed" || d["current_version"] != true {
+				return s.Reject("TECHNICAL_TRANSITION", "缺少当前已完成技术分析执行结果")
 			}
 		}
-		if !semHas(result["evidence_refs"], resultRef) {
-			return s.reject("TECHNICAL_TRANSITION", "技术分析证据没有持久化结果")
+		if !kernel.SemHas(result["evidence_refs"], resultRef) {
+			return s.Reject("TECHNICAL_TRANSITION", "技术分析证据没有持久化结果")
 		}
 		if e = contractEvidence(s, result["evidence_refs"]); e != nil {
 			return e
 		}
-		reconciliation := semMap(result["context_reconciliation"])
-		if text(reconciliation["status"]) != "reconciled" || text(reconciliation["ref"]) == "" {
-			return s.reject("TECHNICAL_TRANSITION", "技术分析Context未对账")
+		reconciliation := kernel.SemMap(result["context_reconciliation"])
+		if kernel.Text(reconciliation["status"]) != "reconciled" || kernel.Text(reconciliation["ref"]) == "" {
+			return s.Reject("TECHNICAL_TRANSITION", "技术分析Context未对账")
 		}
 		if e = contractTransitionContext(s, reconciliation, opts); e != nil {
 			return e
 		}
-		api := semMap(result["api_contract_decision"])
-		if !contractSame(api, semMap(persisted["api_contract_decision"])) || !semHas(result["evidence_refs"], text(api["ref"])) {
-			return s.reject("TECHNICAL_TRANSITION", "技术分析当前API决定绑定不一致")
+		api := kernel.SemMap(result["api_contract_decision"])
+		if !contractSame(api, kernel.SemMap(persisted["api_contract_decision"])) || !kernel.SemHas(result["evidence_refs"], kernel.Text(api["ref"])) {
+			return s.Reject("TECHNICAL_TRANSITION", "技术分析当前API决定绑定不一致")
 		}
 		_, e = contractAPIDecision(s, api)
 		return e
 	}
-	reconciliation := semMap(state["context_reconciliation"])
-	if text(reconciliation["status"]) != "reconciled" || text(reconciliation["ref"]) == "" {
-		return s.reject("TECHNICAL_TRANSITION", "后端技术Context未对账")
+	reconciliation := kernel.SemMap(state["context_reconciliation"])
+	if kernel.Text(reconciliation["status"]) != "reconciled" || kernel.Text(reconciliation["ref"]) == "" {
+		return s.Reject("TECHNICAL_TRANSITION", "后端技术Context未对账")
 	}
 	if e = contractTransitionContext(s, reconciliation, opts); e != nil {
 		return e
 	}
-	handoff, spec := semMap(state["strategic_handoff_consumption"]), semMap(state["approved_spec"])
-	if text(handoff["result"]) == "inputs-verified" && handoff["ready_for_agent"] == false && text(handoff["ref"]) != "" {
-		consumed, e := s.doc(text(handoff["ref"]))
+	handoff, spec := kernel.SemMap(state["strategic_handoff_consumption"]), kernel.SemMap(state["approved_spec"])
+	if kernel.Text(handoff["result"]) == "inputs-verified" && handoff["ready_for_agent"] == false && kernel.Text(handoff["ref"]) != "" {
+		consumed, e := s.Doc(kernel.Text(handoff["ref"]))
 		if e != nil {
 			return e
 		}
 		if e = contractHandoffConsumption(s, consumed, map[string]string{"consumer": "tactical", "inputs-only": "true"}); e != nil {
 			return e
 		}
-	} else if text(spec["status"]) == "approved" && spec["current_version"] == true && text(spec["ref"]) != "" {
-		if _, e = s.bytes(text(spec["ref"])); e != nil {
+	} else if kernel.Text(spec["status"]) == "approved" && spec["current_version"] == true && kernel.Text(spec["ref"]) != "" {
+		if _, e = s.Bytes(kernel.Text(spec["ref"])); e != nil {
 			return e
 		}
 	} else {
-		return s.reject("TECHNICAL_TRANSITION", "缺少当前批准Spec或战略接收")
+		return s.Reject("TECHNICAL_TRANSITION", "缺少当前批准Spec或战略接收")
 	}
 	prereqs := map[string]any{"technical_design": state["technical_design"], "data_architecture_decision": state["data_architecture_decision"], "api_contract_decision": state["api_contract_decision"], "engineering_contract_approval_ref": state["engineering_contract_approval_ref"]}
 	for _, key := range []string{"technical_design", "data_architecture_decision", "api_contract_decision"} {
-		binding := semMap(prereqs[key])
-		if text(binding["status"]) != "approved" || binding["current_version"] != true || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(text(binding["version"])) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(text(binding["digest"])) {
-			return s.reject("TECHNICAL_TRANSITION", "缺少当前正式批准技术绑定: "+key)
+		binding := kernel.SemMap(prereqs[key])
+		if kernel.Text(binding["status"]) != "approved" || binding["current_version"] != true || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(binding["version"])) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(kernel.Text(binding["digest"])) {
+			return s.Reject("TECHNICAL_TRANSITION", "缺少当前正式批准技术绑定: "+key)
 		}
 	}
 	transitionOpts := semanticOptions(opts)
-	transitionOpts["project-id"] = first(text(state["project_id"]), "backend")
+	transitionOpts["project-id"] = kernel.First(kernel.Text(state["project_id"]), "backend")
 	return contractBackendPrerequisites(s, prereqs, nil, transitionOpts)
 }
-func contractTransitionContext(s *semanticSession, reconciliation map[string]any, opts map[string]string) error {
-	if text(reconciliation["status"]) != "reconciled" {
-		return s.reject("CONTEXT", "流转 Context 未对账")
+
+func contractTransitionContext(s *kernel.SemanticSession, reconciliation map[string]any, opts map[string]string) error {
+	if kernel.Text(reconciliation["status"]) != "reconciled" {
+		return s.Reject("CONTEXT", "流转 Context 未对账")
 	}
-	if text(reconciliation["ref"]) == "CONTEXT.md" {
-		current, e := s.contextContract()
+	if kernel.Text(reconciliation["ref"]) == "CONTEXT.md" {
+		current, e := s.ContextContract()
 		if e != nil {
 			return e
 		}
-		if snapshot, ok := object(reconciliation["snapshot"]); ok {
-			_, e = s.contextSnapshot(snapshot)
+		if snapshot, ok := kernel.Object(reconciliation["snapshot"]); ok {
+			_, e = s.ContextSnapshot(snapshot)
 			return e
 		}
-		if digest := text(reconciliation["document_digest"]); digest != "" && digest != text(current["document_digest"]) {
-			return s.reject("CONTEXT_DRIFT", "流转 Context 摘要变化")
+		if digest := kernel.Text(reconciliation["document_digest"]); digest != "" && digest != kernel.Text(current["document_digest"]) {
+			return s.Reject("CONTEXT_DRIFT", "流转 Context 摘要变化")
 		}
 		return nil
 	}
-	return s.verify("context-reconciliation", text(reconciliation["ref"]), opts)
+	return s.Verify("context-reconciliation", kernel.Text(reconciliation["ref"]), opts)
 }
-func contractServiceTransition(s *semanticSession, ref string, opts map[string]string) error {
-	state, e := s.transitionState(ref, opts["task-ref"])
-	if e != nil {
-		return e
-	}
-	request := semMap(state["service_project_initialization"])
-	if e = contractRequired(s, request, "project_id", "contract_ref", "contract_digest", "project_root"); e != nil {
-		return e
-	}
-	contractRef, e := contractVerificationRef(s, text(request["contract_ref"]))
-	if e != nil {
-		return e
-	}
-	contract, e := contractBoundDoc(s, map[string]any{"ref": contractRef, "digest": request["contract_digest"]})
-	if e != nil {
-		return e
-	}
-	if e = s.verify("scaffold", contractRef, opts); e != nil {
-		return e
-	}
-	projectRoot := text(request["project_root"])
-	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot || filepath.Dir(projectRoot) != text(contract["target_output_dir"]) {
-		return s.reject("SERVICE_INITIALIZATION", "服务目标必须是批准输出目录内的规范绝对工程根")
-	}
-	if text(contract["architecture_profile"]) != "mvc-data-analysis-v1" || text(contract["scaffold_kind"]) != "backend-mvc-data-analysis" || text(contract["generator_skill"]) != "yss-layered-mvc-scaffold-generator" || contract["init_git"] != true || contract["project_name"] != request["project_id"] || filepath.Join(text(contract["target_output_dir"]), text(contract["project_name"])) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "服务初始化合同身份或目标不一致")
-	}
-	handoffRef := path.Join(path.Dir(contractRef), text(contract["context_handoff_ref"]))
-	if !contractWithin(handoffRef, path.Dir(contractRef)) || handoffRef == path.Dir(contractRef) || filepath.IsAbs(text(contract["context_handoff_ref"])) {
-		return s.reject("SERVICE_INITIALIZATION", "CONTEXT交接必须位于合同目录内部")
-	}
-	handoff, e := s.bytes(handoffRef)
-	if e != nil {
-		return e
-	}
-	digest := "sha256:" + safefs.Digest(handoff)
-	if text(contract["context_handoff_digest"]) != digest || text(request["context_handoff_digest"]) != digest {
-		return s.reject("SERVICE_INITIALIZATION", "CONTEXT交接摘要变化")
-	}
-	parent := filepath.Dir(projectRoot)
-	if opts["completed"] != "true" {
-		return s.observedExternalAbsence(projectRoot, contractRef)
-	}
-	if e = s.registerExternalRoot(parent, contractRef); e != nil {
-		return e
-	}
-	child := newSemanticSession(s.ctx, parent, s.args)
-	child.v = s.externalViews[parent]
-	s.children = append(s.children, child)
-	name := filepath.Base(projectRoot)
-	// Read the contract-owned files below individually. A recursive inventory
-	// of the project would wrongly treat its independently required .git tree
-	// as a governance asset and violate the safe reference policy.
-	manifestRef, e := contractVerificationRef(s, text(request["manifest_ref"]))
-	if e != nil {
-		return e
-	}
-	verificationRef, e := contractVerificationRef(s, text(request["verification_ref"]))
-	if e != nil {
-		return e
-	}
-	resultRef, e := contractVerificationRef(s, text(request["result_ref"]))
-	if e != nil {
-		return e
-	}
-	manifest, e := contractVerificationDoc(s, manifestRef)
-	if e != nil {
-		return e
-	}
-	verification, e := contractVerificationDoc(s, verificationRef)
-	if e != nil {
-		return e
-	}
-	result, e := contractVerificationDoc(s, resultRef)
-	if e != nil {
-		return e
-	}
-	if text(result["result_schema"]) != "workflow-execution-result-v1" || text(result["work_unit"]) != "work-unit.service-project-initialization" || text(result["result"]) != "completed" || !semHas(result["evidence_refs"], text(request["manifest_ref"])) || !semHas(result["evidence_refs"], text(request["verification_ref"])) {
-		return s.reject("SERVICE_INITIALIZATION", "缺少持久化已完成初始化执行结果")
-	}
-	if contractN(manifest["schema_version"]) != 4 || text(manifest["kind"]) != "service-project-initialization" || text(manifest["architecture_profile"]) != "mvc-data-analysis-v1" || manifest["project_name"] != request["project_id"] || manifest["contract_digest"] != request["contract_digest"] || text(manifest["completion_level"]) != "empty-scaffold-verified" {
-		return s.reject("SERVICE_INITIALIZATION", "服务Manifest不是当前已验证空骨架")
-	}
-	if text(verification["status"]) != "passed" || text(verification["completion_level"]) != "empty-scaffold-verified" || text(verification["project_root"]) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "服务验证身份或完成度错误")
-	}
-	for _, phase := range []string{"validate", "test", "package"} {
-		found := false
-		for _, v := range semList(verification["commands"]) {
-			row := semMap(v)
-			if text(row["phase"]) != phase {
-				continue
-			}
-			exit, ok := integer(row["exit_code"])
-			if !ok || exit != 0 || !strings.HasPrefix(text(row["command"]), "./mvnw "+phase) {
-				return s.reject("SERVICE_INITIALIZATION", "Maven实际执行结果未通过")
-			}
-			for _, key := range []string{"stdout_ref", "stderr_ref"} {
-				ref, e := contractVerificationRef(s, text(row[key]))
-				if e != nil {
-					return e
-				}
-				if _, e = contractVerificationBytes(s, ref); e != nil {
-					return e
-				}
-			}
-			found = true
-		}
-		if !found {
-			return s.reject("SERVICE_INITIALIZATION", "缺少Maven阶段: "+phase)
-		}
-	}
-	context, e := child.bytes(path.Join(name, "CONTEXT.md"))
-	if e != nil {
-		return e
-	}
-	if string(context) != string(handoff) {
-		return s.reject("SERVICE_INITIALIZATION", "子项目CONTEXT与批准交接不一致")
-	}
-	if e = s.registerExternalRoot(projectRoot, contractRef); e != nil {
-		return e
-	}
-	top, e := s.git(projectRoot, "rev-parse", "--show-toplevel")
-	if e != nil || filepath.Clean(strings.TrimSpace(string(top))) != projectRoot {
-		return s.reject("SERVICE_INITIALIZATION", "子工程Git身份缺失")
-	}
-	if _, e = child.bytes("skillUtils/skills-lock.json"); e != nil {
-		return e
-	}
-	initialization, e := child.doc(path.Join(name, ".template-spec/process/service-initialization.json"))
-	if e != nil {
-		return e
-	}
-	if initialization["contract_id"] != contract["contract_id"] || text(initialization["context_handoff_digest"]) != digest {
-		return s.reject("SERVICE_INITIALIZATION", "子工程初始化身份变化")
-	}
-	return nil
+func contractServiceTransition(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	return s.Reject("SCAFFOLD_RETIRED", "mvc-data-analysis-v1 仅允许历史只读审计；使用通用 MVC 后按需 setup-yss-harness")
 }
 
-// These helpers preserve the old JS digest contract: UTF-16 key ordering,
-// JSON.stringify scalars, unescaped Unicode, and no trailing newline.
 func contractJSON(v any) (string, error) {
 	var b strings.Builder
 	var write func(any) error
@@ -795,7 +698,7 @@ func contractJSON(v any) (string, error) {
 		case bool:
 			b.WriteString(strconv.FormatBool(x))
 		case string:
-			writeContextJSONString(&b, x)
+			kernel.WriteContextJSONString(&b, x)
 		case json.Number:
 			f, e := strconv.ParseFloat(string(x), 64)
 			if e != nil || math.IsNaN(f) || math.IsInf(f, 0) {
@@ -833,14 +736,14 @@ func contractJSON(v any) (string, error) {
 				if ia {
 					return a < z
 				}
-				return utf16Less(keys[i], keys[j])
+				return kernel.Utf16Less(keys[i], keys[j])
 			})
 			b.WriteByte('{')
 			for i, k := range keys {
 				if i > 0 {
 					b.WriteByte(',')
 				}
-				writeContextJSONString(&b, k)
+				kernel.WriteContextJSONString(&b, k)
 				b.WriteByte(':')
 				if e := write(x[k]); e != nil {
 					return e
@@ -880,6 +783,7 @@ func contractJSON(v any) (string, error) {
 	err := write(v)
 	return b.String(), err
 }
+
 func contractDigest(v any) string {
 	b, e := contractJSON(v)
 	if e != nil {
@@ -887,11 +791,13 @@ func contractDigest(v any) string {
 	}
 	return "sha256:" + safefs.Digest([]byte(b))
 }
+
 func contractSame(a, b any) bool {
 	x, e := contractJSON(a)
 	y, f := contractJSON(b)
 	return e == nil && f == nil && x == y
 }
+
 func contractCopy(v map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, x := range v {
@@ -899,6 +805,7 @@ func contractCopy(v map[string]any) map[string]any {
 	}
 	return out
 }
+
 func contractWithout(v map[string]any, keys ...string) map[string]any {
 	out := contractCopy(v)
 	for _, k := range keys {
@@ -906,23 +813,25 @@ func contractWithout(v map[string]any, keys ...string) map[string]any {
 	}
 	return out
 }
-func contractN(v any) int { n, _ := integer(v); return int(n) }
+
 func contractVersion(v any) string {
 	if x, ok := v.(string); ok {
 		return x
 	}
 	return fmt.Sprint(v)
 }
-func contractRequired(s *semanticSession, m map[string]any, keys ...string) error {
+
+func contractRequired(s *kernel.SemanticSession, m map[string]any, keys ...string) error {
 	for _, k := range keys {
 		if v, ok := m[k]; !ok || v == nil || v == "" {
-			return s.reject("CONTRACT_INVALID", "缺少 "+k)
+			return s.Reject("CONTRACT_INVALID", "缺少 "+k)
 		}
 	}
 	return nil
 }
+
 func contractUnique(v any, nonempty bool) bool {
-	a := semStrings(v)
+	a := kernel.SemStrings(v)
 	if _, ok := v.([]any); !ok {
 		if _, ok = v.([]string); !ok {
 			return false
@@ -940,6 +849,7 @@ func contractUnique(v any, nonempty bool) bool {
 	}
 	return true
 }
+
 func contractWithin(candidate, parent string) bool {
 	if candidate == "" || parent == "" {
 		return false
@@ -947,29 +857,21 @@ func contractWithin(candidate, parent string) bool {
 	r, e := filepath.Rel(filepath.Clean(parent), filepath.Clean(candidate))
 	return e == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r)
 }
-func contractPath(v string) bool {
-	if v == "" || filepath.IsAbs(v) || strings.ContainsAny(v, "\\\x00\n\r\t*?{}[]") || strings.Contains(v, ":") {
-		return false
-	}
-	for _, p := range strings.Split(v, "/") {
-		if p == ".." || p == "" || strings.TrimRight(p, " .") != p {
-			return false
-		}
-	}
-	return true
-}
+
 func contractHarnessProjectRoot(value string) bool {
 	clean := strings.TrimSuffix(value, "/")
-	if !contractPath(clean) || semHas(strings.Split(clean, "/"), ".") || regexp.MustCompile(`[\x00-\x1f]`).MatchString(clean) {
+	if !kernel.ContractPath(clean) || kernel.SemHas(strings.Split(clean, "/"), ".") || regexp.MustCompile(`[\x00-\x1f]`).MatchString(clean) {
 		return false
 	}
 	parts := strings.Split(clean, "/")
-	if len(parts) >= 2 && parts[0] == "apps" && semHas([]string{"backend", "frontend"}, parts[1]) {
+	if len(parts) >= 2 && parts[0] == "apps" && kernel.SemHas([]string{"backend", "frontend"}, parts[1]) {
 		return len(parts) >= 3 && regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(parts[2])
 	}
 	return true
 }
-func contractDate(v any) bool { _, e := time.Parse(time.RFC3339Nano, text(v)); return e == nil }
+
+func contractDate(v any) bool { _, e := time.Parse(time.RFC3339Nano, kernel.Text(v)); return e == nil }
+
 func contractUnion(groups ...[]string) []string {
 	seen := map[string]bool{}
 	out := []string{}
@@ -983,14 +885,15 @@ func contractUnion(groups ...[]string) []string {
 	}
 	return out
 }
-func contractBinding(s *semanticSession, v any) (map[string]any, error) {
-	m, ok := object(v)
+
+func contractBinding(s *kernel.SemanticSession, v any) (map[string]any, error) {
+	m, ok := kernel.Object(v)
 	if !ok {
-		return nil, s.reject("BINDING_INVALID", "依据须为 ref/digest 对象")
+		return nil, s.Reject("BINDING_INVALID", "依据须为 ref/digest 对象")
 	}
-	ref, d := text(m["ref"]), text(m["digest"])
-	if ref == "" || !strings.HasPrefix(d, "sha256:") || !isSHA256(strings.TrimPrefix(d, "sha256:")) {
-		return nil, s.reject("BINDING_INVALID", "依据引用或摘要非法")
+	ref, d := kernel.Text(m["ref"]), kernel.Text(m["digest"])
+	if ref == "" || !strings.HasPrefix(d, "sha256:") || !kernel.IsSHA256(strings.TrimPrefix(d, "sha256:")) {
+		return nil, s.Reject("BINDING_INVALID", "依据引用或摘要非法")
 	}
 	observedRef := ref
 	if filepath.IsAbs(ref) {
@@ -1000,34 +903,36 @@ func contractBinding(s *semanticSession, v any) (map[string]any, error) {
 			return nil, e
 		}
 	}
-	b, e := s.bytes(observedRef)
+	b, e := s.Bytes(observedRef)
 	if e != nil {
 		return nil, e
 	}
 	if "sha256:"+safefs.Digest(b) != d {
-		return nil, s.reject("CONTRACT_STALE", "依据原始字节变化: "+ref)
+		return nil, s.Reject("CONTRACT_STALE", "依据原始字节变化: "+ref)
 	}
 	return m, nil
 }
-func contractBoundDoc(s *semanticSession, v any) (map[string]any, error) {
+
+func contractBoundDoc(s *kernel.SemanticSession, v any) (map[string]any, error) {
 	m, e := contractBinding(s, v)
 	if e != nil {
 		return nil, e
 	}
-	ref := text(m["ref"])
+	ref := kernel.Text(m["ref"])
 	if filepath.IsAbs(ref) {
 		ref, e = contractVerificationRef(s, ref)
 		if e != nil {
 			return nil, e
 		}
 	}
-	return s.doc(ref)
+	return s.Doc(ref)
 }
-func contractEvidence(s *semanticSession, refs any) error {
+
+func contractEvidence(s *kernel.SemanticSession, refs any) error {
 	if !contractUnique(refs, true) {
-		return s.reject("EVIDENCE_REQUIRED", "证据引用须非空、唯一")
+		return s.Reject("EVIDENCE_REQUIRED", "证据引用须非空、唯一")
 	}
-	for _, ref := range semStrings(refs) {
+	for _, ref := range kernel.SemStrings(refs) {
 		if filepath.IsAbs(ref) {
 			var e error
 			ref, e = contractVerificationRef(s, ref)
@@ -1035,26 +940,27 @@ func contractEvidence(s *semanticSession, refs any) error {
 				return e
 			}
 		}
-		if _, e := s.bytes(ref); e != nil {
+		if _, e := s.Bytes(ref); e != nil {
 			return fmt.Errorf("evidence %s: %w", ref, e)
 		}
 	}
 	return nil
 }
-func contractBasis(s *semanticSession, raw map[string]any) (map[string]map[string]any, error) {
-	basis := semMap(raw["basis"])
+
+func contractBasis(s *kernel.SemanticSession, raw map[string]any) (map[string]map[string]any, error) {
+	basis := kernel.SemMap(raw["basis"])
 	result := map[string]map[string]any{}
 	var resolve func(string, map[string]bool) (map[string]any, error)
 	resolve = func(key string, stack map[string]bool) (map[string]any, error) {
 		if stack[key] {
-			return nil, s.reject("REFERENCE_CYCLE", "依据别名循环: "+key)
+			return nil, s.Reject("REFERENCE_CYCLE", "依据别名循环: "+key)
 		}
 		if m := result[key]; m != nil {
 			return m, nil
 		}
 		v, ok := basis[key]
 		if !ok {
-			return nil, s.reject("CONTRACT_INVALID", "缺少依据: "+key)
+			return nil, s.Reject("CONTRACT_INVALID", "缺少依据: "+key)
 		}
 		stack[key] = true
 		defer delete(stack, key)
@@ -1080,10 +986,11 @@ func contractBasis(s *semanticSession, raw map[string]any) (map[string]map[strin
 	}
 	return result, nil
 }
-func contractNeedBasis(s *semanticSession, b map[string]map[string]any, keys ...string) error {
+
+func contractNeedBasis(s *kernel.SemanticSession, b map[string]map[string]any, keys ...string) error {
 	for _, k := range keys {
 		if b[k] == nil {
-			return s.reject("CONTRACT_INVALID", "缺少依据: "+k)
+			return s.Reject("CONTRACT_INVALID", "缺少依据: "+k)
 		}
 	}
 	return nil
@@ -1094,12 +1001,12 @@ type contractPlanEntry struct {
 	Fields   map[string]string
 }
 
-func contractPlan(s *semanticSession, ref string) ([]contractPlanEntry, bool, error) {
-	raw, e := s.bytes(ref)
+func contractPlan(s *kernel.SemanticSession, ref string) ([]contractPlanEntry, bool, error) {
+	raw, e := s.Bytes(ref)
 	if e != nil {
 		return nil, false, e
 	}
-	fm, body, e := frontmatter(raw)
+	fm, body, e := kernel.Frontmatter(raw)
 	if e != nil {
 		return nil, false, e
 	}
@@ -1107,7 +1014,7 @@ func contractPlan(s *semanticSession, ref string) ([]contractPlanEntry, bool, er
 	if e != nil {
 		return nil, false, e
 	}
-	supported := text(semMap(v)["content_profile"]) == "plan-spec-v1"
+	supported := kernel.Text(kernel.SemMap(v)["content_profile"]) == "plan-spec-v1"
 	source := []byte(body)
 	tree := goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser().Parse(gmtext.NewReader(source))
 	kind, depth, exampleDepth := "", 0, 0
@@ -1171,8 +1078,9 @@ func contractPlan(s *semanticSession, ref string) ([]contractPlanEntry, bool, er
 	}
 	return entries, supported, nil
 }
-func contractLocate(s *semanticSession, ref, locator string) error {
-	b, e := s.bytes(ref)
+
+func contractLocate(s *kernel.SemanticSession, ref, locator string) error {
+	b, e := s.Bytes(ref)
 	if e != nil {
 		return e
 	}
@@ -1183,7 +1091,7 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 		}
 		pointer := strings.TrimPrefix(locator, "pointer:")
 		if pointer != "" && !strings.HasPrefix(pointer, "/") {
-			return s.reject("LOCATOR_INVALID", locator)
+			return s.Reject("LOCATOR_INVALID", locator)
 		}
 		for _, k := range strings.Split(strings.TrimPrefix(pointer, "/"), "/") {
 			k = strings.ReplaceAll(strings.ReplaceAll(k, "~1", "/"), "~0", "~")
@@ -1192,16 +1100,16 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 				var ok bool
 				v, ok = x[k]
 				if !ok {
-					return s.reject("LOCATOR_INVALID", locator)
+					return s.Reject("LOCATOR_INVALID", locator)
 				}
 			case []any:
 				i, err := strconv.Atoi(k)
 				if err != nil || i < 0 || i >= len(x) {
-					return s.reject("LOCATOR_INVALID", locator)
+					return s.Reject("LOCATOR_INVALID", locator)
 				}
 				v = x[i]
 			default:
-				return s.reject("LOCATOR_INVALID", locator)
+				return s.Reject("LOCATOR_INVALID", locator)
 			}
 		}
 		return nil
@@ -1210,7 +1118,7 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 		a, _ := strconv.Atoi(m[1])
 		z, _ := strconv.Atoi(m[2])
 		if a < 1 || z < a || z > len(strings.Split(string(b), "\n")) {
-			return s.reject("LOCATOR_INVALID", locator)
+			return s.Reject("LOCATOR_INVALID", locator)
 		}
 		return nil
 	}
@@ -1227,7 +1135,7 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 				}
 			}
 			if count != 1 {
-				return s.reject("LOCATOR_INVALID", "验收 ID 缺失或不唯一: "+locator)
+				return s.Reject("LOCATOR_INVALID", "验收 ID 缺失或不唯一: "+locator)
 			}
 			return nil
 		}
@@ -1235,7 +1143,7 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 	body := string(b)
 	if strings.HasPrefix(body, "---\n") || strings.HasPrefix(body, "---\r\n") {
 		var rawBody []byte
-		_, rawBody, e = frontmatter(b)
+		_, rawBody, e = kernel.Frontmatter(b)
 		body = string(rawBody)
 		if e != nil {
 			return e
@@ -1248,7 +1156,7 @@ func contractLocate(s *semanticSession, ref, locator string) error {
 		}
 	}
 	if locator == "" || count != 1 {
-		return s.reject("LOCATOR_INVALID", "定位缺失或不唯一: "+locator)
+		return s.Reject("LOCATOR_INVALID", "定位缺失或不唯一: "+locator)
 	}
 	return nil
 }
@@ -1260,18 +1168,18 @@ type nativeSlice struct {
 	Repositories    map[string]map[string]any
 }
 
-func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
-	doc, e := s.doc(ref)
+func loadNativeSlice(s *kernel.SemanticSession, ref string) (*nativeSlice, error) {
+	doc, e := s.Doc(ref)
 	if e != nil {
 		return nil, e
 	}
 	raw := doc
-	if m, ok := object(doc["slice_contract"]); ok {
+	if m, ok := kernel.Object(doc["slice_contract"]); ok {
 		raw = m
 	}
-	n := contractN(raw["schema_version"])
+	n := kernel.ContractN(raw["schema_version"])
 	if n != 2 && n != 3 {
-		return nil, s.reject("CONTRACT_SCHEMA", "Slice schema 仅支持 v2/v3")
+		return nil, s.Reject("CONTRACT_SCHEMA", "Slice schema 仅支持 v2/v3")
 	}
 	out := &nativeSlice{Raw: raw, Normalized: contractCopy(raw), Ref: ref, Basis: map[string]map[string]any{}, Repositories: map[string]map[string]any{}}
 	if n == 2 {
@@ -1280,47 +1188,47 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 			return nil, e
 		}
 		if version == 1 {
-			return nil, s.reject("BUSINESS_SLICE_V3_REQUIRED", "当前业务协议要求 v3")
+			return nil, s.Reject("BUSINESS_SLICE_V3_REQUIRED", "当前业务协议要求 v3")
 		}
-		ticket := text(semMap(raw["lifecycle_refs"])["ticket"])
+		ticket := kernel.Text(kernel.SemMap(raw["lifecycle_refs"])["ticket"])
 		if ticket != "" {
 			if e = contractImplementationTicket(s, ticket); e != nil {
 				return nil, e
 			}
 		}
-		compiler, e := s.doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+		compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
 		if e != nil {
 			return nil, e
 		}
-		for section, fields := range semMap(compiler["slice_contract_required"]) {
+		for section, fields := range kernel.SemMap(compiler["slice_contract_required"]) {
 			target := raw
 			if section != "root" {
-				target = semMap(raw[section])
+				target = kernel.SemMap(raw[section])
 			}
-			for _, field := range semStrings(fields) {
+			for _, field := range kernel.SemStrings(fields) {
 				if _, ok := target[field]; !ok {
-					return nil, s.reject("CONTRACT_INVALID", "缺少 "+section+"."+field)
+					return nil, s.Reject("CONTRACT_INVALID", "缺少 "+section+"."+field)
 				}
 			}
 		}
 		for _, section := range []string{"common", "resolution", "backend"} {
-			if _, ok := semMap(raw[section])["required_skills"].([]any); !ok {
-				return nil, s.reject("CONTRACT_INVALID", section+".required_skills 须为数组")
+			if _, ok := kernel.SemMap(raw[section])["required_skills"].([]any); !ok {
+				return nil, s.Reject("CONTRACT_INVALID", section+".required_skills 须为数组")
 			}
 		}
-		units := semList(raw["work_units"])
+		units := kernel.SemList(raw["work_units"])
 		if len(units) == 0 {
-			return nil, s.reject("CONTRACT_INVALID", "缺少工作单元")
+			return nil, s.Reject("CONTRACT_INVALID", "缺少工作单元")
 		}
 		for _, v := range units {
-			u := semMap(v)
-			if !contractSame(u["contract_id"], raw["contract_id"]) || !contractSame(u["contract_version"], raw["contract_version"]) || text(semMap(u["work_unit"])["primary_skill"]) == "" {
-				return nil, s.reject("CONTRACT_INVALID", "工作单元合同身份不一致")
+			u := kernel.SemMap(v)
+			if !contractSame(u["contract_id"], raw["contract_id"]) || !contractSame(u["contract_version"], raw["contract_version"]) || kernel.Text(kernel.SemMap(u["work_unit"])["primary_skill"]) == "" {
+				return nil, s.Reject("CONTRACT_INVALID", "工作单元合同身份不一致")
 			}
 		}
 		return out, nil
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/slice-implementation-contract-v3.schema.json", raw); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/slice-implementation-contract-v3.schema.json", raw); e != nil {
 		return nil, e
 	}
 	basis, e := contractBasis(s, raw)
@@ -1331,13 +1239,13 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 	if e = contractNeedBasis(s, basis, "spec", "ticket", "engineering_baseline", "implementation_repository", "build_architecture_checklist"); e != nil {
 		return nil, e
 	}
-	if e = contractImplementationTicket(s, text(basis["ticket"]["ref"])); e != nil {
+	if e = contractImplementationTicket(s, kernel.Text(basis["ticket"]["ref"])); e != nil {
 		return nil, e
 	}
 	if e = contractSliceBusiness(s, raw, basis); e != nil {
 		return nil, e
 	}
-	scope, resolution, extension, app := semMap(raw["scope"]), contractCopy(semMap(raw["resolution"])), semMap(raw["extensions"]), semMap(raw["applicability"])
+	scope, resolution, extension, app := kernel.SemMap(raw["scope"]), contractCopy(kernel.SemMap(raw["resolution"])), kernel.SemMap(raw["extensions"]), kernel.SemMap(raw["applicability"])
 	if app["checks"] == nil {
 		if e = contractNeedBasis(s, basis, "architecture_review"); e != nil {
 			return nil, e
@@ -1346,27 +1254,27 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 		if e = contractNeedBasis(s, basis, "lifecycle_registry", "process_tailoring"); e != nil {
 			return nil, e
 		}
-		reg, e := s.doc(text(basis["lifecycle_registry"]["ref"]))
+		reg, e := s.Doc(kernel.Text(basis["lifecycle_registry"]["ref"]))
 		if e != nil {
 			return nil, e
 		}
-		check := apFind(reg["checks"], "id", "check.architecture-reviewed")
-		if text(check["trigger"]) != "高风险或跨边界变化。" {
-			return nil, s.unavailable("CAPABILITY", "未知架构审查触发规则")
+		check := kernel.ApFind(reg["checks"], "id", "check.architecture-reviewed")
+		if kernel.Text(check["trigger"]) != "高风险或跨边界变化。" {
+			return nil, s.Unavailable("CAPABILITY", "未知架构审查触发规则")
 		}
-		required := text(scope["risk_level"]) == "high" || len(semStrings(scope["project_roots"])) > 1
+		required := kernel.Text(scope["risk_level"]) == "high" || len(kernel.SemStrings(scope["project_roots"])) > 1
 		for _, impact := range []string{"high-risk", "architecture", "cross-repo", "cross-boundary"} {
-			required = required || semHas(scope["impacted_areas"], impact)
+			required = required || kernel.SemHas(scope["impacted_areas"], impact)
 		}
-		if !semHas([]string{"low", "medium", "high"}, text(scope["risk_level"])) {
-			return nil, s.reject("APPLICABILITY", "未知风险等级")
+		if !kernel.SemHas([]string{"low", "medium", "high"}, kernel.Text(scope["risk_level"])) {
+			return nil, s.Reject("APPLICABILITY", "未知风险等级")
 		}
-		for _, impact := range semStrings(scope["impacted_areas"]) {
-			if !semHas([]string{"ui", "frontend", "backend", "api", "data", "persistence", "domain", "architecture", "cross-repo", "cross-boundary", "high-risk"}, impact) {
-				return nil, s.reject("APPLICABILITY", "未知影响")
+		for _, impact := range kernel.SemStrings(scope["impacted_areas"]) {
+			if !kernel.SemHas([]string{"ui", "frontend", "backend", "api", "data", "persistence", "domain", "architecture", "cross-repo", "cross-boundary", "high-risk"}, impact) {
+				return nil, s.Reject("APPLICABILITY", "未知影响")
 			}
 		}
-		reason := fmt.Sprintf("%s 本切片风险 %s，影响 %s，工程数 %d。", text(check["trigger"]), text(scope["risk_level"]), first(strings.Join(semStrings(scope["impacted_areas"]), ", "), "无"), len(semStrings(scope["project_roots"])))
+		reason := fmt.Sprintf("%s 本切片风险 %s，影响 %s，工程数 %d。", kernel.Text(check["trigger"]), kernel.Text(scope["risk_level"]), kernel.First(strings.Join(kernel.SemStrings(scope["impacted_areas"]), ", "), "无"), len(kernel.SemStrings(scope["project_roots"])))
 		expected := map[string]any{"check.architecture-reviewed": map[string]any{"status": "not-applicable", "reason": reason}}
 		if required {
 			expected = map[string]any{"check.architecture-reviewed": map[string]any{"status": "required", "reason": reason}}
@@ -1375,83 +1283,53 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 			}
 		}
 		if !contractSame(app["checks"], expected) {
-			return nil, s.reject("APPLICABILITY", "材料适用性与生命周期规则冲突")
+			return nil, s.Reject("APPLICABILITY", "材料适用性与生命周期规则冲突")
 		}
 	}
 	for _, key := range []string{"frontend", "backend", "api", "cross_repo"} {
-		a := semMap(app[key])
-		if text(a["status"]) == "required" {
+		a := kernel.SemMap(app[key])
+		if kernel.Text(a["status"]) == "required" {
 			if extension[key] == nil {
-				return nil, s.reject("APPLICABILITY", key+" 缺少子合同")
+				return nil, s.Reject("APPLICABILITY", key+" 缺少子合同")
 			}
-		} else if text(a["reason"]) == "" || extension[key] != nil {
-			return nil, s.reject("APPLICABILITY", key+" 不适用理由或子合同冲突")
+		} else if kernel.Text(a["reason"]) == "" || extension[key] != nil {
+			return nil, s.Reject("APPLICABILITY", key+" 不适用理由或子合同冲突")
 		}
 	}
 	for impact, key := range map[string]string{"frontend": "frontend", "ui": "frontend", "backend": "backend", "api": "api", "cross-repo": "cross_repo"} {
-		if semHas(scope["impacted_areas"], impact) && text(semMap(app[key])["status"]) != "required" {
-			return nil, s.reject("APPLICABILITY", impact+" 影响与适用性冲突")
+		if kernel.SemHas(scope["impacted_areas"], impact) && kernel.Text(kernel.SemMap(app[key])["status"]) != "required" {
+			return nil, s.Reject("APPLICABILITY", impact+" 影响与适用性冲突")
 		}
 	}
-	if semHas(scope["impacted_areas"], "data") || semHas(scope["impacted_areas"], "persistence") {
+	if kernel.SemHas(scope["impacted_areas"], "data") || kernel.SemHas(scope["impacted_areas"], "persistence") {
 		if e = contractNeedBasis(s, basis, "data_architecture"); e != nil {
 			return nil, e
 		}
 	}
-	if raw["ticket_policy"] != nil && text(basis["ticket"]["version"]) == "" {
-		return nil, s.reject("CONTRACT_INVALID", "冻结 Ticket 缺少版本")
+	if raw["ticket_policy"] != nil && kernel.Text(basis["ticket"]["version"]) == "" {
+		return nil, s.Reject("CONTRACT_INVALID", "冻结 Ticket 缺少版本")
 	}
-	if raw["ticket_policy"] != nil && len(semStrings(scope["project_roots"])) > 1 && semMap(extension["cross_repo"])["repository_bindings"] == nil {
-		return nil, s.reject("REPOSITORY", "跨仓合同缺少逐仓登记")
+	if raw["ticket_policy"] != nil && len(kernel.SemStrings(scope["project_roots"])) > 1 && kernel.SemMap(extension["cross_repo"])["repository_bindings"] == nil {
+		return nil, s.Reject("REPOSITORY", "跨仓合同缺少逐仓登记")
 	}
 	if e = contractSliceRepositories(s, out); e != nil {
 		return nil, e
 	}
 	if extension["frontend"] != nil {
-		if text(semMap(app["frontend"])["baseline_kind"]) == "existing-ui-baseline" {
-			if text(semMap(app["frontend"])["ui_change"]) != "none" || semHas(scope["impacted_areas"], "ui") {
-				return nil, s.reject("APPLICABILITY", "既有 UI 不能承接 UI 变化")
-			}
-			local, err := hasLocalImplementationInputs(s)
-			if err != nil {
-				return nil, err
-			}
-			keys := []string{"existing_ui_baseline", "frontend_delivery"}
-			if local {
-				keys = []string{"existing_ui_baseline"}
-			}
-			if e = contractNeedBasis(s, basis, keys...); e != nil {
-				return nil, e
-			}
-			baseline, e := contractExistingUI(s, text(basis["existing_ui_baseline"]["ref"]))
-			if e != nil {
-				return nil, e
-			}
-			ids := []string{}
-			for _, v := range semList(baseline["cases"]) {
-				ids = append(ids, text(semMap(v)["case_id"]))
-			}
-			for _, id := range semStrings(semMap(extension["frontend"])["visual_baseline_case_ids"]) {
-				if !semHas(ids, id) {
-					return nil, s.reject("FRONTEND_BASELINE", "未登记既有 UI 用例")
-				}
-			}
-		} else if e = contractNeedBasis(s, basis, "requirement_freeze", "low_fidelity_review", "prototype_review", "prototype_profile_decision", "prototype_deliverable", "prototype_deliverable_verification", "prototype_confirmation", "visual_baseline", "state_matrix"); e != nil {
-			return nil, e
-		}
+		return nil, s.Reject("CONTRACT_INVALID", "前端实现已从生命周期移除；Slice 合同不能声明 frontend 子合同")
 	}
 	if extension["backend"] != nil {
 		if e = contractNeedBasis(s, basis, "technical_design", "repository_registration", "manifest", "backend_repository", "maven_wrapper"); e != nil {
 			return nil, e
 		}
 		if resolution["architecture_identity"] == nil && len(out.Repositories) == 0 {
-			return nil, s.reject("ARCHITECTURE", "后端缺少架构身份")
+			return nil, s.Reject("ARCHITECTURE", "后端缺少架构身份")
 		}
-		if text(basis["technical_design"]["version"]) == "" {
-			return nil, s.reject("TECHNICAL_DESIGN", "技术设计版本缺失")
+		if kernel.Text(basis["technical_design"]["version"]) == "" {
+			return nil, s.Reject("TECHNICAL_DESIGN", "技术设计版本缺失")
 		}
-		for _, locator := range semStrings(semMap(extension["backend"])["design_refs"]) {
-			if e = contractLocate(s, text(basis["technical_design"]["ref"]), locator); e != nil {
+		for _, locator := range kernel.SemStrings(kernel.SemMap(extension["backend"])["design_refs"]) {
+			if e = contractLocate(s, kernel.Text(basis["technical_design"]["ref"]), locator); e != nil {
 				return nil, e
 			}
 		}
@@ -1464,147 +1342,147 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 		return nil, e
 	}
 	if basis[other] != nil {
-		return nil, s.reject("APPLICABILITY", "API 影响结论冲突")
+		return nil, s.Reject("APPLICABILITY", "API 影响结论冲突")
 	}
-	for _, p := range semStrings(scope["allowed_write_paths"]) {
-		if !contractPath(p) {
-			return nil, s.reject("PATH", "写范围须为明确相对路径: "+p)
+	for _, p := range kernel.SemStrings(scope["allowed_write_paths"]) {
+		if !kernel.ContractPath(p) {
+			return nil, s.Reject("PATH", "写范围须为明确相对路径: "+p)
 		}
 	}
-	if text(scope["implementation_path_policy"]) != "external-repository-native" {
-		for _, p := range semStrings(scope["project_roots"]) {
+	if kernel.Text(scope["implementation_path_policy"]) != "external-repository-native" {
+		for _, p := range kernel.SemStrings(scope["project_roots"]) {
 			if !contractHarnessProjectRoot(p) {
-				return nil, s.reject("PATH", "Harness 工程需已登记的具体项目相对路径")
+				return nil, s.Reject("PATH", "Harness 工程需已登记的具体项目相对路径")
 			}
 		}
 	}
-	acceptance, verification := semMap(raw["acceptance"]), semMap(raw["verification"])
+	acceptance, verification := kernel.SemMap(raw["acceptance"]), kernel.SemMap(raw["verification"])
 	for id, v := range acceptance {
-		a := semMap(v)
-		src := basis[text(a["source"])]
+		a := kernel.SemMap(v)
+		src := basis[kernel.Text(a["source"])]
 		if src == nil {
-			return nil, s.reject("ACCEPTANCE", "验收来源缺失: "+id)
+			return nil, s.Reject("ACCEPTANCE", "验收来源缺失: "+id)
 		}
-		if e = contractLocate(s, text(src["ref"]), text(a["locator"])); e != nil {
+		if e = contractLocate(s, kernel.Text(src["ref"]), kernel.Text(a["locator"])); e != nil {
 			return nil, e
 		}
 	}
 	for id, v := range verification {
-		check := semMap(v)
+		check := kernel.SemMap(v)
 		registered := false
-		for _, root := range semStrings(scope["project_roots"]) {
-			registered = registered || contractWithin(text(check["cwd"]), root)
+		for _, root := range kernel.SemStrings(scope["project_roots"]) {
+			registered = registered || contractWithin(kernel.Text(check["cwd"]), root)
 		}
 		if !registered {
-			return nil, s.reject("VERIFICATION", "cwd 未登记: "+id)
+			return nil, s.Reject("VERIFICATION", "cwd 未登记: "+id)
 		}
-		for _, root := range semStrings(check["dependency_roots"]) {
+		for _, root := range kernel.SemStrings(check["dependency_roots"]) {
 			if out.Repositories[root] == nil {
-				return nil, s.reject("REPOSITORY", "验证依赖根未登记")
+				return nil, s.Reject("REPOSITORY", "验证依赖根未登记")
 			}
 		}
 		if !contractUnique(check["acceptance_refs"], true) {
-			return nil, s.reject("ACCEPTANCE", "验证验收引用非法")
+			return nil, s.Reject("ACCEPTANCE", "验证验收引用非法")
 		}
-		for _, a := range semStrings(check["acceptance_refs"]) {
+		for _, a := range kernel.SemStrings(check["acceptance_refs"]) {
 			if acceptance[a] == nil {
-				return nil, s.reject("ACCEPTANCE", "未知验收引用: "+a)
+				return nil, s.Reject("ACCEPTANCE", "未知验收引用: "+a)
 			}
 		}
 	}
 	units := []any{}
 	seen, used, covered := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for _, v := range semList(raw["work_units"]) {
-		u := contractCopy(semMap(v))
-		id := text(u["id"])
+	for _, v := range kernel.SemList(raw["work_units"]) {
+		u := contractCopy(kernel.SemMap(v))
+		id := kernel.Text(u["id"])
 		if seen[id] {
-			return nil, s.reject("WORK_UNIT", "工作单元重复")
+			return nil, s.Reject("WORK_UNIT", "工作单元重复")
 		}
 		seen[id] = true
 		allowed := u["allowed_write_paths"]
 		if allowed == nil {
 			allowed = scope["allowed_write_paths"]
 		}
-		for _, p := range semStrings(allowed) {
+		for _, p := range kernel.SemStrings(allowed) {
 			within := false
-			for _, parent := range semStrings(scope["allowed_write_paths"]) {
+			for _, parent := range kernel.SemStrings(scope["allowed_write_paths"]) {
 				within = within || contractWithin(p, parent)
 			}
-			if !contractPath(p) || !within {
-				return nil, s.reject("PATH", "工作单元写范围越界")
+			if !kernel.ContractPath(p) || !within {
+				return nil, s.Reject("PATH", "工作单元写范围越界")
 			}
 		}
-		root := text(u["project_root"])
-		if root == "" && len(semStrings(scope["project_roots"])) == 1 {
-			root = semStrings(scope["project_roots"])[0]
+		root := kernel.Text(u["project_root"])
+		if root == "" && len(kernel.SemStrings(scope["project_roots"])) == 1 {
+			root = kernel.SemStrings(scope["project_roots"])[0]
 		}
-		if !semHas(scope["project_roots"], root) {
-			return nil, s.reject("REPOSITORY", "工作单元须选择工程根")
+		if !kernel.SemHas(scope["project_roots"], root) {
+			return nil, s.Reject("REPOSITORY", "工作单元须选择工程根")
 		}
 		ids := []string{}
 		for id, v := range verification {
-			if semMap(v)["required_for_all"] == true {
+			if kernel.SemMap(v)["required_for_all"] == true {
 				ids = append(ids, id)
 			}
 		}
 		sort.Strings(ids)
-		ids = contractUnion(ids, semStrings(u["verification_refs"]))
+		ids = contractUnion(ids, kernel.SemStrings(u["verification_refs"]))
 		checks := []any{}
 		commands, evidence := []string{}, []string{}
 		for _, id := range ids {
 			v := verification[id]
-			if v == nil || !contractWithin(text(semMap(v)["cwd"]), root) {
-				return nil, s.reject("VERIFICATION", "未知验证或执行工程冲突")
+			if v == nil || !contractWithin(kernel.Text(kernel.SemMap(v)["cwd"]), root) {
+				return nil, s.Reject("VERIFICATION", "未知验证或执行工程冲突")
 			}
-			c := contractCopy(semMap(v))
+			c := contractCopy(kernel.SemMap(v))
 			c["id"] = id
 			checks = append(checks, c)
-			commands = append(commands, text(c["command"]))
-			evidence = contractUnion(evidence, semStrings(c["expected_evidence"]))
+			commands = append(commands, kernel.Text(c["command"]))
+			evidence = contractUnion(evidence, kernel.SemStrings(c["expected_evidence"]))
 			used[id] = true
 		}
-		for _, skill := range append([]string{text(u["primary_skill"])}, semStrings(u["supporting_skills"])...) {
-			if !semHas(resolution["required_skills"], skill) {
-				return nil, s.reject("SKILL_CLOSURE", "工作单元 Skill 未冻结")
+		for _, skill := range append([]string{kernel.Text(u["primary_skill"])}, kernel.SemStrings(u["supporting_skills"])...) {
+			if !kernel.SemHas(resolution["required_skills"], skill) {
+				return nil, s.Reject("SKILL_CLOSURE", "工作单元 Skill 未冻结")
 			}
 		}
-		for _, id := range semStrings(u["acceptance_refs"]) {
+		for _, id := range kernel.SemStrings(u["acceptance_refs"]) {
 			valid := false
 			for _, v := range checks {
-				valid = valid || semHas(semMap(v)["acceptance_refs"], id)
+				valid = valid || kernel.SemHas(kernel.SemMap(v)["acceptance_refs"], id)
 			}
 			if acceptance[id] == nil || !valid {
-				return nil, s.reject("ACCEPTANCE", "工作单元验收缺少验证覆盖")
+				return nil, s.Reject("ACCEPTANCE", "工作单元验收缺少验证覆盖")
 			}
 			covered[id] = true
 		}
-		if text(u["tdd_mode"]) == "controlled-generation" {
-			if e = contractRequired(s, semMap(u["controlled_generation"]), "exception_reason", "generator", "generator_inputs", "expected_files", "verification_commands", "behavior_tests_after_generation"); e != nil {
+		if kernel.Text(u["tdd_mode"]) == "controlled-generation" {
+			if e = contractRequired(s, kernel.SemMap(u["controlled_generation"]), "exception_reason", "generator", "generator_inputs", "expected_files", "verification_commands", "behavior_tests_after_generation"); e != nil {
 				return nil, e
 			}
 		} else if u["controlled_generation"] != nil {
-			return nil, s.reject("TDD", "行为测试不得携带受控生成例外")
+			return nil, s.Reject("TDD", "行为测试不得携带受控生成例外")
 		}
 		u["allowed_write_paths"], u["project_root"], u["verification"], u["verification_commands"], u["expected_evidence"] = allowed, root, checks, commands, evidence
-		u["supporting_skills"] = semStrings(u["supporting_skills"])
-		u["forbidden_patterns"] = contractUnion(semStrings(scope["forbidden_patterns"]), semStrings(u["forbidden_patterns"]))
+		u["supporting_skills"] = kernel.SemStrings(u["supporting_skills"])
+		u["forbidden_patterns"] = contractUnion(kernel.SemStrings(scope["forbidden_patterns"]), kernel.SemStrings(u["forbidden_patterns"]))
 		row := contractCopy(u)
 		row["contract_id"], row["contract_version"], row["work_unit"] = raw["contract_id"], raw["contract_version"], u
 		units = append(units, row)
 	}
 	for id := range acceptance {
 		if !covered[id] {
-			return nil, s.reject("ACCEPTANCE", "未分配验收: "+id)
+			return nil, s.Reject("ACCEPTANCE", "未分配验收: "+id)
 		}
 	}
 	for id := range verification {
 		if !used[id] {
-			return nil, s.reject("VERIFICATION", "未分配验证: "+id)
+			return nil, s.Reject("VERIFICATION", "未分配验证: "+id)
 		}
 	}
-	for _, id := range semStrings(semMap(extension["cross_repo"])["integration_verification"]) {
-		if len(semStrings(semMap(verification[id])["dependency_roots"])) == 0 {
-			return nil, s.reject("VERIFICATION", "联合验证须显式依赖根")
+	for _, id := range kernel.SemStrings(kernel.SemMap(extension["cross_repo"])["integration_verification"]) {
+		if len(kernel.SemStrings(kernel.SemMap(verification[id])["dependency_roots"])) == 0 {
+			return nil, s.Reject("VERIFICATION", "联合验证须显式依赖根")
 		}
 	}
 	refs := map[string]any{}
@@ -1637,15 +1515,15 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 	common["required_capabilities"], common["required_skills"], common["quality_baseline_ref"] = resolution["required_capabilities"], resolution["required_skills"], basis["engineering_baseline"]["ref"]
 	allCommands, allEvidence := []string{}, []string{}
 	for _, v := range verification {
-		c := semMap(v)
-		allCommands = append(allCommands, text(c["command"]))
-		allEvidence = contractUnion(allEvidence, semStrings(c["expected_evidence"]))
+		c := kernel.SemMap(v)
+		allCommands = append(allCommands, kernel.Text(c["command"]))
+		allEvidence = contractUnion(allEvidence, kernel.SemStrings(c["expected_evidence"]))
 	}
 	common["verification_commands"], common["expected_evidence_files"] = allCommands, allEvidence
 	out.Normalized["common"], out.Normalized["resolution"], out.Normalized["lifecycle_refs"], out.Normalized["work_units"] = common, resolution, refs, units
 	out.Normalized["readiness"] = map[string]any{"blockers": []any{}, "stale_inputs": []any{}}
 	for _, key := range []string{"backend", "frontend"} {
-		m := contractCopy(semMap(extension[key]))
+		m := contractCopy(kernel.SemMap(extension[key]))
 		m["status"] = "required"
 		if extension[key] == nil {
 			m = map[string]any{"status": "not-applicable"}
@@ -1659,65 +1537,44 @@ func loadNativeSlice(s *semanticSession, ref string) (*nativeSlice, error) {
 	return out, nil
 }
 
-func contractTicketMetadata(s *semanticSession, ref string) (map[string]any, error) {
-	raw, e := s.bytes(ref)
-	if e != nil {
-		return nil, e
-	}
-	raw = []byte(strings.TrimPrefix(string(raw), "\ufeff"))
-	hasHeader := strings.HasPrefix(string(raw), "---\n") || strings.HasPrefix(string(raw), "---\r\n")
-	if hasHeader {
-		raw, _, e = frontmatter(raw)
-		if e != nil {
-			return nil, s.unavailable("INPUT", ref+": "+e.Error())
-		}
-	}
-	v, e := schema.Parse(raw)
-	if e != nil && hasHeader {
-		return nil, s.unavailable("INPUT", ref+": "+e.Error())
-	}
-	m, _ := object(v)
-	if m == nil {
-		m = map[string]any{}
-	}
-	return m, nil
-}
-func contractBusinessVersion(s *semanticSession) (int, error) {
-	identity, e := s.doc("yss-project.yaml")
+func contractBusinessVersion(s *kernel.SemanticSession) (int, error) {
+	identity, e := s.Doc("yss-project.yaml")
 	if e != nil {
 		return 0, e
 	}
-	if text(identity["repository_mode"]) == "template-source" {
+	if kernel.Text(identity["repository_mode"]) == "template-source" {
 		return 0, nil
 	}
-	exists, e := s.exists(".template-spec/agents/issue-tracker.md")
+	exists, e := s.Exists(".template-spec/agents/issue-tracker.md")
 	if e != nil || !exists {
 		return 0, e
 	}
-	tracker, e := contractTicketMetadata(s, ".template-spec/agents/issue-tracker.md")
+	tracker, e := kernel.ContractTicketMetadata(s, ".template-spec/agents/issue-tracker.md")
 	if e != nil {
 		return 0, e
 	}
-	value, present := semMap(tracker["tracker"])["business_ticket_version"]
-	if present && contractN(value) != 1 {
-		return 0, s.reject("BUSINESS_TICKET_VERSION_UNSUPPORTED", "未知业务 Ticket 协议版本")
+	value, present := kernel.SemMap(tracker["tracker"])["business_ticket_version"]
+	if present && kernel.ContractN(value) != 1 {
+		return 0, s.Reject("BUSINESS_TICKET_VERSION_UNSUPPORTED", "未知业务 Ticket 协议版本")
 	}
-	return contractN(value), nil
+	return kernel.ContractN(value), nil
 }
-func contractImplementationTicket(s *semanticSession, ref string) error {
+
+func contractImplementationTicket(s *kernel.SemanticSession, ref string) error {
 	if regexp.MustCompile(`(^|/)(work-items|business-tickets)/`).MatchString(ref) {
-		return s.reject("IMPLEMENTATION_TICKET", "阶段或业务 Ticket 不能授予实现资格")
+		return s.Reject("IMPLEMENTATION_TICKET", "阶段或业务 Ticket 不能授予实现资格")
 	}
-	doc, e := contractTicketMetadata(s, ref)
+	doc, e := kernel.ContractTicketMetadata(s, ref)
 	if e != nil {
 		return e
 	}
-	if semHas([]string{"stage-work-item", "business-ticket", "business-ticket-set"}, text(doc["kind"])) {
-		return s.reject("IMPLEMENTATION_TICKET", "非实现 Ticket")
+	if kernel.SemHas([]string{"stage-work-item", "business-ticket", "business-ticket-set"}, kernel.Text(doc["kind"])) {
+		return s.Reject("IMPLEMENTATION_TICKET", "非实现 Ticket")
 	}
 	return nil
 }
-func verifySliceSemantic(s *semanticSession, ref string, opts map[string]string) error {
+
+func verifySliceSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	c, e := loadNativeSlice(s, ref)
 	if e != nil {
 		return e
@@ -1726,31 +1583,31 @@ func verifySliceSemantic(s *semanticSession, ref string, opts map[string]string)
 	for key, value := range opts {
 		bound[key] = value
 	}
-	approval := first(opts["approval-ref"], opts["approval_ref"])
+	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
 	if approval == "" && opts["checkpoint"] != "" {
-		cp, err := s.doc(opts["checkpoint"])
+		cp, err := s.Doc(opts["checkpoint"])
 		if err != nil {
 			return err
 		}
-		gate := semMap(semMap(cp["gates"])["gate.slice-contract-approved"])
+		gate := kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])
 		if gate["status"] != "approved" || gate["subject_ref"] != c.Ref {
-			return s.reject("SLICE_APPROVAL_REQUIRED", "当前 checkpoint 未绑定已批准的 Slice")
+			return s.Reject("SLICE_APPROVAL_REQUIRED", "当前 checkpoint 未绑定已批准的 Slice")
 		}
-		approval = first(text(gate["approval_ref"]), opts["checkpoint"])
+		approval = kernel.First(kernel.Text(gate["approval_ref"]), opts["checkpoint"])
 	}
 	if approval == "" {
-		return s.reject("SLICE_APPROVAL_REQUIRED", "Slice verify 需要独立当前 checkpoint 或批准引用")
+		return s.Reject("SLICE_APPROVAL_REQUIRED", "Slice verify 需要独立当前 checkpoint 或批准引用")
 	}
 	bound["approval-ref"] = approval
 	if len(c.Repositories) > 0 && bound["unit"] == "" {
-		units := semList(c.Normalized["work_units"])
+		units := kernel.SemList(c.Normalized["work_units"])
 		if len(units) == 0 {
-			return s.reject("WORK_UNIT", "跨仓合同未登记工作单元")
+			return s.Reject("WORK_UNIT", "跨仓合同未登记工作单元")
 		}
 		for _, value := range units {
-			unit := text(semMap(value)["id"])
+			unit := kernel.Text(kernel.SemMap(value)["id"])
 			if unit == "" {
-				return s.reject("WORK_UNIT", "跨仓合同工作单元缺少身份")
+				return s.Reject("WORK_UNIT", "跨仓合同工作单元缺少身份")
 			}
 			bound["unit"] = unit
 			if err := contractSliceFresh(s, c, bound); err != nil {
@@ -1764,37 +1621,37 @@ func verifySliceSemantic(s *semanticSession, ref string, opts map[string]string)
 
 // A consumer selects the expected subject from its current asset or checkpoint.
 // Approval contents may never supply their own expected subject, scope or author.
-func contractApproval(s *semanticSession, gate string, binding map[string]any, approvalRef string, opts map[string]string) error {
-	assetRef := text(binding["ref"])
-	raw, e := s.bytes(assetRef)
+func contractApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string, opts map[string]string) error {
+	assetRef := kernel.Text(binding["ref"])
+	raw, e := s.Bytes(assetRef)
 	if e != nil {
 		return e
 	}
 	asset := map[string]any{}
-	state := semMap(binding["approval_context"])
+	state := kernel.SemMap(binding["approval_context"])
 	if len(state) == 0 {
-		asset, e = s.doc(assetRef)
+		asset, e = s.Doc(assetRef)
 		if e != nil {
 			return e
 		}
 	}
-	if digest := text(binding["digest"]); digest != "" {
+	if digest := kernel.Text(binding["digest"]); digest != "" {
 		if strings.TrimPrefix(digest, "sha256:") != safefs.Digest(raw) {
-			return s.reject("APPROVAL_CURRENT_INVALID", "当前资产批准摘要过期")
+			return s.Reject("APPROVAL_CURRENT_INVALID", "当前资产批准摘要过期")
 		}
 	}
 	if len(state) == 0 {
-		state = semMap(asset["approval_context"])
+		state = kernel.SemMap(asset["approval_context"])
 	}
 	if len(state) == 0 && opts["checkpoint"] != "" {
-		cp, e := s.doc(opts["checkpoint"])
+		cp, e := s.Doc(opts["checkpoint"])
 		if e != nil {
 			return e
 		}
 		for _, bucket := range []string{"gates", "checks"} {
-			g := semMap(semMap(cp[bucket])[gate])
-			state = semMap(g["approval_context"])
-			if len(state) == 0 && text(g["subject_ref"]) != "" {
+			g := kernel.SemMap(kernel.SemMap(cp[bucket])[gate])
+			state = kernel.SemMap(g["approval_context"])
+			if len(state) == 0 && kernel.Text(g["subject_ref"]) != "" {
 				state = contractCopy(g)
 				state["review_package"] = false
 			}
@@ -1814,21 +1671,21 @@ func contractApproval(s *semanticSession, gate string, binding map[string]any, a
 		state = contractCopy(state)
 		state["review_package"] = value
 	}
-	expected, e := approvalExpectationFromState(s, gate, state)
+	expected, e := kernel.ApprovalExpectationFromState(s, gate, state)
 	if e != nil {
 		return e
 	}
-	if text(expected["subject_ref"]) != assetRef {
-		basis := apArray(expected["basis"])
+	if kernel.Text(expected["subject_ref"]) != assetRef {
+		basis := kernel.ApArray(expected["basis"])
 		found := false
 		for _, v := range basis {
-			m := semMap(v)
-			if text(m["ref"]) == assetRef {
+			m := kernel.SemMap(v)
+			if kernel.Text(m["ref"]) == assetRef {
 				found = true
 			}
 		}
 		if !found {
-			b, e := s.bind(assetRef)
+			b, e := s.Bind(assetRef)
 			if e != nil {
 				return e
 			}
@@ -1836,44 +1693,46 @@ func contractApproval(s *semanticSession, gate string, binding map[string]any, a
 		}
 		expected["basis"] = basis
 	}
-	record, e := s.doc(approvalRef)
+	record, e := s.Doc(approvalRef)
 	if e != nil {
 		return e
 	}
-	record, e = selectApprovalRecordSemantic(s, record, gate)
+	record, e = kernel.SelectApprovalRecordSemantic(s, record, gate)
 	if e != nil {
 		return e
 	}
-	if e = assertCurrentApprovalSemantic(s, record, expected); e != nil {
+	if e = kernel.AssertCurrentApprovalSemantic(s, record, expected); e != nil {
 		return e
 	}
 	if binding["id"] != nil || binding["version"] != nil {
 		matched := false
-		for _, v := range semList(record["artifact_bindings"]) {
-			m := semMap(v)
+		for _, v := range kernel.SemList(record["artifact_bindings"]) {
+			m := kernel.SemMap(v)
 			idMatches := binding["id"] == nil || contractSame(m["id"], binding["id"])
 			versionMatches := binding["version"] == nil || contractSame(m["version"], binding["version"])
-			matched = matched || idMatches && versionMatches && text(m["digest"]) == text(binding["digest"])
+			matched = matched || idMatches && versionMatches && kernel.Text(m["digest"]) == kernel.Text(binding["digest"])
 		}
 		if !matched {
-			return s.reject("APPROVAL_CURRENT_INVALID", "批准未绑定当前资产身份/版本/摘要")
+			return s.Reject("APPROVAL_CURRENT_INVALID", "批准未绑定当前资产身份/版本/摘要")
 		}
 	}
 	return nil
 }
-func contractSliceApproval(s *semanticSession, c *nativeSlice, opts map[string]string) error {
+
+func contractSliceApproval(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) error {
 	return contractSliceApprovalBinding(s, c, opts, nil)
 }
-func contractSliceApprovalBinding(s *semanticSession, c *nativeSlice, opts map[string]string, consumerBinding map[string]any) error {
+
+func contractSliceApprovalBinding(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string, consumerBinding map[string]any) error {
 	raw := c.Raw
-	approval := first(opts["approval-ref"], opts["approval_ref"])
+	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
 	if approval == "" {
-		return s.reject("SLICE_APPROVAL_REQUIRED", "缺少 Slice 批准引用")
+		return s.Reject("SLICE_APPROVAL_REQUIRED", "缺少 Slice 批准引用")
 	}
-	if text(raw["status"]) != "approved" {
-		return s.reject("SLICE_APPROVAL_REQUIRED", "Slice 尚未 approved")
+	if kernel.Text(raw["status"]) != "approved" {
+		return s.Reject("SLICE_APPROVAL_REQUIRED", "Slice 尚未 approved")
 	}
-	binding, e := s.bind(c.Ref)
+	binding, e := s.Bind(c.Ref)
 	if e != nil {
 		return e
 	}
@@ -1884,157 +1743,325 @@ func contractSliceApprovalBinding(s *semanticSession, c *nativeSlice, opts map[s
 	if consumerBinding != nil && consumerBinding["approval_context"] != nil {
 		b["approval_context"] = consumerBinding["approval_context"]
 	}
-	policy := semMap(s.roles["gate_policy"])
-	orchestrator := semHas(policy["orchestrator"], "gate.slice-contract-approved")
+	policy := kernel.SemMap(s.Roles["gate_policy"])
+	orchestrator := kernel.SemHas(policy["orchestrator"], "gate.slice-contract-approved")
 	for _, bucket := range []string{"dual_digital_human", "digital_human_review", "check_reviews"} {
-		if apFind(policy[bucket], "gate", "gate.slice-contract-approved") != nil {
+		if kernel.ApFind(policy[bucket], "gate", "gate.slice-contract-approved") != nil {
 			orchestrator = false
 		}
 	}
 	if orchestrator {
-		cp, e := s.doc(approval)
+		cp, e := s.Doc(approval)
 		if e != nil {
 			return e
 		}
-		if cp["gate_id"] != nil || text(cp["repository_mode"]) != "project-instance" || text(cp["status"]) == "blocked" || len(semList(cp["blockers"])) > 0 {
-			return s.reject("SLICE_APPROVAL_REQUIRED", "Slice 编排批准不是当前 checkpoint")
+		if cp["gate_id"] != nil || kernel.Text(cp["repository_mode"]) != "project-instance" || kernel.Text(cp["status"]) == "blocked" || len(kernel.SemList(cp["blockers"])) > 0 {
+			return s.Reject("SLICE_APPROVAL_REQUIRED", "Slice 编排批准不是当前 checkpoint")
 		}
-		if e = s.validateSchema(".template-spec/process/schemas/lifecycle-checkpoint.schema.json", cp); e != nil {
+		if e = s.ValidateSchema(".template-spec/process/schemas/lifecycle-checkpoint.schema.json", cp); e != nil {
 			return e
 		}
-		gate := semMap(semMap(cp["gates"])["gate.slice-contract-approved"])
-		implementation := semMap(semMap(cp["human_review"])["implementation"])
-		if text(gate["status"]) != "approved" || text(gate["subject_ref"]) != c.Ref || text(implementation["slice_contract_ref"]) != c.Ref {
-			return s.reject("SLICE_APPROVAL_REQUIRED", "checkpoint 未批准当前 Slice")
+		gate := kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])
+		implementation := kernel.SemMap(kernel.SemMap(cp["human_review"])["implementation"])
+		if kernel.Text(gate["status"]) != "approved" || kernel.Text(gate["subject_ref"]) != c.Ref || kernel.Text(implementation["slice_contract_ref"]) != c.Ref {
+			return s.Reject("SLICE_APPROVAL_REQUIRED", "checkpoint 未批准当前 Slice")
 		}
 		implementation = contractCopy(implementation)
-		implementation["user_decisions"] = semMap(cp["human_review"])["user_decisions"]
+		implementation["user_decisions"] = kernel.SemMap(cp["human_review"])["user_decisions"]
 		if e = assertImplementationDecisionSemantic(s, implementation); e != nil {
 			return e
 		}
 	} else if e = contractApproval(s, "gate.slice-contract-approved", b, approval, opts); e != nil {
 		return e
 	}
-	if contractN(raw["schema_version"]) == 3 {
-		container, e := s.doc(approval)
+	if kernel.ContractN(raw["schema_version"]) == 3 {
+		container, e := s.Doc(approval)
 		if e != nil {
 			return e
 		}
-		refs := semStrings(container["evidence_refs"])
-		if gates := semMap(container["gates"]); gates != nil {
-			refs = semStrings(semMap(gates["gate.slice-contract-approved"])["evidence_refs"])
+		refs := kernel.SemStrings(container["evidence_refs"])
+		if gates := kernel.SemMap(container["gates"]); gates != nil {
+			refs = kernel.SemStrings(kernel.SemMap(gates["gate.slice-contract-approved"])["evidence_refs"])
 		}
 		found := false
 		for _, reviewRef := range refs {
 			if !regexp.MustCompile(`[.](yaml|yml|json)$`).MatchString(reviewRef) {
 				continue
 			}
-			review, e := s.doc(reviewRef)
+			review, e := s.Doc(reviewRef)
 			if e != nil {
 				return e
 			}
 			rows := []map[string]any{review}
-			if text(review["kind"]) == "review-bundle" {
-				rows, e = reviewBundleRowsSemantic(s, review)
+			if kernel.Text(review["kind"]) == "review-bundle" {
+				rows, e = kernel.ReviewBundleRowsSemantic(s, review)
 				if e != nil {
 					return e
 				}
 			}
 			var r map[string]any
 			for _, row := range rows {
-				if text(row["gate_id"]) == "check.design-reviewed" && text(row["subject_ref"]) == c.Ref {
+				if kernel.Text(row["gate_id"]) == "check.design-reviewed" && kernel.Text(row["subject_ref"]) == c.Ref {
 					r = row
 				}
 			}
 			if r == nil {
 				continue
 			}
-			if text(r["subject_ref"]) != c.Ref || strings.TrimPrefix(text(r["subject_digest"]), "sha256:") != strings.TrimPrefix(binding.Digest, "sha256:") || text(r["principal_ref"]) == text(r["drafter_principal_ref"]) {
-				return s.reject("DESIGN_REVIEW_REQUIRED", "设计审查未独立绑定当前 Slice")
+			if kernel.Text(r["subject_ref"]) != c.Ref || strings.TrimPrefix(kernel.Text(r["subject_digest"]), "sha256:") != strings.TrimPrefix(binding.Digest, "sha256:") || kernel.Text(r["principal_ref"]) == kernel.Text(r["drafter_principal_ref"]) {
+				return s.Reject("DESIGN_REVIEW_REQUIRED", "设计审查未独立绑定当前 Slice")
 			}
 			reviewOpts := map[string]string{"checkpoint": approval}
 			if e = contractApproval(s, "check.design-reviewed", b, reviewRef, reviewOpts); e != nil {
 				return e
 			}
-			for _, v := range semList(r["findings"]) {
-				f := semMap(v)
-				if text(f["kind"]) == "suggestion" && text(f["follow_up"]) == "" {
-					return s.reject("DESIGN_REVIEW_REQUIRED", "建议缺少 follow_up")
+			for _, v := range kernel.SemList(r["findings"]) {
+				f := kernel.SemMap(v)
+				if kernel.Text(f["kind"]) == "suggestion" && kernel.Text(f["follow_up"]) == "" {
+					return s.Reject("DESIGN_REVIEW_REQUIRED", "建议缺少 follow_up")
 				}
-				if text(f["kind"]) != "suggestion" && (!semHas([]string{"requirement-violation", "missing-evidence", "important-risk"}, text(f["kind"])) || text(f["status"]) != "resolved") {
-					return s.reject("DESIGN_REVIEW_REQUIRED", "设计审查阻断项未解决")
+				if kernel.Text(f["kind"]) != "suggestion" && (!kernel.SemHas([]string{"requirement-violation", "missing-evidence", "important-risk"}, kernel.Text(f["kind"])) || kernel.Text(f["status"]) != "resolved") {
+					return s.Reject("DESIGN_REVIEW_REQUIRED", "设计审查阻断项未解决")
 				}
 			}
 			found = true
 		}
 		if !found {
-			return s.reject("DESIGN_REVIEW_REQUIRED", "未登记 check.design-reviewed")
+			return s.Reject("DESIGN_REVIEW_REQUIRED", "未登记 check.design-reviewed")
 		}
 	}
 	return nil
 }
-func contractSliceFresh(s *semanticSession, c *nativeSlice, opts map[string]string) error {
-	if e := contractSliceApproval(s, c, opts); e != nil {
+
+// 选出本次校验的工程与工作单元：本地合同选唯一单元，跨仓合同按工作单元的工程重建依据与解析。
+// 公开入口 contract verify --kind slice-preflight：执行前检查报告，与 Node 的 `scripts/slice-contract verify` 同形
+// （read_only、ref/id/version/digest、checks、approval_validity、execution_allowed、blockers）。可读性与结构、批准、新鲜度是三层不同的证据；
+// 有阻断原因时报告仍写进 coverage.slice_preflight，同时以拒绝收尾（退出码非 0，与 Node 一致）。
+func verifySlicePreflightSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	c, e := loadNativeSlice(s, ref)
+	if e != nil {
 		return e
 	}
+	binding, e := s.Bind(c.Ref)
+	if e != nil {
+		return e
+	}
+	checks := map[string]any{"readable": "passed", "structure": "passed", "approval": "not-checked", "freshness": "not-checked"}
+	blockers := []any{}
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return e
+	}
+	if kernel.ContractN(c.Raw["schema_version"]) == 2 {
+		required := kernel.SemMap(compiler["slice_contract_required"])
+		sections := make([]string, 0, len(required))
+		for section := range required {
+			sections = append(sections, section)
+		}
+		sort.Strings(sections)
+		for _, section := range sections {
+			target := c.Normalized
+			if section != "root" {
+				target = kernel.SemMap(c.Normalized[section])
+			}
+			for _, field := range kernel.SemStrings(required[section]) {
+				if _, ok := target[field]; target == nil || !ok {
+					blockers = append(blockers, "missing:"+section+"."+field)
+				}
+			}
+		}
+		for _, section := range []string{"common", "resolution", "backend"} {
+			if _, ok := kernel.SemMap(c.Normalized[section])["required_skills"].([]any); !ok {
+				blockers = append(blockers, "invalid:"+section+".required_skills")
+			}
+		}
+		units := kernel.SemList(c.Normalized["work_units"])
+		if len(units) == 0 {
+			blockers = append(blockers, "slice-contract-work-units-missing")
+		}
+		for _, v := range units {
+			unit := kernel.SemMap(v)
+			id := kernel.Text(unit["id"])
+			if unit["contract_id"] != c.Normalized["contract_id"] {
+				blockers = append(blockers, "work-unit-contract-id-mismatch:"+id)
+			}
+			if unit["contract_version"] != c.Normalized["contract_version"] {
+				blockers = append(blockers, "work-unit-contract-version-mismatch:"+id)
+			}
+			if kernel.Text(kernel.SemMap(unit["work_unit"])["primary_skill"]) == "" {
+				blockers = append(blockers, "work-unit-primary-skill-missing:"+id)
+			}
+		}
+		if len(blockers) > 0 {
+			checks["structure"] = "failed"
+		}
+	}
+	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
+	if approval != "" && len(blockers) == 0 {
+		bound := map[string]string{}
+		for key, value := range opts {
+			bound[key] = value
+		}
+		bound["approval-ref"] = approval
+		if e := contractSliceApproval(s, c, bound); e != nil {
+			checks["approval"] = "failed"
+			blockers = append(blockers, kernel.SemanticCode(e))
+		} else if code := sliceExecutionContractCode(s, c); code != "" {
+			checks["approval"] = "failed"
+			blockers = append(blockers, code)
+		} else {
+			checks["approval"] = "passed"
+			reasons, e := slicePreflightFreshness(s, c, bound)
+			if e != nil {
+				return e
+			}
+			checks["freshness"] = "passed"
+			if len(reasons) > 0 {
+				checks["freshness"] = "failed"
+			}
+			for _, reason := range reasons {
+				blockers = append(blockers, reason)
+			}
+		}
+	}
+	allowed := approval != "" && len(blockers) == 0 && checks["freshness"] == "passed"
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["slice_preflight"] = map[string]any{"read_only": true, "ref": c.Ref, "id": c.Raw["contract_id"], "version": c.Raw["contract_version"], "digest": binding.Digest,
+		"checks": checks, "approval_validity": checks["approval"], "execution_allowed": allowed, "blockers": blockers}
+	if len(blockers) > 0 {
+		return s.Reject("SLICE_PREFLIGHT_BLOCKED", "Slice 执行前检查有阻断原因")
+	}
+	return nil
+}
+
+// Node 的 createApprovedExecutionContext 在批准阶段还核对合同自身：写范围、就绪条件、Skill/Compiler 冻结摘要、resolution 当前性、架构身份摘要。
+// 返回 Node 的原因码（空串表示通过）；这些属于「批准」层，不是「新鲜度」层。
+func sliceExecutionContractCode(s *kernel.SemanticSession, c *nativeSlice) string {
 	n := c.Normalized
-	registry, e := s.doc(".template-spec/agents/yss-skill-registry.yaml")
+	if !contractUnique(kernel.SemMap(n["common"])["allowed_write_paths"], true) {
+		return "EXECUTION_SCOPE_MISSING"
+	}
+	readiness := kernel.SemMap(n["readiness"])
+	if len(kernel.SemList(readiness["blockers"])) > 0 || len(kernel.SemList(readiness["stale_inputs"])) > 0 {
+		return "EXECUTION_CONTRACT_STALE"
+	}
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
 	if e != nil {
-		return e
+		return "EXECUTION_CONTRACT_STALE"
 	}
-	compiler, e := s.doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
 	if e != nil {
-		return e
+		return "EXECUTION_CONTRACT_STALE"
 	}
-	if contractN(registry["schema_version"]) != 3 || contractN(compiler["schema_version"]) != 2 {
-		return s.unavailable("CAPABILITY", "未知 Skill/Compiler 协议")
+	r := kernel.SemMap(n["resolution"])
+	if kernel.Text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") || kernel.Text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") || kernel.Text(r["freshness"]) != "current" {
+		return "EXECUTION_CONTRACT_STALE"
 	}
-	r := semMap(n["resolution"])
-	if text(r["freshness"]) != "current" || len(semList(semMap(n["readiness"])["blockers"])) > 0 || len(semList(semMap(n["readiness"])["stale_inputs"])) > 0 {
-		return s.reject("CONTRACT_STALE", "合同 readiness/freshness 不允许执行")
+	if identity := kernel.SemMap(r["architecture_identity"]); len(identity) > 0 && kernel.Text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
+		return "EXECUTION_CONTRACT_STALE"
 	}
-	if text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") || text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") {
-		return s.reject("CONTRACT_STALE", "Skill/Compiler 冻结摘要变化")
+	return ""
+}
+
+// 逐项独立评估新鲜度，原因码与 Node 的 evaluateContractFreshness 一致（顺序也一致）。
+func slicePreflightFreshness(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) ([]string, error) {
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return nil, e
 	}
-	if !contractUnique(semMap(n["common"])["allowed_write_paths"], true) {
-		return s.reject("PATH", "合同缺少写范围")
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return nil, e
 	}
+	if kernel.ContractN(registry["schema_version"]) != 3 || kernel.ContractN(compiler["schema_version"]) != 2 {
+		return nil, s.Unavailable("CAPABILITY", "未知 Skill/Compiler 协议")
+	}
+	ctx, n, r, e := contractSliceSelect(s, c, opts)
+	if e != nil {
+		return []string{"EXECUTION_APPROVAL_INVALID"}, nil
+	}
+	reasons := []string{}
+	if design := kernel.SemMap(r["technical_design"]); len(design) > 0 {
+		doc, e := contractBoundDoc(s, design)
+		if e == nil && (kernel.Text(design["version"]) == "" || kernel.Text(doc["version"]) != kernel.Text(design["version"])) {
+			e = s.Reject("TECHNICAL_DESIGN_STALE", "技术设计版本变化")
+		}
+		if e == nil {
+			e = contractTechnicalDesign(s, kernel.Text(design["ref"]), doc, ctx, opts)
+		}
+		if e != nil {
+			reasons = append(reasons, "technical-design-stale-or-unavailable")
+		}
+	} else if kernel.Text(kernel.SemMap(n["backend"])["status"]) == "required" {
+		reasons = append(reasons, "technical-design-stale-or-unavailable")
+	}
+	if kernel.Text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") {
+		reasons = append(reasons, "registry-digest-changed")
+	}
+	if kernel.Text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") {
+		reasons = append(reasons, "compiler-contract-digest-changed")
+	}
+	if identity := kernel.SemMap(r["architecture_identity"]); len(identity) > 0 {
+		if e := contractArchitecture(s, identity, ctx, registry, opts); e != nil {
+			switch kernel.SemanticCode(e) {
+			case "ARCH_IDENTITY_SHAPE", "ARCH_PROFILE_UNSUPPORTED", "ARCH_SOURCE_UNSUPPORTED":
+				reasons = append(reasons, "architecture-identity-invalid")
+			default:
+				reasons = append(reasons, "architecture-evidence-stale-or-unavailable")
+			}
+		}
+		if kernel.Text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
+			reasons = append(reasons, "architecture-identity-digest-changed")
+		}
+	}
+	if e := contractComponents(s, r, registry); e != nil {
+		reasons = append(reasons, "component-binding-drift")
+	}
+	return reasons, nil
+}
+
+func contractSliceSelect(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) (*nativeSlice, map[string]any, map[string]any, error) {
+	n := c.Normalized
+	r := kernel.SemMap(n["resolution"])
+	var e error
 	unit := opts["unit"]
 	selectedContext := c
 	if len(c.Repositories) == 0 {
 		selectedContext, e = contractSelectLocalUnit(s, c, unit)
 		if e != nil {
-			return e
+			return nil, nil, nil, e
 		}
 		n = selectedContext.Normalized
-		r = semMap(n["resolution"])
+		r = kernel.SemMap(n["resolution"])
 	}
 	if len(c.Repositories) > 0 {
-		if unit == "" && len(semList(n["work_units"])) == 1 {
-			unit = text(semMap(semList(n["work_units"])[0])["id"])
+		if unit == "" && len(kernel.SemList(n["work_units"])) == 1 {
+			unit = kernel.Text(kernel.SemMap(kernel.SemList(n["work_units"])[0])["id"])
 		}
 		if unit == "" {
-			return s.reject("WORK_UNIT", "跨仓校验须显式工作单元")
+			return nil, nil, nil, s.Reject("WORK_UNIT", "跨仓校验须显式工作单元")
 		}
 		found := false
-		for _, v := range semList(n["work_units"]) {
-			u := semMap(v)
-			if text(u["id"]) == unit {
-				repo := c.Repositories[text(u["project_root"])]
+		for _, v := range kernel.SemList(n["work_units"]) {
+			u := kernel.SemMap(v)
+			if kernel.Text(u["id"]) == unit {
+				repo := c.Repositories[kernel.Text(u["project_root"])]
 				if repo == nil {
-					return s.reject("REPOSITORY", "工作单元未登记")
+					return nil, nil, nil, s.Reject("REPOSITORY", "工作单元未登记")
 				}
-				r = semMap(repo["resolution"])
+				r = kernel.SemMap(repo["resolution"])
 				copyContext := *c
 				copyContext.Basis = map[string]map[string]any{}
 				for key, value := range c.Basis {
 					copyContext.Basis[key] = value
 				}
-				for key, value := range semMap(repo["basis"]) {
-					copyContext.Basis[key] = semMap(value)
+				for key, value := range kernel.SemMap(repo["basis"]) {
+					copyContext.Basis[key] = kernel.SemMap(value)
 				}
 				copyContext.Normalized = contractCopy(n)
-				common := contractCopy(semMap(n["common"]))
+				common := contractCopy(kernel.SemMap(n["common"]))
 				common["allowed_write_paths"] = u["allowed_write_paths"]
 				common["project_roots"] = []any{u["project_root"]}
 				copyContext.Normalized["common"] = common
@@ -2045,13 +2072,46 @@ func contractSliceFresh(s *semanticSession, c *nativeSlice, opts map[string]stri
 			}
 		}
 		if !found {
-			return s.reject("WORK_UNIT", "工作单元未唯一选择工程")
+			return nil, nil, nil, s.Reject("WORK_UNIT", "工作单元未唯一选择工程")
 		}
 	}
-	identity := semMap(r["architecture_identity"])
+	return selectedContext, n, r, nil
+}
+
+func contractSliceFresh(s *kernel.SemanticSession, c *nativeSlice, opts map[string]string) error {
+	if e := contractSliceApproval(s, c, opts); e != nil {
+		return e
+	}
+	n := c.Normalized
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return e
+	}
+	compiler, e := s.Doc(".agents/skills/yss-implementation-contract-compiler/references/compiler-contract.yaml")
+	if e != nil {
+		return e
+	}
+	if kernel.ContractN(registry["schema_version"]) != 3 || kernel.ContractN(compiler["schema_version"]) != 2 {
+		return s.Unavailable("CAPABILITY", "未知 Skill/Compiler 协议")
+	}
+	r := kernel.SemMap(n["resolution"])
+	if kernel.Text(r["freshness"]) != "current" || len(kernel.SemList(kernel.SemMap(n["readiness"])["blockers"])) > 0 || len(kernel.SemList(kernel.SemMap(n["readiness"])["stale_inputs"])) > 0 {
+		return s.Reject("CONTRACT_STALE", "合同 readiness/freshness 不允许执行")
+	}
+	if kernel.Text(r["registry_digest"]) != strings.TrimPrefix(contractDigest(registry), "sha256:") || kernel.Text(r["compiler_contract_digest"]) != strings.TrimPrefix(contractDigest(compiler), "sha256:") {
+		return s.Reject("CONTRACT_STALE", "Skill/Compiler 冻结摘要变化")
+	}
+	if !contractUnique(kernel.SemMap(n["common"])["allowed_write_paths"], true) {
+		return s.Reject("PATH", "合同缺少写范围")
+	}
+	selectedContext, n, r, e := contractSliceSelect(s, c, opts)
+	if e != nil {
+		return e
+	}
+	identity := kernel.SemMap(r["architecture_identity"])
 	if len(identity) > 0 {
-		if text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
-			return s.reject("ARCHITECTURE_STALE", "架构身份摘要变化")
+		if kernel.Text(r["architecture_identity_digest"]) != strings.TrimPrefix(contractDigest(identity), "sha256:") {
+			return s.Reject("ARCHITECTURE_STALE", "架构身份摘要变化")
 		}
 		if e = contractArchitecture(s, identity, selectedContext, registry, opts); e != nil {
 			return e
@@ -2060,55 +2120,41 @@ func contractSliceFresh(s *semanticSession, c *nativeSlice, opts map[string]stri
 	if e = contractComponents(s, r, registry); e != nil {
 		return e
 	}
-	if design := semMap(r["technical_design"]); len(design) > 0 {
+	if design := kernel.SemMap(r["technical_design"]); len(design) > 0 {
 		doc, e := contractBoundDoc(s, design)
 		if e != nil {
 			return e
 		}
-		if text(design["version"]) == "" || text(doc["version"]) != text(design["version"]) {
-			return s.reject("TECHNICAL_DESIGN_STALE", "技术设计版本变化")
+		if kernel.Text(design["version"]) == "" || kernel.Text(doc["version"]) != kernel.Text(design["version"]) {
+			return s.Reject("TECHNICAL_DESIGN_STALE", "技术设计版本变化")
 		}
-		if e = contractTechnicalDesign(s, text(design["ref"]), doc, selectedContext, opts); e != nil {
+		if e = contractTechnicalDesign(s, kernel.Text(design["ref"]), doc, selectedContext, opts); e != nil {
 			return e
 		}
-	} else if text(semMap(n["backend"])["status"]) == "required" {
-		return s.reject("TECHNICAL_DESIGN_REQUIRED", "后端 Slice 缺少当前技术设计")
+	} else if kernel.Text(kernel.SemMap(n["backend"])["status"]) == "required" {
+		return s.Reject("TECHNICAL_DESIGN_REQUIRED", "后端 Slice 缺少当前技术设计")
 	}
-	if text(semMap(n["frontend"])["status"]) == "required" {
-		delivery := semMap(r["frontend_delivery"])
-		if len(delivery) == 0 {
-			delivery = semMap(semMap(n["frontend"])["delivery"])
-		}
-		if len(delivery) == 0 {
-			e = contractLocalFrontendInputs(s, selectedContext, opts)
-		} else {
-			e = contractFrontendDelivery(s, delivery, selectedContext, opts)
-		}
-		if e != nil {
-			return e
-		}
-	}
-	s.report.ExecutionAuthorization = "not-evaluated"
+	s.Report.ExecutionAuthorization = "not-evaluated"
 	return nil
 }
 
 // A responsibility view is derived only after the entire source Slice has
 // been normalized and approved. It never changes that source or its basis.
-func contractSelectLocalUnit(s *semanticSession, c *nativeSlice, unit string) (*nativeSlice, error) {
-	if contractN(c.Raw["schema_version"]) != 3 || unit == "" || len(c.Repositories) != 0 {
+func contractSelectLocalUnit(s *kernel.SemanticSession, c *nativeSlice, unit string) (*nativeSlice, error) {
+	if kernel.ContractN(c.Raw["schema_version"]) != 3 || unit == "" || len(c.Repositories) != 0 {
 		return c, nil
 	}
-	u := apFind(c.Normalized["work_units"], "id", unit)
+	u := kernel.ApFind(c.Normalized["work_units"], "id", unit)
 	if u == nil {
-		return nil, s.reject("WORK_UNIT", "未知当前批准工作单元")
+		return nil, s.Reject("WORK_UNIT", "未知当前批准工作单元")
 	}
-	role := text(u["role_id"])
-	if !semHas([]string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"}, role) {
-		return nil, s.reject("WORK_UNIT", "单仓职责选择需要明确后端或前端角色")
+	role := kernel.Text(u["role_id"])
+	if !kernel.SemHas([]string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"}, role) {
+		return nil, s.Reject("WORK_UNIT", "单仓职责选择需要明确后端或前端角色")
 	}
 	selected := *c
 	selected.Normalized = contractCopy(c.Normalized)
-	common := contractCopy(semMap(c.Normalized["common"]))
+	common := contractCopy(kernel.SemMap(c.Normalized["common"]))
 	common["project_roots"] = []any{u["project_root"]}
 	common["allowed_write_paths"] = u["allowed_write_paths"]
 	selected.Normalized["common"] = common
@@ -2121,38 +2167,38 @@ func contractSelectLocalUnit(s *semanticSession, c *nativeSlice, unit string) (*
 	return &selected, nil
 }
 
-func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
-	x := semMap(semMap(c.Raw["extensions"])["cross_repo"])
-	bindings := semMap(x["repository_bindings"])
+func contractSliceRepositories(s *kernel.SemanticSession, c *nativeSlice) error {
+	x := kernel.SemMap(kernel.SemMap(c.Raw["extensions"])["cross_repo"])
+	bindings := kernel.SemMap(x["repository_bindings"])
 	if len(bindings) == 0 {
 		return nil
 	}
 	if e := contractNeedBasis(s, c.Basis, "repository_preparation"); e != nil {
 		return e
 	}
-	prep, e := s.doc(text(c.Basis["repository_preparation"]["ref"]))
+	prep, e := s.Doc(kernel.Text(c.Basis["repository_preparation"]["ref"]))
 	if e != nil {
 		return e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/implementation-repository-preparation-result.schema.json", prep); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/implementation-repository-preparation-result.schema.json", prep); e != nil {
 		return e
 	}
 	identities, roots := map[string]bool{}, map[string]bool{}
 	for root, v := range bindings {
 		canonical, e := filepath.Abs(root)
 		if e != nil || canonical != root || roots[canonical] {
-			return s.reject("REPOSITORY", "工程根有路径别名")
+			return s.Reject("REPOSITORY", "工程根有路径别名")
 		}
 		roots[canonical] = true
-		keys := semMap(v)
+		keys := kernel.SemMap(v)
 		selected := map[string]any{}
 		for name, key := range keys {
 			if name == "recipe_refs" || name == "capability_refs" {
 				continue
 			}
-			b := c.Basis[text(key)]
+			b := c.Basis[kernel.Text(key)]
 			if b == nil {
-				return s.reject("REPOSITORY", "缺少逐仓 basis."+text(key))
+				return s.Reject("REPOSITORY", "缺少逐仓 basis."+kernel.Text(key))
 			}
 			selected[name] = b
 		}
@@ -2164,40 +2210,40 @@ func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
 		if e != nil {
 			return e
 		}
-		actual := filepath.Join(text(reg["local_worktree"]), first(text(reg["project_root"]), "."))
-		if actual != root || text(reg["status"]) != "current" || text(base["status"]) != "current" || reg["repository_id"] != base["repository_id"] || reg["project_id"] != base["project_id"] || !contractUnique(reg["allowed_write_paths"], true) {
-			return s.reject("REPOSITORY", "逐仓身份、状态或写范围冲突")
+		actual := filepath.Join(kernel.Text(reg["local_worktree"]), kernel.First(kernel.Text(reg["project_root"]), "."))
+		if actual != root || kernel.Text(reg["status"]) != "current" || kernel.Text(base["status"]) != "current" || reg["repository_id"] != base["repository_id"] || reg["project_id"] != base["project_id"] || !contractUnique(reg["allowed_write_paths"], true) {
+			return s.Reject("REPOSITORY", "逐仓身份、状态或写范围冲突")
 		}
-		key := text(reg["repository_id"]) + "\x00" + text(reg["project_id"])
+		key := kernel.Text(reg["repository_id"]) + "\x00" + kernel.Text(reg["project_id"])
 		if identities[key] {
-			return s.reject("REPOSITORY", "同一仓库工程重复绑定")
+			return s.Reject("REPOSITORY", "同一仓库工程重复绑定")
 		}
 		identities[key] = true
 		matches := []map[string]any{}
-		for _, v := range semList(prep["projects"]) {
-			p := semMap(v)
-			if p["project_id"] == reg["project_id"] && text(p["repository_ref"]) == text(semMap(selected["implementation_repository"])["ref"]) {
+		for _, v := range kernel.SemList(prep["projects"]) {
+			p := kernel.SemMap(v)
+			if p["project_id"] == reg["project_id"] && kernel.Text(p["repository_ref"]) == kernel.Text(kernel.SemMap(selected["implementation_repository"])["ref"]) {
 				matches = append(matches, p)
 			}
 		}
-		if len(matches) != 1 || text(matches[0]["status"]) == "not-applicable" || text(matches[0]["project_root"]) != root {
-			return s.reject("REPOSITORY", "准备结果没有唯一当前工程")
+		if len(matches) != 1 || kernel.Text(matches[0]["status"]) == "not-applicable" || kernel.Text(matches[0]["project_root"]) != root {
+			return s.Reject("REPOSITORY", "准备结果没有唯一当前工程")
 		}
 		project := matches[0]
-		if !semHas([]string{"existing-and-onboarded", "initialized-and-verified"}, text(project["status"])) {
-			return s.reject("REPOSITORY_NOT_READY", "工程准备未就绪")
+		if !kernel.SemHas([]string{"existing-and-onboarded", "initialized-and-verified"}, kernel.Text(project["status"])) {
+			return s.Reject("REPOSITORY_NOT_READY", "工程准备未就绪")
 		}
 		for _, k := range []string{"repository_ref", "baseline_ref"} {
-			if text(project[k]) != "" {
-				if _, e = s.bytes(text(project[k])); e != nil {
+			if kernel.Text(project[k]) != "" {
+				if _, e = s.Bytes(kernel.Text(project[k])); e != nil {
 					return e
 				}
 			}
 		}
-		if text(project["delivery_role"]) == "backend" {
-			p := semMap(semMap(project["design_prerequisites"])["technical_design"])
-			if !contractSame(p["ref"], semMap(selected["technical_design"])["ref"]) || !contractSame(p["digest"], semMap(selected["technical_design"])["digest"]) {
-				return s.reject("REPOSITORY", "准备结果技术设计绑定冲突")
+		if kernel.Text(project["delivery_role"]) == "backend" {
+			p := kernel.SemMap(kernel.SemMap(project["design_prerequisites"])["technical_design"])
+			if !contractSame(p["ref"], kernel.SemMap(selected["technical_design"])["ref"]) || !contractSame(p["digest"], kernel.SemMap(selected["technical_design"])["digest"]) {
+				return s.Reject("REPOSITORY", "准备结果技术设计绑定冲突")
 			}
 		}
 		identity := base["architecture_identity"]
@@ -2205,9 +2251,9 @@ func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
 			identity = reg["architecture_identity"]
 		}
 		if base["architecture_identity"] != nil && reg["architecture_identity"] != nil && !contractSame(base["architecture_identity"], reg["architecture_identity"]) {
-			return s.reject("ARCHITECTURE", "逐仓架构身份冲突")
+			return s.Reject("ARCHITECTURE", "逐仓架构身份冲突")
 		}
-		resolution := contractWithout(semMap(c.Raw["resolution"]), "architecture_identity", "architecture_identity_digest")
+		resolution := contractWithout(kernel.SemMap(c.Raw["resolution"]), "architecture_identity", "architecture_identity_digest")
 		if identity != nil {
 			resolution["architecture_identity"], resolution["architecture_identity_digest"] = identity, strings.TrimPrefix(contractDigest(identity), "sha256:")
 		}
@@ -2215,7 +2261,7 @@ func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
 			resolution["technical_design"] = selected["technical_design"]
 		}
 		if selected["frontend_delivery"] != nil {
-			b := semMap(selected["frontend_delivery"])
+			b := kernel.SemMap(selected["frontend_delivery"])
 			resolution["frontend_delivery"] = map[string]any{"acceptance_ref": b["ref"], "digest": b["digest"]}
 		}
 		if selected["repository_registration"] == nil {
@@ -2228,36 +2274,36 @@ func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
 			}
 			resolution["architecture_evidence"] = evidence
 		}
-		if e = s.registerExternalRoot(root, text(semMap(selected["implementation_repository"])["ref"])); e != nil {
+		if e = s.RegisterExternalRoot(root, kernel.Text(kernel.SemMap(selected["implementation_repository"])["ref"])); e != nil {
 			return e
 		}
 		c.Repositories[root] = map[string]any{"registration": reg, "project": project, "basis": selected, "resolution": resolution}
 	}
-	if !semSameSet(semMap(c.Raw["scope"])["project_roots"], mapKeysAsAny(c.Repositories)) {
-		return s.reject("REPOSITORY", "逐仓绑定未覆盖全部工程根")
+	if !semSameSet(kernel.SemMap(c.Raw["scope"])["project_roots"], mapKeysAsAny(c.Repositories)) {
+		return s.Reject("REPOSITORY", "逐仓绑定未覆盖全部工程根")
 	}
 	for _, key := range []string{"delivery_order", "rollback_order"} {
 		if !semSameSet(x[key], mapKeysAsAny(c.Repositories)) {
-			return s.reject("REPOSITORY", key+" 必须完整且唯一")
+			return s.Reject("REPOSITORY", key+" 必须完整且唯一")
 		}
 	}
-	for _, v := range semList(c.Raw["work_units"]) {
-		u := semMap(v)
-		repo := c.Repositories[text(u["project_root"])]
+	for _, v := range kernel.SemList(c.Raw["work_units"]) {
+		u := kernel.SemMap(v)
+		repo := c.Repositories[kernel.Text(u["project_root"])]
 		if repo == nil {
-			return s.reject("REPOSITORY", "工作单元未选择唯一工程")
+			return s.Reject("REPOSITORY", "工作单元未选择唯一工程")
 		}
 		allowed := u["allowed_write_paths"]
 		if allowed == nil {
-			allowed = semMap(c.Raw["scope"])["allowed_write_paths"]
+			allowed = kernel.SemMap(c.Raw["scope"])["allowed_write_paths"]
 		}
-		for _, p := range semStrings(allowed) {
+		for _, p := range kernel.SemStrings(allowed) {
 			within := false
-			for _, parent := range semStrings(semMap(repo["registration"])["allowed_write_paths"]) {
+			for _, parent := range kernel.SemStrings(kernel.SemMap(repo["registration"])["allowed_write_paths"]) {
 				within = within || contractWithin(p, parent)
 			}
 			if !within {
-				return s.reject("PATH", "超出逐仓写范围")
+				return s.Reject("PATH", "超出逐仓写范围")
 			}
 		}
 	}
@@ -2266,13 +2312,13 @@ func contractSliceRepositories(s *semanticSession, c *nativeSlice) error {
 
 // The derived evidence always uses the selected repository's independently
 // bound registration and assets, never another repository's global basis.
-func contractSliceArchitectureEvidence(s *semanticSession, identity any, basis map[string]any) (map[string]any, error) {
+func contractSliceArchitectureEvidence(s *kernel.SemanticSession, identity any, basis map[string]any) (map[string]any, error) {
 	registration, e := contractBoundDoc(s, basis["repository_registration"])
 	if e != nil {
 		return nil, e
 	}
 	keys := []string{"engineering_baseline", "repository_registration", "manifest"}
-	if contractN(semMap(identity)["schema_version"]) != 2 {
+	if kernel.ContractN(kernel.SemMap(identity)["schema_version"]) != 2 {
 		out := map[string]any{}
 		for _, key := range keys {
 			doc, e := contractBoundDoc(s, basis[key])
@@ -2285,9 +2331,9 @@ func contractSliceArchitectureEvidence(s *semanticSession, identity any, basis m
 	}
 	out := map[string]any{"repository_registration": basis["repository_registration"]}
 	for _, key := range []string{"engineering_baseline", "manifest"} {
-		original, bound := semMap(semMap(registration["architecture_evidence"])[key]), semMap(basis[key])
-		if original["ref"] != bound["ref"] || original["digest"] != bound["digest"] || text(original["ref"]) == "" {
-			return nil, s.reject("ARCHITECTURE", "逐仓登记未绑定当前 "+key)
+		original, bound := kernel.SemMap(kernel.SemMap(registration["architecture_evidence"])[key]), kernel.SemMap(basis[key])
+		if original["ref"] != bound["ref"] || original["digest"] != bound["digest"] || kernel.Text(original["ref"]) == "" {
+			return nil, s.Reject("ARCHITECTURE", "逐仓登记未绑定当前 "+key)
 		}
 		if _, e := contractBinding(s, original); e != nil {
 			return nil, e
@@ -2296,6 +2342,7 @@ func contractSliceArchitectureEvidence(s *semanticSession, identity any, basis m
 	}
 	return out, nil
 }
+
 func mapKeysAsAny(v map[string]map[string]any) []string {
 	out := []string{}
 	for k := range v {
@@ -2305,12 +2352,12 @@ func mapKeysAsAny(v map[string]map[string]any) []string {
 	return out
 }
 
-func contractSliceBusiness(s *semanticSession, raw map[string]any, basis map[string]map[string]any) error {
-	ticket, e := contractTicketMetadata(s, text(basis["ticket"]["ref"]))
+func contractSliceBusiness(s *kernel.SemanticSession, raw map[string]any, basis map[string]map[string]any) error {
+	ticket, e := kernel.ContractTicketMetadata(s, kernel.Text(basis["ticket"]["ref"]))
 	if e != nil {
 		return e
 	}
-	wanted := semStrings(ticket["business_ticket_refs"])
+	wanted := kernel.SemStrings(ticket["business_ticket_refs"])
 	set := basis["business_ticket_set"]
 	version, e := contractBusinessVersion(s)
 	if e != nil {
@@ -2319,68 +2366,70 @@ func contractSliceBusiness(s *semanticSession, raw map[string]any, basis map[str
 	if version != 1 && ticket["business_ticket_refs"] == nil && set == nil {
 		return nil
 	}
-	if text(ticket["kind"]) != "vertical-slice-ticket" || set == nil {
-		return s.reject("BUSINESS_SLICE_INVALID", "业务票来源要求 vertical-slice-ticket 和冻结集合")
+	if kernel.Text(ticket["kind"]) != "vertical-slice-ticket" || set == nil {
+		return s.Reject("BUSINESS_SLICE_INVALID", "业务票来源要求 vertical-slice-ticket 和冻结集合")
 	}
-	business, e := contractBusinessTickets(s, text(set["ref"]))
+	business, e := contractBusinessTickets(s, kernel.Text(set["ref"]))
 	if e != nil {
 		return e
 	}
-	if text(ticket["business_ticket_set_ref"]) != "" && text(ticket["business_ticket_set_ref"]) != text(set["ref"]) {
-		return s.reject("BUSINESS_SLICE_INVALID", "Slice/业务票集合绑定冲突")
+	if kernel.Text(ticket["business_ticket_set_ref"]) != "" && kernel.Text(ticket["business_ticket_set_ref"]) != kernel.Text(set["ref"]) {
+		return s.Reject("BUSINESS_SLICE_INVALID", "Slice/业务票集合绑定冲突")
 	}
-	spec := semMap(business["spec"])
+	spec := kernel.SemMap(business["spec"])
 	if spec["ref"] != basis["spec"]["ref"] || spec["digest"] != basis["spec"]["digest"] {
-		return s.reject("BUSINESS_SLICE_INVALID", "业务票与当前 Spec 冲突")
+		return s.Reject("BUSINESS_SLICE_INVALID", "业务票与当前 Spec 冲突")
 	}
 	if len(wanted) == 0 {
-		return s.reject("BUSINESS_SLICE_INVALID", "未选择业务票")
+		return s.Reject("BUSINESS_SLICE_INVALID", "未选择业务票")
 	}
-	known := semMap(business["ticket_documents"])
+	known := kernel.SemMap(business["ticket_documents"])
 	acs := []string{}
 	for _, id := range wanted {
-		b := semMap(known[id])
+		b := kernel.SemMap(known[id])
 		if len(b) == 0 {
-			return s.reject("BUSINESS_SLICE_INVALID", "未知业务票: "+id)
+			return s.Reject("BUSINESS_SLICE_INVALID", "未知业务票: "+id)
 		}
-		acs = contractUnion(acs, semStrings(b["acceptance_refs"]))
+		acs = contractUnion(acs, kernel.SemStrings(b["acceptance_refs"]))
 	}
-	ticketAC := semStrings(ticket["acceptance_refs"])
+	ticketAC := kernel.SemStrings(ticket["acceptance_refs"])
 	for _, id := range ticketAC {
-		if !semHas(acs, id) {
-			return s.reject("BUSINESS_SLICE_INVALID", "实现票验收超出业务票范围")
+		if !kernel.SemHas(acs, id) {
+			return s.Reject("BUSINESS_SLICE_INVALID", "实现票验收超出业务票范围")
 		}
 	}
 	covered := []string{}
-	for _, v := range semMap(raw["acceptance"]) {
-		a := semMap(v)
-		if text(a["source"]) != "spec" || !semHas(ticketAC, text(a["locator"])) {
-			return s.reject("BUSINESS_SLICE_INVALID", "Slice 验收未引用当前业务验收")
+	for _, v := range kernel.SemMap(raw["acceptance"]) {
+		a := kernel.SemMap(v)
+		if kernel.Text(a["source"]) != "spec" || !kernel.SemHas(ticketAC, kernel.Text(a["locator"])) {
+			return s.Reject("BUSINESS_SLICE_INVALID", "Slice 验收未引用当前业务验收")
 		}
-		covered = contractUnion(covered, []string{text(a["locator"])})
+		covered = contractUnion(covered, []string{kernel.Text(a["locator"])})
 	}
 	if !semSameSet(ticketAC, covered) {
-		return s.reject("BUSINESS_SLICE_INVALID", "Slice 未完整覆盖实现票验收")
+		return s.Reject("BUSINESS_SLICE_INVALID", "Slice 未完整覆盖实现票验收")
 	}
 	return nil
 }
-func contractBusinessTickets(s *semanticSession, ref string) (map[string]any, error) {
+
+func contractBusinessTickets(s *kernel.SemanticSession, ref string) (map[string]any, error) {
 	return contractBusinessTicketsMode(s, ref, "formal")
 }
-func contractBusinessLocator(s *semanticSession, binding map[string]any) error {
-	ref, locator, kind := text(binding["ref"]), text(binding["locator"]), text(binding["locator_kind"])
-	b, e := s.bytes(ref)
+
+func contractBusinessLocator(s *kernel.SemanticSession, binding map[string]any) error {
+	ref, locator, kind := kernel.Text(binding["ref"]), kernel.Text(binding["locator"]), kernel.Text(binding["locator_kind"])
+	b, e := s.Bytes(ref)
 	if e != nil {
 		return e
 	}
 	count := 0
 	if regexp.MustCompile(`[.](yaml|yml|json)$`).MatchString(ref) {
 		if kind == "heading" {
-			return s.reject("BUSINESS_TICKETS", "结构化来源不能使用 heading 定位")
+			return s.Reject("BUSINESS_TICKETS", "结构化来源不能使用 heading 定位")
 		}
 		value, e := schema.Parse(b)
 		if e != nil {
-			return s.unavailable("INPUT", e.Error())
+			return s.Unavailable("INPUT", e.Error())
 		}
 		var walk func(any)
 		walk = func(value any) {
@@ -2391,7 +2440,7 @@ func contractBusinessLocator(s *semanticSession, binding map[string]any) error {
 				}
 			case map[string]any:
 				for key, item := range v {
-					if (key == "id" || strings.HasSuffix(key, "_id")) && text(item) == locator {
+					if (key == "id" || strings.HasSuffix(key, "_id")) && kernel.Text(item) == locator {
 						count++
 					} else {
 						walk(item)
@@ -2402,7 +2451,7 @@ func contractBusinessLocator(s *semanticSession, binding map[string]any) error {
 		walk(value)
 	} else {
 		if strings.HasPrefix(string(b), "---\n") || strings.HasPrefix(string(b), "---\r\n") {
-			_, body, err := frontmatter(b)
+			_, body, err := kernel.Frontmatter(b)
 			if err != nil {
 				return err
 			}
@@ -2440,229 +2489,371 @@ func contractBusinessLocator(s *semanticSession, binding map[string]any) error {
 		}
 	}
 	if count != 1 {
-		return s.reject("BUSINESS_TICKETS", "来源稳定定位缺失或不唯一")
+		return s.Reject("BUSINESS_TICKETS", "来源稳定定位缺失或不唯一")
 	}
 	return nil
 }
-func contractBusinessTicketsMode(s *semanticSession, ref, mode string) (map[string]any, error) {
+
+func contractBusinessTicketsMode(s *kernel.SemanticSession, ref, mode string) (map[string]any, error) {
+	out, _, err := contractCollectBusinessTickets(s, ref, mode, "")
+	return out, err
+}
+
+func verifyBusinessTicketsSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	source, local, reviewRef, err := contractBusinessSource(s, ref, opts["review-ref"])
+	mode := kernel.First(opts["mode"], "draft")
+	var report map[string]any
+	if err == nil {
+		_, report, err = contractCollectBusinessTickets(source, local, mode, reviewRef)
+		if source != s {
+			prefix := strings.TrimSuffix(ref, local)
+			mapped := func(ref string) string { return prefix + source.LocalRef(ref) }
+			for _, name := range []string{"inputs", "tickets", "diagnostics"} {
+				key := "ref"
+				if name == "diagnostics" {
+					key = "source_ref"
+				}
+				for _, value := range kernel.SemList(report[name]) {
+					row := kernel.SemMap(value)
+					row[key] = mapped(kernel.Text(row[key]))
+				}
+			}
+			for _, name := range []string{"spec", "semantic_review"} {
+				if value, ok := kernel.Object(report[name]); ok {
+					row := contractCopy(value)
+					row["ref"] = mapped(kernel.Text(row["ref"]))
+					report[name] = row
+				}
+			}
+		}
+	} else {
+		report = contractBusinessReport(mode)
+		report["status"] = "blocked"
+		report["diagnostics"] = []any{map[string]any{"code": kernel.SemanticCode(err), "message": err.Error(), "source_ref": ref, "locator": nil, "recovery": "核对来源、补齐引用或重新审查当前业务 Ticket 集"}}
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["business_tickets"] = report
+	return err
+}
+
+func contractBusinessReport(mode string) map[string]any {
+	return map[string]any{"schema_version": 1, "read_only": true, "execution_authorization": "not-evaluated", "mode": mode, "status": "passed", "diagnostics": []any{}, "inputs": []any{}, "tickets": []any{}, "uncovered": []string{}, "unassessed": []string{"business-granularity", "semantic-fidelity", "approval-validity"}}
+}
+
+// The report and all strict consumers share these rules. Failed IO stops only
+// its dependent branch; independent rules collect diagnostics, never authority.
+func contractCollectBusinessTickets(s *kernel.SemanticSession, ref, mode, reviewRef string) (out, report map[string]any, failure error) {
+	report = contractBusinessReport(mode)
+	issues, inputs := []any{}, []any{}
+	observed := map[string]string{}
+	issue := func(code, message, source string, locator any) {
+		issues = append(issues, map[string]any{"code": code, "message": message, "source_ref": source, "locator": locator, "recovery": "核对来源、补齐引用或重新审查当前业务 Ticket 集"})
+		if failure == nil {
+			failure = s.Reject(code, message)
+		}
+	}
+	problem := func(err error, code, source string, locator any) bool {
+		if err == nil {
+			return false
+		}
+		if code == "" {
+			code = kernel.SemanticCode(err)
+		}
+		issue(code, err.Error(), source, locator)
+		if kernel.SemanticExit(err) == 2 {
+			failure = err
+		}
+		return true
+	}
+	defer func() {
+		report["diagnostics"], report["inputs"] = issues, inputs
+		if failure != nil {
+			report["status"] = "blocked"
+			out = nil
+		}
+	}()
+	read := func(source string) ([]byte, bool) {
+		if !kernel.ContractPath(source) {
+			issue("BUSINESS_PATH_INVALID", "来源必须为项目内规范相对路径", source, nil)
+			return nil, false
+		}
+		bytes, err := s.Bytes(source)
+		if problem(err, "", source, nil) {
+			return nil, false
+		}
+		digest := "sha256:" + safefs.Digest(bytes)
+		if previous, ok := observed[source]; ok {
+			if previous != digest {
+				issue("INPUT_DRIFT", "读取期间来源变化", source, nil)
+				return nil, false
+			}
+		} else {
+			observed[source] = digest
+			inputs = append(inputs, map[string]any{"ref": source, "digest": digest})
+		}
+		return bytes, true
+	}
+	doc := func(source string) (map[string]any, bool) {
+		if _, ok := read(source); !ok {
+			return nil, false
+		}
+		value, err := s.Doc(source)
+		return value, !problem(err, "", source, nil)
+	}
+	binding := func(value any) (map[string]any, bool) {
+		bound, valid := kernel.Object(value)
+		if !valid || kernel.Text(bound["ref"]) == "" || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(bound["version"])) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(kernel.Text(bound["digest"])) {
+			issue("BINDING_INVALID", "需要 ref/version/digest 来源绑定", ref, nil)
+			return nil, false
+		}
+		source := kernel.Text(bound["ref"])
+		if _, ok := read(source); !ok {
+			return nil, false
+		}
+		if observed[source] != bound["digest"] {
+			issue("SOURCE_STALE", "来源原始字节已变化", source, nil)
+		}
+		return bound, true
+	}
+	validate := func(value map[string]any, source string) {
+		err := s.ValidateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", value)
+		code := "SCHEMA_INVALID"
+		if kernel.SemanticExit(err) == 2 {
+			code = "SCHEMA_UNAVAILABLE"
+		}
+		problem(err, code, source, nil)
+	}
 	if mode != "draft" && mode != "formal" {
-		return nil, s.reject("BUSINESS_MODE_INVALID", "业务票模式必须为 draft 或 formal")
+		issue("MODE_INVALID", "业务票模式必须为 draft 或 formal", ref, nil)
+		return
 	}
-	set, e := s.doc(ref)
-	if e != nil {
-		return nil, e
+	set, ok := doc(ref)
+	if !ok {
+		return
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", set); e != nil {
-		return nil, e
+	validate(set, ref)
+	if kernel.ContractN(set["schema_version"]) != 1 || set["kind"] != "business-ticket-set" || strings.TrimSpace(kernel.Text(set["id"])) == "" || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(set["version"])) || !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(set["status"])) {
+		issue("BUSINESS_SET_INVALID", "业务票集合身份、版本或状态非法", ref, nil)
 	}
-	if text(set["kind"]) != "business-ticket-set" || !semHas([]string{"draft", "ready-for-human"}, text(set["status"])) || mode == "formal" && text(set["status"]) != "ready-for-human" {
-		return nil, s.reject("BUSINESS_TICKETS", "业务票集合不是正式待审资产")
+	report["id"], report["version"], report["spec"] = set["id"], set["version"], set["spec"]
+	report["coverage_deferred"] = append([]any{}, kernel.SemList(set["coverage_deferred"])...)
+	ids, order := map[string]contractPlanEntry{}, []string{}
+	specRef := kernel.Text(kernel.SemMap(set["spec"])["ref"])
+	if bound, valid := binding(set["spec"]); valid {
+		specRef = kernel.Text(bound["ref"])
+		if _, valid = doc(specRef); valid {
+			entries, supported, err := contractPlan(s, specRef)
+			if !problem(err, "", specRef, nil) {
+				if !supported {
+					issue("SPEC_FORMAT_UNASSESSED", "Spec 需显式采用 plan-spec-v1；旧格式不推断覆盖", specRef, nil)
+				}
+				hasFR, hasAC := false, false
+				for _, entry := range entries {
+					if !kernel.SemHas([]string{"FR", "NFR", "AC"}, entry.Kind) {
+						continue
+					}
+					if _, exists := ids[entry.ID]; exists {
+						issue("DUPLICATE_ID", "Spec ID 重复: "+entry.ID, specRef, entry.ID)
+					} else {
+						ids[entry.ID] = entry
+						order = append(order, entry.ID)
+					}
+					hasFR, hasAC = hasFR || entry.Kind == "FR", hasAC || entry.Kind == "AC"
+				}
+				if !hasFR || !hasAC {
+					issue("SPEC_COVERAGE_UNASSESSED", "缺少可机械读取的 FR/AC", specRef, nil)
+				}
+			}
+		}
 	}
-	spec, e := contractBoundDoc(s, set["spec"])
-	if e != nil {
-		return nil, e
+	docs, covered, seenPaths := map[string]any{}, map[string]bool{}, map[string]bool{}
+	reportTickets, ticketOrder := []any{}, []string{}
+	if len(kernel.SemList(set["tickets"])) == 0 {
+		issue("BUSINESS_TICKETS_REQUIRED", "业务票集合必须包含票据", ref, nil)
 	}
-	_ = spec
-	entries, supported, e := contractPlan(s, text(semMap(set["spec"])["ref"]))
-	if e != nil {
-		return nil, e
-	}
-	if !supported {
-		return nil, s.reject("BUSINESS_TICKETS", "Spec 未声明 plan-spec-v1")
-	}
-	ids := map[string]contractPlanEntry{}
-	hasFR, hasAC := false, false
-	for _, entry := range entries {
-		if entry.Kind != "FR" && entry.Kind != "NFR" && entry.Kind != "AC" {
+	for _, value := range kernel.SemList(set["tickets"]) {
+		bound, valid := binding(value)
+		if !valid {
 			continue
 		}
-		if _, ok := ids[entry.ID]; ok {
-			return nil, s.reject("BUSINESS_TICKETS", "Spec ID 不唯一")
+		ticketRef, id := kernel.Text(bound["ref"]), kernel.Text(bound["id"])
+		ticket, valid := doc(ticketRef)
+		if !valid {
+			continue
 		}
-		ids[entry.ID] = entry
-		hasFR = hasFR || entry.Kind == "FR"
-		hasAC = hasAC || entry.Kind == "AC"
-	}
-	if !hasFR || !hasAC {
-		return nil, s.reject("BUSINESS_TICKETS", "Spec 缺少可机械读取的 FR/AC")
-	}
-	docs, covered := map[string]any{}, map[string]bool{}
-	reportTickets := []any{}
-	seenPaths := map[string]bool{}
-	dependencies := map[string][]string{}
-	for _, v := range semList(set["tickets"]) {
-		binding := semMap(v)
-		ticket, e := contractBoundDoc(s, binding)
-		if e != nil {
-			return nil, e
+		validate(ticket, ticketRef)
+		if docs[id] != nil || seenPaths[ticketRef] {
+			issue("DUPLICATE_ID", "Ticket ID 或路径重复: "+id, ticketRef, nil)
 		}
-		if e = s.validateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", ticket); e != nil {
-			return nil, e
+		seenPaths[ticketRef] = true
+		if kernel.ContractN(ticket["schema_version"]) != 1 || ticket["kind"] != "business-ticket" || !regexp.MustCompile(`^BT-[A-Za-z0-9][A-Za-z0-9._-]*$`).MatchString(kernel.Text(ticket["id"])) || !contractSame(ticket["id"], bound["id"]) || !contractSame(ticket["version"], bound["version"]) {
+			issue("BUSINESS_TICKET_INVALID", "类型、稳定 ID 或版本不匹配", ticketRef, nil)
 		}
-		id := text(ticket["id"])
-		if id == "" {
-			id = text(ticket["ticket_id"])
+		if !kernel.SemHas([]string{"draft", "ready-for-human"}, kernel.Text(ticket["status"])) {
+			issue("BUSINESS_READINESS_FORBIDDEN", "业务票不得声明实现就绪", ticketRef, nil)
 		}
-		if docs[id] != nil || seenPaths[text(binding["ref"])] || id != text(binding["id"]) || text(ticket["kind"]) != "business-ticket" || !semHas([]string{"draft", "ready-for-human"}, text(ticket["status"])) || mode == "formal" && text(ticket["status"]) != "ready-for-human" || ticket["version"] != binding["version"] {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票身份、状态或版本非法")
+		if !strings.HasPrefix(ticketRef, path.Join(path.Dir(ref), "business-tickets")+"/") || !strings.HasSuffix(ticketRef, ".md") {
+			issue("BUSINESS_TICKET_LOCATION", "业务票需独立放在 business-tickets/", ticketRef, nil)
 		}
 		if !contractSame(ticket["spec"], set["spec"]) {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票 Spec 绑定冲突")
+			issue("SPEC_BINDING_MISMATCH", "票据与集合的 Spec 依据不一致", ticketRef, nil)
 		}
-		ticketRef := text(binding["ref"])
-		seenPaths[ticketRef] = true
-		if !strings.HasPrefix(ticketRef, path.Join(path.Dir(ref), "business-tickets")+"/") || !strings.HasSuffix(ticketRef, ".md") {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票不在集合相邻目录")
-		}
-		raw, e := s.bytes(ticketRef)
-		if e != nil {
-			return nil, e
-		}
-		body := string(raw)
-		for _, heading := range []string{"业务结果", "范围", "非目标", "验收", "风险"} {
-			if !regexp.MustCompile(`(?m)^##\s+` + heading + `\s*$`).MatchString(body) {
-				return nil, s.reject("BUSINESS_TICKETS", "业务票缺少正文: "+heading)
+		for _, field := range []string{"requirement_refs", "acceptance_refs", "dependencies"} {
+			if !contractUnique(ticket[field], field != "dependencies") {
+				issue("REQUIRED_FIELD", "缺少或重复 "+field, ticketRef, nil)
 			}
 		}
-		if !contractUnique(ticket["requirement_refs"], true) || !contractUnique(ticket["acceptance_refs"], true) {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票需求/验收引用无效")
+		if len(kernel.SemStrings(ticket["requirement_refs"])) == 0 || len(kernel.SemStrings(ticket["acceptance_refs"])) == 0 {
+			issue("COVERAGE_REQUIRED", "需要需求与验收引用", ticketRef, nil)
 		}
-		for _, id := range semStrings(ticket["requirement_refs"]) {
-			if _, ok := ids[id]; !ok {
-				return nil, s.reject("BUSINESS_TICKETS", "未知 Spec ID: "+id)
+		for _, requirement := range kernel.SemStrings(ticket["requirement_refs"]) {
+			entry, exists := ids[requirement]
+			if !exists || !kernel.SemHas([]string{"FR", "NFR"}, entry.Kind) {
+				issue("DANGLING_REFERENCE", "无效引用 "+requirement, ticketRef, nil)
+			} else {
+				covered[requirement] = true
 			}
-			if !semHas([]string{"FR", "NFR"}, ids[id].Kind) {
-				return nil, s.reject("BUSINESS_TICKETS", "需求引用必须为 FR/NFR")
-			}
-			covered[id] = true
 		}
-		for _, id := range semStrings(ticket["acceptance_refs"]) {
-			entry := ids[id]
+		for _, ac := range kernel.SemStrings(ticket["acceptance_refs"]) {
+			entry := ids[ac]
 			if entry.Kind != "AC" {
-				return nil, s.reject("BUSINESS_TICKETS", "验收引用必须为 AC")
+				issue("DANGLING_REFERENCE", "无效引用 "+ac, ticketRef, nil)
+			} else {
+				covered[ac] = true
 			}
-			covered[id] = true
 			requirements := regexp.MustCompile(`\b(?:FR|NFR)-[A-Za-z0-9][A-Za-z0-9._-]*\b`).FindAllString(entry.Fields["需求引用"], -1)
-			if len(requirements) == 0 {
-				return nil, s.reject("BUSINESS_TICKETS", "验收缺少原始需求引用")
-			}
+			mismatch := len(requirements) == 0
 			for _, requirement := range requirements {
-				if !semHas(ticket["requirement_refs"], requirement) {
-					return nil, s.reject("BUSINESS_TICKETS", "业务验收缺少需求覆盖")
+				mismatch = mismatch || !kernel.SemHas(ticket["requirement_refs"], requirement)
+			}
+			if mismatch {
+				issue("AC_REQUIREMENT_MISMATCH", "验收 "+ac+" 与本票需求来源不一致", ticketRef, ac)
+			}
+		}
+		for _, value := range kernel.SemList(ticket["source_refs"]) {
+			bound, valid := binding(value)
+			if valid && kernel.Text(bound["locator"]) != "" {
+				problem(contractBusinessLocator(s, bound), "DANGLING_REFERENCE", kernel.Text(bound["ref"]), bound["locator"])
+			}
+		}
+		raw, err := s.Bytes(ticketRef)
+		if !problem(err, "", ticketRef, nil) {
+			for _, heading := range []string{"业务结果", "范围", "非目标", "验收", "风险"} {
+				if !regexp.MustCompile(`(?m)^##\s+` + heading + `\s*$`).Match(raw) {
+					issue("REQUIRED_SECTION", "缺少 "+heading, ticketRef, nil)
 				}
 			}
 		}
-		for _, v := range semList(ticket["open_questions"]) {
-			q := semMap(v)
-			if e = contractRequired(s, q, "id", "question", "owner", "resolve_by"); e != nil {
-				return nil, e
+		for _, value := range kernel.SemList(ticket["open_questions"]) {
+			q := kernel.SemMap(value)
+			complete := true
+			for _, field := range []string{"id", "question", "owner", "resolve_by"} {
+				complete = complete && strings.TrimSpace(kernel.Text(q[field])) != ""
 			}
-			if _, ok := q["blocking"].(bool); !ok {
-				return nil, s.reject("BUSINESS_TICKETS", "未决项缺少布尔 blocking")
+			if _, valid := q["blocking"].(bool); !valid || !complete {
+				issue("QUESTION_INCOMPLETE", "未决项需问题、责任人、时点及阻断判断", ticketRef, nil)
 			}
 			if mode == "formal" && q["blocking"] == true {
-				return nil, s.reject("BUSINESS_TICKETS", "正式业务票仍有阻断问题")
+				issue("OPEN_BLOCKER", kernel.Text(q["question"]), ticketRef, nil)
 			}
 		}
-		for _, v := range semList(ticket["source_refs"]) {
-			b, e := contractBinding(s, v)
-			if e != nil {
-				return nil, e
-			}
-			if text(b["locator"]) != "" {
-				if e = contractBusinessLocator(s, b); e != nil {
-					return nil, e
-				}
-			}
+		if mode == "formal" && ticket["status"] != "ready-for-human" {
+			issue("TICKET_DRAFT", "正式化仍有草案票", ticketRef, nil)
 		}
-		dependencies[id] = semStrings(ticket["dependencies"])
+		if docs[id] == nil {
+			ticketOrder = append(ticketOrder, id)
+		}
 		docs[id] = ticket
-		reportTickets = append(reportTickets, map[string]any{"id": id, "ref": ticketRef, "version": ticket["version"], "source_digest": binding["digest"], "source_refs": ticket["source_refs"], "requirement_refs": ticket["requirement_refs"], "acceptance_refs": ticket["acceptance_refs"], "dependencies": ticket["dependencies"]})
+		reportTickets = append(reportTickets, map[string]any{"id": id, "ref": ticketRef, "version": bound["version"], "source_digest": bound["digest"], "source_refs": ticket["source_refs"], "requirement_refs": ticket["requirement_refs"], "acceptance_refs": ticket["acceptance_refs"], "dependencies": ticket["dependencies"]})
 	}
+	report["tickets"] = reportTickets
 	active, done := map[string]bool{}, map[string]bool{}
-	var visit func(string) error
-	visit = func(id string) error {
+	var visit func(string)
+	visit = func(id string) {
 		if active[id] {
-			return s.reject("BUSINESS_TICKETS", "业务票依赖循环")
+			issue("DEPENDENCY_CYCLE", "依赖环包含 "+id, ref, nil)
+			return
 		}
 		if done[id] {
-			return nil
+			return
 		}
 		active[id] = true
-		for _, dep := range dependencies[id] {
+		for _, dep := range kernel.SemStrings(kernel.SemMap(docs[id])["dependencies"]) {
 			if docs[dep] == nil {
-				return s.reject("BUSINESS_TICKETS", "未知业务票依赖")
-			}
-			if e := visit(dep); e != nil {
-				return e
+				issue("DANGLING_DEPENDENCY", id+" 依赖未知票 "+dep, ref, nil)
+			} else {
+				visit(dep)
 			}
 		}
 		delete(active, id)
 		done[id] = true
-		return nil
 	}
-	for id := range docs {
-		if e = visit(id); e != nil {
-			return nil, e
-		}
+	for _, id := range ticketOrder {
+		visit(id)
 	}
 	deferred := map[string]bool{}
-	for _, v := range semList(set["coverage_deferred"]) {
-		d := semMap(v)
-		id := first(text(d["source_id"]), text(d["id"]))
-		if _, ok := ids[id]; !ok || covered[id] || deferred[id] {
-			return nil, s.reject("BUSINESS_TICKETS", "延期覆盖非法")
+	for _, value := range kernel.SemList(set["coverage_deferred"]) {
+		row := kernel.SemMap(value)
+		id := kernel.First(kernel.Text(row["source_id"]), kernel.Text(row["id"]))
+		if _, exists := ids[id]; !exists || covered[id] || deferred[id] {
+			issue("DEFERRED_COVERAGE_INVALID", "延期引用无效或重复: "+id, ref, nil)
 		}
-		if e = contractRequired(s, d, "reason", "risk", "owner", "target_version", "followup_ticket_ref", "verification_plan"); e != nil {
-			return nil, e
+		complete := true
+		for _, field := range []string{"reason", "risk", "owner", "target_version", "followup_ticket_ref", "verification_plan"} {
+			complete = complete && strings.TrimSpace(kernel.Text(row[field])) != ""
+		}
+		if !complete {
+			issue("DEFERRED_INCOMPLETE", "延期缺少责任或处理计划: "+id, ref, nil)
 		}
 		if mode == "formal" {
-			if _, e = contractBinding(s, d["decision"]); e != nil {
-				return nil, e
+			if row["decision"] == nil {
+				issue("DEFERRED_DECISION_REQUIRED", "延期缺少既有决定绑定: "+id, ref, nil)
+			} else {
+				binding(row["decision"])
 			}
 		}
 		deferred[id] = true
 	}
-	for id := range ids {
+	uncovered := []string{}
+	for _, id := range order {
 		if !covered[id] && !deferred[id] {
-			return nil, s.reject("BUSINESS_TICKETS", "Spec 未被覆盖: "+id)
+			uncovered = append(uncovered, id)
+			issue("COVERAGE_MISSING", "未覆盖 "+id, specRef, id)
 		}
 	}
+	report["uncovered"] = uncovered
 	if mode == "formal" {
-		reviewRef := first(text(semMap(set["review"])["ref"]), text(set["review_ref"]))
-		review, e := s.doc(reviewRef)
-		if e != nil {
-			return nil, e
+		if set["status"] != "ready-for-human" {
+			issue("SET_DRAFT", "业务集合尚未正式化", ref, nil)
 		}
-		if contractN(review["schema_version"]) != 1 || text(review["kind"]) != "business-ticket-review" || text(review["result"]) != "passed" || text(review["reviewer"]) == "" || text(review["drafter"]) == "" || text(review["reviewer"]) == text(review["drafter"]) {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票独立审查未通过")
-		}
-		bound, e := s.bind(ref)
-		if e != nil {
-			return nil, e
-		}
-		if text(review["subject_ref"]) != ref || text(review["subject_digest"]) != bound.Digest {
-			return nil, s.reject("BUSINESS_TICKETS", "业务票独立审查未绑定当前集合")
-		}
-		if e = s.basis(review["evidence"]); e != nil {
-			return nil, e
-		}
-		if e = s.validateSchema(".template-spec/process/schemas/business-tickets-v1.schema.json", review); e != nil {
-			return nil, e
+		reviewRef = kernel.First(reviewRef, kernel.Text(kernel.SemMap(set["review"])["ref"]), kernel.Text(set["review_ref"]))
+		if review, valid := doc(reviewRef); valid {
+			validate(review, reviewRef)
+			if kernel.ContractN(review["schema_version"]) != 1 || review["kind"] != "business-ticket-review" || review["result"] != "passed" || strings.TrimSpace(kernel.Text(review["reviewer"])) == "" || strings.TrimSpace(kernel.Text(review["drafter"])) == "" || contractSame(review["reviewer"], review["drafter"]) || review["subject_ref"] != ref || review["subject_digest"] != observed[ref] || len(kernel.SemList(review["evidence"])) == 0 {
+				issue("REVIEW_REQUIRED", "需要独立且绑定当前集合的专业审查", reviewRef, nil)
+			}
+			// Keep the existing approval-evidence boundary while collecting business bindings.
+			problem(s.Basis(review["evidence"]), "", reviewRef, nil)
+			for _, evidence := range kernel.SemList(review["evidence"]) {
+				binding(evidence)
+			}
+			report["semantic_review"] = map[string]any{"status": "recorded", "ref": reviewRef, "result": review["result"], "subject_digest": review["subject_digest"]}
+			report["unassessed"] = []string{"approval-validity", "semantic-review-truth"}
 		}
 	}
-	out := contractCopy(set)
-	out["ticket_documents"] = docs
-	out["tickets"] = reportTickets
-	return out, nil
+	out = contractCopy(set)
+	out["ticket_documents"], out["tickets"] = docs, reportTickets
+	return
 }
 
-func contractBusinessCheckpoint(s *semanticSession, cp map[string]any, required bool) error {
-	identity, e := s.doc("yss-project.yaml")
+func contractBusinessCheckpoint(s *kernel.SemanticSession, cp map[string]any, required bool) error {
+	identity, e := s.Doc("yss-project.yaml")
 	if e != nil {
 		return e
 	}
-	if text(identity["repository_mode"]) == "template-source" {
+	if kernel.Text(identity["repository_mode"]) == "template-source" {
 		return nil
 	}
 	version, e := contractBusinessVersion(s)
@@ -2672,24 +2863,24 @@ func contractBusinessCheckpoint(s *semanticSession, cp map[string]any, required 
 	if version != 1 {
 		return nil
 	}
-	profile, e := s.doc(".template-spec/process/harness-profile.yaml")
+	profile, e := s.Doc(".template-spec/process/harness-profile.yaml")
 	if e != nil {
 		return e
 	}
-	if semHas([]string{"harness.backend-delivery", "harness.frontend-delivery"}, text(profile["profile_id"])) {
+	if kernel.SemHas([]string{"harness.backend-delivery", "harness.frontend-delivery"}, kernel.Text(profile["profile_id"])) {
 		return nil
 	}
-	stage, next := text(cp["stage"]), text(cp["next_work_unit"])
-	artifact := semMap(semMap(cp["artifacts"])["artifact.business-ticket-set"])
-	formal := semHas([]string{"work-unit.technical-analysis", "work-unit.strategic-design-handoff", "work-unit.implementation-repository-preparation", "work-unit.ticket-decomposition", "work-unit.slice-implementation"}, next) || semHas([]string{"stage.system-data-engineering", "stage.vertical-slice-implementation", "stage.verification-release-retrospective"}, stage) || stage == "stage.ticket-formalization" && next != "work-unit.business-ticket-formalization"
-	past := semHas([]string{"stage.product-design", "stage.system-data-engineering", "stage.ticket-formalization", "stage.vertical-slice-implementation", "stage.verification-release-retrospective"}, stage)
-	completed := semHas([]string{"work-unit.prototype-design", "work-unit.prototype-design-v2", "work-unit.business-ticket-formalization"}, next) || text(semMap(cp["stage_trace"])["completed_work_unit"]) == "work-unit.spec-synthesis" || stage == "stage.spec-architecture" && semHas([]string{"completed", "paused-human-gate"}, text(cp["status"]))
-	ref := first(text(artifact["ref"]), text(cp["business_ticket_set_ref"]))
+	stage, next := kernel.Text(cp["stage"]), kernel.Text(cp["next_work_unit"])
+	artifact := kernel.SemMap(kernel.SemMap(cp["artifacts"])["artifact.business-ticket-set"])
+	formal := kernel.SemHas([]string{"work-unit.technical-analysis", "work-unit.strategic-design-handoff", "work-unit.implementation-repository-preparation", "work-unit.ticket-decomposition", "work-unit.slice-implementation"}, next) || kernel.SemHas([]string{"stage.system-data-engineering", "stage.vertical-slice-implementation", "stage.verification-release-retrospective"}, stage) || stage == "stage.ticket-formalization" && next != "work-unit.business-ticket-formalization"
+	past := kernel.SemHas([]string{"stage.product-design", "stage.system-data-engineering", "stage.ticket-formalization", "stage.vertical-slice-implementation", "stage.verification-release-retrospective"}, stage)
+	completed := kernel.SemHas([]string{"work-unit.prototype-design", "work-unit.prototype-design-v2", "work-unit.business-ticket-formalization"}, next) || kernel.Text(kernel.SemMap(cp["stage_trace"])["completed_work_unit"]) == "work-unit.spec-synthesis" || stage == "stage.spec-architecture" && kernel.SemHas([]string{"completed", "paused-human-gate"}, kernel.Text(cp["status"]))
+	ref := kernel.First(kernel.Text(artifact["ref"]), kernel.Text(cp["business_ticket_set_ref"]))
 	if !required && !formal && !past && !completed && ref == "" {
 		return nil
 	}
 	if ref == "" {
-		return s.reject("BUSINESS_CHECKPOINT_BLOCKED", "缺少业务票集合")
+		return s.Reject("BUSINESS_CHECKPOINT_BLOCKED", "缺少业务票集合")
 	}
 	var set map[string]any
 	if formal || required {
@@ -2701,62 +2892,63 @@ func contractBusinessCheckpoint(s *semanticSession, cp map[string]any, required 
 		return e
 	}
 	_ = set
-	b, e := s.bind(ref)
+	b, e := s.Bind(ref)
 	if e != nil {
 		return e
 	}
-	if text(artifact["digest"]) != "" && text(artifact["digest"]) != b.Digest {
-		return s.reject("BUSINESS_SYNC_STALE", "checkpoint 业务票摘要过期")
+	if kernel.Text(artifact["digest"]) != "" && kernel.Text(artifact["digest"]) != b.Digest {
+		return s.Reject("BUSINESS_SYNC_STALE", "checkpoint 业务票摘要过期")
 	}
 	for _, name := range []string{"map.md", "parent-ticket.md"} {
 		target := path.Join(path.Dir(ref), name)
-		exists, e := s.exists(target)
+		exists, e := s.Exists(target)
 		if e != nil {
 			return e
 		}
 		if !exists {
 			continue
 		}
-		doc, e := s.doc(target)
+		doc, e := s.Doc(target)
 		if e != nil {
 			return e
 		}
-		if text(doc["business_ticket_set_ref"]) != "" && (text(doc["business_ticket_set_ref"]) != ref || text(doc["business_ticket_set_digest"]) != b.Digest) {
-			return s.reject("BUSINESS_SYNC_STALE", "业务票阅读视图同步过期")
+		if kernel.Text(doc["business_ticket_set_ref"]) != "" && (kernel.Text(doc["business_ticket_set_ref"]) != ref || kernel.Text(doc["business_ticket_set_digest"]) != b.Digest) {
+			return s.Reject("BUSINESS_SYNC_STALE", "业务票阅读视图同步过期")
 		}
 	}
 	return nil
 }
-func verifyRepositoryReadySemantic(s *semanticSession, ref string, opts map[string]string) error {
-	doc, e := s.doc(ref)
+
+func verifyRepositoryReadySemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	doc, e := s.Doc(ref)
 	if e != nil {
 		return e
 	}
-	prep := semMap(doc["implementation_repository_preparation"])
+	prep := kernel.SemMap(doc["implementation_repository_preparation"])
 	if len(prep) == 0 {
 		prep = doc
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/implementation-repository-preparation-result.schema.json", prep); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/implementation-repository-preparation-result.schema.json", prep); e != nil {
 		return e
 	}
-	if contractN(prep["schema_version"]) != 2 || text(prep["result"]) != "completed" || prep["current_version"] != true || doc["implementation_repositories_stale"] == true {
-		return s.reject("REPOSITORY_NOT_READY", "多项目准备不是当前 completed")
+	if kernel.ContractN(prep["schema_version"]) != 2 || kernel.Text(prep["result"]) != "completed" || prep["current_version"] != true || doc["implementation_repositories_stale"] == true {
+		return s.Reject("REPOSITORY_NOT_READY", "多项目准备不是当前 completed")
 	}
 	if e = contractEvidence(s, prep["evidence_refs"]); e != nil {
 		return e
 	}
-	impacts := semMap(doc["delivery_impacts"])
+	impacts := kernel.SemMap(doc["delivery_impacts"])
 	for _, role := range []string{"backend", "frontend"} {
 		found := false
-		for _, v := range semList(prep["projects"]) {
-			p := semMap(v)
-			if text(p["delivery_role"]) != role {
+		for _, v := range kernel.SemList(prep["projects"]) {
+			p := kernel.SemMap(v)
+			if kernel.Text(p["delivery_role"]) != role {
 				continue
 			}
 			found = true
-			if text(p["status"]) == "not-applicable" {
-				if impacts[role] == true || text(p["reason"]) == "" {
-					return s.reject("REPOSITORY_NOT_READY", "不适用与影响冲突")
+			if kernel.Text(p["status"]) == "not-applicable" {
+				if impacts[role] == true || kernel.Text(p["reason"]) == "" {
+					return s.Reject("REPOSITORY_NOT_READY", "不适用与影响冲突")
 				}
 				continue
 			}
@@ -2764,86 +2956,205 @@ func verifyRepositoryReadySemantic(s *semanticSession, ref string, opts map[stri
 				return e
 			}
 			if role == "backend" {
-				if e = contractBackendPrerequisites(s, semMap(p["design_prerequisites"]), nil, opts); e != nil {
+				if e = contractBackendPrerequisites(s, kernel.SemMap(p["design_prerequisites"]), nil, opts); e != nil {
 					return e
 				}
 			}
-			switch text(p["status"]) {
+			switch kernel.Text(p["status"]) {
 			case "existing-and-onboarded":
-				r := semMap(p["onboarding_result"])
-				if text(r["status"]) != "completed" {
-					return s.reject("REPOSITORY_NOT_READY", "接管未完成")
+				r := kernel.SemMap(p["onboarding_result"])
+				if kernel.Text(r["status"]) != "completed" {
+					return s.Reject("REPOSITORY_NOT_READY", "接管未完成")
 				}
-				if _, e = s.bytes(text(r["ref"])); e != nil {
+				if _, e = s.Bytes(kernel.Text(r["ref"])); e != nil {
 					return e
 				}
 			case "initialized-and-verified":
-				c := semMap(p["scaffold_contract"])
-				if text(c["status"]) != "approved" || c["persisted"] != true || c["current_version"] != true || contractN(c["schema_version"]) != 4 {
-					return s.reject("SCAFFOLD_CONTRACT", "非当前批准的 v4 脚手架合同")
+				c := kernel.SemMap(p["scaffold_contract"])
+				if kernel.Text(c["status"]) != "approved" || c["persisted"] != true || c["current_version"] != true || (kernel.ContractN(c["schema_version"]) != 4 && kernel.ContractN(c["schema_version"]) != 5) {
+					return s.Reject("SCAFFOLD_CONTRACT", "非当前批准的 v4 脚手架合同")
 				}
-				manifest, e := s.doc(text(p["scaffold_manifest_ref"]))
+				manifest, e := s.Doc(kernel.Text(p["scaffold_manifest_ref"]))
 				if e != nil {
 					return e
 				}
-				if role == "backend" && (contractN(manifest["schema_version"]) != 4 || text(manifest["completion_level"]) != "empty-scaffold-verified" || !contractSame(manifest["design_prerequisites"], p["design_prerequisites"])) {
-					return s.reject("SCAFFOLD_MANIFEST", "生成资产与准备依据冲突")
+				if role == "backend" && (kernel.ContractN(manifest["schema_version"]) != kernel.ContractN(c["schema_version"]) || kernel.Text(manifest["architecture_profile"]) == "mvc-data-analysis-v1" || kernel.Text(manifest["completion_level"]) != "empty-scaffold-verified" || !contractSame(manifest["design_prerequisites"], p["design_prerequisites"])) {
+					return s.Reject("SCAFFOLD_MANIFEST", "生成资产与准备依据冲突")
 				}
-				verification := semMap(p["scaffold_verification"])
-				if text(verification["status"]) != "passed" {
-					return s.reject("SCAFFOLD_VERIFICATION", "脚手架验证未通过")
+				verification := kernel.SemMap(p["scaffold_verification"])
+				if kernel.Text(verification["status"]) != "passed" {
+					return s.Reject("SCAFFOLD_VERIFICATION", "脚手架验证未通过")
 				}
-				if e = s.verify("verification", text(verification["ref"]), opts); e != nil {
+				if e = s.Verify("verification", kernel.Text(verification["ref"]), opts); e != nil {
 					return e
 				}
 				if role == "frontend" && p["template_available"] != true {
-					return s.reject("SCAFFOLD_TEMPLATE", "前端模板未验证")
+					return s.Reject("SCAFFOLD_TEMPLATE", "前端模板未验证")
 				}
 			default:
-				return s.reject("REPOSITORY_NOT_READY", "不支持的准备状态")
+				return s.Reject("REPOSITORY_NOT_READY", "不支持的准备状态")
 			}
 		}
 		if !found {
-			return s.reject("REPOSITORY_NOT_READY", role+" 缺少工程或不适用决定")
+			return s.Reject("REPOSITORY_NOT_READY", role+" 缺少工程或不适用决定")
 		}
 	}
 	return nil
 }
 
-func contractArchitecture(s *semanticSession, identity map[string]any, c *nativeSlice, registry map[string]any, opts map[string]string) error {
-	if contractN(identity["schema_version"]) == 2 {
+// 公开入口 contract verify --kind scaffold-decisions [--allow-template]：脚手架架构选择记录本身的校验
+// （Node 入口 scripts/verify-scaffold-architecture-decisions 的唯一实现）。模板记录只跳过「必须是正式记录」与用户决定核验。
+func verifyScaffoldDecisionsSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	record, e := s.Doc(ref)
+	if e != nil {
+		return e
+	}
+	if e = s.ValidateSchema(".template-spec/process/schemas/scaffold-architecture-decisions.schema.json", record); e != nil {
+		return e
+	}
+	template := opts["allow-template"] == "true"
+	if !template && record["template"] != false {
+		return s.Reject("SCAFFOLD_DECISION", "正式决策记录必须设置 template: false")
+	}
+	catalog, e := contractPlatformCatalog(s)
+	if e != nil {
+		return e
+	}
+	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
+	if e != nil {
+		return e
+	}
+	ids, projects := map[string]bool{}, map[string]map[string]any{}
+	decisions := kernel.SemList(record["decisions"])
+	reject := func(message string) error { return s.Reject("SCAFFOLD_DECISION", message) }
+	for _, v := range decisions {
+		decision := kernel.SemMap(v)
+		id, project := kernel.Text(decision["decision_id"]), kernel.Text(decision["project_id"])
+		if ids[id] || projects[project] != nil {
+			return reject("decision_id 与 project_id 必须唯一")
+		}
+		ids[id], projects[project] = true, decision
+		configuration := kernel.SemMap(decision["platform_configuration"])
+		if len(configuration) > 0 {
+			var matches []map[string]any
+			for _, p := range kernel.SemList(catalog["profiles"]) {
+				profile := kernel.SemMap(p)
+				if profile["id"] == decision["platform_profile"] && (configuration["spring_boot_version"] == nil || profile["spring_boot_version"] == configuration["spring_boot_version"]) {
+					matches = append(matches, profile)
+				}
+			}
+			if len(matches) != 1 {
+				return reject("平台选择未知或不唯一: " + kernel.Text(decision["platform_profile"]))
+			}
+			if configuration["profile_id"] != matches[0]["id"] || configuration["spring_boot_version"] != matches[0]["spring_boot_version"] || configuration["java_version"] != matches[0]["java_version"] {
+				return reject("platform_configuration 与平台选择不一致")
+			}
+		} else if decision["platform_profile"] != "spring-boot-2.7-jdk8" {
+			return reject("新平台缺少 platform_configuration")
+		}
+		status := kernel.Text(decision["status"])
+		confirmed := kernel.SemHas([]string{"user-confirmed", "lifecycle-approved", "consumed"}, status)
+		if confirmed {
+			complete := kernel.Text(decision["confirmed_architecture"]) != ""
+			for _, item := range kernel.SemMap(decision["user_confirmation"]) {
+				if item == nil || kernel.Text(item) == "" {
+					complete = false
+				}
+			}
+			if !complete {
+				return reject(project + " 已确认状态必须提供完整用户确认引用")
+			}
+		}
+		if !confirmed && status != "stale" && decision["confirmed_architecture"] != nil {
+			return reject(project + " 未确认状态不得预填 confirmed_architecture")
+		}
+		if decision["confirmed_architecture"] != nil && kernel.Text(decision["confirmed_architecture"]) != "" && decision["confirmed_architecture"] != decision["recommended_architecture"] && kernel.Text(decision["override_reason"]) == "" {
+			return reject(project + " 覆盖 Agent 推荐时必须说明 override_reason")
+		}
+		mode := kernel.Text(decision["inheritance_mode"])
+		if mode == "root-default" && (decision["parent_project_id"] != nil || decision["inherited_from"] != nil) {
+			return reject(project + " 根默认不得声明父项目")
+		}
+		if (mode == "inherit" || mode == "override") && (kernel.Text(decision["parent_project_id"]) == "" || decision["inherited_from"] != decision["parent_project_id"]) {
+			return reject(project + " 子项目继承引用不完整")
+		}
+		if confirmed && record["template"] == false {
+			if e = contractScaffoldUserDecision(s, decision); e != nil {
+				return e
+			}
+		}
+		identity := map[string]any{}
+		for key, value := range decision {
+			identity[key] = value
+		}
+		identity["architecture_family"] = decision["confirmed_architecture"]
+		if kernel.Text(decision["confirmed_architecture"]) == "" {
+			identity["architecture_family"] = decision["recommended_architecture"]
+		}
+		identity["generator_skill"] = kernel.SemMap(kernel.SemMap(registry["architecture_profiles"])[kernel.Text(decision["architecture_profile"])])["generator_skill"]
+		identity["contract_digest"] = decision["decision_inputs_digest"]
+		if e = contractArchitecture(s, identity, nil, registry, opts); e != nil {
+			return e
+		}
+	}
+	for _, v := range decisions {
+		decision := kernel.SemMap(v)
+		if decision["parent_project_id"] == nil {
+			continue
+		}
+		parent := projects[kernel.Text(decision["parent_project_id"])]
+		project := kernel.Text(decision["project_id"])
+		if parent == nil {
+			return reject(project + " 引用了不存在的父项目")
+		}
+		if decision["inheritance_mode"] == "inherit" && kernel.Text(decision["confirmed_architecture"]) != "" && kernel.Text(parent["confirmed_architecture"]) != "" && decision["confirmed_architecture"] != parent["confirmed_architecture"] {
+			return reject(project + " 继承值与父项目不一致；需要改为 override")
+		}
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["scaffold_decisions"] = map[string]any{"template": template, "decisions": len(decisions)}
+	return nil
+}
+
+func contractArchitecture(s *kernel.SemanticSession, identity map[string]any, c *nativeSlice, registry map[string]any, opts map[string]string) error {
+	if kernel.ContractN(identity["schema_version"]) == 2 {
 		return contractExistingArchitecture(s, identity, c, registry, opts)
 	}
 	if identity["schema_version"] != nil || identity["source_kind"] != nil {
-		return s.reject("ARCH_SOURCE_UNSUPPORTED", "未知架构身份来源")
+		return s.Reject("ARCH_SOURCE_UNSUPPORTED", "未知架构身份来源")
 	}
-	profile := semMap(semMap(registry["architecture_profiles"])[text(identity["architecture_profile"])])
-	if len(profile) == 0 || profile["architecture_family"] != identity["architecture_family"] || profile["generator_skill"] != identity["generator_skill"] || text(identity["verification_database"]) != "h2" || text(identity["production_database"]) != "not-bound" || !contractUnique(identity["requested_capabilities"], false) {
-		return s.reject("ARCH_IDENTITY_SHAPE", "脚手架架构/Profile/验证数据库不一致")
+	profile := kernel.SemMap(kernel.SemMap(registry["architecture_profiles"])[kernel.Text(identity["architecture_profile"])])
+	if kernel.Text(profile["maturity"]) == "deprecated" {
+		return s.Reject("SCAFFOLD_RETIRED", "退役架构仅供历史审计，不能编译当前实现合同")
 	}
-	modules := semStrings(profile["core_modules"])
-	for _, capability := range semStrings(identity["requested_capabilities"]) {
-		add := semMap(profile["capability_modules"])[capability]
+	if len(profile) == 0 || profile["architecture_family"] != identity["architecture_family"] || profile["generator_skill"] != identity["generator_skill"] || kernel.Text(identity["verification_database"]) != "h2" || kernel.Text(identity["production_database"]) != "not-bound" || !contractUnique(identity["requested_capabilities"], false) {
+		return s.Reject("ARCH_IDENTITY_SHAPE", "脚手架架构/Profile/验证数据库不一致")
+	}
+	modules := kernel.SemStrings(profile["core_modules"])
+	for _, capability := range kernel.SemStrings(identity["requested_capabilities"]) {
+		add := kernel.SemMap(profile["capability_modules"])[capability]
 		if add == nil {
-			return s.reject("ARCH_PROFILE_UNSUPPORTED", "未知架构能力")
+			return s.Reject("ARCH_PROFILE_UNSUPPORTED", "未知架构能力")
 		}
-		modules = contractUnion(modules, semStrings(add))
+		modules = contractUnion(modules, kernel.SemStrings(add))
 	}
-	if !semSameSet(modules, identity["resolved_modules"]) || !isSHA256(strings.TrimPrefix(text(identity["contract_digest"]), "sha256:")) {
-		return s.reject("ARCH_IDENTITY_SHAPE", "模块闭包或合同摘要非法")
+	if !semSameSet(modules, identity["resolved_modules"]) || !kernel.IsSHA256(strings.TrimPrefix(kernel.Text(identity["contract_digest"]), "sha256:")) {
+		return s.Reject("ARCH_IDENTITY_SHAPE", "模块闭包或合同摘要非法")
 	}
 	if c != nil {
 		for _, key := range []string{"engineering_baseline", "repository_registration", "manifest"} {
 			basis := c.Basis[key]
 			if basis == nil {
-				return s.reject("ARCH_EVIDENCE_REF", "缺少架构证据: "+key)
+				return s.Reject("ARCH_EVIDENCE_REF", "缺少架构证据: "+key)
 			}
 			doc, e := contractBoundDoc(s, basis)
 			if e != nil {
 				return e
 			}
 			if !contractSame(identity, doc["architecture_identity"]) {
-				return s.reject("ARCH_IDENTITY_CONFLICT", key+" 架构身份变化")
+				return s.Reject("ARCH_IDENTITY_CONFLICT", key+" 架构身份变化")
 			}
 		}
 	}
@@ -2893,25 +3204,26 @@ func contractParsePOM(b []byte) (contractPOM, error) {
 	}
 	return p, nil
 }
-func contractExistingArchitecture(s *semanticSession, identity map[string]any, c *nativeSlice, registry map[string]any, opts map[string]string) error {
+
+func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string]any, c *nativeSlice, registry map[string]any, opts map[string]string) error {
 	if c == nil {
-		return s.reject("ARCH_EVIDENCE_REF", "既有架构须由冻结依据消费")
+		return s.Reject("ARCH_EVIDENCE_REF", "既有架构须由冻结依据消费")
 	}
-	if text(identity["source_kind"]) != "existing-registration" {
-		return s.reject("ARCH_SOURCE_UNSUPPORTED", "未知既有架构来源")
+	if kernel.Text(identity["source_kind"]) != "existing-registration" {
+		return s.Reject("ARCH_SOURCE_UNSUPPORTED", "未知既有架构来源")
 	}
 	fields := []string{"schema_version", "source_kind", "architecture_family", "architecture_profile", "repository_id", "project_id", "source_digest", "build_units_digest"}
 	if e := contractRequired(s, identity, fields...); e != nil {
 		return e
 	}
 	for key := range identity {
-		if !semHas(append(fields, "platform_configuration"), key) {
-			return s.reject("ARCH_IDENTITY_SHAPE", "既有身份混入生成事实")
+		if !kernel.SemHas(append(fields, "platform_configuration"), key) {
+			return s.Reject("ARCH_IDENTITY_SHAPE", "既有身份混入生成事实")
 		}
 	}
-	profile := semMap(semMap(registry["existing_project_profiles"])[text(identity["architecture_profile"])])
-	if text(profile["source_kind"]) != "existing-registration" || text(profile["build_system"]) != "maven" || profile["architecture_family"] != identity["architecture_family"] {
-		return s.reject("ARCH_PROFILE_UNSUPPORTED", "既有工程 Profile 不支持")
+	profile := kernel.SemMap(kernel.SemMap(registry["existing_project_profiles"])[kernel.Text(identity["architecture_profile"])])
+	if kernel.Text(profile["source_kind"]) != "existing-registration" || kernel.Text(profile["build_system"]) != "maven" || profile["architecture_family"] != identity["architecture_family"] {
+		return s.Reject("ARCH_PROFILE_UNSUPPORTED", "既有工程 Profile 不支持")
 	}
 	if e := contractNeedBasis(s, c.Basis, "engineering_baseline", "repository_registration", "manifest"); e != nil {
 		return e
@@ -2930,50 +3242,50 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 	}
 	for key, doc := range map[string]map[string]any{"baseline": base, "registration": reg, "manifest": manifest} {
 		if !contractSame(identity, doc["architecture_identity"]) || doc["repository_id"] != identity["repository_id"] || doc["project_id"] != identity["project_id"] {
-			return s.reject("ARCH_IDENTITY_CONFLICT", key+" 三方身份冲突")
+			return s.Reject("ARCH_IDENTITY_CONFLICT", key+" 三方身份冲突")
 		}
 	}
-	if text(base["kind"]) != "existing-engineering-baseline" || contractN(base["schema_version"]) != 1 || text(manifest["kind"]) != "existing-project-observation" || contractN(manifest["schema_version"]) != 1 || text(base["status"]) != "current" || text(reg["status"]) != "current" {
-		return s.reject("ARCH_EVIDENCE_STALE", "工程基线/观测来源或状态非法")
+	if kernel.Text(base["kind"]) != "existing-engineering-baseline" || kernel.ContractN(base["schema_version"]) != 1 || kernel.Text(manifest["kind"]) != "existing-project-observation" || kernel.ContractN(manifest["schema_version"]) != 1 || kernel.Text(base["status"]) != "current" || kernel.Text(reg["status"]) != "current" {
+		return s.Reject("ARCH_EVIDENCE_STALE", "工程基线/观测来源或状态非法")
 	}
 	if e = contractRequired(s, reg, "local_worktree", "project_root", "owner", "repository_url"); e != nil {
 		return e
 	}
 	for _, key := range []string{"engineering_baseline", "manifest"} {
-		registered := semMap(semMap(reg["architecture_evidence"])[key])
+		registered := kernel.SemMap(kernel.SemMap(reg["architecture_evidence"])[key])
 		if registered["ref"] != c.Basis[key]["ref"] || registered["digest"] != c.Basis[key]["digest"] {
-			return s.reject("ARCH_EVIDENCE_CONFLICT", "登记未绑定当前 "+key)
+			return s.Reject("ARCH_EVIDENCE_CONFLICT", "登记未绑定当前 "+key)
 		}
 	}
-	repoRoot, root := text(reg["local_worktree"]), filepath.Join(text(reg["local_worktree"]), text(reg["project_root"]))
-	if e = s.registerExternalRoot(repoRoot, text(c.Basis["repository_registration"]["ref"])); e != nil {
+	repoRoot, root := kernel.Text(reg["local_worktree"]), filepath.Join(kernel.Text(reg["local_worktree"]), kernel.Text(reg["project_root"]))
+	if e = s.RegisterExternalRoot(repoRoot, kernel.Text(c.Basis["repository_registration"]["ref"])); e != nil {
 		return e
 	}
 	if root != repoRoot {
-		if e = s.registerExternalRoot(root, text(c.Basis["repository_registration"]["ref"])); e != nil {
+		if e = s.RegisterExternalRoot(root, kernel.Text(c.Basis["repository_registration"]["ref"])); e != nil {
 			return e
 		}
 	}
-	source := semMap(manifest["source"])
-	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(text(source["base_commit"])) || !contractUnique(source["roots"], true) || len(semList(source["files"])) == 0 || !contractSame(source, base["source"]) || contractDigest(source) != text(identity["source_digest"]) {
-		return s.reject("ARCH_SOURCE_MISSING", "固定源码范围或摘要不一致")
+	source := kernel.SemMap(manifest["source"])
+	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(kernel.Text(source["base_commit"])) || !contractUnique(source["roots"], true) || len(kernel.SemList(source["files"])) == 0 || !contractSame(source, base["source"]) || contractDigest(source) != kernel.Text(identity["source_digest"]) {
+		return s.Reject("ARCH_SOURCE_MISSING", "固定源码范围或摘要不一致")
 	}
-	queries := [][]string{{"rev-parse", "--show-toplevel"}, {"rev-parse", text(source["base_commit"]) + "^{commit}"}, {"config", "--local", "--get", "remote.origin.url"}, {"rev-parse", "HEAD"}}
-	expect := []string{repoRoot, text(source["base_commit"]), text(reg["repository_url"]), text(source["base_commit"])}
+	queries := [][]string{{"rev-parse", "--show-toplevel"}, {"rev-parse", kernel.Text(source["base_commit"]) + "^{commit}"}, {"config", "--local", "--get", "remote.origin.url"}, {"rev-parse", "HEAD"}}
+	expect := []string{repoRoot, kernel.Text(source["base_commit"]), kernel.Text(reg["repository_url"]), kernel.Text(source["base_commit"])}
 	for i, q := range queries {
-		out, e := s.git(repoRoot, q...)
+		out, e := s.Git(repoRoot, q...)
 		if e != nil {
 			return e
 		}
 		if strings.TrimSpace(string(out)) != expect[i] {
 			if i != 3 {
-				return s.reject("ARCH_SOURCE_STALE", "Git 根/origin/提交与登记冲突")
+				return s.Reject("ARCH_SOURCE_STALE", "Git 根/origin/提交与登记冲突")
 			}
 			allowed, err := candidateIntentAllowlist(s, repoRoot, c.Ref)
 			if err != nil {
 				return err
 			}
-			differences, err := s.git(repoRoot, "diff", "--no-renames", "--name-only", "-z", text(source["base_commit"]), "HEAD")
+			differences, err := s.Git(repoRoot, "diff", "--no-renames", "--name-only", "-z", kernel.Text(source["base_commit"]), "HEAD")
 			if err != nil {
 				return err
 			}
@@ -2982,12 +3294,12 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 			}
 		}
 	}
-	treeBytes, e := s.git(repoRoot, "ls-tree", "-r", "-z", text(source["base_commit"]))
+	treeBytes, e := s.Git(repoRoot, "ls-tree", "-r", "-z", kernel.Text(source["base_commit"]))
 	if e != nil {
 		return e
 	}
 	tree := map[string]string{}
-	prefix := text(reg["project_root"])
+	prefix := kernel.Text(reg["project_root"])
 	if prefix == "." {
 		prefix = ""
 	} else {
@@ -3001,21 +3313,21 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 		ref := strings.TrimPrefix(parts[1], prefix)
 		skip := false
 		for _, part := range strings.Split(ref, "/") {
-			skip = skip || semHas([]string{".git", "target", "node_modules"}, part)
+			skip = skip || kernel.SemHas([]string{".git", "target", "node_modules"}, part)
 		}
 		if skip {
 			continue
 		}
 		beneath := false
-		for _, scope := range semStrings(source["roots"]) {
+		for _, scope := range kernel.SemStrings(source["roots"]) {
 			beneath = beneath || contractWithin(ref, scope)
 		}
 		if !beneath {
 			continue
 		}
 		meta := strings.Fields(parts[0])
-		if len(meta) != 3 || !semHas([]string{"100644", "100755"}, meta[0]) {
-			return s.reject("ARCH_SOURCE_INVALID", "源码范围有 gitlink/symlink")
+		if len(meta) != 3 || !kernel.SemHas([]string{"100644", "100755"}, meta[0]) {
+			return s.Reject("ARCH_SOURCE_INVALID", "源码范围有 gitlink/symlink")
 		}
 		tree[ref] = meta[2]
 	}
@@ -3024,20 +3336,20 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 		return err
 	}
 	seen, changes := map[string]bool{}, []string{}
-	for _, v := range semList(source["files"]) {
-		f := semMap(v)
-		ref := text(f["path"])
-		if !contractPath(ref) || seen[ref] || text(f["base_blob"]) != tree[ref] || !strings.HasPrefix(text(f["sha256"]), "sha256:") {
-			return s.reject("ARCH_SOURCE_INVALID", "固定源码路径/blob 非法")
+	for _, v := range kernel.SemList(source["files"]) {
+		f := kernel.SemMap(v)
+		ref := kernel.Text(f["path"])
+		if !kernel.ContractPath(ref) || seen[ref] || kernel.Text(f["base_blob"]) != tree[ref] || !strings.HasPrefix(kernel.Text(f["sha256"]), "sha256:") {
+			return s.Reject("ARCH_SOURCE_INVALID", "固定源码路径/blob 非法")
 		}
 		seen[ref] = true
 		if intentAllowed[prefix+ref] {
 			continue
 		} // Original frozen blob/identity stays intact; intent current bytes are independently verified.
-		b, e := s.externalBytes(root, ref)
+		b, e := s.ExternalBytes(root, ref)
 		if e != nil {
-			view := s.externalViews[root]
-			d, x := view.watch(ref)
+			view := s.ExternalViews[root]
+			d, x := view.Watch(ref)
 			if x != nil || d.Type != "missing" {
 				return e
 			}
@@ -3045,7 +3357,7 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 			continue
 		}
 		digest := "sha256:" + safefs.Digest(b)
-		if digest != text(f["sha256"]) {
+		if digest != kernel.Text(f["sha256"]) {
 			changes = append(changes, ref)
 			continue
 		}
@@ -3055,68 +3367,68 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 		blob := hex.EncodeToString(h.Sum(nil))
 		if blob != tree[ref] {
 			found := false
-			for _, p := range semList(source["patches"]) {
-				patch := semMap(p)
-				found = found || text(patch["path"]) == ref && text(patch["base_blob"]) == tree[ref] && text(patch["sha256"]) == digest
+			for _, p := range kernel.SemList(source["patches"]) {
+				patch := kernel.SemMap(p)
+				found = found || kernel.Text(patch["path"]) == ref && kernel.Text(patch["base_blob"]) == tree[ref] && kernel.Text(patch["sha256"]) == digest
 			}
 			if !found {
-				return s.reject("ARCH_SOURCE_UNDECLARED", "未登记基线补丁")
+				return s.Reject("ARCH_SOURCE_UNDECLARED", "未登记基线补丁")
 			}
 		}
 	}
 	if len(seen) != len(tree) {
-		return s.reject("ARCH_SOURCE_INCOMPLETE", "冻结源码清单不完整")
+		return s.Reject("ARCH_SOURCE_INCOMPLETE", "冻结源码清单不完整")
 	}
-	external := newSemanticSession(s.ctx, root, s.args)
-	external.v = s.externalViews[root]
-	s.children = append(s.children, external)
-	for _, scope := range semStrings(source["roots"]) {
-		files, e := external.scan(scope)
+	external := kernel.NewSemanticSession(s.Ctx, root, s.Args)
+	external.V = s.ExternalViews[root]
+	s.Children = append(s.Children, external)
+	for _, scope := range kernel.SemStrings(source["roots"]) {
+		files, e := external.Scan(scope)
 		if e != nil {
 			return e
 		}
 		for _, ref := range files {
 			skip := false
 			for _, part := range strings.Split(ref, "/") {
-				skip = skip || semHas([]string{".git", "target", "node_modules"}, part)
+				skip = skip || kernel.SemHas([]string{".git", "target", "node_modules"}, part)
 			}
 			if !skip && !seen[ref] && !intentAllowed[prefix+ref] {
 				changes = append(changes, ref)
 			}
 		}
 	}
-	units := semList(manifest["build_units"])
-	if len(units) == 0 || !contractSame(units, base["build_units"]) || contractDigest(units) != text(identity["build_units_digest"]) {
-		return s.reject("ARCH_BUILD_STALE", "构建单元摘要变化")
+	units := kernel.SemList(manifest["build_units"])
+	if len(units) == 0 || !contractSame(units, base["build_units"]) || contractDigest(units) != kernel.Text(identity["build_units_digest"]) {
+		return s.Reject("ARCH_BUILD_STALE", "构建单元摘要变化")
 	}
 	unitByPom, artifactMap, poms := map[string]map[string]any{}, map[string]string{}, map[string]contractPOM{}
 	for _, v := range units {
-		u := semMap(v)
-		id, pom := text(u["id"]), text(u["pom_ref"])
+		u := kernel.SemMap(v)
+		id, pom := kernel.Text(u["id"]), kernel.Text(u["pom_ref"])
 		if id == "" || unitByPom[pom] != nil || !seen[pom] {
-			return s.reject("ARCH_BUILD_CONFLICT", "构建单元重复或 POM 未冻结")
+			return s.Reject("ARCH_BUILD_CONFLICT", "构建单元重复或 POM 未冻结")
 		}
-		b, e := s.externalBytes(root, pom)
+		b, e := s.ExternalBytes(root, pom)
 		if e != nil {
 			return e
 		}
 		p, e := contractParsePOM(b)
 		if e != nil {
-			return s.reject("ARCH_BUILD_INVALID", e.Error())
+			return s.Reject("ARCH_BUILD_INVALID", e.Error())
 		}
-		if text(u["artifact_id"]) != p.Artifact || artifactMap[p.Artifact] != "" {
-			return s.reject("ARCH_BUILD_CONFLICT", "artifactId 冲突")
+		if kernel.Text(u["artifact_id"]) != p.Artifact || artifactMap[p.Artifact] != "" {
+			return s.Reject("ARCH_BUILD_CONFLICT", "artifactId 冲突")
 		}
 		artifactMap[p.Artifact] = id
 		unitByPom[pom], poms[id] = u, p
 	}
 	for _, v := range units {
-		u := semMap(v)
-		p := poms[text(u["id"])]
+		u := kernel.SemMap(v)
+		p := poms[kernel.Text(u["id"])]
 		for _, module := range p.Modules {
-			child := path.Join(path.Dir(text(u["pom_ref"])), module, "pom.xml")
-			if strings.Contains(module, "${") || !contractPath(child) || unitByPom[child] == nil {
-				return s.reject("ARCH_BUILD_INCOMPLETE", "实际 reactor 未登记")
+			child := path.Join(path.Dir(kernel.Text(u["pom_ref"])), module, "pom.xml")
+			if strings.Contains(module, "${") || !kernel.ContractPath(child) || unitByPom[child] == nil {
+				return s.Reject("ARCH_BUILD_INCOMPLETE", "实际 reactor 未登记")
 			}
 		}
 		deps := []string{}
@@ -3125,83 +3437,83 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 				deps = contractUnion(deps, []string{artifactMap[artifact]})
 			}
 		}
-		if !contractSame(contractSorted(deps), contractSorted(semStrings(u["depends_on"]))) {
-			return s.reject("ARCH_BUILD_CONFLICT", "实际构建依赖变化")
+		if !contractSame(contractSorted(deps), contractSorted(kernel.SemStrings(u["depends_on"]))) {
+			return s.Reject("ARCH_BUILD_CONFLICT", "实际构建依赖变化")
 		}
-		for _, role := range semStrings(u["roles"]) {
-			refs := semStrings(semMap(u["role_paths"])[role])
+		for _, role := range kernel.SemStrings(u["roles"]) {
+			refs := kernel.SemStrings(kernel.SemMap(u["role_paths"])[role])
 			if len(refs) == 0 {
-				return s.reject("ARCH_BOUNDARY_MISSING", "责任源码映射缺失")
+				return s.Reject("ARCH_BOUNDARY_MISSING", "责任源码映射缺失")
 			}
 			for _, ref := range refs {
 				frozen, boundary := false, false
 				for p := range seen {
 					frozen = frozen || contractWithin(p, ref)
 				}
-				for _, scope := range semStrings(base["boundary_scope"]) {
+				for _, scope := range kernel.SemStrings(base["boundary_scope"]) {
 					boundary = boundary || contractWithin(ref, scope)
 				}
-				if !contractPath(ref) || !frozen || !boundary {
-					return s.reject("ARCH_BOUNDARY_CONFLICT", "责任源码越界")
+				if !kernel.ContractPath(ref) || !frozen || !boundary {
+					return s.Reject("ARCH_BOUNDARY_CONFLICT", "责任源码越界")
 				}
 			}
 		}
 	}
-	for _, role := range semStrings(profile["required_roles"]) {
+	for _, role := range kernel.SemStrings(profile["required_roles"]) {
 		found := false
 		for _, v := range units {
-			found = found || semHas(semMap(v)["roles"], role)
+			found = found || kernel.SemHas(kernel.SemMap(v)["roles"], role)
 		}
 		if !found {
-			return s.reject("ARCH_BOUNDARY_MISSING", "架构责任未覆盖")
+			return s.Reject("ARCH_BOUNDARY_MISSING", "架构责任未覆盖")
 		}
 	}
 	if !contractUnique(reg["allowed_write_paths"], true) || !contractUnique(base["boundary_scope"], true) || !contractUnique(base["verification_commands"], true) || !contractSame(base["verification_commands"], reg["verification_commands"]) {
-		return s.reject("ARCH_REGISTRATION_MISSING", "写范围/业务边界/验证入口无效")
+		return s.Reject("ARCH_REGISTRATION_MISSING", "写范围/业务边界/验证入口无效")
 	}
 	review, e := contractBoundDoc(s, base["boundary_review"])
 	if e != nil {
 		return e
 	}
-	gate := text(review["gate_id"])
-	if !semHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate) {
-		return s.reject("ARCH_REVIEW_MISSING", "边界审查门禁无效")
+	gate := kernel.Text(review["gate_id"])
+	if !kernel.SemHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate) {
+		return s.Reject("ARCH_REVIEW_MISSING", "边界审查门禁无效")
 	}
-	if e = contractApproval(s, gate, c.Basis["manifest"], text(semMap(base["boundary_review"])["ref"]), opts); e != nil {
+	if e = contractApproval(s, gate, c.Basis["manifest"], kernel.Text(kernel.SemMap(base["boundary_review"])["ref"]), opts); e != nil {
 		return e
 	}
 	found := false
-	for _, v := range semList(review["artifact_bindings"]) {
-		b := semMap(v)
-		found = found || b["id"] == base["id"] && b["version"] == base["version"] && text(b["digest"]) == contractDigest(contractWithout(base, "boundary_review"))
+	for _, v := range kernel.SemList(review["artifact_bindings"]) {
+		b := kernel.SemMap(v)
+		found = found || b["id"] == base["id"] && b["version"] == base["version"] && kernel.Text(b["digest"]) == contractDigest(contractWithout(base, "boundary_review"))
 	}
-	if !found || text(base["author"]) == "" || text(review["principal_ref"]) == text(base["author"]) {
-		return s.reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
+	if !found || kernel.Text(base["author"]) == "" || kernel.Text(review["principal_ref"]) == kernel.Text(base["author"]) {
+		return s.Reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
 	}
 	if e = contractEvidence(s, review["evidence_refs"]); e != nil {
 		return e
 	}
-	databases := semMap(base["databases"])
+	databases := kernel.SemMap(base["databases"])
 	if databases["verification"] == nil || databases["production"] == nil {
-		return s.reject("ARCH_DATABASE_MISSING", "验证/生产数据库须分别声明")
+		return s.Reject("ARCH_DATABASE_MISSING", "验证/生产数据库须分别声明")
 	}
 	for _, v := range databases {
-		db := semMap(v)
-		if !semHas([]string{"declared", "verified", "unknown", "not-applicable"}, text(db["status"])) {
-			return s.reject("ARCH_DATABASE_INVALID", "数据库状态非法")
+		db := kernel.SemMap(v)
+		if !kernel.SemHas([]string{"declared", "verified", "unknown", "not-applicable"}, kernel.Text(db["status"])) {
+			return s.Reject("ARCH_DATABASE_INVALID", "数据库状态非法")
 		}
-		if text(db["status"]) == "verified" {
+		if kernel.Text(db["status"]) == "verified" {
 			report, e := contractBoundDoc(s, db["verification"])
 			if e != nil {
 				return e
 			}
 			for _, k := range []string{"engine", "version", "environment_id"} {
-				if text(db[k]) == "" || !contractSame(db[k], report[k]) {
-					return s.reject("ARCH_DATABASE_STALE", "数据库环境/版本不一致")
+				if kernel.Text(db[k]) == "" || !contractSame(db[k], report[k]) {
+					return s.Reject("ARCH_DATABASE_STALE", "数据库环境/版本不一致")
 				}
 			}
 			if report["source_digest"] != identity["source_digest"] {
-				return s.reject("ARCH_DATABASE_STALE", "数据库验证源码变化")
+				return s.Reject("ARCH_DATABASE_STALE", "数据库验证源码变化")
 			}
 			if e = contractRecordedResults(s, report["results"], true); e != nil {
 				return e
@@ -3210,35 +3522,37 @@ func contractExistingArchitecture(s *semanticSession, identity map[string]any, c
 	}
 	for _, ref := range changes {
 		allowed, registered := false, false
-		for _, p := range semStrings(semMap(c.Normalized["common"])["allowed_write_paths"]) {
+		for _, p := range kernel.SemStrings(kernel.SemMap(c.Normalized["common"])["allowed_write_paths"]) {
 			if filepath.IsAbs(p) {
 				p, _ = filepath.Rel(root, p)
 			}
 			allowed = allowed || contractWithin(ref, p)
 		}
-		for _, p := range semStrings(reg["allowed_write_paths"]) {
+		for _, p := range kernel.SemStrings(reg["allowed_write_paths"]) {
 			registered = registered || contractWithin(ref, p)
 		}
 		if !allowed || !registered {
-			return s.reject("ARCH_SOURCE_OUT_OF_SCOPE", "当前源码增量超出已批准范围")
+			return s.Reject("ARCH_SOURCE_OUT_OF_SCOPE", "当前源码增量超出已批准范围")
 		}
 	}
 	return nil
 }
+
 func contractSorted(a []string) []string { x := append([]string(nil), a...); sort.Strings(x); return x }
-func contractRecordedResults(s *semanticSession, v any, bound bool) error {
-	rows := semList(v)
+
+func contractRecordedResults(s *kernel.SemanticSession, v any, bound bool) error {
+	rows := kernel.SemList(v)
 	if len(rows) == 0 {
-		return s.reject("VERIFICATION_REQUIRED", "缺少真实验证记录")
+		return s.Reject("VERIFICATION_REQUIRED", "缺少真实验证记录")
 	}
 	for _, v := range rows {
-		r := semMap(v)
-		exit, ok := integer(r["exit_code"])
-		if text(r["command"]) == "" || !ok || exit != 0 || !contractDate(r["executed_at"]) {
-			return s.reject("VERIFICATION_FAILED", "实际命令、退出码或时间非法")
+		r := kernel.SemMap(v)
+		exit, ok := kernel.Integer(r["exit_code"])
+		if kernel.Text(r["command"]) == "" || !ok || exit != 0 || !contractDate(r["executed_at"]) {
+			return s.Reject("VERIFICATION_FAILED", "实际命令、退出码或时间非法")
 		}
 		if bound {
-			if e := s.basis(r["evidence"]); e != nil {
+			if e := s.Basis(r["evidence"]); e != nil {
 				return e
 			}
 		}
@@ -3246,26 +3560,26 @@ func contractRecordedResults(s *semanticSession, v any, bound bool) error {
 	return nil
 }
 
-func contractComponents(s *semanticSession, resolution, registry map[string]any) error {
-	frozen := semList(resolution["component_bindings"])
+func contractComponents(s *kernel.SemanticSession, resolution, registry map[string]any) error {
+	frozen := kernel.SemList(resolution["component_bindings"])
 	required := []string{}
-	skills := semStrings(resolution["required_skills"])
-	for _, value := range semList(resolution["non_expanding_dependencies"]) {
-		dependency := semMap(value)
-		if text(dependency["type"]) == "component-dependency" {
-			skills = append(skills, text(dependency["skill"]))
+	skills := kernel.SemStrings(resolution["required_skills"])
+	for _, value := range kernel.SemList(resolution["non_expanding_dependencies"]) {
+		dependency := kernel.SemMap(value)
+		if kernel.Text(dependency["type"]) == "component-dependency" {
+			skills = append(skills, kernel.Text(dependency["skill"]))
 		}
 	}
-	for _, v := range semList(registry["capabilities"]) {
-		c := semMap(v)
-		provider := semMap(c["provider"])
-		id := text(c["id"])
-		if text(provider["kind"]) == "yss-component" && (semHas(resolution["required_capabilities"], id) || semHas(skills, text(c["primary_skill"]))) {
-			bindingID := text(provider["binding_id"])
+	for _, v := range kernel.SemList(registry["capabilities"]) {
+		c := kernel.SemMap(v)
+		provider := kernel.SemMap(c["provider"])
+		id := kernel.Text(c["id"])
+		if kernel.Text(provider["kind"]) == "yss-component" && (kernel.SemHas(resolution["required_capabilities"], id) || kernel.SemHas(skills, kernel.Text(c["primary_skill"]))) {
+			bindingID := kernel.Text(provider["binding_id"])
 			if bindingID == "" {
-				return s.reject("COMPONENT_CAPABILITY_INVALID", "组件 provider 缺少 binding_id")
+				return s.Reject("COMPONENT_CAPABILITY_INVALID", "组件 provider 缺少 binding_id")
 			}
-			if !semHas(required, bindingID) {
+			if !kernel.SemHas(required, bindingID) {
 				required = append(required, bindingID)
 			}
 		}
@@ -3274,163 +3588,165 @@ func contractComponents(s *semanticSession, resolution, registry map[string]any)
 		return nil
 	}
 	if len(frozen) == 0 {
-		return s.reject("COMPONENT_CAPABILITY_MISSING", "冻结能力缺少平台证据")
+		return s.Reject("COMPONENT_CAPABILITY_MISSING", "冻结能力缺少平台证据")
 	}
 	catalog, e := contractPlatformCatalog(s)
 	if e != nil {
 		return e
 	}
-	if contractN(catalog["schema_version"]) != 2 {
-		return s.unavailable("CAPABILITY", "未知后端平台目录协议")
+	if kernel.ContractN(catalog["schema_version"]) != 2 {
+		return s.Unavailable("CAPABILITY", "未知后端平台目录协议")
 	}
 	seen := map[string]bool{}
 	contexts := map[string]bool{}
 	coordinates := map[string]map[string]string{}
 	currentBindings := []any{}
 	for _, v := range frozen {
-		binding := semMap(v)
-		id := text(binding["capability_id"])
+		binding := kernel.SemMap(v)
+		id := kernel.Text(binding["capability_id"])
 		contextKey := contractDigest(map[string]any{"platform_configuration": binding["platform_configuration"], "architecture_family": binding["architecture_family"]})
-		if contexts[contextKey+id] || id == "" || !semHas([]string{"domain-driven", "layered-mvc"}, text(binding["architecture_family"])) {
-			return s.reject("COMPONENT_CAPABILITY_INVALID", "组件绑定缺失或重复")
+		if contexts[contextKey+id] || id == "" || !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, kernel.Text(binding["architecture_family"])) {
+			return s.Reject("COMPONENT_CAPABILITY_INVALID", "组件绑定缺失或重复")
 		}
 		seen[id] = true
 		contexts[contextKey+id] = true
-		platform := semMap(binding["platform_configuration"])
+		platform := kernel.SemMap(binding["platform_configuration"])
 		profile, compat, _, e := contractPlatform(s, platform, true)
 		if e != nil {
 			return e
 		}
 		_ = catalog
-		item := semMap(semMap(compat["component_capabilities"])[id])
+		item := kernel.SemMap(kernel.SemMap(compat["component_capabilities"])[id])
 		if len(item) == 0 {
-			return s.reject("COMPONENT_CAPABILITY_MISSING", "组件不在平台闭包")
+			return s.Reject("COMPONENT_CAPABILITY_MISSING", "组件不在平台闭包")
 		}
-		if text(item["status"]) != "verified" || text(compat["status"]) != "verified" || !semHas(item["verified_architectures"], text(binding["architecture_family"])) || len(semList(item["blockers"])) > 0 {
-			return s.reject("COMPONENT_CAPABILITY_UNVERIFIED", "组件/平台/架构组合未验证")
+		if kernel.Text(item["status"]) != "verified" || kernel.Text(compat["status"]) != "verified" || !kernel.SemHas(item["verified_architectures"], kernel.Text(binding["architecture_family"])) || len(kernel.SemList(item["blockers"])) > 0 {
+			return s.Reject("COMPONENT_CAPABILITY_UNVERIFIED", "组件/平台/架构组合未验证")
 		}
-		if text(item["adoption_policy"]) == "forbidden" {
-			return s.reject("COMPONENT_NEW_ADOPTION_FORBIDDEN", "组件已禁止新采纳")
+		if kernel.Text(item["adoption_policy"]) == "forbidden" {
+			return s.Reject("COMPONENT_NEW_ADOPTION_FORBIDDEN", "组件已禁止新采纳")
 		}
 		if coordinates[contextKey] == nil {
 			coordinates[contextKey] = map[string]string{}
 		}
-		for _, value := range semList(item["artifacts"]) {
-			artifact := semMap(value)
-			key := text(artifact["group_id"]) + ":" + text(artifact["artifact_id"])
-			version := text(artifact["declared_version"]) + "->" + text(artifact["resolved_version"])
+		for _, value := range kernel.SemList(item["artifacts"]) {
+			artifact := kernel.SemMap(value)
+			key := kernel.Text(artifact["group_id"]) + ":" + kernel.Text(artifact["artifact_id"])
+			version := kernel.Text(artifact["declared_version"]) + "->" + kernel.Text(artifact["resolved_version"])
 			if previous := coordinates[contextKey][key]; previous != "" && previous != version {
-				return s.reject("COMPONENT_ARTIFACT_COORDINATE_CONFLICT", "同平台组件坐标解析版本冲突: "+key)
+				return s.Reject("COMPONENT_ARTIFACT_COORDINATE_CONFLICT", "同平台组件坐标解析版本冲突: "+key)
 			}
 			coordinates[contextKey][key] = version
 		}
 		currentEvidence := []any{}
-		for _, v := range semList(item["evidence"]) {
-			ev := semMap(v)
+		for _, v := range kernel.SemList(item["evidence"]) {
+			ev := kernel.SemMap(v)
 			if ev["architecture_family"] == binding["architecture_family"] {
 				currentEvidence = append(currentEvidence, ev)
 			}
 		}
-		if len(currentEvidence) == 0 || text(binding["component_digest"]) != text(item["component_digest"]) || !contractSame(binding["artifacts"], item["artifacts"]) || !contractSame(binding["evidence"], currentEvidence) || !contractSame(binding["verified_architectures"], item["verified_architectures"]) || text(binding["status"]) != text(item["status"]) {
-			return s.reject("COMPONENT_CAPABILITY_STALE", "组件冻结绑定变化")
+		if len(currentEvidence) == 0 || kernel.Text(binding["component_digest"]) != kernel.Text(item["component_digest"]) || !contractSame(binding["artifacts"], item["artifacts"]) || !contractSame(binding["evidence"], currentEvidence) || !contractSame(binding["verified_architectures"], item["verified_architectures"]) || kernel.Text(binding["status"]) != kernel.Text(item["status"]) {
+			return s.Reject("COMPONENT_CAPABILITY_STALE", "组件冻结绑定变化")
 		}
 		currentBindings = append(currentBindings, map[string]any{"capability_id": id, "status": item["status"], "verified_architectures": item["verified_architectures"], "artifacts": item["artifacts"], "evidence": currentEvidence, "component_digest": item["component_digest"], "architecture_family": binding["architecture_family"], "platform_configuration": binding["platform_configuration"]})
-		for _, v := range semList(binding["evidence"]) {
-			ev := semMap(v)
+		for _, v := range kernel.SemList(binding["evidence"]) {
+			ev := kernel.SemMap(v)
 			doc, e := contractBoundDoc(s, ev)
 			if e != nil {
 				return e
 			}
-			if contractN(doc["schema_version"]) != 1 || text(doc["kind"]) != "backend-component-capability-evidence" || text(doc["status"]) != "passed" || doc["capability_id"] != binding["capability_id"] || doc["component_digest"] != binding["component_digest"] || doc["architecture_family"] != binding["architecture_family"] || doc["compatibility_id"] != compat["id"] || doc["profile_id"] != profile["id"] || doc["spring_boot_version"] != profile["spring_boot_version"] || !contractSame(doc["artifacts"], binding["artifacts"]) {
-				return s.reject("COMPONENT_CAPABILITY_STALE", "组件真实证据来源不一致")
+			if kernel.ContractN(doc["schema_version"]) != 1 || kernel.Text(doc["kind"]) != "backend-component-capability-evidence" || kernel.Text(doc["status"]) != "passed" || doc["capability_id"] != binding["capability_id"] || doc["component_digest"] != binding["component_digest"] || doc["architecture_family"] != binding["architecture_family"] || doc["compatibility_id"] != compat["id"] || doc["profile_id"] != profile["id"] || doc["spring_boot_version"] != profile["spring_boot_version"] || !contractSame(doc["artifacts"], binding["artifacts"]) {
+				return s.Reject("COMPONENT_CAPABILITY_STALE", "组件真实证据来源不一致")
 			}
 		}
 	}
 	for _, id := range required {
 		if !seen[id] {
-			return s.reject("COMPONENT_CAPABILITY_MISSING", "所需组件未冻结")
+			return s.Reject("COMPONENT_CAPABILITY_MISSING", "所需组件未冻结")
 		}
 	}
-	if len(frozen) > 0 && (!contractSame(frozen, currentBindings) || text(resolution["component_bindings_digest"]) != strings.TrimPrefix(contractDigest(currentBindings), "sha256:")) {
-		return s.reject("COMPONENT_CAPABILITY_STALE", "冻结组件闭包摘要变化")
+	if len(frozen) > 0 && (!contractSame(frozen, currentBindings) || kernel.Text(resolution["component_bindings_digest"]) != strings.TrimPrefix(contractDigest(currentBindings), "sha256:")) {
+		return s.Reject("COMPONENT_CAPABILITY_STALE", "冻结组件闭包摘要变化")
 	}
 	return nil
 }
-func contractDesignTargets(s *semanticSession, data map[string]any) (map[string]map[string]any, map[string]map[string]any, error) {
+
+func contractDesignTargets(s *kernel.SemanticSession, data map[string]any) (map[string]map[string]any, map[string]map[string]any, error) {
 	design := data
-	if contractN(data["schema_version"]) == 2 {
-		design = semMap(data["design"])
+	if kernel.ContractN(data["schema_version"]) == 2 {
+		design = kernel.SemMap(data["design"])
 	}
 	ids, seams := map[string]map[string]any{}, map[string]map[string]any{}
 	keys := map[string]string{"aggregate_catalog": "aggregate_id", "entity_catalog": "entity_id", "value_object_catalog": "value_object_id", "behavior_catalog": "behavior_id", "invariant_catalog": "invariant_id", "state_transition_catalog": "transition_id", "domain_event_catalog": "event_id", "gateway_catalog": "gateway_id", "module_catalog": "module_id", "use_case_catalog": "use_case_id", "rule_catalog": "rule_id", "integration_catalog": "integration_id", "component_catalog": "component_id"}
 	for catalog, key := range keys {
-		for _, v := range semList(design[catalog]) {
-			item := semMap(v)
-			id := text(item[key])
+		for _, v := range kernel.SemList(design[catalog]) {
+			item := kernel.SemMap(v)
+			id := kernel.Text(item[key])
 			if id == "" {
-				id = text(item["id"])
+				id = kernel.Text(item["id"])
 			}
 			if id == "" || ids[id] != nil {
-				return nil, nil, s.reject("TECHNICAL_DESIGN_INVALID", "设计 ID 缺失或重复")
+				return nil, nil, s.Reject("TECHNICAL_DESIGN_INVALID", "设计 ID 缺失或重复")
 			}
 			ids[id] = item
 		}
 	}
-	for _, v := range semList(design["persistence_mapping"]) {
-		item := semMap(v)
-		id := text(item["mapping_id"])
+	for _, v := range kernel.SemList(design["persistence_mapping"]) {
+		item := kernel.SemMap(v)
+		id := kernel.Text(item["mapping_id"])
 		if id == "" {
-			id = text(item["id"])
+			id = kernel.Text(item["id"])
 		}
 		if id != "" {
 			if ids[id] != nil {
-				return nil, nil, s.reject("TECHNICAL_DESIGN_INVALID", "持久化设计 ID 重复")
+				return nil, nil, s.Reject("TECHNICAL_DESIGN_INVALID", "持久化设计 ID 重复")
 			}
 			ids[id] = item
 		}
 	}
-	for _, v := range semList(design["test_seams"]) {
-		item := semMap(v)
-		id := first(text(item["seam_id"]), text(item["id"]))
+	for _, v := range kernel.SemList(design["test_seams"]) {
+		item := kernel.SemMap(v)
+		id := kernel.First(kernel.Text(item["seam_id"]), kernel.Text(item["id"]))
 		if id == "" || seams[id] != nil {
-			return nil, nil, s.reject("TECHNICAL_DESIGN_INVALID", "seam ID 缺失或重复")
+			return nil, nil, s.Reject("TECHNICAL_DESIGN_INVALID", "seam ID 缺失或重复")
 		}
 		seams[id] = item
 	}
 	return ids, seams, nil
 }
-func contractTraceRow(s *semanticSession, row, source map[string]any, ids, seams map[string]map[string]any, slice string) error {
-	switch text(row["disposition"]) {
+
+func contractTraceRow(s *kernel.SemanticSession, row, source map[string]any, ids, seams map[string]map[string]any, slice string) error {
+	switch kernel.Text(row["disposition"]) {
 	case "implemented":
 		if !contractUnique(row["tactical_refs"], true) || !contractUnique(row["test_seam_refs"], true) {
-			return s.reject("TECHNICAL_TRACEABILITY", "设计落点或 seam 缺失")
+			return s.Reject("TECHNICAL_TRACEABILITY", "设计落点或 seam 缺失")
 		}
-		for _, ref := range semStrings(row["tactical_refs"]) {
+		for _, ref := range kernel.SemStrings(row["tactical_refs"]) {
 			if ids[ref] == nil {
-				return s.reject("TECHNICAL_TRACEABILITY", "设计落点悬空")
+				return s.Reject("TECHNICAL_TRACEABILITY", "设计落点悬空")
 			}
 		}
-		for _, ref := range semStrings(row["test_seam_refs"]) {
-			if seams[ref] == nil || !semHas(row["tactical_refs"], text(seams[ref]["subject_ref"])) {
-				return s.reject("TECHNICAL_TRACEABILITY", "seam 未关联设计落点")
+		for _, ref := range kernel.SemStrings(row["test_seam_refs"]) {
+			if seams[ref] == nil || !kernel.SemHas(row["tactical_refs"], kernel.Text(seams[ref]["subject_ref"])) {
+				return s.Reject("TECHNICAL_TRACEABILITY", "seam 未关联设计落点")
 			}
 		}
-		if (text(source["kind"]) == "scenario" || strings.HasPrefix(text(row["source_id"]), "scenario.")) && source["critical"] == true {
+		if (kernel.Text(source["kind"]) == "scenario" || strings.HasPrefix(kernel.Text(row["source_id"]), "scenario.")) && source["critical"] == true {
 			for _, outcome := range []string{"success", "failure"} {
 				found := false
-				for _, v := range semList(row["scenario_tests"]) {
-					test := semMap(v)
-					found = found || text(test["outcome"]) == outcome && semHas(row["test_seam_refs"], text(test["seam_ref"]))
+				for _, v := range kernel.SemList(row["scenario_tests"]) {
+					test := kernel.SemMap(v)
+					found = found || kernel.Text(test["outcome"]) == outcome && kernel.SemHas(row["test_seam_refs"], kernel.Text(test["seam_ref"]))
 				}
 				if !found {
-					return s.reject("TECHNICAL_TRACEABILITY", "关键场景缺少成功/失败测试")
+					return s.Reject("TECHNICAL_TRACEABILITY", "关键场景缺少成功/失败测试")
 				}
 			}
 		}
 		return contractEvidence(s, row["evidence_refs"])
 	case "not-applicable":
-		if text(row["reason"]) == "" {
-			return s.reject("TECHNICAL_TRACEABILITY", "不适用缺少理由")
+		if kernel.Text(row["reason"]) == "" {
+			return s.Reject("TECHNICAL_TRACEABILITY", "不适用缺少理由")
 		}
 		return contractEvidence(s, row["evidence_refs"])
 	case "deferred":
@@ -3439,115 +3755,116 @@ func contractTraceRow(s *semanticSession, row, source map[string]any, ids, seams
 		}
 		fallthrough
 	case "pending", "conflict":
-		if slice == "" || text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) || semHas(row["dependent_slice_refs"], slice) {
-			return s.reject("TECHNICAL_TRACEABILITY", "未闭合承接阻断当前切片")
+		if slice == "" || kernel.Text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) || kernel.SemHas(row["dependent_slice_refs"], slice) {
+			return s.Reject("TECHNICAL_TRACEABILITY", "未闭合承接阻断当前切片")
 		}
 		return nil
 	default:
-		return s.reject("TECHNICAL_TRACEABILITY", "未知承接状态")
+		return s.Reject("TECHNICAL_TRACEABILITY", "未知承接状态")
 	}
 }
-func contractTechnicalDesign(s *semanticSession, ref string, doc map[string]any, c *nativeSlice, opts map[string]string) error {
-	if contractN(doc["schema_version"]) != 2 {
-		if contractN(doc["schema_version"]) != 1 || opts["legacy-ddd"] != "true" {
-			return s.reject("TECHNICAL_LEGACY_REQUIRED", "历史Tactical v1须显式legacy-ddd只读适配")
+
+func contractTechnicalDesign(s *kernel.SemanticSession, ref string, doc map[string]any, c *nativeSlice, opts map[string]string) error {
+	if kernel.ContractN(doc["schema_version"]) != 2 {
+		if kernel.ContractN(doc["schema_version"]) != 1 || opts["legacy-ddd"] != "true" {
+			return s.Reject("TECHNICAL_LEGACY_REQUIRED", "历史Tactical v1须显式legacy-ddd只读适配")
 		}
 		if e := contractTactical(s, doc); e != nil {
 			return e
 		}
-		if (c != nil || opts["slice"] != "") && text(doc["status"]) != "approved" {
-			return s.reject("TECHNICAL_DESIGN_STALE", "Slice仅消费approved历史DDD")
+		if (c != nil || opts["slice"] != "") && kernel.Text(doc["status"]) != "approved" {
+			return s.Reject("TECHNICAL_DESIGN_STALE", "Slice仅消费approved历史DDD")
 		}
-		if doc["strategic_handoff"] != nil || doc["strategic_context_import_ref"] != nil || semMap(doc["upstream_impact"])["source_kind"] == "strategic-handoff" {
+		if doc["strategic_handoff"] != nil || doc["strategic_context_import_ref"] != nil || kernel.SemMap(doc["upstream_impact"])["source_kind"] == "strategic-handoff" {
 			return contractHandoffConsumption(s, doc, map[string]string{"consumer": "tactical", "slice": opts["slice"]})
 		}
-		s.report.Checks = append(s.report.Checks, SemanticCheck{ID: "legacy-ddd-read-only", SourceRef: ref, Status: "passed"})
+		s.Report.Checks = append(s.Report.Checks, kernel.SemanticCheck{ID: "legacy-ddd-read-only", SourceRef: ref, Status: "passed"})
 		return nil
 	}
-	if e := s.validateSchema(".agents/skills/yss-technical-design/references/technical-design.schema.json", doc); e != nil {
+	if e := s.ValidateSchema(".agents/skills/yss-technical-design/references/technical-design.schema.json", doc); e != nil {
 		return e
 	}
-	if text(doc["digest"]) != contractDigest(contractWithout(doc, "digest")) {
-		return s.reject("TECHNICAL_DESIGN_STALE", "技术设计摘要不一致")
+	if kernel.Text(doc["digest"]) != contractDigest(contractWithout(doc, "digest")) {
+		return s.Reject("TECHNICAL_DESIGN_STALE", "技术设计摘要不一致")
 	}
-	if semHas([]string{"stale", "blocked", "drift", "new_impacts"}, text(doc["status"])) || c != nil && text(doc["status"]) != "approved" {
-		return s.reject("TECHNICAL_DESIGN_STALE", "技术设计状态不能消费")
+	if kernel.SemHas([]string{"stale", "blocked", "drift", "new_impacts"}, kernel.Text(doc["status"])) || c != nil && kernel.Text(doc["status"]) != "approved" {
+		return s.Reject("TECHNICAL_DESIGN_STALE", "技术设计状态不能消费")
 	}
-	architecture := semMap(doc["architecture"])
+	architecture := kernel.SemMap(doc["architecture"])
 	binding := map[string]any{"ref": architecture["decision_ref"], "digest": architecture["decision_digest"]}
 	record, e := contractBoundDoc(s, binding)
 	if e != nil {
 		return e
 	}
-	if text(architecture["source_kind"]) == "scaffold-decision" {
-		decision := apFind(record["decisions"], "project_id", text(architecture["project_id"]))
-		if record["template"] != false || text(record["status"]) != "current" || !semHas([]string{"user-confirmed", "lifecycle-approved", "consumed"}, text(decision["status"])) || decision["confirmed_architecture"] != architecture["family"] {
-			return s.reject("TECHNICAL_ARCHITECTURE", "项目架构未正式确认")
+	if kernel.Text(architecture["source_kind"]) == "scaffold-decision" {
+		decision := kernel.ApFind(record["decisions"], "project_id", kernel.Text(architecture["project_id"]))
+		if record["template"] != false || kernel.Text(record["status"]) != "current" || !kernel.SemHas([]string{"user-confirmed", "lifecycle-approved", "consumed"}, kernel.Text(decision["status"])) || decision["confirmed_architecture"] != architecture["family"] {
+			return s.Reject("TECHNICAL_ARCHITECTURE", "项目架构未正式确认")
 		}
 		if e = contractScaffoldUserDecision(s, decision); e != nil {
 			return e
 		}
 	} else {
-		entry := apFind(record["repositories"], "project_id", text(architecture["project_id"]))
+		entry := kernel.ApFind(record["repositories"], "project_id", kernel.Text(architecture["project_id"]))
 		if len(entry) == 0 {
 			entry = record
 		}
-		if entry["project_id"] != architecture["project_id"] || semMap(entry["architecture_identity"])["architecture_family"] != architecture["family"] || semHas([]string{"stale", "blocked"}, text(entry["status"])) {
-			return s.reject("TECHNICAL_ARCHITECTURE", "既有登记身份变化")
+		if entry["project_id"] != architecture["project_id"] || kernel.SemMap(entry["architecture_identity"])["architecture_family"] != architecture["family"] || kernel.SemHas([]string{"stale", "blocked"}, kernel.Text(entry["status"])) {
+			return s.Reject("TECHNICAL_ARCHITECTURE", "既有登记身份变化")
 		}
-		if contractN(semMap(entry["architecture_identity"])["schema_version"]) == 2 {
-			registry, e := s.doc(".template-spec/agents/yss-skill-registry.yaml")
+		if kernel.ContractN(kernel.SemMap(entry["architecture_identity"])["schema_version"]) == 2 {
+			registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
 			if e != nil {
 				return e
 			}
 			architectureContext := c
 			if architectureContext == nil {
-				evidence := semMap(entry["architecture_evidence"])
+				evidence := kernel.SemMap(entry["architecture_evidence"])
 				basis := map[string]map[string]any{
 					"repository_registration": {"ref": architecture["decision_ref"], "digest": architecture["decision_digest"]},
-					"engineering_baseline":    semMap(evidence["engineering_baseline"]),
-					"manifest":                semMap(evidence["manifest"]),
+					"engineering_baseline":    kernel.SemMap(evidence["engineering_baseline"]),
+					"manifest":                kernel.SemMap(evidence["manifest"]),
 				}
 				architectureContext = &nativeSlice{Raw: map[string]any{}, Normalized: map[string]any{"common": map[string]any{"allowed_write_paths": []any{}}}, Basis: basis}
 			}
-			if e = contractExistingArchitecture(s, semMap(entry["architecture_identity"]), architectureContext, registry, opts); e != nil {
+			if e = contractExistingArchitecture(s, kernel.SemMap(entry["architecture_identity"]), architectureContext, registry, opts); e != nil {
 				return e
 			}
 		}
 	}
 	context, spec, strategic := false, false, false
-	for _, v := range semList(doc["inputs"]) {
-		b := semMap(v)
+	for _, v := range kernel.SemList(doc["inputs"]) {
+		b := kernel.SemMap(v)
 		if _, e = contractBinding(s, b); e != nil {
 			return e
 		}
-		context = context || text(b["kind"]) == "context" && text(b["ref"]) == "CONTEXT.md"
-		spec = spec || text(b["kind"]) == "spec"
-		strategic = strategic || text(b["kind"]) == "strategic"
+		context = context || kernel.Text(b["kind"]) == "context" && kernel.Text(b["ref"]) == "CONTEXT.md"
+		spec = spec || kernel.Text(b["kind"]) == "spec"
+		strategic = strategic || kernel.Text(b["kind"]) == "strategic"
 	}
 	if !context || !spec {
-		return s.reject("TECHNICAL_DESIGN_INPUT", "缺少当前 Context/Spec")
+		return s.Reject("TECHNICAL_DESIGN_INPUT", "缺少当前 Context/Spec")
 	}
-	if text(doc["status"]) == "approved" {
+	if kernel.Text(doc["status"]) == "approved" {
 		if e = contractEvidence(s, doc["evidence_refs"]); e != nil {
 			return e
 		}
 	}
-	design := semMap(doc["design"])
-	if text(doc["design_scope"]) == "engineering-only" {
+	design := kernel.SemMap(doc["design"])
+	if kernel.Text(doc["design_scope"]) == "engineering-only" {
 		if e = contractEngineeringDesign(s, doc, record); e != nil {
 			return e
 		}
-	} else if text(architecture["family"]) == "layered-mvc" {
+	} else if kernel.Text(architecture["family"]) == "layered-mvc" {
 		if e = contractMVC(s, design); e != nil {
 			return e
 		}
 	} else {
 		if !strategic {
-			return s.reject("TECHNICAL_DESIGN_INPUT", "DDD 缺少战略输入")
+			return s.Reject("TECHNICAL_DESIGN_INPUT", "DDD 缺少战略输入")
 		}
 		if design["strategic_handoff"] != nil {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "DDD 不得另存战略绑定")
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "DDD 不得另存战略绑定")
 		}
 		if e = contractTactical(s, design); e != nil {
 			return e
@@ -3558,44 +3875,44 @@ func contractTechnicalDesign(s *semanticSession, ref string, doc map[string]any,
 		return e
 	}
 	for _, seam := range seams {
-		if ids[text(seam["subject_ref"])] == nil {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "seam 主体悬空")
+		if ids[kernel.Text(seam["subject_ref"])] == nil {
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "seam 主体悬空")
 		}
 	}
 	sources, rows := map[string]map[string]any{}, map[string]map[string]any{}
-	for _, v := range semList(doc["source_items"]) {
-		source := semMap(v)
-		id := text(source["source_id"])
+	for _, v := range kernel.SemList(doc["source_items"]) {
+		source := kernel.SemMap(v)
+		id := kernel.Text(source["source_id"])
 		if sources[id] != nil {
-			return s.reject("TECHNICAL_TRACEABILITY", "来源重复")
+			return s.Reject("TECHNICAL_TRACEABILITY", "来源重复")
 		}
 		found := false
-		for _, v := range semList(doc["inputs"]) {
-			found = found || semMap(v)["ref"] == source["source_ref"]
+		for _, v := range kernel.SemList(doc["inputs"]) {
+			found = found || kernel.SemMap(v)["ref"] == source["source_ref"]
 		}
 		if !found {
-			return s.reject("TECHNICAL_TRACEABILITY", "来源不在冻结输入")
+			return s.Reject("TECHNICAL_TRACEABILITY", "来源不在冻结输入")
 		}
 		sources[id] = source
 	}
 	if len(sources) == 0 && doc["strategic_handoff"] == nil {
-		return s.reject("TECHNICAL_TRACEABILITY", "无战略包须列本地规则/场景")
+		return s.Reject("TECHNICAL_TRACEABILITY", "无战略包须列本地规则/场景")
 	}
-	for _, v := range semList(doc["traceability"]) {
-		row := semMap(v)
-		id := text(row["source_id"])
+	for _, v := range kernel.SemList(doc["traceability"]) {
+		row := kernel.SemMap(v)
+		id := kernel.Text(row["source_id"])
 		if rows[id] != nil || sources[id] == nil {
-			return s.reject("TECHNICAL_TRACEABILITY", "承接重复或来源未知")
+			return s.Reject("TECHNICAL_TRACEABILITY", "承接重复或来源未知")
 		}
 		rows[id] = row
 	}
 	slice := opts["slice"]
 	if c != nil {
-		slice = text(c.Raw["slice_id"])
+		slice = kernel.Text(c.Raw["slice_id"])
 	}
 	for id, source := range sources {
 		if rows[id] == nil {
-			return s.reject("TECHNICAL_TRACEABILITY", "缺少逐条承接")
+			return s.Reject("TECHNICAL_TRACEABILITY", "缺少逐条承接")
 		}
 		if e = contractTraceRow(s, rows[id], source, ids, seams, slice); e != nil {
 			return e
@@ -3606,164 +3923,167 @@ func contractTechnicalDesign(s *semanticSession, ref string, doc map[string]any,
 	}
 	return nil
 }
-func contractEngineeringDesign(s *semanticSession, data, registration map[string]any) error {
-	identity := semMap(registration["architecture_identity"])
-	if contractN(identity["schema_version"]) != 2 || text(identity["source_kind"]) != "existing-registration" {
-		return s.reject("ENGINEERING_DESIGN_INVALID", "工程分支必须消费既有工程身份 v2")
+
+func contractEngineeringDesign(s *kernel.SemanticSession, data, registration map[string]any) error {
+	identity := kernel.SemMap(registration["architecture_identity"])
+	if kernel.ContractN(identity["schema_version"]) != 2 || kernel.Text(identity["source_kind"]) != "existing-registration" {
+		return s.Reject("ENGINEERING_DESIGN_INVALID", "工程分支必须消费既有工程身份 v2")
 	}
-	binding := semMap(semMap(registration["architecture_evidence"])["engineering_baseline"])
+	binding := kernel.SemMap(kernel.SemMap(registration["architecture_evidence"])["engineering_baseline"])
 	baseline, e := contractBoundDoc(s, binding)
 	if e != nil {
 		return e
 	}
 	boundEngineering, boundAPI := false, false
-	for _, v := range semList(data["inputs"]) {
-		b := semMap(v)
-		boundEngineering = boundEngineering || text(b["kind"]) == "engineering" && b["ref"] == binding["ref"] && b["digest"] == binding["digest"]
-		boundAPI = boundAPI || text(b["kind"]) == "api"
+	for _, v := range kernel.SemList(data["inputs"]) {
+		b := kernel.SemMap(v)
+		boundEngineering = boundEngineering || kernel.Text(b["kind"]) == "engineering" && b["ref"] == binding["ref"] && b["digest"] == binding["digest"]
+		boundAPI = boundAPI || kernel.Text(b["kind"]) == "api"
 	}
 	if !boundEngineering || !boundAPI {
-		return s.reject("ENGINEERING_DESIGN_INVALID", "工程分支缺少固定基线/API输入")
+		return s.Reject("ENGINEERING_DESIGN_INVALID", "工程分支缺少固定基线/API输入")
 	}
-	d := semMap(data["design"])
+	d := kernel.SemMap(data["design"])
 	components := map[string]map[string]any{}
-	for _, v := range semList(d["component_catalog"]) {
-		c := semMap(v)
-		id := text(c["component_id"])
+	for _, v := range kernel.SemList(d["component_catalog"]) {
+		c := kernel.SemMap(v)
+		id := kernel.Text(c["component_id"])
 		if components[id] != nil || id == "" {
-			return s.reject("ENGINEERING_DESIGN_INVALID", "组件ID缺失或重复")
+			return s.Reject("ENGINEERING_DESIGN_INVALID", "组件ID缺失或重复")
 		}
 		components[id] = c
 	}
 	paths := []string{}
 	for _, c := range components {
-		unit := apFind(baseline["build_units"], "id", text(c["build_unit_ref"]))
+		unit := kernel.ApFind(baseline["build_units"], "id", kernel.Text(c["build_unit_ref"]))
 		if unit == nil {
-			return s.reject("ENGINEERING_DESIGN_INVALID", "实际构建单元悬空")
+			return s.Reject("ENGINEERING_DESIGN_INVALID", "实际构建单元悬空")
 		}
-		for _, id := range semStrings(c["depends_on"]) {
+		for _, id := range kernel.SemStrings(c["depends_on"]) {
 			if components[id] == nil {
-				return s.reject("ENGINEERING_DESIGN_INVALID", "工程组件依赖悬空")
+				return s.Reject("ENGINEERING_DESIGN_INVALID", "工程组件依赖悬空")
 			}
 		}
-		for _, ref := range semStrings(c["write_paths"]) {
-			if !contractPath(ref) {
-				return s.reject("PATH", "工程组件路径非法")
+		for _, ref := range kernel.SemStrings(c["write_paths"]) {
+			if !kernel.ContractPath(ref) {
+				return s.Reject("PATH", "工程组件路径非法")
 			}
 			allowed := false
-			for _, scope := range semStrings(registration["allowed_write_paths"]) {
+			for _, scope := range kernel.SemStrings(registration["allowed_write_paths"]) {
 				allowed = allowed || contractWithin(ref, scope)
 			}
 			if !allowed {
-				return s.reject("ENGINEERING_DESIGN_INVALID", "工程写范围超出登记")
+				return s.Reject("ENGINEERING_DESIGN_INVALID", "工程写范围超出登记")
 			}
-			for _, scope := range semStrings(baseline["boundary_scope"]) {
+			for _, scope := range kernel.SemStrings(baseline["boundary_scope"]) {
 				if contractWithin(ref, scope) || contractWithin(scope, ref) {
-					return s.reject("ENGINEERING_DESIGN_INVALID", "工程分支触碰已登记业务边界")
+					return s.Reject("ENGINEERING_DESIGN_INVALID", "工程分支触碰已登记业务边界")
 				}
 			}
-			unitRoot := path.Dir(text(unit["pom_ref"]))
+			unitRoot := path.Dir(kernel.Text(unit["pom_ref"]))
 			if unitRoot != "." && !contractWithin(ref, unitRoot) {
-				return s.reject("ENGINEERING_DESIGN_INVALID", "工程写范围与构建单元冲突")
+				return s.Reject("ENGINEERING_DESIGN_INVALID", "工程写范围与构建单元冲突")
 			}
 			paths = contractUnion(paths, []string{ref})
 		}
 	}
-	if !semSameSet(d["allowed_write_paths"], paths) || len(semList(data["source_items"])) == 0 {
-		return s.reject("ENGINEERING_DESIGN_INVALID", "工程写范围闭包或来源缺失")
+	if !semSameSet(d["allowed_write_paths"], paths) || len(kernel.SemList(data["source_items"])) == 0 {
+		return s.Reject("ENGINEERING_DESIGN_INVALID", "工程写范围闭包或来源缺失")
 	}
-	for _, v := range semList(data["traceability"]) {
-		if text(semMap(v)["disposition"]) != "implemented" {
-			return s.reject("ENGINEERING_DESIGN_INVALID", "工程设计来源必须逐条承接")
+	for _, v := range kernel.SemList(data["traceability"]) {
+		if kernel.Text(kernel.SemMap(v)["disposition"]) != "implemented" {
+			return s.Reject("ENGINEERING_DESIGN_INVALID", "工程设计来源必须逐条承接")
 		}
 	}
-	for _, v := range semList(d["read_dependencies"]) {
-		input := semMap(v)
+	for _, v := range kernel.SemList(d["read_dependencies"]) {
+		input := kernel.SemMap(v)
 		found := false
-		for _, v := range semList(data["inputs"]) {
-			b := semMap(v)
+		for _, v := range kernel.SemList(data["inputs"]) {
+			b := kernel.SemMap(v)
 			found = found || b["ref"] == input["ref"] && b["digest"] == input["digest"]
 		}
 		if !found {
-			return s.reject("ENGINEERING_DESIGN_INVALID", "工程只读依赖未冻结")
+			return s.Reject("ENGINEERING_DESIGN_INVALID", "工程只读依赖未冻结")
 		}
 	}
 	return nil
 }
-func contractMVC(s *semanticSession, design map[string]any) error {
+
+func contractMVC(s *kernel.SemanticSession, design map[string]any) error {
 	modules, cases, rules := map[string]map[string]any{}, map[string]map[string]any{}, map[string]map[string]any{}
-	for _, v := range semList(design["module_catalog"]) {
-		m := semMap(v)
-		modules[text(m["module_id"])] = m
+	for _, v := range kernel.SemList(design["module_catalog"]) {
+		m := kernel.SemMap(v)
+		modules[kernel.Text(m["module_id"])] = m
 	}
-	for _, v := range semList(design["use_case_catalog"]) {
-		m := semMap(v)
-		cases[text(m["use_case_id"])] = m
+	for _, v := range kernel.SemList(design["use_case_catalog"]) {
+		m := kernel.SemMap(v)
+		cases[kernel.Text(m["use_case_id"])] = m
 	}
-	for _, v := range semList(design["rule_catalog"]) {
-		m := semMap(v)
-		rules[text(m["rule_id"])] = m
+	for _, v := range kernel.SemList(design["rule_catalog"]) {
+		m := kernel.SemMap(v)
+		rules[kernel.Text(m["rule_id"])] = m
 	}
 	permitted := map[string][]string{"server": {"service", "core", "client"}, "service": {"repository", "adapter"}, "core": {"repository", "adapter"}, "repository": {}, "adapter": {"client", "feign-client"}, "client": {}, "feign-client": {"client"}}
 	for _, m := range modules {
-		for _, ref := range semStrings(m["depends_on"]) {
-			if modules[ref] == nil || !semHas(permitted[text(m["layer"])], text(modules[ref]["layer"])) {
-				return s.reject("TECHNICAL_DESIGN_INVALID", "MVC 模块依赖越界")
+		for _, ref := range kernel.SemStrings(m["depends_on"]) {
+			if modules[ref] == nil || !kernel.SemHas(permitted[kernel.Text(m["layer"])], kernel.Text(modules[ref]["layer"])) {
+				return s.Reject("TECHNICAL_DESIGN_INVALID", "MVC 模块依赖越界")
 			}
 		}
 	}
 	for _, item := range cases {
-		if !semHas([]string{"service", "core"}, text(modules[text(item["module_ref"])]["layer"])) {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "MVC 用例须属于 service/core")
+		if !kernel.SemHas([]string{"service", "core"}, kernel.Text(modules[kernel.Text(item["module_ref"])]["layer"])) {
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "MVC 用例须属于 service/core")
 		}
-		for _, ref := range semStrings(item["rule_refs"]) {
+		for _, ref := range kernel.SemStrings(item["rule_refs"]) {
 			if rules[ref] == nil {
-				return s.reject("TECHNICAL_DESIGN_INVALID", "MVC 未声明规则")
+				return s.Reject("TECHNICAL_DESIGN_INVALID", "MVC 未声明规则")
 			}
 		}
 	}
 	for id, rule := range rules {
-		for _, ref := range semStrings(rule["use_case_refs"]) {
-			if cases[ref] == nil || !semHas(cases[ref]["rule_refs"], id) {
-				return s.reject("TECHNICAL_DESIGN_INVALID", "规则/用例未双向关联")
+		for _, ref := range kernel.SemStrings(rule["use_case_refs"]) {
+			if cases[ref] == nil || !kernel.SemHas(cases[ref]["rule_refs"], id) {
+				return s.Reject("TECHNICAL_DESIGN_INVALID", "规则/用例未双向关联")
 			}
 		}
 	}
-	for _, v := range semList(design["state_transition_catalog"]) {
-		if cases[text(semMap(v)["use_case_ref"])] == nil {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "状态转换用例未知")
+	for _, v := range kernel.SemList(design["state_transition_catalog"]) {
+		if cases[kernel.Text(kernel.SemMap(v)["use_case_ref"])] == nil {
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "状态转换用例未知")
 		}
 	}
-	if len(semList(design["state_transition_catalog"])) == 0 && text(design["state_not_applicable_reason"]) == "" {
-		return s.reject("TECHNICAL_DESIGN_INVALID", "无状态变化须说明")
+	if len(kernel.SemList(design["state_transition_catalog"])) == 0 && kernel.Text(design["state_not_applicable_reason"]) == "" {
+		return s.Reject("TECHNICAL_DESIGN_INVALID", "无状态变化须说明")
 	}
-	for _, v := range semList(design["persistence_mapping"]) {
-		m := semMap(v)
-		if cases[text(m["use_case_ref"])] == nil || text(modules[text(m["repository_ref"])]["layer"]) != "repository" {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "持久化用例/Repository 无效")
+	for _, v := range kernel.SemList(design["persistence_mapping"]) {
+		m := kernel.SemMap(v)
+		if cases[kernel.Text(m["use_case_ref"])] == nil || kernel.Text(modules[kernel.Text(m["repository_ref"])]["layer"]) != "repository" {
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "持久化用例/Repository 无效")
 		}
 	}
-	for _, v := range semList(design["integration_catalog"]) {
-		if text(modules[text(semMap(v)["adapter_ref"])]["layer"]) != "adapter" {
-			return s.reject("TECHNICAL_DESIGN_INVALID", "集成未关联 Adapter")
+	for _, v := range kernel.SemList(design["integration_catalog"]) {
+		if kernel.Text(modules[kernel.Text(kernel.SemMap(v)["adapter_ref"])]["layer"]) != "adapter" {
+			return s.Reject("TECHNICAL_DESIGN_INVALID", "集成未关联 Adapter")
 		}
 	}
-	if len(semList(design["integration_catalog"])) == 0 && text(design["integration_not_applicable_reason"]) == "" {
-		return s.reject("TECHNICAL_DESIGN_INVALID", "无集成须说明")
+	if len(kernel.SemList(design["integration_catalog"])) == 0 && kernel.Text(design["integration_not_applicable_reason"]) == "" {
+		return s.Reject("TECHNICAL_DESIGN_INVALID", "无集成须说明")
 	}
 	return nil
 }
-func contractTactical(s *semanticSession, d map[string]any) error {
+
+func contractTactical(s *kernel.SemanticSession, d map[string]any) error {
 	if e := contractRequired(s, d, "schema_version", "tactical_design_id", "tactical_version", "status", "context_ref", "aggregate_catalog", "entity_catalog", "value_object_catalog", "behavior_catalog", "invariant_catalog", "state_transition_catalog", "consistency_policy", "domain_event_catalog", "gateway_catalog", "persistence_mapping", "test_seams", "adr_candidates", "upstream_impact", "version", "digest", "evidence_refs"); e != nil {
 		return e
 	}
-	if contractN(d["schema_version"]) != 1 || !regexp.MustCompile("^tactical-design[.][a-z0-9][a-z0-9-]*$").MatchString(text(d["tactical_design_id"])) || !regexp.MustCompile("^v[0-9]+$").MatchString(text(d["version"])) || !regexp.MustCompile("^v[0-9]+$").MatchString(text(d["tactical_version"])) || !regexp.MustCompile("^sha256:[A-Fa-f0-9]{64}$").MatchString(text(d["digest"])) || !semHas([]string{"draft", "ready-for-human", "approved", "blocked", "stale", "drift", "new_impacts", "not-applicable"}, text(d["status"])) {
-		return s.reject("TACTICAL_DESIGN_INVALID", "战术身份、版本、状态或摘要格式非法")
+	if kernel.ContractN(d["schema_version"]) != 1 || !regexp.MustCompile("^tactical-design[.][a-z0-9][a-z0-9-]*$").MatchString(kernel.Text(d["tactical_design_id"])) || !regexp.MustCompile("^v[0-9]+$").MatchString(kernel.Text(d["version"])) || !regexp.MustCompile("^v[0-9]+$").MatchString(kernel.Text(d["tactical_version"])) || !regexp.MustCompile("^sha256:[A-Fa-f0-9]{64}$").MatchString(kernel.Text(d["digest"])) || !kernel.SemHas([]string{"draft", "ready-for-human", "approved", "blocked", "stale", "drift", "new_impacts", "not-applicable"}, kernel.Text(d["status"])) {
+		return s.Reject("TACTICAL_DESIGN_INVALID", "战术身份、版本、状态或摘要格式非法")
 	}
 	requireStrings := func(m map[string]any, keys ...string) error {
 		for _, key := range keys {
-			if strings.TrimSpace(text(m[key])) == "" {
-				return s.reject("TACTICAL_DESIGN_INVALID", "战术字段须为非空字符串: "+key)
+			if strings.TrimSpace(kernel.Text(m[key])) == "" {
+				return s.Reject("TACTICAL_DESIGN_INVALID", "战术字段须为非空字符串: "+key)
 			}
 		}
 		return nil
@@ -3771,7 +4091,7 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 	requireArray := func(m map[string]any, key string, minimum int) error {
 		a, ok := m[key].([]any)
 		if !ok || len(a) < minimum {
-			return s.reject("TACTICAL_DESIGN_INVALID", "战术字段缺少数组或项: "+key)
+			return s.Reject("TACTICAL_DESIGN_INVALID", "战术字段缺少数组或项: "+key)
 		}
 		return nil
 	}
@@ -3785,42 +4105,42 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 			return e
 		}
 	}
-	policy, ok := object(d["consistency_policy"])
+	policy, ok := kernel.Object(d["consistency_policy"])
 	if !ok {
-		return s.reject("TACTICAL_DESIGN_INVALID", "一致性政策须为对象")
+		return s.Reject("TACTICAL_DESIGN_INVALID", "一致性政策须为对象")
 	}
 	if e := requireStrings(policy, "transaction_boundary", "concurrency", "idempotency", "cross_aggregate_strategy"); e != nil {
 		return e
 	}
-	upstream, ok := object(d["upstream_impact"])
+	upstream, ok := kernel.Object(d["upstream_impact"])
 	if !ok {
-		return s.reject("TACTICAL_DESIGN_INVALID", "上游影响须为对象")
+		return s.Reject("TACTICAL_DESIGN_INVALID", "上游影响须为对象")
 	}
 	if e := requireStrings(upstream, "spec_ref", "strategic_ref", "api_ref", "data_ref"); e != nil {
 		return e
 	}
-	if upstream["upstream_current"] == false && text(d["status"]) != "stale" {
-		return s.reject("TACTICAL_DESIGN_INVALID", "上游已过期须声明stale")
+	if upstream["upstream_current"] == false && kernel.Text(d["status"]) != "stale" {
+		return s.Reject("TACTICAL_DESIGN_INVALID", "上游已过期须声明stale")
 	}
 	keys := map[string]string{"aggregate_catalog": "aggregate_id", "entity_catalog": "entity_id", "value_object_catalog": "value_object_id", "behavior_catalog": "behavior_id", "invariant_catalog": "invariant_id", "state_transition_catalog": "transition_id", "domain_event_catalog": "event_id", "gateway_catalog": "gateway_id", "test_seams": "seam_id"}
 	prefixes := map[string]string{"aggregate_catalog": "aggregate", "entity_catalog": "entity", "value_object_catalog": "value-object", "behavior_catalog": "behavior", "invariant_catalog": "invariant", "state_transition_catalog": "transition", "domain_event_catalog": "domain-event", "gateway_catalog": "gateway", "test_seams": "test-seam"}
 	catalogs := map[string]map[string]map[string]any{}
 	for catalog, key := range keys {
 		catalogs[catalog] = map[string]map[string]any{}
-		for _, v := range semList(d[catalog]) {
-			m, ok := object(v)
-			id := text(m[key])
+		for _, v := range kernel.SemList(d[catalog]) {
+			m, ok := kernel.Object(v)
+			id := kernel.Text(m[key])
 			if !ok || !regexp.MustCompile("^"+prefixes[catalog]+"[.][a-z0-9][a-z0-9-]*$").MatchString(id) || catalogs[catalog][id] != nil {
-				return s.reject("TACTICAL_DESIGN_INVALID", "目录ID缺失、非法或重复")
+				return s.Reject("TACTICAL_DESIGN_INVALID", "目录ID缺失、非法或重复")
 			}
 			catalogs[catalog][id] = m
 		}
 	}
 	refsExist := func(values any, catalog string) error {
-		for _, v := range semList(values) {
+		for _, v := range kernel.SemList(values) {
 			ref, ok := v.(string)
 			if !ok || catalogs[catalog][ref] == nil {
-				return s.reject("TACTICAL_DESIGN_INVALID", "领域引用悬空")
+				return s.Reject("TACTICAL_DESIGN_INVALID", "领域引用悬空")
 			}
 		}
 		return nil
@@ -3829,8 +4149,8 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 		if e := requireStrings(a, "aggregate_id", "name", "context_ref", "root_entity", "consistency_boundary"); e != nil {
 			return e
 		}
-		if a["model_origin"] == "strategic-concept" || a["api_exposure"] != "internal-only" || catalogs["entity_catalog"][text(a["root_entity"])] == nil || catalogs["entity_catalog"][text(a["root_entity"])]["aggregate_id"] != id {
-			return s.reject("TACTICAL_DESIGN_INVALID", "聚合根、来源或暴露冲突")
+		if a["model_origin"] == "strategic-concept" || a["api_exposure"] != "internal-only" || catalogs["entity_catalog"][kernel.Text(a["root_entity"])] == nil || catalogs["entity_catalog"][kernel.Text(a["root_entity"])]["aggregate_id"] != id {
+			return s.Reject("TACTICAL_DESIGN_INVALID", "聚合根、来源或暴露冲突")
 		}
 		for key, catalog := range map[string]string{"invariant_refs": "invariant_catalog", "behavior_refs": "behavior_catalog"} {
 			if e := requireArray(a, key, 1); e != nil {
@@ -3847,11 +4167,11 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 			if e := requireStrings(m, required...); e != nil {
 				return e
 			}
-			if catalogs["aggregate_catalog"][text(m["aggregate_id"])] == nil {
-				return s.reject("TACTICAL_DESIGN_INVALID", "聚合归属悬空")
+			if catalogs["aggregate_catalog"][kernel.Text(m["aggregate_id"])] == nil {
+				return s.Reject("TACTICAL_DESIGN_INVALID", "聚合归属悬空")
 			}
-			if catalog == "state_transition_catalog" && catalogs["behavior_catalog"][text(m["behavior_id"])] == nil {
-				return s.reject("TACTICAL_DESIGN_INVALID", "状态转换行为悬空")
+			if catalog == "state_transition_catalog" && catalogs["behavior_catalog"][kernel.Text(m["behavior_id"])] == nil {
+				return s.Reject("TACTICAL_DESIGN_INVALID", "状态转换行为悬空")
 			}
 			if catalog == "behavior_catalog" {
 				for _, key := range []string{"preconditions", "invariant_refs", "postconditions", "event_refs"} {
@@ -3881,8 +4201,8 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 		if e := contractRequired(s, m, "value_object_id", "name", "aggregate_id", "immutable"); e != nil {
 			return e
 		}
-		if m["immutable"] != true || catalogs["aggregate_catalog"][text(m["aggregate_id"])] == nil {
-			return s.reject("TACTICAL_DESIGN_INVALID", "值对象归属或immutable无效")
+		if m["immutable"] != true || catalogs["aggregate_catalog"][kernel.Text(m["aggregate_id"])] == nil {
+			return s.Reject("TACTICAL_DESIGN_INVALID", "值对象归属或immutable无效")
 		}
 	}
 	for _, m := range catalogs["gateway_catalog"] {
@@ -3890,22 +4210,22 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 			return e
 		}
 		if m["layer"] != "Domain" {
-			return s.reject("TACTICAL_DESIGN_INVALID", "Gateway必须属于Domain")
+			return s.Reject("TACTICAL_DESIGN_INVALID", "Gateway必须属于Domain")
 		}
 		if e := requireArray(m, "capabilities", 1); e != nil {
 			return e
 		}
 	}
-	for _, v := range semList(d["persistence_mapping"]) {
-		m, ok := object(v)
+	for _, v := range kernel.SemList(d["persistence_mapping"]) {
+		m, ok := kernel.Object(v)
 		if !ok {
-			return s.reject("TACTICAL_DESIGN_INVALID", "存储映射须为对象")
+			return s.Reject("TACTICAL_DESIGN_INVALID", "存储映射须为对象")
 		}
 		if e := requireStrings(m, "aggregate_id", "storage_model", "notes"); e != nil {
 			return e
 		}
-		if catalogs["aggregate_catalog"][text(m["aggregate_id"])] == nil {
-			return s.reject("TACTICAL_DESIGN_INVALID", "存储聚合悬空")
+		if catalogs["aggregate_catalog"][kernel.Text(m["aggregate_id"])] == nil {
+			return s.Reject("TACTICAL_DESIGN_INVALID", "存储聚合悬空")
 		}
 	}
 	for _, m := range catalogs["test_seams"] {
@@ -3914,83 +4234,83 @@ func contractTactical(s *semanticSession, d map[string]any) error {
 		}
 		found := false
 		for _, catalog := range []string{"aggregate_catalog", "entity_catalog", "value_object_catalog", "behavior_catalog", "invariant_catalog", "state_transition_catalog", "gateway_catalog"} {
-			found = found || catalogs[catalog][text(m["subject_ref"])] != nil
+			found = found || catalogs[catalog][kernel.Text(m["subject_ref"])] != nil
 		}
 		if !found {
-			return s.reject("TACTICAL_DESIGN_INVALID", "seam主体悬空")
+			return s.Reject("TACTICAL_DESIGN_INVALID", "seam主体悬空")
 		}
 	}
-	if semMap(d["complexity"])["escalate_to_standalone"] == true && strings.TrimSpace(text(semMap(d["complexity"])["standalone_ref"])) == "" {
-		return s.reject("TACTICAL_DESIGN_INVALID", "复杂度升级缺少独立设计")
+	if kernel.SemMap(d["complexity"])["escalate_to_standalone"] == true && strings.TrimSpace(kernel.Text(kernel.SemMap(d["complexity"])["standalone_ref"])) == "" {
+		return s.Reject("TACTICAL_DESIGN_INVALID", "复杂度升级缺少独立设计")
 	}
 	return nil
 }
 
-func verifyScaffoldSemantic(s *semanticSession, ref string, opts map[string]string) error {
-	bytes, e := s.bytes(ref)
+func verifyScaffoldSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	bytes, e := s.Bytes(ref)
 	if e != nil {
 		return e
 	}
 	if !json.Valid(bytes) {
-		return s.reject("SCAFFOLD_FORMAT", "脚手架合同必须为 JSON 对象")
+		return s.Reject("SCAFFOLD_FORMAT", "脚手架合同必须为 JSON 对象")
 	}
-	doc, e := s.doc(ref)
+	doc, e := s.Doc(ref)
 	if e != nil {
 		return e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/project-scaffold-contract.schema.json", doc); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/project-scaffold-contract.schema.json", doc); e != nil {
 		return e
 	}
-	if contractN(doc["schema_version"]) != 4 || text(doc["status"]) != "approved" || doc["current_version"] != true || text(doc["persisted_ref"]) == "" {
-		return s.reject("SCAFFOLD_CONTRACT", "脚手架合同必须已批准、持久化且当前")
+	if (kernel.ContractN(doc["schema_version"]) != 4 && kernel.ContractN(doc["schema_version"]) != 5) || kernel.Text(doc["status"]) != "approved" || doc["current_version"] != true || kernel.Text(doc["persisted_ref"]) == "" {
+		return s.Reject("SCAFFOLD_CONTRACT", "脚手架合同必须已批准、持久化且当前")
 	}
-	policy := semMap(doc["generation_policy"])
+	policy := kernel.SemMap(doc["generation_policy"])
 	for key, value := range map[string]string{"mode": "initialize-only", "existing_target": "unsupported", "old_project_migration": "unsupported", "template_upgrade": "unsupported"} {
-		if text(policy[key]) != value {
-			return s.reject("SCAFFOLD_POLICY", "不支持的生成政策")
+		if kernel.Text(policy[key]) != value {
+			return s.Reject("SCAFFOLD_POLICY", "不支持的生成政策")
 		}
 	}
-	if !contractUnique(doc["allowed_write_paths"], true) || !contractUnique(doc["verification_commands"], true) || !semHas(doc["expected_evidence_files"], ".yss/scaffold-generation.json") {
-		return s.reject("SCAFFOLD_CONTRACT", "写范围/固定验证/Manifest 证据缺失")
+	if !contractUnique(doc["allowed_write_paths"], true) || !contractUnique(doc["verification_commands"], true) || !kernel.SemHas(doc["expected_evidence_files"], ".yss/scaffold-generation.json") {
+		return s.Reject("SCAFFOLD_CONTRACT", "写范围/固定验证/Manifest 证据缺失")
 	}
-	if text(doc["delivery_role"]) == "frontend" {
+	if kernel.Text(doc["delivery_role"]) == "frontend" {
 		boundOpts := semanticOptions(opts)
 		boundOpts["contract-ref"] = ref
 		return contractFrontendScaffold(s, doc, boundOpts)
 	}
-	work := semMap(doc["work_unit"])
-	if work["primary_skill"] != doc["generator_skill"] || text(work["tdd_mode"]) != "controlled-generation" || work["controlled_generation"] != true || !contractSame(work["allowed_write_paths"], doc["allowed_write_paths"]) || !contractSame(work["verification_commands"], doc["verification_commands"]) {
-		return s.reject("SCAFFOLD_WORK_UNIT", "受控生成工作单元与合同冲突")
+	work := kernel.SemMap(doc["work_unit"])
+	if work["primary_skill"] != doc["generator_skill"] || kernel.Text(work["tdd_mode"]) != "controlled-generation" || work["controlled_generation"] != true || !contractSame(work["allowed_write_paths"], doc["allowed_write_paths"]) || !contractSame(work["verification_commands"], doc["verification_commands"]) {
+		return s.Reject("SCAFFOLD_WORK_UNIT", "受控生成工作单元与合同冲突")
 	}
-	if text(doc["delivery_role"]) != "backend" || text(doc["scaffold_status"]) != "required" {
-		return s.reject("SCAFFOLD_CONTRACT", "后端脚手架身份无效")
+	if kernel.Text(doc["delivery_role"]) != "backend" || kernel.Text(doc["scaffold_status"]) != "required" {
+		return s.Reject("SCAFFOLD_CONTRACT", "后端脚手架身份无效")
 	}
-	family, skill := text(doc["architecture_family"]), text(doc["generator_skill"])
-	if family == "domain-driven" && skill != "yss-ddd-scaffold-generator" || family == "layered-mvc" && skill != "yss-layered-mvc-scaffold-generator" || !semHas([]string{"domain-driven", "layered-mvc"}, family) {
-		return s.reject("SCAFFOLD_ARCHITECTURE", "生成器和架构族冲突")
+	family, skill := kernel.Text(doc["architecture_family"]), kernel.Text(doc["generator_skill"])
+	if family == "domain-driven" && skill != "yss-ddd-scaffold-generator" || family == "layered-mvc" && skill != "yss-layered-mvc-scaffold-generator" || !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, family) {
+		return s.Reject("SCAFFOLD_ARCHITECTURE", "生成器和架构族冲突")
 	}
 	if !contractSame(doc["verification_commands"], []string{"./mvnw validate", "./mvnw test", "./mvnw package"}) {
-		return s.reject("SCAFFOLD_VERIFICATION", "Maven 验证入口须为固定三条命令")
+		return s.Reject("SCAFFOLD_VERIFICATION", "Maven 验证入口须为固定三条命令")
 	}
-	approval := semMap(doc["approval"])
+	approval := kernel.SemMap(doc["approval"])
 	if approval["approval_ref"] != doc["lifecycle_approval_ref"] || approval["persisted_ref"] != doc["persisted_ref"] || approval["current_version"] != doc["contract_version"] {
-		return s.reject("SCAFFOLD_APPROVAL", "批准指针或版本冲突")
+		return s.Reject("SCAFFOLD_APPROVAL", "批准指针或版本冲突")
 	}
-	coordinates := semMap(doc["maven_coordinates"])
-	values := []any{coordinates["group_id"], coordinates["project_version"], semMap(coordinates["parent"])["group_id"], semMap(coordinates["parent"])["artifact_id"], semMap(coordinates["parent"])["version"], coordinates["yss_components_version"]}
+	coordinates := kernel.SemMap(doc["maven_coordinates"])
+	values := []any{coordinates["group_id"], coordinates["project_version"], kernel.SemMap(coordinates["parent"])["group_id"], kernel.SemMap(coordinates["parent"])["artifact_id"], kernel.SemMap(coordinates["parent"])["version"], coordinates["yss_components_version"]}
 	for _, v := range values {
-		if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(text(v)) {
-			return s.reject("SCAFFOLD_COORDINATES", "Maven 坐标非法")
+		if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(kernel.Text(v)) {
+			return s.Reject("SCAFFOLD_COORDINATES", "Maven 坐标非法")
 		}
 	}
-	decisionRef := text(doc["decision_ref"])
+	decisionRef := kernel.Text(doc["decision_ref"])
 	if !filepath.IsAbs(decisionRef) {
 		decisionRef = path.Join(path.Dir(ref), decisionRef)
 	}
 	if filepath.IsAbs(decisionRef) {
-		r, e := filepath.Rel(s.root, decisionRef)
+		r, e := filepath.Rel(s.Root, decisionRef)
 		if e != nil || strings.HasPrefix(r, "..") {
-			return s.reject("PATH", "架构决定越出治理 root")
+			return s.Reject("PATH", "架构决定越出治理 root")
 		}
 		decisionRef = filepath.ToSlash(r)
 	}
@@ -3998,52 +4318,42 @@ func verifyScaffoldSemantic(s *semanticSession, ref string, opts map[string]stri
 	if e != nil {
 		return e
 	}
-	decision := apFind(record["decisions"], "decision_id", text(doc["decision_id"]))
-	if text(record["kind"]) != "scaffold-architecture-decisions" || record["template"] != false || text(record["status"]) != "current" || text(decision["status"]) != "lifecycle-approved" || decision["confirmed_architecture"] != doc["architecture_family"] || decision["project_id"] != doc["project_name"] {
-		return s.reject("SCAFFOLD_DECISION", "架构决定不是当前项目正式批准")
+	decision := kernel.ApFind(record["decisions"], "decision_id", kernel.Text(doc["decision_id"]))
+	if kernel.Text(record["kind"]) != "scaffold-architecture-decisions" || record["template"] != false || kernel.Text(record["status"]) != "current" || kernel.Text(decision["status"]) != "lifecycle-approved" || decision["confirmed_architecture"] != doc["architecture_family"] || decision["project_id"] != doc["project_name"] {
+		return s.Reject("SCAFFOLD_DECISION", "架构决定不是当前项目正式批准")
 	}
-	profiles, modules := semMap(doc["profiles"]), semMap(doc["module_profile"])
-	if decision["platform_profile"] != profiles["platform"] || decision["architecture_profile"] != doc["architecture_profile"] || text(decision["verification_database"]) != "h2" || text(decision["production_database"]) != "not-bound" || decision["database_profile"] != nil || !contractSame(decision["requested_capabilities"], modules["requested_capabilities"]) || !contractSame(decision["resolved_modules"], modules["resolved_modules"]) {
-		return s.reject("SCAFFOLD_DECISION", "架构 Profile/模块闭包冲突")
+	profiles, modules := kernel.SemMap(doc["profiles"]), kernel.SemMap(doc["module_profile"])
+	if decision["platform_profile"] != profiles["platform"] || decision["architecture_profile"] != doc["architecture_profile"] || kernel.Text(decision["verification_database"]) != "h2" || kernel.Text(decision["production_database"]) != "not-bound" || decision["database_profile"] != nil || !contractSame(decision["requested_capabilities"], modules["requested_capabilities"]) || !contractSame(decision["resolved_modules"], modules["resolved_modules"]) {
+		return s.Reject("SCAFFOLD_DECISION", "架构 Profile/模块闭包冲突")
 	}
 	if e = contractScaffoldUserDecision(s, decision); e != nil {
 		return e
 	}
-	if text(doc["architecture_profile"]) == "mvc-data-analysis-v1" {
-		if doc["init_git"] != true {
-			return s.reject("SCAFFOLD_POLICY", "数据分析脚手架须显式要求独立 Git 初始化")
-		}
-		handoffRef := path.Join(path.Dir(ref), text(doc["context_handoff_ref"]))
-		if !contractWithin(handoffRef, path.Dir(ref)) || handoffRef == path.Dir(ref) || filepath.IsAbs(text(doc["context_handoff_ref"])) {
-			return s.reject("SCAFFOLD_CONTEXT", "Context handoff必须在批准合同目录内部")
-		}
-		context, e := s.bytes(handoffRef)
-		if e != nil {
+	if kernel.Text(doc["architecture_profile"]) == "mvc-data-analysis-v1" {
+		return s.Reject("SCAFFOLD_RETIRED", "数据分析合同仅允许历史只读审计")
+	}
+	if family == "layered-mvc" && doc["init_git"] != false {
+		return s.Reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
+	}
+	if kernel.ContractN(doc["schema_version"]) == 5 {
+		if e = contractReferenceExample(s, kernel.SemMap(doc["reference_example"])); e != nil {
 			return e
 		}
-		if "sha256:"+safefs.Digest(context) != text(doc["context_handoff_digest"]) {
-			return s.reject("SCAFFOLD_CONTEXT", "Context handoff 摘要冲突")
-		}
-		if _, e = contextContractBytes(context); e != nil {
-			return s.reject("SCAFFOLD_CONTEXT", e.Error())
-		}
-	} else if family == "layered-mvc" && doc["init_git"] != false {
-		return s.reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
 	}
-	if e = contractBackendPrerequisites(s, semMap(doc["design_prerequisites"]), doc, opts); e != nil {
+	if e = contractBackendPrerequisites(s, kernel.SemMap(doc["design_prerequisites"]), doc, opts); e != nil {
 		return e
 	}
-	profile, entry, reports, e := contractPlatform(s, semMap(doc["platform_configuration"]), true)
+	profile, entry, reports, e := contractPlatform(s, kernel.SemMap(doc["platform_configuration"]), true)
 	if e != nil {
 		return e
 	}
-	bom := semMap(semMap(doc["platform_configuration"])["bom"])
-	if profiles["platform"] != profile["id"] || profiles["validation_namespace"] != profile["validation_namespace"] || !contractSame(coordinates["parent"], semMap(doc["platform_configuration"])["parent"]) || coordinates["yss_components_version"] != bom["version"] || bom["group_id"] != "com.yss.cloud" || bom["artifact_id"] != "yss-components-bom" || !contractSame(decision["platform_configuration"], doc["platform_configuration"]) {
-		return s.reject("SCAFFOLD_PLATFORM", "架构决定/合同平台或Maven坐标变化")
+	bom := kernel.SemMap(kernel.SemMap(doc["platform_configuration"])["bom"])
+	if profiles["platform"] != profile["id"] || profiles["validation_namespace"] != profile["validation_namespace"] || !contractSame(coordinates["parent"], kernel.SemMap(doc["platform_configuration"])["parent"]) || coordinates["yss_components_version"] != bom["version"] || bom["group_id"] != "com.yss.cloud" || bom["artifact_id"] != "yss-components-bom" || !contractSame(decision["platform_configuration"], doc["platform_configuration"]) {
+		return s.Reject("SCAFFOLD_PLATFORM", "架构决定/合同平台或Maven坐标变化")
 	}
-	for _, capability := range semStrings(modules["requested_capabilities"]) {
-		if !semHas(entry["capabilities"], capability) {
-			return s.reject("SCAFFOLD_PLATFORM", "平台未验证架构能力")
+	for _, capability := range kernel.SemStrings(modules["requested_capabilities"]) {
+		if !kernel.SemHas(entry["capabilities"], capability) {
+			return s.Reject("SCAFFOLD_PLATFORM", "平台未验证架构能力")
 		}
 	}
 	found := false
@@ -4052,63 +4362,64 @@ func verifyScaffoldSemantic(s *semanticSession, ref string, opts map[string]stri
 			continue
 		}
 		all := true
-		for _, capability := range semStrings(modules["requested_capabilities"]) {
-			all = all && semHas(report["verified_capabilities"], capability)
+		for _, capability := range kernel.SemStrings(modules["requested_capabilities"]) {
+			all = all && kernel.SemHas(report["verified_capabilities"], capability)
 		}
 		found = found || all
 	}
 	if !found {
-		return s.reject("SCAFFOLD_PLATFORM", "架构/能力组合缺少qualification证据")
+		return s.Reject("SCAFFOLD_PLATFORM", "架构/能力组合缺少qualification证据")
 	}
 	return nil
 }
-func contractFrontendScaffold(s *semanticSession, doc map[string]any, opts map[string]string) error {
-	if text(doc["scaffold_kind"]) != "frontend-yss-vue3" || text(doc["generator_skill"]) != "yss-frontend-scaffold-generator" {
-		return s.reject("SCAFFOLD_CONTRACT", "前端生成器身份错误")
+
+func contractFrontendScaffold(s *kernel.SemanticSession, doc map[string]any, opts map[string]string) error {
+	if kernel.Text(doc["scaffold_kind"]) != "frontend-yss-vue3" || kernel.Text(doc["generator_skill"]) != "yss-frontend-scaffold-generator" {
+		return s.Reject("SCAFFOLD_CONTRACT", "前端生成器身份错误")
 	}
-	front := semMap(doc["frontend"])
-	template := semMap(front["template"])
-	if text(template["kind"]) == "bundled" {
+	front := kernel.SemMap(doc["frontend"])
+	template := kernel.SemMap(front["template"])
+	if kernel.Text(template["kind"]) == "bundled" {
 		for _, key := range []string{"app_name", "microapp_name"} {
-			if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`).MatchString(text(front[key])) {
-				return s.reject("SCAFFOLD_NAME", "应用名称非法")
+			if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`).MatchString(kernel.Text(front[key])) {
+				return s.Reject("SCAFFOLD_NAME", "应用名称非法")
 			}
 		}
-		if !regexp.MustCompile(`^/(?:[a-zA-Z0-9_-]+/?)*$`).MatchString(text(front["base_route"])) || len(semMap(front["replacements"])) > 0 {
-			return s.reject("SCAFFOLD_TEMPLATE", "内置基线不接受任意替换或非法 route")
+		if !regexp.MustCompile(`^/(?:[a-zA-Z0-9_-]+/?)*$`).MatchString(kernel.Text(front["base_route"])) || len(kernel.SemMap(front["replacements"])) > 0 {
+			return s.Reject("SCAFFOLD_TEMPLATE", "内置基线不接受任意替换或非法 route")
 		}
 		manifestRef := ".agents/skills/yss-frontend-scaffold-generator/references/data-quality-v1.manifest.json"
-		b, e := s.bind(manifestRef)
+		b, e := s.Bind(manifestRef)
 		if e != nil {
 			return e
 		}
-		if b.Digest != text(template["manifest_digest"]) {
-			return s.reject("SCAFFOLD_TEMPLATE", "内置 manifest 摘要冲突")
+		if b.Digest != kernel.Text(template["manifest_digest"]) {
+			return s.Reject("SCAFFOLD_TEMPLATE", "内置 manifest 摘要冲突")
 		}
-		manifest, e := s.doc(manifestRef)
+		manifest, e := s.Doc(manifestRef)
 		if e != nil {
 			return e
 		}
 		if manifest["baseline_id"] != template["baseline_id"] {
-			return s.reject("SCAFFOLD_TEMPLATE", "基线身份冲突")
+			return s.Reject("SCAFFOLD_TEMPLATE", "基线身份冲突")
 		}
 		prefix := ".agents/skills/yss-frontend-scaffold-generator/assets/data-quality-v1"
-		files, e := s.scan(prefix)
+		files, e := s.Scan(prefix)
 		if e != nil {
 			return e
 		}
-		expected := semMap(manifest["files"])
+		expected := kernel.SemMap(manifest["files"])
 		if len(files) != len(expected) {
-			return s.reject("SCAFFOLD_TEMPLATE", "基线文件清单变化")
+			return s.Reject("SCAFFOLD_TEMPLATE", "基线文件清单变化")
 		}
 		for _, file := range files {
-			raw, e := s.bytes(file)
+			raw, e := s.Bytes(file)
 			if e != nil {
 				return e
 			}
 			ref := strings.TrimPrefix(file, prefix+"/")
-			if strings.TrimPrefix(text(expected[ref]), "sha256:") != safefs.Digest(raw) {
-				return s.reject("SCAFFOLD_TEMPLATE", "基线源字节变化")
+			if strings.TrimPrefix(kernel.Text(expected[ref]), "sha256:") != safefs.Digest(raw) {
+				return s.Reject("SCAFFOLD_TEMPLATE", "基线源字节变化")
 			}
 		}
 	} else {
@@ -4116,53 +4427,54 @@ func contractFrontendScaffold(s *semanticSession, doc map[string]any, opts map[s
 			return e
 		}
 	}
-	if text(front["openapi_impact"]) == "frozen" {
+	if kernel.Text(front["openapi_impact"]) == "frozen" {
 		if _, e := contractBinding(s, map[string]any{"ref": front["openapi_json_ref"], "digest": front["openapi_json_digest"]}); e != nil {
 			return e
 		}
-	} else if text(front["openapi_impact"]) != "not-applicable" || text(front["openapi_not_applicable_reason"]) == "" {
-		return s.reject("SCAFFOLD_API", "API 不适用须说明理由")
+	} else if kernel.Text(front["openapi_impact"]) != "not-applicable" || kernel.Text(front["openapi_not_applicable_reason"]) == "" {
+		return s.Reject("SCAFFOLD_API", "API 不适用须说明理由")
 	}
 	return nil
 }
-func contractFrontendGitTemplate(s *semanticSession, doc, template map[string]any, opts map[string]string) error {
-	checkout := first(opts["template-checkout"], s.args["template-checkout"])
+
+func contractFrontendGitTemplate(s *kernel.SemanticSession, doc, template map[string]any, opts map[string]string) error {
+	checkout := kernel.First(opts["template-checkout"], s.Args["template-checkout"])
 	if checkout == "" {
-		return s.unavailable("CAPABILITY", "外部Git模板需要显式template-checkout")
+		return s.Unavailable("CAPABILITY", "外部Git模板需要显式template-checkout")
 	}
 	if !filepath.IsAbs(checkout) || filepath.Clean(checkout) != checkout {
-		return s.reject("SCAFFOLD_TEMPLATE", "模板checkout必须为规范绝对目录")
+		return s.Reject("SCAFFOLD_TEMPLATE", "模板checkout必须为规范绝对目录")
 	}
-	if text(template["repository"]) == "" || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(text(template["commit"])) {
-		return s.reject("SCAFFOLD_TEMPLATE", "模板须绑定仓库及完整固定commit")
+	if kernel.Text(template["repository"]) == "" || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(kernel.Text(template["commit"])) {
+		return s.Reject("SCAFFOLD_TEMPLATE", "模板须绑定仓库及完整固定commit")
 	}
-	if e := s.registerExternalRoot(checkout, opts["contract-ref"]); e != nil {
+	if e := s.RegisterExternalRoot(checkout, opts["contract-ref"]); e != nil {
 		return e
 	}
-	top, e := s.git(checkout, "rev-parse", "--show-toplevel")
+	top, e := s.Git(checkout, "rev-parse", "--show-toplevel")
 	if e != nil {
 		return e
 	}
 	if filepath.Clean(strings.TrimSpace(string(top))) != checkout {
-		return s.reject("SCAFFOLD_TEMPLATE", "模板checkout不是Git工作树")
+		return s.Reject("SCAFFOLD_TEMPLATE", "模板checkout不是Git工作树")
 	}
-	head, e := s.git(checkout, "rev-parse", "HEAD")
+	head, e := s.Git(checkout, "rev-parse", "HEAD")
 	if e != nil {
 		return e
 	}
-	if strings.TrimSpace(string(head)) != text(template["commit"]) {
-		return s.reject("SCAFFOLD_TEMPLATE", "模板HEAD与批准commit不一致")
+	if strings.TrimSpace(string(head)) != kernel.Text(template["commit"]) {
+		return s.Reject("SCAFFOLD_TEMPLATE", "模板HEAD与批准commit不一致")
 	}
-	origin, e := s.git(checkout, "config", "--local", "--get", "remote.origin.url")
+	origin, e := s.Git(checkout, "config", "--local", "--get", "remote.origin.url")
 	if e != nil {
 		return e
 	}
-	if strings.TrimSpace(string(origin)) != text(template["repository"]) {
-		return s.reject("SCAFFOLD_TEMPLATE", "模板origin与批准仓库不一致")
+	if strings.TrimSpace(string(origin)) != kernel.Text(template["repository"]) {
+		return s.Reject("SCAFFOLD_TEMPLATE", "模板origin与批准仓库不一致")
 	}
 	// Read the approved immutable tree. Uncommitted checkout edits do not become
 	// template authority, matching the old producer's fixed-commit archive.
-	tree, e := s.git(checkout, "ls-tree", "-rz", "--full-tree", text(template["commit"]))
+	tree, e := s.Git(checkout, "ls-tree", "-rz", "--full-tree", kernel.Text(template["commit"]))
 	if e != nil {
 		return e
 	}
@@ -4174,50 +4486,51 @@ func contractFrontendGitTemplate(s *semanticSession, doc, template map[string]an
 		}
 		header, ref, ok := strings.Cut(line, "\t")
 		parts := strings.Fields(header)
-		if !ok || len(parts) != 3 || !contractPath(ref) || seen[ref] || parts[1] != "blob" || !semHas([]string{"100644", "100755", "120000"}, parts[0]) || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(parts[2]) {
-			return s.reject("SCAFFOLD_TEMPLATE", "模板Git树路径、类型或对象非法")
+		if !ok || len(parts) != 3 || !kernel.ContractPath(ref) || seen[ref] || parts[1] != "blob" || !kernel.SemHas([]string{"100644", "100755", "120000"}, parts[0]) || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(parts[2]) {
+			return s.Reject("SCAFFOLD_TEMPLATE", "模板Git树路径、类型或对象非法")
 		}
 		seen[ref] = true
-		bytes, e := s.git(checkout, "cat-file", "blob", parts[2])
+		bytes, e := s.Git(checkout, "cat-file", "blob", parts[2])
 		if e != nil {
 			return e
 		}
 		total += len(bytes)
 		if total > 256<<20 {
-			return s.unavailable("CAPABILITY", "模板固定树超过256MiB观测上限")
+			return s.Unavailable("CAPABILITY", "模板固定树超过256MiB观测上限")
 		}
 	}
 	return nil
 }
-func contractBackendPrerequisites(s *semanticSession, p, scaffold map[string]any, opts map[string]string) error {
+
+func contractBackendPrerequisites(s *kernel.SemanticSession, p, scaffold map[string]any, opts map[string]string) error {
 	technical, e := contractBoundDoc(s, p["technical_design"])
 	if e != nil {
 		return e
 	}
-	if contractN(technical["schema_version"]) != 2 || text(technical["status"]) != "approved" || technical["version"] != semMap(p["technical_design"])["version"] {
-		return s.reject("SCAFFOLD_TECHNICAL", "技术设计不是当前 approved v2")
+	if kernel.ContractN(technical["schema_version"]) != 2 || kernel.Text(technical["status"]) != "approved" || technical["version"] != kernel.SemMap(p["technical_design"])["version"] {
+		return s.Reject("SCAFFOLD_TECHNICAL", "技术设计不是当前 approved v2")
 	}
 	if scaffold != nil {
-		a := semMap(technical["architecture"])
+		a := kernel.SemMap(technical["architecture"])
 		if a["family"] != scaffold["architecture_family"] || a["project_id"] != scaffold["project_name"] || a["decision_digest"] != scaffold["decision_digest"] {
-			return s.reject("SCAFFOLD_TECHNICAL", "技术设计与脚手架架构决定冲突")
+			return s.Reject("SCAFFOLD_TECHNICAL", "技术设计与脚手架架构决定冲突")
 		}
 	}
-	if e = contractTechnicalDesign(s, text(semMap(p["technical_design"])["ref"]), technical, nil, opts); e != nil {
+	if e = contractTechnicalDesign(s, kernel.Text(kernel.SemMap(p["technical_design"])["ref"]), technical, nil, opts); e != nil {
 		return e
 	}
 	data, e := contractBoundDoc(s, p["data_architecture_decision"])
 	if e != nil {
 		return e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/data-architecture-decision.schema.json", data); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/data-architecture-decision.schema.json", data); e != nil {
 		return e
 	}
-	if data["decision_version"] != semMap(p["data_architecture_decision"])["version"] {
-		return s.reject("DATA_ARCHITECTURE_STALE", "数据架构决定版本不匹配")
+	if data["decision_version"] != kernel.SemMap(p["data_architecture_decision"])["version"] {
+		return s.Reject("DATA_ARCHITECTURE_STALE", "数据架构决定版本不匹配")
 	}
-	if text(data["status"]) != "approved" || data["current_version"] != true || data["impact"] != semMap(p["data_architecture_decision"])["impact"] {
-		return s.reject("DATA_ARCHITECTURE_STALE", "数据架构决定不是当前批准影响结论")
+	if kernel.Text(data["status"]) != "approved" || data["current_version"] != true || data["impact"] != kernel.SemMap(p["data_architecture_decision"])["impact"] {
+		return s.Reject("DATA_ARCHITECTURE_STALE", "数据架构决定不是当前批准影响结论")
 	}
 	if _, e = contractBinding(s, map[string]any{"ref": data["assessment_ref"], "digest": data["assessment_digest"]}); e != nil {
 		return e
@@ -4225,7 +4538,7 @@ func contractBackendPrerequisites(s *semanticSession, p, scaffold map[string]any
 	if e = contractEvidence(s, data["evidence_refs"]); e != nil {
 		return e
 	}
-	if text(data["impact"]) == "required" {
+	if kernel.Text(data["impact"]) == "required" {
 		if _, e = contractBinding(s, map[string]any{"ref": data["data_architecture_ref"], "digest": data["data_architecture_digest"]}); e != nil {
 			return e
 		}
@@ -4233,40 +4546,40 @@ func contractBackendPrerequisites(s *semanticSession, p, scaffold map[string]any
 			return e
 		}
 	}
-	api, e := contractAPIDecision(s, semMap(p["api_contract_decision"]))
+	api, e := contractAPIDecision(s, kernel.SemMap(p["api_contract_decision"]))
 	if e != nil {
 		return e
 	}
-	approvalRef := text(p["engineering_contract_approval_ref"])
-	if scaffold != nil && (approvalRef != text(scaffold["lifecycle_approval_ref"]) || approvalRef != text(semMap(scaffold["approval"])["approval_ref"])) {
-		return s.reject("SCAFFOLD_APPROVAL", "工程批准指针冲突")
+	approvalRef := kernel.Text(p["engineering_contract_approval_ref"])
+	if scaffold != nil && (approvalRef != kernel.Text(scaffold["lifecycle_approval_ref"]) || approvalRef != kernel.Text(kernel.SemMap(scaffold["approval"])["approval_ref"])) {
+		return s.Reject("SCAFFOLD_APPROVAL", "工程批准指针冲突")
 	}
-	if e = contractApproval(s, "gate.engineering-contract-approved", semMap(p["technical_design"]), approvalRef, opts); e != nil {
+	if e = contractApproval(s, "gate.engineering-contract-approved", kernel.SemMap(p["technical_design"]), approvalRef, opts); e != nil {
 		return e
 	}
-	approval, e := s.doc(approvalRef)
+	approval, e := s.Doc(approvalRef)
 	if e != nil {
 		return e
 	}
-	approval, e = selectApprovalRecordSemantic(s, approval, "gate.engineering-contract-approved")
+	approval, e = kernel.SelectApprovalRecordSemantic(s, approval, "gate.engineering-contract-approved")
 	if e != nil {
 		return e
 	}
-	packageDoc, e := s.doc(text(approval["subject_ref"]))
+	packageDoc, e := s.Doc(kernel.Text(approval["subject_ref"]))
 	if e != nil {
 		return e
 	}
-	if contractN(packageDoc["schema_version"]) != 1 || text(packageDoc["kind"]) != "engineering-contract-package" {
-		return s.reject("ENGINEERING_PACKAGE", "缺少工程合同原子批准包")
+	if kernel.ContractN(packageDoc["schema_version"]) != 1 || kernel.Text(packageDoc["kind"]) != "engineering-contract-package" {
+		return s.Reject("ENGINEERING_PACKAGE", "缺少工程合同原子批准包")
 	}
 	if scaffold != nil && (packageDoc["project_id"] != scaffold["project_name"] || !semSameSet(approval["approval_scope"], []any{scaffold["contract_id"], scaffold["project_name"]})) {
-		return s.reject("ENGINEERING_PACKAGE", "工程合同包项目或范围冲突")
+		return s.Reject("ENGINEERING_PACKAGE", "工程合同包项目或范围冲突")
 	}
-	if project := opts["project-id"]; project != "" && (text(packageDoc["project_id"]) != project || !semHas(approval["approval_scope"], project)) {
-		return s.reject("ENGINEERING_PACKAGE", "工程包项目或批准范围与当前消费者不一致")
+	if project := opts["project-id"]; project != "" && (kernel.Text(packageDoc["project_id"]) != project || !kernel.SemHas(approval["approval_scope"], project)) {
+		return s.Reject("ENGINEERING_PACKAGE", "工程包项目或批准范围与当前消费者不一致")
 	}
 	for key, doc := range map[string]map[string]any{"technical_design": technical, "data_architecture_decision": data, "api_contract_decision": api} {
-		expected := contractCopy(semMap(p[key]))
+		expected := contractCopy(kernel.SemMap(p[key]))
 		version := doc["decision_version"]
 		if key == "technical_design" {
 			version = doc["version"]
@@ -4275,51 +4588,52 @@ func contractBackendPrerequisites(s *semanticSession, p, scaffold map[string]any
 		if key != "technical_design" {
 			expected["impact"] = doc["impact"]
 		}
-		actual := semMap(packageDoc[key])
+		actual := kernel.SemMap(packageDoc[key])
 		for _, field := range []string{"ref", "version", "digest"} {
 			if !contractSame(actual[field], expected[field]) {
-				return s.reject("ENGINEERING_PACKAGE", "工程包未原子绑定当前资产")
+				return s.Reject("ENGINEERING_PACKAGE", "工程包未原子绑定当前资产")
 			}
 		}
 		if key != "technical_design" && actual["impact"] != doc["impact"] {
-			return s.reject("ENGINEERING_PACKAGE", "工程包影响结论冲突")
+			return s.Reject("ENGINEERING_PACKAGE", "工程包影响结论冲突")
 		}
 		id := doc["decision_id"]
 		if key == "technical_design" {
 			id = doc["technical_design_id"]
 		}
 		match := false
-		for _, v := range semList(approval["artifact_bindings"]) {
-			b := semMap(v)
+		for _, v := range kernel.SemList(approval["artifact_bindings"]) {
+			b := kernel.SemMap(v)
 			match = match || b["id"] == id && b["version"] == version && b["digest"] == expected["digest"]
 		}
 		if !match {
-			return s.reject("ENGINEERING_PACKAGE", "批准记录未绑定当前资产版本和字节")
+			return s.Reject("ENGINEERING_PACKAGE", "批准记录未绑定当前资产版本和字节")
 		}
 	}
-	if text(api["impact"]) == "required" {
+	if kernel.Text(api["impact"]) == "required" {
 		if !contractSame(packageDoc["frozen_openapi"], api["openapi"]) {
-			return s.reject("ENGINEERING_PACKAGE", "工程包未原子冻结 OpenAPI")
+			return s.Reject("ENGINEERING_PACKAGE", "工程包未原子冻结 OpenAPI")
 		}
 	} else if packageDoc["frozen_openapi"] != nil {
-		return s.reject("ENGINEERING_PACKAGE", "无 API 影响不得携带 frozen_openapi")
+		return s.Reject("ENGINEERING_PACKAGE", "无 API 影响不得携带 frozen_openapi")
 	}
 	return nil
 }
-func contractAPIDecision(s *semanticSession, binding map[string]any) (map[string]any, error) {
+
+func contractAPIDecision(s *kernel.SemanticSession, binding map[string]any) (map[string]any, error) {
 	doc, e := contractBoundDoc(s, binding)
 	if e != nil {
 		return nil, e
 	}
 	suffix := ""
-	if contractN(doc["schema_version"]) == 2 {
+	if kernel.ContractN(doc["schema_version"]) == 2 {
 		suffix = "-v2"
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/api-contract-decision"+suffix+".schema.json", doc); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/api-contract-decision"+suffix+".schema.json", doc); e != nil {
 		return nil, e
 	}
-	if text(doc["status"]) != "approved" || doc["decision_version"] != binding["version"] || doc["impact"] != binding["impact"] {
-		return nil, s.reject("API_DECISION_STALE", "API 决定版本/影响/批准状态冲突")
+	if kernel.Text(doc["status"]) != "approved" || doc["decision_version"] != binding["version"] || doc["impact"] != binding["impact"] {
+		return nil, s.Reject("API_DECISION_STALE", "API 决定版本/影响/批准状态冲突")
 	}
 	if _, e = contractBinding(s, map[string]any{"ref": doc["assessment_ref"], "digest": doc["assessment_digest"]}); e != nil {
 		return nil, e
@@ -4327,7 +4641,7 @@ func contractAPIDecision(s *semanticSession, binding map[string]any) (map[string
 	if e = contractEvidence(s, doc["evidence_refs"]); e != nil {
 		return nil, e
 	}
-	if text(doc["impact"]) == "not-applicable" {
+	if kernel.Text(doc["impact"]) == "not-applicable" {
 		return doc, nil
 	}
 	openapi, e := contractBoundDoc(s, doc["openapi"])
@@ -4343,9 +4657,9 @@ func contractAPIDecision(s *semanticSession, binding map[string]any) (map[string
 	if e != nil {
 		return nil, e
 	}
-	bindingAPI := semMap(doc["openapi"])
-	if text(review["result"]) != "approved" || review["blocking_findings"] == nil || len(semList(review["blocking_findings"])) > 0 || review["draft_ref"] != bindingAPI["ref"] || review["draft_digest"] != bindingAPI["digest"] {
-		return nil, s.reject("OPENAPI_REVIEW", "OpenAPI 实际审查没有批准当前 Draft")
+	bindingAPI := kernel.SemMap(doc["openapi"])
+	if kernel.Text(review["result"]) != "approved" || review["blocking_findings"] == nil || len(kernel.SemList(review["blocking_findings"])) > 0 || review["draft_ref"] != bindingAPI["ref"] || review["draft_digest"] != bindingAPI["digest"] {
+		return nil, s.Reject("OPENAPI_REVIEW", "OpenAPI 实际审查没有批准当前 Draft")
 	}
 	if e = contractEvidence(s, review["evidence_refs"]); e != nil {
 		return nil, e
@@ -4353,83 +4667,114 @@ func contractAPIDecision(s *semanticSession, binding map[string]any) (map[string
 	if e = contractOpenAPIValidation(s, validation); e != nil {
 		return nil, e
 	}
-	draft := semMap(validation["draft"])
-	if draft["ref"] != bindingAPI["ref"] || draft["sha256"] != bindingAPI["digest"] || semMap(doc["freeze"])["version"] != bindingAPI["version"] {
-		return nil, s.reject("OPENAPI_FREEZE", "冻结没有绑定当前接口版本")
+	draft := kernel.SemMap(validation["draft"])
+	if draft["ref"] != bindingAPI["ref"] || draft["sha256"] != bindingAPI["digest"] || kernel.SemMap(doc["freeze"])["version"] != bindingAPI["version"] {
+		return nil, s.Reject("OPENAPI_FREEZE", "冻结没有绑定当前接口版本")
 	}
-	if contractN(doc["schema_version"]) == 1 {
-		if semMap(doc["freeze"])["draft_ref"] != bindingAPI["ref"] || semMap(doc["freeze"])["draft_digest"] != bindingAPI["digest"] || semMap(doc["draft_review"])["draft_ref"] != bindingAPI["ref"] || semMap(doc["draft_review"])["draft_digest"] != bindingAPI["digest"] {
-			return nil, s.reject("OPENAPI_FREEZE", "冻结 Draft 引用冲突")
+	if kernel.ContractN(doc["schema_version"]) == 1 {
+		if kernel.SemMap(doc["freeze"])["draft_ref"] != bindingAPI["ref"] || kernel.SemMap(doc["freeze"])["draft_digest"] != bindingAPI["digest"] || kernel.SemMap(doc["draft_review"])["draft_ref"] != bindingAPI["ref"] || kernel.SemMap(doc["draft_review"])["draft_digest"] != bindingAPI["digest"] {
+			return nil, s.Reject("OPENAPI_FREEZE", "冻结 Draft 引用冲突")
 		}
 	}
 	return doc, nil
 }
-func contractOpenAPIValidation(s *semanticSession, record map[string]any) error {
-	if e := s.validateSchema(".template-spec/process/schemas/openapi-draft-validation-record.schema.json", record); e != nil {
+
+// 单独校验 OpenAPI Draft validation record（Node 入口 scripts/verify-openapi-draft-validation-record 的唯一实现）。
+// --allow-template 只接受模板记录，仅做 Schema 与模板标记检查；正式记录走与冻结校验同一份 contractOpenAPIValidation。
+func verifyOpenAPIValidationSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	record, e := s.Doc(ref)
+	if e != nil {
 		return e
 	}
-	draft, tool := semMap(record["draft"]), semMap(record["toolchain"])
-	layout, err := viewWorkLayout(s.v)
+	template := opts["allow-template"] == "true"
+	if template {
+		if e = s.ValidateSchema(".template-spec/process/schemas/openapi-draft-validation-record.schema.json", record); e != nil {
+			return e
+		}
+		if record["template"] != true {
+			return s.Reject("OPENAPI_VALIDATION", "--allow-template 只接受模板记录")
+		}
+	} else if e = contractOpenAPIValidation(s, record); e != nil {
+		return e
+	}
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	draft := kernel.SemMap(record["draft"])
+	s.Report.Coverage["openapi_validation"] = map[string]any{"template": template, "draft_ref": draft["ref"], "draft_sha256": draft["sha256"]}
+	return nil
+}
+
+func contractOpenAPIValidation(s *kernel.SemanticSession, record map[string]any) error {
+	if e := s.ValidateSchema(".template-spec/process/schemas/openapi-draft-validation-record.schema.json", record); e != nil {
+		return e
+	}
+	draft, tool := kernel.SemMap(record["draft"]), kernel.SemMap(record["toolchain"])
+	layout, err := kernel.ViewWorkLayout(s.V)
 	if err != nil {
 		return err
 	}
-	feature, err := layout.FeatureOf(text(draft["ref"]))
+	feature, err := layout.FeatureOf(kernel.Text(draft["ref"]))
 	if err != nil {
 		return err
 	}
 	base, _ := layout.FeatureRoot(feature)
-	if !strings.HasPrefix(text(draft["ref"]), base+"/api/") {
-		return s.reject("OPENAPI_VALIDATION", "Draft 必须位于配置的功能包根的 api 目录")
+	if !strings.HasPrefix(kernel.Text(draft["ref"]), base+"/api/") {
+		return s.Reject("OPENAPI_VALIDATION", "Draft 必须位于配置的功能包根的 api 目录")
 	}
-	exit, ok := integer(tool["exit_code"])
-	if record["template"] != false || text(record["status"]) != "passed" || !ok || exit != 0 || text(tool["command"]) != "pnpm exec redocly lint "+text(draft["ref"]) {
-		return s.reject("OPENAPI_VALIDATION", "实际 lint 未通过或未指向当前 Draft")
+	exit, ok := kernel.Integer(tool["exit_code"])
+	if record["template"] != false || kernel.Text(record["status"]) != "passed" || !ok || exit != 0 || kernel.Text(tool["command"]) != "pnpm exec redocly lint "+kernel.Text(draft["ref"]) {
+		return s.Reject("OPENAPI_VALIDATION", "实际 lint 未通过或未指向当前 Draft")
 	}
-	for _, v := range semMap(record["checks"]) {
-		if text(v) != "passed" {
-			return s.reject("OPENAPI_VALIDATION", "结构/lint 检查未通过")
+	for _, v := range kernel.SemMap(record["checks"]) {
+		if kernel.Text(v) != "passed" {
+			return s.Reject("OPENAPI_VALIDATION", "结构/lint 检查未通过")
 		}
 	}
 	doc, e := contractBoundDoc(s, map[string]any{"ref": draft["ref"], "digest": draft["sha256"]})
 	if e != nil {
 		return e
 	}
-	if text(doc["openapi"]) != "3.1.0" || draft["oas_version"] != doc["openapi"] {
-		return s.reject("OPENAPI_VALIDATION", "必须 OAS 3.1.0")
+	if kernel.Text(doc["openapi"]) != "3.1.0" || draft["oas_version"] != doc["openapi"] {
+		return s.Reject("OPENAPI_VALIDATION", "必须 OAS 3.1.0")
 	}
-	lock, e := s.bytes(text(tool["lockfile_ref"]))
+	lock, e := s.Bytes(kernel.Text(tool["lockfile_ref"]))
 	if e != nil {
 		return e
 	}
-	if _, e = s.bytes(text(tool["evidence_ref"])); e != nil {
+	if _, e = s.Bytes(kernel.Text(tool["evidence_ref"])); e != nil {
 		return e
 	}
-	version := regexp.QuoteMeta(text(tool["version"]))
+	version := regexp.QuoteMeta(kernel.Text(tool["version"]))
 	if !regexp.MustCompile(`['"]?@redocly/cli@`+version+`(?:['":\s(]|$)`).Match(lock) && !regexp.MustCompile(`['"]?@redocly/cli['"]?:[\s\S]{0,240}?\n\s+version:\s*['"]?`+version+`(?:\(|['"\s]|$)`).Match(lock) {
-		return s.reject("OPENAPI_VALIDATION", "锁文件未绑定当前 Redocly 版本")
+		return s.Reject("OPENAPI_VALIDATION", "锁文件未绑定当前 Redocly 版本")
 	}
-	return contractOpenAPIReferences(s, text(draft["ref"]), doc)
+	return contractOpenAPIReferences(s, kernel.Text(draft["ref"]), doc)
 }
-func contractOpenAPIReferences(s *semanticSession, draftRef string, doc map[string]any) error {
+
+func contractOpenAPIReferences(s *kernel.SemanticSession, draftRef string, doc map[string]any) error {
 	apiRoot := path.Dir(draftRef)
 	cache := map[string]map[string]any{draftRef: doc}
 	active := map[string]bool{}
 	var load func(string, string) (any, string, error)
 	load = func(ref, owner string) (any, string, error) {
 		if regexp.MustCompile(`^[a-z][a-z0-9+.-]*:`).MatchString(ref) || strings.HasPrefix(ref, "/") || strings.Contains(ref, "\\") {
-			return nil, "", s.reject("OPENAPI_REF", "禁止远程或绝对引用")
+			return nil, "", s.Reject("OPENAPI_REF", "禁止远程或绝对引用")
 		}
 		parts := strings.SplitN(ref, "#", 2)
 		file := owner
 		if parts[0] != "" {
 			file = path.Join(path.Dir(owner), parts[0])
 		}
-		if !contractPath(file) || !contractWithin(file, apiRoot) {
-			return nil, "", s.reject("OPENAPI_REF", "引用越出 feature API 目录")
+		if !kernel.ContractPath(file) || !contractWithin(file, apiRoot) {
+			return nil, "", s.Reject("OPENAPI_REF", "引用越出 feature API 目录")
 		}
-		value := any(cache[file])
-		if value == nil {
-			parsed, e := s.doc(file)
+		// 未缓存的文件必须现读：nil map 装进 any 后不等于 nil，不能用 any(cache[file]) == nil 判断。
+		var value any
+		if cached, ok := cache[file]; ok {
+			value = cached
+		} else {
+			parsed, e := s.Doc(file)
 			if e != nil {
 				return nil, "", e
 			}
@@ -4438,29 +4783,29 @@ func contractOpenAPIReferences(s *semanticSession, draftRef string, doc map[stri
 		}
 		if len(parts) > 1 && parts[1] != "" {
 			if !strings.HasPrefix(parts[1], "/") {
-				return nil, "", s.reject("OPENAPI_REF", "仅支持 JSON Pointer")
+				return nil, "", s.Reject("OPENAPI_REF", "仅支持 JSON Pointer")
 			}
 			for _, key := range strings.Split(parts[1][1:], "/") {
 				decoded, e := url.PathUnescape(key)
 				if e != nil {
-					return nil, "", s.reject("OPENAPI_REF", "非法 fragment")
+					return nil, "", s.Reject("OPENAPI_REF", "非法 fragment")
 				}
 				key = strings.ReplaceAll(strings.ReplaceAll(decoded, "~1", "/"), "~0", "~")
-				m, ok := object(value)
+				m, ok := kernel.Object(value)
 				if ok {
 					var exists bool
 					value, exists = m[key]
 					if !exists {
-						return nil, "", s.reject("OPENAPI_REF", "引用不可解析")
+						return nil, "", s.Reject("OPENAPI_REF", "引用不可解析")
 					}
 				} else if a, ok := value.([]any); ok {
 					i, e := strconv.Atoi(key)
 					if e != nil || i < 0 || i >= len(a) {
-						return nil, "", s.reject("OPENAPI_REF", "引用数组越界")
+						return nil, "", s.Reject("OPENAPI_REF", "引用数组越界")
 					}
 					value = a[i]
 				} else {
-					return nil, "", s.reject("OPENAPI_REF", "引用不可解析")
+					return nil, "", s.Reject("OPENAPI_REF", "引用不可解析")
 				}
 			}
 		}
@@ -4470,7 +4815,7 @@ func contractOpenAPIReferences(s *semanticSession, draftRef string, doc map[stri
 	walk = func(value any, owner string) error {
 		switch v := value.(type) {
 		case map[string]any:
-			if ref := text(v["$ref"]); ref != "" {
+			if ref := kernel.Text(v["$ref"]); ref != "" {
 				key := owner + "|" + ref
 				if !active[key] {
 					active[key] = true
@@ -4502,48 +4847,49 @@ func contractOpenAPIReferences(s *semanticSession, draftRef string, doc map[stri
 		return e
 	}
 	ids := map[string]bool{}
-	for route, v := range semMap(doc["paths"]) {
-		item := semMap(v)
+	for route, v := range kernel.SemMap(doc["paths"]) {
+		item := kernel.SemMap(v)
 		for method, v := range item {
-			if !semHas([]string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}, method) {
+			if !kernel.SemHas([]string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}, method) {
 				continue
 			}
-			op := semMap(v)
-			id := text(op["operationId"])
+			op := kernel.SemMap(v)
+			id := kernel.Text(op["operationId"])
 			if id == "" || ids[id] {
-				return s.reject("OPENAPI_OPERATION", "operationId 缺失或重复")
+				return s.Reject("OPENAPI_OPERATION", "operationId 缺失或重复")
 			}
 			ids[id] = true
-			parameters := append(append([]any{}, semList(item["parameters"])...), semList(op["parameters"])...)
+			parameters := append(append([]any{}, kernel.SemList(item["parameters"])...), kernel.SemList(op["parameters"])...)
 			for _, placeholder := range regexp.MustCompile(`\{([^}]+)\}`).FindAllStringSubmatch(route, -1) {
 				found := false
 				for _, v := range parameters {
-					parameter := semMap(v)
-					if text(parameter["$ref"]) != "" {
-						resolved, _, e := load(text(parameter["$ref"]), draftRef)
+					parameter := kernel.SemMap(v)
+					if kernel.Text(parameter["$ref"]) != "" {
+						resolved, _, e := load(kernel.Text(parameter["$ref"]), draftRef)
 						if e != nil {
 							return e
 						}
-						parameter = semMap(resolved)
+						parameter = kernel.SemMap(resolved)
 					}
-					found = found || text(parameter["in"]) == "path" && text(parameter["name"]) == placeholder[1] && parameter["required"] == true
+					found = found || kernel.Text(parameter["in"]) == "path" && kernel.Text(parameter["name"]) == placeholder[1] && parameter["required"] == true
 				}
 				if !found {
-					return s.reject("OPENAPI_OPERATION", "required path parameter 缺失")
+					return s.Reject("OPENAPI_OPERATION", "required path parameter 缺失")
 				}
 			}
 		}
 	}
 	return nil
 }
-func contractTree(s *semanticSession, prefix string) (string, []string, error) {
-	files, e := s.scan(prefix)
+
+func contractTree(s *kernel.SemanticSession, prefix string) (string, []string, error) {
+	files, e := s.Scan(prefix)
 	if e != nil {
 		return "", nil, e
 	}
 	rows := []any{}
 	for _, ref := range files {
-		b, e := s.bytes(ref)
+		b, e := s.Bytes(ref)
 		if e != nil {
 			return "", nil, e
 		}
@@ -4551,53 +4897,55 @@ func contractTree(s *semanticSession, prefix string) (string, []string, error) {
 	}
 	return contractDigest(rows), files, nil
 }
-func contractPNG(s *semanticSession, b []byte, viewport map[string]any) error {
-	if len(b) < 24 || len(b) > 5<<20 || string(b[:8]) != "\x89PNG\r\n\x1a\n" || string(b[12:16]) != "IHDR" || int(binary.BigEndian.Uint32(b[16:20])) != contractN(viewport["width"]) || int(binary.BigEndian.Uint32(b[20:24])) != contractN(viewport["height"]) {
-		return s.reject("UI_BASELINE_IMAGE", "PNG 尺寸/格式/大小与 viewport 不一致")
+
+func contractPNG(s *kernel.SemanticSession, b []byte, viewport map[string]any) error {
+	if len(b) < 24 || len(b) > 5<<20 || string(b[:8]) != "\x89PNG\r\n\x1a\n" || string(b[12:16]) != "IHDR" || int(binary.BigEndian.Uint32(b[16:20])) != kernel.ContractN(viewport["width"]) || int(binary.BigEndian.Uint32(b[20:24])) != kernel.ContractN(viewport["height"]) {
+		return s.Reject("UI_BASELINE_IMAGE", "PNG 尺寸/格式/大小与 viewport 不一致")
 	}
 	return nil
 }
-func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) {
-	data, e := s.doc(ref)
+
+func contractExistingUI(s *kernel.SemanticSession, ref string) (map[string]any, error) {
+	data, e := s.Doc(ref)
 	if e != nil {
 		return nil, e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/existing-ui-baseline.schema.json", data); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/existing-ui-baseline.schema.json", data); e != nil {
 		return nil, e
 	}
 	prefix := path.Dir(ref)
-	files, e := s.scan(prefix)
+	files, e := s.Scan(prefix)
 	if e != nil {
 		return nil, e
 	}
 	if len(files) > 20000 {
-		return nil, s.reject("UI_BASELINE_LIMIT", "文件数量超限")
+		return nil, s.Reject("UI_BASELINE_LIMIT", "文件数量超限")
 	}
 	consumed := map[string]bool{path.Base(ref): true}
 	total := 0
 	for _, file := range files {
-		b, e := s.bytes(file)
+		b, e := s.Bytes(file)
 		if e != nil {
 			return nil, e
 		}
 		total += len(b)
 	}
 	if total > 100<<20 {
-		return nil, s.reject("UI_BASELINE_LIMIT", "包超过 100MiB")
+		return nil, s.Reject("UI_BASELINE_LIMIT", "包超过 100MiB")
 	}
 	bound := func(v any) ([]byte, error) {
-		b := semMap(v)
-		rel := text(b["ref"])
-		if !contractPath(rel) {
-			return nil, s.reject("UI_BASELINE_PATH", "基线证据须为安全相对路径")
+		b := kernel.SemMap(v)
+		rel := kernel.Text(b["ref"])
+		if !kernel.ContractPath(rel) {
+			return nil, s.Reject("UI_BASELINE_PATH", "基线证据须为安全相对路径")
 		}
-		bytes, e := s.bytes(path.Join(prefix, rel))
+		bytes, e := s.Bytes(path.Join(prefix, rel))
 		if e != nil {
 			return nil, e
 		}
 		consumed[rel] = true
-		if len(bytes) == 0 || "sha256:"+safefs.Digest(bytes) != text(b["digest"]) {
-			return nil, s.reject("UI_BASELINE_STALE", "原始证据摘要不一致")
+		if len(bytes) == 0 || "sha256:"+safefs.Digest(bytes) != kernel.Text(b["digest"]) {
+			return nil, s.Reject("UI_BASELINE_STALE", "原始证据摘要不一致")
 		}
 		return bytes, nil
 	}
@@ -4610,36 +4958,36 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 		if e != nil {
 			return nil, e
 		}
-		m, ok := object(value)
+		m, ok := kernel.Object(value)
 		if !ok {
-			return nil, s.reject("UI_BASELINE_FORMAT", "证据须为对象")
+			return nil, s.Reject("UI_BASELINE_FORMAT", "证据须为对象")
 		}
 		return m, nil
 	}
-	source := semMap(data["source"])
+	source := kernel.SemMap(data["source"])
 	manifest, e := document(source["manifest"])
 	if e != nil {
 		return nil, e
 	}
-	digest, sourceFiles, e := contractTree(s, path.Join(prefix, text(source["root_ref"])))
+	digest, sourceFiles, e := contractTree(s, path.Join(prefix, kernel.Text(source["root_ref"])))
 	if e != nil {
 		return nil, e
 	}
-	if digest != text(source["digest"]) {
-		return nil, s.reject("UI_BASELINE_STALE", "固定源码摘要不一致")
+	if digest != kernel.Text(source["digest"]) {
+		return nil, s.Reject("UI_BASELINE_STALE", "固定源码摘要不一致")
 	}
 	if _, e = bound(source["lock"]); e != nil {
 		return nil, e
 	}
-	if !strings.HasPrefix(text(semMap(source["lock"])["ref"]), text(source["root_ref"])+"/") {
-		return nil, s.reject("UI_BASELINE_LOCK", "锁文件不属于固定源码")
+	if !strings.HasPrefix(kernel.Text(kernel.SemMap(source["lock"])["ref"]), kernel.Text(source["root_ref"])+"/") {
+		return nil, s.Reject("UI_BASELINE_LOCK", "锁文件不属于固定源码")
 	}
-	if contractN(manifest["schema_version"]) != 1 || text(manifest["kind"]) != "existing-ui-source-observation" {
-		return nil, s.reject("UI_BASELINE_SOURCE", "源码观测 manifest 类型无效")
+	if kernel.ContractN(manifest["schema_version"]) != 1 || kernel.Text(manifest["kind"]) != "existing-ui-source-observation" {
+		return nil, s.Reject("UI_BASELINE_SOURCE", "源码观测 manifest 类型无效")
 	}
 	for _, key := range []string{"repository_id", "project_id", "source_commit"} {
 		if manifest[key] != source[key] {
-			return nil, s.reject("UI_BASELINE_SOURCE", "源码身份冲突")
+			return nil, s.Reject("UI_BASELINE_SOURCE", "源码身份冲突")
 		}
 	}
 	rows := []any{}
@@ -4648,21 +4996,21 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 		rel := strings.TrimPrefix(file, prefix+"/")
 		consumed[rel] = true
 		sourcePaths[rel] = true
-		b, e := s.bytes(file)
+		b, e := s.Bytes(file)
 		if e != nil {
 			return nil, e
 		}
-		rows = append(rows, map[string]any{"path": strings.TrimPrefix(file, path.Join(prefix, text(source["root_ref"]))+"/"), "digest": "sha256:" + safefs.Digest(b)})
+		rows = append(rows, map[string]any{"path": strings.TrimPrefix(file, path.Join(prefix, kernel.Text(source["root_ref"]))+"/"), "digest": "sha256:" + safefs.Digest(b)})
 	}
-	if manifest["source_digest"] != source["digest"] || !contractSame(contractSortRows(semList(manifest["files"]), "path"), contractSortRows(rows, "path")) {
-		return nil, s.reject("UI_BASELINE_SOURCE", "观测文件集与源码不一致")
+	if manifest["source_digest"] != source["digest"] || !contractSame(contractSortRows(kernel.SemList(manifest["files"]), "path"), contractSortRows(rows, "path")) {
+		return nil, s.Reject("UI_BASELINE_SOURCE", "观测文件集与源码不一致")
 	}
 	routePrefix := ""
 	if data["api_route_mapping"] != nil {
-		mapping := semMap(data["api_route_mapping"])
+		mapping := kernel.SemMap(data["api_route_mapping"])
 		for _, key := range []string{"config", "environment"} {
-			if !sourcePaths[text(semMap(mapping[key])["ref"])] {
-				return nil, s.reject("UI_BASELINE_PROXY", "代理映射未绑定固定源码")
+			if !sourcePaths[kernel.Text(kernel.SemMap(mapping[key])["ref"])] {
+				return nil, s.Reject("UI_BASELINE_PROXY", "代理映射未绑定固定源码")
 			}
 		}
 		config, e := bound(mapping["config"])
@@ -4674,7 +5022,7 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 			return nil, e
 		}
 		if !regexp.MustCompile(`(?m)^\s*const apiBase = env[.]VITE_API_BASE_URL \|\| ['"]/api['"]\s*;?\s*$`).Match(config) || !strings.Contains(string(config), "path.replace(new RegExp(`^${apiBase}`), '')") {
-			return nil, s.reject("UI_BASELINE_PROXY", "未支持的固定 Vite prefix rewrite")
+			return nil, s.Reject("UI_BASELINE_PROXY", "未支持的固定 Vite prefix rewrite")
 		}
 		values := []string{}
 		for _, line := range strings.Split(string(environment), "\n") {
@@ -4682,10 +5030,10 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 				values = append(values, strings.TrimSpace(strings.SplitN(line, "=", 2)[1]))
 			}
 		}
-		if len(values) != 1 || values[0] != text(mapping["prefix"]) {
-			return nil, s.reject("UI_BASELINE_PROXY", "环境 prefix 不一致")
+		if len(values) != 1 || values[0] != kernel.Text(mapping["prefix"]) {
+			return nil, s.Reject("UI_BASELINE_PROXY", "环境 prefix 不一致")
 		}
-		routePrefix = text(mapping["prefix"])
+		routePrefix = kernel.Text(mapping["prefix"])
 	}
 	build, e := document(data["build"])
 	if e != nil {
@@ -4702,48 +5050,48 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 	if _, e = bound(data["replay"]); e != nil {
 		return nil, e
 	}
-	if !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(text(openapi["openapi"])) || openapi["paths"] == nil {
-		return nil, s.reject("UI_BASELINE_API", "需 OpenAPI 3.1 原始接口")
+	if !regexp.MustCompile(`^3[.]1[.][0-9]+$`).MatchString(kernel.Text(openapi["openapi"])) || openapi["paths"] == nil {
+		return nil, s.Reject("UI_BASELINE_API", "需 OpenAPI 3.1 原始接口")
 	}
 	for _, record := range []map[string]any{build, capture} {
-		if contractN(record["schema_version"]) != 1 || record["source_commit"] != source["source_commit"] || record["source_digest"] != source["digest"] || text(record["command"]) == "" || !contractDate(record["executed_at"]) {
-			return nil, s.reject("UI_BASELINE_EXECUTION", "构建/截图未绑定当前源码和实际执行")
+		if kernel.ContractN(record["schema_version"]) != 1 || record["source_commit"] != source["source_commit"] || record["source_digest"] != source["digest"] || kernel.Text(record["command"]) == "" || !contractDate(record["executed_at"]) {
+			return nil, s.Reject("UI_BASELINE_EXECUTION", "构建/截图未绑定当前源码和实际执行")
 		}
-		exit, ok := integer(record["exit_code"])
-		if !ok || exit != 0 || len(semList(record["evidence"])) == 0 {
-			return nil, s.reject("UI_BASELINE_EXECUTION", "构建/截图退出码或原始日志缺失")
+		exit, ok := kernel.Integer(record["exit_code"])
+		if !ok || exit != 0 || len(kernel.SemList(record["evidence"])) == 0 {
+			return nil, s.Reject("UI_BASELINE_EXECUTION", "构建/截图退出码或原始日志缺失")
 		}
-		for _, evidence := range semList(record["evidence"]) {
+		for _, evidence := range kernel.SemList(record["evidence"]) {
 			if _, e = bound(evidence); e != nil {
 				return nil, e
 			}
 		}
 	}
-	output := semMap(build["output"])
-	outputDigest, outputs, e := contractTree(s, path.Join(prefix, text(output["ref"])))
+	output := kernel.SemMap(build["output"])
+	outputDigest, outputs, e := contractTree(s, path.Join(prefix, kernel.Text(output["ref"])))
 	if e != nil {
 		return nil, e
 	}
-	if outputDigest != text(output["digest"]) || build["lock_digest"] != semMap(source["lock"])["digest"] {
-		return nil, s.reject("UI_BASELINE_BUILD", "构建输出或锁文件变化")
+	if outputDigest != kernel.Text(output["digest"]) || build["lock_digest"] != kernel.SemMap(source["lock"])["digest"] {
+		return nil, s.Reject("UI_BASELINE_BUILD", "构建输出或锁文件变化")
 	}
 	for _, ref := range outputs {
 		consumed[strings.TrimPrefix(ref, prefix+"/")] = true
 	}
-	if capture["build_digest"] != semMap(data["build"])["digest"] || capture["openapi_digest"] != semMap(data["openapi"])["digest"] || text(capture["ui_change"]) != "none" {
-		return nil, s.reject("UI_BASELINE_CAPTURE", "截图来源或 UI 改动冲突")
+	if capture["build_digest"] != kernel.SemMap(data["build"])["digest"] || capture["openapi_digest"] != kernel.SemMap(data["openapi"])["digest"] || kernel.Text(capture["ui_change"]) != "none" {
+		return nil, s.Reject("UI_BASELINE_CAPTURE", "截图来源或 UI 改动冲突")
 	}
 	ids := map[string]bool{}
-	for _, v := range semList(data["cases"]) {
-		item := semMap(v)
-		id := text(item["case_id"])
+	for _, v := range kernel.SemList(data["cases"]) {
+		item := kernel.SemMap(v)
+		id := kernel.Text(item["case_id"])
 		if ids[id] {
-			return nil, s.reject("UI_BASELINE_CASE", "用例重复")
+			return nil, s.Reject("UI_BASELINE_CASE", "用例重复")
 		}
 		ids[id] = true
-		for _, ref := range semStrings(item["source_refs"]) {
+		for _, ref := range kernel.SemStrings(item["source_refs"]) {
 			if !sourcePaths[ref] {
-				return nil, s.reject("UI_BASELINE_CASE", "用例源码悬空")
+				return nil, s.Reject("UI_BASELINE_CASE", "用例源码悬空")
 			}
 		}
 		if _, e = bound(item["actions"]); e != nil {
@@ -4757,29 +5105,29 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 		if e != nil {
 			return nil, e
 		}
-		if e = contractPNG(s, image, semMap(item["viewport"])); e != nil {
+		if e = contractPNG(s, image, kernel.SemMap(item["viewport"])); e != nil {
 			return nil, e
 		}
-		if contractN(api["schema_version"]) != 1 || api["case_id"] != item["case_id"] || api["openapi_digest"] != semMap(data["openapi"])["digest"] || api["source_digest"] != source["digest"] || api["build_digest"] != semMap(data["build"])["digest"] || len(semList(api["exchanges"])) == 0 {
-			return nil, s.reject("UI_BASELINE_API", "真实 API 证据来源冲突")
+		if kernel.ContractN(api["schema_version"]) != 1 || api["case_id"] != item["case_id"] || api["openapi_digest"] != kernel.SemMap(data["openapi"])["digest"] || api["source_digest"] != source["digest"] || api["build_digest"] != kernel.SemMap(data["build"])["digest"] || len(kernel.SemList(api["exchanges"])) == 0 {
+			return nil, s.Reject("UI_BASELINE_API", "真实 API 证据来源冲突")
 		}
-		for _, v := range semList(api["exchanges"]) {
-			exchange := semMap(v)
-			status, ok := integer(exchange["status"])
-			observed, e := url.Parse(text(exchange["url"]))
-			if e != nil || !semHas([]string{"http", "https"}, observed.Scheme) || text(exchange["operation_id"]) == "" || text(exchange["method"]) == "" || !contractDate(exchange["executed_at"]) || !ok || status < 100 || status > 599 {
-				return nil, s.reject("UI_BASELINE_API", "API 交换记录非法")
+		for _, v := range kernel.SemList(api["exchanges"]) {
+			exchange := kernel.SemMap(v)
+			status, ok := kernel.Integer(exchange["status"])
+			observed, e := url.Parse(kernel.Text(exchange["url"]))
+			if e != nil || !kernel.SemHas([]string{"http", "https"}, observed.Scheme) || kernel.Text(exchange["operation_id"]) == "" || kernel.Text(exchange["method"]) == "" || !contractDate(exchange["executed_at"]) || !ok || status < 100 || status > 599 {
+				return nil, s.Reject("UI_BASELINE_API", "API 交换记录非法")
 			}
 			routes := []string{}
-			for route, v := range semMap(openapi["paths"]) {
-				for method, v := range semMap(v) {
-					if strings.EqualFold(method, text(exchange["method"])) && semMap(v)["operationId"] == exchange["operation_id"] {
+			for route, v := range kernel.SemMap(openapi["paths"]) {
+				for method, v := range kernel.SemMap(v) {
+					if strings.EqualFold(method, kernel.Text(exchange["method"])) && kernel.SemMap(v)["operationId"] == exchange["operation_id"] {
 						routes = append(routes, route)
 					}
 				}
 			}
 			if len(routes) != 1 {
-				return nil, s.reject("UI_BASELINE_API", "API operation 与冻结接口不一致")
+				return nil, s.Reject("UI_BASELINE_API", "API operation 与冻结接口不一致")
 			}
 			parts := []string{}
 			for _, part := range strings.Split(routes[0], "/") {
@@ -4792,12 +5140,12 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 			observedPath := observed.Path
 			if routePrefix != "" {
 				if !strings.HasPrefix(observedPath, routePrefix+"/") {
-					return nil, s.reject("UI_BASELINE_PROXY", "API URL prefix 不一致")
+					return nil, s.Reject("UI_BASELINE_PROXY", "API URL prefix 不一致")
 				}
 				observedPath = strings.TrimPrefix(observedPath, routePrefix)
 			}
 			if !regexp.MustCompile("^" + strings.Join(parts, "/") + "$").MatchString(observedPath) {
-				return nil, s.reject("UI_BASELINE_API", "API URL 路径不一致")
+				return nil, s.Reject("UI_BASELINE_API", "API URL 路径不一致")
 			}
 			for _, key := range []string{"request", "response"} {
 				if _, e = bound(exchange[key]); e != nil {
@@ -4806,67 +5154,71 @@ func contractExistingUI(s *semanticSession, ref string) (map[string]any, error) 
 			}
 		}
 		matches := []map[string]any{}
-		for _, v := range semList(capture["cases"]) {
-			c := semMap(v)
+		for _, v := range kernel.SemList(capture["cases"]) {
+			c := kernel.SemMap(v)
 			if c["case_id"] == item["case_id"] {
 				matches = append(matches, c)
 			}
 		}
 		if len(matches) != 1 {
-			return nil, s.reject("UI_BASELINE_CAPTURE", "capture 用例缺失或重复")
+			return nil, s.Reject("UI_BASELINE_CAPTURE", "capture 用例缺失或重复")
 		}
 		for _, key := range []string{"route", "state", "viewport", "source_refs", "actions", "image", "api"} {
 			if !contractSame(matches[0][key], item[key]) {
-				return nil, s.reject("UI_BASELINE_CAPTURE", "截图动作绑定冲突")
+				return nil, s.Reject("UI_BASELINE_CAPTURE", "截图动作绑定冲突")
 			}
 		}
 	}
-	if len(semList(capture["cases"])) != len(ids) {
-		return nil, s.reject("UI_BASELINE_CAPTURE", "capture 有未登记用例")
+	if len(kernel.SemList(capture["cases"])) != len(ids) {
+		return nil, s.Reject("UI_BASELINE_CAPTURE", "capture 有未登记用例")
 	}
 	for _, file := range files {
 		if !consumed[strings.TrimPrefix(file, prefix+"/")] {
-			return nil, s.reject("UI_BASELINE_PAYLOAD", "包含未绑定原始文件")
+			return nil, s.Reject("UI_BASELINE_PAYLOAD", "包含未绑定原始文件")
 		}
 	}
 	return data, nil
 }
+
 func contractSortRows(rows []any, key string) []any {
 	out := append([]any(nil), rows...)
-	sort.Slice(out, func(i, j int) bool { return text(semMap(out[i])[key]) < text(semMap(out[j])[key]) })
+	sort.Slice(out, func(i, j int) bool {
+		return kernel.Text(kernel.SemMap(out[i])[key]) < kernel.Text(kernel.SemMap(out[j])[key])
+	})
 	return out
 }
-func contractVisualBaseline(s *semanticSession, ref string) (map[string]any, error) {
-	data, e := s.doc(ref)
+
+func contractVisualBaseline(s *kernel.SemanticSession, ref string) (map[string]any, error) {
+	data, e := s.Doc(ref)
 	if e != nil {
 		return nil, e
 	}
 	if e = contractRequired(s, data, "schema_version", "baseline_id", "feature", "version", "status", "bundle", "source", "capture_environment", "cases"); e != nil {
 		return nil, e
 	}
-	bundle, source, env := semMap(data["bundle"]), semMap(data["source"]), semMap(data["capture_environment"])
-	if contractN(data["schema_version"]) != 1 || text(data["status"]) != "approved" || !regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`).MatchString(text(data["feature"])) || text(data["baseline_id"]) != "visual-baseline."+text(data["feature"]) || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(text(data["version"])) || text(bundle["format"]) != "portable-directory" || contractN(bundle["max_image_bytes"]) != 5<<20 || contractN(bundle["max_bundle_bytes"]) != 100<<20 {
-		return nil, s.reject("VISUAL_BASELINE", "基线身份、状态或包限制错误")
+	bundle, source, env := kernel.SemMap(data["bundle"]), kernel.SemMap(data["source"]), kernel.SemMap(data["capture_environment"])
+	if kernel.ContractN(data["schema_version"]) != 1 || kernel.Text(data["status"]) != "approved" || !regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`).MatchString(kernel.Text(data["feature"])) || kernel.Text(data["baseline_id"]) != "visual-baseline."+kernel.Text(data["feature"]) || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(data["version"])) || kernel.Text(bundle["format"]) != "portable-directory" || kernel.ContractN(bundle["max_image_bytes"]) != 5<<20 || kernel.ContractN(bundle["max_bundle_bytes"]) != 100<<20 {
+		return nil, s.Reject("VISUAL_BASELINE", "基线身份、状态或包限制错误")
 	}
 	if e = contractRequired(s, env, "browser_version", "operating_system", "fonts_digest", "locale", "timezone", "capture_script_ref", "capture_script_digest", "capture_result_ref", "capture_result_digest"); e != nil {
 		return nil, e
 	}
-	if text(env["browser"]) != "chromium" || contractN(env["device_scale_factor"]) != 1 || text(env["color_space"]) != "srgb" || env["animations_disabled"] != true || env["cursor_hidden"] != true {
-		return nil, s.reject("VISUAL_BASELINE_CAPTURE", "截图环境未满足固定条件")
+	if kernel.Text(env["browser"]) != "chromium" || kernel.ContractN(env["device_scale_factor"]) != 1 || kernel.Text(env["color_space"]) != "srgb" || env["animations_disabled"] != true || env["cursor_hidden"] != true {
+		return nil, s.Reject("VISUAL_BASELINE_CAPTURE", "截图环境未满足固定条件")
 	}
 	prefix := path.Dir(ref)
 	consumed := map[string]bool{}
 	total := 0
 	bound := func(ref, digest string, expectSize int) ([]byte, error) {
-		if !contractPath(ref) || !isSHA256(strings.TrimPrefix(digest, "sha256:")) {
-			return nil, s.reject("VISUAL_BASELINE_PATH", "基线文件或摘要非法")
+		if !kernel.ContractPath(ref) || !kernel.IsSHA256(strings.TrimPrefix(digest, "sha256:")) {
+			return nil, s.Reject("VISUAL_BASELINE_PATH", "基线文件或摘要非法")
 		}
-		bytes, e := s.bytes(path.Join(prefix, ref))
+		bytes, e := s.Bytes(path.Join(prefix, ref))
 		if e != nil {
 			return nil, e
 		}
 		if "sha256:"+safefs.Digest(bytes) != digest || expectSize >= 0 && len(bytes) != expectSize {
-			return nil, s.reject("VISUAL_BASELINE_STALE", "基线原始字节变化")
+			return nil, s.Reject("VISUAL_BASELINE_STALE", "基线原始字节变化")
 		}
 		if !consumed[ref] {
 			total += len(bytes)
@@ -4875,71 +5227,71 @@ func contractVisualBaseline(s *semanticSession, ref string) (map[string]any, err
 		return bytes, nil
 	}
 	for _, key := range []string{"prototype", "interaction_spec", "state_matrix"} {
-		ref := text(source[key+"_ref"])
+		ref := kernel.Text(source[key+"_ref"])
 		if !strings.HasPrefix(ref, "sources/") {
-			return nil, s.reject("VISUAL_BASELINE_PATH", "业务源快照须在 sources/")
+			return nil, s.Reject("VISUAL_BASELINE_PATH", "业务源快照须在 sources/")
 		}
-		if _, e = bound(ref, text(source[key+"_digest"]), -1); e != nil {
+		if _, e = bound(ref, kernel.Text(source[key+"_digest"]), -1); e != nil {
 			return nil, e
 		}
 	}
 	for _, key := range []string{"capture_script", "capture_result"} {
-		ref := text(env[key+"_ref"])
+		ref := kernel.Text(env[key+"_ref"])
 		if !strings.HasPrefix(ref, "capture/") {
-			return nil, s.reject("VISUAL_BASELINE_PATH", "截图证据须在 capture/")
+			return nil, s.Reject("VISUAL_BASELINE_PATH", "截图证据须在 capture/")
 		}
-		if _, e = bound(ref, text(env[key+"_digest"]), -1); e != nil {
+		if _, e = bound(ref, kernel.Text(env[key+"_digest"]), -1); e != nil {
 			return nil, e
 		}
 	}
 	ids, viewports := map[string]bool{}, map[string]bool{}
-	for _, v := range semList(data["cases"]) {
-		item := semMap(v)
+	for _, v := range kernel.SemList(data["cases"]) {
+		item := kernel.SemMap(v)
 		if e = contractRequired(s, item, "case_id", "route", "page", "state", "viewport", "theme", "locale", "data_scenario", "image_ref", "image_digest", "image_size_bytes", "mask_ref", "mask_digest", "mask_size_bytes", "semantic_refs", "allowed_differences", "result"); e != nil {
 			return nil, e
 		}
-		id := text(item["case_id"])
-		if !regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`).MatchString(id) || ids[id] || text(item["result"]) != "passed" {
-			return nil, s.reject("VISUAL_BASELINE_CASE", "用例 ID/状态错误")
+		id := kernel.Text(item["case_id"])
+		if !regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`).MatchString(id) || ids[id] || kernel.Text(item["result"]) != "passed" {
+			return nil, s.Reject("VISUAL_BASELINE_CASE", "用例 ID/状态错误")
 		}
 		ids[id] = true
-		viewport := semMap(item["viewport"])
+		viewport := kernel.SemMap(item["viewport"])
 		if e = contractRequired(s, viewport, "name", "width", "height", "scroll_mode", "scroll_position"); e != nil {
 			return nil, e
 		}
-		if contractN(viewport["width"]) <= 0 || contractN(viewport["height"]) <= 0 || !semHas([]string{"viewport", "segment"}, text(viewport["scroll_mode"])) || text(viewport["scroll_mode"]) == "viewport" && contractN(viewport["scroll_position"]) != 0 {
-			return nil, s.reject("VISUAL_BASELINE_VIEWPORT", "viewport 无效")
+		if kernel.ContractN(viewport["width"]) <= 0 || kernel.ContractN(viewport["height"]) <= 0 || !kernel.SemHas([]string{"viewport", "segment"}, kernel.Text(viewport["scroll_mode"])) || kernel.Text(viewport["scroll_mode"]) == "viewport" && kernel.ContractN(viewport["scroll_position"]) != 0 {
+			return nil, s.Reject("VISUAL_BASELINE_VIEWPORT", "viewport 无效")
 		}
-		viewports[fmt.Sprintf("%dx%d", contractN(viewport["width"]), contractN(viewport["height"]))] = true
-		for _, ref := range semStrings(item["semantic_refs"]) {
-			if !semHas([]any{source["prototype_ref"], source["interaction_spec_ref"], source["state_matrix_ref"]}, ref) {
-				return nil, s.reject("VISUAL_BASELINE_SEMANTIC", "语义引用未绑定业务快照")
+		viewports[fmt.Sprintf("%dx%d", kernel.ContractN(viewport["width"]), kernel.ContractN(viewport["height"]))] = true
+		for _, ref := range kernel.SemStrings(item["semantic_refs"]) {
+			if !kernel.SemHas([]any{source["prototype_ref"], source["interaction_spec_ref"], source["state_matrix_ref"]}, ref) {
+				return nil, s.Reject("VISUAL_BASELINE_SEMANTIC", "语义引用未绑定业务快照")
 			}
 		}
 		if !contractUnique(item["semantic_refs"], true) {
-			return nil, s.reject("VISUAL_BASELINE_SEMANTIC", "缺少语义引用")
+			return nil, s.Reject("VISUAL_BASELINE_SEMANTIC", "缺少语义引用")
 		}
-		imageRef := text(item["image_ref"])
+		imageRef := kernel.Text(item["image_ref"])
 		if !strings.HasPrefix(imageRef, "images/") || !strings.HasSuffix(imageRef, ".png") {
-			return nil, s.reject("VISUAL_BASELINE_IMAGE", "图片路径非法")
+			return nil, s.Reject("VISUAL_BASELINE_IMAGE", "图片路径非法")
 		}
-		image, e := bound(imageRef, text(item["image_digest"]), contractN(item["image_size_bytes"]))
+		image, e := bound(imageRef, kernel.Text(item["image_digest"]), kernel.ContractN(item["image_size_bytes"]))
 		if e != nil {
 			return nil, e
 		}
 		if e = contractPNG(s, image, viewport); e != nil {
 			return nil, e
 		}
-		if text(item["mask_ref"]) == "not-applicable" {
-			if text(item["mask_digest"]) != "not-applicable" || contractN(item["mask_size_bytes"]) != 0 {
-				return nil, s.reject("VISUAL_BASELINE_MASK", "无 mask 占位合同错误")
+		if kernel.Text(item["mask_ref"]) == "not-applicable" {
+			if kernel.Text(item["mask_digest"]) != "not-applicable" || kernel.ContractN(item["mask_size_bytes"]) != 0 {
+				return nil, s.Reject("VISUAL_BASELINE_MASK", "无 mask 占位合同错误")
 			}
 		} else {
-			maskRef := text(item["mask_ref"])
+			maskRef := kernel.Text(item["mask_ref"])
 			if !strings.HasPrefix(maskRef, "masks/") || !strings.HasSuffix(maskRef, ".png") {
-				return nil, s.reject("VISUAL_BASELINE_MASK", "mask 路径非法")
+				return nil, s.Reject("VISUAL_BASELINE_MASK", "mask 路径非法")
 			}
-			mask, e := bound(maskRef, text(item["mask_digest"]), contractN(item["mask_size_bytes"]))
+			mask, e := bound(maskRef, kernel.Text(item["mask_digest"]), kernel.ContractN(item["mask_size_bytes"]))
 			if e != nil {
 				return nil, e
 			}
@@ -4948,29 +5300,29 @@ func contractVisualBaseline(s *semanticSession, ref string) (map[string]any, err
 			}
 		}
 	}
-	if len(ids) == 0 || !viewports["1440x900"] || !viewports["390x844"] || total != contractN(bundle["size_bytes"]) || total > 100<<20 {
-		return nil, s.reject("VISUAL_BASELINE_LIMIT", "缺少规定 viewport 或实际包大小不一致")
+	if len(ids) == 0 || !viewports["1440x900"] || !viewports["390x844"] || total != kernel.ContractN(bundle["size_bytes"]) || total > 100<<20 {
+		return nil, s.Reject("VISUAL_BASELINE_LIMIT", "缺少规定 viewport 或实际包大小不一致")
 	}
-	files, e := s.scan(prefix)
+	files, e := s.Scan(prefix)
 	if e != nil {
 		return nil, e
 	}
 	for _, file := range files {
 		rel := strings.TrimPrefix(file, prefix+"/")
 		if rel != "visual-baseline.yaml" && !consumed[rel] {
-			return nil, s.reject("VISUAL_BASELINE_PAYLOAD", "存在未绑定 payload")
+			return nil, s.Reject("VISUAL_BASELINE_PAYLOAD", "存在未绑定 payload")
 		}
 	}
-	raw, e := s.bytes(ref)
+	raw, e := s.Bytes(ref)
 	if e != nil {
 		return nil, e
 	}
 	digest, e := contractVisualDigest(raw)
 	if e != nil {
-		return nil, s.unavailable("INPUT", e.Error())
+		return nil, s.Unavailable("INPUT", e.Error())
 	}
-	if digest != text(bundle["digest"]) {
-		return nil, s.reject("VISUAL_BASELINE_STALE", "manifest 插入序摘要不一致")
+	if digest != kernel.Text(bundle["digest"]) {
+		return nil, s.Reject("VISUAL_BASELINE_STALE", "manifest 插入序摘要不一致")
 	}
 	return data, nil
 }
@@ -5084,430 +5436,41 @@ func contractVisualDigest(raw []byte) (string, error) {
 	parts = append(parts, `"cases":[`+strings.Join(cases, ",")+"]")
 	return "sha256:" + safefs.Digest([]byte("{"+strings.Join(parts, ",")+"}")), nil
 }
-func verifyFrontendDeliverySemantic(s *semanticSession, ref string, opts map[string]string) error {
-	if opts["phase"] != "" && !semHas([]string{"preflight", "design", "contract", "inputs", "implementation", "verification"}, opts["phase"]) {
-		return s.reject("FRONTEND_PHASE", "未知前端交付阶段")
-	}
-	if opts["unit"] != "" && ref != opts["checkpoint"] {
-		return s.reject("FRONTEND_BINDING", "外部接收记录不得伪装本地工作单元输入")
-	}
-	if opts["checkpoint"] != "" && ref == opts["checkpoint"] {
-		return contractLocalFrontendInputs(s, nil, opts)
-	}
-	binding := map[string]any{"acceptance_ref": ref, "digest": opts["expected-digest"]}
-	var c *nativeSlice
-	if opts["contract"] != "" {
-		var e error
-		c, e = loadNativeSlice(s, opts["contract"])
-		if e != nil {
-			return e
-		}
-		if text(c.Raw["status"]) != "approved" && opts["phase"] != "inputs" {
-			return s.reject("SLICE_APPROVAL_REQUIRED", "前端实现须当前批准 Slice")
-		}
-	}
-	return contractFrontendDelivery(s, binding, c, opts)
-}
-func contractFrontendDelivery(s *semanticSession, binding map[string]any, c *nativeSlice, opts map[string]string) error {
-	ref := first(text(binding["acceptance_ref"]), text(binding["ref"]))
-	if ref == "" {
-		return s.reject("FRONTEND_DELIVERY_REQUIRED", "前端合同缺少接收记录")
-	}
-	doc, e := s.doc(ref)
-	if e != nil {
-		return e
-	}
-	n := contractN(doc["schema_version"])
-	schemaRef := map[int]string{1: ".template-spec/process/schemas/frontend-delivery-acceptance-v1.schema.json", 2: ".template-spec/process/schemas/frontend-delivery-acceptance.schema.json", 3: ".template-spec/process/schemas/frontend-delivery-acceptance-v3.schema.json"}[n]
-	if schemaRef == "" {
-		return s.unavailable("CAPABILITY", "未知前端接收协议")
-	}
-	if e = s.validateSchema(schemaRef, doc); e != nil {
-		return e
-	}
-	b, e := s.bind(ref)
-	if e != nil {
-		return e
-	}
-	if text(binding["digest"]) != "" && text(binding["digest"]) != b.Digest {
-		return s.reject("FRONTEND_DELIVERY_STALE", "接收原字节变化")
-	}
-	slice := opts["slice"]
-	if c != nil {
-		slice = text(c.Raw["slice_id"])
-	}
-	if slice == "" || text(doc["slice_id"]) != slice {
-		return s.reject("FRONTEND_DELIVERY_SLICE", "前端接收与执行切片冲突")
-	}
-	if n >= 2 {
-		preflightBinding := semMap(doc["strategic_preflight"])
-		preflight, e := contractBoundDoc(s, preflightBinding)
-		if e != nil {
-			return e
-		}
-		pn := contractN(preflight["schema_version"])
-		preflightSchema := ".template-spec/process/schemas/frontend-strategic-preflight.schema.json"
-		if pn == 2 {
-			preflightSchema = ".template-spec/process/schemas/frontend-strategic-preflight-v2.schema.json"
-		}
-		if pn != 1 && pn != 2 {
-			return s.unavailable("CAPABILITY", "未知前端战略预检协议")
-		}
-		if e = s.validateSchema(preflightSchema, preflight); e != nil {
-			return e
-		}
-		if text(preflight["status"]) != "verified" || (n == 3) != (pn == 2) || pn == 2 && preflight["ui_baseline_kind"] != doc["ui_baseline_kind"] {
-			return s.reject("FRONTEND_PREFLIGHT", "预检状态或协议版本冲突")
-		}
-		receipt, e := s.doc(text(preflight["import_receipt_ref"]))
-		if e != nil {
-			return e
-		}
-		base := path.Join("docs/handoffs", text(receipt["bundle_id"]), text(receipt["version"]))
-		if !semHas([]string{"2", "3"}, fmt.Sprint(contractN(receipt["schema_version"]))) || text(preflight["import_receipt_ref"]) != base+"/import-receipt.json" || text(receipt["package_ref"]) != base+"/package" || preflight["bundle_digest"] != receipt["bundle_digest"] || preflight["bundle_digest"] != semMap(doc["strategic_handoff"])["bundle_digest"] {
-			return s.reject("FRONTEND_PREFLIGHT", "预检收据身份或战略包版本冲突")
-		}
-		if e = contractReceipt(s, receipt); e != nil {
-			return e
-		}
-		if e = contractReceiptConsumer(s, receipt, "frontend-engineering-design"); e != nil {
-			return e
-		}
-		if e = s.verify("context-reconciliation", text(preflight["context_reconciliation_ref"]), map[string]string{"import-receipt": text(preflight["import_receipt_ref"])}); e != nil {
-			return e
-		}
-		bundle, e := contractOpenHandoff(s, text(receipt["package_ref"]))
-		if e != nil {
-			return e
-		}
-		route := apFind(bundle.Handoff["consumer_routes"], "capability", "frontend-engineering-design")
-		backend := apFind(bundle.Handoff["consumer_routes"], "capability", "backend-technical-design")
-		routeReceipt := apFind(receipt["routes"], "capability", "frontend-engineering-design")
-		if route == nil || routeReceipt == nil || text(route["activation"]) == "not-applicable" || route["route_id"] != preflight["route_id"] || routeReceipt["route_id"] != preflight["route_id"] || (pn == 2) != (contractN(bundle.Handoff["schema_version"]) == 5) {
-			return s.reject("FRONTEND_PREFLIGHT", "当前交接路线或协议降级冲突")
-		}
-		sourceIDs := []string{}
-		for _, v := range bundle.Rules {
-			sourceIDs = append(sourceIDs, text(semMap(v)["rule_id"]))
-		}
-		for _, v := range bundle.Scenarios {
-			m := semMap(v)
-			if m["critical"] == true {
-				sourceIDs = append(sourceIDs, text(m["scenario_id"]))
-			}
-		}
-		if !semSameSet(sourceIDs, preflight["source_rule_refs"]) {
-			return s.reject("FRONTEND_PREFLIGHT", "未完整绑定来源规则/关键场景")
-		}
-		visual := contractHandoffUIRef(bundle.Handoff)
-		expectedVisual := path.Join(base, "package/payload/files", text(visual["persisted_ref"]), text(visual["manifest_ref"]))
-		key := "visual_baseline_ref"
-		if pn == 2 {
-			key = "ui_baseline_ref"
-		}
-		if text(preflight[key]) != expectedVisual {
-			return s.reject("FRONTEND_PREFLIGHT", "预检 UI baseline 引用冲突")
-		}
-		expectedMode := "required"
-		if text(backend["activation"]) == "not-applicable" {
-			expectedMode = "not-applicable"
-		}
-		dep := semMap(preflight["backend_dependency"])
-		if text(dep["mode"]) != expectedMode || dep["route_id"] != backend["route_id"] || text(semMap(doc["backend_dependency"])["mode"]) != expectedMode {
-			return s.reject("FRONTEND_PREFLIGHT", "后端依赖模式与当前路线冲突")
-		}
-		if expectedMode == "not-applicable" {
-			for _, key := range []string{"reason", "impact_refs", "evidence_refs"} {
-				if !contractSame(dep[key], backend[key]) {
-					return s.reject("FRONTEND_PREFLIGHT", "后端不适用依据冲突")
-				}
-			}
-			if doc["backend_delivery"] != nil {
-				return s.reject("FRONTEND_DELIVERY", "后端不适用不得绑定交付收据")
-			}
-			if e = contractHandoffConsumption(s, doc, map[string]string{"consumer": "frontend", "slice": slice}); e != nil {
-				return e
-			}
-			ids := map[string]bool{}
-			for _, v := range semList(doc["frontend_cases"]) {
-				item := semMap(v)
-				id := text(item["case_id"])
-				if id == "" || ids[id] || len(semStrings(item["operation_ids"])) > 0 {
-					return s.reject("FRONTEND_CASE", "用例重复或无 API 分支声明接口")
-				}
-				ids[id] = true
-				for _, source := range semStrings(item["source_ids"]) {
-					if !semHas(sourceIDs, source) {
-						return s.reject("FRONTEND_CASE", "未知来源规则/场景")
-					}
-				}
-				caseKey := "visual_case_ids"
-				if n == 3 {
-					caseKey = "baseline_case_ids"
-				}
-				for _, id := range semStrings(item[caseKey]) {
-					if !semHas(visual["case_ids"], id) {
-						return s.reject("FRONTEND_CASE", "未知基线用例")
-					}
-				}
-				evidence, e := s.bytes(text(item["evidence_ref"]))
-				if e != nil {
-					return e
-				}
-				if len(evidence) == 0 || "sha256:"+safefs.Digest(evidence) != text(item["evidence_digest"]) {
-					return s.reject("FRONTEND_CASE", "前端用例说明为空或摘要变化")
-				}
-			}
-			return nil
-		}
-	}
-	return contractFrontendBackendDelivery(s, doc, slice, opts)
-}
 
-func contractFrontendBackendDelivery(s *semanticSession, acceptance map[string]any, slice string, opts map[string]string) error {
-	binding := semMap(acceptance["backend_delivery"])
-	receipt, e := s.doc(text(binding["import_receipt_ref"]))
-	if e != nil {
-		return e
+// Reference assets are owned by the same fixed tool source as the generators.
+func contractReferenceExample(s *kernel.SemanticSession, value map[string]any) error {
+	tool, err := s.ToolSourceSession()
+	if err != nil {
+		return err
 	}
-	base := path.Join("docs/backend-deliveries", text(receipt["delivery_id"]), text(receipt["version"]))
-	if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(text(receipt["version"])) || text(binding["import_receipt_ref"]) != base+"/import-receipt.json" || text(receipt["package_ref"]) != base+"/package" || binding["bundle_digest"] != receipt["bundle_digest"] {
-		return s.reject("FRONTEND_DELIVERY", "后端收据路径、身份或摘要冲突")
+	prefix := ".agents/skills/yss-ddd-scaffold-generator/assets/reference"
+	refs, err := tool.Scan(prefix)
+	if err != nil {
+		return err
 	}
-	names, e := s.list(path.Dir(base))
-	if e != nil {
-		return e
-	}
-	latest, greatest := "", 0
-	for _, name := range names {
-		if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(name) {
-			continue
-		}
-		exists, e := s.exists(path.Join(path.Dir(base), name, "import-receipt.json"))
+	sort.Strings(refs)
+	var bytes []byte
+	for _, ref := range refs {
+		content, e := tool.Bytes(ref)
 		if e != nil {
 			return e
 		}
-		if !exists {
-			continue
-		}
-		version, e := strconv.Atoi(name[1:])
-		if e != nil {
-			return s.reject("FRONTEND_DELIVERY", "后端收据版本超限")
-		}
-		if version > greatest {
-			greatest, latest = version, name
-		}
+		bytes = append(bytes, []byte(strings.TrimPrefix(ref, prefix+"/"))...)
+		bytes = append(bytes, 0)
+		bytes = append(bytes, content...)
+		bytes = append(bytes, 0)
 	}
-	if latest != text(receipt["version"]) {
-		return s.reject("FRONTEND_DELIVERY_STALE", "已有更新后端收据，当前前端接收已过期")
+	wireRef := ".agents/skills/yss-dto/references/openapi-wire-profile.yaml"
+	wire, err := tool.Bytes(wireRef)
+	if err != nil {
+		return err
 	}
-	manifest, source, e := backendOpenDelivery(s, text(receipt["package_ref"]), opts)
-	if e != nil {
-		return e
+	bytes = append(bytes, []byte(wireRef)...)
+	bytes = append(bytes, 0)
+	bytes = append(bytes, wire...)
+	bytes = append(bytes, 0)
+	if len(refs) == 0 || kernel.Text(value["template_digest"]) != "sha256:"+safefs.Digest(bytes) {
+		return s.Reject("SCAFFOLD_REFERENCE", "参考模板来源摘要变化，须重新编译合同")
 	}
-	if manifest["bundle_digest"] != receipt["bundle_digest"] || manifest["delivery_id"] != receipt["delivery_id"] || manifest["version"] != receipt["version"] {
-		return s.reject("FRONTEND_DELIVERY", "后端包与接收收据冲突")
-	}
-	delivery, e := source.doc(text(manifest["delivery_ref"]))
-	if e != nil {
-		return e
-	}
-	if semMap(delivery["scope"])["slice_id"] != slice || delivery["strategic_bundle_digest"] != semMap(acceptance["strategic_handoff"])["bundle_digest"] {
-		return s.reject("FRONTEND_DELIVERY", "后端、战略和前端切片版本冲突")
-	}
-	if e = contractHandoffConsumption(s, acceptance, map[string]string{"consumer": "frontend", "slice": slice}); e != nil {
-		return e
-	}
-	bundle, e := backendOpenStrategicInput(source, text(delivery["strategic_bundle_ref"]))
-	if e != nil {
-		return e
-	}
-	n := contractN(acceptance["schema_version"])
-	if n != 3 && contractN(bundle.Handoff["schema_version"]) == 5 {
-		return s.reject("FRONTEND_DELIVERY", "Handoff v5 必须使用前端接收 v3")
-	}
-	visual := contractHandoffUIRef(bundle.Handoff)
-	seen := map[string]bool{}
-	for _, v := range semList(acceptance["frontend_cases"]) {
-		item := semMap(v)
-		id := text(item["case_id"])
-		if id == "" || seen[id] || n >= 2 && len(semStrings(item["operation_ids"])) == 0 {
-			return s.reject("FRONTEND_CASE", "有后端依赖的用例须唯一并绑定已交付接口")
-		}
-		seen[id] = true
-		for _, id := range semStrings(item["operation_ids"]) {
-			if !semHas(semMap(delivery["scope"])["operation_ids"], id) {
-				return s.reject("FRONTEND_CASE", "前端用例依赖未交付接口")
-			}
-		}
-		for _, id := range semStrings(item["source_ids"]) {
-			covered := semHas(semMap(delivery["scope"])["source_ids"], id)
-			if !covered && n == 3 && bundle.Business != nil {
-				row := apFind(bundle.Business["tickets"], "id", id)
-				if row != nil {
-					ticket, e := bundle.Source.doc(text(row["ref"]))
-					if e != nil {
-						return e
-					}
-					related := 0
-					covered = true
-					for _, v := range semList(ticket["source_refs"]) {
-						binding := semMap(v)
-						locator := text(binding["locator"])
-						if binding["locator_kind"] == "id" && (apFind(bundle.Rules, "rule_id", locator) != nil || apFind(bundle.Scenarios, "scenario_id", locator) != nil) {
-							related++
-							if !semHas(semMap(delivery["scope"])["source_ids"], locator) {
-								covered = false
-							}
-						}
-					}
-					covered = covered && related > 0
-				}
-			}
-			if !covered {
-				return s.reject("FRONTEND_CASE", "前端用例依赖未交付规则/场景")
-			}
-		}
-		caseKey := "visual_case_ids"
-		if n == 3 {
-			caseKey = "baseline_case_ids"
-		}
-		for _, id := range semStrings(item[caseKey]) {
-			if !semHas(visual["case_ids"], id) {
-				return s.reject("FRONTEND_CASE", "前端用例视觉基线悬空")
-			}
-		}
-		b, e := s.bytes(text(item["evidence_ref"]))
-		if e != nil {
-			return e
-		}
-		if len(b) == 0 || "sha256:"+safefs.Digest(b) != text(item["evidence_digest"]) {
-			return s.reject("FRONTEND_CASE", "前端用例说明为空或摘要漂移")
-		}
-	}
-	for _, id := range semStrings(semMap(delivery["scope"])["source_ids"]) {
-		row := apFind(semMap(acceptance["strategic_handoff"])["rows"], "source_id", id)
-		if text(row["disposition"]) != "mapped" || !semHas(row["dependent_slice_refs"], slice) {
-			return s.reject("FRONTEND_CASE", "交付规则/场景未映射当前前端切片")
-		}
-	}
-	return contractProbeBackend(s, delivery)
-}
-
-func contractProbeBackend(s *semanticSession, delivery map[string]any) error {
-	environment := semMap(delivery["environment"])
-	base, e := url.Parse(text(environment["base_url"]))
-	validURL := func(u *url.URL) bool {
-		return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.ContainsAny(u.Host, "\\\r\n")
-	}
-	if e != nil || !validURL(base) {
-		return s.reject("FRONTEND_PROBE_ENVIRONMENT", "服务环境 URL 无效或包含凭据、查询、片段")
-	}
-	revision, e := url.Parse(text(environment["revision_path"]))
-	if e != nil {
-		return s.reject("FRONTEND_PROBE_ENVIRONMENT", "版本探测路径非法")
-	}
-	target := base.ResolveReference(revision)
-	origin := func(u *url.URL) string {
-		port := u.Port()
-		if port == "" {
-			port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
-		}
-		return strings.ToLower(u.Scheme+"://"+u.Hostname()) + ":" + port
-	}
-	if !validURL(target) || origin(target) != origin(base) {
-		return s.reject("FRONTEND_PROBE_ENVIRONMENT", "版本探测必须在登记环境同源内")
-	}
-	expected := map[string]any{"deployment_id": environment["deployment_id"], "source_commit": semMap(delivery["build"])["source_commit"], "openapi_digest": semMap(delivery["openapi"])["digest"], "artifact_digest": semMap(delivery["build"])["artifact_digest"], "test_data_digest": semMap(environment["test_data"])["digest"]}
-	pointers := semMap(environment["revision_pointers"])
-	for key, value := range expected {
-		pointer := text(pointers[key])
-		if text(value) == "" || !strings.HasPrefix(pointer, "/") || strings.Contains(pointer, "//") {
-			return s.reject("FRONTEND_PROBE_ENVIRONMENT", "版本身份或 JSON Pointer 缺失: "+key)
-		}
-	}
-	name := text(environment["authorization_env"])
-	if name != "" && !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(name) {
-		return s.reject("FRONTEND_PROBE_ENVIRONMENT", "授权环境变量名称非法")
-	}
-	authorization := ""
-	if name != "" {
-		authorization = os.Getenv(name)
-		if authorization == "" {
-			return s.unavailable("FRONTEND_PROBE_AUTHORIZATION", "缺少已登记授权环境变量")
-		}
-	}
-	authDigest := safefs.Digest([]byte(authorization))
-	publicTarget := (&url.URL{Scheme: target.Scheme, Host: target.Host, Path: target.Path}).String()
-	key := publicTarget + ":" + contractDigest(map[string]any{"url": target.String(), "expected": expected, "pointers": pointers, "authorization_env": name, "authorization_digest": authDigest})
-	return s.observeOnline(key, func() error {
-		if e := s.guard(); e != nil {
-			return e
-		}
-		if name != "" && safefs.Digest([]byte(os.Getenv(name))) != authDigest {
-			return s.unavailable("INPUT_DRIFT", "版本探测授权环境在核验期间变化")
-		}
-		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-		defer cancel()
-		request, e := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
-		if e != nil {
-			return s.reject("FRONTEND_PROBE_ENVIRONMENT", "版本探测请求无效")
-		}
-		request.Header.Set("Accept", "application/json")
-		if authorization != "" {
-			request.Header.Set("Authorization", authorization)
-		}
-		// The fixed protocol has no environment proxy. Construct a private
-		// transport rather than inheriting mutable process defaults or credentials.
-		transport := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 5 * time.Second}
-		defer transport.CloseIdleConnections()
-		client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		response, e := client.Do(request)
-		if e != nil {
-			if cancelErr := s.guard(); cancelErr != nil {
-				return cancelErr
-			}
-			return s.unavailable("FRONTEND_PROBE_UNAVAILABLE", "当前登记服务版本不可读")
-		}
-		defer response.Body.Close()
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return s.reject("FRONTEND_PROBE_HTTP", fmt.Sprintf("当前服务版本 HTTP %d", response.StatusCode))
-		}
-		body, e := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
-		if e != nil {
-			if cancelErr := s.guard(); cancelErr != nil {
-				return cancelErr
-			}
-			return s.unavailable("FRONTEND_PROBE_UNAVAILABLE", "服务版本响应读取失败")
-		}
-		if len(body) > 1<<20 || !json.Valid(body) {
-			return s.reject("FRONTEND_PROBE_RESPONSE", "服务版本响应超限或不是 JSON")
-		}
-		value, e := schema.Parse(body)
-		if e != nil {
-			return s.reject("FRONTEND_PROBE_RESPONSE", "服务版本 JSON 不明确")
-		}
-		for key, expectedValue := range expected {
-			current := value
-			for _, segment := range strings.Split(text(pointers[key])[1:], "/") {
-				segment = strings.ReplaceAll(strings.ReplaceAll(segment, "~1", "/"), "~0", "~")
-				if object, ok := current.(map[string]any); ok {
-					current = object[segment]
-				} else if array, ok := current.([]any); ok && regexp.MustCompile(`^(0|[1-9][0-9]*)$`).MatchString(segment) {
-					index, e := strconv.Atoi(segment)
-					if e != nil || index >= len(array) {
-						current = nil
-					} else {
-						current = array[index]
-					}
-				} else {
-					current = nil
-				}
-			}
-			if !contractSame(current, expectedValue) {
-				return s.reject("FRONTEND_PROBE_REVISION", "真实服务版本不匹配: "+key)
-			}
-		}
-		return nil
-	})
+	return nil
 }

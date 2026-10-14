@@ -28,7 +28,7 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		case "yss-project.yaml":
 			text = "schema_version: 1\nrepository_mode: project-instance\n"
 		case "README.md":
-			id := map[string]string{"design": "harness.business-ddd-strategy-handoff", "backend": "harness.backend-delivery", "frontend": "harness.frontend-delivery"}[profile]
+			id := map[string]string{"design": "harness.business-ddd-strategy-handoff", "backend": "harness.backend-delivery"}[profile]
 			text = "# " + projectToken + "\n\n本仓是 `" + id + "` 的 `project-instance`。\n\n先读 [AGENTS.md](AGENTS.md)、[CONTEXT.md](CONTEXT.md) 与 [profile](.template-spec/process/harness-profile.yaml)。\n\n业务领域：" + domainToken + "\n团队规模：" + teamToken + "\n"
 		case "AGENTS.md":
 			text = renderLabels(text)
@@ -42,21 +42,18 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		}
 	case "scripts/lib/skill-supply-chain.mjs":
 		if selected {
-			marker := `export const PROJECTION_ROOTS = [".codex/skills", ".cursor/skills", ".pi/skills"];`
-			currentMarker := `export const PROJECTION_ROOTS = [".codex/skills", ".cursor/skills", ".pi/skills", ".claude/skills"];`
-			if strings.Contains(text, currentMarker) {
-				marker = currentMarker
-			}
-			if strings.Count(text, marker) != 1 {
+			markers := regexp.MustCompile(`(?m)^export const PROJECTION_ROOTS = \[[^\]]*\];`).FindAllString(text, -1)
+			if len(markers) != 1 {
 				return nil, fmt.Errorf("Skill 投影脚本分发基线变化")
 			}
+			marker := markers[0]
 			addition := `
 function projectionRootsFor(lock) {
   const identityPath = path.join(ROOT, "yss-project.yaml");
   const isInstance = existsSync(identityPath) && /^repository_mode:\s*project-instance\s*$/m.test(readFileSync(identityPath, "utf8"));
   if (!isInstance) return PROJECTION_ROOTS;
   const roots = lock?.projectionRoots;
-  if (!Array.isArray(roots) || !roots.length || roots.some((root) => !PROJECTION_ROOTS.includes(root))) throw new TypeError("project-instance skills-lock.json 缺少有效 projectionRoots");
+  if (!Array.isArray(roots) || roots.some((root) => !PROJECTION_ROOTS.includes(root))) throw new TypeError("project-instance skills-lock.json 缺少有效 projectionRoots");
   return [...new Set(roots)];
 }
 `
@@ -66,14 +63,6 @@ function projectionRootsFor(lock) {
 			text = strings.ReplaceAll(text, "for (const root of PROJECTION_ROOTS) {", "for (const root of projectionRoots) {")
 			text = strings.Replace(text, `const targets = [".agents/skills", ...PROJECTION_ROOTS];`, `const targets = [".agents/skills", ...projectionRoots];`, 1)
 			text = strings.Replace(text, "projectionRoots: PROJECTION_ROOTS, sources, skills", "projectionRoots, sources, skills", 1)
-		}
-	case ".template-spec/engineering/backend-platforms.json":
-		if selected {
-			text = strings.ReplaceAll(text, ".template-source/evidence/maintenance/2026-09-18-yss-backend-components/aliyun-artifact-resolution.json", "docs/engineering/evidence/aliyun-artifact-resolution.json")
-		}
-	case ".template-spec/agents/backend-architecture-profiles.md":
-		if selected {
-			text = strings.Replace(text, "；依据见 `.template-source/evidence/maintenance/2026-09-12-existing-project-delivery/maven-adapters-04.json`", "；适配验证证据保留在模板源，项目实例须对自身工程重新验证", 1)
 		}
 	case ".template-spec/user-guide/用户手册.md":
 		if selected {
@@ -93,7 +82,7 @@ function projectionRootsFor(lock) {
 	case "README.md":
 		platform := "legacy-all"
 		if selected {
-			platform = "codex"
+			platform = "agents"
 		}
 		guidance := "专项 Skill 使用 `create-yss-spec skills ensure <skill-id> --plan/--apply`。"
 		if selected {
@@ -245,6 +234,25 @@ func (n *orderedJSON) set(k string, v *orderedJSON) {
 	}
 	n.values[k] = v
 }
+
+// setAfter 写入键；键已存在时原位替换，缺失时插到 after 之后（after 也缺失则追加到末尾），
+// 这样模板锁不再提交 effectiveHash 时，渲染出的实例锁键序仍与旧格式一致。
+func (n *orderedJSON) setAfter(k string, v *orderedJSON, after string) {
+	if _, ok := n.values[k]; ok {
+		n.values[k] = v
+		return
+	}
+	n.values[k] = v
+	for i, key := range n.keys {
+		if key == after {
+			n.keys = append(n.keys, "")
+			copy(n.keys[i+2:], n.keys[i+1:])
+			n.keys[i+1] = k
+			return
+		}
+	}
+	n.keys = append(n.keys, k)
+}
 func arrayNode(s []string) *orderedJSON {
 	n := &orderedJSON{kind: 'a', array: []*orderedJSON{}}
 	for _, v := range s {
@@ -280,7 +288,7 @@ func orderedBytes(root *orderedJSON) ([]byte, error) {
 }
 
 func selectedSourceLock(data []byte, skills []string) ([]byte, error) {
-	return SelectedSourceLock(data, skills, []string{"codex"})
+	return SelectedSourceLock(data, skills, []string{})
 }
 
 // SelectedSourceLock filters a fixed source lock without reconstructing its
@@ -297,9 +305,6 @@ func SelectedSourceLock(data []byte, skills, runtimes []string) ([]byte, error) 
 		}
 		seen[runtime] = true
 		roots = append(roots, ref)
-	}
-	if len(roots) == 0 {
-		return nil, fmt.Errorf("selected Skill lock requires a runtime")
 	}
 	root, e := decodeOrdered(data)
 	if e != nil {
@@ -379,20 +384,13 @@ func prepareSource(profile, ref string, data []byte) ([]byte, error) {
 		}
 	}
 	if profile != "spec" {
-		if (profile == "backend" || profile == "frontend") && ref == ".gitignore" {
-			return regexp.MustCompile("(?s)\\n# Generated shared skills; authority: Spec profile-skill-sync.json\\n.*?\\n# End generated shared skills\\n").ReplaceAll(data, nil), nil
-		}
 		return data, nil
 	}
 	text := string(data)
 	switch ref {
-	case "AGENTS.md":
-		text = regexp.MustCompile("(?s)\\n## 4\\. `template-source` 模板维护路由.*?(\\n## 5\\.)").ReplaceAllString(text, "$1")
 	case ".template-spec/process/harness-process-tailoring.md":
 		text = regexp.MustCompile("(?s)\\n## 4\\. 模板维护验证与审查强度分级.*?(\\n## 5\\.)").ReplaceAllString(text, "$1")
 		text = regexp.MustCompile("(?s)\\n模板维护默认停在 `implementation-ready`.*$").ReplaceAllString(text, "\n")
-	case ".template-spec/process/implementation-repo-integration.md":
-		text = regexp.MustCompile("(?s)\\n## 3\\. 本变更的跨仓库合同.*$").ReplaceAllString(text, "\n")
 	}
 	return []byte(text), nil
 }

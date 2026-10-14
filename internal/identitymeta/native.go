@@ -59,6 +59,11 @@ type Metadata struct {
 
 var digestPattern = regexp.MustCompile("^[a-f0-9]{64}$")
 
+// Local candidate provenance never qualifies a package for release.
+func ValidTemplateSource(meta *Metadata) bool {
+	return meta.TemplateSourceState == "committed" || meta.SchemaVersion == 3 && meta.TemplateSourceState == "working-tree" && meta.CLISourceState == "working-tree" && regexp.MustCompile(`^worktree:[a-f0-9]{40}$`).MatchString(meta.TemplateVersion)
+}
+
 func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	var meta Metadata
 	decoder := json.NewDecoder(bytes.NewReader(b))
@@ -76,11 +81,11 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if p.ID != meta.ProfileID || (found != "" && found != meta.Profile) {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "统一 metadata 与旧家族身份矛盾"), "PROFILE_IDENTITY_CONFLICT", "统一元数据与 Profile 合同或旧家族身份不一致。", map[string]any{"root": root, "profile": meta.Profile, "legacyProfile": found})
 	}
-	if !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.TemplateCommit) || !digestPattern.MatchString(meta.SnapshotHash) || !digestPattern.MatchString(meta.ManifestHash) || meta.TemplateSourceState != "committed" {
+	if !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.TemplateCommit) || !digestPattern.MatchString(meta.SnapshotHash) || !digestPattern.MatchString(meta.ManifestHash) || !ValidTemplateSource(&meta) {
 		return nil, domain.Fail("BASELINE", "统一 metadata 模板来源、快照或清单摘要缺失或不合法")
 	}
 	semver := regexp.MustCompile("^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$")
-	if !semver.MatchString(meta.CLIVersion) || !(semver.MatchString(meta.TemplateVersion) || meta.SchemaVersion >= 2 && meta.TemplateVersion == "git:"+meta.TemplateCommit) || !semver.MatchString(meta.LegacyCLIVersion) || meta.Variables == nil || meta.Distribution == nil {
+	if !semver.MatchString(meta.CLIVersion) || !(semver.MatchString(meta.TemplateVersion) || meta.SchemaVersion >= 2 && meta.TemplateVersion == "git:"+meta.TemplateCommit || meta.TemplateSourceState == "working-tree" && ValidTemplateSource(&meta)) || !semver.MatchString(meta.LegacyCLIVersion) || meta.Variables == nil || meta.Distribution == nil {
 		return nil, domain.Fail("BASELINE", "统一 metadata 版本、变量或分发合同缺失")
 	}
 	if meta.SchemaVersion >= 2 {

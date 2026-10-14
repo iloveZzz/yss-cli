@@ -2,7 +2,7 @@ package domain
 
 import "fmt"
 
-const Version = "1.3.7"
+const Version = "2.0.0"
 const ProtocolVersion = 1
 const MetadataFile = ".yss.json"
 
@@ -37,14 +37,17 @@ type Profile struct {
 }
 
 var Profiles = map[string]Profile{
-	"spec":     {"spec", "harness.spec-template", ".yss-template.json", "create-yss-spec", "3.5.10", "yss-spec-project-template", "github:iloveZzz/yss-spec-project-template"},
-	"design":   {"design", "harness.business-ddd-strategy-handoff", ".yss-harness-design.json", "create-yss-harness-design", "0.8.17", "yss-harness-design-agent", "github:iloveZzz/yss-harness-design-agent"},
-	"backend":  {"backend", "harness.backend-delivery", ".yss-harness-backend.json", "create-yss-harness-backend", "0.4.21", "yss-harness-backend-agent", "github:iloveZzz/yss-harness-backend-agent"},
-	"frontend": {"frontend", "harness.frontend-delivery", ".yss-harness-frontend.json", "create-yss-harness-frontend", "0.3.21", "yss-harness-frontend-agent", "github:iloveZzz/yss-harness-frontend-agent"},
+	"spec":    {"spec", "harness.spec-template", ".yss-template.json", "create-yss-spec", "3.5.10", "yss-spec-project-template", "github:iloveZzz/yss-spec-project-template"},
+	"design":  {"design", "harness.business-ddd-strategy-handoff", ".yss-harness-design.json", "create-yss-harness-design", "0.8.17", "yss-harness-design-agent", "github:iloveZzz/yss-harness-design-agent"},
+	"backend": {"backend", "harness.backend-delivery", ".yss-harness-backend.json", "create-yss-harness-backend", "0.4.21", "yss-harness-backend-agent", "github:iloveZzz/yss-harness-backend-agent"},
 }
 
+// 前端 Profile 已移除（AR-12c）：已有前端实例的文件原样保留，但不再被识别、升级或迁移。
 func GetProfile(name string) (Profile, error) {
 	p, ok := Profiles[name]
+	if !ok && name == "frontend" {
+		return p, Explain(Fail("IDENTITY", "前端 Profile 已移除"), "PROFILE_REMOVED", "前端 Profile 已从模板移除；已有前端实例不再识别、升级或迁移，文件保持原样、不会被删除。", map[string]any{"profile": name})
+	}
 	if !ok {
 		return p, Fail("IDENTITY", fmt.Sprintf("未知 Profile: %s", name))
 	}
