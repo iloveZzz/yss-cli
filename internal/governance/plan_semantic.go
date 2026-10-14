@@ -85,7 +85,10 @@ func sourcePlanApprovalCheckpoint(s *kernel.SemanticSession, ref string, opts ma
 		// Ordinary roots retain Tracker-defined compatibility read roots. Filter
 		// the existing observed inventory; never discover an owner in an arbitrary
 		// directory, or let a sealed package consult the receiving work layout.
-		if len(s.Aliases) == 0 && s.V.Virtual == nil && s.RuleSession == nil {
+		// A direct fixed-Context view keeps the same Tracker owner boundary;
+		// manifest-backed child sessions still use only their sealed inventory.
+		contextOnly := s.Args["source-context-snapshot"] == "true" && len(s.Aliases) == 1 && s.Aliases["CONTEXT.md"] == "source-context.snapshot.md"
+		if (len(s.Aliases) == 0 || contextOnly) && s.V.Virtual == nil && s.RuleSession == nil {
 			tracker, err := s.Bytes(worklayout.TrackerRef)
 			if err != nil {
 				return "", err

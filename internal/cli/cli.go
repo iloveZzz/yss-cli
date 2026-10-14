@@ -846,6 +846,7 @@ var nodeDelegation = []string{
 	"handoff.source-view.v1",
 	"handoff.delivery-view.v1",
 	"handoff.source-approval.v1",
+	"handoff.source-context-snapshot.v1",
 	"handoff.spec-baseline-source-view.v1",
 	"contract.spec-baseline-binding.v1",
 	"contract.plan-entry.v1",

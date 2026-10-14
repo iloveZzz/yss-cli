@@ -279,7 +279,7 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 			}
 		}
 		completionGate := "gate.delivery-accepted"
-		if kernel.ApFind(s.Registry["gates"], "id", "gate.strategic-design-handoff-approved") != nil {
+		if s.Report.Profile == "design" {
 			completionGate = "gate.strategic-design-handoff-approved"
 		}
 		if kernel.ApText(kernel.ApMap(kernel.ApMap(checkpoint["gates"])[completionGate])["status"]) != "approved" {
