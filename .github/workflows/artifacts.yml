@@ -39,9 +39,8 @@ jobs:
           path: template-source
           fetch-depth: 1
           submodules: false
-      - name: Fetch exact Profile and shared Skill objects
+      - name: Fetch fixed source objects and template tags
         run: |
-          git -C "$GITHUB_WORKSPACE/template-source" submodule update --init --depth 1 -- submodules/yss-harness-design-agent submodules/yss-harness-backend-agent submodules/yss-harness-frontend-agent
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           import path from 'node:path';
@@ -53,6 +52,12 @@ jobs:
             const repo=path.resolve(root,item.sourcePath);
             if(path.relative(root,repo).split(path.sep).includes('..')) throw new Error('source path escape');
             execFileSync('git',['-C',repo,'fetch','--depth','1','origin',item.templateCommit],{stdio:'inherit'});
+            if(item.templateTag) {
+              if(!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(item.templateTag)) throw new Error('stable template tag required');
+              execFileSync('git',['-C',repo,'fetch','--depth','1','origin',`refs/tags/${item.templateTag}:refs/tags/${item.templateTag}`],{stdio:'inherit'});
+              const commit=execFileSync('git',['-C',repo,'rev-parse',`refs/tags/${item.templateTag}^{commit}`],{encoding:'utf8'}).trim();
+              if(commit!==item.templateCommit) throw new Error('template tag differs from fixed commit');
+            }
           }
           JS
       - name: Compile production packages and record candidate

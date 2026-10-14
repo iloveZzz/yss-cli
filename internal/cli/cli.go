@@ -317,6 +317,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "bundle" {
 		return bundleCommand(ctx, o)
 	}
+	if command == "scaffold" {
+		return scaffoldCommand(ctx, o)
+	}
 	if command == "version" || o.values["version"] == "true" {
 		return map[string]any{"version": domain.Version, "protocolVersion": domain.ProtocolVersion, "profiles": domain.Profiles, "source": domain.BuildProvenance(), "cliCommit": domain.BuildProvenance().Commit, "sourceState": domain.BuildProvenance().SourceState}, profile, nil
 	}
@@ -601,7 +604,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 					selection = append(selection, r.Paths...)
 					for _, s := range r.Skills {
 						for ref := range b.Files {
-							if strings.HasPrefix(ref, ".agents/skills/"+s+"/") || strings.HasPrefix(ref, ".codex/skills/"+s+"/") {
+							if strings.HasPrefix(ref, ".agents/skills/"+s+"/") || strings.HasPrefix(ref, ".claude/skills/"+s+"/") {
 								selection = append(selection, ref)
 							}
 						}
@@ -616,7 +619,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 						selection = append(selection, r.Paths...)
 						for _, dep := range r.Skills {
 							for ref := range b.Files {
-								if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".codex/skills/"+dep+"/") {
+								if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".claude/skills/"+dep+"/") {
 									selection = append(selection, ref)
 								}
 							}
@@ -625,7 +628,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 					prefix := ".agents/skills/" + name + "/"
 					count := 0
 					for ref := range b.Files {
-						if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".codex/skills/"+name+"/") {
+						if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".claude/skills/"+name+"/") {
 							selection = append(selection, ref)
 							count++
 						}
@@ -818,8 +821,38 @@ func contextTemplateSource(root, profile string) (bool, error) {
 	}
 	return true, nil
 }
+
+// 供 Node 工作流判断能否把校验委托给本程序：每个令牌对应一组已发布的命令行行为，缺令牌就不委托。
+var nodeDelegation = []string{
+	"user-decision.from-record.v1",
+	"user-decision.requirements-object.v1",
+	"user-decision.validated-rows.v1",
+	"approval.expected.v1",
+	"approval.binding.v1",
+	"approval.rule-rows.v1",
+	"task.directory-write-scope.v1",
+	"lifecycle.legacy-untracked-checkpoint.v1",
+	"handoff.package-identity.v1",
+	"handoff.consumption-report.v1",
+	"handoff.spec-baseline-package.v1",
+	"evidence.context-reconciliation.v1",
+	"contract.openapi-validation.v1",
+	"contract.backend-terminal.v1",
+	"handoff.backend-delivery-package.v1",
+	"contract.scaffold-decisions.v1",
+	"contract.slice-preflight-report.v1",
+	"contract.business-tickets-report.v1",
+	"template-source.verify-root.v1",
+}
+
 func capabilities() map[string]any {
-	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
+	m := capabilitiesBase()
+	m["nodeDelegation"] = nodeDelegation
+	m["scaffold"] = map[string]any{"architectures": []string{"ddd", "mvc"}, "runtime": "node", "source": "embedded-spec-bundle", "initializeOnly": true, "buildExecuted": false}
+	return m
+}
+func capabilitiesBase() map[string]any {
+	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "migrationKind": "work-layout", "migrationSource": worklayout.HistoricalRoots[0], "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "migrate-plan-and-apply", "transaction-recover", "latest-migration-rollback", "contextual-help", "work-layout-v1", "work-layout-migration", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "legacy-discovery-and-rejections", "JavaScript-native-transport"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task,business-tickets", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"historical-fixed-executor-recovery", "plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false, "historicalRecovery": "external-fixed-packages"}
 }
 
 var _ = os.ErrNotExist

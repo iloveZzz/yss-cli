@@ -36,6 +36,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		return out.String()
 	}
 	title := "查询完成"
+	if command == "scaffold" {
+		title = "脚手架已生成（未执行 Maven 验证）"
+	}
 	if command == "lifecycle" && len(o.args) > 1 && o.args[1] == "route" {
 		title = "路由判定完成"
 	}
@@ -168,7 +171,7 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 
 func renderProgression(out *strings.Builder, value any) {
 	p, _ := value.(map[string]any)
-	labels := map[string]string{"spec-approved": "Spec 已批准", "product-design-completed": "产品设计完成", "backend-deliverable": "后端可交付", "frontend-accepted": "前端接收完成", "business-accepted": "业务验收完成", "profile-terminal": "本 Profile 交付终点", "pending": "待完成", "reached": "已达到", "not-applicable": "不适用（已核验）", "not-evaluated": "待核验", "blocked": "受阻", "unsupported": "当前实例不支持"}
+	labels := map[string]string{"spec-approved": "Spec 已批准", "product-design-completed": "产品设计完成", "backend-deliverable": "后端可交付", "business-accepted": "业务验收完成", "profile-terminal": "本 Profile 交付终点", "pending": "待完成", "reached": "已达到", "not-applicable": "不适用（已核验）", "not-evaluated": "待核验", "blocked": "受阻", "unsupported": "当前实例不支持"}
 	label := func(v any) string {
 		s := fmt.Sprint(v)
 		if name := labels[s]; name != "" {
@@ -191,7 +194,7 @@ func renderProgression(out *strings.Builder, value any) {
 
 func renderCoordination(out *strings.Builder, value any) {
 	rows, _ := value.(map[string]any)
-	for _, profile := range []string{"design", "backend", "frontend"} {
+	for _, profile := range []string{"design", "backend"} {
 		row, _ := rows[profile].(map[string]any)
 		if row == nil {
 			continue

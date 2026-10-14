@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -250,21 +249,21 @@ func (r *reader) candidateArchive(raw []byte, platform, binary string) error {
 	return nil
 }
 
-var scopedConsumerCases = []string{"skills.projection", "skills.lock", "profiles.projection", "handoff.source-lock", "lifecycle.registry", "skills.registry", "affected-source-contract-tests", "source.whitespace", "skills.upstream-source"}
+var scopedConsumerCases = []string{"skills.projection", "skills.lock", "profiles.projection", "handoff.source-lock", "lifecycle.registry", "skills.registry", "affected-source-contract-tests", "source.whitespace", "skills.source-contract"}
 
-func scopedCommand(i int, args []string, cwd string) bool {
-	sourceRoot := cwd + "/submodules/yss-harness-design-agent"
-	if i == 8 {
-		if len(args) != 3 {
-			return false
-		}
-		// Imported Skill revisions are independently pinned and verified by the source script.
-		sourceRoot = strings.TrimPrefix(args[2], "--source-root=")
-		if !filepath.IsAbs(sourceRoot) || filepath.Clean(sourceRoot) != sourceRoot {
-			return false
-		}
+func scopedCommand(i int, args []string) bool {
+	// Fixed current consumers replace retired projection generation and submodule authority.
+	commands := [][]string{
+		{"scripts/sync-skills", "--check"},
+		{"scripts/update-skill-lock", "--check"},
+		{"node", "--test", "--test-concurrency=1", "tests/profile-tree.test.mjs", "tests/advance-maintenance-root.test.mjs"},
+		{"node", "--test", "--test-concurrency=1", "tests/verification-artifacts.test.mjs", "tests/strategic-handoff-sealed-owner.test.mjs"},
+		{"scripts/verify-lifecycle-registry"},
+		{"scripts/verify-skill-registry"},
+		{"node", "--test", "--test-concurrency=1", "tests/read-only-intake.test.mjs", "tests/verification-execution.test.mjs", "tests/instance-metadata.test.mjs", ".template-source/tooling/node/test/retirement.test.mjs"},
+		{"git", "diff", "--check"},
+		{"node", "--test", "--test-concurrency=1", "tests/skill-lock-readers.test.mjs", ".template-source/tooling/node/test/skill-supply-chain.test.mjs"},
 	}
-	commands := [][]string{{"scripts/sync-skills", "--check"}, {"scripts/update-skill-lock", "--check"}, {"scripts/sync-profile-skills", "--check", "--profile=all"}, {"scripts/verify-strategic-handoff-tools-lock", "--require-committed"}, {"scripts/verify-lifecycle-registry"}, {"scripts/verify-skill-registry"}, {"node", "--test", "--test-concurrency=1", "tests/read-only-intake.test.mjs", "tests/verification-execution.test.mjs", "tests/instance-metadata.test.mjs", ".template-source/tooling/node/test/retirement.test.mjs"}, {"git", "diff", "--check"}, {"scripts/verify-upstream-skill-source", "--source=iloveZzz/yss-harness-design-agent", "--source-root=" + sourceRoot}}
 	return i >= 0 && i < len(commands) && reflect.DeepEqual(args, commands[i])
 }
 func (r *reader) scopedTemplateGate(s gateSources) error {
@@ -276,7 +275,7 @@ func (r *reader) scopedTemplateGate(s gateSources) error {
 		return reject("EVIDENCE", "invalid scoped template consumer report")
 	}
 	commits := object(o["current_sources"])
-	if len(commits) != 4 {
+	if len(commits) != len(profiles) {
 		return reject("PROVENANCE", "scoped template sources incomplete")
 	}
 	for p, b := range r.identity.Bundles {
@@ -312,7 +311,7 @@ func (r *reader) scopedTemplateGate(s gateSources) error {
 			cwd = text(origin["cwd"])
 		}
 		seconds, ok := origin["seconds"].(float64)
-		if row["id"] != scopedConsumerCases[i] || row["original_index"] != float64(i) || row["status"] != "passed" || row["actual_exit_code_observed"] != true || row["actual_exit_code"] != float64(0) || row["actual_signal"] != nil || !absentFailure(row) || origin["exit_code"] != float64(0) || origin["source_sha"] != r.identity.Bundles["spec"].TemplateCommit || cwd == "" || origin["cwd"] != cwd || !ok || seconds < 0 || !reflect.DeepEqual(row["args"], origin["command"]) || !scopedCommand(i, stringsOf(row["args"]), cwd) {
+		if row["id"] != scopedConsumerCases[i] || row["original_index"] != float64(i) || row["status"] != "passed" || row["actual_exit_code_observed"] != true || row["actual_exit_code"] != float64(0) || row["actual_signal"] != nil || !absentFailure(row) || origin["exit_code"] != float64(0) || origin["source_sha"] != r.identity.Bundles["spec"].TemplateCommit || cwd == "" || origin["cwd"] != cwd || !ok || seconds < 0 || !reflect.DeepEqual(row["args"], origin["command"]) || !scopedCommand(i, stringsOf(row["args"])) {
 			return reject("EVIDENCE", "scoped original command identity or exit differs")
 		}
 		if _, ok = row["actual_signal"]; !ok {

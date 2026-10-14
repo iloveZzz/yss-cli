@@ -33,16 +33,16 @@ var commonOptionNames = []string{"help", "json", "version", "human", "diagnostic
 
 func initializeCommands() {
 	// Every flag accepted by the existing dispatchers has a registered type.
-	for _, key := range strings.Fields("root target-dir design-root backend-root frontend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements implementation-root template-checkout cli-source report-dir home run-dir") {
+	for _, key := range strings.Fields("root target-dir design-root backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation recover full") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation from-record allow-template recover full") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
-	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend", "frontend")
+	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
 	defineArgument("root", "<目录>", "项目根，默认当前目录；仅项目命令")
 	defineArgument("target-dir", "<目录>", "项目根的兼容参数；优先使用 --root")
 	defineArgument("tool-root", "<目录>", "程序安装目录；update 必需，upgrade 默认识别运行目录")
@@ -61,13 +61,15 @@ func initializeCommands() {
 	defineArgument("exit-code", "<整数>", "实际退出码；成功状态必须为 0")
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
+	defineArgument("mode", "<模式>", "业务票报告模式；默认 draft", "draft", "formal")
+	defineArgument("review-ref", "<路径>", "业务票 formal 报告的显式独立审查来源")
 	defineArgument("kind", "<类型>", "当前命令的领域类型；runtime begin 默认 command")
 	defineArgument("status", "<终态>", "运行记录的终态；成功状态必须匹配退出码 0")
 	defineArgument("project-name", "<名称>", "项目名称，作为模板变量")
 	defineArgument("business-domain", "<领域>", "项目业务领域，作为模板变量")
 	defineArgument("team-size", "<规模>", "团队规模，作为模板变量")
 	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
-	defineArgument("agent-runtime", "<运行时>", "技能入口核验的目标运行时；本轮支持 Codex", "codex")
+	defineArgument("agent-runtime", "<运行时>", "仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传", "codex", "cursor", "pi")
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 
 	for _, row := range []struct{ key, description string }{
@@ -89,6 +91,8 @@ func initializeCommands() {
 		parts := strings.Fields(key)
 		opts := append([]string{}, commonOptionNames...)
 		switch parts[0] {
+		case "scaffold":
+			opts = append(opts, strings.Fields(scaffoldValues+" "+scaffoldFlags)...)
 		case "init", "attach", "sync", "doctor", "diff", "migrate", "skills", "assets":
 			opts = append(opts, projectOptionNames...)
 			if key == "skills list" {
@@ -109,7 +113,7 @@ func initializeCommands() {
 		case "recover", "rollback":
 			opts = append(opts, "root", "target-dir", "profile", "apply")
 		case "profile":
-			opts = append(opts, "root", "design-root", "backend-root", "frontend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
+			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
 		case "upgrade":
 			opts = append(opts, "check", "to", "tool-root")
 		case "update":
@@ -466,11 +470,11 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task", "frontend-delivery"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
-		return map[string][]string{"kind": {"approval", "user-decision", "verification"}}
+		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
-		return map[string][]string{"kind": {"package", "consumption", "spec-baseline"}}
+		return map[string][]string{"kind": {"package", "consumption", "spec-baseline", "backend-delivery"}}
 	case "handoff export", "handoff import":
 		return map[string][]string{"kind": {"spec-baseline"}}
 	case "runtime complete":
@@ -493,24 +497,32 @@ func verificationOptions(group, kind string) []string {
 	}
 	for _, k := range kinds {
 		switch group + "." + k {
+		case "contract.slice-preflight":
+			options = append(options, "approval-ref", "unit")
 		case "contract.slice":
 			options = append(options, "approval-ref", "unit")
-		case "contract.frontend-delivery":
-			options = append(options, "slice", "phase", "unit")
+		case "contract.business-tickets":
+			options = append(options, "mode", "review-ref")
 		case "contract.task":
 			options = append(options, "history")
+		case "contract.scaffold-decisions":
+			options = append(options, "allow-template")
+		case "contract.openapi-validation":
+			options = append(options, "allow-template")
 		case "evidence.approval":
-			options = append(options, "require-approved", "history", "gate", "boundary", "task")
+			options = append(options, "require-approved", "history", "gate", "boundary", "task", "expected", "binding")
 		case "evidence.user-decision":
-			options = append(options, "requirements", "continuation", "task")
+			options = append(options, "requirements", "continuation", "from-record", "task")
 		case "evidence.verification":
 			options = append(options, "approval-ref", "task")
 		case "handoff.package":
 			options = append(options, "package")
 		case "handoff.spec-baseline":
 			options = append(options, "package")
+		case "handoff.backend-delivery":
+			options = append(options, "package")
 		case "handoff.consumption":
-			options = append(options, "consumer")
+			options = append(options, "consumer", "slice")
 		}
 	}
 	return options

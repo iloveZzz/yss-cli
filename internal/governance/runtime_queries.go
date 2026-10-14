@@ -5,14 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 var runtimeIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,120}$`)
@@ -40,7 +40,7 @@ func runtimeExplicitID(args map[string]string) (string, error) {
 	if id != "" && positional != "" && id != positional {
 		return "", domain.Fail("INPUT", "--id 与位置运行 ID 不一致")
 	}
-	id = first(id, positional)
+	id = kernel.First(id, positional)
 	if !runtimeIDPattern.MatchString(id) {
 		return "", domain.Fail("INPUT", "需要显式合法运行 ID；不接受路径或 SQL 表达式")
 	}
@@ -175,7 +175,7 @@ func runtimeJSONRows(ctx context.Context, q runtimeQuerier, id string, events bo
 			}
 			entry["type"], entry["value"] = typeName, value
 		} else {
-			if _, ok := object(value); !ok {
+			if _, ok := kernel.Object(value); !ok {
 				return nil, domain.Fail("RUNTIME_DATA", "命令结果记录必须是 JSON 对象")
 			}
 			entry["result"] = value

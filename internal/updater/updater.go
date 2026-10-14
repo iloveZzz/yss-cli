@@ -155,22 +155,33 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		}
 		return nil
 	}
-	if !commitPattern.MatchString(m.CLICommit) || !digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest || len(m.Bundles) != 4 {
+	if !commitPattern.MatchString(m.CLICommit) || !digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest || len(m.Bundles) != 3 {
 		return fail("ARTIFACT", "发行包程序来源、二进制摘要或 Profile 集不完整")
 	}
 	var lock bundle.SourceLock
 	if e := parseJSON(sourceLock, &lock); e != nil {
 		return e
 	}
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 4 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
+	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3) || len(lock.Profiles) != 3 || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
 		return fail("ARTIFACT", "发行包缺少固定来源锁")
 	}
-	for _, profile := range []string{"spec", "design", "backend", "frontend"} {
+	for _, profile := range []string{"spec", "design", "backend"} {
 		i := m.Bundles[profile]
 		s, ok := lock.Profiles[profile]
-		version := s.TemplateVersion
-		if version == "" {
-			version = "git:" + s.Commit
+		// Match the committed Producer/assembler defaults; tag-to-commit proof stays with the Producer.
+		version := "git:" + s.Commit
+		if s.TemplateTag != "" {
+			var err error
+			version, err = stableVersion(s.TemplateTag)
+			if err != nil || s.TemplateTag != "v"+version {
+				return fail("ARTIFACT", "发行包模板 tag 不合法: "+profile)
+			}
+		}
+		if s.TemplateVersion != "" && s.TemplateVersion != version {
+			return fail("ARTIFACT", "发行包模板版本与来源 tag/commit 不一致: "+profile)
+		}
+		if s.State != "" || s.Tree != "" || (s.SourcePath != "." && safefs.ValidateRef(s.SourcePath) != nil) {
+			return fail("ARTIFACT", "发行包固定来源路径或状态不合法: "+profile)
 		}
 		policyKind := "committed"
 		if strings.HasPrefix(s.PolicyPath, "builtin:") {
@@ -179,12 +190,20 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		if !ok || i == nil || (i.SchemaVersion != 2 && i.SchemaVersion != 3) || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
 			return fail("ARTIFACT", "发行包 Profile 来源与锁不一致: "+profile)
 		}
-		if shared := s.SkillsSource; shared != nil {
-			if lock.SchemaVersion != 3 || shared.SourcePath == "" || !commitPattern.MatchString(shared.Commit) || shared.ConfigurationPath == "" || !digestPattern.MatchString(shared.ConfigurationHash) {
-				return fail("ARTIFACT", "发行包共享 Skill 来源不完整: "+profile)
+		// Reuse the Producer's path rules without reopening source repositories.
+		seenOverlays := map[string]bool{}
+		for _, overlay := range s.OverlayPaths {
+			if bundle.ValidateOverlayPath(overlay) != nil || seenOverlays[overlay] {
+				return fail("ARTIFACT", "发行包覆盖层路径不合法或重复: "+profile)
 			}
-		} else if lock.SchemaVersion == 3 && (profile == "backend" || profile == "frontend") {
-			return fail("ARTIFACT", "发行包 v3 来源锁缺少共享 Skill 来源: "+profile)
+			seenOverlays[overlay] = true
+		}
+		if shared := s.SkillsSource; shared != nil {
+			if lock.SchemaVersion != 3 || profile != "backend" || len(s.OverlayPaths) != 0 || shared.State != "" || shared.Tree != "" || (shared.SourcePath != "." && safefs.ValidateRef(shared.SourcePath) != nil) || !commitPattern.MatchString(shared.Commit) || shared.ConfigurationPath != ".template-source/profile-skill-sync.json" || !digestPattern.MatchString(shared.ConfigurationHash) {
+				return fail("ARTIFACT", "发行包共享 Skill 来源不完整或与覆盖层冲突: "+profile)
+			}
+		} else if lock.SchemaVersion == 3 && profile == "backend" && len(s.OverlayPaths) == 0 {
+			return fail("ARTIFACT", "发行包 v3 来源锁缺少共享 Skill 或覆盖层来源: "+profile)
 		}
 		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {
 			if !digestPattern.MatchString(hash) {

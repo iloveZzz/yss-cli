@@ -2,39 +2,39 @@ package governance
 
 import (
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
 	"net/url"
 	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/collate"
-	"golang.org/x/text/language"
 )
 
 func init() {
 	registerSemanticValidator("handoff-package", verifyHandoffPackageSemantic)
-	registerSemanticValidator("handoff-source", func(s *semanticSession, ref string, opts map[string]string) error {
+	registerSemanticValidator("handoff-source", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		_, err := contractInspectHandoff(s, ref)
 		return err
 	})
-	registerSemanticValidator("strategic-delivery", func(s *semanticSession, ref string, opts map[string]string) error {
+	registerSemanticValidator("strategic-delivery", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		_, _, err := contractOpenStrategicDelivery(s, ref)
 		return err
 	})
-	registerSemanticValidator("handoff-consumption", func(s *semanticSession, ref string, opts map[string]string) error {
-		doc, e := s.doc(ref)
+	registerSemanticValidator("handoff-consumption", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+		doc, e := s.Doc(ref)
 		if e != nil {
 			return e
 		}
-		consumer := first(opts["consumer"], "tactical")
-		version, ok := integer(doc["schema_version"])
-		if !ok || !((consumer == "tactical" && (version == 1 || version == 2)) || (consumer == "frontend" && (version == 1 || version == 2 || version == 3))) {
-			return s.unavailable("CAPABILITY", "未知 Handoff 消费合同类型或版本")
+		consumer := kernel.First(opts["consumer"], "tactical")
+		version, ok := kernel.Integer(doc["schema_version"])
+		if !ok || !(consumer == "tactical" && (version == 1 || version == 2)) {
+			return s.Unavailable("CAPABILITY", "未知 Handoff 消费合同类型或版本")
 		}
 		return contractHandoffConsumption(s, doc, opts)
 	})
@@ -43,43 +43,50 @@ func init() {
 type nativeHandoff struct {
 	Manifest, Handoff, Strategy, Stage, Config, Changes, Business map[string]any
 	Rules, Scenarios                                              []any
-	Source                                                        *semanticSession
+	Source                                                        *kernel.SemanticSession
 	Prefix                                                        string
 }
 
-func verifyHandoffPackageSemantic(s *semanticSession, ref string, opts map[string]string) error {
-	_, e := contractOpenHandoff(s, ref)
+func verifyHandoffPackageSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	h, e := contractOpenHandoff(s, ref)
+	if e == nil && h != nil {
+		// 命令行薄壳需要的包身份摘要，与 Node 的 strategic-handoff verify 输出一致。
+		if s.Report.Coverage == nil {
+			s.Report.Coverage = map[string]any{}
+		}
+		s.Report.Coverage["handoff_package"] = map[string]any{"bundle_id": h.Manifest["bundle_id"], "version": h.Manifest["version"], "bundle_digest": h.Manifest["bundle_digest"], "rules": len(h.Rules), "scenarios": len(h.Scenarios)}
+	}
 	return e
 }
 
 // Consume the published v1 strategic delivery wrapper as an observed directory.
 // Neither its persisted command nor its optional archive is executed/extracted.
-func contractOpenStrategicDelivery(s *semanticSession, recordRef string) (*nativeHandoff, map[string]any, error) {
-	if path.Base(recordRef) != "delivery-record.json" || path.Dir(recordRef) == "." || !contractPath(recordRef) {
-		return nil, nil, s.reject("HANDOFF_DELIVERY", "战略交付必须登记独立目录中的 delivery-record.json")
+func contractOpenStrategicDelivery(s *kernel.SemanticSession, recordRef string) (*nativeHandoff, map[string]any, error) {
+	if path.Base(recordRef) != "delivery-record.json" || path.Dir(recordRef) == "." || !kernel.ContractPath(recordRef) {
+		return nil, nil, s.Reject("HANDOFF_DELIVERY", "战略交付必须登记独立目录中的 delivery-record.json")
 	}
-	record, e := s.doc(recordRef)
+	record, e := s.Doc(recordRef)
 	if e != nil {
 		return nil, nil, e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/strategic-handoff-delivery.schema.json", record); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-delivery.schema.json", record); e != nil {
 		return nil, nil, e
 	}
 	prefix := path.Dir(recordRef)
-	report, e := s.doc(path.Join(prefix, text(record["verification_ref"])))
+	report, e := s.Doc(path.Join(prefix, kernel.Text(record["verification_ref"])))
 	if e != nil {
 		return nil, nil, e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/strategic-handoff-delivery-verification.schema.json", report); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-delivery-verification.schema.json", report); e != nil {
 		return nil, nil, e
 	}
-	zip, hasZIP := object(record["zip"])
+	zip, hasZIP := kernel.Object(record["zip"])
 	if hasZIP {
-		if _, e = backendBound(s, map[string]any{"ref": path.Join(prefix, text(zip["ref"])), "digest": zip["sha256"]}); e != nil {
+		if _, e = backendBound(s, map[string]any{"ref": path.Join(prefix, kernel.Text(zip["ref"])), "digest": zip["sha256"]}); e != nil {
 			return nil, nil, e
 		}
 	}
-	files, e := s.scan(prefix)
+	files, e := s.Scan(prefix)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -89,42 +96,43 @@ func contractOpenStrategicDelivery(s *semanticSession, recordRef string) (*nativ
 	}
 	for _, ref := range files {
 		if !strings.HasPrefix(ref, path.Join(prefix, "package")+"/") && !allowed[ref] {
-			return nil, nil, s.reject("HANDOFF_DELIVERY", "战略交付目录包含未登记文件: "+ref)
+			return nil, nil, s.Reject("HANDOFF_DELIVERY", "战略交付目录包含未登记文件: "+ref)
 		}
 	}
-	bundle, e := contractOpenHandoff(s, path.Join(prefix, text(record["package_ref"])))
+	bundle, e := contractOpenHandoff(s, path.Join(prefix, kernel.Text(record["package_ref"])))
 	if e != nil {
 		return nil, nil, e
 	}
 	if report["bundle_digest"] != bundle.Manifest["bundle_digest"] || report["package_ref"] != record["package_ref"] || report["manifest_ref"] != record["manifest_ref"] {
-		return nil, nil, s.reject("HANDOFF_DELIVERY", "交付验证与当前包身份矛盾")
+		return nil, nil, s.Reject("HANDOFF_DELIVERY", "交付验证与当前包身份矛盾")
 	}
 	if e = contractDeliveryRecordIdentity(s, bundle, record); e != nil {
 		return nil, nil, e
 	}
 	return bundle, record, nil
 }
-func contractDeliveryRecordIdentity(s *semanticSession, bundle *nativeHandoff, record map[string]any) error {
-	h := semMap(record["handoff"])
+
+func contractDeliveryRecordIdentity(s *kernel.SemanticSession, bundle *nativeHandoff, record map[string]any) error {
+	h := kernel.SemMap(record["handoff"])
 	if h["id"] != bundle.Manifest["bundle_id"] || h["version"] != bundle.Manifest["version"] || h["schema_version"] != bundle.Handoff["schema_version"] || record["bundle_digest"] != bundle.Manifest["bundle_digest"] {
-		return s.reject("HANDOFF_DELIVERY", "交付记录、验证与当前包身份矛盾")
+		return s.Reject("HANDOFF_DELIVERY", "交付记录、验证与当前包身份矛盾")
 	}
 	found := false
-	for _, item := range semList(bundle.Manifest["files"]) {
-		row := semMap(item)
+	for _, item := range kernel.SemList(bundle.Manifest["files"]) {
+		row := kernel.SemMap(item)
 		found = found || row["original_ref"] == h["ref"] && row["sha256"] == h["sha256"]
 	}
 	if !found {
-		return s.reject("HANDOFF_DELIVERY", "交付记录缺少 Handoff 原始字节绑定")
+		return s.Reject("HANDOFF_DELIVERY", "交付记录缺少 Handoff 原始字节绑定")
 	}
 	assets, keys := []any{}, []string{}
-	for key := range semMap(bundle.Handoff["source"]) {
+	for key := range kernel.SemMap(bundle.Handoff["source"]) {
 		keys = append(keys, key)
 	}
 	order := collate.New(language.English)
 	sort.SliceStable(keys, func(i, j int) bool { return order.CompareString(keys[i], keys[j]) < 0 })
 	for _, key := range keys {
-		v := semMap(semMap(bundle.Handoff["source"])[key])
+		v := kernel.SemMap(kernel.SemMap(bundle.Handoff["source"])[key])
 		id := v["id"]
 		if id == nil {
 			id = v["baseline_id"]
@@ -132,66 +140,61 @@ func contractDeliveryRecordIdentity(s *semanticSession, bundle *nativeHandoff, r
 		assets = append(assets, map[string]any{"source_key": key, "id": id, "version": v["version"], "ref": v["persisted_ref"], "digest": v["digest"]})
 	}
 	routes := []any{}
-	for _, item := range semList(bundle.Handoff["consumer_routes"]) {
-		v := semMap(item)
+	for _, item := range kernel.SemList(bundle.Handoff["consumer_routes"]) {
+		v := kernel.SemMap(item)
 		routes = append(routes, map[string]any{"route_id": v["route_id"], "capability": v["capability"], "activation": v["activation"]})
 	}
 	var previous any
-	if prior, present := object(bundle.Manifest["previous_bundle"]); present {
+	if prior, present := kernel.Object(bundle.Manifest["previous_bundle"]); present {
 		previous = map[string]any{"handoff_id": prior["bundle_id"], "version": prior["version"], "bundle_digest": prior["digest"]}
 	}
 	if !contractSame(assets, record["source_assets"]) || !contractSame(routes, record["consumer_routes"]) || !contractSame(previous, record["previous_delivery"]) {
-		return s.reject("HANDOFF_DELIVERY", "交付记录来源、路由或上一版本与批准包不一致")
+		return s.Reject("HANDOFF_DELIVERY", "交付记录来源、路由或上一版本与批准包不一致")
 	}
 	return nil
 }
 
-func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, error) {
-	if strings.EqualFold(path.Ext(prefix), ".zip") {
-		archive, root, e := s.zipSourceSession(prefix)
-		if e != nil {
-			return nil, e
-		}
-		return contractOpenHandoff(archive, root)
-	}
-	manifest, e := s.doc(path.Join(prefix, "manifest.json"))
+// Prepare the immutable view once: inventory, original bytes, layout and source
+// signing policy are shared by full Handoff gates and readonly business reports.
+func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
+	manifest, e := s.Doc(path.Join(prefix, "manifest.json"))
 	if e != nil {
 		return nil, e
 	}
-	if e = s.validateSchema(".template-spec/process/schemas/strategic-handoff-package.schema.json", manifest); e != nil {
+	if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-package.schema.json", manifest); e != nil {
 		return nil, e
 	}
-	if text(manifest["bundle_digest"]) != contractDigest(contractWithout(manifest, "bundle_digest")) {
-		return nil, s.reject("HANDOFF_MANIFEST", "包清单摘要不一致")
+	if kernel.Text(manifest["bundle_digest"]) != contractDigest(contractWithout(manifest, "bundle_digest")) {
+		return nil, s.Reject("HANDOFF_MANIFEST", "包清单摘要不一致")
 	}
 	names, originals := []string{"manifest.json"}, map[string]bool{}
 	folds := map[string]bool{"manifest.json": true}
 	fold := cases.Fold()
 	total := 0
-	for _, v := range semList(manifest["files"]) {
-		file := semMap(v)
-		ref := text(file["path"])
-		for _, candidate := range []string{ref, text(file["original_ref"])} {
-			if e = rejectProgressionEvidence(s, candidate); e != nil {
+	for _, v := range kernel.SemList(manifest["files"]) {
+		file := kernel.SemMap(v)
+		ref := kernel.Text(file["path"])
+		for _, candidate := range []string{ref, kernel.Text(file["original_ref"])} {
+			if e = kernel.RejectProgressionEvidence(s, candidate); e != nil {
 				return nil, e
 			}
 		}
-		if !contractPath(ref) || folds[fold.String(ref)] {
-			return nil, s.reject("HANDOFF_PATH", "包路径非法或大小写冲突")
+		if !kernel.ContractPath(ref) || folds[fold.String(ref)] {
+			return nil, s.Reject("HANDOFF_PATH", "包路径非法或大小写冲突")
 		}
 		folds[fold.String(ref)] = true
 		names = append(names, ref)
-		b, e := s.bytes(path.Join(prefix, ref))
+		b, e := s.Bytes(path.Join(prefix, ref))
 		if e != nil {
 			return nil, e
 		}
-		if len(b) != contractN(file["size_bytes"]) || "sha256:"+safefs.Digest(b) != text(file["sha256"]) {
-			return nil, s.reject("HANDOFF_FILE_STALE", "文件摘要或大小不一致: "+ref)
+		if len(b) != kernel.ContractN(file["size_bytes"]) || "sha256:"+safefs.Digest(b) != kernel.Text(file["sha256"]) {
+			return nil, s.Reject("HANDOFF_FILE_STALE", "文件摘要或大小不一致: "+ref)
 		}
 		total += len(b)
-		if original := text(file["original_ref"]); original != "" {
-			if !contractPath(original) || originals[fold.String(original)] {
-				return nil, s.reject("HANDOFF_PATH", "原始路径非法或重复")
+		if original := kernel.Text(file["original_ref"]); original != "" {
+			if !kernel.ContractPath(original) || originals[fold.String(original)] {
+				return nil, s.Reject("HANDOFF_PATH", "原始路径非法或重复")
 			}
 			expected := "payload/files/" + original
 			if original == "CONTEXT.md" {
@@ -201,19 +204,19 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 			if original == "CONTEXT.md" {
 				legacyExpected = "payload/source-context.snapshot.md"
 			}
-			if original == text(manifest["handoff_ref"]) {
+			if original == kernel.Text(manifest["handoff_ref"]) {
 				legacyExpected = "handoff.yaml"
 			}
 			if ref != expected && ref != legacyExpected {
-				return nil, s.unavailable("READONLY_SOURCE_LAYOUT_REQUIRED", "包需要只读来源布局")
+				return nil, s.Unavailable("READONLY_SOURCE_LAYOUT_REQUIRED", "包需要只读来源布局")
 			}
 			originals[fold.String(original)] = true
 		}
 	}
 	if total > 512<<20 || len(names) > 20001 {
-		return nil, s.reject("HANDOFF_LIMIT", "包大小或数量超限")
+		return nil, s.Reject("HANDOFF_LIMIT", "包大小或数量超限")
 	}
-	files, e := s.scan(prefix)
+	files, e := s.Scan(prefix)
 	if e != nil {
 		return nil, e
 	}
@@ -222,32 +225,32 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 		actual = append(actual, strings.TrimPrefix(f, prefix+"/"))
 	}
 	if !contractSame(contractSorted(names), contractSorted(actual)) {
-		return nil, s.reject("HANDOFF_MANIFEST", "包文件未登记、缺失或额外")
+		return nil, s.Reject("HANDOFF_MANIFEST", "包文件未登记、缺失或额外")
 	}
 	aliases := map[string]string{}
 	sourcePrefix := path.Join(prefix, "payload/files")
 	legacy := false
-	for _, entry := range semList(manifest["files"]) {
-		file := semMap(entry)
-		if text(file["original_ref"]) == text(manifest["handoff_ref"]) && text(file["path"]) == "handoff.yaml" {
+	for _, entry := range kernel.SemList(manifest["files"]) {
+		file := kernel.SemMap(entry)
+		if kernel.Text(file["original_ref"]) == kernel.Text(manifest["handoff_ref"]) && kernel.Text(file["path"]) == "handoff.yaml" {
 			legacy = true
 		}
 	}
 	if legacy {
 		sourcePrefix = prefix
 	}
-	for _, entry := range semList(manifest["files"]) {
-		file := semMap(entry)
-		if original := text(file["original_ref"]); original != "" {
-			stored := strings.TrimPrefix(text(file["path"]), "payload/files/")
+	for _, entry := range kernel.SemList(manifest["files"]) {
+		file := kernel.SemMap(entry)
+		if original := kernel.Text(file["original_ref"]); original != "" {
+			stored := strings.TrimPrefix(kernel.Text(file["path"]), "payload/files/")
 			if legacy {
-				stored = text(file["path"])
+				stored = kernel.Text(file["path"])
 			}
 			aliases[original] = stored
-			if original != "CONTEXT.md" && !(legacy && original == text(manifest["handoff_ref"])) {
+			if original != "CONTEXT.md" && !(legacy && original == kernel.Text(manifest["handoff_ref"])) {
 				for a, b := path.Dir(original), path.Dir(stored); a != "." && b != "."; a, b = path.Dir(a), path.Dir(b) {
 					if previous, ok := aliases[a]; ok && previous != b {
-						return nil, s.reject("HANDOFF_PATH", "目录映射冲突")
+						return nil, s.Reject("HANDOFF_PATH", "目录映射冲突")
 					}
 					aliases[a] = b
 				}
@@ -255,130 +258,184 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 		}
 	}
 	if legacy && aliases["CONTEXT.md"] != "payload/source-context.snapshot.md" || !legacy && aliases["CONTEXT.md"] != "source-context.snapshot.md" {
-		return nil, s.reject("HANDOFF_PATH", "来源布局混合或缺少根词汇快照")
+		return nil, s.Reject("HANDOFF_PATH", "来源布局混合或缺少根词汇快照")
 	}
-	source, e := s.sourceSnapshotSession(sourcePrefix, aliases)
+	source, e := s.SourceSnapshotSession(sourcePrefix, aliases)
 	if e != nil {
 		return nil, e
 	}
-	source.roles, e = source.doc(".template-spec/agents/digital-human-roles.yaml")
+	source.Roles, e = source.Doc(".template-spec/agents/digital-human-roles.yaml")
 	if e != nil {
 		return nil, e
 	}
-	if len(semMap(source.roles["gate_policy"])) == 0 {
-		return nil, source.reject("HANDOFF_POLICY", "来源角色策略缺少 gate_policy")
+	if len(kernel.SemMap(source.Roles["gate_policy"])) == 0 {
+		return nil, source.Reject("HANDOFF_POLICY", "来源角色策略缺少 gate_policy")
 	}
 	published := []any{}
-	policy := semMap(source.roles["gate_policy"])
+	policy := kernel.SemMap(source.Roles["gate_policy"])
 	for _, bucket := range []string{"biological_human", "product_digital_human_with_biological_veto"} {
-		for _, id := range semStrings(policy[bucket]) {
+		for _, id := range kernel.SemStrings(policy[bucket]) {
 			published = append(published, map[string]any{"id": id})
 		}
 	}
 	for _, bucket := range []string{"dual_digital_human", "digital_human_review", "check_reviews"} {
-		for _, row := range semList(policy[bucket]) {
-			published = append(published, map[string]any{"id": semMap(row)["gate"]})
+		for _, row := range kernel.SemList(policy[bucket]) {
+			published = append(published, map[string]any{"id": kernel.SemMap(row)["gate"]})
 		}
 	}
-	source.registry = map[string]any{"gates": published, "id_policy": map[string]any{"deprecated_ids": []any{}}}
-	source.report.Checks = append(source.report.Checks, SemanticCheck{ID: "handoff-source-policy-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
-	handoff, e := source.doc(text(manifest["handoff_ref"]))
+	source.Registry = map[string]any{"gates": published, "id_policy": map[string]any{"deprecated_ids": []any{}}}
+	source.Report.Checks = append(source.Report.Checks, kernel.SemanticCheck{ID: "handoff-source-policy-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
+	handoff, e := source.Doc(kernel.Text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
 	}
-	if contractN(handoff["schema_version"]) == 5 {
-		for _, entry := range semList(manifest["files"]) {
-			file := semMap(entry)
-			if original := text(file["original_ref"]); original != "" {
+	if kernel.ContractN(handoff["schema_version"]) == 5 {
+		for _, entry := range kernel.SemList(manifest["files"]) {
+			file := kernel.SemMap(entry)
+			if original := kernel.Text(file["original_ref"]); original != "" {
 				expected := "payload/files/" + original
 				if original == "CONTEXT.md" {
 					expected = "payload/files/source-context.snapshot.md"
 				}
-				if text(file["path"]) != expected {
-					return nil, s.reject("HANDOFF_PATH", "Handoff v5 必须保留固定 payload/files 来源布局")
+				if kernel.Text(file["path"]) != expected {
+					return nil, s.Reject("HANDOFF_PATH", "Handoff v5 必须保留固定 payload/files 来源布局")
 				}
 			}
 		}
 	}
-	bundle, e := contractInspectHandoff(source, text(manifest["handoff_ref"]))
+	if e = contractHandoffSourcePolicy(source, kernel.ContractN(handoff["schema_version"])); e != nil {
+		return nil, e
+	}
+	return &nativeHandoff{Manifest: manifest, Handoff: handoff, Source: source, Prefix: prefix}, nil
+}
+
+// Imported business references select an already authenticated v5 source view;
+// a path match alone never creates aliases or accepts a distinct baseline format.
+func contractBusinessSource(s *kernel.SemanticSession, ref, reviewRef string) (*kernel.SemanticSession, string, string, error) {
+	if strings.HasPrefix(ref, "docs/spec-baselines/") {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
+	}
+	if !strings.HasPrefix(ref, "docs/handoffs/") {
+		return s, ref, reviewRef, nil
+	}
+	parts := strings.Split(ref, "/")
+	if !kernel.ContractPath(ref) || len(parts) < 8 || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(parts[3]) || parts[4] != "package" || parts[5] != "payload" || parts[6] != "files" {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告仅支持战略 Handoff v5 的固定 payload/files 来源")
+	}
+	prefix, local := strings.Join(parts[:5], "/"), strings.Join(parts[7:], "/")
+	manifest, e := s.Doc(path.Join(prefix, "manifest.json"))
+	if e != nil {
+		return nil, "", "", e
+	}
+	if kernel.SemHas([]string{"spec-baseline", "spec-baseline-package"}, kernel.Text(manifest["kind"])) {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
+	}
+	opened, e := contractOpenHandoffSource(s, prefix)
+	if e != nil {
+		return nil, "", "", e
+	}
+	if kernel.ContractN(opened.Handoff["schema_version"]) != 5 {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告需要战略 Handoff v5 固定来源布局")
+	}
+	base := prefix + "/payload/files/"
+	if strings.HasPrefix(reviewRef, base) {
+		reviewRef = strings.TrimPrefix(reviewRef, base)
+	}
+	return opened.Source, local, reviewRef, nil
+}
+
+func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
+	if strings.EqualFold(path.Ext(prefix), ".zip") {
+		archive, root, e := s.ZipSourceSession(prefix)
+		if e != nil {
+			return nil, e
+		}
+		return contractOpenHandoff(archive, root)
+	}
+	opened, e := contractOpenHandoffSource(s, prefix)
+	if e != nil {
+		return nil, e
+	}
+	manifest, source := opened.Manifest, opened.Source
+	bundle, e := contractInspectHandoff(source, kernel.Text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
 	}
 	bundle.Manifest, bundle.Source, bundle.Prefix = manifest, source, prefix
 	if bundle.Handoff["handoff_id"] != manifest["bundle_id"] || bundle.Handoff["handoff_version"] != manifest["version"] {
-		return nil, s.reject("HANDOFF_IDENTITY", "包与 Handoff 身份不一致")
+		return nil, s.Reject("HANDOFF_IDENTITY", "包与 Handoff 身份不一致")
 	}
 	for kind, expected := range map[string][]any{"rules": bundle.Rules, "scenarios": bundle.Scenarios} {
-		b, e := s.bytes(path.Join(prefix, "indexes", kind+".json"))
+		b, e := s.Bytes(path.Join(prefix, "indexes", kind+".json"))
 		if e != nil {
 			return nil, e
 		}
 		parsed, e := schema.Parse(b)
 		if e != nil {
-			return nil, s.unavailable("INPUT", e.Error())
+			return nil, s.Unavailable("INPUT", e.Error())
 		}
 		if !contractSame(parsed, expected) {
-			return nil, s.reject("HANDOFF_INDEX", "索引与来源不一致")
+			return nil, s.Reject("HANDOFF_INDEX", "索引与来源不一致")
 		}
 	}
-	closure, e := contractHandoffClosure(source, text(manifest["handoff_ref"]), bundle)
+	closure, e := contractHandoffClosure(source, kernel.Text(manifest["handoff_ref"]), bundle)
 	if e != nil {
 		return nil, e
 	}
 	expectedOriginals := []string{}
-	for _, v := range semList(manifest["files"]) {
-		if ref := text(semMap(v)["original_ref"]); ref != "" {
+	for _, v := range kernel.SemList(manifest["files"]) {
+		if ref := kernel.Text(kernel.SemMap(v)["original_ref"]); ref != "" {
 			expectedOriginals = append(expectedOriginals, ref)
 		}
 	}
 	if !contractSame(contractSorted(closure), contractSorted(expectedOriginals)) {
-		return nil, s.reject("HANDOFF_CLOSURE", "源快照闭包不一致")
+		return nil, s.Reject("HANDOFF_CLOSURE", "源快照闭包不一致")
 	}
-	changes, e := s.doc(path.Join(prefix, "indexes/changes.json"))
+	changes, e := s.Doc(path.Join(prefix, "indexes/changes.json"))
 	if e != nil {
 		return nil, e
 	}
 	if !contractSame(changes["previous_bundle"], manifest["previous_bundle"]) {
-		return nil, s.reject("HANDOFF_PREVIOUS", "差异前版绑定不一致")
+		return nil, s.Reject("HANDOFF_PREVIOUS", "差异前版绑定不一致")
 	}
 	old := map[string]string{}
 	if manifest["previous_bundle"] != nil {
-		previous, e := s.doc(path.Join(prefix, "indexes/previous-manifest.json"))
+		previous, e := s.Doc(path.Join(prefix, "indexes/previous-manifest.json"))
 		if e != nil {
 			return nil, e
 		}
-		prior := semMap(manifest["previous_bundle"])
-		if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(text(previous["version"])) || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(text(manifest["version"])) {
-			return nil, s.reject("HANDOFF_PREVIOUS", "前版版本格式非法")
+		prior := kernel.SemMap(manifest["previous_bundle"])
+		if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(previous["version"])) || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(kernel.Text(manifest["version"])) {
+			return nil, s.Reject("HANDOFF_PREVIOUS", "前版版本格式非法")
 		}
-		pv, _ := strconv.Atoi(text(previous["version"])[1:])
-		cv, _ := strconv.Atoi(text(manifest["version"])[1:])
-		if text(previous["bundle_digest"]) != contractDigest(contractWithout(previous, "bundle_digest")) || previous["bundle_digest"] != prior["digest"] || previous["bundle_id"] != manifest["bundle_id"] || previous["version"] != prior["version"] || pv >= cv {
-			return nil, s.reject("HANDOFF_PREVIOUS", "前版清单身份或摘要无效")
+		pv, _ := strconv.Atoi(kernel.Text(previous["version"])[1:])
+		cv, _ := strconv.Atoi(kernel.Text(manifest["version"])[1:])
+		if kernel.Text(previous["bundle_digest"]) != contractDigest(contractWithout(previous, "bundle_digest")) || previous["bundle_digest"] != prior["digest"] || previous["bundle_id"] != manifest["bundle_id"] || previous["version"] != prior["version"] || pv >= cv {
+			return nil, s.Reject("HANDOFF_PREVIOUS", "前版清单身份或摘要无效")
 		}
 		for _, kind := range []string{"rules", "scenarios"} {
-			b, e := s.bytes(path.Join(prefix, "indexes/previous-"+kind+".json"))
+			b, e := s.Bytes(path.Join(prefix, "indexes/previous-"+kind+".json"))
 			if e != nil {
 				return nil, e
 			}
-			entry := apFind(previous["files"], "path", "indexes/"+kind+".json")
-			if entry == nil || contractN(entry["size_bytes"]) != len(b) || text(entry["sha256"]) != "sha256:"+safefs.Digest(b) {
-				return nil, s.reject("HANDOFF_PREVIOUS", "前版索引字节不一致")
+			entry := kernel.ApFind(previous["files"], "path", "indexes/"+kind+".json")
+			if entry == nil || kernel.ContractN(entry["size_bytes"]) != len(b) || kernel.Text(entry["sha256"]) != "sha256:"+safefs.Digest(b) {
+				return nil, s.Reject("HANDOFF_PREVIOUS", "前版索引字节不一致")
 			}
 			value, e := schema.Parse(b)
 			if e != nil {
 				return nil, e
 			}
-			for _, v := range semList(value) {
-				m := semMap(v)
-				old[first(text(m["rule_id"]), text(m["scenario_id"]))] = text(m["source_digest"])
+			for _, v := range kernel.SemList(value) {
+				m := kernel.SemMap(v)
+				old[kernel.First(kernel.Text(m["rule_id"]), kernel.Text(m["scenario_id"]))] = kernel.Text(m["source_digest"])
 			}
 		}
 	}
 	now := map[string]string{}
 	for _, v := range append(append([]any{}, bundle.Rules...), bundle.Scenarios...) {
-		m := semMap(v)
-		now[first(text(m["rule_id"]), text(m["scenario_id"]))] = text(m["source_digest"])
+		m := kernel.SemMap(v)
+		now[kernel.First(kernel.Text(m["rule_id"]), kernel.Text(m["scenario_id"]))] = kernel.Text(m["source_digest"])
 	}
 	added, updated, removed := []string{}, []string{}, []string{}
 	for id, d := range now {
@@ -395,68 +452,69 @@ func contractOpenHandoff(s *semanticSession, prefix string) (*nativeHandoff, err
 	}
 	expected := map[string]any{"previous_bundle": manifest["previous_bundle"], "added": contractSorted(added), "updated": contractSorted(updated), "removed": contractSorted(removed)}
 	if !contractSame(changes, expected) {
-		return nil, s.reject("HANDOFF_CHANGES", "版本差异与索引不一致")
+		return nil, s.Reject("HANDOFF_CHANGES", "版本差异与索引不一致")
 	}
 	bundle.Changes = changes
 	return bundle, nil
 }
-func contractInspectHandoff(s *semanticSession, ref string) (*nativeHandoff, error) {
-	h, e := s.doc(ref)
+
+func contractInspectHandoff(s *kernel.SemanticSession, ref string) (*nativeHandoff, error) {
+	h, e := s.Doc(ref)
 	if e != nil {
 		return nil, e
 	}
-	n := contractN(h["schema_version"])
-	if !semHas([]string{"3", "4", "5"}, strconv.Itoa(n)) {
-		return nil, s.unavailable("CAPABILITY", "未知 Handoff 协议")
+	n := kernel.ContractN(h["schema_version"])
+	if !kernel.SemHas([]string{"3", "4", "5"}, strconv.Itoa(n)) {
+		return nil, s.Unavailable("CAPABILITY", "未知 Handoff 协议")
 	}
-	if e = s.validateSchema(fmt.Sprintf(".template-spec/process/schemas/strategic-design-handoff-v%d.schema.json", n), h); e != nil {
+	if e = s.ValidateSchema(fmt.Sprintf(".template-spec/process/schemas/strategic-design-handoff-v%d.schema.json", n), h); e != nil {
 		return nil, e
 	}
-	if text(h["status"]) != "approved" {
-		return nil, s.reject("HANDOFF_APPROVAL", "交接尚未 approved")
+	if kernel.Text(h["status"]) != "approved" {
+		return nil, s.Reject("HANDOFF_APPROVAL", "交接尚未 approved")
 	}
-	config := semMap(h["package_export"])
+	config := kernel.SemMap(h["package_export"])
 	exportSchema := ".template-spec/process/schemas/strategic-handoff-export.schema.json"
 	if n == 5 {
 		exportSchema = ".template-spec/process/schemas/strategic-handoff-export-v2.schema.json"
 	}
-	if e = s.validateSchema(exportSchema, config); e != nil {
+	if e = s.ValidateSchema(exportSchema, config); e != nil {
 		return nil, e
 	}
 	if n == 5 && config["ui_baseline_kind"] != h["ui_baseline_kind"] {
-		return nil, s.reject("HANDOFF_UI", "交接和导出基线类型冲突")
+		return nil, s.Reject("HANDOFF_UI", "交接和导出基线类型冲突")
 	}
-	context, e := s.contextSnapshot(semMap(h["source_context_snapshot"]))
+	context, e := s.ContextSnapshot(kernel.SemMap(h["source_context_snapshot"]))
 	if e != nil {
 		return nil, e
 	}
 	terms := map[string]map[string]any{}
-	for _, term := range context["business_terms"].([]Term) {
+	for _, term := range context["business_terms"].([]kernel.Term) {
 		raw, _ := schema.Parse(mustMarshalContract(term))
-		terms[term.TermRef] = semMap(raw)
+		terms[term.TermRef] = kernel.SemMap(raw)
 	}
 	used := map[string]bool{}
 	for _, op := range []string{"added", "updated", "deprecated"} {
-		for _, v := range semList(semMap(h["context_delta"])[op]) {
-			term := semMap(v)
-			id := text(term["term_ref"])
-			if used[id] || !semHas(semMap(h["source_context_snapshot"])["term_refs"], id) || terms[id] == nil {
-				return nil, s.reject("HANDOFF_CONTEXT", "术语增量重复、未引用或不存在")
+		for _, v := range kernel.SemList(kernel.SemMap(h["context_delta"])[op]) {
+			term := kernel.SemMap(v)
+			id := kernel.Text(term["term_ref"])
+			if used[id] || !kernel.SemHas(kernel.SemMap(h["source_context_snapshot"])["term_refs"], id) || terms[id] == nil {
+				return nil, s.Reject("HANDOFF_CONTEXT", "术语增量重复、未引用或不存在")
 			}
 			used[id] = true
 			for _, key := range []string{"term", "meaning", "english_identifier", "context_id", "forbidden_aliases"} {
 				if !contractSame(term[key], terms[id][key]) {
-					return nil, s.reject("HANDOFF_CONTEXT", "术语增量与源 Context 冲突")
+					return nil, s.Reject("HANDOFF_CONTEXT", "术语增量与源 Context 冲突")
 				}
 			}
 		}
 	}
-	source := semMap(h["source"])
-	strategy, e := s.doc(text(semMap(source["domain_strategy_ref"])["persisted_ref"]))
+	source := kernel.SemMap(h["source"])
+	strategy, e := s.Doc(kernel.Text(kernel.SemMap(source["domain_strategy_ref"])["persisted_ref"]))
 	if e != nil {
 		return nil, e
 	}
-	stage, e := s.doc(text(semMap(source["stage_decision_package_ref"])["persisted_ref"]))
+	stage, e := s.Doc(kernel.Text(kernel.SemMap(source["stage_decision_package_ref"])["persisted_ref"]))
 	if e != nil {
 		return nil, e
 	}
@@ -465,42 +523,42 @@ func contractInspectHandoff(s *semanticSession, ref string) (*nativeHandoff, err
 		suffix = "-v3"
 	}
 	for label, doc := range map[string]map[string]any{"domain-strategy": strategy, "stage-decision-package": stage} {
-		if e = s.validateSchema(".template-spec/process/schemas/strategic-handoff-"+label+suffix+".schema.json", doc); e != nil {
+		if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-"+label+suffix+".schema.json", doc); e != nil {
 			return nil, e
 		}
-		if text(doc["status"]) != "approved" {
-			return nil, s.reject("HANDOFF_SOURCE_APPROVAL", "来源设计未批准")
+		if kernel.Text(doc["status"]) != "approved" {
+			return nil, s.Reject("HANDOFF_SOURCE_APPROVAL", "来源设计未批准")
 		}
 		contextSource := s
 		key := "domain_strategy_ref"
 		if label == "stage-decision-package" {
 			key = "stage_decision_package_ref"
 		}
-		if marker := semMap(semMap(semMap(source[key])["approval_context"])["source_baseline"]); len(marker) > 0 {
-			_, inherited, err := verifySpecBaselineReceipt(s, text(marker["receipt_ref"]), false)
+		if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(source[key])["approval_context"])["source_baseline"]); len(marker) > 0 {
+			_, inherited, err := verifySpecBaselineReceipt(s, kernel.Text(marker["receipt_ref"]), false)
 			if err != nil {
 				return nil, err
 			}
 			contextSource = inherited
 		}
-		if _, e = contextSource.contextSnapshot(semMap(doc["context_snapshot"])); e != nil {
+		if _, e = contextSource.ContextSnapshot(kernel.SemMap(doc["context_snapshot"])); e != nil {
 			return nil, e
 		}
 	}
-	if strategy["domain_strategy_id"] != semMap(source["domain_strategy_ref"])["id"] || strategy["domain_version"] != semMap(source["domain_strategy_ref"])["version"] || stage["stage_decision_id"] != semMap(source["stage_decision_package_ref"])["id"] || stage["package_version"] != semMap(source["stage_decision_package_ref"])["version"] {
-		return nil, s.reject("HANDOFF_SOURCE_IDENTITY", "战略和阶段身份/版本冲突")
+	if strategy["domain_strategy_id"] != kernel.SemMap(source["domain_strategy_ref"])["id"] || strategy["domain_version"] != kernel.SemMap(source["domain_strategy_ref"])["version"] || stage["stage_decision_id"] != kernel.SemMap(source["stage_decision_package_ref"])["id"] || stage["package_version"] != kernel.SemMap(source["stage_decision_package_ref"])["version"] {
+		return nil, s.Reject("HANDOFF_SOURCE_IDENTITY", "战略和阶段身份/版本冲突")
 	}
-	binding := semMap(stage["domain_strategy_ref"])
-	strategyRef := semMap(source["domain_strategy_ref"])["persisted_ref"]
-	if marker := semMap(semMap(semMap(source["stage_decision_package_ref"])["approval_context"])["source_baseline"]); len(marker) > 0 {
-		strategyRef = semMap(semMap(semMap(source["domain_strategy_ref"])["approval_context"])["source_baseline"])["source_ref"]
+	binding := kernel.SemMap(stage["domain_strategy_ref"])
+	strategyRef := kernel.SemMap(source["domain_strategy_ref"])["persisted_ref"]
+	if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(source["stage_decision_package_ref"])["approval_context"])["source_baseline"]); len(marker) > 0 {
+		strategyRef = kernel.SemMap(kernel.SemMap(kernel.SemMap(source["domain_strategy_ref"])["approval_context"])["source_baseline"])["source_ref"]
 	}
-	if binding["domain_strategy_id"] != strategy["domain_strategy_id"] || binding["domain_version"] != strategy["domain_version"] || text(binding["status"]) != "approved" || binding["persisted_ref"] != strategyRef || text(binding["digest"]) != contractDigest(strategy) {
-		return nil, s.reject("HANDOFF_SOURCE_STALE", "阶段包战略来源变化")
+	if binding["domain_strategy_id"] != strategy["domain_strategy_id"] || binding["domain_version"] != strategy["domain_version"] || kernel.Text(binding["status"]) != "approved" || binding["persisted_ref"] != strategyRef || kernel.Text(binding["digest"]) != contractDigest(strategy) {
+		return nil, s.Reject("HANDOFF_SOURCE_STALE", "阶段包战略来源变化")
 	}
-	for _, v := range semList(stage["unresolved_items"]) {
-		if text(semMap(v)["type"]) == "blocker" {
-			return nil, s.reject("HANDOFF_BLOCKED", "阶段包仍含 blocker")
+	for _, v := range kernel.SemList(stage["unresolved_items"]) {
+		if kernel.Text(kernel.SemMap(v)["type"]) == "blocker" {
+			return nil, s.Reject("HANDOFF_BLOCKED", "阶段包仍含 blocker")
 		}
 	}
 	if e = contractHandoffRoutes(s, h, stage); e != nil {
@@ -520,60 +578,65 @@ func contractInspectHandoff(s *semanticSession, ref string) (*nativeHandoff, err
 	return bundle, nil
 }
 
-func contractHandoffUIScope(s *semanticSession, h, stage, config map[string]any) error {
-	if contractHandoffUIKind(h) == "existing-ui-baseline" && semMap(stage["impact_assessment"])["ui"] != false {
-		return s.reject("HANDOFF_UI", "既有 UI 不能消费 UI 影响")
+func contractHandoffUIScope(s *kernel.SemanticSession, h, stage, config map[string]any) error {
+	if contractHandoffUIKind(h) == "existing-ui-baseline" && kernel.SemMap(stage["impact_assessment"])["ui"] != false {
+		return s.Reject("HANDOFF_UI", "既有 UI 不能消费 UI 影响")
 	}
 	if contractHandoffUIKind(h) == "not-applicable" {
-		impact := semMap(stage["impact_assessment"])
+		impact := kernel.SemMap(stage["impact_assessment"])
 		if impact["ui"] != false || impact["frontend"] != false {
-			return s.reject("HANDOFF_UI", "无产品设计基线必须有已批准的无 UI、前端影响依据")
+			return s.Reject("HANDOFF_UI", "无产品设计基线必须有已批准的无 UI、前端影响依据")
 		}
-		for _, route := range semList(h["consumer_routes"]) {
-			if row := semMap(route); row["capability"] == "frontend-engineering-design" && row["activation"] != "not-applicable" {
-				return s.reject("HANDOFF_UI", "无产品设计基线不能启用前端消费者")
+		for _, route := range kernel.SemList(h["consumer_routes"]) {
+			if row := kernel.SemMap(route); row["capability"] == "frontend-engineering-design" && row["activation"] != "not-applicable" {
+				return s.Reject("HANDOFF_UI", "无产品设计基线不能启用前端消费者")
 			}
 		}
 		for _, key := range []string{"prototype_ref", "visual_baseline_ref", "existing_ui_baseline_ref"} {
-			if _, present := semMap(h["source"])[key]; present {
-				return s.reject("HANDOFF_UI", "无产品设计基线不能带有 UI 来源")
+			if _, present := kernel.SemMap(h["source"])[key]; present {
+				return s.Reject("HANDOFF_UI", "无产品设计基线不能带有 UI 来源")
 			}
-			if _, present := semMap(config["approvals"])[key]; present {
-				return s.reject("HANDOFF_UI", "无产品设计基线不能带有 UI 批准")
+			if _, present := kernel.SemMap(config["approvals"])[key]; present {
+				return s.Reject("HANDOFF_UI", "无产品设计基线不能带有 UI 批准")
 			}
 		}
 		if _, present := config["prototype"]; present {
-			return s.reject("HANDOFF_UI", "无产品设计基线不能带有原型配置")
+			return s.Reject("HANDOFF_UI", "无产品设计基线不能带有原型配置")
 		}
 	}
 	return nil
 }
-func mustMarshalContract(v any) []byte          { b, _ := jsonMarshalContract(v); return b }
+
+func mustMarshalContract(v any) []byte { b, _ := jsonMarshalContract(v); return b }
+
 func jsonMarshalContract(v any) ([]byte, error) { str, e := contractJSON(v); return []byte(str), e }
+
 func contractHandoffUIKind(h map[string]any) string {
-	if contractN(h["schema_version"]) < 5 {
+	if kernel.ContractN(h["schema_version"]) < 5 {
 		return "prototype"
 	}
-	return text(h["ui_baseline_kind"])
+	return kernel.Text(h["ui_baseline_kind"])
 }
+
 func contractHandoffUIRef(h map[string]any) map[string]any {
 	key := "visual_baseline_ref"
 	if contractHandoffUIKind(h) == "existing-ui-baseline" {
 		key = "existing_ui_baseline_ref"
 	}
-	return semMap(semMap(h["source"])[key])
+	return kernel.SemMap(kernel.SemMap(h["source"])[key])
 }
-func contractHandoffRoutes(s *semanticSession, h, stage map[string]any) error {
-	if contractN(h["schema_version"]) == 3 {
+
+func contractHandoffRoutes(s *kernel.SemanticSession, h, stage map[string]any) error {
+	if kernel.ContractN(h["schema_version"]) == 3 {
 		return nil
 	}
 	routes := map[string]map[string]any{}
 	ids := map[string]bool{}
-	for _, v := range semList(h["consumer_routes"]) {
-		r := semMap(v)
-		capability, id := text(r["capability"]), text(r["route_id"])
+	for _, v := range kernel.SemList(h["consumer_routes"]) {
+		r := kernel.SemMap(v)
+		capability, id := kernel.Text(r["capability"]), kernel.Text(r["route_id"])
 		if routes[capability] != nil || ids[id] {
-			return s.reject("HANDOFF_ROUTE", "能力或 route_id 重复")
+			return s.Reject("HANDOFF_ROUTE", "能力或 route_id 重复")
 		}
 		routes[capability] = r
 		ids[id] = true
@@ -581,135 +644,136 @@ func contractHandoffRoutes(s *semanticSession, h, stage map[string]any) error {
 	caps := []string{"backend-technical-design", "frontend-engineering-design", "delivery-coordination"}
 	for _, capability := range caps {
 		if routes[capability] == nil {
-			return s.reject("HANDOFF_ROUTE", "消费者路线未完整声明")
+			return s.Reject("HANDOFF_ROUTE", "消费者路线未完整声明")
 		}
 	}
 	mapping := map[string][]map[string]any{}
-	for _, v := range semList(stage["downstream_mapping"]) {
-		m := semMap(v)
-		capability := text(m["consumer_capability"])
-		if !semHas(caps, capability) {
-			return s.reject("HANDOFF_ROUTE", "未知消费者能力")
+	for _, v := range kernel.SemList(stage["downstream_mapping"]) {
+		m := kernel.SemMap(v)
+		capability := kernel.Text(m["consumer_capability"])
+		if !kernel.SemHas(caps, capability) {
+			return s.Reject("HANDOFF_ROUTE", "未知消费者能力")
 		}
 		mapping[capability] = append(mapping[capability], m)
 	}
-	impact := semMap(stage["impact_assessment"])
+	impact := kernel.SemMap(stage["impact_assessment"])
 	for capability, required := range map[string]bool{"backend-technical-design": impact["backend"] == true || impact["api"] == true || impact["data"] == true, "frontend-engineering-design": impact["frontend"] == true || impact["ui"] == true} {
 		expected := "not-applicable"
 		for _, m := range mapping[capability] {
-			if text(m["propagation"]) != "not-applicable" {
+			if kernel.Text(m["propagation"]) != "not-applicable" {
 				expected = "optional"
 			}
 		}
 		if required {
 			expected = "required"
 		}
-		if text(routes[capability]["activation"]) != expected {
-			return s.reject("HANDOFF_ROUTE", "路由与批准影响矩阵冲突")
+		if kernel.Text(routes[capability]["activation"]) != expected {
+			return s.Reject("HANDOFF_ROUTE", "路由与批准影响矩阵冲突")
 		}
 	}
 	backend, frontend, coord := routes[caps[0]], routes[caps[1]], routes[caps[2]]
 	deps := []string{}
-	if text(backend["activation"]) != "not-applicable" {
-		deps = append(deps, text(backend["route_id"]))
+	if kernel.Text(backend["activation"]) != "not-applicable" {
+		deps = append(deps, kernel.Text(backend["route_id"]))
 	}
 	if !contractSame(frontend["dependencies"], deps) {
-		return s.reject("HANDOFF_ROUTE", "前端路由依赖冲突")
+		return s.Reject("HANDOFF_ROUTE", "前端路由依赖冲突")
 	}
-	if text(frontend["activation"]) != "not-applicable" {
-		deps = append(deps, text(frontend["route_id"]))
+	if kernel.Text(frontend["activation"]) != "not-applicable" {
+		deps = append(deps, kernel.Text(frontend["route_id"]))
 	}
 	expected := "not-applicable"
 	if len(deps) > 0 {
 		expected = "required"
 	}
-	if text(coord["activation"]) != expected || !contractSame(coord["dependencies"], deps) {
-		return s.reject("HANDOFF_ROUTE", "协调路由依赖冲突")
+	if kernel.Text(coord["activation"]) != expected || !contractSame(coord["dependencies"], deps) {
+		return s.Reject("HANDOFF_ROUTE", "协调路由依赖冲突")
 	}
 	for capability, rows := range mapping {
 		for _, m := range rows {
-			if (text(m["propagation"]) == "not-applicable") != (text(routes[capability]["activation"]) == "not-applicable") {
-				return s.reject("HANDOFF_ROUTE", "downstream mapping 与路线冲突")
+			if (kernel.Text(m["propagation"]) == "not-applicable") != (kernel.Text(routes[capability]["activation"]) == "not-applicable") {
+				return s.Reject("HANDOFF_ROUTE", "downstream mapping 与路线冲突")
 			}
 		}
 	}
 	for _, r := range routes {
-		for _, dep := range semStrings(r["dependencies"]) {
+		for _, dep := range kernel.SemStrings(r["dependencies"]) {
 			if !ids[dep] {
-				return s.reject("HANDOFF_ROUTE", "路由依赖悬空")
+				return s.Reject("HANDOFF_ROUTE", "路由依赖悬空")
 			}
 		}
 	}
 	return nil
 }
-func contractHandoffIndexes(s *semanticSession, strategy map[string]any) ([]any, []any, error) {
-	if contractN(strategy["traceability_version"]) != 1 {
-		return nil, nil, s.reject("HANDOFF_TRACEABILITY", "缺少稳定 traceability v1")
+
+func contractHandoffIndexes(s *kernel.SemanticSession, strategy map[string]any) ([]any, []any, error) {
+	if kernel.ContractN(strategy["traceability_version"]) != 1 {
+		return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "缺少稳定 traceability v1")
 	}
 	contexts := map[string]bool{}
-	for _, v := range semList(strategy["contexts"]) {
-		contexts[text(semMap(v)["context_id"])] = true
+	for _, v := range kernel.SemList(strategy["contexts"]) {
+		contexts[kernel.Text(kernel.SemMap(v)["context_id"])] = true
 	}
 	rules, scenarios, used := map[string]map[string]any{}, map[string]map[string]any{}, map[string]bool{}
-	for _, v := range semList(strategy["rule_catalog"]) {
-		m := semMap(v)
-		id := text(m["rule_id"])
-		if !regexp.MustCompile(`^rule\.[a-z0-9][a-z0-9-]*$`).MatchString(id) || rules[id] != nil || text(m["statement"]) == "" || text(m["status"]) != "confirmed" || !contexts[text(m["responsible_context"])] {
-			return nil, nil, s.reject("HANDOFF_TRACEABILITY", "规则身份、确认或责任区无效")
+	for _, v := range kernel.SemList(strategy["rule_catalog"]) {
+		m := kernel.SemMap(v)
+		id := kernel.Text(m["rule_id"])
+		if !regexp.MustCompile(`^rule\.[a-z0-9][a-z0-9-]*$`).MatchString(id) || rules[id] != nil || kernel.Text(m["statement"]) == "" || kernel.Text(m["status"]) != "confirmed" || !contexts[kernel.Text(m["responsible_context"])] {
+			return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "规则身份、确认或责任区无效")
 		}
 		row := contractCopy(m)
 		row["source_digest"] = contractDigest(m)
 		rules[id] = row
 	}
 	if len(rules) == 0 {
-		return nil, nil, s.reject("HANDOFF_TRACEABILITY", "规则目录为空")
+		return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "规则目录为空")
 	}
-	for _, v := range semList(strategy["scenarios"]) {
-		m := semMap(v)
-		id := text(m["scenario_id"])
+	for _, v := range kernel.SemList(strategy["scenarios"]) {
+		m := kernel.SemMap(v)
+		id := kernel.Text(m["scenario_id"])
 		_, boolean := m["critical"].(bool)
-		if !regexp.MustCompile(`^scenario\.[a-z0-9][a-z0-9-]*$`).MatchString(id) || scenarios[id] != nil || text(m["status"]) != "confirmed" || !boolean || !contexts[text(m["responsible_context"])] || !contractUnique(m["rule_refs"], true) {
-			return nil, nil, s.reject("HANDOFF_TRACEABILITY", "场景身份、确认或规则无效")
+		if !regexp.MustCompile(`^scenario\.[a-z0-9][a-z0-9-]*$`).MatchString(id) || scenarios[id] != nil || kernel.Text(m["status"]) != "confirmed" || !boolean || !contexts[kernel.Text(m["responsible_context"])] || !contractUnique(m["rule_refs"], true) {
+			return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "场景身份、确认或规则无效")
 		}
 		for _, key := range []string{"commands", "success_results", "failure_results"} {
 			if !contractUnique(m[key], true) {
-				return nil, nil, s.reject("HANDOFF_TRACEABILITY", "场景缺少成功/失败路径")
+				return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "场景缺少成功/失败路径")
 			}
 		}
 		statements := []string{}
-		for _, ref := range semStrings(m["rule_refs"]) {
+		for _, ref := range kernel.SemStrings(m["rule_refs"]) {
 			if rules[ref] == nil {
-				return nil, nil, s.reject("HANDOFF_TRACEABILITY", "场景引用悬空规则")
+				return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "场景引用悬空规则")
 			}
-			statements = append(statements, text(rules[ref]["statement"]))
+			statements = append(statements, kernel.Text(rules[ref]["statement"]))
 			used[ref] = true
 		}
-		if !contractSame(contractSorted(statements), contractSorted(semStrings(m["rules"]))) {
-			return nil, nil, s.reject("HANDOFF_TRACEABILITY", "规则正文与稳定引用冲突")
+		if !contractSame(contractSorted(statements), contractSorted(kernel.SemStrings(m["rules"]))) {
+			return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "规则正文与稳定引用冲突")
 		}
 		row := contractCopy(m)
 		row["source_digest"] = contractDigest(m)
 		scenarios[id] = row
 	}
 	if len(scenarios) == 0 {
-		return nil, nil, s.reject("HANDOFF_TRACEABILITY", "场景目录为空")
+		return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "场景目录为空")
 	}
-	for _, v := range semList(strategy["invariants"]) {
-		m := semMap(v)
-		ref := text(m["rule_ref"])
+	for _, v := range kernel.SemList(strategy["invariants"]) {
+		m := kernel.SemMap(v)
+		ref := kernel.Text(m["rule_ref"])
 		if rules[ref] == nil || rules[ref]["statement"] != m["statement"] || !contractUnique(m["scenario_refs"], true) {
-			return nil, nil, s.reject("HANDOFF_TRACEABILITY", "不变量与规则冲突")
+			return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "不变量与规则冲突")
 		}
-		for _, id := range semStrings(m["scenario_refs"]) {
-			if scenarios[id] == nil || !semHas(scenarios[id]["rule_refs"], ref) {
-				return nil, nil, s.reject("HANDOFF_TRACEABILITY", "不变量场景未覆盖规则")
+		for _, id := range kernel.SemStrings(m["scenario_refs"]) {
+			if scenarios[id] == nil || !kernel.SemHas(scenarios[id]["rule_refs"], ref) {
+				return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "不变量场景未覆盖规则")
 			}
 		}
 		used[ref] = true
 	}
 	for id := range rules {
 		if !used[id] {
-			return nil, nil, s.reject("HANDOFF_TRACEABILITY", "存在未使用规则")
+			return nil, nil, s.Reject("HANDOFF_TRACEABILITY", "存在未使用规则")
 		}
 	}
 	outRules, outScenarios := []any{}, []any{}
@@ -721,45 +785,40 @@ func contractHandoffIndexes(s *semanticSession, strategy map[string]any) ([]any,
 	}
 	return outRules, outScenarios, nil
 }
-func contractHandoffApprovals(s *semanticSession, ref string, b *nativeHandoff) error {
-	if e := contractHandoffSourcePolicy(s, contractN(b.Handoff["schema_version"])); e != nil {
+
+func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHandoff) error {
+	if e := contractHandoffSourcePolicy(s, kernel.ContractN(b.Handoff["schema_version"])); e != nil {
 		return e
 	}
-	roles := contractCopy(s.roles)
-	decisionPolicy := semMap(roles["user_decision_policy"])
-	for _, id := range semStrings(decisionPolicy["required_capabilities"]) {
-		if !semHas([]string{"strategic-decision-reuse-v1", "business-ticket-approval-v1"}, id) {
-			return s.unavailable("HANDOFF_POLICY_CAPABILITY", "不支持的来源决定策略能力: "+id)
-		}
-	}
-	policy := contractCopy(semMap(roles["gate_policy"]))
-	review := semList(policy["digital_human_review"])
-	for _, v := range semList(policy["check_reviews"]) {
-		m := semMap(v)
+	roles := contractCopy(s.Roles)
+	policy := contractCopy(kernel.SemMap(roles["gate_policy"]))
+	review := kernel.SemList(policy["digital_human_review"])
+	for _, v := range kernel.SemList(policy["check_reviews"]) {
+		m := kernel.SemMap(v)
 		exists := false
 		for _, r := range review {
-			exists = exists || semMap(r)["gate"] == m["gate"]
+			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
 		}
-		for _, r := range semList(policy["dual_digital_human"]) {
-			exists = exists || semMap(r)["gate"] == m["gate"]
+		for _, r := range kernel.SemList(policy["dual_digital_human"]) {
+			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
 		}
 		if !exists {
 			review = append(review, v)
 		}
 	}
 	policy["digital_human_review"] = review
-	veto := semStrings(policy["product_digital_human_with_biological_veto"])
+	veto := kernel.SemStrings(policy["product_digital_human_with_biological_veto"])
 	for _, gate := range veto {
-		if semHas(policy["biological_human"], gate) || apFind(policy["digital_human_review"], "gate", gate) != nil || apFind(policy["dual_digital_human"], "gate", gate) != nil {
+		if kernel.SemHas(policy["biological_human"], gate) || kernel.ApFind(policy["digital_human_review"], "gate", gate) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", gate) != nil {
 			continue
 		}
-		policy["digital_human_review"] = append(apArray(policy["digital_human_review"]), map[string]any{"gate": gate, "countersigners": []string{"role.product-manager"}})
+		policy["digital_human_review"] = append(kernel.ApArray(policy["digital_human_review"]), map[string]any{"gate": gate, "countersigners": []string{"role.product-manager"}})
 	}
 	roles["gate_policy"] = policy
-	s.roles = roles
-	currentPlan := apFind(policy["dual_digital_human"], "gate", "gate.plan-approved") != nil
+	s.Roles = roles
+	currentPlan := kernel.ApFind(policy["dual_digital_human"], "gate", "gate.plan-approved") != nil
 	explicit := func(g string) bool {
-		return apFind(policy["digital_human_review"], "gate", g) != nil || apFind(policy["dual_digital_human"], "gate", g) != nil || semHas(policy["biological_human"], g)
+		return kernel.ApFind(policy["digital_human_review"], "gate", g) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", g) != nil || kernel.SemHas(policy["biological_human"], g)
 	}
 	terminal := "gate.stage-decision-package-approved"
 	if currentPlan || explicit("gate.strategic-design-handoff-approved") {
@@ -779,77 +838,77 @@ func contractHandoffApprovals(s *semanticSession, ref string, b *nativeHandoff) 
 		if row.gate == "check.stage-decision-package-approved" {
 			key = "stage_decision_package_ref"
 		}
-		if len(semMap(semMap(semMap(semMap(b.Handoff["source"])[key])["approval_context"])["source_baseline"])) > 0 {
+		if len(kernel.SemMap(kernel.SemMap(kernel.SemMap(kernel.SemMap(b.Handoff["source"])[key])["approval_context"])["source_baseline"])) > 0 {
 			continue
 		}
-		approval := semMap(row.doc["approval"])
+		approval := kernel.SemMap(row.doc["approval"])
 		if len(approval) > 0 {
 			if !contractSame(approval["current_version"], row.version) {
-				return s.reject("HANDOFF_APPROVAL", "来源内置批准版本过期")
+				return s.Reject("HANDOFF_APPROVAL", "来源内置批准版本过期")
 			}
-			if e := contractSourceApproval(s, row.gate, map[string]any{"ref": approval["persisted_ref"], "approval_ref": approval["approval_ref"], "approval_context": approval["approval_context"]}, text(approval["approval_ref"])); e != nil {
+			if e := contractSourceApproval(s, row.gate, map[string]any{"ref": approval["persisted_ref"], "approval_ref": approval["approval_ref"], "approval_context": approval["approval_context"]}, kernel.Text(approval["approval_ref"])); e != nil {
 				return e
 			}
 		}
 	}
-	sources := semMap(b.Handoff["source"])
-	setSource, e := s.doc(text(semMap(sources["business_ticket_set_ref"])["persisted_ref"]))
+	sources := kernel.SemMap(b.Handoff["source"])
+	setSource, e := s.Doc(kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]))
 	if e != nil {
 		return e
 	}
-	capabilities := semMap(roles["user_decision_policy"])["required_capabilities"]
-	if text(setSource["kind"]) == "business-ticket-set" && !semHas(capabilities, "business-ticket-approval-v1") {
-		return s.reject("HANDOFF_POLICY", "业务集合缺少来源批准策略能力")
+	capabilities := kernel.SemMap(roles["user_decision_policy"])["required_capabilities"]
+	if kernel.Text(setSource["kind"]) == "business-ticket-set" && !kernel.SemHas(capabilities, "business-ticket-approval-v1") {
+		return s.Reject("HANDOFF_POLICY", "业务集合缺少来源批准策略能力")
 	}
-	if semHas(capabilities, "business-ticket-approval-v1") {
+	if kernel.SemHas(capabilities, "business-ticket-approval-v1") {
 		gates["business_ticket_set_ref"] = terminal
-		business, e := contractBusinessTickets(s, text(semMap(sources["business_ticket_set_ref"])["persisted_ref"]))
+		business, e := contractBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]))
 		if e != nil {
 			return e
 		}
-		set := semMap(sources["business_ticket_set_ref"])
-		spec := semMap(sources["spec_ref"])
-		if business["id"] != set["id"] || business["version"] != set["version"] || semMap(business["spec"])["ref"] != spec["persisted_ref"] || semMap(business["spec"])["version"] != spec["version"] {
-			return s.reject("HANDOFF_BUSINESS", "业务票集合身份或 Spec 版本冲突")
+		set := kernel.SemMap(sources["business_ticket_set_ref"])
+		spec := kernel.SemMap(sources["spec_ref"])
+		if business["id"] != set["id"] || business["version"] != set["version"] || kernel.SemMap(business["spec"])["ref"] != spec["persisted_ref"] || kernel.SemMap(business["spec"])["version"] != spec["version"] {
+			return s.Reject("HANDOFF_BUSINESS", "业务票集合身份或 Spec 版本冲突")
 		}
 		b.Business = business
 	}
 	bindings := contractCopy(sources)
-	bindings["handoff"] = map[string]any{"id": b.Handoff["handoff_id"], "version": b.Handoff["handoff_version"], "persisted_ref": ref, "approval_context": semMap(semMap(b.Config["approvals"])["handoff"])["approval_context"]}
+	bindings["handoff"] = map[string]any{"id": b.Handoff["handoff_id"], "version": b.Handoff["handoff_version"], "persisted_ref": ref, "approval_context": kernel.SemMap(kernel.SemMap(b.Config["approvals"])["handoff"])["approval_context"]}
 	proofs := []string{}
 	for key, v := range bindings {
-		source := semMap(v)
-		approval := semMap(semMap(b.Config["approvals"])[key])
-		if text(approval["gate_id"]) != gates[key] {
-			return s.reject("HANDOFF_APPROVAL", "来源批准门禁冲突: "+key)
+		source := kernel.SemMap(v)
+		approval := kernel.SemMap(kernel.SemMap(b.Config["approvals"])[key])
+		if kernel.Text(approval["gate_id"]) != gates[key] {
+			return s.Reject("HANDOFF_APPROVAL", "来源批准门禁冲突: "+key)
 		}
-		assetRef := text(source["persisted_ref"])
+		assetRef := kernel.Text(source["persisted_ref"])
 		actual := ""
 		if key == "visual_baseline_ref" || key == "existing_ui_baseline_ref" {
-			assetRef = path.Join(assetRef, text(source["manifest_ref"]))
+			assetRef = path.Join(assetRef, kernel.Text(source["manifest_ref"]))
 			baseline, e := contractHandoffBaseline(s, b.Handoff)
 			if e != nil {
 				return e
 			}
-			actual = text(semMap(baseline["bundle"])["digest"])
+			actual = kernel.Text(kernel.SemMap(baseline["bundle"])["digest"])
 			if key == "existing_ui_baseline_ref" {
-				if text(approval["digest_kind"]) != "sha256-bytes" || !semHas(semMap(roles["user_decision_policy"])["gates"], gates[key]) {
-					return s.reject("HANDOFF_POLICY", "既有 UI 未绑定真实产品设计决定策略")
+				if kernel.Text(approval["digest_kind"]) != "sha256-bytes" || !kernel.SemHas(kernel.SemMap(roles["user_decision_policy"])["gates"], gates[key]) {
+					return s.Reject("HANDOFF_POLICY", "既有 UI 未绑定真实产品设计决定策略")
 				}
-				bound, e := s.bind(assetRef)
+				bound, e := s.Bind(assetRef)
 				if e != nil {
 					return e
 				}
 				actual = bound.Digest
 			}
 		} else {
-			bytes, e := s.bytes(assetRef)
+			bytes, e := s.Bytes(assetRef)
 			if e != nil {
 				return e
 			}
-			switch text(approval["digest_kind"]) {
+			switch kernel.Text(approval["digest_kind"]) {
 			case "canonical-json":
-				doc, e := s.doc(assetRef)
+				doc, e := s.Doc(assetRef)
 				if e != nil {
 					return e
 				}
@@ -857,194 +916,200 @@ func contractHandoffApprovals(s *semanticSession, ref string, b *nativeHandoff) 
 			case "sha256-bytes":
 				actual = "sha256:" + safefs.Digest(bytes)
 			default:
-				return s.reject("HANDOFF_APPROVAL", "未知来源摘要算法")
+				return s.Reject("HANDOFF_APPROVAL", "未知来源摘要算法")
 			}
 		}
-		if key != "handoff" && text(source["digest"]) != actual {
-			return s.reject("HANDOFF_SOURCE_STALE", "源资产摘要过期: "+key)
+		if key != "handoff" && kernel.Text(source["digest"]) != actual {
+			return s.Reject("HANDOFF_SOURCE_STALE", "源资产摘要过期: "+key)
 		}
 		bound := map[string]any{"ref": assetRef, "approval_context": source["approval_context"]}
 		bound["approval_ref"] = approval["record_ref"]
-		if e = contractSourceApproval(s, gates[key], bound, text(approval["record_ref"])); e != nil {
+		if e = contractSourceApproval(s, gates[key], bound, kernel.Text(approval["record_ref"])); e != nil {
 			return e
 		}
-		record, e := s.doc(text(approval["record_ref"]))
+		record, e := s.Doc(kernel.Text(approval["record_ref"]))
 		if e != nil {
 			return e
 		}
-		record, e = selectApprovalRecordSemantic(s, record, gates[key])
+		record, e = kernel.SelectApprovalRecordSemantic(s, record, gates[key])
 		if e != nil {
 			return e
 		}
 		match := false
-		for _, v := range semList(record["artifact_bindings"]) {
-			a := semMap(v)
-			match = match || a["id"] == first(text(source["id"]), text(source["baseline_id"])) && contractSame(a["version"], source["version"]) && text(a["digest"]) == actual
+		for _, v := range kernel.SemList(record["artifact_bindings"]) {
+			a := kernel.SemMap(v)
+			match = match || a["id"] == kernel.First(kernel.Text(source["id"]), kernel.Text(source["baseline_id"])) && contractSame(a["version"], source["version"]) && kernel.Text(a["digest"]) == actual
 		}
 		if !match {
-			return s.reject("HANDOFF_APPROVAL", "来源批准未绑定身份、版本和摘要")
+			return s.Reject("HANDOFF_APPROVAL", "来源批准未绑定身份、版本和摘要")
 		}
-		proofs = contractUnion(proofs, []string{text(approval["record_ref"]), text(record["user_decision_ref"]), text(record["continuation_ref"]), text(record["decision_reuse_ref"])})
+		proofs = contractUnion(proofs, []string{kernel.Text(approval["record_ref"]), kernel.Text(record["user_decision_ref"]), kernel.Text(record["continuation_ref"]), kernel.Text(record["decision_reuse_ref"])})
 	}
 	if b.Business != nil {
-		for _, v := range semList(b.Business["coverage_deferred"]) {
-			if !semHas(proofs, text(semMap(semMap(v)["decision"])["ref"])) {
-				return s.reject("BUSINESS_DEFERRED_APPROVAL_UNBOUND", "延期决定不在来源批准链")
+		for _, v := range kernel.SemList(b.Business["coverage_deferred"]) {
+			if !kernel.SemHas(proofs, kernel.Text(kernel.SemMap(kernel.SemMap(v)["decision"])["ref"])) {
+				return s.Reject("BUSINESS_DEFERRED_APPROVAL_UNBOUND", "延期决定不在来源批准链")
 			}
 		}
 	}
-	if semHas(capabilities, "strategic-decision-reuse-v1") {
-		approval := semMap(semMap(b.Config["approvals"])["handoff"])
-		record, e := s.doc(text(approval["record_ref"]))
+	if kernel.SemHas(capabilities, "strategic-decision-reuse-v1") {
+		approval := kernel.SemMap(kernel.SemMap(b.Config["approvals"])["handoff"])
+		record, e := s.Doc(kernel.Text(approval["record_ref"]))
 		if e != nil {
 			return e
 		}
-		record, e = selectApprovalRecordSemantic(s, record, gates["handoff"])
+		record, e = kernel.SelectApprovalRecordSemantic(s, record, gates["handoff"])
 		if e != nil {
 			return e
 		}
-		scope, e := s.doc(text(record["subject_ref"]))
+		scope, e := s.Doc(kernel.Text(record["subject_ref"]))
 		if e != nil {
 			return e
 		}
-		if contractN(scope["schema_version"]) != 1 || text(scope["kind"]) != "strategic-delivery-scope" {
-			return s.reject("HANDOFF_SCOPE", "战略交付缺少独立批准范围清单")
+		if kernel.ContractN(scope["schema_version"]) != 1 || kernel.Text(scope["kind"]) != "strategic-delivery-scope" {
+			return s.Reject("HANDOFF_SCOPE", "战略交付缺少独立批准范围清单")
 		}
-		delivery, e := s.doc(text(scope["delivery_ref"]))
+		delivery, e := s.Doc(kernel.Text(scope["delivery_ref"]))
 		if e != nil {
 			return e
 		}
 		if !contractSame(delivery, contractWithout(b.Handoff, "package_export", "status")) {
-			return s.reject("HANDOFF_SCOPE", "交付内容/风险未被批准范围覆盖")
+			return s.Reject("HANDOFF_SCOPE", "交付内容/风险未被批准范围覆盖")
 		}
-		if e = s.basis(scope["assets"]); e != nil {
+		if e = s.Basis(scope["assets"]); e != nil {
 			return e
 		}
 		for key, v := range sources {
-			source := semMap(v)
-			assetRef := text(source["persisted_ref"])
+			source := kernel.SemMap(v)
+			assetRef := kernel.Text(source["persisted_ref"])
 			if key == "visual_baseline_ref" || key == "existing_ui_baseline_ref" {
-				assetRef = path.Join(assetRef, text(source["manifest_ref"]))
+				assetRef = path.Join(assetRef, kernel.Text(source["manifest_ref"]))
 			}
 			found := false
-			for _, v := range semList(scope["assets"]) {
-				a := semMap(v)
-				found = found || text(a["ref"]) == assetRef && a["version"] == source["version"] && text(a["boundary"]) == gates[key]
+			for _, v := range kernel.SemList(scope["assets"]) {
+				a := kernel.SemMap(v)
+				found = found || kernel.Text(a["ref"]) == assetRef && a["version"] == source["version"] && kernel.Text(a["boundary"]) == gates[key]
 			}
 			if !found {
-				return s.reject("HANDOFF_SCOPE", "交付范围遗漏当前资产")
+				return s.Reject("HANDOFF_SCOPE", "交付范围遗漏当前资产")
 			}
 		}
 	}
 	if contractHandoffUIKind(b.Handoff) == "prototype" {
-		if e = contractPreview(s, semMap(b.Config["prototype"]), semStrings(contractHandoffUIRef(b.Handoff)["case_ids"])); e != nil {
+		if e = contractPreview(s, kernel.SemMap(b.Config["prototype"]), kernel.SemStrings(contractHandoffUIRef(b.Handoff)["case_ids"])); e != nil {
 			return e
 		}
 	}
 	return nil
 }
 
-func contractHandoffSourcePolicy(s *semanticSession, protocol int) error {
-	version, valid := integer(s.roles["schema_version"])
-	gates, gatesPresent := object(s.roles["gate_policy"])
-	policy, present := object(s.roles["user_decision_policy"])
+func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error {
+	version, valid := kernel.Integer(s.Roles["schema_version"])
+	gates, gatesPresent := kernel.Object(s.Roles["gate_policy"])
+	policy, present := kernel.Object(s.Roles["user_decision_policy"])
 	_, gateList := policy["gates"].([]any)
-	_, workUnits := object(policy["work_units"])
-	if !valid || version != 1 || s.roles["status"] != "active" || !gatesPresent || !present || !gateList || !workUnits || !contractUnique(policy["gates"], false) || !contractUnique(policy["source_kinds"], true) {
-		return s.unavailable("HANDOFF_POLICY_CAPABILITY", "来源批准或真实决定规则缺失、未知或不完整")
+	_, workUnits := kernel.Object(policy["work_units"])
+	if !valid || version != 1 || s.Roles["status"] != "active" || !gatesPresent || !present || !gateList || !workUnits || !contractUnique(policy["gates"], false) || !contractUnique(policy["source_kinds"], true) {
+		return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "来源批准或真实决定规则缺失、未知或不完整")
 	}
-	for _, kind := range semStrings(policy["source_kinds"]) {
-		if !semHas([]string{"platform-message", "session-export", "user-confirmation-file"}, kind) {
-			return s.unavailable("HANDOFF_POLICY_CAPABILITY", "未知来源决定输入协议: "+kind)
+	for _, id := range kernel.SemStrings(policy["required_capabilities"]) {
+		if !kernel.SemHas([]string{"strategic-decision-reuse-v1", "business-ticket-approval-v1"}, id) {
+			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "不支持的来源决定策略能力: "+id)
+		}
+	}
+	for _, kind := range kernel.SemStrings(policy["source_kinds"]) {
+		if !kernel.SemHas([]string{"platform-message", "session-export", "user-confirmation-file"}, kind) {
+			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "未知来源决定输入协议: "+kind)
 		}
 	}
 	if raw, declared := policy["schema_version"]; declared {
-		v, valid := integer(raw)
+		v, valid := kernel.Integer(raw)
 		if !valid || v != 1 {
-			return s.unavailable("HANDOFF_POLICY_CAPABILITY", "未知来源决定策略协议")
+			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "未知来源决定策略协议")
 		}
 	} else {
 		if protocol != 3 && protocol != 4 || gates["default_if_unlisted"] != "biological-human" || !semSameSet(policy["source_kinds"], []string{"platform-message", "session-export", "user-confirmation-file"}) {
-			return s.unavailable("HANDOFF_POLICY_CAPABILITY", "未登记的 versionless 来源策略形状")
+			return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "未登记的 versionless 来源策略形状")
 		}
 		// The published Handoff v3/v4/v5 v1 signing policy predates this
 		// field. Its complete original gates/work_units contract is required;
 		// a missing policy can never be projected to an empty one.
-		s.report.Checks = append(s.report.Checks, SemanticCheck{ID: "handoff-source-policy-versionless-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
+		s.Report.Checks = append(s.Report.Checks, kernel.SemanticCheck{ID: "handoff-source-policy-versionless-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
 	}
 	for _, bucket := range []string{"biological_human", "product_digital_human_with_biological_veto", "dual_digital_human", "digital_human_review", "check_reviews"} {
 		if value, present := gates[bucket]; present {
 			if _, valid := value.([]any); !valid {
-				return s.unavailable("HANDOFF_POLICY_CAPABILITY", "来源签署分类必须为数组: "+bucket)
+				return s.Unavailable("HANDOFF_POLICY_CAPABILITY", "来源签署分类必须为数组: "+bucket)
 			}
 		}
 	}
 	return nil
 }
-func contractSourceApproval(s *semanticSession, gate string, binding map[string]any, approvalRef string) error {
+
+func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string) error {
 	if inherited, err := inheritedSourceApproval(s, gate, binding, approvalRef); inherited {
 		return err
 	}
-	record, e := s.doc(approvalRef)
+	record, e := s.Doc(approvalRef)
 	if e != nil {
 		return e
 	}
-	record, e = selectApprovalRecordSemantic(s, record, gate)
+	record, e = kernel.SelectApprovalRecordSemantic(s, record, gate)
 	if e != nil {
 		return e
 	}
 	// The published source protocol selects an internal check from a bundle,
 	// while a standalone historical record retains its declared signing gate.
-	if semHas([]string{"check.domain-strategy-approved", "check.stage-decision-package-approved"}, gate) && text(record["gate_id"]) != gate {
-		gate = text(record["gate_id"])
+	if kernel.SemHas([]string{"check.domain-strategy-approved", "check.stage-decision-package-approved"}, gate) && kernel.Text(record["gate_id"]) != gate {
+		gate = kernel.Text(record["gate_id"])
 	}
-	savedRoles, savedRegistry := s.roles, s.registry
-	defer func() { s.roles, s.registry = savedRoles, savedRegistry }()
-	if contractN(record["schema_version"]) == 2 {
-		s.roles, e = s.doc(".template-spec/agents/digital-human-roles.yaml")
+	savedRoles, savedRegistry := s.Roles, s.Registry
+	defer func() { s.Roles, s.Registry = savedRoles, savedRegistry }()
+	if kernel.ContractN(record["schema_version"]) == 2 {
+		s.Roles, e = s.Doc(".template-spec/agents/digital-human-roles.yaml")
 		if e != nil {
 			return e
 		}
-		s.registry, e = s.doc(".template-spec/process/lifecycle-registry.yaml")
+		s.Registry, e = s.Doc(".template-spec/process/lifecycle-registry.yaml")
 		if e != nil {
 			return e
 		}
-		if _, e = s.doc(".template-spec/agents/yss-skill-registry.yaml"); e != nil {
+		if _, e = s.Doc(".template-spec/agents/yss-skill-registry.yaml"); e != nil {
 			return e
 		}
-		task, e := s.doc(text(record["review_task_ref"]))
+		task, e := s.Doc(kernel.Text(record["review_task_ref"]))
 		if e != nil {
 			return e
 		}
 		for _, ref := range []string{".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/yss-skill-registry.yaml"} {
-			b, e := s.bind(ref)
+			b, e := s.Bind(ref)
 			if e != nil {
 				return e
 			}
 			found := false
-			for _, v := range semList(semMap(task["review_context"])["basis"]) {
-				a := semMap(v)
-				found = found || text(a["ref"]) == ref && strings.TrimPrefix(text(a["digest"]), "sha256:") == strings.TrimPrefix(b.Digest, "sha256:")
+			for _, v := range kernel.SemList(kernel.SemMap(task["review_context"])["basis"]) {
+				a := kernel.SemMap(v)
+				found = found || kernel.Text(a["ref"]) == ref && strings.TrimPrefix(kernel.Text(a["digest"]), "sha256:") == strings.TrimPrefix(b.Digest, "sha256:")
 			}
 			if !found {
-				return s.reject("HANDOFF_POLICY", "来源正式任务未冻结实际注册表")
+				return s.Reject("HANDOFF_POLICY", "来源正式任务未冻结实际注册表")
 			}
 		}
 	}
 	if gate == "gate.plan-approved" {
 		bounded := record["plan_review_binding"] != nil
-		for _, v := range semList(semMap(semMap(s.roles["gate_policy"])["review_execution"])["review_bundles"]) {
-			row := semMap(v)
-			bounded = bounded || text(row["aggregate_gate"]) == gate && text(row["aggregate_additional_review_task"]) == "forbidden"
+		for _, v := range kernel.SemList(kernel.SemMap(kernel.SemMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
+			row := kernel.SemMap(v)
+			bounded = bounded || kernel.Text(row["aggregate_gate"]) == gate && kernel.Text(row["aggregate_additional_review_task"]) == "forbidden"
 		}
 		if bounded {
-			s.registry, e = s.doc(".template-spec/process/lifecycle-registry.yaml")
+			s.Registry, e = s.Doc(".template-spec/process/lifecycle-registry.yaml")
 			if e != nil {
 				return e
 			}
-			context := semMap(binding["approval_context"])
-			assetRef := first(text(context["subject_ref"]), text(binding["ref"]))
-			if e = s.verify("source-plan-approval", approvalRef, map[string]string{"asset-ref": assetRef, "task-ref": text(record["review_task_ref"])}); e != nil {
+			context := kernel.SemMap(binding["approval_context"])
+			assetRef := kernel.First(kernel.Text(context["subject_ref"]), kernel.Text(binding["ref"]))
+			if e = s.Verify("source-plan-approval", approvalRef, map[string]string{"asset-ref": assetRef, "task-ref": kernel.Text(record["review_task_ref"])}); e != nil {
 				return e
 			}
 		}
@@ -1054,78 +1119,79 @@ func contractSourceApproval(s *semanticSession, gate string, binding map[string]
 	}
 	return nil
 }
-func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([]string, error) {
+
+func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *nativeHandoff) ([]string, error) {
 	queue := []string{ref, "CONTEXT.md", ".template-spec/agents/digital-human-roles.yaml"}
-	savedRegistry := s.registry
-	defer func() { s.registry = savedRegistry }()
+	savedRegistry := s.Registry
+	defer func() { s.Registry = savedRegistry }()
 	sealedPackages := map[string]bool{}
 	enqueueBaseline := func(receiptRef string) error {
 		if _, _, err := verifySpecBaselineReceipt(s, receiptRef, false); err != nil {
 			return err
 		}
-		receipt, err := s.doc(receiptRef)
+		receipt, err := s.Doc(receiptRef)
 		if err != nil {
 			return err
 		}
-		working, err := s.doc(text(receipt["working_set_ref"]))
+		working, err := s.Doc(kernel.Text(receipt["working_set_ref"]))
 		if err != nil {
 			return err
 		}
-		packageRef := text(receipt["package_ref"])
+		packageRef := kernel.Text(receipt["package_ref"])
 		sealedPackages[packageRef] = true
-		queue = append(queue, receiptRef, packageRef, text(receipt["working_set_ref"]))
-		for _, asset := range semMap(working["assets"]) {
-			queue = append(queue, text(asset))
+		queue = append(queue, receiptRef, packageRef, kernel.Text(receipt["working_set_ref"]))
+		for _, asset := range kernel.SemMap(working["assets"]) {
+			queue = append(queue, kernel.Text(asset))
 		}
 		return nil
 	}
-	if exists, err := s.exists(".yss.json"); err != nil {
+	if exists, err := s.Exists(".yss.json"); err != nil {
 		return nil, err
 	} else if exists {
 		queue = append(queue, ".yss.json")
 	}
-	for key, v := range semMap(b.Handoff["source"]) {
-		queue = append(queue, text(semMap(v)["persisted_ref"]))
-		if marker := semMap(semMap(semMap(v)["approval_context"])["source_baseline"]); len(marker) > 0 {
+	for key, v := range kernel.SemMap(b.Handoff["source"]) {
+		queue = append(queue, kernel.Text(kernel.SemMap(v)["persisted_ref"]))
+		if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(v)["approval_context"])["source_baseline"]); len(marker) > 0 {
 			gate := "gate.plan-approved"
 			if key == "spec_ref" {
 				gate = "gate.spec-baseline-approved"
 			}
-			binding := semMap(v)
-			if _, err := inheritedSourceApproval(s, gate, map[string]any{"ref": binding["persisted_ref"], "approval_context": binding["approval_context"]}, text(semMap(semMap(b.Config["approvals"])[key])["record_ref"])); err != nil {
+			binding := kernel.SemMap(v)
+			if _, err := inheritedSourceApproval(s, gate, map[string]any{"ref": binding["persisted_ref"], "approval_context": binding["approval_context"]}, kernel.Text(kernel.SemMap(kernel.SemMap(b.Config["approvals"])[key])["record_ref"])); err != nil {
 				return nil, err
 			}
-			if err := enqueueBaseline(text(marker["receipt_ref"])); err != nil {
+			if err := enqueueBaseline(kernel.Text(marker["receipt_ref"])); err != nil {
 				return nil, err
 			}
-			queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", text(marker["receipt_ref"]), text(marker["context_reconciliation_ref"]))
+			queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", kernel.Text(marker["receipt_ref"]), kernel.Text(marker["context_reconciliation_ref"]))
 		}
 	}
-	for _, v := range semMap(b.Config["approvals"]) {
-		queue = append(queue, text(semMap(v)["record_ref"]))
+	for _, v := range kernel.SemMap(b.Config["approvals"]) {
+		queue = append(queue, kernel.Text(kernel.SemMap(v)["record_ref"]))
 	}
-	queue = append(queue, semStrings(b.Handoff["evidence_and_version_digests"])...)
-	queue = append(queue, semStrings(b.Config["additional_files"])...)
-	prototype := semMap(b.Config["prototype"])
+	queue = append(queue, kernel.SemStrings(b.Handoff["evidence_and_version_digests"])...)
+	queue = append(queue, kernel.SemStrings(b.Config["additional_files"])...)
+	prototype := kernel.SemMap(b.Config["prototype"])
 	if len(prototype) > 0 {
-		queue = append(queue, text(prototype["preview_root"]), text(prototype["verification_ref"]))
-		if text(prototype["profile"]) == "H2" {
-			queue = append(queue, text(prototype["source_root"]), text(prototype["lock_ref"]))
+		queue = append(queue, kernel.Text(prototype["preview_root"]), kernel.Text(prototype["verification_ref"]))
+		if kernel.Text(prototype["profile"]) == "H2" {
+			queue = append(queue, kernel.Text(prototype["source_root"]), kernel.Text(prototype["lock_ref"]))
 		}
 	}
-	symbolic := semMap(b.Config["reference_map"])
+	symbolic := kernel.SemMap(b.Config["reference_map"])
 	boundedPlan := false
-	for _, value := range semList(semMap(semMap(s.roles["gate_policy"])["review_execution"])["review_bundles"]) {
-		row := semMap(value)
+	for _, value := range kernel.SemList(kernel.SemMap(kernel.SemMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
+		row := kernel.SemMap(value)
 		boundedPlan = boundedPlan || row["aggregate_gate"] == "gate.plan-approved" && row["aggregate_additional_review_task"] == "forbidden"
 	}
 	// Keep SpecBaseline's published closure when it reuses this walker internally.
-	protocol := contractN(b.Handoff["schema_version"])
+	protocol := kernel.ContractN(b.Handoff["schema_version"])
 	boundedPlan = boundedPlan && (protocol == 3 || protocol == 4 || protocol == 5)
 	seen := map[string]bool{}
 	total := 0
 	enqueue := func(ref string) {
-		if mapped := text(symbolic[ref]); mapped != "" {
+		if mapped := kernel.Text(symbolic[ref]); mapped != "" {
 			ref = mapped
 		}
 		if ref != "" {
@@ -1143,52 +1209,52 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 		case []any:
 			for _, v := range x {
 				if key == "evidence_refs" {
-					enqueue(text(v))
+					enqueue(kernel.Text(v))
 				} else {
 					refs(v, key)
 				}
 			}
 		case map[string]any:
-			if len(semMap(x["upstream_spec_baseline"])) > 0 {
-				s.registry, dependencyErr = s.doc(".template-spec/process/lifecycle-registry.yaml")
+			if len(kernel.SemMap(x["upstream_spec_baseline"])) > 0 {
+				s.Registry, dependencyErr = s.Doc(".template-spec/process/lifecycle-registry.yaml")
 				if dependencyErr != nil {
 					return
 				}
 				if dependencyErr = verifyInheritedSpecCheckpoint(s, documentRef, x); dependencyErr != nil {
 					return
 				}
-				if dependencyErr = enqueueBaseline(text(semMap(x["upstream_spec_baseline"])["receipt_ref"])); dependencyErr != nil {
+				if dependencyErr = enqueueBaseline(kernel.Text(kernel.SemMap(x["upstream_spec_baseline"])["receipt_ref"])); dependencyErr != nil {
 					return
 				}
 				queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml")
 			}
-			if marker := semMap(x["source_baseline"]); len(marker) > 0 {
-				enqueue(text(marker["receipt_ref"]))
-				enqueue(text(marker["context_reconciliation_ref"]))
+			if marker := kernel.SemMap(x["source_baseline"]); len(marker) > 0 {
+				enqueue(kernel.Text(marker["receipt_ref"]))
+				enqueue(kernel.Text(marker["context_reconciliation_ref"]))
 				return
 			}
 			if x["kind"] == "spec-baseline-import" {
-				enqueue(text(x["package_ref"]))
-				enqueue(text(x["working_set_ref"]))
+				enqueue(kernel.Text(x["package_ref"]))
+				enqueue(kernel.Text(x["working_set_ref"]))
 			}
 			if x["plan_review_control"] != nil {
 				enqueue("yss-project.yaml")
 				enqueue(".template-spec/process/schemas/plan-review-control.schema.json")
-				control := semMap(x["plan_review_control"])
-				enqueue(text(semMap(control["provenance"])["source_ref"]))
-				for _, v := range semList(control["attempts"]) {
+				control := kernel.SemMap(x["plan_review_control"])
+				enqueue(kernel.Text(kernel.SemMap(control["provenance"])["source_ref"]))
+				for _, v := range kernel.SemList(control["attempts"]) {
 					for _, key := range []string{"checkpoint_ref", "task_ref", "candidate_ref", "result_ref"} {
-						enqueue(text(semMap(v)[key]))
+						enqueue(kernel.Text(kernel.SemMap(v)[key]))
 					}
 				}
 			}
-			if semMap(x["review_context"])["plan_review_binding"] != nil {
-				enqueue(text(x["checkpoint_ref"]))
-				for _, ref := range semStrings(x["inputs"]) {
+			if kernel.SemMap(x["review_context"])["plan_review_binding"] != nil {
+				enqueue(kernel.Text(x["checkpoint_ref"]))
+				for _, ref := range kernel.SemStrings(x["inputs"]) {
 					enqueue(ref)
 				}
 			}
-			if contractN(x["schema_version"]) == 2 && text(x["review_task_ref"]) != "" {
+			if kernel.ContractN(x["schema_version"]) == 2 && kernel.Text(x["review_task_ref"]) != "" {
 				enqueue(".template-spec/process/lifecycle-registry.yaml")
 				enqueue(".template-spec/agents/yss-skill-registry.yaml")
 			}
@@ -1196,7 +1262,7 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 				str, ok := v.(string)
 				if k == "policy_ref" && ok {
 					enqueue(strings.Split(str, "#")[0])
-				} else if ok && semHas([]string{"review_task_ref", "candidate_ref", "registry_ref", "approval_ref", "persisted_ref", "receipt_ref", "package_ref", "working_set_ref", "context_reconciliation_ref", "user_decision_ref", "decision_reuse_ref", "continuation_ref", "plan_continuation_ref", "scope_ref", "subject_ref", "delivery_ref", "review_ref", "ref"}, k) && !regexp.MustCompile(`^[a-z]+://`).MatchString(str) {
+				} else if ok && kernel.SemHas([]string{"review_task_ref", "candidate_ref", "registry_ref", "approval_ref", "persisted_ref", "receipt_ref", "package_ref", "working_set_ref", "context_reconciliation_ref", "user_decision_ref", "decision_reuse_ref", "continuation_ref", "plan_continuation_ref", "scope_ref", "subject_ref", "delivery_ref", "review_ref", "ref"}, k) && !regexp.MustCompile(`^[a-z]+://`).MatchString(str) {
 					enqueue(str)
 				} else {
 					refs(v, k)
@@ -1207,26 +1273,26 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 	for len(queue) > 0 {
 		ref := queue[0]
 		queue = queue[1:]
-		if err := rejectProgressionEvidence(s, ref); err != nil {
+		if err := kernel.RejectProgressionEvidence(s, ref); err != nil {
 			return nil, err
 		}
-		if mapped := text(symbolic[ref]); mapped != "" {
+		if mapped := kernel.Text(symbolic[ref]); mapped != "" {
 			ref = mapped
 		}
-		if err := rejectProgressionEvidence(s, ref); err != nil {
+		if err := kernel.RejectProgressionEvidence(s, ref); err != nil {
 			return nil, err
 		}
 		if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
 			continue
 		}
 		if strings.HasPrefix(ref, "evidence.") {
-			return nil, s.reject("HANDOFF_CLOSURE", "未解析 evidence ID")
+			return nil, s.Reject("HANDOFF_CLOSURE", "未解析 evidence ID")
 		}
 		if !strings.Contains(ref, "/") && !regexp.MustCompile(`\.(md|yaml|json|html|png|txt|log)$`).MatchString(ref) {
 			if ref == "" {
 				continue
 			}
-			exists, e := s.exists(ref)
+			exists, e := s.Exists(ref)
 			if e != nil {
 				return nil, e
 			}
@@ -1234,22 +1300,22 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 				continue
 			}
 		}
-		if !contractPath(ref) {
-			return nil, s.reject("HANDOFF_PATH", "闭包引用非法")
+		if !kernel.ContractPath(ref) {
+			return nil, s.Reject("HANDOFF_PATH", "闭包引用非法")
 		}
 		if seen[ref] {
 			continue
 		}
-		exists, e := s.exists(ref)
+		exists, e := s.Exists(ref)
 		if e != nil {
 			return nil, e
 		}
 		if !exists {
-			return nil, s.reject("HANDOFF_CLOSURE", "引用不在来源快照: "+ref)
+			return nil, s.Reject("HANDOFF_CLOSURE", "引用不在来源快照: "+ref)
 		}
-		mapped := s.localRef(ref)
-		if _, directory := s.scans[mapped]; directory {
-			files, e := s.scan(ref)
+		mapped := s.LocalRef(ref)
+		if _, directory := s.Scans[mapped]; directory {
+			files, e := s.Scan(ref)
 			if e != nil {
 				return nil, e
 			}
@@ -1261,30 +1327,30 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 			}
 			continue
 		}
-		bytes, e := s.bytes(ref)
+		bytes, e := s.Bytes(ref)
 		if e != nil {
 			return nil, e
 		}
 		seen[ref] = true
 		total += len(bytes)
 		if len(seen) > 20000 || total > 512<<20 {
-			return nil, s.reject("HANDOFF_LIMIT", "闭包数量/大小超限")
+			return nil, s.Reject("HANDOFF_LIMIT", "闭包数量/大小超限")
 		}
 		sealedSource := false
 		for prefix := range sealedPackages {
 			sealedSource = sealedSource || strings.HasPrefix(ref, prefix+"/")
 		}
-		localBaseline := sealedSource || contractHandoffUIKind(b.Handoff) == "existing-ui-baseline" && strings.HasPrefix(ref, text(contractHandoffUIRef(b.Handoff)["persisted_ref"])+"/")
+		localBaseline := sealedSource || contractHandoffUIKind(b.Handoff) == "existing-ui-baseline" && strings.HasPrefix(ref, kernel.Text(contractHandoffUIRef(b.Handoff)["persisted_ref"])+"/")
 		if !localBaseline && (strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") || strings.HasSuffix(ref, ".json")) {
 			doc, e := schema.Parse(bytes)
 			if e != nil {
 				return nil, e
 			}
-			value := semMap(doc)
-			if boundedPlan && value["gate_id"] == "gate.plan-approved" && text(value["decision"]) != "" && text(value["actor_kind"]) != "" {
+			value := kernel.SemMap(doc)
+			if boundedPlan && value["gate_id"] == "gate.plan-approved" && kernel.Text(value["decision"]) != "" && kernel.Text(value["actor_kind"]) != "" {
 				opts := map[string]string{}
-				if value["plan_review_binding"] != nil && text(value["review_task_ref"]) != "" {
-					opts["task-ref"] = text(value["review_task_ref"])
+				if value["plan_review_binding"] != nil && kernel.Text(value["review_task_ref"]) != "" {
+					opts["task-ref"] = kernel.Text(value["review_task_ref"])
 				}
 				owner, e := sourcePlanApprovalCheckpoint(s, ref, opts)
 				if e != nil {
@@ -1292,9 +1358,9 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 				}
 				enqueue(owner)
 				if opts["task-ref"] == "" {
-					enqueue(trackerRef)
+					enqueue(kernel.TrackerRef)
 				}
-				if exists, e := s.exists(".template-spec/process/harness-profile.yaml"); e != nil {
+				if exists, e := s.Exists(".template-spec/process/harness-profile.yaml"); e != nil {
 					return nil, e
 				} else if exists {
 					enqueue(".template-spec/process/harness-profile.yaml")
@@ -1310,7 +1376,7 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 			for _, match := range regexp.MustCompile(`!?\[[^\]]*\]\(<?([^\s)>]+)>?(?:\s+[^)]*)?\)`).FindAllStringSubmatch(string(bytes), -1) {
 				dep, e := contractLocalDependency(ref, match[1])
 				if e != nil {
-					return nil, s.reject("HANDOFF_PATH", e.Error())
+					return nil, s.Reject("HANDOFF_PATH", e.Error())
 				}
 				if dep != "" {
 					enqueue(dep)
@@ -1325,6 +1391,7 @@ func contractHandoffClosure(s *semanticSession, ref string, b *nativeHandoff) ([
 	sort.Strings(out)
 	return out, nil
 }
+
 func contractLocalDependency(from, href string) (string, error) {
 	if href == "" || regexp.MustCompile(`(?i)^(#|https?:|mailto:|data:)`).MatchString(href) {
 		return "", nil
@@ -1341,7 +1408,7 @@ func contractLocalDependency(from, href string) (string, error) {
 		return "", fmt.Errorf("资源须为相对路径")
 	}
 	ref := path.Join(path.Dir(from), clean)
-	if !contractPath(ref) {
+	if !kernel.ContractPath(ref) {
 		return "", fmt.Errorf("资源路径越界")
 	}
 	return ref, nil
@@ -1349,70 +1416,74 @@ func contractLocalDependency(from, href string) (string, error) {
 
 // Imported routing belongs to the actual receiving Profile, not a mutable
 // self-described target identity in the receipt.
-func contractReceiptConsumer(s *semanticSession, receipt map[string]any, capability string) error {
-	if contractN(receipt["schema_version"]) < 2 {
+func contractReceiptConsumer(s *kernel.SemanticSession, receipt map[string]any, capability string) error {
+	if kernel.ContractN(receipt["schema_version"]) < 2 {
 		return nil
 	}
-	profile, err := s.doc(".template-spec/process/harness-profile.yaml")
+	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
 	if err != nil {
 		return err
 	}
-	if receipt["target_profile_id"] != profile["profile_id"] || !semHas(receipt["selected_consumer_capabilities"], capability) {
-		return s.reject("HANDOFF_CONSUMER", "导入收据未绑定当前 Profile 的消费者能力")
+	if receipt["target_profile_id"] != profile["profile_id"] || !kernel.SemHas(receipt["selected_consumer_capabilities"], capability) {
+		return s.Reject("HANDOFF_CONSUMER", "导入收据未绑定当前 Profile 的消费者能力")
 	}
-	if declared, present := semMap(profile["handoff"])["consumer_capabilities"]; present && !semHas(declared, capability) {
-		return s.unavailable("CAPABILITY", "当前 Profile 未登记所需交接消费能力")
+	if declared, present := kernel.SemMap(profile["handoff"])["consumer_capabilities"]; present && !kernel.SemHas(declared, capability) {
+		return s.Unavailable("CAPABILITY", "当前 Profile 未登记所需交接消费能力")
 	}
 	return nil
 }
-func contractHandoffConsumption(s *semanticSession, data map[string]any, opts map[string]string) error {
-	consumer, slice := first(opts["consumer"], "tactical"), opts["slice"]
-	if !semHas([]string{"tactical", "frontend"}, consumer) {
-		return s.reject("HANDOFF_CONSUMER", "未知消费者")
+
+func contractHandoffConsumption(s *kernel.SemanticSession, data map[string]any, opts map[string]string) error {
+	consumer, slice := kernel.First(opts["consumer"], "tactical"), opts["slice"]
+	if consumer == "frontend" {
+		return s.Reject("HANDOFF_CONSUMER", "前端消费者已从生命周期移除")
 	}
-	if consumer == "tactical" && contractN(data["schema_version"]) == 2 && !semHas([]string{"domain-driven", "layered-mvc"}, text(semMap(data["architecture"])["family"])) {
-		return s.reject("HANDOFF_CONSUMER", "未知技术设计架构")
+	if consumer != "tactical" {
+		return s.Reject("HANDOFF_CONSUMER", "未知消费者")
 	}
-	identity, e := s.doc("yss-project.yaml")
+	if consumer == "tactical" && kernel.ContractN(data["schema_version"]) == 2 && !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, kernel.Text(kernel.SemMap(data["architecture"])["family"])) {
+		return s.Reject("HANDOFF_CONSUMER", "未知技术设计架构")
+	}
+	identity, e := s.Doc("yss-project.yaml")
 	if e != nil {
 		return e
 	}
-	if text(identity["repository_mode"]) != "project-instance" {
-		return s.reject("HANDOFF_CONSUMER", "接收端必须 project-instance")
+	if kernel.Text(identity["repository_mode"]) != "project-instance" {
+		return s.Reject("HANDOFF_CONSUMER", "接收端必须 project-instance")
 	}
-	if slice != "" && text(data["status"]) != map[string]string{"tactical": "approved", "frontend": "accepted"}[consumer] {
-		return s.reject("HANDOFF_CONSUMER", "当前切片不能消费未批准接收合同")
+	if slice != "" && kernel.Text(data["status"]) != "approved" {
+		return s.Reject("HANDOFF_CONSUMER", "当前切片不能消费未批准接收合同")
 	}
-	binding := semMap(data["strategic_handoff"])
+	binding := kernel.SemMap(data["strategic_handoff"])
 	if e = contractRequired(s, binding, "import_receipt_ref", "context_reconciliation_ref", "bundle_digest"); e != nil {
 		return e
 	}
-	receipt, e := s.doc(text(binding["import_receipt_ref"]))
+	receipt, e := s.Doc(kernel.Text(binding["import_receipt_ref"]))
 	if e != nil {
 		return e
 	}
-	base := path.Join("docs/handoffs", text(receipt["bundle_id"]), text(receipt["version"]))
-	if text(binding["import_receipt_ref"]) != base+"/import-receipt.json" || text(receipt["package_ref"]) != base+"/package" || binding["bundle_digest"] != receipt["bundle_digest"] {
-		return s.reject("HANDOFF_RECEIPT", "收据路径或包身份冲突")
+	base := path.Join("docs/handoffs", kernel.Text(receipt["bundle_id"]), kernel.Text(receipt["version"]))
+	if kernel.Text(binding["import_receipt_ref"]) != base+"/import-receipt.json" || kernel.Text(receipt["package_ref"]) != base+"/package" || binding["bundle_digest"] != receipt["bundle_digest"] {
+		return s.Reject("HANDOFF_RECEIPT", "收据路径或包身份冲突")
 	}
 	if e = contractReceipt(s, receipt); e != nil {
 		return e
 	}
-	capability := map[string]string{"tactical": "backend-technical-design", "frontend": "frontend-engineering-design"}[consumer]
+	capability := "backend-technical-design"
 	if e = contractReceiptConsumer(s, receipt, capability); e != nil {
 		return e
 	}
-	if contractN(receipt["schema_version"]) >= 2 {
-		route := apFind(receipt["routes"], "capability", capability)
-		if route == nil || text(route["activation"]) == "not-applicable" || route["route_id"] != binding["route_id"] {
-			return s.reject("HANDOFF_ROUTE", "接收未绑定启用路线")
+	if kernel.ContractN(receipt["schema_version"]) >= 2 {
+		route := kernel.ApFind(receipt["routes"], "capability", capability)
+		if route == nil || kernel.Text(route["activation"]) == "not-applicable" || route["route_id"] != binding["route_id"] {
+			return s.Reject("HANDOFF_ROUTE", "接收未绑定启用路线")
 		}
 	}
-	if e = s.verify("context-reconciliation", text(binding["context_reconciliation_ref"]), map[string]string{"import-receipt": text(binding["import_receipt_ref"])}); e != nil {
+	if e = s.Verify("context-reconciliation", kernel.Text(binding["context_reconciliation_ref"]), map[string]string{"import-receipt": kernel.Text(binding["import_receipt_ref"])}); e != nil {
 		return e
 	}
-	parent := path.Join("docs/handoffs", text(receipt["bundle_id"]))
-	names, e := s.list(parent)
+	parent := path.Join("docs/handoffs", kernel.Text(receipt["bundle_id"]))
+	names, e := s.List(parent)
 	if e != nil {
 		return e
 	}
@@ -1422,14 +1493,14 @@ func contractHandoffConsumption(s *semanticSession, data map[string]any, opts ma
 		if !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(name) {
 			continue
 		}
-		exists, e := s.exists(path.Join(parent, name, "import-receipt.json"))
+		exists, e := s.Exists(path.Join(parent, name, "import-receipt.json"))
 		if e != nil {
 			return e
 		}
 		if exists {
 			n, e := strconv.Atoi(name[1:])
 			if e != nil {
-				return s.reject("HANDOFF_VERSION", "版本数值超限")
+				return s.Reject("HANDOFF_VERSION", "版本数值超限")
 			}
 			if n > max {
 				max, latest = n, name
@@ -1437,14 +1508,14 @@ func contractHandoffConsumption(s *semanticSession, data map[string]any, opts ma
 		}
 	}
 	if latest == "" {
-		return s.reject("HANDOFF_RECEIPT", "缺少最新收据")
+		return s.Reject("HANDOFF_RECEIPT", "缺少最新收据")
 	}
-	currentReceipt, e := s.doc(path.Join(parent, latest, "import-receipt.json"))
+	currentReceipt, e := s.Doc(path.Join(parent, latest, "import-receipt.json"))
 	if e != nil {
 		return e
 	}
-	if text(currentReceipt["version"]) != latest || text(currentReceipt["package_ref"]) != path.Join(parent, latest, "package") {
-		return s.reject("HANDOFF_RECEIPT", "最新收据路径无效")
+	if kernel.Text(currentReceipt["version"]) != latest || kernel.Text(currentReceipt["package_ref"]) != path.Join(parent, latest, "package") {
+		return s.Reject("HANDOFF_RECEIPT", "最新收据路径无效")
 	}
 	if e = contractReceipt(s, currentReceipt); e != nil {
 		return e
@@ -1452,181 +1523,164 @@ func contractHandoffConsumption(s *semanticSession, data map[string]any, opts ma
 	if e = contractReceiptConsumer(s, currentReceipt, capability); e != nil {
 		return e
 	}
-	original, e := contractOpenHandoff(s, text(receipt["package_ref"]))
+	original, e := contractOpenHandoff(s, kernel.Text(receipt["package_ref"]))
 	if e != nil {
 		return e
 	}
 	current := original
-	if latest != text(receipt["version"]) {
-		current, e = contractOpenHandoff(s, text(currentReceipt["package_ref"]))
+	if latest != kernel.Text(receipt["version"]) {
+		current, e = contractOpenHandoff(s, kernel.Text(currentReceipt["package_ref"]))
 		if e != nil {
 			return e
 		}
 	}
 	if original.Manifest["bundle_digest"] != receipt["bundle_digest"] || current.Manifest["bundle_id"] != receipt["bundle_id"] || current.Manifest["bundle_digest"] != currentReceipt["bundle_digest"] {
-		return s.reject("HANDOFF_RECEIPT", "收据与当前包冲突")
+		return s.Reject("HANDOFF_RECEIPT", "收据与当前包冲突")
 	}
-	context, e := s.contextContract()
+	context, e := s.ContextContract()
 	if e != nil {
 		return e
 	}
-	terms := map[string]Term{}
-	for _, t := range context["business_terms"].([]Term) {
+	terms := map[string]kernel.Term{}
+	for _, t := range context["business_terms"].([]kernel.Term) {
 		terms[t.TermRef] = t
 	}
 	for _, op := range []string{"added", "updated", "deprecated"} {
-		for _, v := range semList(semMap(current.Handoff["context_delta"])[op]) {
-			expected := semMap(v)
-			term, ok := terms[text(expected["term_ref"])]
+		for _, v := range kernel.SemList(kernel.SemMap(current.Handoff["context_delta"])[op]) {
+			expected := kernel.SemMap(v)
+			term, ok := terms[kernel.Text(expected["term_ref"])]
 			if op == "deprecated" {
 				if ok {
-					return s.reject("HANDOFF_CONTEXT", "废弃术语仍存在")
+					return s.Reject("HANDOFF_CONTEXT", "废弃术语仍存在")
 				}
 				continue
 			}
 			if !ok {
-				return s.reject("HANDOFF_CONTEXT", "目标术语未对账")
+				return s.Reject("HANDOFF_CONTEXT", "目标术语未对账")
 			}
-			doc := semMap(mustParseContract(mustMarshalContract(term)))
+			doc := kernel.SemMap(mustParseContract(mustMarshalContract(term)))
 			for _, key := range []string{"term", "meaning", "english_identifier", "context_id", "forbidden_aliases"} {
 				if !contractSame(expected[key], doc[key]) {
-					return s.reject("HANDOFF_CONTEXT", "目标术语字段未对账")
+					return s.Reject("HANDOFF_CONTEXT", "目标术语字段未对账")
 				}
 			}
 		}
 	}
 	known := map[string]map[string]any{}
 	for _, v := range current.Rules {
-		m := semMap(v)
-		known[text(m["rule_id"])] = m
+		m := kernel.SemMap(v)
+		known[kernel.Text(m["rule_id"])] = m
 	}
 	for _, v := range current.Scenarios {
-		m := semMap(v)
+		m := kernel.SemMap(v)
 		if m["critical"] == true {
-			known[text(m["scenario_id"])] = m
+			known[kernel.Text(m["scenario_id"])] = m
 		}
 	}
 	if current.Business != nil {
-		for _, v := range semList(current.Business["tickets"]) {
-			m := semMap(v)
+		for _, v := range kernel.SemList(current.Business["tickets"]) {
+			m := kernel.SemMap(v)
 			row := contractCopy(m)
 			if row["source_digest"] == nil {
 				row["source_digest"] = m["digest"]
 			}
-			known[text(m["id"])] = row
+			known[kernel.Text(m["id"])] = row
 		}
 	}
 	rows := map[string]map[string]any{}
-	for _, v := range semList(binding["rows"]) {
-		row := semMap(v)
-		id := text(row["source_id"])
+	for _, v := range kernel.SemList(binding["rows"]) {
+		row := kernel.SemMap(v)
+		id := kernel.Text(row["source_id"])
 		if id == "" || rows[id] != nil {
-			return s.reject("HANDOFF_MAPPING", "接收来源重复")
+			return s.Reject("HANDOFF_MAPPING", "接收来源重复")
 		}
 		rows[id] = row
 	}
-	blocked := false
-	mark := func(row map[string]any) {
-		blocked = blocked || slice == "" || text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) || semHas(row["dependent_slice_refs"], slice)
+	// 与 Node 的 verifyConsumption 同形：记录每条阻断原因；依赖未知或未声明时阻断整个消费者，否则只阻断依赖它的切片。
+	all := false
+	blockedSlices := map[string]bool{}
+	issues := []any{}
+	mark := func(id, reason string, row map[string]any) {
+		issues = append(issues, map[string]any{"source_id": id, "reason": reason})
+		if kernel.Text(row["dependency_status"]) != "known" || !contractUnique(row["dependent_slice_refs"], true) {
+			all = true
+			return
+		}
+		for _, ref := range kernel.SemStrings(row["dependent_slice_refs"]) {
+			blockedSlices[ref] = true
+		}
 	}
 	ids, seams, e := contractDesignTargets(s, data)
 	if e != nil {
 		return e
 	}
-	cases := map[string]map[string]any{}
-	for _, v := range semList(data["frontend_cases"]) {
-		m := semMap(v)
-		id := text(m["case_id"])
-		if cases[id] != nil {
-			return s.reject("HANDOFF_MAPPING", "前端用例重复")
-		}
-		cases[id] = m
-	}
 	for id, source := range known {
 		row := rows[id]
-		if row == nil || row["source_digest"] != source["source_digest"] {
-			mark(row)
+		if row == nil {
+			mark(id, "missing-mapping", nil)
 			continue
 		}
-		if !semHas([]string{"known", "unknown"}, text(row["dependency_status"])) || row["dependent_slice_refs"] == nil {
-			return s.reject("HANDOFF_MAPPING", "缺少切片依赖判定")
+		if row["source_digest"] != source["source_digest"] {
+			mark(id, "stale-source", row)
+			continue
 		}
-		if consumer == "frontend" && text(row["disposition"]) == "mapped" {
-			if !contractUnique(row["frontend_case_refs"], true) {
-				return s.reject("HANDOFF_MAPPING", "前端落点缺失")
-			}
-			for _, ref := range semStrings(row["frontend_case_refs"]) {
-				if cases[ref] == nil || !semHas(cases[ref]["source_ids"], id) {
-					return s.reject("HANDOFF_MAPPING", "前端用例未承接源规则")
-				}
-			}
-			if strings.HasPrefix(id, "scenario.") {
-				for _, outcome := range []string{"success", "failure"} {
-					found := false
-					for _, ref := range semStrings(row["frontend_case_refs"]) {
-						found = found || text(cases[ref]["outcome"]) == outcome
-					}
-					if !found {
-						return s.reject("HANDOFF_MAPPING", "关键场景缺少前端成功/失败用例")
-					}
-				}
-			}
-			if e = contractEvidence(s, row["evidence_refs"]); e != nil {
-				return e
-			}
-		} else if text(row["disposition"]) == "implemented" && consumer == "tactical" || text(row["disposition"]) == "not-applicable" {
+		if !kernel.SemHas([]string{"known", "unknown"}, kernel.Text(row["dependency_status"])) || row["dependent_slice_refs"] == nil {
+			return s.Reject("HANDOFF_MAPPING", "缺少切片依赖判定")
+		}
+		if kernel.Text(row["disposition"]) == "implemented" || kernel.Text(row["disposition"]) == "not-applicable" {
 			if e = contractTraceRow(s, row, source, ids, seams, slice); e != nil {
 				return e
 			}
 		} else {
-			if text(row["disposition"]) == "deferred" {
+			if kernel.Text(row["disposition"]) == "deferred" {
 				if e = contractRequired(s, row, "reason", "risk", "owner", "followup_ticket_ref", "verification_plan", "target_version"); e != nil {
 					return e
 				}
-			} else if !semHas([]string{"pending", "conflict"}, text(row["disposition"])) {
-				return s.reject("HANDOFF_MAPPING", "非法接收状态")
+			} else if !kernel.SemHas([]string{"pending", "conflict"}, kernel.Text(row["disposition"])) {
+				return s.Reject("HANDOFF_MAPPING", "非法接收状态")
 			}
-			mark(row)
+			mark(id, kernel.Text(row["disposition"]), row)
 		}
 	}
 	for id, row := range rows {
 		if known[id] == nil {
-			mark(row)
+			mark(id, "removed-or-unknown-source", row)
 		}
 	}
 	if current.Business != nil {
-		for _, value := range semList(current.Business["tickets"]) {
-			ticket := semMap(value)
-			row := rows[text(ticket["id"])]
-			for _, value := range semList(ticket["source_refs"]) {
-				locator := text(semMap(value)["locator"])
+		for _, value := range kernel.SemList(current.Business["tickets"]) {
+			ticket := kernel.SemMap(value)
+			row := rows[kernel.Text(ticket["id"])]
+			for _, value := range kernel.SemList(ticket["source_refs"]) {
+				locator := kernel.Text(kernel.SemMap(value)["locator"])
 				if known[locator] == nil {
 					continue
 				}
 				mapped := rows[locator]
-				incomplete := row == nil || mapped == nil || text(row["dependency_status"]) != "known" || text(mapped["dependency_status"]) != "known"
-				for _, ref := range semStrings(row["dependent_slice_refs"]) {
-					incomplete = incomplete || !semHas(mapped["dependent_slice_refs"], ref)
+				incomplete := row == nil || mapped == nil || kernel.Text(row["dependency_status"]) != "known" || kernel.Text(mapped["dependency_status"]) != "known"
+				for _, ref := range kernel.SemStrings(row["dependent_slice_refs"]) {
+					incomplete = incomplete || !kernel.SemHas(mapped["dependent_slice_refs"], ref)
 				}
 				if incomplete {
-					mark(row)
+					mark(kernel.Text(ticket["id"]), "business-rule-scenario-dependency-incomplete", row)
 				}
 			}
 		}
 	}
 	if current.Business != nil && original.Business != nil && !contractSame(current.Business["coverage_deferred"], original.Business["coverage_deferred"]) {
-		blocked = true
+		all = true
+		issues = append(issues, map[string]any{"source_id": "business-ticket-coverage", "reason": "deferred-scope-stale"})
 	}
 	if current.Business != nil && original.Business != nil {
 		prior := map[string]any{}
-		for _, value := range semList(original.Business["tickets"]) {
-			ticket := semMap(value)
-			prior[text(ticket["id"])] = ticket["source_digest"]
+		for _, value := range kernel.SemList(original.Business["tickets"]) {
+			ticket := kernel.SemMap(value)
+			prior[kernel.Text(ticket["id"])] = ticket["source_digest"]
 		}
-		for _, value := range semList(current.Business["tickets"]) {
-			ticket := semMap(value)
-			if !contractSame(prior[text(ticket["id"])], ticket["source_digest"]) {
-				mark(rows[text(ticket["id"])])
+		for _, value := range kernel.SemList(current.Business["tickets"]) {
+			ticket := kernel.SemMap(value)
+			if !contractSame(prior[kernel.Text(ticket["id"])], ticket["source_digest"]) {
+				mark(kernel.Text(ticket["id"]), "business-ticket-stale", rows[kernel.Text(ticket["id"])])
 			}
 		}
 	}
@@ -1634,72 +1688,100 @@ func contractHandoffConsumption(s *semanticSession, data map[string]any, opts ma
 		if key == "business_ticket_set_ref" && current.Business != nil && original.Business != nil {
 			continue
 		}
-		if semMap(semMap(current.Handoff["source"])[key])["digest"] != semMap(semMap(original.Handoff["source"])[key])["digest"] {
-			blocked = true
+		if kernel.SemMap(kernel.SemMap(current.Handoff["source"])[key])["digest"] != kernel.SemMap(kernel.SemMap(original.Handoff["source"])[key])["digest"] {
+			all = true
+			issues = append(issues, map[string]any{"source_id": key, "reason": "upstream-asset-stale"})
 		}
 	}
 	strategyBasis := func(v map[string]any) map[string]any {
 		out := contractWithout(v, "domain_version", "approval", "rule_catalog", "scenarios", "invariants")
 		invariants := []any{}
-		for _, v := range semList(v["invariants"]) {
-			invariants = append(invariants, contractWithout(semMap(v), "statement"))
+		for _, v := range kernel.SemList(v["invariants"]) {
+			invariants = append(invariants, contractWithout(kernel.SemMap(v), "statement"))
 		}
 		out["invariants"] = invariants
 		return out
 	}
 	if !contractSame(strategyBasis(current.Strategy), strategyBasis(original.Strategy)) || !contractSame(contractWithout(current.Stage, "package_version", "approval", "domain_strategy_ref"), contractWithout(original.Stage, "package_version", "approval", "domain_strategy_ref")) || contractHandoffUIKind(current.Handoff) != contractHandoffUIKind(original.Handoff) || !contractSame(current.Config["prototype"], original.Config["prototype"]) {
-		blocked = true
+		all = true
+		issues = append(issues, map[string]any{"source_id": "strategic-design-basis", "reason": "upstream-design-stale"})
 	}
-	if blocked {
-		return s.reject("HANDOFF_STALE", "来源变化、缺失/延期承接或未知依赖阻断当前范围")
+	blockedHere := all || (slice != "" && blockedSlices[slice]) || (slice == "" && len(issues) > 0)
+	blockedRefs := []string{}
+	for ref := range blockedSlices {
+		blockedRefs = append(blockedRefs, ref)
+	}
+	sort.Strings(blockedRefs)
+	complete := true
+	for id := range known {
+		complete = complete && rows[id] != nil
+	}
+	scope := slice
+	if scope == "" {
+		scope = "whole-" + consumer + "-design"
+	}
+	report := map[string]any{"result": map[bool]string{true: "blocked", false: "verified"}[blockedHere], "bundle_digest": current.Manifest["bundle_digest"], "consumed_bundle_digest": receipt["bundle_digest"], "scope": scope, "coverage_complete": complete, "block_all": all, "blocked_slice_refs": blockedRefs, "issues": issues}
+	report["tactical_digest"] = kernel.ApDigest(data)
+	if kernel.ContractN(data["schema_version"]) == 2 {
+		report["technical_design_digest"] = kernel.ApDigest(data)
+	}
+	// 命令行薄壳按 Node 的 verify-strategic-handoff-consumption 输出形态读取这份报告。
+	if s.Report.Coverage == nil {
+		s.Report.Coverage = map[string]any{}
+	}
+	s.Report.Coverage["handoff_consumption"] = report
+	if blockedHere {
+		return s.Reject("HANDOFF_STALE", "来源变化、缺失/延期承接或未知依赖阻断当前范围")
 	}
 	return nil
 }
+
 func mustParseContract(b []byte) any { v, _ := schema.Parse(b); return v }
-func contractReceipt(s *semanticSession, r map[string]any) error {
-	switch contractN(r["schema_version"]) {
+
+func contractReceipt(s *kernel.SemanticSession, r map[string]any) error {
+	switch kernel.ContractN(r["schema_version"]) {
 	case 1:
 		if e := contractRequired(s, r, "bundle_id", "version", "bundle_digest", "package_ref", "target_context_digest", "status"); e != nil {
 			return e
 		}
 	case 2:
-		if e := s.validateSchema(".template-spec/process/schemas/strategic-handoff-import-receipt.schema.json", r); e != nil {
+		if e := s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-import-receipt.schema.json", r); e != nil {
 			return e
 		}
 	case 3:
-		if e := s.validateSchema(".template-spec/process/schemas/strategic-handoff-import-receipt-v3.schema.json", r); e != nil {
+		if e := s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-import-receipt-v3.schema.json", r); e != nil {
 			return e
 		}
-		b, e := s.bind(text(r["source_delivery_record_ref"]))
+		b, e := s.Bind(kernel.Text(r["source_delivery_record_ref"]))
 		if e != nil {
 			return e
 		}
-		if b.Digest != text(r["source_delivery_record_sha256"]) {
-			return s.reject("HANDOFF_RECEIPT", "来源交付记录摘要冲突")
+		if b.Digest != kernel.Text(r["source_delivery_record_sha256"]) {
+			return s.Reject("HANDOFF_RECEIPT", "来源交付记录摘要冲突")
 		}
 	default:
-		return s.unavailable("CAPABILITY", "未知导入收据协议")
+		return s.Unavailable("CAPABILITY", "未知导入收据协议")
 	}
-	bundle, e := contractOpenHandoff(s, text(r["package_ref"]))
+	bundle, e := contractOpenHandoff(s, kernel.Text(r["package_ref"]))
 	if e != nil {
 		return e
 	}
 	if r["bundle_id"] != bundle.Manifest["bundle_id"] || r["version"] != bundle.Manifest["version"] || r["bundle_digest"] != bundle.Manifest["bundle_digest"] {
-		return s.reject("HANDOFF_RECEIPT", "收据与当前包身份不一致")
+		return s.Reject("HANDOFF_RECEIPT", "收据与当前包身份不一致")
 	}
-	if contractN(bundle.Handoff["schema_version"]) == 5 && contractN(r["schema_version"]) != 3 {
-		return s.reject("HANDOFF_RECEIPT", "Handoff v5必须使用绑定真实交付记录的receipt v3")
+	if kernel.ContractN(bundle.Handoff["schema_version"]) == 5 && kernel.ContractN(r["schema_version"]) != 3 {
+		return s.Reject("HANDOFF_RECEIPT", "Handoff v5必须使用绑定真实交付记录的receipt v3")
 	}
-	if contractN(r["schema_version"]) == 3 {
-		base := path.Join("docs/handoffs", text(r["bundle_id"]), text(r["version"]))
+	if kernel.ContractN(r["schema_version"]) == 3 {
+		base := path.Join("docs/handoffs", kernel.Text(r["bundle_id"]), kernel.Text(r["version"]))
 		if r["source_delivery_record_ref"] != base+"/source-delivery-record.json" || r["package_ref"] != base+"/package" {
-			return s.reject("HANDOFF_RECEIPT", "来源交付记录或包路径非法")
+			return s.Reject("HANDOFF_RECEIPT", "来源交付记录或包路径非法")
 		}
-		record, e := s.doc(text(r["source_delivery_record_ref"]))
+		record, e := s.Doc(kernel.Text(r["source_delivery_record_ref"]))
 		if e != nil {
 			return e
 		}
-		if e = s.validateSchema(".template-spec/process/schemas/strategic-handoff-delivery.schema.json", record); e != nil {
+		if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-delivery.schema.json", record); e != nil {
 			return e
 		}
 		if e = contractDeliveryRecordIdentity(s, bundle, record); e != nil {
@@ -1708,12 +1790,13 @@ func contractReceipt(s *semanticSession, r map[string]any) error {
 	}
 	return nil
 }
-func contractHandoffBaseline(s *semanticSession, h map[string]any) (map[string]any, error) {
+
+func contractHandoffBaseline(s *kernel.SemanticSession, h map[string]any) (map[string]any, error) {
 	if contractHandoffUIKind(h) == "not-applicable" {
 		return map[string]any{"cases": []any{}}, nil
 	}
 	binding := contractHandoffUIRef(h)
-	ref := path.Join(text(binding["persisted_ref"]), text(binding["manifest_ref"]))
+	ref := path.Join(kernel.Text(binding["persisted_ref"]), kernel.Text(binding["manifest_ref"]))
 	var baseline map[string]any
 	var e error
 	if contractHandoffUIKind(h) == "existing-ui-baseline" {
@@ -1725,30 +1808,31 @@ func contractHandoffBaseline(s *semanticSession, h map[string]any) (map[string]a
 		return nil, e
 	}
 	ids := []string{}
-	for _, v := range semList(baseline["cases"]) {
-		ids = append(ids, text(semMap(v)["case_id"]))
+	for _, v := range kernel.SemList(baseline["cases"]) {
+		ids = append(ids, kernel.Text(kernel.SemMap(v)["case_id"]))
 	}
 	if baseline["baseline_id"] != binding["baseline_id"] || baseline["version"] != binding["version"] || !semSameSet(ids, binding["case_ids"]) {
-		return nil, s.reject("HANDOFF_UI", "基线身份/版本/用例冲突")
+		return nil, s.Reject("HANDOFF_UI", "基线身份/版本/用例冲突")
 	}
 	return baseline, nil
 }
-func contractPreview(s *semanticSession, config map[string]any, cases []string) error {
-	if !semHas([]string{"H1", "H2"}, text(config["profile"])) || !contractWithin(text(config["entry_ref"]), text(config["preview_root"])) || text(config["entry_ref"]) == text(config["preview_root"]) {
-		return s.reject("HANDOFF_PREVIEW", "预览类型或入口范围非法")
+
+func contractPreview(s *kernel.SemanticSession, config map[string]any, cases []string) error {
+	if !kernel.SemHas([]string{"H1", "H2"}, kernel.Text(config["profile"])) || !contractWithin(kernel.Text(config["entry_ref"]), kernel.Text(config["preview_root"])) || kernel.Text(config["entry_ref"]) == kernel.Text(config["preview_root"]) {
+		return s.Reject("HANDOFF_PREVIEW", "预览类型或入口范围非法")
 	}
-	digest, files, e := contractTree(s, text(config["preview_root"]))
+	digest, files, e := contractTree(s, kernel.Text(config["preview_root"]))
 	if e != nil {
 		return e
 	}
 	if len(files) == 0 {
-		return s.reject("HANDOFF_PREVIEW", "预览目录为空")
+		return s.Reject("HANDOFF_PREVIEW", "预览目录为空")
 	}
 	for _, ref := range files {
 		if !strings.HasSuffix(strings.ToLower(ref), ".html") && !strings.HasSuffix(strings.ToLower(ref), ".css") {
 			continue
 		}
-		bytes, e := s.bytes(ref)
+		bytes, e := s.Bytes(ref)
 		if e != nil {
 			return e
 		}
@@ -1756,32 +1840,32 @@ func contractPreview(s *semanticSession, config map[string]any, cases []string) 
 		matches = append(matches, regexp.MustCompile(`(?i)url\(\s*["']?([^\s)'";]+)["']?\s*\)`).FindAllStringSubmatch(string(bytes), -1)...)
 		for _, match := range matches {
 			if regexp.MustCompile(`(?i)^(?:https?:)?//`).MatchString(match[1]) {
-				return s.reject("HANDOFF_PREVIEW", "离线预览包含远程资源")
+				return s.Reject("HANDOFF_PREVIEW", "离线预览包含远程资源")
 			}
 			dep, e := contractLocalDependency(ref, match[1])
 			if e != nil {
-				return s.reject("HANDOFF_PREVIEW", e.Error())
+				return s.Reject("HANDOFF_PREVIEW", e.Error())
 			}
-			if dep != "" && !semHas(files, dep) {
-				return s.reject("HANDOFF_PREVIEW", "离线资源未打包")
+			if dep != "" && !kernel.SemHas(files, dep) {
+				return s.Reject("HANDOFF_PREVIEW", "离线资源未打包")
 			}
 		}
 	}
-	if text(config["profile"]) == "H2" {
-		sourceDigest, sourceFiles, e := contractTree(s, text(config["source_root"]))
+	if kernel.Text(config["profile"]) == "H2" {
+		sourceDigest, sourceFiles, e := contractTree(s, kernel.Text(config["source_root"]))
 		if e != nil {
 			return e
 		}
-		if sourceDigest != text(config["source_digest"]) || !strings.HasPrefix(text(config["lock_ref"]), text(config["source_root"])+"/") {
-			return s.reject("HANDOFF_PREVIEW", "H2 源码或锁文件批准摘要变化")
+		if sourceDigest != kernel.Text(config["source_digest"]) || !strings.HasPrefix(kernel.Text(config["lock_ref"]), kernel.Text(config["source_root"])+"/") {
+			return s.Reject("HANDOFF_PREVIEW", "H2 源码或锁文件批准摘要变化")
 		}
-		if _, e = s.bytes(text(config["lock_ref"])); e != nil {
+		if _, e = s.Bytes(kernel.Text(config["lock_ref"])); e != nil {
 			return e
 		}
 		for _, ref := range sourceFiles {
 			for _, part := range strings.Split(ref, "/") {
 				if part == "node_modules" || part == ".git" {
-					return s.reject("HANDOFF_PREVIEW", "H2 源包含依赖缓存")
+					return s.Reject("HANDOFF_PREVIEW", "H2 源包含依赖缓存")
 				}
 			}
 		}
@@ -1790,13 +1874,13 @@ func contractPreview(s *semanticSession, config map[string]any, cases []string) 
 	if e != nil {
 		return e
 	}
-	exit, ok := integer(receipt["exit_code"])
-	if text(receipt["network_mode"]) != "offline" || !ok || exit != 0 || text(receipt["command"]) == "" || !contractDate(receipt["executed_at"]) || text(receipt["preview_digest"]) != digest || !contractUnique(receipt["case_ids"], true) {
-		return s.reject("HANDOFF_PREVIEW", "真实离线浏览记录未绑定当前预览")
+	exit, ok := kernel.Integer(receipt["exit_code"])
+	if kernel.Text(receipt["network_mode"]) != "offline" || !ok || exit != 0 || kernel.Text(receipt["command"]) == "" || !contractDate(receipt["executed_at"]) || kernel.Text(receipt["preview_digest"]) != digest || !contractUnique(receipt["case_ids"], true) {
+		return s.Reject("HANDOFF_PREVIEW", "真实离线浏览记录未绑定当前预览")
 	}
 	for _, id := range cases {
-		if !semHas(receipt["case_ids"], id) {
-			return s.reject("HANDOFF_PREVIEW", "离线验证未覆盖视觉用例")
+		if !kernel.SemHas(receipt["case_ids"], id) {
+			return s.Reject("HANDOFF_PREVIEW", "离线验证未覆盖视觉用例")
 		}
 	}
 	return contractEvidence(s, receipt["evidence_refs"])

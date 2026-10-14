@@ -1,8 +1,8 @@
 # yss
 
-统一 Spec、Design、Backend、Frontend 的 Go CLI。当前源码版本为 1.3.7，支持统一 Spec 主控、五种可续推目标及显式专职协作，提供中文分组帮助、参数纠错、安装一致性诊断、原生 Context 快照和稳定版在线升级；保留日常交付路由、验证与四类固定模板快照。支持内置技能详情查询、按条件解析与就绪核验，Agent 可补装后在当前会话读取已核验入口。1.3.7 更新四类固定模板来源，纳入配置化工作目录、审查预约适配、Claude 技能投影及按运行时分发修复；沿用 Bundle 校验复用、技能索引与分段 JSON 编码优化。优化验证范围见 [验收记录](docs/artifact-refactor-results.md)，接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.0.0。本版本集成架构迭代已实现成果与 main 修复：三个固定 Profile、共享模板来源、原生治理入口与 DDD/MVC 脚手架；Frontend 独立 Profile 已退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受此项退役影响。剩余 Node 消费者迁移继续按后续批次跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
-1.3.7 本次正式发行范围为 macOS ARM64，项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷。克隆不受支持或跨卷时返回 `UNPORTED`，不回退到可能留下半写临时文件的复制路径；已有用户修改及旧零字节事务临时文件仍保留并阻断恢复。其他平台未取得本次完整原生恢复资格。
+本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
 工程固定 Go 1.27.1；机器默认版本较低时使用 `GOTOOLCHAIN=go1.27.1`，下载工具链属于构建准备，编译后的 CLI 无此依赖。
 
@@ -18,6 +18,21 @@ yss help tutorial
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
 
+直接生成后端工程使用 `yss scaffold ddd` 或 `yss scaffold mvc`，无需先初始化 Harness；完整参数见 `yss scaffold ddd --help`。需要 PATH 中的 Node.js（建议 22 或更新版本）和 Git。生成器、模板和依赖来自二进制内置的固定 Spec Bundle，不需要本地模板仓库或联网下载技能。
+
+```sh
+yss scaffold mvc --project-name order-service --base-package com.yss.orders \
+  --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 \
+  --spring-boot-version 3.5.16 --java-version 17 \
+  --group-id com.yss --project-version 1.0.0-SNAPSHOT \
+  --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice \
+  --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --json
+```
+
+将 `mvc` 改为 `ddd` 可生成 DDD 架构；版本示例须替换为自己的精确平台与可获取的 Maven 坐标。输出目标是 `./backend/order-service`，必须不存在；已有目录、符号链接和 `--force` 均拒绝。独立命令生成业务空骨架，禁用技能的独立参考示例，不初始化 Git、治理实例或批准记录。显式传入合同或批准参数时保留技能的正式校验，缺失或无效合同不会回退到独立模式。
+
+JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式还需要技能原有的 Python3、`jsonschema` 和 `referencing` 校验环境；独立生成无需这些 Python 依赖。
+
 编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。本仓已移除自动化测试源码、测试专用工具及 GitHub Actions 测试 workflow；本地可使用 `CGO_ENABLED=0 go build ./...` 检查构建。编译成功不代表功能或发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
 ```sh
@@ -31,14 +46,14 @@ yss lifecycle query --root ./my-project --id work-unit.entry-triage --json
 
 程序版本、协议、Profile 模板版本和旧 CLI 兼容版本分别存储。已有旧实例需要先 doctor/diff，再显式 migrate；不会用 1.0.0 与旧 Spec 3.5.10 比较并误判降级。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
 
-四类 Bundle 由 Go 构建工具直接读取四个固定模板提交，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
+三个 Profile 的 Bundle 由 Go 构建工具读取同一固定模板提交及其有序覆盖层，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
 
-四类模板的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
+三个 Profile 的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
 
-启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的前后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
+启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
 
 ```sh
-yss profile prepare --root ./design --backend-root ./backend --frontend-root ./frontend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json
 yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
 yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
 yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json
@@ -57,11 +72,13 @@ yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 模板前进后刷新来源锁用脚本，不要手改 `docs/source-lock.json`：
 
 ```sh
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec            # 预演，不写文件
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --regenerate # 写锁并按上面的顺序重新生成、校验
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z            # 预演，不写文件
+node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z --regenerate # 写锁并按上面的顺序重新生成、校验
 ```
 
-脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`policyHash`；目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝。Backend / Frontend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。模板侧的 `scripts/verify-source-lock-lag` 在候选与发布验证里检查锁没有落后太多。
+**发布流程里的一步**：模板发布 tag（`vX.Y.Z`）之后，发布 CLI 时用 `--tag` 把所选模板钉到该 tag。锁里记录 `templateTag`、tag 指向的 `templateCommit`、不带 `v` 的 `templateVersion`；打包时校验三者一致，tag 指向别的提交、tag 不存在、预发布 tag、`templateVersion` 与 tag 不符都拒绝。实例因此记录语义化的模板版本。Bundle 只在这一步重新生成：模板的普通提交不需要重钉，也不需要刷新 CLI。已经钉在 tag 上的来源不再接受按 HEAD 刷新。
+
+还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend / Frontend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
 
 来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
@@ -88,7 +105,7 @@ yss migrate rollback --root ./old-project --json
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-1.3.7 沿用 `darwin/arm64` 正式发行验收范围。只有本版本固定二进制的真实原生验收收据和必要门禁通过，才装配正式包；其他平台的资格须单独验证，并以公开发行资产的 manifest 为准。六平台交叉构建成功不授予稳定发行资格；缺少证据的候选包保持 `stableReady=false`、`nativeRuntimeVerified=false`。Windows 只读文件操作的 `UNPORTED` 限制保持。
+2.0.0 交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.0.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
@@ -100,7 +117,6 @@ yss migrate rollback --root ./old-project --json
 yss init --profile spec --root ./demo-spec --project-name 演示项目
 yss init --profile design --root ./demo-design --project-name 演示设计
 yss init --profile backend --root ./demo-backend --project-name 演示后端
-yss init --profile frontend --root ./demo-frontend --project-name 演示前端
 yss doctor --root ./demo-spec --json
 yss diff --root ./demo-spec --json
 ```
@@ -172,7 +188,7 @@ yss help tutorial
 yss -V --json
 ```
 
-完整离线教程和命令索引见 [生成帮助指南](docs/cli-help.md)。按主题使用 `yss help tutorial daily` 或 `yss help tutorial frontend`；按问题使用 `yss help examples sync` 或 `yss help errors INPUT_DRIFT`。阶段名称及退出条件消费固定 Bundle 注册表，执行范围和顺序消费固定 Profile 路由；Design 的下游兼容登记不授予本 Profile 实现资格。
+完整离线教程和命令索引见 [生成帮助指南](docs/cli-help.md)。按主题使用 `yss help tutorial daily` 或 `yss help tutorial backend`；按问题使用 `yss help examples sync` 或 `yss help errors INPUT_DRIFT`。阶段名称及退出条件消费固定 Bundle 注册表，执行范围和顺序消费固定 Profile 路由；Design 的下游兼容登记不授予本 Profile 实现资格。
 
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 

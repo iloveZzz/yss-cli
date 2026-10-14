@@ -3,64 +3,21 @@ package governance
 import (
 	"archive/zip"
 	"context"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"golang.org/x/text/cases"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"golang.org/x/text/cases"
 )
 
 const maxArchiveBytes uint64 = 512 * 1024 * 1024
+
 const maxArchiveFiles = 20000
-
-func inside(root, p string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
-}
-
-func externalPath(root, p string) (string, error) {
-	if !filepath.IsAbs(p) {
-		return "", domain.Fail("PATH", "输出或运行存储必须使用仓外绝对路径")
-	}
-	p = filepath.Clean(p)
-	if inside(root, p) {
-		return "", domain.Fail("PATH", "输出或运行存储不得进入项目根目录")
-	}
-	protected, err := protectedRoots(root)
-	if err != nil {
-		return "", err
-	}
-	for _, registered := range protected {
-		if inside(registered, p) {
-			return "", domain.Fail("PATH", "输出或运行存储不得进入已登记仓库: "+registered)
-		}
-	}
-	current := p
-	for {
-		st, err := os.Lstat(current)
-		if err == nil {
-			if st.Mode()&os.ModeSymlink != 0 {
-				return "", domain.Fail("PATH", "拒绝符号链接路径: "+current)
-			}
-			if current != p && !st.IsDir() {
-				return "", domain.Fail("PATH", "路径父级不是目录")
-			}
-		} else if !os.IsNotExist(err) {
-			return "", err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
-	}
-	return p, nil
-}
 
 func zipName(name string) error {
 	if err := safefs.ValidateRef(name); err != nil {
@@ -162,7 +119,7 @@ func archiveRun(ctx context.Context, action, root string, args map[string]string
 		var dir *os.Root
 		var output string
 		if action == "unpack" {
-			output, err = externalPath(root, args["output"])
+			output, err = kernel.ExternalPath(root, args["output"])
 			if err != nil {
 				return nil, err
 			}
@@ -215,7 +172,7 @@ func archiveRun(ctx context.Context, action, root string, args map[string]string
 		if !st.IsDir() {
 			return nil, domain.Fail("ZIP", "pack 来源必须是目录")
 		}
-		output, err := externalPath(root, args["output"])
+		output, err := kernel.ExternalPath(root, args["output"])
 		if err != nil {
 			return nil, err
 		}

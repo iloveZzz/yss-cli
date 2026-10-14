@@ -53,6 +53,8 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 	if id.Profile.Name != "spec" || text(d["mode"]) != "selected" {
 		return d, nil
 	}
+	// 目标 Bundle 不再分发的运行时投影（投影根收敛）：运行时登记随之清掉，升级后锁与元数据一致。
+	d["runtimes"] = shippedRuntimes(b, stringsOf(d["runtimes"]))
 	added := []string{}
 	set := map[string]bool{}
 	for _, ref := range selection {
@@ -90,7 +92,7 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 }
 
 func selectedPlatformSkills(id *Identity, b *bundle.Bundle, d map[string]any, selected map[string]bool) ([]string, error) {
-	roots := map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
+	roots := map[string]string{"claude": ".claude/skills", "codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
 	projectionSelection := false
 	for _, runtime := range stringsOf(d["runtimes"]) {
 		root, known := roots[runtime]
@@ -174,4 +176,23 @@ func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 	f.Data = base64.StdEncoding.EncodeToString(raw)
 	f.Digest = safefs.Digest(raw)
 	return f, nil
+}
+
+func shippedRuntimes(b *bundle.Bundle, runtimes []string) []string {
+	roots := map[string]string{"codex": ".codex/skills/", "cursor": ".cursor/skills/", "pi": ".pi/skills/", "claude": ".claude/skills/"}
+	kept := []string{}
+	for _, runtime := range runtimes {
+		root, known := roots[runtime]
+		if !known {
+			kept = append(kept, runtime)
+			continue
+		}
+		for ref := range b.Files {
+			if strings.HasPrefix(ref, root) {
+				kept = append(kept, runtime)
+				break
+			}
+		}
+	}
+	return kept
 }

@@ -3,24 +3,17 @@ package governance
 import (
 	"context"
 	"fmt"
-	"os"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
-var ciStableID = regexp.MustCompile(`^(gate|artifact|work-unit|stage|evidence|check|skill|runtime|role|module|slice|test-seam|rule|scenario|route|operation|business-ticket|context)\.[a-z0-9][a-z0-9.-]*$`)
-var ciURI = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`)
-var ciCheckpointName = regexp.MustCompile(`(^|/)checkpoint\.(yaml|yml|json)$`)
 var ciReadyTicket = regexp.MustCompile(`(?:^|\n)Status:\s*ready-for-agent\s*(?:\n|$)`)
-var ciCommit = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+
 var ciSourceDeliveryEvidence = regexp.MustCompile(`^docs/handoffs/[^/]+/v[1-9][0-9]*/source-delivery-record\.json$`)
-var ciCapturedSource = regexp.MustCompile(`^docs/(?:handoffs|backend-deliveries|spec-baselines)/[^/]+/v[1-9][0-9]*/package/`)
 
 func ciEvidenceReceipt(ref string) string {
 	if ciSourceDeliveryEvidence.MatchString(ref) {
@@ -30,97 +23,54 @@ func ciEvidenceReceipt(ref string) string {
 }
 
 func init() {
-	registerSemanticValidator("handoff-source-delivery-evidence", func(s *semanticSession, ref string, _ map[string]string) error {
+	registerSemanticValidator("handoff-source-delivery-evidence", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		receiptRef := ciEvidenceReceipt(ref)
 		if receiptRef == "" {
-			return s.reject("HANDOFF_RECEIPT", "来源交付证据缺少合法接收记录路径")
+			return s.Reject("HANDOFF_RECEIPT", "来源交付证据缺少合法接收记录路径")
 		}
-		receipt, err := s.doc(receiptRef)
+		receipt, err := s.Doc(receiptRef)
 		if err != nil {
 			return err
 		}
-		if receipt["source_delivery_record_ref"] != ref || contractN(receipt["schema_version"]) != 3 {
-			return s.reject("HANDOFF_RECEIPT", "来源交付证据未由receipt v3绑定")
+		if receipt["source_delivery_record_ref"] != ref || kernel.ContractN(receipt["schema_version"]) != 3 {
+			return s.Reject("HANDOFF_RECEIPT", "来源交付证据未由receipt v3绑定")
 		}
 		return contractReceipt(s, receipt)
 	})
-	registerSemanticValidator("handoff-import-receipt", func(s *semanticSession, ref string, _ map[string]string) error {
-		receipt, err := s.doc(ref)
+	registerSemanticValidator("handoff-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		receipt, err := s.Doc(ref)
 		if err != nil {
 			return err
 		}
-		if ref != path.Join("docs/handoffs", text(receipt["bundle_id"]), text(receipt["version"]), "import-receipt.json") {
-			return s.reject("HANDOFF_RECEIPT", "导入收据路径非法")
+		if ref != path.Join("docs/handoffs", kernel.Text(receipt["bundle_id"]), kernel.Text(receipt["version"]), "import-receipt.json") {
+			return s.Reject("HANDOFF_RECEIPT", "导入收据路径非法")
 		}
 		if err = contractReceipt(s, receipt); err != nil {
 			return err
 		}
-		for _, capability := range semStrings(receipt["selected_consumer_capabilities"]) {
+		for _, capability := range kernel.SemStrings(receipt["selected_consumer_capabilities"]) {
 			if err = contractReceiptConsumer(s, receipt, capability); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	registerSemanticValidator("spec-baseline-package", func(s *semanticSession, ref string, _ map[string]string) error {
+	registerSemanticValidator("spec-baseline-package", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		_, _, err := openSpecBaseline(s, ref)
 		return err
 	})
-	registerSemanticValidator("spec-baseline-import-receipt", func(s *semanticSession, ref string, _ map[string]string) error {
+	registerSemanticValidator("spec-baseline-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		_, _, err := verifySpecBaselineReceipt(s, ref, false)
 		return err
 	})
 }
 
-func ciFileRef(v any) bool {
-	r, ok := v.(string)
-	return ok && !ciURI.MatchString(r) && !ciStableID.MatchString(r) && strings.ContainsAny(r, "./")
-}
-func ciReferences(value any) []string {
-	found := map[string]bool{}
-	skip := map[string]bool{}
-	for _, k := range []string{"term_ref", "term_refs", "skill_refs", "principal_ref", "drafter_principal_ref", "requester_ref", "responder_ref", "runtime_instance_ref", "original_ref", "owner_ref"} {
-		skip[k] = true
-	}
-	var visit func(any)
-	visit = func(v any) {
-		if m, ok := object(v); ok {
-			for k, item := range m {
-				if skip[k] {
-					continue
-				}
-				if (k == "ref" || strings.HasSuffix(k, "_ref")) && ciFileRef(item) {
-					found[text(item)] = true
-				}
-				if strings.HasSuffix(k, "_refs") || k == "inputs" {
-					for _, row := range semList(item) {
-						if ciFileRef(row) {
-							found[text(row)] = true
-						}
-					}
-				}
-				visit(item)
-			}
-		} else {
-			for _, row := range semList(v) {
-				visit(row)
-			}
-		}
-	}
-	visit(value)
-	out := []string{}
-	for r := range found {
-		out = append(out, r)
-	}
-	sort.Strings(out)
-	return out
-}
 func ciBindings(value any) []map[string]any {
 	out := []map[string]any{}
 	var visit func(any)
 	visit = func(v any) {
-		if m, ok := object(v); ok {
-			if text(m["ref"]) != "" && (m["digest"] != nil || m["sha256"] != nil) {
+		if m, ok := kernel.Object(v); ok {
+			if kernel.Text(m["ref"]) != "" && (m["digest"] != nil || m["sha256"] != nil) {
 				hash := m["digest"]
 				if hash == nil {
 					hash = m["sha256"]
@@ -128,35 +78,19 @@ func ciBindings(value any) []map[string]any {
 				out = append(out, map[string]any{"ref": m["ref"], "digest": hash})
 			}
 			for k, item := range m {
-				if strings.HasSuffix(k, "_ref") && text(item) != "" && m[strings.TrimSuffix(k, "_ref")+"_digest"] != nil {
+				if strings.HasSuffix(k, "_ref") && kernel.Text(item) != "" && m[strings.TrimSuffix(k, "_ref")+"_digest"] != nil {
 					out = append(out, map[string]any{"ref": item, "digest": m[strings.TrimSuffix(k, "_ref")+"_digest"]})
 				}
 				visit(item)
 			}
 		} else {
-			for _, row := range semList(v) {
+			for _, row := range kernel.SemList(v) {
 				visit(row)
 			}
 		}
 	}
 	visit(value)
 	return out
-}
-func ciClaimed(v map[string]any) bool {
-	if v == nil {
-		return false
-	}
-	if semHas([]string{"approved", "completed", "verified", "implemented", "accepted", "ready-for-agent", "running", "paused-human-gate"}, text(v["status"])) || semHas([]string{"active", "paused", "failed", "resolved"}, text(v["workflow_status"])) || semHas([]string{"completed", "verified"}, text(v["result"])) || v["decision"] == "approved" {
-		return true
-	}
-	for _, bucket := range []string{"gates", "artifacts"} {
-		for _, row := range semMap(v[bucket]) {
-			if semMap(row)["status"] == "approved" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Recognize protocol families, then let their native validator enforce version,
@@ -171,48 +105,28 @@ func ciDomainKind(v map[string]any) string {
 	if v["handoff_id"] != nil && v["handoff_version"] != nil && v["package_export"] != nil {
 		return "handoff-source"
 	}
-	if text(v["kind"]) == "strategic-handoff-delivery-v1" {
+	if kernel.Text(v["kind"]) == "strategic-handoff-delivery-v1" {
 		return "strategic-delivery"
 	}
-	if v["slice_contract"] != nil || text(v["contract_id"]) != "" && v["work_units"] != nil {
+	if v["slice_contract"] != nil || kernel.Text(v["contract_id"]) != "" && v["work_units"] != nil {
 		return "slice"
 	}
 	if v["generation_policy"] != nil && v["generator_skill"] != nil || v["scaffold_status"] != nil && v["delivery_role"] != nil {
 		return "scaffold"
 	}
-	if v["execution_result"] != nil || v["consumed_contract"] != nil || semHas([]string{"template-verification-report", "frontend-scaffold-verification", "backend-contract", "backend-deployment", "strategic-delivery-verification-v1"}, text(v["kind"])) {
+	if v["execution_result"] != nil || v["consumed_contract"] != nil || kernel.SemHas([]string{"template-verification-report", "frontend-scaffold-verification", "backend-contract", "backend-deployment", "strategic-delivery-verification-v1"}, kernel.Text(v["kind"])) {
 		return "verification"
 	}
 	if v["strategic_handoff"] != nil {
-		if v["frontend_cases"] != nil || v["frontend_implementation_plan"] != nil || text(v["kind"]) == "frontend-implementation-plan" {
-			return "handoff-consumption:frontend"
-		}
 		return "handoff-consumption:tactical"
 	}
 	return ""
 }
-func ciParse(bytes []byte, ref string) (map[string]any, error) {
-	if strings.HasSuffix(ref, ".md") {
-		if !strings.HasPrefix(string(bytes), "---\n") && !strings.HasPrefix(string(bytes), "---\r\n") {
-			return nil, nil
-		}
-		var err error
-		bytes, _, err = frontmatter(bytes)
-		if err != nil {
-			return nil, err
-		}
-	}
-	value, err := schema.Parse(bytes)
-	if err != nil {
-		return nil, err
-	}
-	m, _ := object(value)
-	return m, nil
-}
+
 func fullProjectCIRun(ctx context.Context, action, root string, args map[string]string) (any, error) {
-	s := newSemanticSession(ctx, root, args)
-	s.report.Kind = "project-governance-verification"
-	s.report.Scope = "complete-governance"
+	s := kernel.NewSemanticSession(ctx, root, args)
+	s.Report.Kind = "project-governance-verification"
+	s.Report.Scope = "complete-governance"
 	roots := []string{}
 	files := []string{}
 	checkpoints := []string{}
@@ -220,54 +134,54 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 	unknown := []string{}
 	missing := []string{}
 	fail := func(ref string, err error) {
-		s.diagnostic(ref, err)
-		if semanticExit(err) == 2 {
+		s.Diagnostic(ref, err)
+		if kernel.SemanticExit(err) == 2 {
 			missing = append(missing, ref)
 		}
 	}
 	run := func(kind, ref string, opts map[string]string) {
-		if err := s.verify(kind, ref, opts); err != nil {
+		if err := s.Verify(kind, ref, opts); err != nil {
 			fail(ref, err)
 		}
 	}
 	setup := func() error {
 		for key := range args {
-			if !semHas([]string{"root", "profile", "json", "scope", "runtime-store", "base", "checkpoint", "task", "recover", "home", "run-dir", "tool-root", "template-checkout"}, key) {
-				return s.unavailable("ARGUMENT", "完整治理检查不接受参数: --"+key)
+			if !kernel.SemHas([]string{"root", "profile", "json", "scope", "runtime-store", "base", "checkpoint", "task", "recover", "home", "run-dir", "tool-root", "template-checkout"}, key) {
+				return s.Unavailable("ARGUMENT", "完整治理检查不接受参数: --"+key)
 			}
 		}
 		if args["scope"] != "" && args["scope"] != "full" {
-			return s.unavailable("ARGUMENT", "未知治理范围；有限检查须显式 --scope native-go")
+			return s.Unavailable("ARGUMENT", "未知治理范围；有限检查须显式 --scope native-go")
 		}
 		if args["runtime-store"] != "" && args["runtime-store"] != "off" {
-			return s.unavailable("CAPABILITY", "完整治理本批仅支持 runtime-store off")
+			return s.Unavailable("CAPABILITY", "完整治理本批仅支持 runtime-store off")
 		}
-		if err := s.authorities(); err != nil {
+		if err := s.Authorities(); err != nil {
 			return err
 		}
 		var err error
-		roots, _, err = governanceScope(s.v)
+		roots, _, err = governanceScope(s.V)
 		if err != nil {
-			return s.unavailable("INPUT", err.Error())
+			return s.Unavailable("INPUT", err.Error())
 		}
 		for _, r := range roots {
-			set, err := s.scan(r)
+			set, err := s.Scan(r)
 			if err != nil {
 				return err
 			}
 			files = append(files, set...)
 		}
-		files = uniqueStrings(files)
+		files = kernel.UniqueStrings(files)
 		return nil
 	}
 	err := setup()
 	if err != nil {
 		fail(args["checkpoint"], err)
 	} else {
-		if _, err = s.contextContract(); err != nil {
+		if _, err = s.ContextContract(); err != nil {
 			fail("CONTEXT.md", err)
 		} else {
-			s.report.Checks = append(s.report.Checks, SemanticCheck{ID: "context", SourceRef: "CONTEXT.md", Status: "passed"})
+			s.Report.Checks = append(s.Report.Checks, kernel.SemanticCheck{ID: "context", SourceRef: "CONTEXT.md", Status: "passed"})
 		}
 		values := map[string]map[string]any{}
 		claims := map[string]bool{}
@@ -280,12 +194,12 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			if filepath.Base(ref) != "manifest.json" {
 				continue
 			}
-			bytes, e := s.bytes(ref)
+			bytes, e := s.Bytes(ref)
 			if e != nil {
 				fail(ref, e)
 				continue
 			}
-			value, e := ciParse(bytes, ref)
+			value, e := kernel.CiParse(bytes, ref)
 			if e == nil && value["bundle_id"] != nil && value["handoff_ref"] != nil && value["files"] != nil {
 				prefix := filepath.ToSlash(filepath.Dir(ref))
 				run("handoff-package", prefix, semanticOptions(args))
@@ -297,7 +211,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			}
 		}
 		for _, ref := range files {
-			if semHas([]string{".json", ".yaml", ".yml", ".md"}, filepath.Ext(ref)) {
+			if kernel.SemHas([]string{".json", ".yaml", ".yml", ".md"}, filepath.Ext(ref)) {
 				queue = append(queue, ref)
 			}
 		}
@@ -325,14 +239,14 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				continue
 			}
 			seen[ref] = true
-			bytes, e := s.bytes(ref)
+			bytes, e := s.Bytes(ref)
 			if e != nil {
 				fail(ref, e)
 				continue
 			}
-			value, e := ciParse(bytes, ref)
+			value, e := kernel.CiParse(bytes, ref)
 			if e != nil {
-				fail(ref, s.unavailable("INPUT", e.Error()))
+				fail(ref, s.Unavailable("INPUT", e.Error()))
 				continue
 			}
 			values[ref] = value
@@ -348,8 +262,8 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				}
 				continue
 			}
-			if prefix := text(value["package_ref"]); prefix != "" && !ciURI.MatchString(prefix) && !filepath.IsAbs(prefix) {
-				if present, e := s.exists(filepath.ToSlash(filepath.Join(prefix, "manifest.json"))); e != nil {
+			if prefix := kernel.Text(value["package_ref"]); prefix != "" && !kernel.CiURI.MatchString(prefix) && !filepath.IsAbs(prefix) {
+				if present, e := s.Exists(filepath.ToSlash(filepath.Join(prefix, "manifest.json"))); e != nil {
 					fail(ref, e)
 				} else if present {
 					kind := "handoff-package"
@@ -360,30 +274,30 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 					packageRoots = append(packageRoots, prefix)
 				}
 			}
-			cp := ciCheckpointName.MatchString(ref) || value["repository_mode"] != nil && value["stage"] != nil && value["gates"] != nil
-			task := text(value["task_id"]) != "" && text(value["work_unit_id"]) != "" && (value["contract"] != nil || semHas([]string{"active", "paused", "failed", "resolved"}, text(value["workflow_status"])))
+			cp := kernel.CiCheckpointName.MatchString(ref) || value["repository_mode"] != nil && value["stage"] != nil && value["gates"] != nil
+			task := kernel.Text(value["task_id"]) != "" && kernel.Text(value["work_unit_id"]) != "" && (value["contract"] != nil || kernel.SemHas([]string{"active", "paused", "failed", "resolved"}, kernel.Text(value["workflow_status"])))
 			if cp {
 				checkpoints = append(checkpoints, ref)
 				run("checkpoint", ref, map[string]string{})
-				if text(semMap(value["stage_trace"])["completed_work_unit"]) != "" {
+				if kernel.Text(kernel.SemMap(value["stage_trace"])["completed_work_unit"]) != "" {
 					run("next-route", ref, map[string]string{})
-				} else if semHas([]string{"running", "completed"}, text(value["status"])) && semHas([]string{"resume", "orchestrate"}, text(value["mode"])) {
-					fail(ref, s.reject("TRANSITION_ORIGIN_REQUIRED", "当前流转缺少 completed_work_unit"))
+				} else if kernel.SemHas([]string{"running", "completed"}, kernel.Text(value["status"])) && kernel.SemHas([]string{"resume", "orchestrate"}, kernel.Text(value["mode"])) {
+					fail(ref, s.Reject("TRANSITION_ORIGIN_REQUIRED", "当前流转缺少 completed_work_unit"))
 				}
-				if args["recover"] == "true" && (len(semList(value["blockers"])) > 0 || semHas([]string{"blocked", "stale"}, text(value["status"]))) {
-					fail(ref, s.reject("RECOVERY_BLOCKED", "当前 checkpoint 存在阻塞"))
+				if args["recover"] == "true" && (len(kernel.SemList(value["blockers"])) > 0 || kernel.SemHas([]string{"blocked", "stale"}, kernel.Text(value["status"]))) {
+					fail(ref, s.Reject("RECOVERY_BLOCKED", "当前 checkpoint 存在阻塞"))
 				}
 			} else if task {
 				tasks = append(tasks, ref)
 				run("task", ref, map[string]string{})
 				if args["recover"] == "true" {
 					if value["workflow_status"] != "resolved" {
-						fail(ref, s.reject("TASK_NOT_RESOLVED", "先核查原任务，禁止重复派发"))
-					} else if len(semList(semMap(value["result"])["evidence_refs"])) == 0 && len(semList(value["verification_results"])) == 0 {
-						fail(ref, s.reject("TASK_RESULT_REQUIRED", "resolved 任务缺少实际结果"))
+						fail(ref, s.Reject("TASK_NOT_RESOLVED", "先核查原任务，禁止重复派发"))
+					} else if len(kernel.SemList(kernel.SemMap(value["result"])["evidence_refs"])) == 0 && len(kernel.SemList(value["verification_results"])) == 0 {
+						fail(ref, s.Reject("TASK_RESULT_REQUIRED", "resolved 任务缺少实际结果"))
 					}
 				}
-			} else if ciClaimed(value) || ciDomainKind(value) != "" {
+			} else if kernel.CiClaimed(value) || ciDomainKind(value) != "" {
 				claims[ref] = true
 			} else {
 				unknown = append(unknown, ref)
@@ -391,9 +305,9 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			if ciReadyTicket.Match(bytes) {
 				tickets = append(tickets, ref)
 			}
-			if cp || task || ciClaimed(value) || ciDomainKind(value) != "" || value["gate_id"] != nil || strict[ref] {
-				for _, dependency := range ciReferences(value) {
-					if semHas(packageRoots, dependency) {
+			if cp || task || kernel.CiClaimed(value) || ciDomainKind(value) != "" || value["gate_id"] != nil || strict[ref] {
+				for _, dependency := range kernel.CiReferences(value) {
+					if kernel.SemHas(packageRoots, dependency) {
 						continue
 					}
 					if ciDomainKind(value) != "" && filepath.IsAbs(dependency) {
@@ -405,36 +319,36 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 						strict[dependency] = true
 						delete(seen, dependency)
 					}
-					if _, e = s.bytes(dependency); e != nil {
+					if _, e = s.Bytes(dependency); e != nil {
 						fail(ref, e)
-					} else if semHas([]string{".yaml", ".yml", ".json", ".md"}, filepath.Ext(dependency)) {
+					} else if kernel.SemHas([]string{".yaml", ".yml", ".json", ".md"}, filepath.Ext(dependency)) {
 						queue = append(queue, dependency)
 					}
 				}
 				for _, binding := range ciBindings(value) {
-					if semHas(packageRoots, text(binding["ref"])) {
+					if kernel.SemHas(packageRoots, kernel.Text(binding["ref"])) {
 						continue
 					}
-					if ciDomainKind(value) != "" && filepath.IsAbs(text(binding["ref"])) {
+					if ciDomainKind(value) != "" && filepath.IsAbs(kernel.Text(binding["ref"])) {
 						continue
 					}
-					if e = s.basis([]any{binding}); e != nil {
+					if e = s.Basis([]any{binding}); e != nil {
 						fail(ref, e)
 					}
 				}
 			}
 		}
-		if args["checkpoint"] != "" && !semHas(checkpoints, args["checkpoint"]) {
-			fail(args["checkpoint"], s.reject("CHECKPOINT_IDENTITY", "指定引用不是 checkpoint"))
+		if args["checkpoint"] != "" && !kernel.SemHas(checkpoints, args["checkpoint"]) {
+			fail(args["checkpoint"], s.Reject("CHECKPOINT_IDENTITY", "指定引用不是 checkpoint"))
 		}
-		if args["task"] != "" && !semHas(tasks, args["task"]) {
-			fail(args["task"], s.reject("TASK_IDENTITY", "指定引用不是任务包"))
+		if args["task"] != "" && !kernel.SemHas(tasks, args["task"]) {
+			fail(args["task"], s.Reject("TASK_IDENTITY", "指定引用不是任务包"))
 		}
 		actorGroups := map[string][]map[string]any{}
 		for _, ref := range tasks {
 			task := values[ref]
-			contract := semMap(task["contract"])
-			key := text(contract["contract_id"]) + "\x00" + text(contract["contract_version"])
+			contract := kernel.SemMap(task["contract"])
+			key := kernel.Text(contract["contract_id"]) + "\x00" + kernel.Text(contract["contract_version"])
 			actorGroups[key] = append(actorGroups[key], task)
 		}
 		for _, group := range actorGroups {
@@ -453,13 +367,13 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 					continue
 				}
 				visited[ref] = true
-				for _, dep := range ciReferences(values[ref]) {
+				for _, dep := range kernel.CiReferences(values[ref]) {
 					owner[dep] = append(owner[dep], cpRef)
 					pending = append(pending, dep)
 				}
 			}
 		}
-		approvalOwners, discoveryErr := s.ciApprovalOwners()
+		approvalOwners, discoveryErr := s.CiApprovalOwners()
 		if discoveryErr != nil {
 			fail("approval-owners", discoveryErr)
 		}
@@ -467,23 +381,23 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			value := values[ref]
 			if value["gate_id"] != nil && value["decision"] == "approved" {
 				candidates := approvalOwners[ref]
-				candidates = uniqueStrings(candidates)
+				candidates = kernel.UniqueStrings(candidates)
 				if len(candidates) != 1 {
-					fail(ref, s.reject("APPROVAL_CONTEXT_REQUIRED", fmt.Sprintf("批准记录需要唯一 checkpoint（找到%d个）", len(candidates))))
+					fail(ref, s.Reject("APPROVAL_CONTEXT_REQUIRED", fmt.Sprintf("批准记录需要唯一 checkpoint（找到%d个）", len(candidates))))
 				} else {
 					run("approval", ref, map[string]string{"checkpoint": candidates[0]})
 				}
 				continue
 			}
 			if len(owner[ref]) == 0 {
-				fail(ref, s.reject("CLAIM_WITHOUT_CHECKPOINT", "已声明完成或批准的资产缺少 checkpoint 归属"))
+				fail(ref, s.Reject("CLAIM_WITHOUT_CHECKPOINT", "已声明完成或批准的资产缺少 checkpoint 归属"))
 				continue
 			}
 			kind := ciDomainKind(value)
 			if kind == "" && (value["domain_strategy_id"] != nil || value["stage_decision_id"] != nil) {
 				consumers := []string{}
 				for candidate, doc := range values {
-					if ciDomainKind(doc) == "handoff-source" && semHas(ciReferences(doc), ref) {
+					if ciDomainKind(doc) == "handoff-source" && kernel.SemHas(kernel.CiReferences(doc), ref) {
 						consumers = append(consumers, candidate)
 					}
 				}
@@ -493,24 +407,24 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				}
 			}
 			if kind != "" {
-				owners := uniqueStrings(owner[ref])
+				owners := kernel.UniqueStrings(owner[ref])
 				if len(owners) != 1 {
-					fail(ref, s.reject("CLAIM_CONTEXT_REQUIRED", "领域资产需要唯一当前 checkpoint 归属"))
+					fail(ref, s.Reject("CLAIM_CONTEXT_REQUIRED", "领域资产需要唯一当前 checkpoint 归属"))
 					continue
 				}
 				opts := semanticOptions(args)
 				opts["checkpoint"] = owners[0]
-				if kind == "verification" && text(value["kind"]) == "frontend-scaffold-verification" {
-					binding := semMap(semMap(values[owners[0]]["artifacts"])["artifact.project-scaffold-contract"])
-					if binding["status"] != "approved" || text(binding["ref"]) == "" {
-						fail(ref, s.reject("VERIFICATION_CURRENT_REQUIRED", "完整 CI 的脚手架报告需要 checkpoint 当前批准合同"))
+				if kind == "verification" && kernel.Text(value["kind"]) == "frontend-scaffold-verification" {
+					binding := kernel.SemMap(kernel.SemMap(values[owners[0]]["artifacts"])["artifact.project-scaffold-contract"])
+					if binding["status"] != "approved" || kernel.Text(binding["ref"]) == "" {
+						fail(ref, s.Reject("VERIFICATION_CURRENT_REQUIRED", "完整 CI 的脚手架报告需要 checkpoint 当前批准合同"))
 						continue
 					}
 					if _, e := contractBoundDoc(s, binding); e != nil {
 						fail(ref, e)
 						continue
 					}
-					opts["contract"] = text(binding["ref"])
+					opts["contract"] = kernel.Text(binding["ref"])
 				}
 				if strings.HasPrefix(kind, "handoff-consumption:") {
 					opts["consumer"] = strings.TrimPrefix(kind, "handoff-consumption:")
@@ -519,219 +433,41 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 				run(kind, ref, opts)
 			} else {
 				unknown = append(unknown, ref)
-				fail(ref, s.unavailable("CAPABILITY", "当前声称批准或完成的资产缺少专属校验能力: "+ref))
+				fail(ref, s.Unavailable("CAPABILITY", "当前声称批准或完成的资产缺少专属校验能力: "+ref))
 			}
 		}
 		for _, ref := range tickets {
 			if len(owner[ref]) == 0 {
 				ready := false
 				for _, taskRef := range tasks {
-					if semHas(ciReferences(values[taskRef]), ref) {
+					if kernel.SemHas(kernel.CiReferences(values[taskRef]), ref) {
 						ready = true
 					}
 				}
 				if !ready {
-					fail(ref, s.reject("TICKET_READINESS_REQUIRED", "ready-for-agent Ticket 缺少当前 checkpoint/任务包证据"))
+					fail(ref, s.Reject("TICKET_READINESS_REQUIRED", "ready-for-agent Ticket 缺少当前 checkpoint/任务包证据"))
 				}
 			}
 		}
 		if args["base"] != "" {
-			if e := s.ciBaseProtection(args["base"], roots, values, checkpoints); e != nil {
+			if e := s.CiBaseProtection(args["base"], roots, values, checkpoints); e != nil {
 				fail("--base", e)
 			}
 		}
 	}
-	if final := s.finish(); final != nil {
+	if final := s.Finish(); final != nil {
 		fail("final-input-check", final)
 	}
-	s.report.Inputs = s.inputs()
-	s.report.GitInputs = s.gitBindings()
-	s.report.Checks = s.collectedChecks()
-	s.report.Coverage = map[string]any{"roots": roots, "files": files, "checkpoints": uniqueStrings(checkpoints), "tasks": uniqueStrings(tasks), "unrecognized": uniqueStrings(unknown), "missing_capabilities": uniqueStrings(missing), "base": args["base"], "runtime_store": "off", "dispatch": false}
-	if s.report.Status != "passed" {
+	s.Report.Inputs = s.Inputs()
+	s.Report.GitInputs = s.GitBindings()
+	s.Report.Checks = s.CollectedChecks()
+	s.Report.Coverage = map[string]any{"roots": roots, "files": files, "checkpoints": kernel.UniqueStrings(checkpoints), "tasks": kernel.UniqueStrings(tasks), "unrecognized": kernel.UniqueStrings(unknown), "missing_capabilities": kernel.UniqueStrings(missing), "base": args["base"], "runtime_store": "off", "dispatch": false}
+	if s.Report.Status != "passed" {
 		exit := 1
-		if s.report.Status == "error" {
+		if s.Report.Status == "error" {
 			exit = 2
 		}
-		return s.report, &semanticFailure{cause: &domain.Error{Code: "PROJECT_CI_REJECTED", Message: "完整治理检查未通过；参见逐项诊断", Exit: exit}, report: s.report}
+		return s.Report, &semanticFailure{cause: &domain.Error{Code: "PROJECT_CI_REJECTED", Message: "完整治理检查未通过；参见逐项诊断", Exit: exit}, report: s.Report}
 	}
-	return s.report, nil
-}
-
-// Discovery covers the legacy owner search boundary independently of --checkpoint
-// and configured CI roots. An out-of-scope second owner still makes approval ambiguous.
-func (s *semanticSession) ciApprovalOwners() (map[string][]string, error) {
-	owners := map[string][]string{}
-	refs := []string{}
-	layout, err := viewWorkLayout(s.v)
-	if err != nil {
-		return nil, err
-	}
-	for _, root := range uniqueStrings(append(append([]string{}, layout.ScanRoots...), "docs", ".yss")) {
-		files, err := s.scan(root)
-		if err != nil {
-			return nil, err
-		}
-		refs = append(refs, files...)
-	}
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
-		return nil, s.unavailable("INPUT", err.Error())
-	}
-	// contextContract's inventory observes root membership and is rechecked by finish.
-	for _, entry := range entries {
-		if !entry.IsDir() && semHas([]string{".json", ".yaml", ".yml"}, filepath.Ext(entry.Name())) {
-			refs = append(refs, entry.Name())
-		}
-	}
-	for _, ref := range uniqueStrings(refs) {
-		if ciCapturedSource.MatchString(ref) {
-			continue
-		}
-		if !semHas([]string{".json", ".yaml", ".yml"}, filepath.Ext(ref)) {
-			continue
-		}
-		bytes, err := s.bytes(ref)
-		if err != nil {
-			return nil, err
-		}
-		value, err := ciParse(bytes, ref)
-		if err != nil || value["gate_id"] != nil || value["gates"] == nil {
-			continue
-		}
-		for _, bucket := range []string{"gates", "checks"} {
-			for _, row := range semMap(value[bucket]) {
-				approval := text(semMap(row)["approval_ref"])
-				if approval != "" {
-					owners[approval] = append(owners[approval], ref)
-				}
-			}
-		}
-	}
-	for ref, rows := range owners {
-		owners[ref] = uniqueStrings(rows)
-	}
-	return owners, nil
-}
-func (s *semanticSession) ciBaseProtection(base string, roots []string, values map[string]map[string]any, checkpoints []string) error {
-	if !ciCommit.MatchString(base) {
-		return s.unavailable("ARGUMENT", "--base 必须为完整40位 commit")
-	}
-	if _, err := s.git(s.root, "cat-file", "-e", base+"^{commit}"); err != nil {
-		return err
-	}
-	bytes, err := s.git(s.root, "ls-tree", "-r", "--name-only", "-z", base)
-	if err != nil {
-		return err
-	}
-	oldFiles := strings.Split(strings.TrimSuffix(string(bytes), "\x00"), "\x00")
-	known := map[string]bool{}
-	for _, r := range oldFiles {
-		known[r] = true
-	}
-	oldValues := map[string]map[string]any{}
-	read := func(ref string) (map[string]any, error) {
-		if m, ok := oldValues[ref]; ok {
-			return m, nil
-		}
-		b, e := s.git(s.root, "show", base+":"+ref)
-		if e != nil {
-			return nil, e
-		}
-		m, e := ciParse(b, ref)
-		if e != nil {
-			return nil, s.unavailable("INPUT", e.Error())
-		}
-		oldValues[ref] = m
-		return m, nil
-	}
-	oldTracker, err := read(".template-spec/agents/issue-tracker.md")
-	if err != nil {
-		return err
-	}
-	oldRoots := []string{strings.TrimSuffix(text(semMap(oldTracker["tracker"])["root"]), "/")}
-	if known[ciConfigRef] {
-		config, e := read(ciConfigRef)
-		if e != nil {
-			return e
-		}
-		oldRoots = append(oldRoots, semStrings(config["additional_paths"])...)
-	}
-	for _, r := range oldRoots {
-		covered := false
-		for _, now := range roots {
-			if r == now || strings.HasPrefix(r, now+"/") {
-				covered = true
-			}
-		}
-		if !covered {
-			return s.reject("CI_SCOPE_REDUCED", "相对基线缩小检查范围: "+r)
-		}
-	}
-	queue := []string{}
-	for _, ref := range oldFiles {
-		inside := false
-		for _, r := range oldRoots {
-			if ref == r || strings.HasPrefix(ref, r+"/") {
-				inside = true
-			}
-		}
-		if !inside || !semHas([]string{".md", ".yaml", ".yml", ".json"}, filepath.Ext(ref)) {
-			continue
-		}
-		old, e := read(ref)
-		if e != nil {
-			return e
-		}
-		if ciClaimed(old) {
-			queue = append(queue, ref)
-		}
-		cp := ciCheckpointName.MatchString(ref) || old["repository_mode"] != nil && old["stage"] != nil && old["gates"] != nil
-		if cp {
-			exists, e := s.exists(ref)
-			if e != nil {
-				return e
-			}
-			if !exists {
-				return s.reject("CHECKPOINT_DELETED", "基线 checkpoint 已删除: "+ref)
-			}
-			if !semHas(checkpoints, ref) {
-				return s.reject("CHECKPOINT_UNASSESSED", "基线 checkpoint 不再被识别或检查: "+ref)
-			}
-			now := values[ref]
-			for id, state := range semMap(old["gates"]) {
-				if semMap(state)["status"] == "approved" && semMap(now["gates"])[id] == nil {
-					return s.reject("APPROVAL_CLAIM_REMOVED", "基线批准被移除: "+id)
-				}
-			}
-		}
-	}
-	seen := map[string]bool{}
-	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
-		if seen[ref] {
-			continue
-		}
-		seen[ref] = true
-		exists, e := s.exists(ref)
-		if e != nil {
-			return e
-		}
-		if !exists {
-			return s.reject("APPROVED_EVIDENCE_DELETED", "基线批准依据已删除: "+ref)
-		}
-		if known[ref] && semHas([]string{".md", ".yaml", ".yml", ".json"}, filepath.Ext(ref)) {
-			old, e := read(ref)
-			if e != nil {
-				return e
-			}
-			for _, dep := range ciReferences(old) {
-				if known[dep] {
-					queue = append(queue, dep)
-				}
-			}
-		}
-	}
-	return nil
+	return s.Report, nil
 }

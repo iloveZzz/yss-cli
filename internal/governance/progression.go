@@ -4,23 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
-	"github.com/iloveZzz/yss-cli/internal/transaction"
-	"github.com/iloveZzz/yss-cli/internal/worklayout"
 )
 
-const progressionFile = "progression-target.json"
 const progressionKind = "lifecycle-target"
 
-var progressionTargets = []string{"spec-approved", "product-design-completed", "backend-deliverable", "frontend-accepted", "business-accepted"}
+var progressionTargets = []string{"spec-approved", "product-design-completed", "backend-deliverable", "business-accepted"}
 
 type ProgressionConsumer struct {
 	Profile       string `json:"profile"`
@@ -38,94 +36,6 @@ type ProgressionTarget struct {
 	Consumers     []ProgressionConsumer `json:"consumers"`
 }
 
-func progressionPolicy(s *semanticSession) (string, map[string]any, error) {
-	if err := s.authorities(); err != nil {
-		return "", nil, err
-	}
-	profileDoc, err := s.doc(".template-spec/process/harness-profile.yaml")
-	if err != nil {
-		return "", nil, err
-	}
-	profile := ""
-	for name, known := range domain.Profiles {
-		if profileDoc["profile_id"] == known.ID {
-			profile = name
-		}
-	}
-	if profile == "" {
-		return "", nil, s.unavailable("IDENTITY", "未知推进目标 Profile")
-	}
-	contract, err := s.doc(guidanceContractRef(profile))
-	if err != nil {
-		return profile, nil, err
-	}
-	policy := semMap(contract["progression_target"])
-	if contractN(policy["schema_version"]) != 1 || policy["config_file"] != progressionFile || !semHas(policy["required_capabilities"], "lifecycle-target-v1") {
-		return profile, nil, s.unavailable("CAPABILITY", "当前实例不支持推进目标；先显式同步模板")
-	}
-	for _, capability := range semStrings(policy["required_capabilities"]) {
-		if capability != "lifecycle-target-v1" {
-			return profile, nil, s.unavailable("CAPABILITY", "未知推进目标能力："+capability)
-		}
-	}
-	return profile, policy, nil
-}
-
-// The registered checkpoint selects the feature directory; a slug never does.
-func progressionLocation(s *semanticSession, cpRef string) (string, map[string]any, error) {
-	if !contractPath(cpRef) {
-		return "", nil, s.reject("PATH", "推进目标需要项目内显式 checkpoint")
-	}
-	cp, err := s.doc(cpRef)
-	if err != nil {
-		return "", nil, err
-	}
-	if contractN(cp["schema_version"]) != 1 || cp["repository_mode"] != "project-instance" || !strings.HasPrefix(text(cp["feature_id"]), "feature.") || len(text(cp["feature_id"])) <= len("feature.") {
-		return "", nil, s.reject("IDENTITY", "checkpoint 缺少合法功能身份")
-	}
-	trackerBytes, err := s.bytes(worklayout.TrackerRef)
-	if err != nil {
-		return "", nil, err
-	}
-	layout, err := worklayout.FromDocument(s.root, trackerBytes)
-	if err != nil {
-		return "", nil, err
-	}
-	files, err := s.scan(layout.Root)
-	if err != nil {
-		return "", nil, err
-	}
-	found := ""
-	for _, mapRef := range files {
-		if path.Base(mapRef) != "map.md" || path.Dir(path.Dir(mapRef)) != layout.Root {
-			continue
-		}
-		meta, e := contractTicketMetadata(s, mapRef)
-		if e != nil {
-			return "", nil, e
-		}
-		registered := text(meta["checkpoint_ref"])
-		if registered == "" {
-			continue
-		}
-		other, e := s.doc(registered)
-		if e != nil {
-			return "", nil, e
-		}
-		if other["feature_id"] != cp["feature_id"] {
-			continue
-		}
-		if registered != cpRef || found != "" {
-			return "", nil, s.reject("PROFILE_INPUT_AMBIGUOUS", "同一功能未唯一登记当前 checkpoint")
-		}
-		found = path.Join(path.Dir(mapRef), progressionFile)
-	}
-	if found == "" {
-		return "", nil, s.reject("PROGRESSION_BINDING", "显式 checkpoint 尚未登记到 Tracker 功能包")
-	}
-	return found, cp, nil
-}
-
 func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	var target ProgressionTarget
 	if _, err := schema.Parse(raw); err != nil {
@@ -136,12 +46,12 @@ func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	if err := decoder.Decode(&target); err != nil {
 		return target, domain.Wrap("PROGRESSION_TARGET", err)
 	}
-	if target.SchemaVersion != 1 || target.Kind != "lifecycle-progression-target" || !semHas(progressionTargets, target.Target) || strings.TrimSpace(target.IntentSource) == "" || target.Consumers == nil {
+	if target.SchemaVersion != 1 || target.Kind != "lifecycle-progression-target" || !kernel.SemHas(progressionTargets, target.Target) || strings.TrimSpace(target.IntentSource) == "" || target.Consumers == nil {
 		return target, domain.Fail("PROGRESSION_TARGET", "推进目标版本、目标、来源意图或消费者列表非法")
 	}
 	seen := map[string]bool{}
 	for _, c := range target.Consumers {
-		if !semHas([]string{"design", "backend", "frontend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !contractPath(c.CheckpointRef) {
+		if !kernel.SemHas([]string{"design", "backend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !kernel.ContractPath(c.CheckpointRef) {
 			return target, domain.Fail("PROGRESSION_TARGET", "消费者必须唯一且显式指定 Profile、绝对根和项目内 checkpoint")
 		}
 		seen[c.Profile] = true
@@ -149,21 +59,21 @@ func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	return target, nil
 }
 
-func progressionScope(s *semanticSession, target string) error {
-	scope, err := s.executionScope()
+func progressionScope(s *kernel.SemanticSession, target string) error {
+	scope, err := s.ExecutionScope()
 	if err != nil {
 		return err
 	}
-	if scope != nil && !semHas(progressionTargets[:3], target) {
-		return s.reject("EXECUTION_SCOPE", "推进目标超出后端职责上限")
+	if scope != nil && !kernel.SemHas(progressionTargets[:3], target) {
+		return s.Reject("EXECUTION_SCOPE", "推进目标超出后端职责上限")
 	}
 	if scope != nil {
-		_, policy, e := progressionPolicy(s)
+		_, policy, e := kernel.ProgressionPolicy(s)
 		if e != nil {
 			return e
 		}
-		if !semHas(semMap(semMap(policy["completion_policy"])[target])["allowed_execution_scopes"], "plan-to-backend") {
-			return s.reject("EXECUTION_SCOPE", "当前目标政策未准许已有后端职责范围")
+		if !kernel.SemHas(kernel.SemMap(kernel.SemMap(policy["completion_policy"])[target])["allowed_execution_scopes"], "plan-to-backend") {
+			return s.Reject("EXECUTION_SCOPE", "当前目标政策未准许已有后端职责范围")
 		}
 	}
 	return nil
@@ -171,34 +81,34 @@ func progressionScope(s *semanticSession, target string) error {
 
 func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "lifecycle-target-go-plan", Root: root, Action: "target", CheckpointRef: cpRef, InputRef: inputRef, Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}, Scope: "progression-intent-only"}
-	s := newSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
-	if err := projectIdentity(s.v); err != nil {
+	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
+	if err := kernel.ProjectIdentity(s.V); err != nil {
 		return plan, err
 	}
-	if err := pendingOldTransaction(s.v); err != nil {
+	if err := pendingOldTransaction(s.V); err != nil {
 		return plan, err
 	}
-	if _, err := s.contextContract(); err != nil {
+	if _, err := s.ContextContract(); err != nil {
 		return plan, err
 	}
-	profile, policy, err := progressionPolicy(s)
+	profile, policy, err := kernel.ProgressionPolicy(s)
 	if err != nil {
 		return plan, err
 	}
-	if profile != "spec" || !semHas(policy["writer_profiles"], profile) {
-		return plan, s.reject("PROFILE_ROUTE", "仅 Spec 主控可设置功能推进目标")
+	if profile != "spec" || !kernel.SemHas(policy["writer_profiles"], profile) {
+		return plan, s.Reject("PROFILE_ROUTE", "仅 Spec 主控可设置功能推进目标")
 	}
-	configRef, cp, err := progressionLocation(s, cpRef)
+	configRef, cp, err := kernel.ProgressionLocation(s, cpRef)
 	if err != nil {
 		return plan, err
 	}
 	if cp["profile_id"] != nil && cp["profile_id"] != domain.Profiles[profile].ID {
-		return plan, s.reject("IDENTITY", "checkpoint Profile 与工程不符")
+		return plan, s.Reject("IDENTITY", "checkpoint Profile 与工程不符")
 	}
 	if inputRef == configRef {
-		return plan, s.reject("PROTECTED", "目标输入不能复用正在修改的配置")
+		return plan, s.Reject("PROTECTED", "目标输入不能复用正在修改的配置")
 	}
-	raw, err := s.bytes(inputRef)
+	raw, err := s.Bytes(inputRef)
 	if err != nil {
 		return plan, err
 	}
@@ -206,31 +116,31 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 	if err != nil {
 		return plan, err
 	}
-	if target.CheckpointRef != cpRef || target.FeatureID != text(cp["feature_id"]) {
-		return plan, s.reject("PROGRESSION_BINDING", "目标输入与显式 checkpoint/feature 不匹配")
+	if target.CheckpointRef != cpRef || target.FeatureID != kernel.Text(cp["feature_id"]) {
+		return plan, s.Reject("PROGRESSION_BINDING", "目标输入与显式 checkpoint/feature 不匹配")
 	}
-	if len(semMap(semMap(policy["completion_policy"])[target.Target])) == 0 {
-		return plan, s.unavailable("CAPABILITY", "当前政策缺少目标退出条件")
+	if len(kernel.SemMap(kernel.SemMap(policy["completion_policy"])[target.Target])) == 0 {
+		return plan, s.Unavailable("CAPABILITY", "当前政策缺少目标退出条件")
 	}
 	if err = progressionScope(s, target.Target); err != nil {
 		return plan, err
 	}
 	for _, c := range target.Consumers {
 		if c.Root == root {
-			return plan, s.reject("PROGRESSION_BINDING", "独立消费者不能指向主控工程")
+			return plan, s.Reject("PROGRESSION_BINDING", "独立消费者不能指向主控工程")
 		}
 		if _, err = safefs.Path(c.Root, c.CheckpointRef); err != nil {
 			return plan, err
 		}
 		// Uncreated targets remain intent; existing targets must match explicitly.
-		child := newSemanticSession(ctx, c.Root, nil)
+		child := kernel.NewSemanticSession(ctx, c.Root, nil)
 		for _, identityRef := range []string{".template-spec/process/harness-profile.yaml", domain.MetadataFile} {
-			found, e := child.exists(identityRef)
+			found, e := child.Exists(identityRef)
 			if e != nil {
 				return plan, e
 			}
 			if found {
-				identity, e := child.doc(identityRef)
+				identity, e := child.Doc(identityRef)
 				if e != nil {
 					return plan, e
 				}
@@ -239,45 +149,45 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 					key = "profileId"
 				}
 				if identity[key] != domain.Profiles[c.Profile].ID {
-					return plan, s.reject("PROGRESSION_BINDING", "未来消费者已存在不匹配Profile身份")
+					return plan, s.Reject("PROGRESSION_BINDING", "未来消费者已存在不匹配Profile身份")
 				}
 			}
 		}
-		present, e := child.exists(c.CheckpointRef)
+		present, e := child.Exists(c.CheckpointRef)
 		if e != nil {
 			return plan, e
 		}
 		if present {
-			_, receiver, e := progressionLocation(child, c.CheckpointRef)
+			_, receiver, e := kernel.ProgressionLocation(child, c.CheckpointRef)
 			if e != nil {
 				return plan, e
 			}
-			p, e := child.doc(".template-spec/process/harness-profile.yaml")
+			p, e := child.Doc(".template-spec/process/harness-profile.yaml")
 			if e != nil {
 				return plan, e
 			}
 			if receiver["feature_id"] != target.FeatureID || p["profile_id"] != domain.Profiles[c.Profile].ID || receiver["profile_id"] != nil && receiver["profile_id"] != p["profile_id"] {
-				return plan, s.reject("PROGRESSION_BINDING", "消费者 Profile/feature 不匹配")
+				return plan, s.Reject("PROGRESSION_BINDING", "消费者 Profile/feature 不匹配")
 			}
 		}
-		s.children = append(s.children, child)
+		s.Children = append(s.Children, child)
 	}
 	data, err := jsonBytes(target)
 	if err != nil {
 		return plan, err
 	}
-	if err = s.v.set(configRef, data); err != nil {
+	if err = s.V.Set(configRef, data); err != nil {
 		return plan, err
 	}
-	plan.Operations, err = s.v.ops()
+	plan.Operations, err = s.V.Ops()
 	if err != nil {
 		return plan, err
 	}
 	plan.Options["config_ref"] = configRef
-	if err = s.finish(); err != nil {
+	if err = s.Finish(); err != nil {
 		return plan, err
 	}
-	for _, input := range s.inputs() {
+	for _, input := range s.Inputs() {
 		if input.Root == root {
 			if input.Ref == ".yss/transactions" || strings.HasPrefix(input.Ref, ".yss/transactions/") {
 				continue
@@ -286,8 +196,8 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 		}
 	}
 	// Consumer observations remain bound to their own root for apply rechecks.
-	external := []SemanticInput{}
-	for _, input := range s.inputs() {
+	external := []kernel.SemanticInput{}
+	for _, input := range s.Inputs() {
 		if input.Root != root {
 			external = append(external, input)
 		}
@@ -391,7 +301,7 @@ func progressionTargetRun(ctx context.Context, root string, args map[string]stri
 }
 
 func validateProgressionInputs(ctx context.Context, root string, plan WritePlan) error {
-	var inputs []SemanticInput
+	var inputs []kernel.SemanticInput
 	if e := json.Unmarshal([]byte(plan.Options["external_inputs"]), &inputs); e != nil {
 		return e
 	}
@@ -409,13 +319,13 @@ func validateProgressionInputs(ctx context.Context, root string, plan WritePlan)
 		return e
 	}
 	for _, scan := range scans {
-		session := newSemanticSession(ctx, scan.Root, nil)
-		files, e := session.scanFresh(scan.Ref, false)
+		session := kernel.NewSemanticSession(ctx, scan.Root, nil)
+		files, e := session.ScanFresh(scan.Ref, false)
 		if e != nil {
 			return e
 		}
 		files = progressionScanFiles(files, scan.Root, root, plan.Options["config_ref"])
-		if !equalStrings(files, scan.Files) {
+		if !kernel.EqualStrings(files, scan.Files) {
 			return domain.Fail("INPUT_DRIFT", "写入前功能登记文件集合变化")
 		}
 	}
@@ -438,17 +348,17 @@ func progressionScanFiles(files []string, root, writerRoot, configRef string) []
 	return filtered
 }
 
-func progressionScans(s *semanticSession, writerRoot, configRef string) []progressionScanInput {
+func progressionScans(s *kernel.SemanticSession, writerRoot, configRef string) []progressionScanInput {
 	rows := []progressionScanInput{}
-	for ref, files := range s.scans {
+	for ref, files := range s.Scans {
 		// The transaction manager creates its own journal after compilation;
 		// it owns pending-operation exclusion under the project lock.
-		if s.root == writerRoot && ref == ".yss/transactions" {
+		if s.Root == writerRoot && ref == ".yss/transactions" {
 			continue
 		}
-		rows = append(rows, progressionScanInput{s.root, ref, progressionScanFiles(files, s.root, writerRoot, configRef)})
+		rows = append(rows, progressionScanInput{s.Root, ref, progressionScanFiles(files, s.Root, writerRoot, configRef)})
 	}
-	for _, child := range s.children {
+	for _, child := range s.Children {
 		rows = append(rows, progressionScans(child, writerRoot, configRef)...)
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -483,15 +393,15 @@ func ValidateProgressionTransaction(root, profile string, paths []string) error 
 		return domain.Fail("IDENTITY", "推进目标事务只允许 Spec 的单功能意图配置")
 	}
 	for _, ref := range paths {
-		if path.Base(ref) != progressionFile {
+		if path.Base(ref) != kernel.ProgressionFile {
 			return domain.Fail("PROTECTED", "推进目标事务越界")
 		}
-		s := newSemanticSession(context.Background(), root, nil)
-		meta, err := contractTicketMetadata(s, path.Join(path.Dir(ref), "map.md"))
+		s := kernel.NewSemanticSession(context.Background(), root, nil)
+		meta, err := kernel.ContractTicketMetadata(s, path.Join(path.Dir(ref), "map.md"))
 		if err != nil {
 			return err
 		}
-		want, _, err := progressionLocation(s, text(meta["checkpoint_ref"]))
+		want, _, err := kernel.ProgressionLocation(s, kernel.Text(meta["checkpoint_ref"]))
 		if err != nil {
 			return err
 		}

@@ -38,7 +38,7 @@ func maintenanceSkillMigration(id *Identity, b *bundle.Bundle, command string) b
 		if text(distribution["mode"]) != "selected" {
 			return false
 		}
-	case "design", "backend", "frontend":
+	case "design", "backend":
 		if text(distribution["mode"]) != "profile-full" || text(b.Distribution["mode"]) != "profile-full" {
 			return false
 		}
@@ -177,6 +177,46 @@ func (u *upgradePlanner) maintenanceRetirements() map[string]bundle.MigrationRul
 				From:   bundle.SourceMatch{Profile: u.id.Profile.Name, TemplateCommit: commit, SnapshotHash: snapshot, BundleHash: hash},
 				Action: "delete", SourcePath: ref,
 			}
+		}
+	}
+	return rules
+}
+
+// 投影根收敛（architecture-iteration-v1 FR-006）：新模板不再分发 .claude/.codex/.cursor/.pi 的技能投影，
+// 旧实例里这些受管文件按旧来源的精确字节提议删除；用户改过的文件进入冲突，可选择 keep-local 保留。
+// 目标 Bundle 仍含该路径（旧模板线的 Profile）时不提议。
+func retiredProjectionFile(ref string) bool {
+	if ref == ".cursor/skills/.yss-skills-manifest.json" {
+		return true
+	}
+	parts := strings.Split(ref, "/")
+	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") {
+		return false
+	}
+	switch parts[0] {
+	case ".claude", ".codex", ".cursor", ".pi":
+		return true
+	}
+	return false
+}
+
+func (u *upgradePlanner) projectionRetirements() map[string]bundle.MigrationRule {
+	rules := map[string]bundle.MigrationRule{}
+	if u.plan.Command != "sync" || u.id.Native == nil {
+		return rules
+	}
+	commit, snapshot, hash := u.previousSource()
+	for ref := range u.old {
+		if !retiredProjectionFile(ref) {
+			continue
+		}
+		if _, stillShipped := u.bundle.Files[ref]; stillShipped {
+			continue
+		}
+		rules[ref] = bundle.MigrationRule{
+			ID:     "projection-root-retirement." + safefs.Digest([]byte(ref)),
+			From:   bundle.SourceMatch{Profile: u.id.Profile.Name, TemplateCommit: commit, SnapshotHash: snapshot, BundleHash: hash},
+			Action: "delete", SourcePath: ref,
 		}
 	}
 	return rules
