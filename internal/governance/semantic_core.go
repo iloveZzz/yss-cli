@@ -95,7 +95,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 			"slice": {"approval-ref", "unit"}, "slice-preflight": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
 			"openapi-validation": {"allow-template"}, "scaffold-decisions": {"allow-template"},
 			"business-tickets": {"mode", "review-ref"},
-			"gate-checks":      {"gate"}, "spec-baseline-binding": {"no-reconciliation"}, "handoff-source-approval": {"gate"}, "handoff-delivery": {"package"},
+			"gate-checks":      {"gate"}, "spec-baseline-binding": {"no-reconciliation"}, "handoff-source-approval": {"gate", "source-context-snapshot"}, "handoff-delivery": {"package"},
 			"task": {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected", "binding"},
 			"user-decision":   {"requirements", "continuation", "from-record", "task"},
 			"handoff-package": {"package"}, "handoff-backend-delivery": {"package"}, "handoff-consumption": {"consumer", "slice"}, "checkpoint": {"history"},
@@ -110,7 +110,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		}
 	}
 	if err == nil {
-		for flag, kinds := range map[string][]string{"mode": {"business-tickets"}, "review-ref": {"business-tickets"}, "requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "no-reconciliation": {"spec-baseline-binding"}, "gate": {"approval", "handoff-source-approval", "gate-checks"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package", "handoff-backend-delivery", "handoff-delivery"}, "require-approved": {"approval"}, "expected": {"approval"}, "binding": {"approval"}, "history": {"approval", "task", "checkpoint"}, "allow-template": {"openapi-validation", "scaffold-decisions"}} {
+		for flag, kinds := range map[string][]string{"mode": {"business-tickets"}, "review-ref": {"business-tickets"}, "requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "no-reconciliation": {"spec-baseline-binding"}, "gate": {"approval", "handoff-source-approval", "gate-checks"}, "source-context-snapshot": {"handoff-source-approval"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package", "handoff-backend-delivery", "handoff-delivery"}, "require-approved": {"approval"}, "expected": {"approval"}, "binding": {"approval"}, "history": {"approval", "task", "checkpoint"}, "allow-template": {"openapi-validation", "scaffold-decisions"}} {
 			if _, provided := args[flag]; provided && !kernel.SemHas(kinds, kind) {
 				err = s.Unavailable("ARGUMENT", "该领域类型不接受参数: --"+flag)
 				break
@@ -145,6 +145,17 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	if err == nil && ref == "" {
 		err = s.Unavailable("ARGUMENT", "语义校验需要明确资产路径")
+	}
+	if err == nil {
+		if value, provided := args["source-context-snapshot"]; provided {
+			if value != "true" && value != "false" {
+				err = s.Unavailable("ARGUMENT", "source-context-snapshot 必须为布尔开关")
+			} else if value == "true" {
+				// Only this explicit source-approval mode aliases the fixed readonly
+				// glossary. Missing CONTEXT.md alone never selects a source view.
+				s.Aliases["CONTEXT.md"] = "source-context.snapshot.md"
+			}
+		}
 	}
 	if err == nil {
 		if kind == "handoff-source" {

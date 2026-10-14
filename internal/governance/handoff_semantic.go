@@ -47,6 +47,7 @@ func init() {
 
 type nativeHandoff struct {
 	Manifest, Handoff, Strategy, Stage, Config, Changes, Business map[string]any
+	BusinessReport                                                map[string]any
 	Rules, Scenarios                                              []any
 	Source                                                        *kernel.SemanticSession
 	Prefix                                                        string
@@ -906,7 +907,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 	}
 	if kernel.SemHas(capabilities, "business-ticket-approval-v1") {
 		gates["business_ticket_set_ref"] = terminal
-		business, e := contractBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]))
+		business, businessReport, e := contractCollectBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]), "formal", "")
 		if e != nil {
 			return e
 		}
@@ -916,6 +917,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 			return s.Reject("HANDOFF_BUSINESS", "业务票集合身份或 Spec 版本冲突")
 		}
 		b.Business = business
+		b.BusinessReport = businessReport
 	}
 	bindings := contractCopy(sources)
 	bindings["handoff"] = map[string]any{"id": b.Handoff["handoff_id"], "version": b.Handoff["handoff_version"], "persisted_ref": ref, "approval_context": kernel.SemMap(kernel.SemMap(b.Config["approvals"])["handoff"])["approval_context"]}
@@ -1151,11 +1153,61 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 			if e != nil {
 				return e
 			}
-			context := kernel.SemMap(binding["approval_context"])
-			assetRef := kernel.First(kernel.Text(context["subject_ref"]), kernel.Text(binding["ref"]))
-			if e = s.Verify("source-plan-approval", approvalRef, map[string]string{"asset-ref": assetRef, "task-ref": kernel.Text(record["review_task_ref"]), "checkpoint-ref": kernel.Text(binding["checkpoint_ref"]), "checkpoint-digest": kernel.Text(binding["checkpoint_digest"])}); e != nil {
-				return e
+			expected, err := kernel.ApprovalExpectationForBoundAsset(s, gate, binding, nil, binding["review_package"])
+			if err != nil {
+				return err
 			}
+			ownerOptions := map[string]string{"asset-ref": kernel.Text(expected["subject_ref"]), "task-ref": kernel.Text(record["review_task_ref"]), "checkpoint-ref": kernel.Text(binding["checkpoint_ref"]), "checkpoint-digest": kernel.Text(binding["checkpoint_digest"])}
+			checkpointRef, err := sourcePlanApprovalCheckpoint(s, approvalRef, ownerOptions)
+			if err != nil {
+				return err
+			}
+			checkpoint, err := s.Doc(checkpointRef)
+			if err != nil {
+				return err
+			}
+			reviewRef := kernel.Text(checkpoint["plan_review_ref"])
+			reviewBytes, err := s.Bytes(reviewRef)
+			if err != nil {
+				return err
+			}
+			review, err := s.Doc(reviewRef)
+			if err != nil {
+				return err
+			}
+			if expected["subject_ref"] != reviewRef || strings.TrimPrefix(kernel.Text(expected["subject_digest"]), "sha256:") != safefs.Digest(reviewBytes) {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费主体不匹配")
+			}
+			if !kernel.ApSetEqual(expected["approval_scope"], []any{checkpoint["feature_id"]}) || expected["drafter_principal_ref"] != review["drafter_principal_ref"] {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费范围或作者不匹配")
+			}
+			basis := kernel.ApRows(expected["basis"])
+			if len(basis) == 0 {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费依据不匹配")
+			}
+			for _, asset := range basis {
+				matched := false
+				for _, current := range kernel.ApRows(review["basis"]) {
+					matched = matched || asset["ref"] == current["ref"] && strings.TrimPrefix(kernel.Text(asset["digest"]), "sha256:") == strings.TrimPrefix(kernel.Text(current["digest"]), "sha256:")
+				}
+				if !matched {
+					return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费依据不匹配")
+				}
+			}
+			if err = s.Basis(kernel.ApArray(expected["basis"])); err != nil {
+				return err
+			}
+			if binding["id"] != nil || binding["version"] != nil {
+				matched := false
+				for _, asset := range kernel.ApRows(record["artifact_bindings"]) {
+					matched = matched || (binding["id"] == nil || contractSame(asset["id"], binding["id"])) && (binding["version"] == nil || contractSame(asset["version"], binding["version"])) && kernel.Text(asset["digest"]) == kernel.Text(binding["digest"])
+				}
+				if !matched {
+					return s.Reject("APPROVAL_CURRENT_INVALID", "批准未绑定当前资产身份/版本/摘要")
+				}
+			}
+			// The aggregate reuses the professional task; that task must not gain an extra aggregate boundary.
+			return s.Verify("source-plan-approval", approvalRef, ownerOptions)
 		}
 	}
 	if e = contractApproval(s, gate, binding, approvalRef, map[string]string{}); e != nil {
@@ -1979,7 +2031,7 @@ func handoffSourceCoverage(report, source *kernel.SemanticSession, ref string, h
 	if e != nil {
 		return e
 	}
-	semanticCoverage(report, "handoff_source", map[string]any{"handoff": h.Handoff, "config": h.Config, "indexes": map[string]any{"rules": h.Rules, "scenarios": h.Scenarios}, "strategy": h.Strategy, "stage": h.Stage, "business": h.Business, "closure": closure})
+	semanticCoverage(report, "handoff_source", map[string]any{"handoff": h.Handoff, "config": h.Config, "indexes": map[string]any{"rules": h.Rules, "scenarios": h.Scenarios}, "strategy": h.Strategy, "stage": h.Stage, "business": h.BusinessReport, "closure": closure})
 	return nil
 }
 func handoffPackageCoverage(s *kernel.SemanticSession, h *nativeHandoff) error {

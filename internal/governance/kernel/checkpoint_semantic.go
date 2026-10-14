@@ -79,6 +79,57 @@ func semanticCountersign(roles map[string]any, id string) (bool, error) {
 	return false, fmt.Errorf("GATE_POLICY_REQUIRED: 未分类门禁或检查 %s", id)
 }
 
+// Gate consumers may provide partial state. Bind approval to that independent
+// state without treating its transport file as a complete lifecycle checkpoint.
+func (s *SemanticSession) gateStateApproval(item map[string]any, ref, id string) error {
+	approvalRef := Text(item["approval_ref"])
+	record, err := s.Doc(approvalRef)
+	if err != nil {
+		return err
+	}
+	schemaRef := ApprovalSchemaRef
+	if Text(record["kind"]) == "review-bundle" {
+		schemaRef = ".template-spec/process/schemas/review-bundle.schema.json"
+	}
+	if err = s.ValidateSchema(schemaRef, record); err != nil {
+		return err
+	}
+	if err = RejectProgressionEvidence(s, approvalRef); err != nil {
+		return err
+	}
+	if err = CurrentApprovalReferencesSemantic(s, record); err != nil {
+		return err
+	}
+	selected, err := SelectApprovalRecordSemantic(s, record, id)
+	if err != nil {
+		return err
+	}
+	if id == "gate.plan-approved" {
+		if err = s.Verify("plan-aggregate", ref, map[string]string{"approval": approvalRef, "gate": id}); err != nil {
+			return err
+		}
+	} else {
+		expected, err := ApprovalExpectationFromState(s, id, item)
+		if err != nil {
+			return err
+		}
+		if err = AssertCurrentApprovalSemantic(s, selected, expected); err != nil {
+			return err
+		}
+		rule, err := ApprovalRuleSemantic(s, selected)
+		if err != nil {
+			return err
+		}
+		if s.Report.Coverage == nil {
+			s.Report.Coverage = map[string]any{}
+		}
+		validated, _ := s.Report.Coverage["approval_validated"].([]any)
+		s.Report.Coverage["approval_validated"] = append(validated, map[string]any{"gate_id": id, "rule": rule})
+	}
+	s.Report.Applicability = append(s.Report.Applicability, map[string]any{"kind": "approval", "mode": "current-binding", "execution_authorization": "not-evaluated"})
+	return nil
+}
+
 func (s *SemanticSession) GateChecks(cp map[string]any, ref, gateID string) error {
 	gate := SemanticDefinition(s.Registry, "gates", gateID)
 	if gate == nil {
@@ -115,7 +166,7 @@ func (s *SemanticSession) GateChecks(cp map[string]any, ref, gateID string) erro
 			if !refs[Text(item["approval_ref"])] || !refs[Text(item["subject_ref"])] {
 				return s.Reject("APPROVAL_CONTEXT_REQUIRED", "未绑定批准与主体: "+id)
 			}
-			if err = s.Verify("approval", Text(item["approval_ref"]), map[string]string{"checkpoint": ref, "boundary": id}); err != nil {
+			if err = s.gateStateApproval(item, ref, id); err != nil {
 				return err
 			}
 		}
