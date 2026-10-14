@@ -261,7 +261,7 @@ func (s *SemanticSession) externalReferenceView(root, ref string) (*View, string
 // Fixed-tool provenance is separate from project assets and source payloads.
 // A caller may explicitly supply the physical tool tree. No embedded template
 // or receiving-project authority is used to fill a missing source asset.
-func (s *SemanticSession) toolBytes(ref string) ([]byte, error) {
+func (s *SemanticSession) ToolBytes(ref string) ([]byte, error) {
 	source, err := s.ToolSourceSession()
 	if err != nil {
 		return nil, err

@@ -3,7 +3,13 @@ package governance
 import (
 	"context"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	_ "github.com/iloveZzz/yss-cli/internal/governance/approval"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	_ "github.com/iloveZzz/yss-cli/internal/governance/evidence"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
+	"github.com/iloveZzz/yss-cli/internal/governance/reading"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
 	"path/filepath"
@@ -46,7 +52,7 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 		if err := rejectUnportedArgs(args, ArgumentKeys(group, action)...); err != nil {
 			return nil, err
 		}
-		return specBaselineRun(ctx, action, root, args)
+		return handoff.SpecBaselineRun(ctx, action, root, args)
 	}
 	semantic := action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff")
 	if !semantic && (args["history"] != "" || args["require-approved"] != "") {
@@ -65,11 +71,11 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if semantic {
 		return semanticRun(ctx, group, action, root, args)
 	}
-	if group == "contract" && action == "view" || args["view"] != "" {
-		return readingRun(ctx, group, action, root, args)
-	}
 	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
-		return dailyRun(ctx, action, root, args)
+		return lifecycle.Run(ctx, action, root, args)
+	}
+	if group == "contract" && action == "view" || args["view"] != "" {
+		return reading.Run(ctx, group, action, root, args, reading.Sources{ScanContext: scanContext, ValidateRegistry: validateRegistry, LifecycleState: lifecycleState, Copy: contracts.ContractCopy, Same: contracts.ContractSame, Plan: contracts.ContractPlan})
 	}
 	if group == "lifecycle" && action == "target" {
 		return progressionTargetRun(ctx, root, args)
@@ -126,7 +132,9 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "kind", "file", "unit", "view")
 	case "lifecycle.target":
 		allowed = append(allowed, "checkpoint", "input", "plan", "out", "apply", "plan-file")
-	case "lifecycle.route", "lifecycle.verify-daily":
+	case "lifecycle.route":
+		allowed = append(allowed, "task", "implementation-root", "base", "view")
+	case "lifecycle.verify-daily":
 		allowed = append(allowed, "task", "implementation-root", "base")
 	case "lifecycle.verify":
 		allowed = append(allowed, "checkpoint", "file", "arg0", "history", "home", "run-dir", "tool-root", "template-checkout")

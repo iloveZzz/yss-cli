@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 // kernelScope 是「内核 + 覆盖层」组合里由内核（同一仓库同一提交）提供的目录。
@@ -63,6 +64,27 @@ func readOverlaySource(ctx context.Context, root, commit string, overlayPaths []
 		}
 		for ref, f := range overlay {
 			merged[ref] = f
+		}
+	}
+	if _, exists := merged[schema.OrchestrationRef]; exists {
+		_, refs, _, err := schema.LoadOrchestration(func(ref string) ([]byte, error) {
+			file, ok := merged[ref]
+			if !ok {
+				return nil, fmt.Errorf("合同部件缺失: %s", ref)
+			}
+			return file.data, nil
+		}, schema.OrchestrationRef)
+		if err != nil {
+			return nil, err
+		}
+		retained := map[string]bool{}
+		for _, ref := range refs {
+			retained[ref] = true
+		}
+		for ref := range merged {
+			if strings.HasPrefix(ref, ".template-spec/process/orchestration/") && !retained[ref] {
+				delete(merged, ref)
+			}
 		}
 	}
 	if e = expandProjectionLinks(merged); e != nil {

@@ -191,6 +191,17 @@ func (v *View) Read(ref string) ([]byte, error) {
 }
 
 func (v *View) Document(ref string) (map[string]any, error) {
+	if strings.HasSuffix(ref, "/orchestration-contract.yaml") {
+		if ref == schema.OrchestrationRef {
+			var err error
+			ref, err = orchestrationReference(func(name string) (bool, error) { d, err := v.Watch(name); return d.Type != "missing", err }, v.Document)
+			if err != nil {
+				return nil, err
+			}
+		}
+		value, _, _, err := schema.LoadOrchestration(v.Read, ref)
+		return value, err
+	}
 	b, err := v.Read(ref)
 	if err != nil {
 		return nil, err
@@ -390,7 +401,10 @@ func StageFeatureBinding(s *SemanticSession, ref string, cp map[string]any) (str
 			if profile == "" {
 				return "", "", s.Unavailable("IDENTITY", "未知功能登记 Profile")
 			}
-			contractRef := GuidanceContractRef(profile)
+			contractRef, err := s.OrchestrationReference()
+			if err != nil {
+				return "", "", err
+			}
 			present, err = s.Exists(contractRef)
 			if err != nil {
 				return "", "", err

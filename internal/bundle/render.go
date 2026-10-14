@@ -40,30 +40,6 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		if selected {
 			return selectedSourceLock(data, skills)
 		}
-	case "scripts/lib/skill-supply-chain.mjs":
-		if selected {
-			markers := regexp.MustCompile(`(?m)^export const PROJECTION_ROOTS = \[[^\]]*\];`).FindAllString(text, -1)
-			if len(markers) != 1 {
-				return nil, fmt.Errorf("Skill 投影脚本分发基线变化")
-			}
-			marker := markers[0]
-			addition := `
-function projectionRootsFor(lock) {
-  const identityPath = path.join(ROOT, "yss-project.yaml");
-  const isInstance = existsSync(identityPath) && /^repository_mode:\s*project-instance\s*$/m.test(readFileSync(identityPath, "utf8"));
-  if (!isInstance) return PROJECTION_ROOTS;
-  const roots = lock?.projectionRoots;
-  if (!Array.isArray(roots) || roots.some((root) => !PROJECTION_ROOTS.includes(root))) throw new TypeError("project-instance skills-lock.json 缺少有效 projectionRoots");
-  return [...new Set(roots)];
-}
-`
-			text = strings.Replace(text, marker, marker+addition, 1)
-			text = strings.Replace(text, "  const shared = sharedFromLock(lock);", "  const shared = sharedFromLock(lock);\n  const projectionRoots = projectionRootsFor(lock);", 1)
-			text = strings.Replace(text, "  const oldLock = parseLock(); const previous = priorMetadata(oldLock);", "  const oldLock = parseLock(); const projectionRoots = projectionRootsFor(oldLock); const previous = priorMetadata(oldLock);", 1)
-			text = strings.ReplaceAll(text, "for (const root of PROJECTION_ROOTS) {", "for (const root of projectionRoots) {")
-			text = strings.Replace(text, `const targets = [".agents/skills", ...PROJECTION_ROOTS];`, `const targets = [".agents/skills", ...projectionRoots];`, 1)
-			text = strings.Replace(text, "projectionRoots: PROJECTION_ROOTS, sources, skills", "projectionRoots, sources, skills", 1)
-		}
 	case ".template-spec/user-guide/用户手册.md":
 		if selected {
 			text = "# " + projectToken + " 用户手册\n\n本仓是 `project-instance`，用于 " + domainToken + " 的研发资产。先阅读根 [AGENTS.md](../../AGENTS.md)、[CONTEXT.md](../../CONTEXT.md) 与 [生命周期资产索引](../process/lifecycle-artifact-map.md)。\n\n初始化安装分诊与 Plan 入口资产、入口 Skill 与所选 Agent 平台。进入后续阶段前，运行 `create-yss-spec assets ensure <stage-id> --plan` 核对文件，再运行 `--apply` 原子安装；专项 Skill 使用 `create-yss-spec skills ensure <skill-id...> --plan/--apply`，会补齐该 Skill 引用的实例文件。增加平台使用 `create-yss-spec skills runtime add <codex|cursor|pi> --plan/--apply`。CLI 快照必须与实例记录的模板提交一致；版本不匹配时先核对匹配的 CLI 或 `create-yss-spec sync --plan`，不自动扩展同步范围。\n\n项目校验运行 `scripts/verify-project-instance`；实例 CI 应执行该命令和项目实际的构建、测试。\n" + skillPreflight

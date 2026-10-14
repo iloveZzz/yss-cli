@@ -9,11 +9,10 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "df93f325b65debd24bcf1eb7d4968fc192662f2c",
-      "templateVersion": "4.0.4",
-      "templateTag": "v4.0.4",
+      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
+      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "3389255a79e0f2f8eea0e1ecf70993a07edcacc053f4453c455eef96f435a9de",
+      "policyHash": "a9412e17aeab00ad945c479a8c4dc88f9e513463bd4ce90f13bdce893742217d",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
@@ -24,11 +23,10 @@
     "design": {
       "profile": "design",
       "sourcePath": ".",
-      "templateCommit": "df93f325b65debd24bcf1eb7d4968fc192662f2c",
-      "templateVersion": "4.0.4",
-      "templateTag": "v4.0.4",
+      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
+      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
       "policyPath": "profiles/design/.template-source/distribution/bundle-profile.json",
-      "policyHash": "f4ab08c82a389e065e92abc8b9dc940b9cacca3442e32a1d1f2d41758187ebe5",
+      "policyHash": "e287e017da766050209702150c4a78dc4c36c649cca7370ccd77466a8b2fa367",
       "overlayPaths": [
         "profiles/_specialist",
         "profiles/design"
@@ -43,11 +41,10 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "df93f325b65debd24bcf1eb7d4968fc192662f2c",
-      "templateVersion": "4.0.4",
-      "templateTag": "v4.0.4",
+      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
+      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
-      "policyHash": "886cd7f5e7cea0bfb12059e8d9acb12e043f82cbd5aa8bf3d86591f671ae736e",
+      "policyHash": "a40b02c738a1053ff67e2d0d14b5c0501cebe1447ca0e904530a60cf80e07061",
       "overlayPaths": [
         "profiles/_specialist",
         "profiles/backend"

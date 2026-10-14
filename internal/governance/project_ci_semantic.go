@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
+	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"path"
 	"path/filepath"
@@ -23,7 +25,7 @@ func ciEvidenceReceipt(ref string) string {
 }
 
 func init() {
-	registerSemanticValidator("handoff-source-delivery-evidence", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+	kernel.RegisterSemanticValidator("handoff-source-delivery-evidence", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		receiptRef := ciEvidenceReceipt(ref)
 		if receiptRef == "" {
 			return s.Reject("HANDOFF_RECEIPT", "来源交付证据缺少合法接收记录路径")
@@ -35,9 +37,9 @@ func init() {
 		if receipt["source_delivery_record_ref"] != ref || kernel.ContractN(receipt["schema_version"]) != 3 {
 			return s.Reject("HANDOFF_RECEIPT", "来源交付证据未由receipt v3绑定")
 		}
-		return contractReceipt(s, receipt)
+		return handoff.ContractReceipt(s, receipt)
 	})
-	registerSemanticValidator("handoff-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+	kernel.RegisterSemanticValidator("handoff-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		receipt, err := s.Doc(ref)
 		if err != nil {
 			return err
@@ -45,22 +47,22 @@ func init() {
 		if ref != path.Join("docs/handoffs", kernel.Text(receipt["bundle_id"]), kernel.Text(receipt["version"]), "import-receipt.json") {
 			return s.Reject("HANDOFF_RECEIPT", "导入收据路径非法")
 		}
-		if err = contractReceipt(s, receipt); err != nil {
+		if err = handoff.ContractReceipt(s, receipt); err != nil {
 			return err
 		}
 		for _, capability := range kernel.SemStrings(receipt["selected_consumer_capabilities"]) {
-			if err = contractReceiptConsumer(s, receipt, capability); err != nil {
+			if err = handoff.ContractReceiptConsumer(s, receipt, capability); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	registerSemanticValidator("spec-baseline-package", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
-		_, _, err := openSpecBaseline(s, ref)
+	kernel.RegisterSemanticValidator("spec-baseline-package", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		_, _, err := handoff.OpenSpecBaseline(s, ref)
 		return err
 	})
-	registerSemanticValidator("spec-baseline-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
-		_, _, err := verifySpecBaselineReceipt(s, ref, false)
+	kernel.RegisterSemanticValidator("spec-baseline-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		_, _, err := handoff.VerifySpecBaselineReceipt(s, ref, false)
 		return err
 	})
 }
@@ -202,7 +204,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			value, e := kernel.CiParse(bytes, ref)
 			if e == nil && value["bundle_id"] != nil && value["handoff_ref"] != nil && value["files"] != nil {
 				prefix := filepath.ToSlash(filepath.Dir(ref))
-				run("handoff-package", prefix, semanticOptions(args))
+				run("handoff-package", prefix, kernel.SemanticOptions(args))
 				packageRoots = append(packageRoots, prefix)
 			} else if e == nil && value["kind"] == "spec-baseline" && value["baseline_id"] != nil && value["files"] != nil {
 				prefix := filepath.ToSlash(filepath.Dir(ref))
@@ -270,7 +272,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 					if value["kind"] == "spec-baseline-import" {
 						kind = "spec-baseline-package"
 					}
-					run(kind, prefix, semanticOptions(args))
+					run(kind, prefix, kernel.SemanticOptions(args))
 					packageRoots = append(packageRoots, prefix)
 				}
 			}
@@ -352,7 +354,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 			actorGroups[key] = append(actorGroups[key], task)
 		}
 		for _, group := range actorGroups {
-			if e := validateTaskActorSetSemantic(s, group); e != nil {
+			if e := contracts.ValidateTaskActorSetSemantic(s, group); e != nil {
 				fail("task-actors", e)
 			}
 		}
@@ -402,7 +404,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 					}
 				}
 				if len(consumers) == 1 {
-					run("handoff-source", consumers[0], semanticOptions(args))
+					run("handoff-source", consumers[0], kernel.SemanticOptions(args))
 					continue
 				}
 			}
@@ -412,7 +414,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 					fail(ref, s.Reject("CLAIM_CONTEXT_REQUIRED", "领域资产需要唯一当前 checkpoint 归属"))
 					continue
 				}
-				opts := semanticOptions(args)
+				opts := kernel.SemanticOptions(args)
 				opts["checkpoint"] = owners[0]
 				if kind == "verification" && kernel.Text(value["kind"]) == "frontend-scaffold-verification" {
 					binding := kernel.SemMap(kernel.SemMap(values[owners[0]]["artifacts"])["artifact.project-scaffold-contract"])
@@ -420,7 +422,7 @@ func fullProjectCIRun(ctx context.Context, action, root string, args map[string]
 						fail(ref, s.Reject("VERIFICATION_CURRENT_REQUIRED", "完整 CI 的脚手架报告需要 checkpoint 当前批准合同"))
 						continue
 					}
-					if _, e := contractBoundDoc(s, binding); e != nil {
+					if _, e := contracts.ContractBoundDoc(s, binding); e != nil {
 						fail(ref, e)
 						continue
 					}

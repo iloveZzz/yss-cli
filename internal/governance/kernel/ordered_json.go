@@ -11,7 +11,7 @@ import (
 )
 
 // This contract preserves source insertion order instead of canonical key order.
-func orderedAssetJSON(raw []byte, fields ...string) ([]byte, error) {
+func OrderedAssetJSON(raw []byte, fields ...string) ([]byte, error) {
 	if _, err := schema.Parse(raw); err != nil {
 		return nil, err
 	}

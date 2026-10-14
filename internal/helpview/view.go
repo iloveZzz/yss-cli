@@ -10,6 +10,7 @@ import (
 
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -156,25 +157,39 @@ func Derive(profile string) (*View, error) {
 			return nil, fmt.Errorf("固定注册表缺少入口工作单元: %s", profile)
 		}
 	}
-	const policyRef = ".agents/skills/yss-product-lifecycle/references/orchestration-contract.yaml"
+	policyRef := ".template-spec/process/orchestration-contract.yaml"
+	if _, ok := b.Files[policyRef]; !ok {
+		owner := "yss-product-lifecycle"
+		if profile == "backend" {
+			owner = "harness-orchestrator"
+		}
+		if profile == "design" {
+			owner = "yss-strategic-design"
+		}
+		policyRef = ".agents/skills/" + owner + "/references/orchestration-contract.yaml"
+	}
 	if _, ok := b.Files[policyRef]; ok {
-		raw, e = read(policyRef)
+		value, _, policyDigest, err := schema.LoadOrchestration(read, policyRef)
+		if err != nil {
+			return nil, err
+		}
+		raw, e = json.Marshal(value)
 		if e != nil {
 			return nil, e
 		}
 		var policy struct {
 			RequestTriage struct {
 				DeliveryPath struct {
-					Version         int      `yaml:"version"`
-					EnabledProfiles []string `yaml:"enabled_profiles"`
-					DailySequence   []string `yaml:"daily_sequence"`
-				} `yaml:"delivery_path"`
-			} `yaml:"request_triage"`
+					Version         int      `json:"version"`
+					EnabledProfiles []string `json:"enabled_profiles"`
+					DailySequence   []string `json:"daily_sequence"`
+				} `json:"delivery_path"`
+			} `json:"request_triage"`
 		}
-		if e = yaml.Unmarshal(raw, &policy); e != nil {
+		if e = json.Unmarshal(raw, &policy); e != nil {
 			return nil, e
 		}
-		v.PolicySHA256 = safefs.Digest(raw)
+		v.PolicySHA256 = policyDigest
 		p := policy.RequestTriage.DeliveryPath
 		for _, name := range p.EnabledProfiles {
 			if name == profile && p.Version == 1 {

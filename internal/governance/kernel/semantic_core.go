@@ -157,6 +157,10 @@ func (s *SemanticSession) Bytes(ref string) ([]byte, error) {
 }
 
 func (s *SemanticSession) Doc(ref string) (map[string]any, error) {
+	if strings.HasSuffix(ref, "/orchestration-contract.yaml") {
+		value, _, _, err := s.OrchestrationDocument(ref)
+		return value, err
+	}
 	b, err := s.Bytes(ref)
 	if err != nil {
 		return nil, err
