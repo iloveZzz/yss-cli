@@ -2,15 +2,16 @@
   "schemaVersion": 3,
   "producer": {
     "version": "bundle-producer-v3",
-    "commit": "2136a3e38b883972fa967927b6d25328a207f213",
+    "commit": "bf3041d75c0b11c0d80ee80b2d9be13eed110af2",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
-      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
+      "templateCommit": "7ce88c5440719a748e709b767db9a6275e2f74cd",
+      "templateVersion": "4.1.0",
+      "templateTag": "v4.1.0",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "a9412e17aeab00ad945c479a8c4dc88f9e513463bd4ce90f13bdce893742217d",
       "legacy": {
@@ -23,8 +24,9 @@
     "design": {
       "profile": "design",
       "sourcePath": ".",
-      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
-      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
+      "templateCommit": "7ce88c5440719a748e709b767db9a6275e2f74cd",
+      "templateVersion": "4.1.0",
+      "templateTag": "v4.1.0",
       "policyPath": "profiles/design/.template-source/distribution/bundle-profile.json",
       "policyHash": "e287e017da766050209702150c4a78dc4c36c649cca7370ccd77466a8b2fa367",
       "overlayPaths": [
@@ -41,8 +43,9 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "7156c7c66cf8deff75204867400715747af720c4",
-      "templateVersion": "git:7156c7c66cf8deff75204867400715747af720c4",
+      "templateCommit": "7ce88c5440719a748e709b767db9a6275e2f74cd",
+      "templateVersion": "4.1.0",
+      "templateTag": "v4.1.0",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
       "policyHash": "a40b02c738a1053ff67e2d0d14b5c0501cebe1447ca0e904530a60cf80e07061",
       "overlayPaths": [
