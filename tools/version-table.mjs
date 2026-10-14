@@ -20,6 +20,37 @@ const LOCK = "docs/source-lock.json";
 const PACKED = "internal/bundle/assets/bundles.json.gz";
 const COMMIT = /^[a-f0-9]{40}$/;
 
+// Exact pre-semver packages absent from top-level CLI Bundle history. The marker
+// only places these sources below 4.0.0; it is not a historical release or ordinal.
+const LEGACY_SOURCES = [
+  {
+    "profile": "design",
+    "templateCommit": "b9f7923ccc0bd5d55443e49cb2fe5857d623c648",
+    "version": "4.0.0-pre.legacy.1",
+    "origin": {
+      "kind": "fixed-legacy-package",
+      "package": "create-yss-harness-design",
+      "packageVersion": "0.8.17",
+      "cliCommit": "7d2f9008d998ca87298a130f31019ffd6a87b3a5",
+      "packageSha256": "de4762500e339041eefeba78162006c1cbdf761f343e6bb7b009965ae03b6386",
+      "snapshotArchiveSha256": "8c549afc0e6726ffffc67f081676532d0d7533b50deeccba9738976e5931ab7d"
+    }
+  },
+  {
+    "profile": "backend",
+    "templateCommit": "3eacf7ea0fd95377aef04e0e9ead2c3236be93e1",
+    "version": "4.0.0-pre.legacy.1",
+    "origin": {
+      "kind": "fixed-legacy-package",
+      "package": "create-yss-harness-backend",
+      "packageVersion": "0.4.21",
+      "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
+      "packageSha256": "85aab48d6b233e962b8401ec8521194a919a633f454e4a23745c6d9a2a89380c",
+      "snapshotArchiveSha256": "be58816309dde0e9de2c5ecda3f7fabba808246fc005f745c273425cf8c6050c"
+    }
+  }
+];
+
 function git(args, { binary = false } = {}) {
   const result = spawnSync("git", ["-C", CLI_ROOT, ...args], { maxBuffer: 256 * 1024 * 1024 });
   if (result.status !== 0) return null;
@@ -73,7 +104,7 @@ export function buildTable(through) {
       entries.push({ profile, templateCommit, version: `${BASE}-pre.${ordinal}`, firstSeen });
     }
   }
-  return { schemaVersion: 1, base: BASE, through, entries };
+  return { schemaVersion: 1, base: BASE, through, entries: [...entries, ...LEGACY_SOURCES.filter(entry => !seen.get(entry.profile).has(entry.templateCommit))] };
 }
 
 function render(table) {

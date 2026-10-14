@@ -186,7 +186,7 @@ func verifyTemplateTag(ctx context.Context, root string, s *Source) error {
 }
 
 // 「commit → 版本」对照表：只记录语义化版本发布之前的历史来源，由 tools/version-table.mjs
-// 从来源锁历史与内嵌 Bundle 历史一次性生成。之后的实例直接记录语义化版本，不再查表。
+// 从来源锁、内嵌 Bundle 历史及固定旧包补充登记生成。未知来源仍不推测版本。
 //
 //go:embed assets/version-table.json
 var versionTableJSON []byte
