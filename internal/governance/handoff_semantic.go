@@ -19,9 +19,14 @@ import (
 func init() {
 	registerSemanticValidator("handoff-package", verifyHandoffPackageSemantic)
 	registerSemanticValidator("handoff-source", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
-		_, err := contractInspectHandoff(s, ref)
+		h, err := contractInspectHandoff(s, ref)
+		if err == nil {
+			err = handoffSourceCoverage(s, s, ref, h)
+		}
 		return err
 	})
+	registerSemanticValidator("handoff-delivery", verifyStrategicDeliveryPublic)
+	registerSemanticValidator("handoff-source-approval", verifySourceApprovalPublic)
 	registerSemanticValidator("strategic-delivery", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		_, _, err := contractOpenStrategicDelivery(s, ref)
 		return err
@@ -42,6 +47,7 @@ func init() {
 
 type nativeHandoff struct {
 	Manifest, Handoff, Strategy, Stage, Config, Changes, Business map[string]any
+	BusinessReport                                                map[string]any
 	Rules, Scenarios                                              []any
 	Source                                                        *kernel.SemanticSession
 	Prefix                                                        string
@@ -54,7 +60,7 @@ func verifyHandoffPackageSemantic(s *kernel.SemanticSession, ref string, opts ma
 		if s.Report.Coverage == nil {
 			s.Report.Coverage = map[string]any{}
 		}
-		s.Report.Coverage["handoff_package"] = map[string]any{"bundle_id": h.Manifest["bundle_id"], "version": h.Manifest["version"], "bundle_digest": h.Manifest["bundle_digest"], "rules": len(h.Rules), "scenarios": len(h.Scenarios)}
+		e = handoffPackageCoverage(s, h)
 	}
 	return e
 }
@@ -271,20 +277,7 @@ func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*nativ
 	if len(kernel.SemMap(source.Roles["gate_policy"])) == 0 {
 		return nil, source.Reject("HANDOFF_POLICY", "来源角色策略缺少 gate_policy")
 	}
-	published := []any{}
-	policy := kernel.SemMap(source.Roles["gate_policy"])
-	for _, bucket := range []string{"biological_human", "product_digital_human_with_biological_veto"} {
-		for _, id := range kernel.SemStrings(policy[bucket]) {
-			published = append(published, map[string]any{"id": id})
-		}
-	}
-	for _, bucket := range []string{"dual_digital_human", "digital_human_review", "check_reviews"} {
-		for _, row := range kernel.SemList(policy[bucket]) {
-			published = append(published, map[string]any{"id": kernel.SemMap(row)["gate"]})
-		}
-	}
-	source.Registry = map[string]any{"gates": published, "id_policy": map[string]any{"deprecated_ids": []any{}}}
-	source.Report.Checks = append(source.Report.Checks, kernel.SemanticCheck{ID: "handoff-source-policy-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
+	contractSourceSigningRegistry(source)
 	handoff, e := source.Doc(kernel.Text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
@@ -312,36 +305,69 @@ func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*nativ
 // Imported business references select an already authenticated v5 source view;
 // a path match alone never creates aliases or accepts a distinct baseline format.
 func contractBusinessSource(s *kernel.SemanticSession, ref, reviewRef string) (*kernel.SemanticSession, string, string, error) {
-	if strings.HasPrefix(ref, "docs/spec-baselines/") {
-		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
-	}
-	if !strings.HasPrefix(ref, "docs/handoffs/") {
+	if !strings.HasPrefix(ref, "docs/spec-baselines/") && !strings.HasPrefix(ref, "docs/handoffs/") {
 		return s, ref, reviewRef, nil
 	}
 	parts := strings.Split(ref, "/")
-	if !kernel.ContractPath(ref) || len(parts) < 8 || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(parts[3]) || parts[4] != "package" || parts[5] != "payload" || parts[6] != "files" {
-		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告仅支持战略 Handoff v5 的固定 payload/files 来源")
+	if !kernel.ContractPath(ref) || len(parts) < 6 || !regexp.MustCompile(`^v[1-9][0-9]*$`).MatchString(parts[3]) {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "来源路径必须为已登记导入布局")
 	}
-	prefix, local := strings.Join(parts[:5], "/"), strings.Join(parts[7:], "/")
-	manifest, e := s.Doc(path.Join(prefix, "manifest.json"))
-	if e != nil {
-		return nil, "", "", e
+	base := strings.Join(parts[:4], "/")
+	if parts[1] == "spec-baselines" {
+		if parts[4] == "working-files" {
+			if _, _, e := verifySpecBaselineReceipt(s, base+"/receipt.json", false); e != nil {
+				return nil, "", "", e
+			}
+			receipt, e := s.Doc(base + "/receipt.json")
+			if e != nil {
+				return nil, "", "", e
+			}
+			working, e := s.Doc(kernel.Text(receipt["working_set_ref"]))
+			if e != nil {
+				return nil, "", "", e
+			}
+			if working["business_ticket_set_ref"] != ref {
+				return nil, "", "", s.Reject("SPEC_BASELINE_WORKING_SET", "业务集合不属于批准接入工作集")
+			}
+			return s, ref, reviewRef, nil
+		}
+		if len(parts) < 8 || parts[4] != "package" || parts[5] != "payload" || parts[6] != "files" {
+			return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "冻结 Spec 来源需要固定 payload/files 布局")
+		}
+		_, source, e := openSpecBaseline(s, base+"/package")
+		if e != nil {
+			return nil, "", "", e
+		}
+		local := strings.Join(parts[7:], "/")
+		if strings.HasPrefix(reviewRef, base+"/package/payload/files/") {
+			reviewRef = strings.TrimPrefix(reviewRef, base+"/package/payload/files/")
+		}
+		return source, local, reviewRef, nil
 	}
-	if kernel.SemHas([]string{"spec-baseline", "spec-baseline-package"}, kernel.Text(manifest["kind"])) {
-		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Spec baseline 导入格式尚未接入本业务报告接口")
+	if parts[4] != "package" {
+		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Handoff 来源需要已登记 package")
 	}
+	prefix := base + "/package"
 	opened, e := contractOpenHandoffSource(s, prefix)
 	if e != nil {
 		return nil, "", "", e
 	}
-	if kernel.ContractN(opened.Handoff["schema_version"]) != 5 {
-		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "业务报告需要战略 Handoff v5 固定来源布局")
+	stored := strings.Join(parts[5:], "/")
+	local := ""
+	localReview := reviewRef
+	for _, entry := range kernel.SemList(opened.Manifest["files"]) {
+		row := kernel.SemMap(entry)
+		if row["path"] == stored {
+			local = kernel.Text(row["original_ref"])
+		}
+		if prefix+"/"+kernel.Text(row["path"]) == reviewRef {
+			localReview = kernel.Text(row["original_ref"])
+		}
 	}
-	base := prefix + "/payload/files/"
-	if strings.HasPrefix(reviewRef, base) {
-		reviewRef = strings.TrimPrefix(reviewRef, base)
+	if local == "" {
+		return nil, "", "", s.Reject("SOURCE_MANIFEST", "业务集合未登记为来源文件")
 	}
-	return opened.Source, local, reviewRef, nil
+	return opened.Source, local, localReview, nil
 }
 
 func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHandoff, error) {
@@ -456,6 +482,48 @@ func contractOpenHandoff(s *kernel.SemanticSession, prefix string) (*nativeHando
 	}
 	bundle.Changes = changes
 	return bundle, nil
+}
+
+// Historical source signing gates come only from the validated source policy.
+// Current v2 tasks and bounded Plan ownership still load their frozen registry.
+func contractSourceSigningRegistry(source *kernel.SemanticSession) {
+	published := []any{}
+	policy := kernel.SemMap(source.Roles["gate_policy"])
+	for _, bucket := range []string{"biological_human", "product_digital_human_with_biological_veto"} {
+		for _, id := range kernel.SemStrings(policy[bucket]) {
+			published = append(published, map[string]any{"id": id})
+		}
+	}
+	for _, bucket := range []string{"dual_digital_human", "digital_human_review", "check_reviews"} {
+		for _, row := range kernel.SemList(policy[bucket]) {
+			published = append(published, map[string]any{"id": kernel.SemMap(row)["gate"]})
+		}
+	}
+	source.Registry = map[string]any{"gates": published, "id_policy": map[string]any{"deprecated_ids": []any{}}}
+	source.Report.Checks = append(source.Report.Checks, kernel.SemanticCheck{ID: "handoff-source-policy-v1", SourceRef: ".template-spec/agents/digital-human-roles.yaml", Status: "passed"})
+}
+
+// The readonly source selector binds the original protocol before loading its
+// signing policy. It does not lend historical policy to other governance kinds.
+func handoffSourceAuthorities(s *kernel.SemanticSession, ref string) error {
+	handoff, err := s.Doc(ref)
+	if err != nil {
+		return err
+	}
+	protocol, valid := kernel.Integer(handoff["schema_version"])
+	if !valid || protocol < 3 || protocol > 5 {
+		return s.Unavailable("CAPABILITY", "未知 Handoff 协议")
+	}
+	if err = s.ValidateSchema(fmt.Sprintf(".template-spec/process/schemas/strategic-design-handoff-v%d.schema.json", protocol), handoff); err != nil {
+		return err
+	}
+	if err = s.HandoffSourceAuthorities(func(source *kernel.SemanticSession) error {
+		return contractHandoffSourcePolicy(source, int(protocol))
+	}); err != nil {
+		return err
+	}
+	contractSourceSigningRegistry(s)
+	return nil
 }
 
 func contractInspectHandoff(s *kernel.SemanticSession, ref string) (*nativeHandoff, error) {
@@ -790,32 +858,9 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 	if e := contractHandoffSourcePolicy(s, kernel.ContractN(b.Handoff["schema_version"])); e != nil {
 		return e
 	}
-	roles := contractCopy(s.Roles)
-	policy := contractCopy(kernel.SemMap(roles["gate_policy"]))
-	review := kernel.SemList(policy["digital_human_review"])
-	for _, v := range kernel.SemList(policy["check_reviews"]) {
-		m := kernel.SemMap(v)
-		exists := false
-		for _, r := range review {
-			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
-		}
-		for _, r := range kernel.SemList(policy["dual_digital_human"]) {
-			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
-		}
-		if !exists {
-			review = append(review, v)
-		}
-	}
-	policy["digital_human_review"] = review
-	veto := kernel.SemStrings(policy["product_digital_human_with_biological_veto"])
-	for _, gate := range veto {
-		if kernel.SemHas(policy["biological_human"], gate) || kernel.ApFind(policy["digital_human_review"], "gate", gate) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", gate) != nil {
-			continue
-		}
-		policy["digital_human_review"] = append(kernel.ApArray(policy["digital_human_review"]), map[string]any{"gate": gate, "countersigners": []string{"role.product-manager"}})
-	}
-	roles["gate_policy"] = policy
-	s.Roles = roles
+	contractNormalizeSourceRoles(s)
+	roles := s.Roles
+	policy := kernel.SemMap(s.Roles["gate_policy"])
 	currentPlan := kernel.ApFind(policy["dual_digital_human"], "gate", "gate.plan-approved") != nil
 	explicit := func(g string) bool {
 		return kernel.ApFind(policy["digital_human_review"], "gate", g) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", g) != nil || kernel.SemHas(policy["biological_human"], g)
@@ -862,7 +907,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 	}
 	if kernel.SemHas(capabilities, "business-ticket-approval-v1") {
 		gates["business_ticket_set_ref"] = terminal
-		business, e := contractBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]))
+		business, businessReport, e := contractCollectBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]), "formal", "")
 		if e != nil {
 			return e
 		}
@@ -872,6 +917,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *nativeHa
 			return s.Reject("HANDOFF_BUSINESS", "业务票集合身份或 Spec 版本冲突")
 		}
 		b.Business = business
+		b.BusinessReport = businessReport
 	}
 	bindings := contractCopy(sources)
 	bindings["handoff"] = map[string]any{"id": b.Handoff["handoff_id"], "version": b.Handoff["handoff_version"], "persisted_ref": ref, "approval_context": kernel.SemMap(kernel.SemMap(b.Config["approvals"])["handoff"])["approval_context"]}
@@ -1107,11 +1153,61 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 			if e != nil {
 				return e
 			}
-			context := kernel.SemMap(binding["approval_context"])
-			assetRef := kernel.First(kernel.Text(context["subject_ref"]), kernel.Text(binding["ref"]))
-			if e = s.Verify("source-plan-approval", approvalRef, map[string]string{"asset-ref": assetRef, "task-ref": kernel.Text(record["review_task_ref"])}); e != nil {
-				return e
+			expected, err := kernel.ApprovalExpectationForBoundAsset(s, gate, binding, nil, binding["review_package"])
+			if err != nil {
+				return err
 			}
+			ownerOptions := map[string]string{"asset-ref": kernel.Text(expected["subject_ref"]), "task-ref": kernel.Text(record["review_task_ref"]), "checkpoint-ref": kernel.Text(binding["checkpoint_ref"]), "checkpoint-digest": kernel.Text(binding["checkpoint_digest"])}
+			checkpointRef, err := sourcePlanApprovalCheckpoint(s, approvalRef, ownerOptions)
+			if err != nil {
+				return err
+			}
+			checkpoint, err := s.Doc(checkpointRef)
+			if err != nil {
+				return err
+			}
+			reviewRef := kernel.Text(checkpoint["plan_review_ref"])
+			reviewBytes, err := s.Bytes(reviewRef)
+			if err != nil {
+				return err
+			}
+			review, err := s.Doc(reviewRef)
+			if err != nil {
+				return err
+			}
+			if expected["subject_ref"] != reviewRef || strings.TrimPrefix(kernel.Text(expected["subject_digest"]), "sha256:") != safefs.Digest(reviewBytes) {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费主体不匹配")
+			}
+			if !kernel.ApSetEqual(expected["approval_scope"], []any{checkpoint["feature_id"]}) || expected["drafter_principal_ref"] != review["drafter_principal_ref"] {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费范围或作者不匹配")
+			}
+			basis := kernel.ApRows(expected["basis"])
+			if len(basis) == 0 {
+				return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费依据不匹配")
+			}
+			for _, asset := range basis {
+				matched := false
+				for _, current := range kernel.ApRows(review["basis"]) {
+					matched = matched || asset["ref"] == current["ref"] && strings.TrimPrefix(kernel.Text(asset["digest"]), "sha256:") == strings.TrimPrefix(kernel.Text(current["digest"]), "sha256:")
+				}
+				if !matched {
+					return s.Reject("APPROVAL_CURRENT_INVALID", "源 Plan 当前消费依据不匹配")
+				}
+			}
+			if err = s.Basis(kernel.ApArray(expected["basis"])); err != nil {
+				return err
+			}
+			if binding["id"] != nil || binding["version"] != nil {
+				matched := false
+				for _, asset := range kernel.ApRows(record["artifact_bindings"]) {
+					matched = matched || (binding["id"] == nil || contractSame(asset["id"], binding["id"])) && (binding["version"] == nil || contractSame(asset["version"], binding["version"])) && kernel.Text(asset["digest"]) == kernel.Text(binding["digest"])
+				}
+				if !matched {
+					return s.Reject("APPROVAL_CURRENT_INVALID", "批准未绑定当前资产身份/版本/摘要")
+				}
+			}
+			// The aggregate reuses the professional task; that task must not gain an extra aggregate boundary.
+			return s.Verify("source-plan-approval", approvalRef, ownerOptions)
 		}
 	}
 	if e = contractApproval(s, gate, binding, approvalRef, map[string]string{}); e != nil {
@@ -1884,4 +1980,107 @@ func contractPreview(s *kernel.SemanticSession, config map[string]any, cases []s
 		}
 	}
 	return contractEvidence(s, receipt["evidence_refs"])
+}
+
+func contractNormalizeSourceRoles(s *kernel.SemanticSession) {
+	roles := contractCopy(s.Roles)
+	policy := contractCopy(kernel.SemMap(roles["gate_policy"]))
+	review := kernel.SemList(policy["digital_human_review"])
+	for _, v := range kernel.SemList(policy["check_reviews"]) {
+		m := kernel.SemMap(v)
+		exists := false
+		for _, r := range review {
+			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
+		}
+		for _, r := range kernel.SemList(policy["dual_digital_human"]) {
+			exists = exists || kernel.SemMap(r)["gate"] == m["gate"]
+		}
+		if !exists {
+			review = append(review, v)
+		}
+	}
+	policy["digital_human_review"] = review
+	veto := kernel.SemStrings(policy["product_digital_human_with_biological_veto"])
+	for _, gate := range veto {
+		if kernel.SemHas(policy["biological_human"], gate) || kernel.ApFind(policy["digital_human_review"], "gate", gate) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", gate) != nil {
+			continue
+		}
+		policy["digital_human_review"] = append(kernel.ApArray(policy["digital_human_review"]), map[string]any{"gate": gate, "countersigners": []string{"role.product-manager"}})
+	}
+	roles["gate_policy"] = policy
+	s.Roles = roles
+}
+
+func sourceClosureBindings(s *kernel.SemanticSession, refs []string) ([]any, error) {
+	rows := []any{}
+	for _, ref := range refs {
+		binding, e := s.Bind(ref)
+		if e != nil {
+			return nil, e
+		}
+		rows = append(rows, map[string]any{"ref": ref, "digest": binding.Digest})
+	}
+	return rows, nil
+}
+func handoffSourceCoverage(report, source *kernel.SemanticSession, ref string, h *nativeHandoff) error {
+	refs, e := contractHandoffClosure(source, ref, h)
+	if e != nil {
+		return e
+	}
+	closure, e := sourceClosureBindings(source, refs)
+	if e != nil {
+		return e
+	}
+	semanticCoverage(report, "handoff_source", map[string]any{"handoff": h.Handoff, "config": h.Config, "indexes": map[string]any{"rules": h.Rules, "scenarios": h.Scenarios}, "strategy": h.Strategy, "stage": h.Stage, "business": h.BusinessReport, "closure": closure})
+	return nil
+}
+func handoffPackageCoverage(s *kernel.SemanticSession, h *nativeHandoff) error {
+	prefix := "payload/files"
+	for _, entry := range kernel.SemList(h.Manifest["files"]) {
+		row := kernel.SemMap(entry)
+		if row["original_ref"] == h.Manifest["handoff_ref"] && row["path"] == "handoff.yaml" {
+			prefix = "."
+		}
+	}
+	semanticCoverage(s, "handoff_package", map[string]any{"bundle_id": h.Manifest["bundle_id"], "version": h.Manifest["version"], "bundle_digest": h.Manifest["bundle_digest"], "rules": len(h.Rules), "scenarios": len(h.Scenarios), "manifest": h.Manifest, "changes": h.Changes, "source_prefix": prefix})
+	return handoffSourceCoverage(s, h.Source, kernel.Text(h.Manifest["handoff_ref"]), h)
+}
+func verifyStrategicDeliveryPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	recordRef := path.Join(ref, "delivery-record.json")
+	h, record, e := contractOpenStrategicDelivery(s, recordRef)
+	if e != nil {
+		return e
+	}
+	verification, e := s.Doc(path.Join(ref, kernel.Text(record["verification_ref"])))
+	if e != nil {
+		return e
+	}
+	bound, e := s.Bind(recordRef)
+	if e != nil {
+		return e
+	}
+	if e = handoffPackageCoverage(s, h); e != nil {
+		return e
+	}
+	semanticCoverage(s, "handoff_delivery", map[string]any{"record": record, "verification": verification, "record_ref": recordRef, "record_digest": bound.Digest, "package_ref": path.Join(ref, kernel.Text(record["package_ref"]))})
+	return nil
+}
+func verifySourceApprovalPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	binding, e := s.Doc(ref)
+	if e != nil {
+		return e
+	}
+	gate := opts["gate"]
+	approvalRef := kernel.Text(binding["approval_ref"])
+	if gate == "" || approvalRef == "" {
+		return s.Unavailable("ARGUMENT", "来源批准需要 gate 与 binding.approval_ref")
+	}
+	saved := s.Roles
+	defer func() { s.Roles = saved }()
+	contractNormalizeSourceRoles(s)
+	if e = contractSourceApproval(s, gate, binding, approvalRef); e != nil {
+		return e
+	}
+	semanticCoverage(s, "source_approval", map[string]any{"result": "passed"})
+	return nil
 }

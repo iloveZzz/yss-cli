@@ -199,6 +199,7 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 	validated, e := kernel.ValidateUserDecisionSemantic(s, record, selected)
 	if e == nil {
 		decisionCoverage(s, validated.Rows())
+		semanticCoverage(s, "user_decision_result", validated.Result())
 	}
 	return e
 }
@@ -278,7 +279,7 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 			}
 		}
 		completionGate := "gate.delivery-accepted"
-		if kernel.ApFind(s.Registry["gates"], "id", "gate.strategic-design-handoff-approved") != nil {
+		if s.Report.Profile == "design" {
 			completionGate = "gate.strategic-design-handoff-approved"
 		}
 		if kernel.ApText(kernel.ApMap(kernel.ApMap(checkpoint["gates"])[completionGate])["status"]) != "approved" {

@@ -294,9 +294,23 @@ func ValidateUserDecisionSemantic(s *SemanticSession, record map[string]any, exp
 		if len(ApArray(want["scope"])) == 0 {
 			return result, ApFail(s, "user-decision-scope-mismatch", "当前批准范围缺失")
 		}
+		// Compare only references resolved by the current authority session. A
+		// root-local absolute spelling and its relative spelling name the same
+		// subject; equal local names in different source/run views do not.
+		wantView, wantRef, resolveErr := s.ReferenceView(ref)
+		if resolveErr != nil {
+			return result, resolveErr
+		}
 		matches := []map[string]any{}
 		for _, item := range ApRows(request["items"]) {
-			match := item["boundary"] == boundary && ApMap(item["subject"])["ref"] == ref
+			match := item["boundary"] == boundary
+			if match {
+				itemView, itemRef, resolveErr := s.ReferenceView(ApText(ApMap(item["subject"])["ref"]))
+				if resolveErr != nil {
+					return result, resolveErr
+				}
+				match = itemView == wantView && itemRef == wantRef
+			}
 			for _, scope := range ApStrings(want["scope"]) {
 				match = match && ApContains(item["scope"], scope)
 			}
@@ -664,4 +678,13 @@ func assertDecisionContinuationSemantic(s *SemanticSession, requirement map[stri
 	}
 	sourceResult.continued, sourceResult.reviewRef = true, ApText(ApMap(proof["review"])["ref"])
 	return sourceResult, nil
+}
+
+// Result exposes values already derived by the strict decision validator.
+func (d decisionValidation) Result() map[string]any {
+	outcomes := map[string]any{}
+	for id, answer := range d.outcomes {
+		outcomes[id] = answer["decision"]
+	}
+	return map[string]any{"request_id": d.requestID, "validated": d.Rows(), "outcomes": outcomes}
 }

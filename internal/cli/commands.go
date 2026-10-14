@@ -39,7 +39,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation from-record allow-template recover full") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
@@ -470,11 +470,11 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
+		return map[string][]string{"kind": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
-		return map[string][]string{"kind": {"package", "consumption", "spec-baseline", "backend-delivery"}}
+		return map[string][]string{"kind": {"package", "consumption", "spec-baseline", "backend-delivery", "source", "delivery", "source-approval"}}
 	case "handoff export", "handoff import":
 		return map[string][]string{"kind": {"spec-baseline"}}
 	case "runtime complete":
@@ -515,7 +515,13 @@ func verificationOptions(group, kind string) []string {
 			options = append(options, "requirements", "continuation", "from-record", "task")
 		case "evidence.verification":
 			options = append(options, "approval-ref", "task")
-		case "handoff.package":
+		case "contract.spec-baseline-binding":
+			options = append(options, "no-reconciliation")
+		case "contract.gate-checks":
+			options = append(options, "gate")
+		case "handoff.source-approval":
+			options = append(options, "gate", "source-context-snapshot")
+		case "handoff.delivery", "handoff.package":
 			options = append(options, "package")
 		case "handoff.spec-baseline":
 			options = append(options, "package")

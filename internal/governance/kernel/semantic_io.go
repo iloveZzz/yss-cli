@@ -191,11 +191,25 @@ func (s *SemanticSession) ReferenceView(ref string) (*View, string, error) {
 			return nil, "", err
 		}
 		for _, r := range append(roots, "docs", ".template-spec/implementation", ".template-spec/projects", ".template-spec/project") {
+			directories := map[string][]string{}
 			entries, err := scanRegistrations(s.Root, r, s.Guard, func(ref string) error {
 				_, err := s.V.Watch(ref)
 				return err
+			}, func(ref string, directory, pruned bool) error {
+				if pruned {
+					// The parent names and exact boundary identity were observed;
+					// no child enumeration or Git-internal read took place.
+					if err := s.RecordDirectoryVisit(directories, ref, false); err != nil {
+						return err
+					}
+					return s.V.ObserveRegistrationBoundary(ref)
+				}
+				return s.RecordDirectoryVisit(directories, ref, directory)
 			})
 			if err != nil {
+				return nil, "", err
+			}
+			if err = s.RecordDirectories(directories); err != nil {
 				return nil, "", err
 			}
 			if old, ok := s.registrationScans[r]; ok && !EqualStrings(old, entries) {
