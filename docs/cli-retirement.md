@@ -1,6 +1,6 @@
 # 四旧 CLI 退役合同
 
-统一入口源码版本为 `yss 2.0.0`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。现役范围为 Spec、Design、Backend；Frontend 独立 Profile 已退役，旧实例明确拒绝且保留文件，真实项目仅使用隔离副本，原地迁移另行安排。
+统一入口源码版本为 `yss 2.1.0`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。现役范围为 Spec、Design、Backend；Frontend 独立 Profile 已退役，旧实例明确拒绝且保留文件，真实项目仅使用隔离副本，原地迁移另行安排。
 
 `tools/bundle` 独立读取同一模板仓固定 Git 对象及三个 Profile 的有序覆盖层，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定历史来源提交和策略摘要；当前 v3 使用 Spec、Design、Backend 三个 Profile 与覆盖层来源，公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 
@@ -22,6 +22,6 @@ Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统�
 
 不执行 npm unpublish。本地从未公开发布的固定恢复版本必须另存可获取渠道，不能声称它已在 npm。保留上一版二进制、Bundle、来源锁、插件、旧 gitlink SHA 和恢复材料；不使用 reset/clean 覆盖工作。提交、推送、tag、稳定发布、npm deprecated、旧仓 archive 分别需要授权。
 
-历史 1.0 平台验收限定为本机。当前 2.0.0 的产物范围为 darwin/arm64 与 windows/amd64；用户随后明确要求仅 Mac 实际验收，其余完成产物即可。本次独立 caller 的 requiredPlatforms 因而固定为 darwin/arm64，Windows 构建包及摘要另行交付，不填造 native 收据、不并入已验收平台集合。工具仍拒绝输入自行改变 caller 范围，在线升级仍拒绝未验收平台。
+历史 1.0 平台验收限定为本机。当前 2.1.0 的产物范围为 darwin/arm64 与 windows/amd64；用户随后明确要求仅 Mac 实际验收，其余完成产物即可。本次独立 caller 的 requiredPlatforms 因而固定为 darwin/arm64，Windows 构建包及摘要另行交付，不填造 native 收据、不并入已验收平台集合。工具仍拒绝输入自行改变 caller 范围，在线升级仍拒绝未验收平台。
 
-2.0.0 发行资格范围为 local-platform-impacted-consumers：Mac ARM64 的原生接口、插件、恢复与安装，以及固定源码、Bundle、三个 Profile 的真实旧实例恢复和受影响模板消费者。Windows 仅验证构建产物的来源、文件与摘要，保持 stableReady=false、nativeRuntimeVerified=false。模板采用完整变化集驱动的必要验证；未执行的全模板回归、Windows 运行验收、剩余架构任务和其他平台不记为通过。
+2.1.0 发行资格范围为 local-platform-impacted-consumers：Mac ARM64 的原生接口、插件、恢复与安装，以及固定源码、Bundle、三个 Profile 的真实旧实例恢复和受影响模板消费者。Windows 仅验证构建产物的来源、文件与摘要，保持 stableReady=false、nativeRuntimeVerified=false。模板采用完整变化集驱动的必要验证；未执行的全模板回归、Windows 运行验收、剩余架构任务和其他平台不记为通过。

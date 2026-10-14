@@ -724,6 +724,40 @@ func sliceV3TaskVerificationOptions(s *kernel.SemanticSession, task map[string]a
 }
 
 func assertImplementationDecisionSemantic(s *kernel.SemanticSession, state map[string]any) error {
+	return implementationDecisionWithContract(s, state, func(ref string) (map[string]any, error) {
+		contract, err := loadNativeSlice(s, ref)
+		if err != nil {
+			return nil, err
+		}
+		return contract.Normalized, nil
+	})
+}
+
+// The independent scope receipt is not execution qualification. Historical v2
+// source approval checks consume the digest-bound scope fields; execution callers
+// above continue to require the complete current Slice contract. v3 is unchanged.
+func assertImplementationScopeSemantic(s *kernel.SemanticSession, state map[string]any) error {
+	return implementationDecisionWithContract(s, state, func(ref string) (map[string]any, error) {
+		doc, err := s.Doc(ref)
+		if err != nil {
+			return nil, err
+		}
+		raw := doc
+		if nested, ok := kernel.Object(doc["slice_contract"]); ok {
+			raw = nested
+		}
+		if kernel.ContractN(raw["schema_version"]) == 2 {
+			return raw, nil
+		}
+		contract, err := loadNativeSlice(s, ref)
+		if err != nil {
+			return nil, err
+		}
+		return contract.Normalized, nil
+	})
+}
+
+func implementationDecisionWithContract(s *kernel.SemanticSession, state map[string]any, contractView func(string) (map[string]any, error)) error {
 	requirement := kernel.ApFind(state["user_decisions"], "boundary", "implementation-scope")
 	ticket := kernel.ApText(state["vertical_slice_ticket_ref"])
 	if requirement == nil || ticket == "" || !kernel.ApContains(requirement["scope"], ticket) {
@@ -753,11 +787,10 @@ func assertImplementationDecisionSemantic(s *kernel.SemanticSession, state map[s
 	if e = kernel.DecisionCurrentAsset(s, asset, "user-decision-stale"); e != nil {
 		return e
 	}
-	c, e := loadNativeSlice(s, kernel.ApText(asset["ref"]))
+	contract, e := contractView(kernel.ApText(asset["ref"]))
 	if e != nil {
 		return e
 	}
-	contract := c.Normalized
 	if kernel.ApText(kernel.ApMap(contract["lifecycle_refs"])["ticket"]) != ticket {
 		return kernel.ApFail(s, "user-decision-subject-mismatch", "持久合同切片引用不匹配")
 	}

@@ -66,6 +66,7 @@ type SemanticReport struct {
 	Applicability          []map[string]any     `json:"applicability"`
 	Coverage               map[string]any       `json:"coverage,omitempty"`
 	GitInputs              []SemanticGitInput   `json:"git_inputs"`
+	ValidationDependencies map[string]any       `json:"validation_dependencies,omitempty"`
 }
 
 type SemanticSession struct {
@@ -84,6 +85,7 @@ type SemanticSession struct {
 	// All source sessions share these observations, including immutable Handoff payloads.
 	Children          []*SemanticSession `json:"-" yaml:"-"`
 	gitInputs         map[string]semanticGitObservation
+	Directories       map[string][]string       `json:"-" yaml:"-"`
 	ContextInventory  []string                  `json:"-" yaml:"-"`
 	IntakeInputs      map[string]map[string]any `json:"-" yaml:"-"`
 	ProfileInput      map[string]any            `json:"-" yaml:"-"` // Verified explicit Profile receipt, for readonly coordination.
@@ -448,6 +450,7 @@ func (s *SemanticSession) ScanFresh(ref string, observe bool) ([]string, error) 
 		return nil, err
 	}
 	entries := []string{}
+	directories := map[string][]string{}
 	count := 0
 	err = filepath.WalkDir(p, func(path string, d fs.DirEntry, e error) error {
 		if e != nil {
@@ -472,6 +475,11 @@ func (s *SemanticSession) ScanFresh(ref string, observe bool) ([]string, error) 
 		if e != nil {
 			return e
 		}
+		if observe {
+			if err := s.RecordDirectoryVisit(directories, local, d.IsDir()); err != nil {
+				return err
+			}
+		}
 		if d.IsDir() {
 			entries = append(entries, fmt.Sprintf("dir:%s:%o", local, info.Mode().Perm()))
 			return nil
@@ -489,6 +497,11 @@ func (s *SemanticSession) ScanFresh(ref string, observe bool) ([]string, error) 
 		return nil, s.Unavailable("INPUT", err.Error())
 	}
 	sort.Strings(entries)
+	if observe {
+		if err := s.RecordDirectories(directories); err != nil {
+			return nil, err
+		}
+	}
 	return entries, nil
 }
 
@@ -671,6 +684,9 @@ func (s *SemanticSession) FinishInputs() error {
 	}
 	for _, v := range s.views() {
 		root := v.Root
+		if err := v.CheckPathIdentities(); err != nil {
+			return s.Unavailable("INPUT_DRIFT", err.Error())
+		}
 		for ref, old := range v.Observed {
 			now, err := v.Watch(ref)
 			if err != nil || now != old {
@@ -685,6 +701,20 @@ func (s *SemanticSession) FinishInputs() error {
 		}
 		if !EqualStrings(old, now) {
 			return s.Unavailable("INPUT_DRIFT", "核验结束时扫描集合变化: "+ref)
+		}
+	}
+	for directory, old := range s.Directories {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			return s.Unavailable("INPUT_DRIFT", "目录观测变化: "+directory)
+		}
+		names := []string{}
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		sort.Strings(names)
+		if !EqualStrings(old, names) {
+			return s.Unavailable("INPUT_DRIFT", "目录观测变化: "+directory)
 		}
 	}
 	for ref, old := range s.registrationScans {
@@ -755,6 +785,20 @@ func (s *SemanticSession) CollectedChecks() []SemanticCheck {
 }
 
 func (s *SemanticSession) Authorities() error {
+	return s.loadAuthorities(nil)
+}
+
+// HandoffSourceAuthorities is used only by the fixed readonly source domain.
+// Its mandatory domain policy checks the same observed original roles; ordinary
+// governance consumers always use Authorities and its current local policy.
+func (s *SemanticSession) HandoffSourceAuthorities(sourcePolicy func(*SemanticSession) error) error {
+	if sourcePolicy == nil {
+		return s.Unavailable("CAPABILITY", "只读 Handoff 来源缺少固定策略校验")
+	}
+	return s.loadAuthorities(sourcePolicy)
+}
+
+func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) error) error {
 	for _, ref := range []string{".yss/asset-transactions/active.json", ".yss/asset-transactions/recovery.lock"} {
 		d, err := s.V.Watch(s.LocalRef(ref))
 		if err != nil {
@@ -898,13 +942,19 @@ func (s *SemanticSession) Authorities() error {
 			return s.Unavailable("CAPABILITY", "未知注册表/角色规则版本或非active状态")
 		}
 	}
-	decisionPolicy, present := Object(s.Roles["user_decision_policy"])
-	policyVersion, policyVersionValid := Integer(decisionPolicy["schema_version"])
-	_, gatesValid := decisionPolicy["gates"].([]any)
-	_, unitsValid := Object(decisionPolicy["work_units"])
-	gatePolicy, gatePolicyPresent := Object(s.Roles["gate_policy"])
-	if !present || !policyVersionValid || policyVersion != 1 || !gatesValid || !unitsValid || !gatePolicyPresent || gatePolicy["default_if_unlisted"] != "reject-unlisted" {
-		return s.Unavailable("CAPABILITY", "缺失、未知或不完整的本地批准/用户决定规则，不能降为无需批准")
+	if sourcePolicy != nil {
+		if err = sourcePolicy(s); err != nil {
+			return err
+		}
+	} else {
+		decisionPolicy, present := Object(s.Roles["user_decision_policy"])
+		policyVersion, policyVersionValid := Integer(decisionPolicy["schema_version"])
+		_, gatesValid := decisionPolicy["gates"].([]any)
+		_, unitsValid := Object(decisionPolicy["work_units"])
+		gatePolicy, gatePolicyPresent := Object(s.Roles["gate_policy"])
+		if !present || !policyVersionValid || policyVersion != 1 || !gatesValid || !unitsValid || !gatePolicyPresent || gatePolicy["default_if_unlisted"] != "reject-unlisted" {
+			return s.Unavailable("CAPABILITY", "缺失、未知或不完整的本地批准/用户决定规则，不能降为无需批准")
+		}
 	}
 	if err = s.ValidateSchema(".template-spec/process/schemas/lifecycle-registry.schema.json", s.Registry); err != nil {
 		return err
@@ -1048,4 +1098,95 @@ func (s *SemanticSession) externalDoc(root, ref string) (map[string]any, error) 
 		return nil, s.Reject("INPUT", "工程资产须是对象")
 	}
 	return out, nil
+}
+
+// RecordDirectoryVisit records the enumeration WalkDir actually returned. The
+// caller records a visited name before applying any traversal pruning policy.
+func (s *SemanticSession) RecordDirectoryVisit(dirs map[string][]string, ref string, directory bool) error {
+	if s.V.Virtual != nil {
+		return nil
+	}
+	if directory {
+		if err := s.V.ObservePathIdentity(ref); err != nil {
+			return err
+		}
+	}
+	absolute := filepath.Join(s.Root, filepath.FromSlash(ref))
+	parent := filepath.Dir(absolute)
+	if _, observed := dirs[parent]; observed {
+		dirs[parent] = append(dirs[parent], filepath.Base(absolute))
+	}
+	if directory {
+		if _, exists := dirs[absolute]; !exists {
+			dirs[absolute] = []string{}
+		}
+	}
+	return nil
+}
+
+func (s *SemanticSession) RecordDirectories(dirs map[string][]string) error {
+	if s.Directories == nil {
+		s.Directories = map[string][]string{}
+	}
+	for ref, names := range dirs {
+		sort.Strings(names)
+		if old, ok := s.Directories[ref]; ok && !EqualStrings(old, names) {
+			return s.Unavailable("INPUT_DRIFT", "目录观测变化: "+ref)
+		}
+		s.Directories[ref] = names
+	}
+	return nil
+}
+
+// ValidationDependencies is a live-process filesystem receipt, not authority or
+// reusable approval. Archive children are immutable views: only their physical
+// archive, observed by the parent, is returned as a filesystem dependency.
+func (s *SemanticSession) ValidationDependencies() map[string]any {
+	files, observations := []any{}, []any{}
+	for _, v := range s.views() {
+		if v.Virtual != nil {
+			continue
+		}
+		refs := []string{}
+		for ref := range v.Observed {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
+		for _, ref := range refs {
+			descriptor := v.Observed[ref]
+			absolute := filepath.Join(v.Root, filepath.FromSlash(ref))
+			if descriptor.Type == "file" {
+				files = append(files, map[string]any{"file": absolute, "digest": strings.TrimPrefix(descriptor.Digest, "sha256:")})
+			}
+			if descriptor.Type == "missing" {
+				observations = append(observations, map[string]any{"file": absolute, "kind": "exists", "value": false})
+			}
+		}
+		refs = []string{}
+		for ref := range v.Identities {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
+		for _, ref := range refs {
+			if info := v.Identities[ref]; info != nil {
+				observations = append(observations, map[string]any{"file": filepath.Join(v.Root, filepath.FromSlash(ref)), "kind": "stat", "value": ObservedIdentityReceipt(info)})
+			}
+		}
+	}
+	if s.V.Virtual == nil {
+		refs := []string{}
+		for ref := range s.Directories {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
+		for _, ref := range refs {
+			observations = append(observations, map[string]any{"file": ref, "kind": "directory", "value": s.Directories[ref]})
+		}
+	}
+	for _, child := range s.Children {
+		receipt := child.ValidationDependencies()
+		files = append(files, receipt["files"].([]any)...)
+		observations = append(observations, receipt["observations"].([]any)...)
+	}
+	return map[string]any{"schema_version": 1, "files": files, "observations": observations}
 }

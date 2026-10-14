@@ -199,6 +199,7 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 	validated, e := kernel.ValidateUserDecisionSemantic(s, record, selected)
 	if e == nil {
 		decisionCoverage(s, validated.Rows())
+		semanticCoverage(s, "user_decision_result", validated.Result())
 	}
 	return e
 }

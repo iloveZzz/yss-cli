@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.0.0。本版本集成架构迭代已实现成果与 main 修复：三个固定 Profile、共享模板来源、原生治理入口与 DDD/MVC 脚手架；Frontend 独立 Profile 已退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受此项退役影响。剩余 Node 消费者迁移继续按后续批次跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.1.0。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -105,7 +105,7 @@ yss migrate rollback --root ./old-project --json
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-2.0.0 交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.0.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
+2.1.0 交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.1.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
 
 本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 

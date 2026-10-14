@@ -196,6 +196,8 @@ func (s *SemanticSession) PlanEntryControl(cp, c, p map[string]any, ref string, 
 		if actual["feature_id"] != c["feature_id"] || !ApEqual(actual["plan_review_control"], c) {
 			return s.Reject("PLAN_REVIEW_CHECKPOINT_DRIFT", "阶段入口使用了旧控制状态")
 		}
+		// Entry state may use a transport file; tasks stay bound to this observed owner.
+		ref = Text(last["checkpoint_ref"])
 	}
 	if len(applicable) == 0 {
 		if !known || open || SemHas([]string{"blocked", "history-unknown", "diagnosis-required"}, Text(c["status"])) {

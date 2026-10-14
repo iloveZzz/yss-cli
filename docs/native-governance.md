@@ -51,3 +51,13 @@ Slice 的 `verify` 必须消费当前 checkpoint 中对应批准，或显式 `--
 完整 CI 的 `--checkpoint` 和 `--task` 只追加必需入口及其依赖，不能缩减已登记扫描范围。CI 直接调用已实现的脚手架、验证证据、Slice 与 Handoff 专属校验器。闭合 Handoff 包用包内捕获的来源 Context/规则验证，消费者继续使用接收项目本地权威资产；包损坏不能通过略过其内部文件逃避校验。
 
 Handoff 消费合同拒绝未知版本；v2 及之后的收据必须绑定实际接收 Profile 及已选择的消费能力。目录包与 ZIP 统一采用 Unicode full case fold 检查文件及原始引用碰撞，包含旧 JavaScript final-sigma 碰撞；ß/SS 等也拒绝，属于已登记的更严格差异。
+
+## 来源消费与调用迁移
+
+`handoff verify --kind source --file handoff.yaml` 输出经过严格校验的来源视图与业务导出闭包。`--kind package` 保留包身份摘要并输出清单、来源视图及包内 `source_prefix`；`--kind delivery --package <目录>` 校验战略交付包装；`--kind source-approval --file <绑定JSON> --gate <门禁>` 消费真实 `approval_ref`，不接受调用方角色政策。
+
+Spec 来源使用 `handoff verify --kind spec-baseline --checkpoint <来源检查点>`；包仍使用 `--package`。当前内存状态落盘后由 `contract verify --kind spec-baseline-binding --file <状态>` 消费；导入准备可以显式 `--no-reconciliation`，但仍必须核验 receipt、来源清单、工作集和冻结 Spec 字节。可编辑 `working-files` 与不可变 `package/payload/files` 使用不同的已登记定位，不从路径名推定信任。
+
+`contract verify` 的 `plan-entry`、`implementation-scope`、`checkpoint-user-decisions`、`checkpoint-approvals`、`scaffold-user-decision` 使用 `--file` 提供该领域的当前状态；`gate-checks` 还需 `--gate`。它们调用已有严格核心，准备态检查不被扩大成整个 checkpoint 校验。 `implementation-scope` 只核真实用户决定和当前合同、仓库、写范围、基线的绑定；历史 v2 来源按原批准范围协议读取，不能代替完整 Slice 就绪或执行校验。报告保持 `read_only: true`、`execution_authorization: not-evaluated`。原批准 expected/binding 与决定 requirements 保留；`coverage.user_decision_result` 返回已核验的 request_id、validated 和 outcomes。
+
+`result.validation_dependencies` 使用 `{schema_version:1,files,observations}`，用于同一活动验证阶段在消费结束前复验。它独立于业务报告 `inputs` 和导出 `closure`，不产生批准或跨阶段缓存资格。观测包含原始文件摘要、缺失文件、实际目录枚举、路径类型与权限；平台实际提供时附带 inode/device。ZIP 只以真实归档字节为物理锚，虚拟成员不冒作磁盘文件。Git 与在线观测不由此文件系统回执替代；调用方不得执行证据声明的任意命令或静默忽略不支持的观测。

@@ -842,6 +842,21 @@ var nodeDelegation = []string{
 	"contract.scaffold-decisions.v1",
 	"contract.slice-preflight-report.v1",
 	"contract.business-tickets-report.v1",
+	"governance.validation-dependencies.v1",
+	"handoff.source-view.v1",
+	"handoff.delivery-view.v1",
+	"handoff.source-approval.v1",
+	"handoff.spec-baseline-source-view.v1",
+	"contract.spec-baseline-binding.v1",
+	"contract.plan-entry.v1",
+	"contract.gate-checks.v1",
+	"contract.checkpoint-approvals.v1",
+	"contract.implementation-scope.v1",
+	"contract.checkpoint-user-decisions.v1",
+	"contract.scaffold-user-decision.v1",
+	"contract.business-tickets-source-views.v1",
+	"user-decision.result.v1",
+
 	"template-source.verify-root.v1",
 }
 

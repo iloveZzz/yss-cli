@@ -86,13 +86,20 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 			return e
 		}
 		if gate == "gate.plan-approved" {
-			if checkpointRef == "" {
-				return kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "Plan 聚合批准须完整当前 checkpoint")
+			// Older source policies use independently bound approvals without a bounded review cycle.
+			bounded := selected["plan_review_binding"] != nil || checkpoint["plan_review_control"] != nil
+			for _, rule := range kernel.ApRows(kernel.ApMap(kernel.ApMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
+				bounded = bounded || rule["aggregate_gate"] == gate && rule["aggregate_additional_review_task"] == "forbidden"
 			}
-			if e = s.Verify("plan-aggregate", checkpointRef, map[string]string{"approval": ref, "gate": gate}); e != nil {
-				return e
+			if bounded {
+				if checkpointRef == "" {
+					return kernel.ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "Plan 聚合批准须完整当前 checkpoint")
+				}
+				if e = s.Verify("plan-aggregate", checkpointRef, map[string]string{"approval": ref, "gate": gate}); e != nil {
+					return e
+				}
+				continue
 			}
-			continue
 		}
 		var expected map[string]any
 		if checkpoint != nil {

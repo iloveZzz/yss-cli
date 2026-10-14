@@ -31,6 +31,7 @@ func (s *SemanticSession) ContextFiles() ([]string, error) {
 	}
 	skip := map[string]bool{".git": true, ".codegraph": true, ".template-source": true, "node_modules": true, "dist": true, "build": true}
 	rows := []string{}
+	directories := map[string][]string{}
 	err := filepath.WalkDir(s.Root, func(path string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
@@ -43,15 +44,26 @@ func (s *SemanticSession) ContextFiles() ([]string, error) {
 			return e
 		}
 		ref = filepath.ToSlash(ref)
+		pruned := ref != "." && (d.Name() == ".git" || d.Name() == "node_modules")
+		if err := s.RecordDirectoryVisit(directories, ref, d.IsDir() && !pruned); err != nil {
+			return err
+		}
+		if pruned {
+			if err := s.V.ObserveRegistrationBoundary(ref); err != nil {
+				return err
+			}
+		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		if d.IsDir() && ref != "." {
 			if skip[d.Name()] || skipProfiles && ref == "profiles" {
+				delete(directories, path)
 				return filepath.SkipDir
 			}
 			if _, e = os.Lstat(filepath.Join(path, ".git")); e == nil {
 				rows = append(rows, "repository:"+ref)
+				delete(directories, path)
 				return filepath.SkipDir
 			} else if !os.IsNotExist(e) {
 				return e
@@ -67,6 +79,9 @@ func (s *SemanticSession) ContextFiles() ([]string, error) {
 		return nil
 	})
 	sort.Strings(rows)
+	if err == nil {
+		err = s.RecordDirectories(directories)
+	}
 	return rows, err
 }
 
