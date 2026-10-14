@@ -3,6 +3,7 @@ package governance
 import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -38,17 +39,75 @@ func verifySourcePlanApprovalSemantic(s *kernel.SemanticSession, ref string, opt
 }
 
 func sourcePlanApprovalCheckpoint(s *kernel.SemanticSession, ref string, opts map[string]string) (string, error) {
-	checkpoint := ""
+	checkpoint := opts["checkpoint-ref"]
+	if checkpoint != "" {
+		if err := kernel.RejectProgressionEvidence(s, checkpoint); err != nil {
+			return "", err
+		}
+		bound, err := s.Bind(checkpoint)
+		if err != nil {
+			return "", err
+		}
+		if bound.Digest != opts["checkpoint-digest"] {
+			return "", s.Reject("HANDOFF_PLAN_OWNER_REQUIRED", "源 Plan 封存 checkpoint 原始字节漂移")
+		}
+		owner, err := s.Doc(checkpoint)
+		if err != nil {
+			return "", err
+		}
+		gate := kernel.SemMap(kernel.SemMap(owner["gates"])["gate.plan-approved"])
+		if gate["status"] != "approved" || kernel.Text(gate["approval_ref"]) != ref {
+			return "", s.Reject("HANDOFF_PLAN_OWNER_REQUIRED", "源 Plan 封存 checkpoint 未绑定当前批准引用")
+		}
+		if primary := kernel.Text(owner["plan_approval_ref"]); primary != "" && primary != ref {
+			return "", s.Reject("HANDOFF_PLAN_OWNER_REQUIRED", "源 Plan 封存 checkpoint 聚合批准引用冲突")
+		}
+	}
 	if opts["task-ref"] != "" {
 		task, err := s.Doc(opts["task-ref"])
 		if err != nil {
 			return "", err
 		}
-		checkpoint = kernel.Text(task["checkpoint_ref"])
+		taskCheckpoint := kernel.Text(task["checkpoint_ref"])
+		if checkpoint != "" && taskCheckpoint != "" && taskCheckpoint != checkpoint {
+			return "", s.Reject("HANDOFF_PLAN_OWNER_REQUIRED", "源 Plan 任务与封存 checkpoint 归属不一致")
+		}
+		if checkpoint == "" {
+			checkpoint = taskCheckpoint
+		}
 	}
 	if checkpoint == "" {
 		candidates := []string{}
+		originals := []string{}
 		for original := range s.Aliases {
+			originals = append(originals, original)
+		}
+		// Ordinary roots retain Tracker-defined compatibility read roots. Filter
+		// the existing observed inventory; never discover an owner in an arbitrary
+		// directory, or let a sealed package consult the receiving work layout.
+		if len(s.Aliases) == 0 && s.V.Virtual == nil && s.RuleSession == nil {
+			tracker, err := s.Bytes(worklayout.TrackerRef)
+			if err != nil {
+				return "", err
+			}
+			layout, err := worklayout.FromDocument(s.Root, tracker)
+			if err != nil {
+				return "", err
+			}
+			for _, candidate := range s.ContextInventory {
+				allowed := strings.HasPrefix(candidate, "docs/") || strings.HasPrefix(candidate, ".yss/") || !strings.Contains(candidate, "/")
+				for _, root := range layout.ScanRoots {
+					if !strings.HasPrefix(root, "docs/") && strings.HasPrefix(candidate, root+"/") {
+						allowed = true
+					}
+				}
+				if allowed {
+					originals = append(originals, candidate)
+				}
+			}
+		}
+		sort.Strings(originals)
+		for _, original := range originals {
 			if !kernel.SemHas([]string{".json", ".yaml", ".yml"}, filepath.Ext(original)) {
 				continue
 			}

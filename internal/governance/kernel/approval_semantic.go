@@ -493,7 +493,11 @@ func ApprovalExpectationFromStateWith(s *SemanticSession, boundary string, state
 	if reviewPackage != nil {
 		rp = reviewPackage
 	}
-	return map[string]any{"boundary": boundary, "subject_ref": ref, "subject_digest": digest, "approval_scope": state["approval_scope"], "basis": basis, "drafter_principal_ref": drafter, "review_package": rp, "review_context": state["review_context"], "implementer_principal_ref": state["implementer_principal_ref"], "subject_id": state["subject_id"], "subject_version": state["subject_version"]}, nil
+	expected := map[string]any{"boundary": boundary, "subject_ref": ref, "subject_digest": digest, "approval_scope": state["approval_scope"], "basis": basis, "drafter_principal_ref": drafter, "review_package": rp, "implementer_principal_ref": state["implementer_principal_ref"], "subject_id": state["subject_id"], "subject_version": state["subject_version"]}
+	if context, present := state["review_context"]; present {
+		expected["review_context"] = context
+	}
+	return expected, nil
 }
 
 func ReviewBundleRowsSemantic(s *SemanticSession, bundle map[string]any) ([]map[string]any, error) {
@@ -601,9 +605,20 @@ func AssertCurrentApprovalSemantic(s *SemanticSession, record, expected map[stri
 		return ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "当前批准缺少独立边界、范围及依据")
 	}
 	if ApNumber(record["schema_version"]) == 2 {
-		consumerReview := ApMap(expected["review_context"])
+		rawReview, reviewPresent := expected["review_context"]
+		consumerReview, reviewObject := Object(rawReview)
+		if reviewPresent && !reviewObject {
+			return ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "显式 review_context 必须是当前审查上下文对象")
+		}
 		taskRef := ApText(consumerReview["review_task_ref"])
 		taskDigest := ApText(consumerReview["review_task_digest"])
+		if !reviewPresent {
+			// A legacy state consumer supplies the current subject/scope/basis
+			// independently, but not the task locator. The record may locate a
+			// task; only its fully validated current issuance supplies context.
+			taskRef = ApText(record["review_task_ref"])
+			taskDigest = ApText(record["review_task_digest"])
+		}
 		if taskRef == "" || !apHashValid(taskDigest, false) {
 			return ApFail(s, "APPROVAL_CONTEXT_REQUIRED", "v2 批准须由消费者独立指定当前正式审查任务和摘要")
 		}
@@ -658,6 +673,9 @@ func AssertCurrentApprovalSemantic(s *SemanticSession, record, expected map[stri
 		}
 		expected = ApCopy(expected)
 		expected["drafter_principal_ref"] = issued["drafter_principal_ref"]
+		if !reviewPresent {
+			expected["review_context"] = issued["review_context"]
+		}
 	}
 	drafter := ApText(expected["drafter_principal_ref"])
 	if strings.TrimSpace(drafter) == "" {
@@ -702,7 +720,22 @@ func AssertCurrentApprovalSemantic(s *SemanticSession, record, expected map[stri
 		return e
 	}
 	for _, b := range required {
-		if !apCovers(bound, b) {
+		// Both sets have already passed current-byte validation. Only this
+		// consumer coverage check accepts equivalent spellings in one view;
+		// frozen task and signed-record identities keep their exact references.
+		view, ref, err := s.ReferenceView(ApText(b["ref"]))
+		if err != nil {
+			return err
+		}
+		covered := false
+		for _, candidate := range bound {
+			boundView, boundRef, err := s.ReferenceView(ApText(candidate["ref"]))
+			if err != nil {
+				return err
+			}
+			covered = covered || view == boundView && ref == boundRef && apHex(b["digest"]) == apHex(candidate["digest"])
+		}
+		if !covered {
 			return ApFail(s, "APPROVAL_CURRENT_INVALID", "批准范围未覆盖证据: "+ApText(b["ref"]))
 		}
 	}

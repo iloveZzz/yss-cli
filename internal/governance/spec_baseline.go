@@ -211,7 +211,10 @@ func verifySpecBaselineSource(s *kernel.SemanticSession, cpRef string, local ...
 
 func VerifySpecBaselineSource(ctx context.Context, root, checkpointRef string) (any, error) {
 	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": checkpointRef})
-	_, _, err := verifySpecBaselineSource(s, checkpointRef)
+	source, refs, err := verifySpecBaselineSource(s, checkpointRef)
+	if err == nil {
+		err = specBaselineSourceCoverage(s, s, source, refs)
+	}
 	return specBaselineReport(s, checkpointRef, err)
 }
 
@@ -223,6 +226,7 @@ func specBaselineReport(s *kernel.SemanticSession, ref string, err error) (any, 
 		err = e
 		s.Diagnostic(ref, e)
 	}
+	s.Report.ValidationDependencies = s.ValidationDependencies()
 	s.Report.Inputs = s.Inputs()
 	s.Report.Checks = s.CollectedChecks()
 	s.Report.GitInputs = s.GitBindings()
@@ -868,26 +872,38 @@ func specBaselineRun(ctx context.Context, action, root string, args map[string]s
 		ref := kernel.First(args["file"], args["package"])
 		var e error
 		if args["package"] != "" {
-			packageRoot, err := filepath.Abs(args["package"])
+			packageRef := args["package"]
+			if !filepath.IsAbs(packageRef) {
+				packageRef = filepath.Join(root, filepath.FromSlash(packageRef))
+			}
+			packageRoot, err := filepath.Abs(packageRef)
 			if err != nil {
 				return nil, err
 			}
 			pkg := kernel.NewSemanticSession(ctx, filepath.Dir(packageRoot), nil)
 			pkg.RuleSession = s
-			manifest, _, openErr := openSpecBaseline(pkg, filepath.Base(packageRoot))
+			manifest, source, openErr := openSpecBaseline(pkg, filepath.Base(packageRoot))
 			e = openErr
 			if e == nil && manifest != nil {
 				// 命令行薄壳需要的基线身份摘要，与 Node 的 spec-baseline verify --bundle 输出一致。
 				if s.Report.Coverage == nil {
 					s.Report.Coverage = map[string]any{}
 				}
-				s.Report.Coverage["spec_baseline_package"] = map[string]any{"baseline_id": manifest["baseline_id"], "version": manifest["version"], "bundle_digest": manifest["bundle_digest"]}
+				e = specBaselinePackageCoverage(s, source, manifest)
 			}
 			s.Children = append(s.Children, pkg)
 		} else if args["file"] != "" {
 			_, _, e = verifySpecBaselineReceipt(s, ref, args["checkpoint"] != "")
+		} else if args["checkpoint"] != "" {
+			ref = args["checkpoint"]
+			var source map[string]any
+			var refs []string
+			source, refs, e = verifySpecBaselineSource(s, ref)
+			if e == nil {
+				e = specBaselineSourceCoverage(s, s, source, refs)
+			}
 		} else {
-			e = domain.Fail("ARGUMENT", "核验需 --package 或 --file")
+			e = domain.Fail("ARGUMENT", "核验需 --package、--file 或来源 --checkpoint")
 		}
 		return specBaselineReport(s, ref, e)
 	}
@@ -1331,5 +1347,124 @@ func specBaselineDesignAssets(s *kernel.SemanticSession, strategyRef, stageRef s
 			return s.Reject("SPEC_BASELINE_SOURCE", "当前方案决策未绑定本次批准的领域战略")
 		}
 	}
+	return nil
+}
+
+func specBaselineSourceCoverage(report, session *kernel.SemanticSession, source map[string]any, refs []string) error {
+	state, e := session.Doc(kernel.Text(source["checkpoint_ref"]))
+	if e != nil {
+		return e
+	}
+	closure, e := sourceClosureBindings(session, refs)
+	if e != nil {
+		return e
+	}
+	semanticCoverage(report, "spec_baseline_source", map[string]any{"source": source, "state": state, "registry": session.Registry, "rolesDoc": session.Roles, "closure": closure})
+	return nil
+}
+func specBaselinePackageCoverage(report, source *kernel.SemanticSession, manifest map[string]any) error {
+	refs := []string{}
+	for _, row := range kernel.SemList(manifest["files"]) {
+		refs = append(refs, kernel.Text(kernel.SemMap(row)["original_ref"]))
+	}
+	semanticCoverage(report, "spec_baseline_package", map[string]any{"baseline_id": manifest["baseline_id"], "version": manifest["version"], "bundle_digest": manifest["bundle_digest"], "manifest": manifest, "source_prefix": "payload/files"})
+	return specBaselineSourceCoverage(report, source, kernel.SemMap(manifest["source"]), refs)
+}
+
+// The preparation consumer supplies its current state, not a complete runnable
+// checkpoint. Reuse the package, working-set, gate and Context validators; the
+// explicit preparation flag skips only reconciliation, never source bindings.
+func verifySpecBaselineBindingSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	state, e := s.Doc(ref)
+	if e != nil {
+		return e
+	}
+	binding := kernel.SemMap(state["upstream_spec_baseline"])
+	receiptRef := kernel.Text(binding["receipt_ref"])
+	bytes, e := s.Bytes(receiptRef)
+	if e != nil {
+		return e
+	}
+	if kernel.Text(binding["receipt_digest"]) != "sha256:"+safefs.Digest(bytes) {
+		return s.Reject("SPEC_BASELINE_DIGEST", "checkpoint 接收记录绑定过期")
+	}
+	manifest, source, e := verifySpecBaselineReceipt(s, receiptRef, false)
+	if e != nil {
+		return e
+	}
+	receipt, e := s.Doc(receiptRef)
+	if e != nil {
+		return e
+	}
+	working, e := s.Doc(kernel.Text(receipt["working_set_ref"]))
+	if e != nil {
+		return e
+	}
+	sourceInfo := kernel.SemMap(manifest["source"])
+	specRef := path.Join(kernel.Text(receipt["package_ref"]), baselineFileRef(kernel.Text(sourceInfo["spec_ref"])))
+	specBytes, e := s.Bytes(specRef)
+	if e != nil {
+		return e
+	}
+	if kernel.SemMap(working["assets"])[kernel.Text(sourceInfo["spec_ref"])] != specRef || sourceInfo["spec_digest"] != "sha256:"+safefs.Digest(specBytes) {
+		return s.Reject("SPEC_BASELINE_DIGEST", "工作集 Spec 已漂移")
+	}
+	if opts["no-reconciliation"] != "true" {
+		if state["feature_id"] != sourceInfo["feature_id"] {
+			return s.Reject("SPEC_BASELINE_TARGET", "目标功能身份与来源不一致")
+		}
+		reconciliation := kernel.First(kernel.Text(kernel.SemMap(state["context_reconciliation"])["ref"]), kernel.Text(state["context_reconciliation_ref"]))
+		if reconciliation == "" {
+			return s.Reject("SPEC_BASELINE_CONTEXT", "目标 Context 尚未对账")
+		}
+		if e = s.Verify("context-reconciliation", reconciliation, nil); e != nil {
+			return e
+		}
+		gates := kernel.SemMap(state["gates"])
+		localSpec := kernel.SemMap(gates["gate.spec-baseline-approved"])["status"] == "approved"
+		localPlan := kernel.SemMap(gates["gate.plan-approved"])["status"] == "approved"
+		if localSpec {
+			if e = s.GateChecks(state, ref, "gate.spec-baseline-approved"); e != nil {
+				return e
+			}
+			current := checkpointAsset(state, "spec_ref", "artifact.spec", "artifact.spec-baseline")
+			if current == "" {
+				return s.Reject("SPEC_BASELINE_SCOPE", "本地 Spec 批准缺少当前资产")
+			}
+			if e = specBaselineAssetCoverage(s, state, "gate.spec-baseline-approved", current); e != nil {
+				return e
+			}
+			if localPlan {
+				if e = s.GateChecks(state, ref, "gate.plan-approved"); e != nil {
+					return e
+				}
+				if e = verifyPlanAggregateSemantic(s, ref, nil); e != nil {
+					return e
+				}
+			}
+		}
+		if !(localSpec && localPlan) {
+			if e = specBaselineContextEvidence(s, reconciliation, receiptRef, kernel.Text(receipt["package_ref"])); e != nil {
+				return e
+			}
+		}
+	}
+	next := "work-unit.business-ticket-formalization"
+	if sourceInfo["product_design_required"] == true {
+		next = "work-unit.prototype-design"
+		if kernel.ApFind(source.Registry["work_units"], "id", "work-unit.prototype-design-v2") != nil {
+			next = "work-unit.prototype-design-v2"
+		}
+	}
+	if next == "work-unit.prototype-design-v2" && kernel.ApFind(s.Registry["work_units"], "id", next) == nil {
+		next = "work-unit.prototype-design"
+	}
+	if kernel.ApFind(s.Registry["work_units"], "id", next) == nil {
+		return s.Reject("SPEC_BASELINE_TARGET", "目标 Profile 缺少设计接入单元")
+	}
+	if e = specBaselinePackageCoverage(s, source, manifest); e != nil {
+		return e
+	}
+	semanticCoverage(s, "spec_baseline_binding", map[string]any{"receipt": receipt, "working": working, "specRef": specRef, "next_work_unit": next, "result": "spec-baseline-verified", "ready_for_agent": false})
 	return nil
 }

@@ -18,7 +18,7 @@ var registeredPathPattern = regexp.MustCompile(`["']?(?:local_worktree|project_r
 var gitlinkPattern = regexp.MustCompile(`(?m)^\s*path\s*=\s*(.+)$`)
 
 // Registration protection and its freshness check must inspect the same tree.
-func scanRegistrations(root, ref string, guard func() error, visit func(string) error) ([]string, error) {
+func scanRegistrations(root, ref string, guard func() error, visit func(string) error, enumerate ...func(string, bool, bool) error) ([]string, error) {
 	if guard != nil {
 		if err := guard(); err != nil {
 			return nil, err
@@ -57,6 +57,16 @@ func scanRegistrations(root, ref string, guard func() error, visit func(string) 
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return domain.Fail("PATH", "登记扫描拒绝符号链接: "+p)
+		}
+		if len(enumerate) > 0 {
+			local, e := filepath.Rel(root, p)
+			if e != nil {
+				return e
+			}
+			pruned := d.Name() == ".git" || d.Name() == "node_modules"
+			if err := enumerate[0](filepath.ToSlash(local), d.IsDir(), pruned); err != nil {
+				return err
+			}
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" || d.Name() == "node_modules" {

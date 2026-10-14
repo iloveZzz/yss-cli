@@ -2506,8 +2506,11 @@ func verifyBusinessTicketsSemantic(s *kernel.SemanticSession, ref string, opts m
 	if err == nil {
 		_, report, err = contractCollectBusinessTickets(source, local, mode, reviewRef)
 		if source != s {
-			prefix := strings.TrimSuffix(ref, local)
-			mapped := func(ref string) string { return prefix + source.LocalRef(ref) }
+			prefix, mappingErr := filepath.Rel(s.Root, source.Root)
+			if mappingErr != nil {
+				return s.Unavailable("PATH", mappingErr.Error())
+			}
+			mapped := func(ref string) string { return path.Join(filepath.ToSlash(prefix), source.LocalRef(ref)) }
 			for _, name := range []string{"inputs", "tickets", "diagnostics"} {
 				key := "ref"
 				if name == "diagnostics" {

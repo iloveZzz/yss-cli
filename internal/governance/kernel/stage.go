@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -87,12 +88,13 @@ type StageTracking struct {
 }
 
 type View struct {
-	Root         string                         `json:"-" yaml:"-"`
-	Overlay      map[string][]byte              `json:"-" yaml:"-"`
-	Observed     map[string]domain.Descriptor   `json:"-" yaml:"-"`
-	Virtual      map[string]semanticArchiveFile `json:"-" yaml:"-"`
-	bindIdentity bool
-	Identities   map[string]os.FileInfo `json:"-" yaml:"-"`
+	Root                   string                         `json:"-" yaml:"-"`
+	Overlay                map[string][]byte              `json:"-" yaml:"-"`
+	Observed               map[string]domain.Descriptor   `json:"-" yaml:"-"`
+	Virtual                map[string]semanticArchiveFile `json:"-" yaml:"-"`
+	bindIdentity           bool
+	registrationBoundaries map[string]bool
+	Identities             map[string]os.FileInfo `json:"-" yaml:"-"`
 }
 
 func NewView(root string) *View {
@@ -102,6 +104,14 @@ func NewView(root string) *View {
 func (v *View) Watch(ref string) (domain.Descriptor, error) {
 	var identity os.FileInfo
 	if v.bindIdentity && v.Virtual == nil {
+		for parent := path.Dir(ref); ; parent = path.Dir(parent) {
+			if err := v.ObservePathIdentity(parent); err != nil {
+				return domain.Descriptor{}, err
+			}
+			if parent == "." {
+				break
+			}
+		}
 		p, err := safefs.Path(v.Root, ref)
 		if err != nil {
 			return domain.Descriptor{}, err
@@ -719,4 +729,144 @@ func CheckStage(v *View, cp map[string]any, ref string, sessions ...*SemanticSes
 	}
 	sort.Strings(staleIDs)
 	return map[string]any{"status": "valid", "stage_tracking": t, "stale_item_ids": staleIDs, "scope": "stage-work-only", "read_only": true, "approval_created": false, "execution_authorization": "not-evaluated"}, nil
+}
+
+// Only fields available in the actual platform FileInfo are exported. Go's
+// FileMode is not POSIX st_mode; permissions is explicitly a portable bitmask.
+func ObservedIdentityReceipt(info os.FileInfo) map[string]any {
+	kind := "other"
+	if info.Mode().IsRegular() {
+		kind = "file"
+	} else if info.IsDir() {
+		kind = "directory"
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		kind = "link"
+	}
+	permissions := uint32(info.Mode().Perm())
+	if info.Mode()&os.ModeSetuid != 0 {
+		permissions |= 04000
+	}
+	if info.Mode()&os.ModeSetgid != 0 {
+		permissions |= 02000
+	}
+	if info.Mode()&os.ModeSticky != 0 {
+		permissions |= 01000
+	}
+	result := map[string]any{"type": kind, "permissions": permissions}
+	system := reflect.ValueOf(info.Sys())
+	if system.IsValid() && system.Kind() == reflect.Pointer {
+		system = system.Elem()
+	}
+	if system.IsValid() && system.Kind() == reflect.Struct {
+		for key, field := range map[string]string{"ino": "Ino", "dev": "Dev"} {
+			value := system.FieldByName(field)
+			if value.IsValid() {
+				switch value.Kind() {
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					result[key] = fmt.Sprint(value.Uint())
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					result[key] = fmt.Sprint(value.Int())
+				}
+			}
+		}
+	}
+	return result
+}
+
+// Registration scans may observe the boundary identity of a pruned tree, but
+// never use it as a readable asset path or authorize traversal into Git data.
+func (v *View) registrationBoundaryPath(ref string) (string, error) {
+	name := filepath.Base(ref)
+	if name != ".git" && name != "node_modules" {
+		return "", domain.Fail("PATH", "未知登记扫描边界")
+	}
+	parent := filepath.ToSlash(filepath.Dir(ref))
+	if parent == "." {
+		checked, err := safefs.Path(v.Root, "yss-project.yaml")
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(filepath.Dir(checked), name), nil
+	}
+	checked, err := safefs.Path(v.Root, parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(checked, name), nil
+}
+
+func (v *View) ObserveRegistrationBoundary(ref string) error {
+	if v.Virtual != nil {
+		return domain.Fail("PATH", "虚拟来源不能登记物理扫描边界")
+	}
+	target, err := v.registrationBoundaryPath(ref)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(target)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return domain.Fail("PATH", "登记扫描边界拒绝符号链接或特殊文件: "+ref)
+	}
+	if v.registrationBoundaries == nil {
+		v.registrationBoundaries = map[string]bool{}
+	}
+	v.registrationBoundaries[ref] = true
+	return v.ObservePathIdentity(ref)
+}
+
+func (v *View) identityPath(ref string) (string, error) {
+	if v.registrationBoundaries[ref] {
+		return v.registrationBoundaryPath(ref)
+	}
+	if ref == "." {
+		return v.Root, nil
+	}
+	return safefs.Path(v.Root, ref)
+}
+
+func (v *View) ObservePathIdentity(ref string) error {
+	if v.Virtual != nil {
+		return nil
+	}
+	target, err := v.identityPath(ref)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(target)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if v.registrationBoundaries[ref] && (info == nil || info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular())) {
+		return domain.Fail("PATH", "登记扫描边界不是普通路径: "+ref)
+	}
+	if v.Identities == nil {
+		v.Identities = map[string]os.FileInfo{}
+	}
+	if old, ok := v.Identities[ref]; ok && !SameObservedIdentity(old, info) {
+		return domain.Fail("INPUT_DRIFT", "目录或路径身份变化: "+ref)
+	}
+	v.Identities[ref] = info
+	return nil
+}
+func (v *View) CheckPathIdentities() error {
+	if v.Virtual != nil {
+		return nil
+	}
+	for ref, old := range v.Identities {
+		target, err := v.identityPath(ref)
+		if err != nil {
+			return err
+		}
+		now, err := os.Lstat(target)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if !SameObservedIdentity(old, now) {
+			return domain.Fail("INPUT_DRIFT", "路径身份变化: "+ref)
+		}
+	}
+	return nil
 }
