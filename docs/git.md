@@ -14,7 +14,6 @@
 | `policy` | 生效策略及来源 |
 | `audit --since <引用> [--until <引用>]` | 按策略审计：Ticket trailer、自审、签名（可选）、保护分支直接提交 |
 | `changelog --since <引用> [--until <引用>]` | 按 Ticket 汇总提交 |
-
 | `verify-message --file <文件>` | 校验提交信息末段的 Ticket trailer（供 commit-msg 钩子调用） |
 
 `--root` 必须是 Git 仓库顶层。目录含 `yss-project.yaml` 时先核验项目身份；普通 Git 仓库也可使用。
