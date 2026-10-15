@@ -161,3 +161,33 @@ func TestHumanSavedPlanNextCommandKeepsExecutorScope(t *testing.T) {
 		}
 	}
 }
+
+func TestRouteHumanSummaryTranslatesExistingFieldsOnly(t *testing.T) {
+	args := []string{"lifecycle", "route", "--root", "/spec project", "--task", "task.md", "--implementation-root", "/impl", "--base", "abc123"}
+	o, err := parse(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daily := map[string]any{"kind": "lifecycle.route", "delivery_path": "daily", "reasons": []any{"符合日常路线"}, "changed_files": []any{"src/a.js", "src/b.js"}, "diagnostics": []any{}}
+	output := renderHumanSuccess("lifecycle", o, "spec", daily)
+	for _, want := range []string{"日常路径", "原因：符合日常路线", "当前改动：2 个文件", "yss lifecycle verify-daily --root '/spec project' --task task.md --implementation-root /impl --base abc123", "不授予实现、批准或发布资格"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("日常摘要缺少 %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "digest") || strings.Contains(output, "git_inputs") {
+		t.Fatalf("摘要不应倾倒摘要与 Git 输入字段:\n%s", output)
+	}
+	governed := map[string]any{"kind": "lifecycle.route", "delivery_path": "governed", "reasons": []any{"风险影响需要正式治理: data-migration"}, "diagnostics": []any{map[string]any{"code": "GOVERNED_REQUIRED", "message": "风险影响需要正式治理: data-migration", "recovery": "保留已有编辑和证据，恢复最近可信正式阶段"}}}
+	output = renderHumanSuccess("lifecycle", o, "spec", governed)
+	for _, want := range []string{"正式路径", "阻断：风险影响需要正式治理: data-migration", "恢复：保留已有编辑和证据"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("正式摘要缺少 %q:\n%s", want, output)
+		}
+	}
+	// 缺少交付路径时回退到通用输出，不编造结论。
+	fallback := renderHumanSuccess("lifecycle", o, "spec", map[string]any{"kind": "lifecycle.route"})
+	if strings.Contains(fallback, "日常路径") || strings.Contains(fallback, "正式路径") {
+		t.Fatalf("没有交付路径时不应给出路径结论:\n%s", fallback)
+	}
+}
