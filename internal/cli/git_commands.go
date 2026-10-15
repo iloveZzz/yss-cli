@@ -28,6 +28,8 @@ var gitActions = map[string]struct{ action, kind string }{
 	"release": {"tag", gitops.KindTag},
 }
 
+var gitSingleWrites = map[string]string{"commit": gitops.KindCommit, "push": gitops.KindPush}
+
 // gitCommand serves yss git. Queries are read-only; writes (branch start,
 // commit, hooks install, policy set, release tag) only run from a saved plan
 // and never contact a remote.
@@ -41,8 +43,8 @@ func gitCommand(ctx context.Context, root string, o options) (any, string, error
 			return nil, "", domain.Fail("ARGUMENT", "git "+o.args[1]+" 需要 "+spec.action+" 子命令")
 		}
 		writeKind = spec.kind
-	} else if o.args[1] == "commit" && len(o.args) == 2 {
-		writeKind = gitops.KindCommit
+	} else if kind, ok := gitSingleWrites[o.args[1]]; ok && len(o.args) == 2 {
+		writeKind = kind
 	} else if o.args[1] == "policy" && len(o.args) == 3 {
 		if o.args[2] != "set" {
 			return nil, "", domain.Fail("ARGUMENT", "git policy 只支持 set 子命令")

@@ -24,6 +24,7 @@ const (
 	KindTag         = "git-release-tag"
 	KindHooks       = "git-hooks-install"
 	KindPolicySet   = "git-policy-set"
+	KindPush        = "git-push"
 
 	planVersion = 1
 	planLimit   = 8 << 20
@@ -138,6 +139,8 @@ func (r *Runner) Build(ctx context.Context, kind string, params map[string]strin
 		p, err = r.buildHooks(ctx, params)
 	case KindPolicySet:
 		p, err = r.buildPolicySet(ctx, params)
+	case KindPush:
+		p, err = r.buildPush(ctx, params)
 	default:
 		return p, domain.Fail("PLAN", "未知计划类型: "+kind)
 	}
@@ -190,6 +193,8 @@ func (r *Runner) Apply(ctx context.Context, saved Plan) (any, error) {
 		return r.applyTag(ctx, fresh)
 	case KindHooks:
 		return r.applyHooks(ctx, fresh)
+	case KindPush:
+		return r.applyPush(ctx, fresh)
 	default:
 		return r.applyPolicySet(ctx, fresh)
 	}

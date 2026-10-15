@@ -1,6 +1,6 @@
 # yss git
 
-`yss git` 用系统 git 为 YSS 工程提供仓库状态、基线、环境、策略与提交审计。查询子命令只读；写入子命令只在保存计划后执行，且从不访问远端。
+`yss git` 用系统 git 为 YSS 工程提供仓库状态、基线、环境、策略与提交审计。查询子命令只读；写入子命令只在保存计划后执行；只有 `push` 的 `--apply` 会联网，并且需要用户确认远端。
 
 ## 子命令
 
@@ -27,6 +27,7 @@
 | `hooks install` | 写入 `.githooks/commit-msg` 并设置本地 `core.hooksPath` |
 | `policy set --key <字段> --value <值>` | 修改策略文件的一个字段 |
 | `release tag --tag-version <版本> [--evidence-file <路径>]` | 在默认分支的干净 HEAD 上创建本地带注释标签 `v<版本>` |
+| `push --remote <远端名> [--tag <标签>]` | 推送当前分支或一个本地带注释标签；应用时需要 `--confirm-remote` |
 
 ```sh
 yss git commit --root ./repo --task FEAT-142 --message "支持部分退款" --paths src/refund --plan --out /tmp/commit-plan.json
@@ -41,6 +42,21 @@ yss git commit --root ./repo --apply --plan-file /tmp/commit-plan.json
 - `release tag` 要求在 `default_branch` 上且工作区干净；`--evidence-file` 须已纳入版本控制，其 SHA-256 写入标签信息。只创建本地标签。
 - `hooks install` 与 `policy set` 经 yss 文件事务写入，事务状态在 `.yss/transactions`；该目录未被忽略时会让工作区显示为未提交。
 - 写入执行器只放行固定形状的 `switch -c`、`add -A --`、`commit --only -F -`、`tag`、`config --local core.hooksPath`，其余写入一律拒绝；继承的 `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` 等会被清除，用户自己的提交身份、签名和钩子配置保持生效。`require_signed: true` 时提交使用 `-S`、标签使用 `-s`。
+
+## push
+
+```sh
+yss git push --root ./repo --remote origin --plan --out /tmp/push-plan.json
+yss git push --root ./repo --apply --plan-file /tmp/push-plan.json --confirm-remote origin
+```
+
+- 计划阶段不联网：按本地远端跟踪引用（`refs/remotes/<远端>/<分支>`）确定待推送的提交，没有跟踪引用时以默认分支的合并基线为起点，并按策略审计这些提交（Ticket trailer、自审、签名）。有任何发现即拒绝，不提供绕过开关。
+- 拒绝：受保护分支、分离 HEAD、分支名不符合 `branch_pattern`、进行中的合并/变基、未解决冲突、本地与跟踪引用已分叉或落后、没有可推送的提交。
+- `--apply` 缺少 `--confirm-remote`，或名称与计划中的远端不同，返回 `CAPABILITY`，不触达远端。Agent 调用时应把计划交给用户，由用户给出确认。
+- 没有 `--force`。跟踪引用过期时计划能通过，远端会以 non-fast-forward 拒绝，错误原样报告（`EXECUTION`），远端不变。
+- 远端 URL 内嵌密码、使用 `ext::` 等命令传输、或协议不在 https/http/ssh/file/git 之内时拒绝；认证交给用户自己的凭据助手或 SSH 配置，`GIT_TERMINAL_PROMPT=0`，不会弹出交互提示。
+- 首次推送的分支会设置上游（`-u`）；`--tag` 只接受本地带注释标签 `vX.Y.Z`，不改写远端已有标签。
+- 用户自己的 `pre-push` 钩子照常运行。
 
 ## 查询的只读边界
 
@@ -70,5 +86,4 @@ Trailer 按 Git 规则只从提交信息最后一段读取。
 
 ## 后续阶段（未实现）
 
-- 外部副作用：`push`（含标签），需要保存计划和 `--confirm-remote <名称>`。
 - 模板仓同步提供 `git-policy.yaml` 默认值、schema 与 Skill 消费者。

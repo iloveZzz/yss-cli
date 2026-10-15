@@ -26,7 +26,7 @@ const (
 // Read-only subcommands. Write commands are added only with their plan/apply
 // guards, never by widening this list.
 var queryCommands = map[string]bool{
-	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true, "check-ref-format": true, "ls-files": true,
+	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true, "check-ref-format": true, "ls-files": true, "cat-file": true,
 	"symbolic-ref": true, "show-ref": true, "config": true, "remote": true, "submodule": true,
 }
 
@@ -66,6 +66,9 @@ func (r *Runner) Try(ctx context.Context, args ...string) ([]byte, int, error) {
 	}
 	if args[0] == "config" && !readOnlyConfig(args[1:]) {
 		return nil, 0, domain.Fail("CAPABILITY", "git config 只允许读取")
+	}
+	if args[0] == "cat-file" && (len(args) != 3 || args[1] != "-t") {
+		return nil, 0, domain.Fail("CAPABILITY", "git cat-file 只允许 -t")
 	}
 	if args[0] == "remote" && len(args) > 1 && args[1] != "-v" {
 		return nil, 0, domain.Fail("CAPABILITY", "git remote 只允许列出")

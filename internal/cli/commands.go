@@ -77,6 +77,9 @@ func initializeCommands() {
 	defineArgument("paths", "<路径,路径…>", "git commit 要提交的仓库相对路径，逗号分隔；范围外改动不会暂存")
 	defineArgument("slug", "<短名>", "git branch start 的分支短名，小写字母、数字、连字符")
 	defineArgument("from", "<Git引用>", "git branch start 的起点；默认策略默认分支")
+	defineArgument("remote", "<远端名>", "git push 的远端，如 origin")
+	defineArgument("confirm-remote", "<远端名>", "git push --apply 的用户确认；必须与计划中的远端同名")
+	defineArgument("tag", "<标签>", "git push 改为推送该本地带注释标签，如 v1.2.3")
 	defineArgument("key", "<字段>", "git policy set 的策略字段")
 	defineArgument("tag-version", "<版本>", "git release tag 的版本，如 2.2.0，标签为 v2.2.0")
 	defineArgument("evidence-file", "<路径>", "git release tag 记录摘要的仓库内证据文件，须已纳入版本控制")
@@ -137,6 +140,8 @@ func initializeCommands() {
 					opts = append(opts, "plan", "apply", "out", "plan-file", "tag-version", "evidence-file")
 				case "policy":
 					opts = append(opts, "plan", "apply", "out", "plan-file", "key", "value")
+				case "push":
+					opts = append(opts, "plan", "apply", "out", "plan-file", "remote", "tag", "confirm-remote")
 				case "verify-message":
 					opts = append(opts, "file")
 				case "status":

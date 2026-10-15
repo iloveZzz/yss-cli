@@ -16,6 +16,7 @@ import (
 const mutateTimeout = 5 * time.Minute
 
 var (
+	remotePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	shaPattern     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	tagNamePattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 	hooksPattern   = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,200}$`)
@@ -48,6 +49,23 @@ func mutationAllowed(args []string) bool {
 		return head == "--only -F -" || head == "--only -F - -S"
 	case "tag":
 		return len(args) == 6 && (args[1] == "-a" || args[1] == "-s") && tagNamePattern.MatchString(args[2]) && args[3] == "-m" && args[4] != "" && shaPattern.MatchString(args[5])
+	case "push":
+		rest := args[1:]
+		if len(rest) > 0 && rest[0] == "-u" {
+			rest = rest[1:]
+		}
+		if len(rest) != 2 || !remotePattern.MatchString(rest[0]) {
+			return false
+		}
+		src, dst, ok := strings.Cut(rest[1], ":")
+		if !ok || src != dst || (len(args) == 4 && !strings.HasPrefix(src, "refs/heads/")) {
+			return false
+		}
+		if name, isBranch := strings.CutPrefix(src, "refs/heads/"); isBranch {
+			return safeBranch.MatchString(name)
+		}
+		name, isTag := strings.CutPrefix(src, "refs/tags/")
+		return isTag && tagNamePattern.MatchString(name)
 	case "config":
 		return len(args) == 4 && args[1] == "--local" && args[2] == "core.hooksPath" && hooksPattern.MatchString(args[3]) && !strings.Contains(args[3], "..")
 	}
@@ -112,14 +130,15 @@ func (r *Runner) Mutate(ctx context.Context, stdin string, args ...string) ([]by
 			text = strings.TrimSpace(stdout.String())
 		}
 		if text != "" {
-			message += ": " + firstLine(text)
+			message += ": " + errorLine(text)
 		}
 		return nil, domain.Fail("EXECUTION", message)
 	}
 	if err != nil {
 		return nil, domain.Wrap("EXECUTION", err)
 	}
-	return bytes.TrimSpace(stdout.Bytes()), nil
+	// git reports push progress on stderr; keep it as the result text.
+	return bytes.TrimSpace(append(stdout.Bytes(), append([]byte("\n"), stderr.Bytes()...)...)), nil
 }
 
 var redirectingEnv = []string{
@@ -153,4 +172,17 @@ func (b *capBuffer) Write(p []byte) (int, error) {
 		b.Buffer.Write(p[:min(room, len(p))])
 	}
 	return len(p), nil
+}
+
+// errorLine prefers the line that says why git failed over the banner lines
+// (such as "To <url>") that precede it.
+func errorLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		for _, marker := range []string{"rejected", "error:", "fatal:", "denied", "failed"} {
+			if strings.Contains(line, marker) {
+				return strings.TrimSpace(line)
+			}
+		}
+	}
+	return firstLine(text)
 }
