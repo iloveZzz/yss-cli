@@ -135,6 +135,7 @@ func rootHelp() string {
 	}{
 		{"项目", []string{"init", "scaffold", "profile", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
 		{"资源", []string{"skills", "assets", "bundle"}},
+		{"Git", []string{"git"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"context", "lifecycle", "stage", "contract", "evidence", "handoff", "project-ci"}},
 		{"工具", []string{"runtime", "archive", "xml", "compat", "compat-api"}},

@@ -71,6 +71,8 @@ func initializeCommands() {
 	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
 	defineArgument("agent-runtime", "<运行时>", "仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传", "codex", "cursor", "pi")
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
+	defineArgument("since", "<Git引用>", "git audit/changelog 的起始引用（不含）")
+	defineArgument("until", "<Git引用>", "git audit/changelog 的结束引用，默认 HEAD")
 
 	for _, row := range []struct{ key, description string }{
 		{"json", "执行结果输出 JSON；帮助始终输出文本"},
@@ -114,6 +116,18 @@ func initializeCommands() {
 			opts = append(opts, "root", "target-dir", "profile", "apply")
 		case "profile":
 			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
+		case "git":
+			opts = append(opts, "root", "target-dir", "profile")
+			if len(parts) > 1 {
+				switch parts[1] {
+				case "status":
+					opts = append(opts, "task")
+				case "base":
+					opts = append(opts, "branch")
+				case "audit", "changelog":
+					opts = append(opts, "since", "until")
+				}
+			}
 		case "upgrade":
 			opts = append(opts, "check", "to", "tool-root")
 		case "update":

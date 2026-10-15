@@ -1,5 +1,7 @@
 package cli
 
+import "github.com/iloveZzz/yss-cli/internal/gitops"
+
 const projectFlags = "--root <目录>  项目根，默认当前目录；推荐显式指定\n--profile <spec|design|backend>  必需或从项目身份检测"
 const upgradeFlags = "--review-out <新目录>  项目外审查材料与决议模板\n--base-bundle <路径>  离线历史 Bundle 完整材料\n--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划"
 const planFlags = "--plan --out <新文件>  生成保存计划，输出文件必须不存在\n--apply --plan-file <文件>  应用保存计划；输入变化时拒绝"
@@ -74,7 +76,21 @@ func init() {
 		helpTopics[key] = topic
 	}
 	registerScaffoldHelp()
+	registerGitHelp()
 	initializeCommands()
+}
+
+func registerGitHelp() {
+	registerGroup("git", "只读查看仓库状态、基线、环境、策略与提交审计。", "--root <仓库顶层>", "--root <目录>  Git 仓库顶层，默认当前目录\n--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份", "yss git status --root ./demo-spec --json", "本阶段全部只读：不写工作区、索引、引用或配置，不访问远端。策略读取 "+gitops.PolicyRef+"，缺失时使用默认值。报告不代表可合并、可发布或阶段批准。", map[string]helpTopic{
+		"status":     {"分支、上游差异、改动路径及进行中的合并/变基。", "[--task <Ticket>] [--json]", "--task <Ticket>  报告当前分支名是否包含该 Ticket", "yss git status --root ./demo-spec --task FEAT-142 --json", "", false},
+		"base":       {"解析 HEAD 与默认分支的合并基线，输出完整 SHA。", "[--branch <分支>] [--json]", "--branch <分支>  默认取策略 default_branch；先本地分支，再 origin/<分支>", "yss git base --root ./impl --json", "输出的 base 可直接用于 yss lifecycle route --base。", false},
+		"submodules": {"列出子模块状态及其本地入口文件。", "[--json]", "只读；不初始化、不拉取子模块", "yss git submodules --root ./demo-spec --json", "子模块是独立实现仓，进入前先读其 AGENTS.md。", false},
+		"doctor":     {"检查 Git 版本、提交身份、远端、历史深度与策略文件。", "[--json]", "status 为 ok/warn/fail；只读", "yss git doctor --root ./demo-spec --json", "", false},
+		"guard":      {"事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。", "[--json]", "就绪返回 status=clear；否则以 CONFLICT 失败并附明细", "yss git guard --root ./demo-spec --json", "只报告，不暂存、不还原、不清理任何文件。", false},
+		"policy":     {"显示生效的 Git 策略及来源。", "[--json]", "字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed", "yss git policy --root ./demo-spec --json", "未知字段或非法正则会被拒绝，不回退默认值。", false},
+		"audit":      {"按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git audit --root ./demo-spec --since v2.1.0 --json", "有发现时 status=attention，退出码仍为 0。require_signed 为 true 时才调用 gpg 读取签名。", false},
+		"changelog":  {"按 Ticket 汇总提交范围内的变更。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git changelog --root ./demo-spec --since v2.1.0 --json", "无 Ticket 的提交归入 unlinked。", false},
+	})
 }
 
 func registerGroup(group, summary, usage, options, examples, notes string, children map[string]helpTopic) {

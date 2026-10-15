@@ -329,6 +329,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "profile" {
 		return profileCommand(ctx, root, o)
 	}
+	if command == "git" {
+		return gitCommand(ctx, root, o)
+	}
 	if command == "update" {
 		if len(o.args) > 2 {
 			return nil, "", domain.Fail("ARGUMENT", "程序升级子命令参数过多")
