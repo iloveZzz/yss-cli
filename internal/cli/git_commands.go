@@ -20,11 +20,36 @@ const gitMinimumVersion = "2.31"
 
 var gitVersionPattern = regexp.MustCompile(`git version (\d+)\.(\d+)`)
 
-// gitCommand serves the read-only phase of yss git. No subcommand writes the
-// work tree, index, refs or config, and none contacts a remote.
+// gitActions lists the subcommands that take an action word, and the plan
+// kind each one produces. Everything else is a single-word read-only query.
+var gitActions = map[string]struct{ action, kind string }{
+	"branch":  {"start", gitops.KindBranchStart},
+	"hooks":   {"install", gitops.KindHooks},
+	"release": {"tag", gitops.KindTag},
+}
+
+// gitCommand serves yss git. Queries are read-only; writes (branch start,
+// commit, hooks install, policy set, release tag) only run from a saved plan
+// and never contact a remote.
 func gitCommand(ctx context.Context, root string, o options) (any, string, error) {
-	if len(o.args) != 2 {
+	if len(o.args) < 2 || len(o.args) > 3 {
 		return nil, "", domain.Fail("ARGUMENT", "git 需要一个子命令；查看 yss git --help")
+	}
+	writeKind := ""
+	if spec, ok := gitActions[o.args[1]]; ok {
+		if len(o.args) != 3 || o.args[2] != spec.action {
+			return nil, "", domain.Fail("ARGUMENT", "git "+o.args[1]+" 需要 "+spec.action+" 子命令")
+		}
+		writeKind = spec.kind
+	} else if o.args[1] == "commit" && len(o.args) == 2 {
+		writeKind = gitops.KindCommit
+	} else if o.args[1] == "policy" && len(o.args) == 3 {
+		if o.args[2] != "set" {
+			return nil, "", domain.Fail("ARGUMENT", "git policy 只支持 set 子命令")
+		}
+		writeKind = gitops.KindPolicySet
+	} else if len(o.args) != 2 {
+		return nil, "", domain.Fail("ARGUMENT", "git "+o.args[1]+" 不接受额外位置参数")
 	}
 	profile, err := gitIdentity(root, o.values["profile"])
 	if err != nil {
@@ -37,8 +62,17 @@ func gitCommand(ctx context.Context, root string, o options) (any, string, error
 	if err = r.TopLevel(ctx); err != nil {
 		return nil, profile, err
 	}
+	if writeKind != "" {
+		result, werr := gitWrite(ctx, r, writeKind, o)
+		return result, profile, werr
+	}
 	var result any
 	switch o.args[1] {
+	case "verify-message":
+		var p gitops.Policy
+		if p, err = gitops.LoadPolicy(root); err == nil {
+			result, err = gitops.VerifyMessage(p, o.values["file"])
+		}
 	case "status":
 		result, err = gitStatus(ctx, r, o.values["task"])
 	case "base":

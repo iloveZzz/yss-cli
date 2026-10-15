@@ -73,6 +73,13 @@ func initializeCommands() {
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 	defineArgument("since", "<Git引用>", "git audit/changelog 的起始引用（不含）")
 	defineArgument("until", "<Git引用>", "git audit/changelog 的结束引用，默认 HEAD")
+	defineArgument("message", "<主题>", "git commit 的单行提交主题；Ticket trailer 由策略追加")
+	defineArgument("paths", "<路径,路径…>", "git commit 要提交的仓库相对路径，逗号分隔；范围外改动不会暂存")
+	defineArgument("slug", "<短名>", "git branch start 的分支短名，小写字母、数字、连字符")
+	defineArgument("from", "<Git引用>", "git branch start 的起点；默认策略默认分支")
+	defineArgument("key", "<字段>", "git policy set 的策略字段")
+	defineArgument("tag-version", "<版本>", "git release tag 的版本，如 2.2.0，标签为 v2.2.0")
+	defineArgument("evidence-file", "<路径>", "git release tag 记录摘要的仓库内证据文件，须已纳入版本控制")
 
 	for _, row := range []struct{ key, description string }{
 		{"json", "执行结果输出 JSON；帮助始终输出文本"},
@@ -120,6 +127,18 @@ func initializeCommands() {
 			opts = append(opts, "root", "target-dir", "profile")
 			if len(parts) > 1 {
 				switch parts[1] {
+				case "branch":
+					opts = append(opts, "plan", "apply", "out", "plan-file", "task", "type", "slug", "from")
+				case "commit":
+					opts = append(opts, "plan", "apply", "out", "plan-file", "task", "message", "paths")
+				case "hooks":
+					opts = append(opts, "plan", "apply", "out", "plan-file")
+				case "release":
+					opts = append(opts, "plan", "apply", "out", "plan-file", "tag-version", "evidence-file")
+				case "policy":
+					opts = append(opts, "plan", "apply", "out", "plan-file", "key", "value")
+				case "verify-message":
+					opts = append(opts, "file")
 				case "status":
 					opts = append(opts, "task")
 				case "base":
@@ -361,7 +380,7 @@ func validateArguments(command string, o options) error {
 	if len(o.args) > 2 && !spec.help.positional {
 		return argumentError("命令 " + key + " 不接受额外位置参数")
 	}
-	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "compat" {
+	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "compat" && command != "git" {
 		positional := false
 		for _, k := range governance.ArgumentKeys(command, o.args[1]) {
 			if k == "arg0" {

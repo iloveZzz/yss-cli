@@ -2,6 +2,8 @@ package gitops
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,6 +34,8 @@ type Entry struct {
 type Status struct {
 	Branch  Branch  `json:"branch"`
 	Entries []Entry `json:"entries"`
+	// Digest covers the raw porcelain output, branch header included.
+	Digest string `json:"digest"`
 }
 
 // ReadStatus parses `status --porcelain=v2 -z`, which is stable across git
@@ -41,7 +45,8 @@ func (r *Runner) ReadStatus(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	s := Status{Entries: []Entry{}}
+	sum := sha256.Sum256(out)
+	s := Status{Entries: []Entry{}, Digest: hex.EncodeToString(sum[:])}
 	tokens := strings.Split(string(out), "\x00")
 	for i := 0; i < len(tokens); i++ {
 		t := tokens[i]

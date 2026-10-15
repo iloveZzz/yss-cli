@@ -26,7 +26,7 @@ const (
 // Read-only subcommands. Write commands are added only with their plan/apply
 // guards, never by widening this list.
 var queryCommands = map[string]bool{
-	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true,
+	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true, "check-ref-format": true, "ls-files": true,
 	"symbolic-ref": true, "show-ref": true, "config": true, "remote": true, "submodule": true,
 }
 

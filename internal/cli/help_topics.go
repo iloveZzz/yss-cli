@@ -1,6 +1,10 @@
 package cli
 
-import "github.com/iloveZzz/yss-cli/internal/gitops"
+import (
+	"strings"
+
+	"github.com/iloveZzz/yss-cli/internal/gitops"
+)
 
 const projectFlags = "--root <目录>  项目根，默认当前目录；推荐显式指定\n--profile <spec|design|backend>  必需或从项目身份检测"
 const upgradeFlags = "--review-out <新目录>  项目外审查材料与决议模板\n--base-bundle <路径>  离线历史 Bundle 完整材料\n--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划"
@@ -81,16 +85,27 @@ func init() {
 }
 
 func registerGitHelp() {
-	registerGroup("git", "只读查看仓库状态、基线、环境、策略与提交审计。", "--root <仓库顶层>", "--root <目录>  Git 仓库顶层，默认当前目录\n--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份", "yss git status --root ./demo-spec --json", "本阶段全部只读：不写工作区、索引、引用或配置，不访问远端。策略读取 "+gitops.PolicyRef+"，缺失时使用默认值。报告不代表可合并、可发布或阶段批准。", map[string]helpTopic{
-		"status":     {"分支、上游差异、改动路径及进行中的合并/变基。", "[--task <Ticket>] [--json]", "--task <Ticket>  报告当前分支名是否包含该 Ticket", "yss git status --root ./demo-spec --task FEAT-142 --json", "", false},
-		"base":       {"解析 HEAD 与默认分支的合并基线，输出完整 SHA。", "[--branch <分支>] [--json]", "--branch <分支>  默认取策略 default_branch；先本地分支，再 origin/<分支>", "yss git base --root ./impl --json", "输出的 base 可直接用于 yss lifecycle route --base。", false},
-		"submodules": {"列出子模块状态及其本地入口文件。", "[--json]", "只读；不初始化、不拉取子模块", "yss git submodules --root ./demo-spec --json", "子模块是独立实现仓，进入前先读其 AGENTS.md。", false},
-		"doctor":     {"检查 Git 版本、提交身份、远端、历史深度与策略文件。", "[--json]", "status 为 ok/warn/fail；只读", "yss git doctor --root ./demo-spec --json", "", false},
-		"guard":      {"事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。", "[--json]", "就绪返回 status=clear；否则以 CONFLICT 失败并附明细", "yss git guard --root ./demo-spec --json", "只报告，不暂存、不还原、不清理任何文件。", false},
-		"policy":     {"显示生效的 Git 策略及来源。", "[--json]", "字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed", "yss git policy --root ./demo-spec --json", "未知字段或非法正则会被拒绝，不回退默认值。", false},
-		"audit":      {"按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git audit --root ./demo-spec --since v2.1.0 --json", "有发现时 status=attention，退出码仍为 0。require_signed 为 true 时才调用 gpg 读取签名。", false},
-		"changelog":  {"按 Ticket 汇总提交范围内的变更。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git changelog --root ./demo-spec --since v2.1.0 --json", "无 Ticket 的提交归入 unlinked。", false},
+	registerGroup("git", "查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。", "--root <仓库顶层>", "--root <目录>  Git 仓库顶层，默认当前目录\n--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份", "yss git status --root ./demo-spec --json", "查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 "+gitops.PolicyRef+"，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。", map[string]helpTopic{
+		"status":         {"分支、上游差异、改动路径及进行中的合并/变基。", "[--task <Ticket>] [--json]", "--task <Ticket>  报告当前分支名是否包含该 Ticket", "yss git status --root ./demo-spec --task FEAT-142 --json", "", false},
+		"base":           {"解析 HEAD 与默认分支的合并基线，输出完整 SHA。", "[--branch <分支>] [--json]", "--branch <分支>  默认取策略 default_branch；先本地分支，再 origin/<分支>", "yss git base --root ./impl --json", "输出的 base 可直接用于 yss lifecycle route --base。", false},
+		"submodules":     {"列出子模块状态及其本地入口文件。", "[--json]", "只读；不初始化、不拉取子模块", "yss git submodules --root ./demo-spec --json", "子模块是独立实现仓，进入前先读其 AGENTS.md。", false},
+		"doctor":         {"检查 Git 版本、提交身份、远端、历史深度与策略文件。", "[--json]", "status 为 ok/warn/fail；只读", "yss git doctor --root ./demo-spec --json", "", false},
+		"guard":          {"事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。", "[--json]", "就绪返回 status=clear；否则以 CONFLICT 失败并附明细", "yss git guard --root ./demo-spec --json", "只报告，不暂存、不还原、不清理任何文件。", false},
+		"policy":         {"显示生效的 Git 策略；policy set 经计划修改一个字段。", "[set --key <字段> --value <值> --plan --out <新文件>] [--json]", "无子命令时只读。字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed\n--key / --value  set：字符串可直接写，列表用 JSON 数组，布尔写 true/false\n" + planFlags, "yss git policy --root ./demo-spec --json\nyss git policy set --root ./demo-spec --key protected_branches --value '[\"main\",\"release\"]' --plan --out /tmp/policy-plan.json\nyss git policy set --root ./demo-spec --apply --plan-file /tmp/policy-plan.json", "未知字段或非法正则会被拒绝，不回退默认值。set 整文件按固定格式重写，原注释不保留。", true},
+		"branch":         {"branch start：按 Ticket 生成符合策略的分支名并切换。", "start --task <Ticket> --slug <短名> [--type <类型>] [--from <引用>] --plan --out <新文件>", "--task <Ticket>  须符合 ticket_pattern\n--slug <短名>  小写字母、数字、连字符\n--type <类型>  默认 feat\n--from <引用>  起点，默认策略默认分支\n" + planFlags, "yss git branch start --root ./demo-spec --task FEAT-142 --slug order-refund --plan --out /tmp/branch-plan.json\nyss git branch start --root ./demo-spec --apply --plan-file /tmp/branch-plan.json", "分支名为 <类型>/<Ticket>-<短名>。结果的 base 可用于 yss lifecycle route --base；未提交改动随工作区保留。", true},
+		"commit":         {"只提交明确列出的路径，并追加 Ticket trailer。", "--task <Ticket> --message <主题> --paths <路径,路径…> --plan --out <新文件>", "--task <Ticket>  须符合 ticket_pattern\n--message <主题>  单行，1–200 字\n--paths <路径,…>  仓库相对路径，逗号分隔\n" + planFlags, "yss git commit --root ./demo-spec --task FEAT-142 --message \"支持部分退款\" --paths src/refund,docs/refund.md --plan --out /tmp/commit-plan.json\nyss git commit --root ./demo-spec --apply --plan-file /tmp/commit-plan.json", "范围外改动列入计划的 excluded，不暂存、不提交。拒绝：受保护分支、分离 HEAD、进行中的合并/变基、未解决冲突。计划文件须保存在仓库之外。", false},
+		"hooks":          {"hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。", "install --plan --out <新文件>", planFlags, "yss git hooks install --root ./demo-spec --plan --out /tmp/hooks-plan.json\nyss git hooks install --root ./demo-spec --apply --plan-file /tmp/hooks-plan.json", "脚本写入 .githooks/（纳入版本控制）；原 core.hooksPath 或 .git/hooks/commit-msg 先被链式调用；已有非 yss 的 .githooks/commit-msg 不覆盖。找不到 yss 时钩子跳过检查。其他克隆需各自安装。", true},
+		"release":        {"release tag：在默认分支的干净 HEAD 上创建本地带注释标签。", "tag --tag-version <版本> [--evidence-file <路径>] --plan --out <新文件>", "--tag-version <版本>  如 2.2.0，标签为 v2.2.0\n--evidence-file <路径>  可选，已纳入版本控制的文件，摘要写入标签信息\n" + planFlags, "yss git release tag --root ./demo-spec --tag-version 2.2.0 --plan --out /tmp/tag-plan.json\nyss git release tag --root ./demo-spec --apply --plan-file /tmp/tag-plan.json", "只创建本地标签，不推送。要求当前在 default_branch、工作区干净；require_signed 时使用签名标签。", true},
+		"verify-message": {"校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。", "--file <提交信息文件> [--json]", "--file <文件>  Git 传给钩子的提交信息文件", "yss git verify-message --root ./demo-spec --file .git/COMMIT_EDITMSG", "合并、Revert、fixup!/squash! 提交跳过检查。", false},
+		"audit":          {"按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git audit --root ./demo-spec --since v2.1.0 --json", "有发现时 status=attention，退出码仍为 0。require_signed 为 true 时才调用 gpg 读取签名。", false},
+		"changelog":      {"按 Ticket 汇总提交范围内的变更。", "--since <引用> [--until <引用>] [--json]", "--since <引用>  必需，起始（不含）\n--until <引用>  默认 HEAD", "yss git changelog --root ./demo-spec --since v2.1.0 --json", "无 Ticket 的提交归入 unlinked。", false},
 	})
+	// The action word reads better before the shared --root.
+	for key, action := range map[string]string{"git branch": "start", "git hooks": "install", "git release": "tag", "git policy": "set"} {
+		topic := helpTopics[key]
+		topic.usage = strings.Replace(topic.usage, "--root <仓库顶层> "+action, action+" --root <仓库顶层>", 1)
+		helpTopics[key] = topic
+	}
 }
 
 func registerGroup(group, summary, usage, options, examples, notes string, children map[string]helpTopic) {
