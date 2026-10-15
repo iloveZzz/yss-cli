@@ -41,6 +41,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 	}
 	if command == "lifecycle" && len(o.args) > 1 && o.args[1] == "route" {
 		title = "路由判定完成"
+		if summary, ok := renderRouteSummary(o, profile, m); ok {
+			return summary
+		}
 	}
 	plan := o.values["plan"] == "true" || m["digest"] != nil && m["changes"] != nil || m["kind"] == "stage-tracking-go-plan" || len(o.args) > 1 && o.args[1] == "plan"
 	if plan {
@@ -167,6 +170,49 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		fmt.Fprintf(&out, "下一步：%s\n  %s", nextReading(strings.Join(o.args, " ")), helpCommand(o.args))
 	}
 	return out.String()
+}
+
+// renderRouteSummary 把 lifecycle route 的结果压成几行：路径、原因、下一步。
+// 摘要只翻译已有字段，不重新判断路径；字段缺失时返回 false，回退到通用输出。
+func renderRouteSummary(o options, profile string, m map[string]any) (string, bool) {
+	path, _ := m["delivery_path"].(string)
+	if m["kind"] != "lifecycle.route" || (path != "daily" && path != "governed") {
+		return "", false
+	}
+	var out strings.Builder
+	label := map[string]string{"daily": "日常路径（只维护同一张任务单，不生成阶段文档）", "governed": "正式路径（需要从最近可信阶段恢复正式治理）"}[path]
+	fmt.Fprintf(&out, "路由判定完成：%s\n", label)
+	if profile != "" {
+		fmt.Fprintf(&out, "Profile：%s\n", profile)
+	}
+	if reasons, ok := m["reasons"].([]any); ok {
+		for _, reason := range reasons {
+			fmt.Fprintf(&out, "原因：%v\n", reason)
+		}
+	}
+	if files, ok := m["changed_files"].([]any); ok {
+		fmt.Fprintf(&out, "当前改动：%d 个文件\n", len(files))
+	}
+	if diagnostics, ok := m["diagnostics"].([]any); ok {
+		for _, item := range diagnostics {
+			if d, ok := item.(map[string]any); ok {
+				fmt.Fprintf(&out, "阻断：%s\n", firstText(d, "message", "code"))
+				if recovery := stringValue(d["recovery"], ""); recovery != "" && recovery != "." {
+					fmt.Fprintf(&out, "恢复：%s\n", recovery)
+				}
+			}
+		}
+	}
+	root, task := o.values["root"], o.values["task"]
+	if path == "daily" {
+		out.WriteString("下一步：按“需求验收 → 实现 → 测试 → 独立审查”推进，结果记回同一张任务单；完成后核验：\n")
+		fmt.Fprintf(&out, "  %s\n", formatArgv([]string{"yss", "lifecycle", "verify-daily", "--root", stringValue(root, ""), "--task", stringValue(task, ""), "--implementation-root", stringValue(o.values["implementation-root"], ""), "--base", stringValue(o.values["base"], "")}))
+	} else {
+		out.WriteString("下一步：保留已有修改和证据，读取当前阶段状态后由对应负责人继续：\n")
+		fmt.Fprintf(&out, "  %s\n", formatArgv([]string{"yss", "lifecycle", "status", "--help"}))
+	}
+	out.WriteString("完整字段与摘要见 --json；本路由只读，不授予实现、批准或发布资格。")
+	return out.String(), true
 }
 
 func renderProgression(out *strings.Builder, value any) {
