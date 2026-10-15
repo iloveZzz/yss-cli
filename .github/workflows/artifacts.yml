@@ -39,27 +39,8 @@ jobs:
           path: template-source
           fetch-depth: 1
           submodules: false
-      - name: Fetch fixed source objects and template tags
-        run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import path from 'node:path';
-          import {execFileSync} from 'node:child_process';
-          const root=path.join(process.env.GITHUB_WORKSPACE,'template-source');
-          const lock=JSON.parse(fs.readFileSync('docs/source-lock.json'));
-          for(const source of Object.values(lock.profiles)) for(const item of [source,source.skillsSource].filter(Boolean)) {
-            if(!/^[a-f0-9]{40}$/.test(item.templateCommit)) throw new Error('full fixed commit required');
-            const repo=path.resolve(root,item.sourcePath);
-            if(path.relative(root,repo).split(path.sep).includes('..')) throw new Error('source path escape');
-            execFileSync('git',['-C',repo,'fetch','--depth','1','origin',item.templateCommit],{stdio:'inherit'});
-            if(item.templateTag) {
-              if(!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(item.templateTag)) throw new Error('stable template tag required');
-              execFileSync('git',['-C',repo,'fetch','--depth','1','origin',`refs/tags/${item.templateTag}:refs/tags/${item.templateTag}`],{stdio:'inherit'});
-              const commit=execFileSync('git',['-C',repo,'rev-parse',`refs/tags/${item.templateTag}^{commit}`],{encoding:'utf8'}).trim();
-              if(commit!==item.templateCommit) throw new Error('template tag differs from fixed commit');
-            }
-          }
-          JS
+      - name: Produce embedded bundle archive (not stored in git)
+        run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
       - name: Compile production packages and record candidate
         env:
           CGO_ENABLED: 0

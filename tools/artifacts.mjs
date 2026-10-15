@@ -9,9 +9,10 @@ import {fileURLToPath} from 'node:url';
 
 const PROFILES = ['spec', 'design', 'backend'];
 const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
+const DIGEST = ARCHIVE + '.sha256'; // 入库的归档摘要；归档本身不入库，由 tools/fetch-bundle.mjs 生成
 const VIEWS = PROFILES.map(p => `internal/helpview/assets/${p}.json`);
 const HELP = 'docs/cli-help.md';
-const TARGETS = [ARCHIVE, ...VIEWS, HELP];
+const TARGETS = [ARCHIVE, DIGEST, ...VIEWS, HELP];
 const sha = value => createHash('sha256').update(value).digest('hex');
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,6 +24,7 @@ function identity(file) {
   } catch (error) {if (error.code === 'ENOENT') return null; throw error}
 }
 const equal = (a,b) => JSON.stringify(a) === JSON.stringify(b);
+const digestLine = hex => `${hex}  bundles.json.gz\n`;
 
 export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, out}) {
   if (!['check','generate'].includes(mode) || !['derived','all'].includes(scope)) throw new Error('usage: artifacts.mjs check|generate --scope derived|all --out DIR [--source-root ROOT]');
@@ -39,7 +41,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
   const env = fixedGoEnvironment();
   const receiptFile = path.join(out,'receipt.json');
   const save = () => fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2)+'\n');
-  let lockPath, ownsLock = false;
+  let lockPath, ownsLock = false, placeholder = false;
   const previousUmask = process.umask(0o022);
   receipt.umask = '0022';
   function run(command,args,cwd=root) {
@@ -75,6 +77,15 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     const before = inputs(); receipt.inputDigest = sha(JSON.stringify(before));
     receipt.inputs = before;
     if (Object.values(before).some(value=>value?.link)) throw new Error('generator inputs must be ordinary files');
+    const archivePath = path.join(root,ARCHIVE);
+    const committedDigest = fs.readFileSync(path.join(root,DIGEST),'utf8').trim().split(/\s+/)[0];
+    if (!/^[a-f0-9]{64}$/.test(committedDigest)) throw new Error(`摘要文件格式错误: ${DIGEST}`);
+    if (scope === 'derived') {
+      if (!fs.existsSync(archivePath) || sha(fs.readFileSync(archivePath)) !== committedDigest) throw new Error('内嵌归档缺失或与摘要不一致，请先运行 node tools/fetch-bundle.mjs');
+    } else if (!fs.existsSync(archivePath)) {
+      // 归档不入库：缺失时放空占位，仅让生成工具与 go list 能编译；结束时移除。
+      fs.writeFileSync(archivePath,'',{flag:'wx'}); placeholder = true;
+    }
     const generatorPackages = ['./tools/helpview','./tools/helpdocs','./tools/artifact-sizes'];
     if (scope === 'all') generatorPackages.push('./tools/bundle');
     const prior = Object.fromEntries(TARGETS.map(ref=>[ref,identity(path.join(root,ref))]));
@@ -108,6 +119,8 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
       run('go',['run','./tools/bundle','--source-root',sourceRoot,'--lock','docs/source-lock.json','--out',archiveDir]);
       candidates[ARCHIVE] = path.join(archiveDir,'bundles.json.gz');
       overlay.Replace[path.join(root,ARCHIVE)] = candidates[ARCHIVE];
+      candidates[DIGEST] = path.join(archiveDir,'bundles.json.gz.sha256');
+      fs.writeFileSync(candidates[DIGEST],digestLine(sha(fs.readFileSync(candidates[ARCHIVE]))));
     }
     fs.writeFileSync(overlayPath,JSON.stringify(overlay));
     const viewDir = path.join(stage,'views');
@@ -136,7 +149,9 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
       receipt.outputs[ref] = {...candidateIdentity, bytes:fs.statSync(candidate).size, changed:prior[ref]?.sha256 !== candidateIdentity.sha256 || ((prior[ref]?.mode ?? 0) & 0o111) !== (candidateIdentity.mode & 0o111)};
       if (receipt.outputs[ref].changed) changed.push(ref);
     }
-    if (mode === 'check' && changed.length) throw new Error('生成产物漂移: '+changed.join(', '));
+    // 归档只在本地存在，check 不比对它本身；它的内容由入库摘要（DIGEST）约束。
+    const drift = mode === 'check' ? changed.filter(ref=>ref !== ARCHIVE) : [];
+    if (drift.length) throw new Error('生成产物漂移: '+drift.join(', '));
     if (mode === 'generate') {
       for (const ref of Object.keys(candidates)) {
         const target = path.join(root,ref);
@@ -165,7 +180,8 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
   } catch (error) {
     receipt.status = 'failed'; receipt.error = error.message; save(); throw error;
   } finally {
-    try {if (ownsLock) fs.unlinkSync(lockPath)} finally {process.umask(previousUmask)}
+    try {if (placeholder && fs.existsSync(path.join(root,ARCHIVE)) && fs.statSync(path.join(root,ARCHIVE)).size === 0) fs.unlinkSync(path.join(root,ARCHIVE))}
+    finally {try {if (ownsLock) fs.unlinkSync(lockPath)} finally {process.umask(previousUmask)}}
   }
 }
 

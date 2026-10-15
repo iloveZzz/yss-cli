@@ -33,6 +33,8 @@ yss scaffold mvc --project-name order-service --base-package com.yss.orders \
 
 JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式还需要技能原有的 Python3、`jsonschema` 和 `referencing` 校验环境；独立生成无需这些 Python 依赖。
 
+内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
+
 编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。本仓已移除自动化测试源码、测试专用工具及 GitHub Actions 测试 workflow；本地可使用 `CGO_ENABLED=0 go build ./...` 检查构建。编译成功不代表功能或发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
 ```sh
@@ -64,7 +66,8 @@ yss handoff verify --root ./design --kind spec-baseline --file docs/spec-baselin
 初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Design 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
 
 ```sh
-go run ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
+# 归档不存在时必须带 -tags yss_nobundle 自举编译；日常请用 node tools/fetch-bundle.mjs（含摘要校验）
+go run -tags yss_nobundle ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
 yss bundle inspect --profile spec --json
 yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 ```
