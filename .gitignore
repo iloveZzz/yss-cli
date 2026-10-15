@@ -4,3 +4,5 @@
 /yss-bin
 /yss-bin.exe
 /yss-cli
+/internal/bundle/assets/bundles.json.gz
+/internal/bundle/assets/bundles.json.gz.*.tmp

@@ -17,6 +17,7 @@
 工程使用 Go 1.27.1：
 
 ```sh
+node tools/fetch-bundle.mjs   # 内嵌归档不入库，编译前先生成
 CGO_ENABLED=0 go build ./...
 CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss
 ```

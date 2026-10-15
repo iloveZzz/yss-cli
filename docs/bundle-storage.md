@@ -4,7 +4,7 @@ CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend �
 
 ## 私有归档 v1
 
-`internal/bundle/assets/bundles.json.gz` 是唯一嵌入资产，解压后为：
+`internal/bundle/assets/bundles.json.gz` 是唯一嵌入资产，但不进入版本库（`.gitignore` 忽略）。版本库只提交它的 SHA-256 摘要 `internal/bundle/assets/bundles.json.gz.sha256`；归档由 `node tools/fetch-bundle.mjs` 按 `docs/source-lock.json` 的固定提交生成并校验摘要，生成结果逐字节可重现。`go:embed` 位于 `internal/bundle/embed_archive.go`；带 `yss_nobundle` tag 时改用空占位（`embed_archive_stub.go`），仅供 `tools/bundle` 在归档尚不存在时自举编译，不得用于发行。`artifacts.mjs check` 重建归档并与摘要比对，漂移即失败。解压后为：
 
 ```json
 {

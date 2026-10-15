@@ -2,15 +2,11 @@ package bundle
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/base64"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"strings"
 )
-
-//go:embed assets/bundles.json.gz
-var packedData []byte
 
 type File struct {
 	Data      string `json:"data"`

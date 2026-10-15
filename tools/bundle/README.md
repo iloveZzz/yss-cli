@@ -1,6 +1,6 @@
 # 固定模板源码 Bundle Producer
 
-运行 `go run ./tools/bundle --source-root <固定模板仓根> --lock docs/source-lock.json --out internal/bundle/assets`。
+日常使用 `node tools/fetch-bundle.mjs`（取得源码、生成、校验摘要）。直接运行时：`go run -tags yss_nobundle ./tools/bundle --source-root <固定模板仓根> --lock docs/source-lock.json --out internal/bundle/assets`（`yss_nobundle` 让工具在归档不存在时也能编译）。归档不入库，仅入库其摘要 `bundles.json.gz.sha256`。
 
 生成单个 `bundles.json.gz`，私有存储格式 v1 将三个 Profile 的 `files`、`initial` 与 `NativeTransforms.Source` 内容汇入共享对象池；每个路径继续保存摘要、权限、ownership 和来源信息。构建工具的摘要输出单独使用 schema v4，`profiles` 保留各逻辑 Bundle 身份，`storage` 记录格式版本、文件名、SHA-256、压缩字节数、JSON 字节数和唯一对象数。公开导出仍为完整 Bundle v3，不接受私有归档作为 `--base-bundle` 输入。详见 [内部存储合同](../../docs/bundle-storage.md)。
 

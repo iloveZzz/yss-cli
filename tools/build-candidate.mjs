@@ -8,6 +8,7 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const digest = data => createHash('sha256').update(data).digest('hex');
+const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
 
 export function buildCandidate({root, out}) {
   root = fs.realpathSync(root);
@@ -21,6 +22,8 @@ export function buildCandidate({root, out}) {
   const git = args => execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();
   const inventory = () => {
     const refs = execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
+    // 内嵌归档不入库，但属于编译输入：必须存在且与入库摘要一致，并并入清单。
+    if(!refs.includes(ARCHIVE)) refs.push(ARCHIVE);
     return Object.fromEntries([...new Set(refs)].sort().map(ref => {
       const file=path.join(root,ref);
       if(!fs.existsSync(file)) return [ref,null];
@@ -34,6 +37,10 @@ export function buildCandidate({root, out}) {
   receipt.environmentHelperSha256=digest(fs.readFileSync(new URL('./go-environment.mjs',import.meta.url)));
   try {
     checkModuleInputs(root,env);
+    const recorded=fs.readFileSync(path.join(root,ARCHIVE+'.sha256'),'utf8').trim().split(/\s+/)[0];
+    if(!fs.existsSync(path.join(root,ARCHIVE))) throw new Error('内嵌归档缺失，请先运行 node tools/fetch-bundle.mjs');
+    receipt.embeddedArchive={path:ARCHIVE,sha256:digest(fs.readFileSync(path.join(root,ARCHIVE))),recordedSha256:recorded};
+    if(receipt.embeddedArchive.sha256!==recorded) throw new Error('内嵌归档与入库摘要不一致，请运行 node tools/fetch-bundle.mjs --force');
     receipt.commit=git(['rev-parse','HEAD']);
     receipt.sourceState=git(['status','--porcelain']) ? 'working-tree' : 'committed';
     receipt.inputs=inventory(); receipt.inputDigest=digest(JSON.stringify(receipt.inputs));
