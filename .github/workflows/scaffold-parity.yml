@@ -43,7 +43,11 @@ jobs:
           fetch-depth: 1
           submodules: false
       - name: Python dependencies of the Node baseline (formal contract scenarios)
-        run: python3 -m pip install --user jsonschema referencing
+        run: |
+          # 系统自带的 python3-jsonschema 版本过旧（没有 referencing），用独立 venv 并放到 PATH 最前。
+          python3 -m venv "$RUNNER_TEMP/parity-venv"
+          "$RUNNER_TEMP/parity-venv/bin/pip" install --quiet jsonschema referencing
+          echo "$RUNNER_TEMP/parity-venv/bin" >> "$GITHUB_PATH"
       - name: Produce embedded bundle archive (not stored in git)
         run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
       - name: Build the binary under test
