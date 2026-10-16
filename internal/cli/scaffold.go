@@ -2,9 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/scaffold"
 )
 
 const scaffoldValues = "project-name base-package output-dir platform-profile spring-boot-version java-version group-id project-version parent-group-id parent-artifact-id parent-version yss-components-version contract-file contract-id contract-version approval-ref compiler-draft-ref persisted-ref"
@@ -63,70 +63,54 @@ func scaffoldCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, "", argumentError("缺少必填参数: --" + key)
 		}
 	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		return nil, "", domain.Fail("CAPABILITY", "脚手架生成需要 PATH 中的 Node.js")
-	}
-	if _, err = exec.LookPath("git"); err != nil {
+	if _, err := exec.LookPath("git"); err != nil {
 		return nil, "", domain.Fail("CAPABILITY", "脚手架目录保护需要 PATH 中的 Git")
 	}
 	out, err := filepath.Abs(o.values["output-dir"])
 	if err != nil {
 		return nil, "", err
 	}
-	projectRoot, err := safefs.Path(out, o.values["project-name"])
-	if err != nil {
+	if _, err = safefs.Path(out, o.values["project-name"]); err != nil {
 		return nil, "", err
 	}
-	o.values["output-dir"] = out
-	temporary, err := os.MkdirTemp("", "yss-scaffold-")
-	if err != nil {
-		return nil, "", err
-	}
-	defer os.RemoveAll(temporary)
-	// Export requires ordinary paths; macOS's default temporary root is a symlink.
-	runtime, err := filepath.EvalSymlinks(temporary)
-	if err != nil {
-		return nil, "", err
-	}
-	exported, err := bundle.Export(ctx, "spec", filepath.Join(runtime, "runtime"))
-	if err != nil {
-		return nil, "", err
+	for _, key := range strings.Fields(scaffoldValues) {
+		if value, supplied := o.values[key]; supplied && (value == "" || strings.HasPrefix(value, "--")) {
+			return nil, "", argumentError("参数 --" + key + " 缺少值")
+		}
 	}
 	skill := "yss-ddd-scaffold-generator"
 	if o.args[1] == "mvc" {
 		skill = "yss-layered-mvc-scaffold-generator"
 	}
-	args := []string{filepath.Join(exported.Directory, ".agents", "skills", skill, "scripts", "generate_scaffold.mjs")}
-	for _, key := range strings.Fields(scaffoldValues) {
-		if value, supplied := o.values[key]; supplied {
-			args = append(args, "--"+key, value)
-		}
-	}
-	for _, key := range strings.Fields(scaffoldFlags) {
-		if o.values[key] == "true" {
-			args = append(args, "--"+key)
-		}
+	input := scaffold.Options{
+		Architecture: o.args[1], OutputDir: out, Standalone: o.values["standalone"] == "true",
+		ProjectName: o.values["project-name"], BasePackage: o.values["base-package"],
+		PlatformProfile: o.values["platform-profile"], SpringBootVersion: o.values["spring-boot-version"], JavaVersion: o.values["java-version"],
+		GroupID: o.values["group-id"], ProjectVersion: o.values["project-version"], ParentGroupID: o.values["parent-group-id"],
+		ParentArtifactID: o.values["parent-artifact-id"], ParentVersion: o.values["parent-version"], YssComponentsVersion: o.values["yss-components-version"],
+		ContractFile: o.values["contract-file"], ContractID: o.values["contract-id"], ContractVersion: o.values["contract-version"],
+		ApprovalRef: o.values["approval-ref"], CompilerDraftRef: o.values["compiler-draft-ref"], PersistedRef: o.values["persisted-ref"],
 	}
 	if !formal {
-		args = append(args, "--without-example")
+		// 独立生成固定禁用参考示例；正式模式由批准合同的 reference_example 决定。
+		without := false
+		input.WithExample = &without
 	}
-	command := exec.CommandContext(ctx, node, args...)
-	output, err := command.CombinedOutput()
+	generated, err := scaffold.Run(ctx, input)
 	if ctx.Err() != nil {
 		return nil, "", ctx.Err()
 	}
 	if err != nil {
-		return nil, "", domain.Fail("EXECUTION", fmt.Sprintf("%s 生成失败 (%v): %s", skill, err, strings.TrimSpace(string(output))))
+		var rejection *scaffold.Error
+		if errors.As(err, &rejection) {
+			return nil, "", domain.Fail("EXECUTION", fmt.Sprintf("%s 生成失败: %s", skill, rejection.Message))
+		}
+		return nil, "", err
 	}
-	manifestPath := filepath.Join(projectRoot, ".yss", "scaffold-generation.json")
-	data, err := os.ReadFile(manifestPath)
+	inspection, err := bundle.Inspect("spec")
 	if err != nil {
 		return nil, "", err
 	}
-	var manifest map[string]any
-	if err = json.Unmarshal(data, &manifest); err != nil {
-		return nil, "", err
-	}
-	return map[string]any{"projectRoot": projectRoot, "manifestPath": manifestPath, "generatorSkill": skill, "architecture": o.args[1], "generationMode": manifest["generation_mode"], "completionLevel": manifest["completion_level"], "verification": manifest["verification"], "bundleHash": exported.Inspection.BundleHash, "sourceState": exported.Inspection.SourceState}, "", nil
+	manifest := scaffold.Plain(generated.Manifest).(map[string]any)
+	return map[string]any{"projectRoot": generated.ProjectRoot, "manifestPath": generated.ManifestPath, "generatorSkill": skill, "architecture": o.args[1], "generationMode": manifest["generation_mode"], "completionLevel": manifest["completion_level"], "verification": manifest["verification"], "bundleHash": inspection.BundleHash, "sourceState": inspection.SourceState}, "", nil
 }
