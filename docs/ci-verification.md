@@ -44,6 +44,18 @@ node tools/smoke/main.mjs --bin /仓库外/路径/yss [--only profiles|git] [--k
 - CI 只在 ubuntu 运行；本地（如 macOS）运行不构成其他平台的运行验收，也不构成发行验收。
 - 不含 fixture、预言机、录制或回执；通过只说明主路径在当前构建上能走通，不代表测试通过，也不替代原生、恢复、插件或安装等发行门禁。新增检查须保持这个范围，不要扩写成测试套件。
 
+## scaffold 对拍
+
+`tools/scaffold-parity/` 把 `yss scaffold ddd|mvc` 的 Go 实现与模板仓固定提交中的 Node 生成器逐字节对拍（文件集合、SHA-256、权限位、符号链接、空目录），场景矩阵和登记差异见该目录 README，设计见 [scaffold-go.md](scaffold-go.md)：
+
+```sh
+node tools/fetch-bundle.mjs
+CGO_ENABLED=0 go build -o /仓库外/路径/yss ./cmd/yss
+node tools/scaffold-parity/main.mjs --bin /仓库外/路径/yss --template-root /仓库外/固定提交的模板仓
+```
+
+它是构建后黑盒校验，**不是**单元测试或发行验收，不进入发行包。Node（以及正式合同场景所需的 Python `jsonschema`/`referencing`）只是对拍基准的运行条件，`yss` 运行时不依赖它们。CI 里它是独立工作流 `.github/workflows/scaffold-parity.yml` 的单个 job，只在 ubuntu 运行，失败不影响 `artifacts.yml` 的构建与发行包。
+
 ## 本地构建
 
 工程使用 Go 1.27.1：
