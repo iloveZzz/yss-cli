@@ -84,6 +84,6 @@ require_signed: false
 
 Trailer 按 Git 规则只从提交信息最后一段读取。
 
-## 后续阶段（未实现）
+## 模板规则
 
-- 模板仓同步提供 `git-policy.yaml` 默认值、schema 与 Skill 消费者。
+模板侧的授权分级、策略文件 Schema 与协作约定见模板仓 `.template-spec/process/git-workflow.md` 和 `.template-spec/process/schemas/git-policy.schema.json`。
