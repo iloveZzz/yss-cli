@@ -163,10 +163,7 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 			d.Examples = strings.Split(safeExampleText(spec.help.examples), "\n")
 		}
 	}
-	if code == "LEGACY_INTERRUPTED" {
-		d.Steps = []domain.DiagnosticStep{{Effect: "read-only", Description: "核对旧元数据中的来源与原执行器版本；保留旧锁和事务，使用对应固定旧 CLI 的恢复入口。", Argv: []string{"yss", "help", "tutorial", "maintenance"}}}
-		d.Unverified = append(d.Unverified, "实际旧执行器版本以旧实例来源和历史安装记录为准；没有记录时先调查。")
-	} else if errorFamily(code) == "transaction" {
+	if errorFamily(code) == "transaction" {
 		if program && o.values["tool-root"] != "" {
 			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "write", Description: "恢复未完成程序事务。", Condition: "已核对安装状态与归档，且当前操作授权覆盖恢复。", Argv: []string{"yss", "update", "recover", "--tool-root", o.values["tool-root"], "--json"}})
 		} else if root != "" {
@@ -180,7 +177,7 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 	if errorFamily(code) == "binding" {
 		d.Steps = []domain.DiagnosticStep{{Effect: "read-only", Description: def.recovery, Condition: "使用已绑定插件的公开计划接口；取得新的保存计划后再应用。", Argv: []string{"yss", "sync", "--help"}}}
 	}
-	if def.version || d.ID == "METADATA_SCHEMA_UNSUPPORTED" || d.ID == "LEGACY_SCHEMA_UNSUPPORTED" {
+	if def.version || d.ID == "METADATA_SCHEMA_UNSUPPORTED" || d.ID == "LEGACY_INSTANCE_UNSUPPORTED" {
 		d.Version = map[string]any{"currentCLI": domain.Version, "protocolVersion": domain.ProtocolVersion, "minimumSupportedVersion": "尚未登记", "introducedVersion": "尚未登记", "fixedVersion": "尚未登记", "basis": "CLI/协议依据当前二进制；模板依据固定 Bundle；实例格式依据产生错误位置的已观察输入。最低/引入/修复版本尚无兼容记录。"}
 		if b, err := bundle.Load(profile); err == nil {
 			d.Version["currentTemplateCommit"] = b.TemplateCommit
@@ -408,9 +405,6 @@ func renderErrorHelp(code string) (string, error) {
 	}
 	if code == "PATH" {
 		extra = "\n常见类型：UNSAFE_ROOT_COMPONENT；核对错误中的实际路径组件，使用已确认的普通目录。"
-	}
-	if code == "LEGACY_INTERRUPTED" {
-		extra += "\n常见类型：LEGACY_EXECUTOR_PENDING。保留旧事务；固定旧执行器的 recover 或 migrate recover 消费原事务，原生 recover --apply 不能替代。"
 	}
 	if code == "INPUT_DRIFT" {
 		extra += "\n常见类型：SAVED_PLAN_INPUT_CHANGED、SAVED_STAGE_PLAN_CHANGED。先核对 affectedInputs/path；原计划失效后重新生成与审阅。"

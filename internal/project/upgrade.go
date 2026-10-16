@@ -352,14 +352,9 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 	return u, nil
 }
 
-// previousVersion 识别实例当前的模板版本：先查历史对照表，再用实例自己记录的语义化版本。
-// 两者都没有时返回 ok=false，调用方必须如实报告，不得猜测。
+// previousVersion 识别实例当前的模板版本：使用实例自己记录的语义化版本。
+// 没有记录时返回 ok=false，调用方必须如实报告，不得猜测。
 func (u *upgradePlanner) previousVersion() (string, bool, error) {
-	if commit, _, _ := u.previousSource(); commit != "" {
-		if version, ok, e := bundle.LookupTemplateVersion(u.id.Profile.Name, commit); e != nil || ok {
-			return version, ok, e
-		}
-	}
 	if u.id.Native != nil && bundle.IsSemver(u.id.Native.TemplateVersion) {
 		return u.id.Native.TemplateVersion, true, nil
 	}
@@ -399,7 +394,7 @@ func (u *upgradePlanner) noteSourceVersion(rules []bundle.MigrationRule) error {
 		return nil
 	}
 	commit, _, _ := u.previousSource()
-	u.plan.Notices = append(u.plan.Notices, fmt.Sprintf("来源版本无法识别：模板 commit %q 不在版本对照表，实例也没有记录语义化版本；%d 条按版本区间匹配的迁移规则未适用", commit, ranged))
+	u.plan.Notices = append(u.plan.Notices, fmt.Sprintf("来源版本无法识别：模板 commit %q 实例没有记录语义化版本；%d 条按版本区间匹配的迁移规则未适用", commit, ranged))
 	return nil
 }
 func (u *upgradePlanner) previousSource() (string, string, string) {
