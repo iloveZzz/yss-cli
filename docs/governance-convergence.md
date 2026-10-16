@@ -16,6 +16,7 @@
 | 「尚未迁移」类拒绝 | 代码里字面含「尚未迁移/未迁移」的共 25 处，`UNPORTED` 错误码共 57 处引用；绝大部分是**不可达的兜底、版本/策略未知时的 fail-closed、或与 Node 一致的能力边界**。真正应由 Go 补齐的缺口集中在 runtime-store、stage `refresh` 及相关过滤、project-ci 的计划/安装范围，见 §3 |
 | `nodeDelegation` 34 条 | 33 条对应模板 `scripts/lib/native-evidence.mjs` 的能力协商；固定提交里这些入口的 Node 领域实现已被删除，Node 只剩薄壳，**没有可比对的 Node 语义**，Go 已是唯一实现。1 条（`user-decision.from-record.v1`）在固定提交里没有协商点。完整性只能依赖历史对拍记录与薄壳回放，见 §4 |
 | 第一批 | 研究校验器与竞品模块的摘要绑定 → 语义校验；4609 个研究包夹具上 Node 与 Go 接受/拒绝一致 4607 个，其余 2 个为 Go 更严，见 §6 |
+| 第二批 | 阅读渲染闭包 7 个指纹 → 语义校验（Go 自己重算并逐字节比对，清单登记的闭包摘要必须与当前一致）。同时修了 Go 的三处缺口：依赖归类、清单序、超范围整数；4.4.1 的 managed 阅读不再一律 `Unavailable`，见 §6.5 |
 
 ## 2. 固定 SHA-256 绑定（9 个）
 
@@ -25,11 +26,11 @@
 |---|---|---|---|---|---|---|---|
 | 1 | `internal/governance/research_semantic.go` `verifyResearchCompletionSemantic` | `.agents/skills/yss-research/scripts/validate-research-package.mjs` | `2b6f07d3a47a` | 相等 | 研究收尾（`work-unit.maintenance-research`）核验记录里的校验器必须是 Go 镜像过的那一版 | `Unavailable`，码 `CAPABILITY`，退出码 2，「本地研究校验规则版本尚未迁移」；该工作单元的流转被拦住 | **批 1 已改为语义校验** |
 | 2 | `internal/governance/research_competitive_semantic.go` `validateCompetitiveResearchSemantic` | `.agents/skills/yss-research/scripts/lib/competitive-analysis.mjs` | `d52f89500b59` | 相等 | 含 `competitive_analysis` 扩展的研究包；Go 镜像了结构、引用与受管输出的逐字节比较 | 同上，「本地竞品校验规则尚未迁移」 | **批 1 已改为语义校验** |
-| 3 | `internal/governance/reading/build.go` `readingToolClosure` | `scripts/lib/reading-view-bundle.mjs` | `2aab86301d37` / `8d35fe88e6d6` | 第二个相等（`cfc275ba`，10-09）；第一个对应 `3cc18284`（10-01） | 阅读渲染工具闭包指纹。Go 自己重算 `reading/*.review.md` 与导航区，再与 Node 写入的清单、输出逐字节比较，指纹保证「Go 镜像的就是这个渲染器」 | `Unavailable`，码 `CAPABILITY`，「阅读渲染规则版本未迁移: <ref>」；仅 `reading-policy.yaml` 为 `mode: managed` 且命中 checkpoint 时发生（默认新实例是 `manual`，不触发） | 待办（批 2） |
-| 4 | 同上 | `scripts/lib/contract-views.mjs` | `f88b6f5da3fe` | **不等**：固定模板为 `cc93bdd9b126`。绑定对应 `3cc18284`（10-01），其后 `1afff73a`（10-12，导入层级调整）与 `d6b6fb0d`（10-13，前端整线移除）又改过该文件 | 同上 | 同上。**已确认**：在 v4.4.1 的 spec 实例上直接调用 `readingToolClosure`，结果为「阅读渲染规则版本未迁移: scripts/lib/contract-views.mjs」。即启用 managed 阅读的 4.4.1 项目，其流转校验会一律 `Unavailable` | 待办（批 2，已确认缺口） |
-| 5 | 同上 | `scripts/lib/reading-view-adapters.mjs` | `a749e7a86e0b` | 相等 | 同上 | 同上 | 待办（批 2） |
-| 6 | 同上 | `scripts/lib/reading-view-markdown.mjs` | `5b55e7627183` | 相等 | 同上 | 同上 | 待办（批 2） |
-| 7 | 同上 | `scripts/lib/lifecycle-presentation.mjs` | `beb03307591a` / `8dbed3b7c403` | 第二个相等（`cfc275ba`）；第一个对应 `14694d4d`（10-05） | 同上 | 同上 | 待办（批 2） |
+| 3 | `internal/governance/reading/build.go` `readingToolClosure` | `scripts/lib/reading-view-bundle.mjs` | `2aab86301d37` / `8d35fe88e6d6` | 第二个相等（`cfc275ba`，10-09）；第一个对应 `3cc18284`（10-01） | 阅读渲染工具闭包指纹。Go 自己重算 `reading/*.review.md` 与导航区，再与 Node 写入的清单、输出逐字节比较，指纹保证「Go 镜像的就是这个渲染器」 | `Unavailable`，码 `CAPABILITY`，「阅读渲染规则版本未迁移: <ref>」；仅 `reading-policy.yaml` 为 `mode: managed` 且命中 checkpoint 时发生（默认新实例是 `manual`，不触发） | **批 2 已改为语义校验**（见 §6.5） |
+| 4 | 同上 | `scripts/lib/contract-views.mjs` | `f88b6f5da3fe` | **不等**：固定模板为 `cc93bdd9b126`。绑定对应 `3cc18284`（10-01），其后 `1afff73a`（10-12，导入层级调整）与 `d6b6fb0d`（10-13，前端整线移除）又改过该文件 | 同上 | 同上。**已确认**：在 v4.4.1 的 spec 实例上直接调用 `readingToolClosure`，结果为「阅读渲染规则版本未迁移: scripts/lib/contract-views.mjs」。即启用 managed 阅读的 4.4.1 项目，其流转校验会一律 `Unavailable` | **批 2 已改为语义校验**（见 §6.5） |
+| 5 | 同上 | `scripts/lib/reading-view-adapters.mjs` | `a749e7a86e0b` | 相等 | 同上 | 同上 | **批 2 已改为语义校验**（见 §6.5） |
+| 6 | 同上 | `scripts/lib/reading-view-markdown.mjs` | `5b55e7627183` | 相等 | 同上 | 同上 | **批 2 已改为语义校验**（见 §6.5） |
+| 7 | 同上 | `scripts/lib/lifecycle-presentation.mjs` | `beb03307591a` / `8dbed3b7c403` | 第二个相等（`cfc275ba`）；第一个对应 `14694d4d`（10-05） | 同上 | 同上 | **批 2 已改为语义校验**（见 §6.5） |
 
 按「摘要个数」计为 9：研究 1 + 竞品 1 + 阅读 7（`reading-view-bundle`、`lifecycle-presentation` 各 2 个，其余 3 个文件各 1 个）。第 3、7 行带两个摘要，所以表中 7 行对应 9 个摘要。
 
@@ -72,7 +73,7 @@
 |---|---|---|---|---|
 | 1 | `research_semantic.go` | 研究校验器字节 ≠ 固定摘要 | 绑定 | 批 1 已移除 |
 | 2 | `research_competitive_semantic.go` | 竞品模块字节 ≠ 固定摘要 | 绑定 | 批 1 已移除 |
-| 3 | `reading/build.go` `readingToolClosure` | 渲染闭包文件字节 ≠ 指纹 | 绑定 + **缺口** | `contract-views.mjs` 指纹已落后于固定模板，见 §2 |
+| 3 | `reading/build.go` `readingToolClosure` | 渲染闭包文件字节 ≠ 指纹 | 绑定 + 缺口 | 批 2 已移除；`contract-views.mjs` 落后的缺口随之消失，见 §6.5 |
 | 4 | `governance.go` 59 | 非 verify 动作带 `--history`/`--require-approved` | 边界 | 禁止用结构校验冒充历史/批准语义；verify 路径已支持 `--history`（`lifecycle verify`）。未验证：Node 是否有这些参数用于 check 类动作 |
 | 5 | `governance.go` 115 | 未知治理 group/action | 兜底 | 预检先拒绝，不可达（`yss contract foo` 已验证） |
 | 6 | `xml.go` 16 | xml 动作不是 inspect/query | 兜底 | 预检先拒绝（已验证） |
@@ -179,7 +180,7 @@
 | 批 | 范围 | 风险 | 验证方式 | 依赖模板仓变更 |
 |---|---|---|---|---|
 | 1（本 PR 系列已完成） | 研究校验器与竞品模块摘要 → 语义校验；修竞品输入闭包的摘要前缀比较 | 低。对拍 4609 夹具 + 25 个端到端收尾夹具；脚本字节不变时 Go 输出逐字节相同 | §6 | 否 |
-| 2 | 阅读渲染闭包 5 个文件的 7 个绑定。先修 `contract-views.mjs` 落后问题：用固定模板的 Node 渲染器对同一 managed checkpoint 生成 `reading/*`，Go 的 `reading-transition` 校验必须逐字节通过；通过后再把「指纹」改为「摘要与清单登记一致」 | 中。渲染器有 5 个文件、约 500 行 Node，输出逐字节比较；前端整线移除可能改变渲染分支 | 在 managed 项目上：Node 生成 → Go 校验接受；对每类变异（改一个字节、少/多文件、过期清单）Go 与 Node 的 `check-views` 结论一致 | 否（读固定提交即可） |
+| 2（已完成，见 §6.5） | 阅读渲染闭包 5 个文件的 7 个绑定。先修 `contract-views.mjs` 落后问题：用固定模板的 Node 渲染器对同一 managed checkpoint 生成 `reading/*`，Go 的 `reading-transition` 校验必须逐字节通过；通过后再把「指纹」改为「摘要与清单登记一致」 | 中。渲染器有 5 个文件、约 500 行 Node，输出逐字节比较；前端整线移除可能改变渲染分支 | 在 managed 项目上：Node 生成 → Go 校验接受；对每类变异（改一个字节、少/多文件、过期清单）Go 与 Node 的 `check-views` 结论一致 | 否（读固定提交即可） |
 | 3 | stage `refresh`、`--stage/--work-unit` 过滤、`register` 种子字段（§3 的 19、22、23） | 中。涉及写入与 checkpoint | 对拍 Node `stage-tracking plan --refresh` 的计划；写入走既有事务 | 否 |
 | 4 | project-ci 计划/安装的范围与文案（28）；核对 `unportedProjectChecks` 是否过期 | 低～中 | 黑盒：默认范围 `plan/install/apply` 的 envelope；对拍 Node `planProjectCi` | 否 |
 | 5 | runtime-store：`begin --input/--report-dir`、run 引用扫描、project-ci `--runtime-store` | 高。涉及 SQLite、pin、报告保护 | 对拍 Node `runtime-store.mjs` 的行为；需要新的事务/并发验证 | 否 |
@@ -229,6 +230,42 @@
 - 同一份闭包里「`schema`」一项依赖 Python `jsonschema`（模板的 `json-schema.mjs`）作 Node 侧预言机；Go 侧使用内置 `jsonschema/v6`。对拍通过说明两者在该语料上一致，不说明一般等价。
 - Go 的 `Basis` 对记录摘要接受裸十六进制与 `sha256:` 前缀两种写法，而模板只写前缀写法；此宽容是既有行为，本批未收紧，列入批 6 评估。
 
+## 6.5 第二批（已实现）：阅读渲染闭包
+
+### 改动
+
+| 文件 | 改前 | 改后 |
+|---|---|---|
+| `reading/build.go` `readingToolClosure` | 5 个文件的 7 个指纹，字节不在名单内 → `Unavailable CAPABILITY`「阅读渲染规则版本未迁移」 | 去掉指纹。闭包文件仍逐个读取并登记摘要；清单里的 `renderer` 必须与当前闭包摘要完全一致，输出与导航区仍由 Go 自己重算并逐字节比对 |
+| `reading/reading_semantic.go` | 清单依赖按 `project`/`tool` 区分，工具文件一律记 `tool` | 按文件位置归类：位于项目根之内记 `project`。实例自带 `scripts/` 时（常态）工具根即项目根，Node 全部记 `project`；此前 Go 对任何 Node 生成的实例清单都会判依赖不一致 |
+| 同上 | 清单只按集合比较 | 新增键序与依赖行序校验：Node 比较序列化文本，顺序不同即过期。顺序按 `scope+ref` 的本地化比较（与仓库里 `skill_lock.go` 同一做法）；缺失文件行排在最后，其相互顺序取决于渲染器发现顺序，不比较（集合已比较） |
+| `reading/build.go` `readingParse` | 超出 ±(2^53−1) 的整数照常渲染 | 与 Node `parseSliceYaml` 一致：整数超出精确范围即拒绝（`Unavailable INPUT`），须改用字符串 |
+
+### 证据（对拍；夹具与脚本在仓外，不入库）
+
+方法：以 `yss init --profile spec` 生成的 4.4.1 实例为底，三类夹具（功能登记+最小 checkpoint、功能登记+完整 checkpoint 含阶段工作项与门禁、旧版无功能登记）。Node 一侧用固定提交 `981f7399` 的 `scripts/contract plan-enable / apply-enable / check-views / render`；Go 一侧对同一目录调用 `verifyReadingTransitionSemantic` 与 `BuildReading`。
+
+| 类 | 用例 | 做法 | 结果 |
+|---|---|---|---|
+| 原始缺口 | 1 | Node 启用 managed 阅读后，改前 Go 校验 | `CAPABILITY`「阅读渲染规则版本未迁移: scripts/lib/contract-views.mjs」；改后接受 |
+| A 已启用实例变异 | 917 | 约 70 个被登记文件各做改一字节/追加/删除/清空；清单各字段、依赖行、渲染器行、输出登记的改动与重排；输出文件改动；导航区 17 种冲突（重复/缺失/倒置标记、块内外编辑、CRLF、BOM）；额外文件（`.transaction.json`、`.lock`、旁路功能目录、重复登记、符号链接）；策略与注册表变化 | 接受/拒绝一致 914；**Go 偏松 0**（改前 2：依赖行重排）；Go 偏严 3（重复 JSON 键 2、旧版 checkpoint 无 `feature_id` 1） |
+| B 源资产变异后渲染 | 约 1700 | 对 checkpoint、领域战略的每个 JSON 路径做删除/null/空串/数字/空数组/空对象/重复末项/改键/4 种含 Markdown 转义与阶段标识的字符串；另有 60 余个定向场景（artifact 键写法、来源摘要新旧、阻断项、重复 ID、YAML 风格、BOM/CRLF、键序、注册表名称、本地化排序、旁路功能目录） | Node 渲染成功且无诊断的 429 个，Go 重算与磁盘逐字节相同，**字节差异 0**；Node 渲染出带诊断的视图、而 Go 按设计拒绝的约 1200 个；一致拒绝约 60；**Go 偏松 0**（改前 2：超范围整数，已修；另 2 个为写路径冲突，见残留） |
+| C 渲染闭包文件变异 | 31 | 对闭包每个文件追加注释；5 处语义变化（intro 文案、检查项、导航标题、导航脚注、名称兜底） | 注释类 26 个：Node 重渲染后 Go 接受；语义类 5 个：Go 拒绝（`READING_OUTPUT_STALE`/`READING_NAVIGATION_STALE`），不是 `Unavailable` |
+
+### 如实记录
+
+- 没有放宽任何拒绝条件。新增的接受范围只有一类：闭包文件字节与固定版本不同、但渲染结果与 Go 重算逐字节相同的实例（此前一律 `Unavailable`）。渲染语义变化会被拒绝（退出码 1，不再是 2），所以改模板渲染器的语义时，Go 必须同步修改。
+- Go 比 Node 严的情形（均保留）：重复 JSON 键；checkpoint 缺 `feature_id` 或与路径不符（Node 会退回旧布局）；注册表 `public_name: null` 等 Go 会做 Schema 校验而 Node 不做的字段；源资产结构不合法或带阻断项时 Node 仍渲染「诊断视图」、Go 拒绝（源码注释已声明）；Node 渲染器在键名恰为 `constructor` 时输出 `function Object() { [native code] }`（原型链缺陷），Go 输出 `constructor`，故 Go 会拒绝 Node 写出的该输出。
+- 残留：① 缺失文件依赖行之间的相对顺序不比较；② 对拍中 `reading-output-conflict`（写路径遇到非受管同名文件）不属于校验，Go 没有写路径；③ 非 ASCII 路径的本地化排序用 `x/text/collate` 近似 JS `localeCompare`，对拍语料（含中文、全角、重音字符）一致，语料外未覆盖；④ 阅读写路径（plan/apply-enable、render）仍只在 Node。
+
+### 防回归与维护
+
+- `tools/check-no-pinned-digests.mjs`：静态护栏，非测试 Go 代码里出现 64 位十六进制字面量即失败，已接入 CI 的 gofmt/vet 步骤（<1 秒）。以后新增 Node 镜像不得再用固定字节绑定，必须写语义校验。
+- 对拍工具（仓外，位于侧会话笔记目录 `diff-harness-batch2/`）分两档，按触发条件运行，不属于日常流程：
+  - 快档 `quick.sh`：212 个代表用例，约 100 秒。改动 `internal/governance/reading/*.go` 或升级模板固定提交后运行；结果不得出现 `GO-LOOSER`、`BYTE-DIFF`。
+  - 全档 `gen.mjs`（可 `--only A|B|C --skip N --limit N` 分批）：约 4000 个用例，只在渲染规则大改时运行，单批不超过 5 分钟。
+- 根治方向（阶段二，需改模板仓）：Go 增加 `reading render/check-views/plan-enable/apply-enable`，模板的 `scripts/contract` 对应命令改为薄壳，清单 `renderer` 改为 Go 渲染规则版本标识。届时对拍工具整体退休。
+
 ## 7. 辅助证据：模板固定提交的 Node 测试对二进制的结果
 
 仅作发现问题的线索，不是验收，也不恢复本仓的测试体系：把模板固定提交 `981f7399` 展开到仓外临时目录，对其 `tests/` 里涉及 `yss` 的文件逐个执行 `node --test`，`YSS_NATIVE_BINARY` 指向被测二进制（Node 仅开发期使用）。基线二进制由 `main@0d8a752` 构建。
@@ -259,5 +296,5 @@
 
 - §3 中标「未验证」的条目只读了代码。
 - §4 的「历史对拍」全部来自模板仓文档的转述，未在本仓重跑；摘要里 `196` 个回放用例在固定提交中已被删减，无法复现。
-- 阅读渲染闭包的「Go 渲染与 Node 渲染逐字节一致」尚未验证（批 2）。
+- 阅读渲染闭包的「Go 渲染与 Node 渲染逐字节一致」只在 §6.5 的语料上验证（约 1700 个源资产变异，429 个有效渲染逐字节相同），不是形式化证明；语料之外（超大文件、非 ASCII 路径的本地化排序）见 §6.5「残留」。
 - 本阶段没有恢复任何测试体系；对拍夹具与脚本在仓外，只在 PR 说明里描述方法。

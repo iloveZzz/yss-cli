@@ -3,8 +3,25 @@ package reading
 import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
+	"path/filepath"
 	"strings"
 )
+
+// readingDependencyScope 按文件所在位置归类：位于项目根之内的记为 project（引用相对项目根），
+// 否则记为 tool（引用相对工具根）。实例自带 scripts/ 时工具根即项目根，全部记为 project。
+func readingDependencyScope(s *kernel.SemanticSession, toolRef string) (string, string) {
+	toolRoot := s.Args["tool-root"]
+	if toolRoot == "" || toolRoot == s.Root {
+		return "project", toolRef
+	}
+	rel, err := filepath.Rel(s.Root, filepath.Join(toolRoot, filepath.FromSlash(toolRef)))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "tool", toolRef
+	}
+	return "project", filepath.ToSlash(rel)
+}
 
 func init() { kernel.RegisterSemanticValidator("reading-transition", verifyReadingTransitionSemantic) }
 
@@ -74,7 +91,8 @@ func verifyReadingTransitionSemantic(s *kernel.SemanticSession, ref string, opts
 		dependencies["project\x00"+key] = value
 	}
 	for key, value := range expected.ToolRefs {
-		dependencies["tool\x00"+key] = value
+		scope, ref := readingDependencyScope(s, key)
+		dependencies[scope+"\x00"+ref] = value
 	}
 	if !kernel.ApEqual(actualDependencies, dependencies) {
 		return s.Reject("READING_MANIFEST_STALE", "阅读来源依赖闭包与当前原生重算不一致")
@@ -93,6 +111,13 @@ func verifyReadingTransitionSemantic(s *kernel.SemanticSession, ref string, opts
 	if !kernel.ApEqual(manifest["outputs"], outputs) || len(kernel.SemList(manifest["diagnostics"])) != 0 {
 		return s.Reject("READING_MANIFEST_STALE", "阅读输出清单或来源诊断不匹配")
 	}
+	manifestBytes, err := s.Bytes(base + "/reading/.manifest.json")
+	if err != nil {
+		return err
+	}
+	if err = verifyReadingManifestOrder(s, manifestBytes, expected.OutputOrder); err != nil {
+		return err
+	}
 	navigation := kernel.SemMap(manifest["navigation"])
 	if navigation["ref"] != base+"/map.md" || navigation["block_digest"] != "sha256:"+safefs.Digest([]byte(expected.Block)) {
 		return s.Reject("READING_NAVIGATION_STALE", "阅读导航清单过期")
@@ -106,6 +131,69 @@ func verifyReadingTransitionSemantic(s *kernel.SemanticSession, ref string, opts
 	a, b := strings.Index(body, begin), strings.Index(body, end)
 	if strings.Count(body, begin) != 1 || strings.Count(body, end) != 1 || b < a || body[a:b+len(end)] != expected.Block {
 		return s.Reject("READING_NAVIGATION_STALE", "阅读导航受管区过期或标记冲突")
+	}
+	return nil
+}
+
+// verifyReadingManifestOrder 要求清单的键序、依赖行序与渲染器写出的序列化一致：渲染器按序列化文本比较清单，
+// 所以仅顺序不同的清单也算过期。依赖按 scope+ref 的本地化顺序排列，缺失文件的行（摘要为空）追加在其后；
+// 缺失行彼此之间的相对顺序取决于渲染器的发现顺序，这里不比较，其集合已由前面的依赖闭包比较核对。
+func verifyReadingManifestOrder(s *kernel.SemanticSession, raw []byte, outputOrder []string) error {
+	stale := func() error {
+		return s.Reject("READING_MANIFEST_STALE", "阅读清单的键序或依赖顺序与渲染器写出的不一致")
+	}
+	node, err := readingParse(raw)
+	if err != nil {
+		return s.Unavailable("INPUT", err.Error())
+	}
+	keysOf := func(n *readingNode) []string {
+		keys := []string{}
+		if n != nil {
+			for _, p := range n.Pairs {
+				keys = append(keys, p.Key)
+			}
+		}
+		return keys
+	}
+	same := func(a, b []string) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i] != b[i] {
+				return false
+			}
+		}
+		return true
+	}
+	order := collate.New(language.English)
+	if !same(keysOf(node), []string{"schema_version", "checkpoint_ref", "renderer", "dependencies", "outputs", "navigation", "diagnostics"}) ||
+		!same(keysOf(node.get("navigation")), []string{"ref", "block_digest"}) ||
+		!same(keysOf(node.get("outputs")), outputOrder) {
+		return stale()
+	}
+	renderer := keysOf(node.get("renderer"))
+	for i := 1; i < len(renderer); i++ {
+		if order.CompareString(renderer[i-1], renderer[i]) > 0 {
+			return stale()
+		}
+	}
+	previous, missing := "", false
+	if rows := node.get("dependencies"); rows != nil {
+		for _, row := range rows.Items {
+			if !same(keysOf(row), []string{"scope", "ref", "digest"}) {
+				return stale()
+			}
+			key := kernel.Text(row.get("scope").Value) + kernel.Text(row.get("ref").Value)
+			if row.get("digest").Value == nil {
+				missing = true
+				continue
+			}
+			if missing || previous != "" && order.CompareString(previous, key) > 0 {
+				return stale()
+			}
+			previous = key
+		}
 	}
 	return nil
 }
