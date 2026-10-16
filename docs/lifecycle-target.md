@@ -18,7 +18,7 @@ yss sync --root ./spec --apply --plan-file /tmp/spec-sync-plan.json --json
 yss lifecycle target --root ./spec --checkpoint .work/example/checkpoint.json --json
 ```
 
-`sync` 用于原生实例的模板同步；旧 metadata 的显式迁移使用 `migrate`，程序升级使用 `upgrade`。同步冲突须先处置，不能用无冲突计划替代业务资产修改授权。
+`sync` 用于原生实例的模板同步，程序升级使用 `upgrade`。同步冲突须先处置，不能用无冲突计划替代业务资产修改授权。
 
 ## 选择本次停点
 

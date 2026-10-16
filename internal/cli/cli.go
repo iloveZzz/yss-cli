@@ -300,20 +300,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			return nil, profile, domain.Fail("ARGUMENT", "不支持额外子命令或位置参数")
 		}
 	}
-	if command == "migrate" && len(o.args) > 1 {
-		if len(o.args) > 2 {
-			return nil, profile, domain.Fail("ARGUMENT", "迁移子命令参数过多")
-		}
-		switch o.args[1] {
-		case "plan":
-			o.values["plan"] = "true"
-		case "apply":
-			o.values["apply"] = "true"
-		case "status", "recover", "rollback":
-		default:
-			return nil, profile, domain.Fail("ARGUMENT", "未知迁移子命令: "+o.args[1])
-		}
-	}
 	if command == "bundle" {
 		return bundleCommand(ctx, o)
 	}
@@ -404,9 +390,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				return nil, profile, domain.Fail("ARGUMENT", "rollback不支持参数: --"+k)
 			}
 		}
-		if e := project.CheckLegacyState(root, profile); e != nil {
-			return nil, profile, e
-		}
 		id, e := project.RecoveryIdentity(root, profile)
 		if e != nil {
 			return nil, profile, e
@@ -448,7 +431,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		})
 		return r, profile, e
 	}
-	if command == "recover" || command == "migrate" && len(o.args) > 1 && (o.args[1] == "rollback" || o.args[1] == "recover" || o.args[1] == "status") {
+	if command == "recover" {
 		for k := range o.values {
 			switch k {
 			case "root", "target-dir", "profile", "json", "help", "version", "apply":
@@ -456,75 +439,57 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				return nil, profile, domain.Fail("ARGUMENT", "恢复/状态不支持参数: --"+k)
 			}
 		}
-		if e := project.CheckLegacyState(root, profile); e != nil {
+		applyRecovery := o.values["apply"] == "true"
+		preparation, handled, e := project.RecoverPreparation(ctx, root, profile, applyRecovery)
+		if e != nil {
 			return nil, profile, e
 		}
-		recovering := command == "recover" || len(o.args) > 1 && o.args[1] == "recover"
-		// The explicit migrate recovery subcommand retains its published write
-		// semantics; generic recover previews unless --apply is supplied.
-		applyRecovery := command == "migrate" || o.values["apply"] == "true"
-		if recovering {
-			preparation, handled, e := project.RecoverPreparation(ctx, root, profile, applyRecovery)
-			if e != nil {
-				return nil, profile, e
-			}
-			if handled {
-				return preparation, profile, nil
-			}
+		if handled {
+			return preparation, profile, nil
 		}
 		id, e := project.RecoveryIdentity(root, profile)
 		if e != nil {
 			return nil, profile, e
 		}
 		profile = id.Profile.Name
-		if e = project.CheckLegacyState(root, profile); e != nil {
-			return nil, profile, e
-		}
 		var r transaction.Result
-		switch {
-		case command == "recover" || o.args[1] == "recover":
-			if !applyRecovery {
-				r, err = transaction.Status(root)
-				break
-			}
-			r, err = transaction.RecoverContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
-				switch summary.Kind {
-				case "profile-links":
-					if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
-						return e
-					}
-				case "spec-baseline-import":
-					if profile != "design" {
-						return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
-					}
-					if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
-						return e
-					}
-				case "lifecycle-target":
-					if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
-						return e
-					}
-				case "init", "attach", "sync", "migrate", "skills", "assets":
-				default:
-					return domain.Fail("KIND", "recover仅支持项目事务")
-				}
-				current, e := project.RecoveryIdentity(root, profile)
-				if e != nil {
+		if !applyRecovery {
+			r, err = transaction.Status(root)
+			return r, profile, err
+		}
+		r, err = transaction.RecoverContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
+			switch summary.Kind {
+			case "profile-links":
+				if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
 					return e
 				}
-				if current.Profile.Name != profile {
-					return domain.Fail("IDENTITY", "恢复时Profile已变化")
+			case "spec-baseline-import":
+				if profile != "design" {
+					return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
 				}
-				return project.CheckLegacyState(root, profile)
-			})
-		case o.args[1] == "rollback":
-			r, err = transaction.RollbackKind(root, "migrate")
-		default:
-			r, err = transaction.Status(root)
-		}
+				if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
+					return e
+				}
+			case "lifecycle-target":
+				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
+					return e
+				}
+			case "init", "attach", "sync", "migrate", "skills", "assets":
+			default:
+				return domain.Fail("KIND", "recover仅支持项目事务")
+			}
+			current, e := project.RecoveryIdentity(root, profile)
+			if e != nil {
+				return e
+			}
+			if current.Profile.Name != profile {
+				return domain.Fail("IDENTITY", "恢复时Profile已变化")
+			}
+			return nil
+		})
 		return r, profile, err
 	}
-	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "migrate" || command == "skills" || command == "assets" {
+	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "skills" || command == "assets" {
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
@@ -683,23 +648,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				planning.BaseBundlePath = original.BaseBundlePath
 			}
 		}
-		if _, supplied := o.values["input"]; supplied && o.values["migration-kind"] != "asset-schema" {
-			return nil, profile, domain.Fail("ARGUMENT", "--input 仅用于 --migration-kind asset-schema")
-		}
-		var p *project.Plan
-		if o.values["migration-kind"] == "asset-schema" {
-			if command != "migrate" || binding != nil || len(selection) > 0 || planning.Original != nil || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" || o.values["input"] == "" {
-				return nil, profile, domain.Fail("ARGUMENT", "资产迁移需要 --input，不能混用模板升级或目录迁移")
-			}
-			p, e = project.BuildAssetSchema(root, profile, o.values["input"])
-		} else if o.values["migration-kind"] == "work-layout" {
-			if command != "migrate" || binding != nil || len(selection) > 0 || o.values["base-bundle"] != "" {
-				return nil, profile, domain.Fail("ARGUMENT", "目录迁移不能同时升级模板或转换格式")
-			}
-			p, e = project.BuildWorkLayoutWithOptions(root, profile, planning)
-		} else {
-			p, e = project.BuildWithOptions(root, profile, command, vars, selection, binding, planning)
-		}
+		p, e := project.BuildWithOptions(root, profile, command, vars, selection, binding, planning)
 		if e != nil {
 			return nil, profile, e
 		}
@@ -708,16 +657,11 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			if e != nil {
 				return nil, profile, e
 			}
-			identity := map[string]any{"root": id.Root, "profile": id.Profile, "repositoryMode": id.Mode, "legacyFile": id.LegacyFile}
+			identity := map[string]any{"root": id.Root, "profile": id.Profile, "repositoryMode": id.Mode}
 			if id.Native != nil {
 				identity["native"] = map[string]any{"schemaVersion": id.Native.SchemaVersion, "protocolVersion": id.Native.ProtocolVersion, "cliVersion": id.Native.CLIVersion, "templateVersion": id.Native.TemplateVersion, "legacyCliVersion": id.Native.LegacyCLIVersion, "templateCommit": id.Native.TemplateCommit, "snapshotHash": id.Native.SnapshotHash, "manifestHash": id.Native.ManifestHash, "templateSourceState": id.Native.TemplateSourceState, "baselineDigest": id.Native.BaselineDigest, "managedFileCount": len(id.Native.Managed)}
 			}
-			return map[string]any{"identity": identity, "context": checks, "plan": p.Public(), "executionCore": func() string {
-				if id.Native == nil {
-					return "legacy"
-				}
-				return "go-native"
-			}(), "stableReady": false}, profile, nil
+			return map[string]any{"identity": identity, "context": checks, "plan": p.Public(), "executionCore": "go-native", "stableReady": false}, profile, nil
 		}
 		if path := o.values["out"]; path != "" {
 			if e = project.SavePlan(p, path); e != nil {

@@ -23,9 +23,6 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
-	AssetSchema      *AssetSchemaMigration `json:"assetSchema,omitempty"`
-	MigrationKind    string                `json:"migrationKind,omitempty"`
-	WorkLayout       *WorkLayoutMigration  `json:"workLayout,omitempty"`
 	materialData     map[string][]byte
 	AssetScope       []string                     `json:"assetScope,omitempty"`
 	ReadyToApply     bool                         `json:"readyToApply,omitempty"`
@@ -61,10 +58,7 @@ func (p *Plan) Public() map[string]any {
 	for _, c := range p.Changes {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
-	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "migrationKind": p.MigrationKind, "workLayout": p.WorkLayout, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
-	if p.AssetSchema != nil {
-		public["assetSchema"] = p.AssetSchema
-	}
+	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
 	// 只在目标 Bundle 含版本区间规则时才出现，其余计划的输出保持不变。
 	if p.SourceVersion != "" {
 		public["sourceVersion"] = p.SourceVersion
@@ -84,41 +78,16 @@ func baseline(id *Identity) map[string]Managed {
 		return id.Native.Managed
 	}
 	out := map[string]Managed{}
-	if id.Legacy != nil {
-		files, _ := object(id.Legacy["managedFiles"])
-		for ref, v := range files {
-			m, ok := object(v)
-			if !ok {
-				continue
-			}
-			if id.Profile.Name == "spec" {
-				d := domain.Descriptor{Type: "file", Digest: text(m["contentHash"]), Mode: 0644}
-				out[ref] = Managed{Baseline: d, Applied: d, Ownership: "managed"}
-			} else {
-				b, _ := json.Marshal(m)
-				var item Managed
-				_ = json.Unmarshal(b, &item)
-				item.Baseline.Mode = domain.FileMode(item.Baseline.Mode)
-				item.Applied.Mode = domain.FileMode(item.Applied.Mode)
-				out[ref] = item
-			}
-		}
-	}
 	return out
 }
 
 // Only the selected distribution's fixed lock is a managed derived asset.
-// Other generated files remain user-preserved after initialization. Legacy
-// spec baselines have contentHash ownership; Detect and baseline validate and
-// translate those entries before the existing digest/mode guards are used.
+// Other generated files remain user-preserved after initialization.
 func managedDerivedSkillsLock(id *Identity, ref string, f bundle.File, previous Managed, wasManaged, selected bool) bool {
 	if !selected || ref != "skills-lock.json" || f.Ownership != "generated" || !wasManaged || previous.Applied.Type != "file" || previous.Applied.Digest == "" {
 		return false
 	}
-	if id.Native != nil {
-		return previous.Ownership == "generated"
-	}
-	return id.Legacy != nil && id.Profile.Name == "spec" && previous.Ownership == "managed"
+	return id.Native != nil && previous.Ownership == "generated"
 }
 
 func Variables(id *Identity, provided map[string]string) map[string]string {
@@ -126,14 +95,6 @@ func Variables(id *Identity, provided map[string]string) map[string]string {
 	if id.Native != nil {
 		for k, x := range id.Native.Variables {
 			v[k] = x
-		}
-	} else if id.Legacy != nil {
-		if old, ok := object(id.Legacy["variables"]); ok {
-			for k, x := range old {
-				if s, ok := x.(string); ok {
-					v[k] = s
-				}
-			}
 		}
 	}
 	for k, x := range provided {
@@ -160,9 +121,6 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		return nil, domain.Fail("IDENTITY", "初始化或接管需要 --profile")
 	}
 	if command != "diff" && command != "doctor" {
-		if err = CheckLegacyState(id.Root, id.Profile.Name); err != nil {
-			return nil, err
-		}
 		if status, e := transaction.Status(id.Root); e != nil {
 			return nil, e
 		} else if len(status.Pending) > 0 || len(status.Preparations) > 0 {
@@ -171,9 +129,6 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	if attach && id.Native != nil {
 		return nil, domain.Fail("SYNC_REQUIRED", "原生实例使用 yss sync --root "+id.Root+" --plan")
-	}
-	if attach && id.Legacy != nil {
-		return nil, domain.Fail("MIGRATION_REQUIRED", "旧 CLI 实例使用 yss migrate plan --root "+id.Root)
 	}
 	if init {
 		if entries, e := os.ReadDir(id.Root); e == nil && len(entries) > 0 {
@@ -195,8 +150,8 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, domain.Fail("CONTEXT_MISSING", "原生实例缺少 CONTEXT.md；请恢复项目 Context 后重新规划")
 		}
 	}
-	if !init && !attach && id.Native == nil && command != "migrate" && command != "diff" && command != "doctor" {
-		return nil, domain.Fail("MIGRATION_REQUIRED", "旧实例须先只读检查，再执行显式 migrate")
+	if !init && !attach && id.Native == nil && command != "diff" && command != "doctor" {
+		return nil, domain.Fail("IDENTITY", "缺少统一 CLI metadata；本 CLI 仅支持 2.3.1 基线实例")
 	}
 	b, err := bundle.Load(id.Profile.Name)
 	if err != nil {
@@ -234,21 +189,12 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 		p.Inputs[id.ProfileRef] = d
 	}
-	if command == "migrate" && id.Native == nil {
-		if e := legacyRecoveryInputs(id, p.Inputs); e != nil {
-			return nil, e
-		}
-	}
 	if err = guardPluginBindings(id, b, p, binding); err != nil {
 		return nil, err
 	}
 	refs := map[string]bundle.File{}
 	old := baseline(id)
-	trustedModes := map[string]bool{}
-	if err = applyLegacyBaseline(id, command, binding, old, p.Inputs, trustedModes); err != nil {
-		return nil, err
-	}
-	if init || attach || id.Native != nil || command == "migrate" {
+	if init || attach || id.Native != nil {
 		for ref, f := range b.Initial {
 			refs[ref] = f
 		}
@@ -284,7 +230,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			}
 		}
 	}
-	if init || attach || command == "migrate" || id.Native != nil {
+	if init || attach || id.Native != nil {
 		if _, ok := refs[".template-spec/process/harness-profile.yaml"]; !ok {
 			data := "schema_version: 2\nprofile_id: " + id.Profile.ID + "\ninstantiation:\n  cli_package: " + id.Profile.LegacyCommand + "\n  metadata_file: " + id.Profile.Metadata + "\n  template_source: " + id.Profile.TemplateSource + "\n"
 			refs[".template-spec/process/harness-profile.yaml"] = bundle.File{Data: base64.StdEncoding.EncodeToString([]byte(data)), Digest: safefs.Digest([]byte(data)), Mode: 0644, Ownership: "managed"}
@@ -325,7 +271,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		f.Digest = safefs.Digest(raw)
 		refs["skills-lock.json"] = f
 	}
-	planner, err := newUpgradePlanner(id, b, p, old, options, trustedModes)
+	planner, err := newUpgradePlanner(id, b, p, old, options)
 	if err != nil {
 		return nil, err
 	}
@@ -368,21 +314,6 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		return nil, e
 	}
 	p.Inputs[MetadataFile] = before
-	if id.LegacyFile != "" {
-		d, e := safefs.Describe(id.Root, id.LegacyFile)
-		if e != nil {
-			return nil, e
-		}
-		p.Inputs[id.LegacyFile] = d
-		if command == "migrate" {
-			raw, e := os.ReadFile(filepath.Join(id.Root, id.LegacyFile))
-			if e != nil {
-				return nil, e
-			}
-			p.Changes = append(p.Changes, Change{id.LegacyFile, d, d, base64.StdEncoding.EncodeToString(raw), "legacy-metadata-archive"})
-			addSystemAsset(p, id.LegacyFile, d, d, "legacy-metadata-archive")
-		}
-	}
 	after := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: 0644}
 	if before != after {
 		p.Changes = append(p.Changes, Change{MetadataFile, before, after, base64.StdEncoding.EncodeToString(data), "runtime-metadata"})
@@ -485,12 +416,6 @@ func Apply(p *Plan) (transaction.Result, error) {
 	return ApplyContext(context.Background(), p)
 }
 func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
-	if p != nil && p.MigrationKind == "asset-schema" {
-		return applyAssetSchema(ctx, p)
-	}
-	if p != nil && p.MigrationKind == "work-layout" {
-		return applyWorkLayout(ctx, p)
-	}
 	a, err := prepareApplication(ctx, p)
 	if err != nil {
 		return transaction.Result{}, err
@@ -523,9 +448,6 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	}
 	if p.Command == "doctor" || p.Command == "diff" {
 		return nil, domain.Fail("PLAN", "只读检查计划不能应用；请生成显式同步或迁移计划")
-	}
-	if p.MigrationKind != "" {
-		return nil, domain.Fail("PLAN", "未知迁移类型")
 	}
 	if p.SchemaVersion != 2 {
 		return nil, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")

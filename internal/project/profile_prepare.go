@@ -167,10 +167,7 @@ func reusableProfile(ctx context.Context, root, profile string) (*Identity, erro
 		return nil, err
 	}
 	if id.Native == nil {
-		return nil, domain.Fail("MIGRATION_REQUIRED", "Profile 准备要求原生实例；旧实例先显式迁移")
-	}
-	if err = CheckLegacyState(root, profile); err != nil {
-		return nil, err
+		return nil, domain.Fail("IDENTITY", "Profile 准备要求统一 CLI 实例")
 	}
 	status, err := transaction.Status(root)
 	if err != nil {
@@ -257,7 +254,7 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 		if err != nil {
 			return nil, err
 		}
-		if observed.Native != nil || observed.Legacy != nil {
+		if observed.Native != nil {
 			if _, err = reusableProfile(ctx, root, name); err != nil {
 				return nil, err
 			}
@@ -399,7 +396,7 @@ func validateProfilesPlan(p *ProfilesPlan) error {
 		}
 		switch target.Action {
 		case "init":
-			if target.Init == nil || target.Init.SchemaVersion != 2 || target.Init.ProtocolVersion != domain.ProtocolVersion || target.Init.MigrationKind != "" || target.Init.Digest != planDigest(target.Init) || target.Init.Root != target.Root || target.Init.Profile != target.Profile || target.Init.Command != "init" || len(target.Inputs) != 0 {
+			if target.Init == nil || target.Init.SchemaVersion != 2 || target.Init.ProtocolVersion != domain.ProtocolVersion || target.Init.Digest != planDigest(target.Init) || target.Init.Root != target.Root || target.Init.Profile != target.Profile || target.Init.Command != "init" || len(target.Inputs) != 0 {
 				return domain.Fail("PLAN", "初始化子计划不匹配")
 			}
 		case "reuse":
@@ -483,7 +480,7 @@ func preflightProfileTarget(ctx context.Context, target ProfileTargetPlan, regis
 	if err != nil {
 		return false, err
 	}
-	if observed.Native == nil && observed.Legacy == nil {
+	if observed.Native == nil {
 		return false, PreflightApplyContext(ctx, target.Init)
 	}
 	if !registered || observed.Native == nil {

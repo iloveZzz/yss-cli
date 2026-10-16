@@ -133,12 +133,12 @@ func rootHelp() string {
 		label string
 		names []string
 	}{
-		{"项目", []string{"init", "scaffold", "profile", "attach", "doctor", "diff", "sync", "migrate", "recover", "rollback"}},
+		{"项目", []string{"init", "scaffold", "profile", "attach", "doctor", "diff", "sync", "recover", "rollback"}},
 		{"资源", []string{"skills", "assets", "bundle"}},
 		{"Git", []string{"git"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"context", "lifecycle", "stage", "contract", "evidence", "handoff", "project-ci"}},
-		{"工具", []string{"runtime", "archive", "xml", "compat", "compat-api"}},
+		{"工具", []string{"runtime", "archive", "xml"}},
 	} {
 		fmt.Fprintf(&out, "  [%s]\n", group.label)
 		for _, name := range group.names {
@@ -158,7 +158,7 @@ func rootHelp() string {
 按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|maintenance
 示例索引: yss help examples [命令/子命令]
 错误索引: yss help errors [错误码]
-入口区别: upgrade 升级程序；sync 同步模板；migrate 迁移旧实例；recover 恢复未完成事务；rollback 回退最近成功事务。
+入口区别: upgrade 升级程序；sync 同步模板；recover 恢复未完成事务；rollback 回退最近成功事务。
 能力与限制: yss capabilities --json；未迁移行为返回 UNPORTED。
 帮助不读取项目、不访问网络、不创建资产。
 `)

@@ -2,12 +2,9 @@ package bundle
 
 import (
 	"context"
-	_ "embed"
-	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 )
@@ -183,56 +180,4 @@ func verifyTemplateTag(ctx context.Context, root string, s *Source) error {
 	}
 	s.TemplateVersion = version
 	return nil
-}
-
-// 「commit → 版本」对照表：只记录语义化版本发布之前的历史来源，由 tools/version-table.mjs
-// 从来源锁、内嵌 Bundle 历史及固定旧包补充登记生成。未知来源仍不推测版本。
-//
-//go:embed assets/version-table.json
-var versionTableJSON []byte
-
-type versionTableFile struct {
-	SchemaVersion int `json:"schemaVersion"`
-	Entries       []struct {
-		Profile        string `json:"profile"`
-		TemplateCommit string `json:"templateCommit"`
-		Version        string `json:"version"`
-	} `json:"entries"`
-}
-
-var (
-	versionTableOnce sync.Once
-	versionTable     map[string]string
-	versionTableErr  error
-)
-
-func loadVersionTable() {
-	var file versionTableFile
-	if e := json.Unmarshal(versionTableJSON, &file); e != nil || file.SchemaVersion != 1 {
-		versionTableErr = domain.Fail("BUNDLE", "内嵌的版本对照表不可读")
-		return
-	}
-	versionTable = map[string]string{}
-	for _, entry := range file.Entries {
-		key := entry.Profile + "\x00" + entry.TemplateCommit
-		if _, e := domain.GetProfile(entry.Profile); e != nil || !fullCommit.MatchString(entry.TemplateCommit) || !IsSemver(entry.Version) {
-			versionTableErr = domain.Fail("BUNDLE", "内嵌的版本对照表含非法条目")
-			return
-		}
-		if previous, dup := versionTable[key]; dup && previous != entry.Version {
-			versionTableErr = domain.Fail("BUNDLE", "内嵌的版本对照表对同一来源给出了不同版本")
-			return
-		}
-		versionTable[key] = entry.Version
-	}
-}
-
-// LookupTemplateVersion 按 Profile 与模板 commit 查历史对照表；查不到返回 ok=false，调用方必须如实报告，不得猜测。
-func LookupTemplateVersion(profile, commit string) (string, bool, error) {
-	versionTableOnce.Do(loadVersionTable)
-	if versionTableErr != nil {
-		return "", false, versionTableErr
-	}
-	version, ok := versionTable[profile+"\x00"+commit]
-	return version, ok, nil
 }

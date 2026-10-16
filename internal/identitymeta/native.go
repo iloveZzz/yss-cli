@@ -71,7 +71,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if e := decoder.Decode(&meta); e != nil {
 		return nil, e
 	}
-	if (meta.SchemaVersion < 1 || meta.SchemaVersion > 3) || meta.ProtocolVersion != domain.ProtocolVersion {
+	if meta.SchemaVersion != 3 || meta.ProtocolVersion != domain.ProtocolVersion {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "未知统一 CLI metadata 或协议版本"), "METADATA_SCHEMA_UNSUPPORTED", "当前执行器不支持该实例的元数据或协议版本。", map[string]any{"root": root, "metadataSchema": meta.SchemaVersion, "instanceProtocol": meta.ProtocolVersion, "instanceCLI": meta.CLIVersion, "templateCommit": meta.TemplateCommit})
 	}
 	p, e := domain.GetProfile(meta.Profile)
@@ -89,7 +89,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 		return nil, domain.Fail("BASELINE", "统一 metadata 版本、变量或分发合同缺失")
 	}
 	if meta.SchemaVersion >= 2 {
-		if (meta.BundleSchemaVersion != 2 && !(meta.SchemaVersion == 3 && meta.BundleSchemaVersion == 3)) || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
+		if meta.BundleSchemaVersion != 3 || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
 			return nil, domain.Fail("BASELINE", "native v2 Bundle/CLI provenance invalid")
 		}
 	}

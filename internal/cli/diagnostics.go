@@ -20,7 +20,7 @@ type errorDefinition struct {
 
 var errorFamilies = map[string]errorDefinition{
 	"argument":    {"命令或参数不符合当前接口", "核对当前子命令、必需参数、可选值和互斥条件。", "yss --help", false},
-	"identity":    {"项目身份或路径无法核验", "核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。", "yss doctor --help", false},
+	"identity":    {"项目身份或路径无法核验", "核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。", "yss doctor --help", false},
 	"version":     {"当前来源、格式或能力不兼容", "核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例迁移入口。", "yss capabilities --help", true},
 	"plan":        {"保存计划或当前输入未通过核验", "检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。", "yss sync --help", false},
 	"conflict":    {"文件冲突或用户后续修改阻止操作", "查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。", "yss diff --help", false},
@@ -163,14 +163,9 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 			d.Examples = strings.Split(safeExampleText(spec.help.examples), "\n")
 		}
 	}
-	if code == "LEGACY_INTERRUPTED" {
-		d.Steps = []domain.DiagnosticStep{{Effect: "read-only", Description: "核对旧元数据中的来源与原执行器版本；保留旧锁和事务，使用对应固定旧 CLI 的恢复入口。", Argv: []string{"yss", "help", "tutorial", "maintenance"}}}
-		d.Unverified = append(d.Unverified, "实际旧执行器版本以旧实例来源和历史安装记录为准；没有记录时先调查。")
-	} else if errorFamily(code) == "transaction" {
+	if errorFamily(code) == "transaction" {
 		if program && o.values["tool-root"] != "" {
 			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "write", Description: "恢复未完成程序事务。", Condition: "已核对安装状态与归档，且当前操作授权覆盖恢复。", Argv: []string{"yss", "update", "recover", "--tool-root", o.values["tool-root"], "--json"}})
-		} else if root != "" && len(o.args) > 0 && o.args[0] == "migrate" {
-			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "read-only", Description: "先检查项目事务状态。", Argv: []string{"yss", "recover", "--root", root, "--json"}}, domain.DiagnosticStep{Effect: "write", Description: "恢复已确认的原生迁移事务。", Condition: "已核对 migration 事务范围与归档；此子命令直接写入。", Argv: []string{"yss", "migrate", "recover", "--root", root, "--json"}})
 		} else if root != "" {
 			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "read-only", Description: "查询项目事务；旧 CLI 事务由固定旧执行器恢复。", Argv: []string{"yss", "recover", "--root", root, "--json"}}, domain.DiagnosticStep{Effect: "write", Description: "恢复已确认的原生项目事务。", Condition: "原生项目事务状态已核对，且当前授权覆盖恢复。", Argv: []string{"yss", "recover", "--root", root, "--apply", "--json"}})
 		}
@@ -182,7 +177,7 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 	if errorFamily(code) == "binding" {
 		d.Steps = []domain.DiagnosticStep{{Effect: "read-only", Description: def.recovery, Condition: "使用已绑定插件的公开计划接口；取得新的保存计划后再应用。", Argv: []string{"yss", "sync", "--help"}}}
 	}
-	if def.version || d.ID == "METADATA_SCHEMA_UNSUPPORTED" || d.ID == "LEGACY_SCHEMA_UNSUPPORTED" {
+	if def.version || d.ID == "METADATA_SCHEMA_UNSUPPORTED" || d.ID == "LEGACY_INSTANCE_UNSUPPORTED" {
 		d.Version = map[string]any{"currentCLI": domain.Version, "protocolVersion": domain.ProtocolVersion, "minimumSupportedVersion": "尚未登记", "introducedVersion": "尚未登记", "fixedVersion": "尚未登记", "basis": "CLI/协议依据当前二进制；模板依据固定 Bundle；实例格式依据产生错误位置的已观察输入。最低/引入/修复版本尚无兼容记录。"}
 		if b, err := bundle.Load(profile); err == nil {
 			d.Version["currentTemplateCommit"] = b.TemplateCommit
@@ -410,9 +405,6 @@ func renderErrorHelp(code string) (string, error) {
 	}
 	if code == "PATH" {
 		extra = "\n常见类型：UNSAFE_ROOT_COMPONENT；核对错误中的实际路径组件，使用已确认的普通目录。"
-	}
-	if code == "LEGACY_INTERRUPTED" {
-		extra += "\n常见类型：LEGACY_EXECUTOR_PENDING。保留旧事务；固定旧执行器的 recover 或 migrate recover 消费原事务，原生 recover --apply 不能替代。"
 	}
 	if code == "INPUT_DRIFT" {
 		extra += "\n常见类型：SAVED_PLAN_INPUT_CHANGED、SAVED_STAGE_PLAN_CHANGED。先核对 affectedInputs/path；原计划失效后重新生成与审阅。"

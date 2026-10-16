@@ -15,14 +15,14 @@ const governanceNotes = "读取当前项目的治理资产；校验通过不会�
 // behavior only; command execution and its authority checks remain unchanged.
 func init() {
 	helpTopics["contract view"] = helpTopic{"按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。", "--root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]", projectFlags, "yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view task --unit work-unit.slice-backend", "默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。", false}
-	helpTopics["attach"] = helpTopic{"首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags + "\n--full  选择完整资源集合\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
+	helpTopics["attach"] = helpTopic{"首次接管已有工程的模板受管资产；使用 sync 同步模板。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags + "\n--full  选择完整资源集合\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
 	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。", false}
 	for _, action := range []string{"doctor", "diff"} {
 		summary := "检查项目身份、受管基线和冲突。"
 		if action == "diff" {
 			summary = "查看当前文件相对固定模板的差异和同步计划。"
 		}
-		helpTopics[action] = helpTopic{summary, "--root <目录> [--profile <Profile>] [--json]", projectFlags, "yss " + action + " --root ./demo-spec --json", "只读。旧实例需要显式 migrate；遇到业务定制先查看诊断。", false}
+		helpTopics[action] = helpTopic{summary, "--root <目录> [--profile <Profile>] [--json]", projectFlags, "yss " + action + " --root ./demo-spec --json", "只读。遇到业务定制先查看诊断。", false}
 	}
 	helpTopics["recover"] = helpTopic{"查询或恢复未完成的项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行保护性恢复；默认只查询", "yss recover --root ./demo-spec --json\nyss recover --root ./demo-spec --apply --json", "程序安装事务使用 yss update recover --tool-root <目录>。", false}
 	helpTopics["rollback"] = helpTopic{"查询或整体回退最近一次成功项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行回退；默认只查询", "yss rollback --root ./demo-spec --json\nyss rollback --root ./demo-spec --apply --json", "后续用户修改会阻止覆盖。程序版本回退使用 yss update rollback。", false}
@@ -35,13 +35,6 @@ func init() {
 		"status":   {"只读诊断安装一致性及程序事务状态。", "[--json]", "仅查询，不写入；展示安装记录、逐文件摘要和权限差异。\ninstallationConsistent 只表示安装检查结果，不授予发行资格。", "yss update status --tool-root ./tools/yss --json", "", false},
 		"recover":  {"恢复唯一未完成的程序事务。", "[--json]", "仅处理 program-update；恢复前核验受管范围", "yss update recover --tool-root ./tools/yss --json", "保护性恢复开始后完成还原，可重复执行；用户改动时停止覆盖。", false},
 		"rollback": {"回退最近一次成功程序安装。", "[--json]", "仅回退最近成功 program-update", "yss update rollback --tool-root ./tools/yss --json", "后续用户改动会阻止整体回退。", false},
-	})
-	registerGroup("migrate", "显式迁移旧实例 metadata、受管基线及 binding。", "--root <目录>", projectFlags, "yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json", "旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。", map[string]helpTopic{
-		"plan":     {"生成只读迁移计划（默认动作）。", "--out <新文件>", "--out <新文件>  保存迁移计划", "yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json", "", false},
-		"apply":    {"应用迁移计划。", "--plan-file <文件>", "--plan-file <文件>  必需；身份、基线与 binding 同一事务", "yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --json", "", false},
-		"status":   {"查询迁移事务。", "[--json]", "只读查询", "yss migrate status --root ./old-project --json", "", false},
-		"recover":  {"恢复未完成迁移事务。", "[--json]", "仅消费项目迁移范围", "yss migrate recover --root ./old-project --json", "", false},
-		"rollback": {"恢复迁移前实例。", "[--json]", "最近成功迁移，拒绝覆盖后续用户修改", "yss migrate rollback --root ./old-project --json", "", false},
 	})
 	for _, group := range []string{"skills", "assets"} {
 		identifier := "Skill 名称"
@@ -205,18 +198,6 @@ func registerGovernanceHelp() {
 		"inspect": {"读取 Maven project 结构。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml inspect --root ./demo-backend --file pom.xml --json", "", true},
 		"query":   {"查询 Maven project 读取结果。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml query --root ./demo-backend --file pom.xml --json", "", true},
 	})
-	helpTopics["compat"] = helpTopic{"显式旧命令兼容适配。", "<旧命令> [参数]", "旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend", "yss compat create-yss-spec --help", "仅维护已登记兼容行为；新增用户操作优先使用原生 yss 命令。未迁移行为返回明确错误，详见 compat/README.md。", true}
-	helpTopics["compat-api"] = helpTopic{"供现役 JavaScript 消费者使用的原生传输接口。", "<API标识>", "从 stdin 读取版本化请求 JSON", "yss help compat-api", "调用形状见 compat/README.md；不复刻无人消费的私有 CommonJS API。", true}
-	for _, p := range []string{"spec", "design", "backend"} {
-		alias := "create-yss-harness-" + p
-		if p == "spec" {
-			alias = "create-yss-spec"
-		}
-		helpTopics["compat "+alias] = helpTopic{"固定旧别名的显式原生适配。", "--native <命令> [参数]", "--native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED", "yss compat " + alias + " --native doctor --target-dir ./demo-" + p + " --json", "优先使用 yss doctor --root；兼容说明见 compat/README.md。", true}
-	}
-	for _, method := range []string{"native.snapshot", "native.run", "toErrorEnvelope", "projectDoctor", "projectDiff", "templatePlan", "templateApply"} {
-		helpTopics["compat-api "+method] = helpTopic{"版本化兼容传输方法。", "< request.json", "stdin  单个 JSON object，上限 4 MiB", "yss compat-api " + method + " < request.json", "请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。", false}
-	}
 }
 
 func dailyHelp(summary, action string) helpTopic {
@@ -247,14 +228,7 @@ const maintenanceTutorial = `YSS 离线入门教程
    yss assets list --root ./demo-spec --json
    使用 list 的实际标识；阶段资源以当前 Profile 登记为准。
 
-5. 旧实例迁移
-   yss doctor --root ./old-project --json
-   yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
-   yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --json
-   yss migrate rollback --root ./old-project --json
-   旧未完成事务先由对应仓外固定旧执行器恢复，不能跳过恢复直接迁移。
-
-6. 升级 CLI 程序
+5. 升级 CLI 程序
    yss upgrade --check
    yss upgrade
    yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
@@ -273,7 +247,7 @@ const maintenanceTutorial = `YSS 离线入门教程
    yss update recover --tool-root ./tools/yss --json
    yss update rollback --tool-root ./tools/yss --json
    自动安装用户应使用 upgrade 输出的 toolRoot，示例目录只是显式安装案例。
-   后续用户修改会阻止覆盖；程序事务与项目 sync/migrate 事务分别恢复。
+   后续用户修改会阻止覆盖；程序事务与项目 sync 事务分别恢复。
 
    出现“受管程序文件与安装清单不一致”时：
    先对错误中实际 toolRoot 执行 update status，查看 diagnostic.files 的
