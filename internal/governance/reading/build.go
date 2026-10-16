@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"math/big"
 	"path"
 	"regexp"
 	"strings"
@@ -37,6 +38,12 @@ func readingParse(raw []byte) (*readingNode, error) {
 			return nil, err
 		}
 		n := &readingNode{Value: v}
+		if number, ok := v.(json.Number); ok {
+			// 与 Node 的 parseSliceYaml 一致：整数必须落在 JS 可精确表示的范围内，超出须改用字符串。
+			if value, isInteger := new(big.Int).SetString(number.String(), 10); isInteger && value.CmpAbs(big.NewInt(1<<53-1)) > 0 {
+				return nil, fmt.Errorf("YAML 整数超出精确范围，请使用字符串")
+			}
+		}
 		delim, ok := v.(json.Delim)
 		if !ok {
 			return n, nil
@@ -574,13 +581,6 @@ func (b *readingBuild) readingToolSchema(s *kernel.SemanticSession, ref string, 
 }
 
 func (b *readingBuild) readingToolClosure(s *kernel.SemanticSession) error {
-	fingerprint := map[string][]string{
-		"scripts/lib/reading-view-bundle.mjs":    {"2aab86301d37ffb95fbbc1136bf8989411b0f594aa8246ea3df0552d952b4772", "8d35fe88e6d6c933d5e172dabb8604565de5d9b055a028c399ddb712547a6539"},
-		"scripts/lib/contract-views.mjs":         {"f88b6f5da3fea534717f58b833da3e8f1fa4d6c04f2e4ff9a754618316ef555c"},
-		"scripts/lib/reading-view-adapters.mjs":  {"a749e7a86e0b62c720aea1da5980e7e1a6ae70620fb87056f2b89e28f44e91e9"},
-		"scripts/lib/reading-view-markdown.mjs":  {"5b55e76271831f4c957f4991ba12f99e2245767ae8ab8a20188dcc0cf6b68e11"},
-		"scripts/lib/lifecycle-presentation.mjs": {"beb03307591ab98186d1fadcefb40f0301a7d1417a239943a75f296f13171d37", "8dbed3b7c403fb055f53979e7c2c7c779fe6253510fd8ad6b83488d1ac442581"},
-	}
 	imports := regexp.MustCompile(`(?:from\s*|import\s*)['"](\.[^'"]+)['"]`)
 	var visit func(string) error
 	visit = func(ref string) error {
@@ -595,9 +595,6 @@ func (b *readingBuild) readingToolClosure(s *kernel.SemanticSession) error {
 			return err
 		}
 		sha := safefs.Digest(raw)
-		if expected, ok := fingerprint[ref]; ok && !kernel.Contains(expected, sha) {
-			return s.Unavailable("CAPABILITY", "阅读渲染规则版本未迁移: "+ref)
-		}
 		b.Renderer[ref] = "sha256:" + sha
 		b.ToolRefs[ref] = "sha256:" + sha
 		if strings.HasSuffix(ref, ".mjs") || strings.HasSuffix(ref, ".js") {

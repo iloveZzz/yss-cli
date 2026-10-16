@@ -57,6 +57,8 @@ jobs:
           fi
           # internal/governance 既有 unkeyed 复合字面量告警，不为此改业务代码，故关闭 composites 分析器；其余分析器全部保留。
           go vet -composites=false ./...
+          # 治理规则以 Go 语义为准：不允许把 Node 脚本字节的摘要写成 Go 常量
+          node tools/check-no-pinned-digests.mjs
       - name: Black-box smoke of the built binary
         env:
           CGO_ENABLED: 0
