@@ -40,7 +40,14 @@ yss git commit --root ./repo --apply --plan-file /tmp/commit-plan.json
 - `hooks install` 把原 `core.hooksPath` 或 `.git/hooks/commit-msg` 作为链上第一环；已有的非 yss `.githooks/commit-msg` 不覆盖；找不到 `yss` 时钩子跳过检查（不阻断没有安装 CLI 的协作者）。`.githooks/` 随仓库提交，`core.hooksPath` 是本地配置，每个克隆各自安装。
 - `policy set` 按固定格式整文件重写，原有注释不保留；`--value` 对字符串可直接写，列表用 JSON 数组，布尔写 `true`/`false`。
 - `release tag` 要求在 `default_branch` 上且工作区干净；`--evidence-file` 须已纳入版本控制，其 SHA-256 写入标签信息。只创建本地标签。
-- `hooks install` 与 `policy set` 经 yss 文件事务写入，事务状态在 `.yss/transactions`；该目录未被忽略时会让工作区显示为未提交。
+- 钩子的能力检查：`commit-msg` 先运行 `yss git verify-message --help`（本地、不联网）。PATH 上的 `yss` 是不支持 `git` 子命令的旧版本（如 1.3.7）时，钩子向 stderr 打印「版本过旧，不支持 git 子命令，已跳过 Ticket 检查；请升级 yss 或调整 PATH」并以 0 退出，不会因旧版本的「未知命令」错误阻断提交；升级或调整 PATH 后检查自动恢复。脚本保留 `# yss-managed hook` 标记，已安装旧版钩子的仓库重新运行 `yss git hooks install` 即识别为 yss 管理并更新脚本。
+- 未提交路径：`hooks install` 与 `policy set` 经 yss 文件事务写入，会使 `.githooks/`、`.template-spec/process/git-policy.yaml` 与事务目录 `.yss/` 在工作区显示为未提交，`release tag` 因此以「工作区有未提交路径」拒绝。计划的 `effects` 与 `--apply` 结果的 `notice` 都带有处理建议：先把 `.yss/` 加入 `.gitignore`（yss 不会自动修改 `.gitignore`，那是计划外写入），再提交这些路径：
+
+```sh
+echo '.yss/' >> .gitignore
+yss git commit --root ./repo --task FEAT-142 --message "安装钩子与策略" --paths .githooks,.template-spec/process/git-policy.yaml,.gitignore --plan --out /tmp/commit-plan.json
+yss git commit --root ./repo --apply --plan-file /tmp/commit-plan.json
+```
 - 写入执行器只放行固定形状的 `switch -c`、`add -A --`、`commit --only -F -`、`tag`、`config --local core.hooksPath`，其余写入一律拒绝；继承的 `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` 等会被清除，用户自己的提交身份、签名和钩子配置保持生效。`require_signed: true` 时提交使用 `-S`、标签使用 `-s`。
 
 ## push
