@@ -8,9 +8,41 @@
 - 原生冒烟、恢复、插件验收、验收回执及性能测试工具。
 - `Native verification` workflow 和测试环境准备 action，包括 `prepare`、全部 `verify` 分片与最终 `native` job。
 
-当前仓库没有自动测试 workflow。CLI 运行时的治理校验、来源与摘要检查、事务恢复及内嵌模板属于产品能力，仍然保留。兼容桥、Bundle／帮助生成和打包工具也保留。
+当前仓库没有自动测试 workflow，也没有恢复上述任何一类测试。CLI 运行时的治理校验、来源与摘要检查、事务恢复及内嵌模板属于产品能力，仍然保留。兼容桥、Bundle／帮助生成和打包工具也保留。
 
-`Build and generated artifacts` workflow 只执行生产包构建、候选来源记录，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。不执行 Go/Node 测试，不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
+`Build and generated artifacts` workflow 执行生产包构建、候选来源记录、格式／静态检查、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。不执行 Go/Node 测试，不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
+
+## 格式与静态检查
+
+workflow 在 Bundle 归档生成后运行：
+
+- `gofmt -l .`：有任何输出即失败，列出未格式化的文件。
+- `go vet -composites=false ./...`：关闭 `composites` 分析器，其余分析器保留。`internal/governance` 存在既有的 “struct literal uses unkeyed fields” 告警（`contracts.ContractPlanEntry`、`backendAuthorization`、`kernel.Binding`、`kernel.TrackingEntry`），为了不为通过 vet 大规模改动业务代码而暂不纳入。清理这些字面量后应去掉该开关。
+
+这两项只发现格式和常见静态错误，不验证行为。
+
+## 构建后黑盒冒烟
+
+`tools/smoke/` 是对已构建 `yss` 二进制的黑盒冒烟脚本（Node，无第三方依赖），**不是**单元测试、集成测试或发行验收：
+
+```sh
+node tools/fetch-bundle.mjs
+CGO_ENABLED=0 go build -o /仓库外/路径/yss ./cmd/yss
+node tools/smoke/main.mjs --bin /仓库外/路径/yss [--only profiles|git] [--keep]
+```
+
+覆盖范围：
+
+- 对 spec、design、backend 三个 Profile：`init --plan/--apply`、`doctor`、`diff`、`context verify`、`skills list`、`assets list`、`recover`、`rollback`（查询与 `--apply`）、`sync --plan/--apply`；断言退出码为 0 且 envelope `status=ok`、`code=OK`，以及少量结果字段；回退后确认项目身份已移除。
+- `yss git`：在临时仓库和本地裸远端（`file://`）上走 `branch start`、`commit`（只提交列出路径并加 Ticket trailer，已安装钩子拒绝缺 trailer 的普通提交）、`hooks install`、`policy set`、`audit`、`release tag`、`push --plan/--apply`；`--confirm-remote` 缺失或不符、受保护分支 push／commit 被拒绝；计划阶段不触达远端。
+
+约束：
+
+- 全部状态位于 `mktemp` 后经 `realpath` 的临时目录，计划文件在被测仓库之外；被测二进制以 `yss` 名称置于 `PATH` 最前，供钩子调用。
+- `GIT_CONFIG_GLOBAL` 指向临时文件、`GIT_CONFIG_NOSYSTEM=1`、`HOME` 也在临时目录。`yss` 会清除全部 `GIT_*` 变量并按 `HOME` 读取全局配置，所以 `GIT_CONFIG_GLOBAL` 与 `$HOME/.gitconfig` 为同一文件。不触碰用户的全局或系统 git 配置。
+- 任一断言失败即以非 0 退出，并保留临时目录供排查（`--keep` 可在成功时也保留）。
+- CI 只在 ubuntu 运行；本地（如 macOS）运行不构成其他平台的运行验收，也不构成发行验收。
+- 不含 fixture、预言机、录制或回执；通过只说明主路径在当前构建上能走通，不代表测试通过，也不替代原生、恢复、插件或安装等发行门禁。新增检查须保持这个范围，不要扩写成测试套件。
 
 ## 本地构建
 
