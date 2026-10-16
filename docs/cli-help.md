@@ -5307,6 +5307,7 @@ yss 2.3.2 — stage apply
 前置条件:
 合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+提交后若该 checkpoint 已启用 managed 阅读视图，会立即渲染并在结果 reading_update 中报告（unchanged/rendered/failed；未启用为 manual）；渲染失败不回滚已提交的阶段写入，按 recovery 提示运行 yss reading render。
 
 最小示例:
 yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
