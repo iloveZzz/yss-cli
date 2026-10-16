@@ -49,3 +49,5 @@ go run ./tools/package --native-manifest INPUT.json --required-platforms darwin/
 未来完整模板模式需显式 `--gate-basis`，资格范围 `complete-template-release`，独立 BEFORE 编译计划、调用与输入摘要，并保留原完整模板/四 CLI/旧恢复/真实实例来源。此模式不是本轮默认前置。
 
 本仓的测试源码和自动验收工具已移除。装配工具继续校验上述真实证据合同，但不再由仓库测试工具生成新回执；需另行提供符合合同的证据。构建检查可使用 `CGO_ENABLED=0 go build ./tools/package ./tools/release`，构建成功不代表原生平台运行验收。
+
+发版证据（原生 receipt、程序安装、门禁、Windows 仅构建包及公开在线升级验证）的生成脚本与完整执行顺序见 [tools/release-evidence](../release-evidence/README.md)。
