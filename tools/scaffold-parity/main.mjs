@@ -235,7 +235,7 @@ async function main() {
   };
   if (selected.some(item => item.kind === 'formal')) {
     // Node 基准的正式合同校验调用 python3 的 jsonschema/referencing；隔离 HOME 后用户级 site-packages 不可见，显式传入。
-    const probe = run('python3', ['-c', 'import jsonschema, referencing, os; print(os.path.dirname(os.path.dirname(jsonschema.__file__)))'], {env: {PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? ''}});
+    const probe = run('python3', ['-c', 'import jsonschema, referencing, os; print(os.pathsep.join(sorted({os.path.dirname(os.path.dirname(module.__file__)) for module in (jsonschema, referencing)})))'], {env: {PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? ''}});
     if (probe.status !== 0) throw new ParityFailure('正式合同场景需要 python3 及 jsonschema、referencing（仅 Node 基准使用；Go 实现不需要）');
     context.env.PYTHONPATH = probe.stdout.trim();
   }
