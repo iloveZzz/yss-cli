@@ -28,12 +28,9 @@ func validateCompetitiveResearchSemantic(s *kernel.SemanticSession, data map[str
 		return nil, err
 	}
 	const moduleRef = ".agents/skills/yss-research/scripts/lib/competitive-analysis.mjs"
-	module, err := s.Bytes(moduleRef)
-	if err != nil {
+	// The Node module is a bound input only; the comparison rules are the native ones below.
+	if _, err := s.Bytes(moduleRef); err != nil {
 		return nil, err
-	}
-	if safefs.Digest(module) != "d52f89500b59b4bf21608154a128ceef71c40940b24a4546bc3f86e3c93ef57e" {
-		return nil, s.Unavailable("CAPABILITY", "本地竞品校验规则尚未迁移")
 	}
 	competitors, err := researchIndex(s, extension["competitors"], "competitors", true)
 	if err != nil {

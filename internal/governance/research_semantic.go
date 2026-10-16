@@ -5,7 +5,6 @@ import "github.com/iloveZzz/yss-cli/internal/governance/approval"
 import (
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"path"
 	"strings"
@@ -59,12 +58,11 @@ func verifyResearchCompletionSemantic(s *kernel.SemanticSession, ref string, opt
 	if kernel.Text(kernel.SemMap(inputs["validator"])["ref"]) != researchValidator {
 		return s.Reject("RESEARCH_VALIDATOR", "研究校验器身份不匹配")
 	}
-	validator, err := s.Bytes(researchValidator)
-	if err != nil {
+	// The recorded validator stays a bound input (its bytes must exist and match the
+	// record above), but the rules enforced are the native semantics below, not a
+	// fixed script version.
+	if _, err = s.Bytes(researchValidator); err != nil {
 		return err
-	}
-	if safefs.Digest(validator) != "2b6f07d3a47ac8dde29fa8262560bb2eb8d534cf50b021ffa05d1fe468ad0078" {
-		return s.Unavailable("CAPABILITY", "本地研究校验规则版本尚未迁移")
 	}
 	started, a := time.Parse(time.RFC3339Nano, kernel.Text(record["started_at"]))
 	completed, b := time.Parse(time.RFC3339Nano, kernel.Text(record["completed_at"]))
