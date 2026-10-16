@@ -8,10 +8,24 @@ import (
 const LocalQualificationScope = "local-platform-impacted-consumers"
 const FullQualificationScope = "complete-template-release"
 
+// ProgramInstallQualificationScope 只要求本机平台真实的 version、三 Profile bundle inspect
+// 与离线程序安装五项；不含 native-smoke、native-recovery、plugin-native-smoke、旧包恢复
+// 和模板消费者检查，这些未覆盖项须在发行说明中如实列出。
+const ProgramInstallQualificationScope = "local-platform-program-install"
+
+func nativeChecksFor(scope string) []string {
+	if scope == ProgramInstallQualificationScope {
+		return []string{}
+	}
+	return nativeChecks
+}
+
 func scopedChecks(scope string) ([]string, error) {
 	switch scope {
 	case LocalQualificationScope:
 		return []string{"program-installation", "legacy-recovery", "scoped-template-consumers"}, nil
+	case ProgramInstallQualificationScope:
+		return []string{"program-installation"}, nil
 	case FullQualificationScope:
 		return []string{"full-template-integration", "cli-integration", "legacy-recovery", "real-project-isolation"}, nil
 	default:
