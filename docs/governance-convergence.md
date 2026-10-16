@@ -11,11 +11,11 @@
 
 | 主题 | 结论 |
 |---|---|
-| 固定 SHA-256 绑定 | 共 9 个摘要，落在 7 个 Node 文件、3 处 Go 代码。其中 2 个（研究校验器、竞品比较模块）计划在批 1 改为语义校验；其余 7 个属于阅读渲染闭包，需要先做渲染对拍，见 §2 与 §5 |
-| 已确认的既有缺口 | ① 阅读渲染闭包里 `contract-views.mjs` 的绑定落后于固定模板（Go 当前拒绝 4.4.1 的该文件）；② Go 拒绝模板写出的真实竞品研究记录（摘要前缀写法不一致），批 1 修复 |
+| 固定 SHA-256 绑定 | 共 9 个摘要，落在 7 个 Node 文件、3 处 Go 代码。其中 2 个（研究校验器、竞品比较模块）已在批 1 改为语义校验；其余 7 个属于阅读渲染闭包，需要先做渲染对拍，见 §2 与 §5 |
+| 已确认的既有缺口 | ① 阅读渲染闭包里 `contract-views.mjs` 的绑定落后于固定模板（Go 当前拒绝 4.4.1 的该文件）；② Go 拒绝模板写出的真实竞品研究记录（摘要前缀写法不一致），批 1 已修 |
 | 「尚未迁移」类拒绝 | 代码里字面含「尚未迁移/未迁移」的共 25 处，`UNPORTED` 错误码共 57 处引用；绝大部分是**不可达的兜底、版本/策略未知时的 fail-closed、或与 Node 一致的能力边界**。真正应由 Go 补齐的缺口集中在 runtime-store、stage `refresh` 及相关过滤、project-ci 的计划/安装范围，见 §3 |
 | `nodeDelegation` 34 条 | 33 条对应模板 `scripts/lib/native-evidence.mjs` 的能力协商；固定提交里这些入口的 Node 领域实现已被删除，Node 只剩薄壳，**没有可比对的 Node 语义**，Go 已是唯一实现。1 条（`user-decision.from-record.v1`）在固定提交里没有协商点。完整性只能依赖历史对拍记录与薄壳回放，见 §4 |
-| 第一批 | 研究校验器与竞品模块的摘要绑定 → 语义校验，并修复竞品输入闭包的摘要前缀比较；实现与对拍证据在后续 PR，本文随之更新，方法见 §6 |
+| 第一批 | 研究校验器与竞品模块的摘要绑定 → 语义校验；4609 个研究包夹具上 Node 与 Go 接受/拒绝一致 4607 个，其余 2 个为 Go 更严，见 §6 |
 
 ## 2. 固定 SHA-256 绑定（9 个）
 
@@ -23,8 +23,8 @@
 
 | # | Go 位置 | 所绑 Node 文件 | 摘要（前 12 位） | 与固定模板 4.4.1 的关系 | 用途 | 脚本字节变化时 Go 的行为 | 状态 |
 |---|---|---|---|---|---|---|---|
-| 1 | `internal/governance/research_semantic.go` `verifyResearchCompletionSemantic` | `.agents/skills/yss-research/scripts/validate-research-package.mjs` | `2b6f07d3a47a` | 相等 | 研究收尾（`work-unit.maintenance-research`）核验记录里的校验器必须是 Go 镜像过的那一版 | `Unavailable`，码 `CAPABILITY`，退出码 2，「本地研究校验规则版本尚未迁移」；该工作单元的流转被拦住 | 批 1 待实施 |
-| 2 | `internal/governance/research_competitive_semantic.go` `validateCompetitiveResearchSemantic` | `.agents/skills/yss-research/scripts/lib/competitive-analysis.mjs` | `d52f89500b59` | 相等 | 含 `competitive_analysis` 扩展的研究包；Go 镜像了结构、引用与受管输出的逐字节比较 | 同上，「本地竞品校验规则尚未迁移」 | 批 1 待实施 |
+| 1 | `internal/governance/research_semantic.go` `verifyResearchCompletionSemantic` | `.agents/skills/yss-research/scripts/validate-research-package.mjs` | `2b6f07d3a47a` | 相等 | 研究收尾（`work-unit.maintenance-research`）核验记录里的校验器必须是 Go 镜像过的那一版 | `Unavailable`，码 `CAPABILITY`，退出码 2，「本地研究校验规则版本尚未迁移」；该工作单元的流转被拦住 | **批 1 已改为语义校验** |
+| 2 | `internal/governance/research_competitive_semantic.go` `validateCompetitiveResearchSemantic` | `.agents/skills/yss-research/scripts/lib/competitive-analysis.mjs` | `d52f89500b59` | 相等 | 含 `competitive_analysis` 扩展的研究包；Go 镜像了结构、引用与受管输出的逐字节比较 | 同上，「本地竞品校验规则尚未迁移」 | **批 1 已改为语义校验** |
 | 3 | `internal/governance/reading/build.go` `readingToolClosure` | `scripts/lib/reading-view-bundle.mjs` | `2aab86301d37` / `8d35fe88e6d6` | 第二个相等（`cfc275ba`，10-09）；第一个对应 `3cc18284`（10-01） | 阅读渲染工具闭包指纹。Go 自己重算 `reading/*.review.md` 与导航区，再与 Node 写入的清单、输出逐字节比较，指纹保证「Go 镜像的就是这个渲染器」 | `Unavailable`，码 `CAPABILITY`，「阅读渲染规则版本未迁移: <ref>」；仅 `reading-policy.yaml` 为 `mode: managed` 且命中 checkpoint 时发生（默认新实例是 `manual`，不触发） | 待办（批 2） |
 | 4 | 同上 | `scripts/lib/contract-views.mjs` | `f88b6f5da3fe` | **不等**：固定模板为 `cc93bdd9b126`。绑定对应 `3cc18284`（10-01），其后 `1afff73a`（10-12，导入层级调整）与 `d6b6fb0d`（10-13，前端整线移除）又改过该文件 | 同上 | 同上。**已确认**：在 v4.4.1 的 spec 实例上直接调用 `readingToolClosure`，结果为「阅读渲染规则版本未迁移: scripts/lib/contract-views.mjs」。即启用 managed 阅读的 4.4.1 项目，其流转校验会一律 `Unavailable` | 待办（批 2，已确认缺口） |
 | 5 | 同上 | `scripts/lib/reading-view-adapters.mjs` | `a749e7a86e0b` | 相等 | 同上 | 同上 | 待办（批 2） |
@@ -70,8 +70,8 @@
 
 | # | 位置 | 触发条件 | 分类 | 说明 |
 |---|---|---|---|---|
-| 1 | `research_semantic.go` | 研究校验器字节 ≠ 固定摘要 | 绑定 | 批 1 计划移除 |
-| 2 | `research_competitive_semantic.go` | 竞品模块字节 ≠ 固定摘要 | 绑定 | 批 1 计划移除 |
+| 1 | `research_semantic.go` | 研究校验器字节 ≠ 固定摘要 | 绑定 | 批 1 已移除 |
+| 2 | `research_competitive_semantic.go` | 竞品模块字节 ≠ 固定摘要 | 绑定 | 批 1 已移除 |
 | 3 | `reading/build.go` `readingToolClosure` | 渲染闭包文件字节 ≠ 指纹 | 绑定 + **缺口** | `contract-views.mjs` 指纹已落后于固定模板，见 §2 |
 | 4 | `governance.go` 59 | 非 verify 动作带 `--history`/`--require-approved` | 边界 | 禁止用结构校验冒充历史/批准语义；verify 路径已支持 `--history`（`lifecycle verify`）。未验证：Node 是否有这些参数用于 check 类动作 |
 | 5 | `governance.go` 115 | 未知治理 group/action | 兜底 | 预检先拒绝，不可达（`yss contract foo` 已验证） |
@@ -178,7 +178,7 @@
 
 | 批 | 范围 | 风险 | 验证方式 | 依赖模板仓变更 |
 |---|---|---|---|---|
-| 1（随后续 PR 实施） | 研究校验器与竞品模块摘要 → 语义校验；修竞品输入闭包的摘要前缀比较 | 低。对拍 4609 夹具 + 25 个端到端收尾夹具；脚本字节不变时 Go 输出逐字节相同 | §6 | 否 |
+| 1（本 PR 系列已完成） | 研究校验器与竞品模块摘要 → 语义校验；修竞品输入闭包的摘要前缀比较 | 低。对拍 4609 夹具 + 25 个端到端收尾夹具；脚本字节不变时 Go 输出逐字节相同 | §6 | 否 |
 | 2 | 阅读渲染闭包 5 个文件的 7 个绑定。先修 `contract-views.mjs` 落后问题：用固定模板的 Node 渲染器对同一 managed checkpoint 生成 `reading/*`，Go 的 `reading-transition` 校验必须逐字节通过；通过后再把「指纹」改为「摘要与清单登记一致」 | 中。渲染器有 5 个文件、约 500 行 Node，输出逐字节比较；前端整线移除可能改变渲染分支 | 在 managed 项目上：Node 生成 → Go 校验接受；对每类变异（改一个字节、少/多文件、过期清单）Go 与 Node 的 `check-views` 结论一致 | 否（读固定提交即可） |
 | 3 | stage `refresh`、`--stage/--work-unit` 过滤、`register` 种子字段（§3 的 19、22、23） | 中。涉及写入与 checkpoint | 对拍 Node `stage-tracking plan --refresh` 的计划；写入走既有事务 | 否 |
 | 4 | project-ci 计划/安装的范围与文案（28）；核对 `unportedProjectChecks` 是否过期 | 低～中 | 黑盒：默认范围 `plan/install/apply` 的 envelope；对拍 Node `planProjectCi` | 否 |
@@ -187,34 +187,51 @@
 | 7 | 历史未覆盖项的对拍：Plan 聚合、业务票通过审查组合、`loadExecutionScope`、`--history`、`local-evidence`、Slice v2 | 取决于结果 | 用更早模板提交里仍存在的 Node 实现作为预言机 | 否 |
 | 阶段二 | 模板仓 Node 脚本变薄、改为调用 `yss`；移除模板侧 `NEEDS` 令牌协商对旧字节的假设 | 高 | 另行设计 | **是**（本任务不做） |
 
-批 2 必须先于阶段二：阶段二会改写 `scripts/lib/*.mjs` 的字节，而阅读渲染指纹还绑着旧版字节，改后 managed 阅读会全部 `Unavailable`。批 1 完成后，研究/竞品脚本变薄不会再被摘要拦住。
+批 2 必须先于阶段二：阶段二会改写 `scripts/lib/*.mjs` 的字节，而阅读渲染指纹还绑着旧版字节，改后 managed 阅读会全部 `Unavailable`。批 1 的两项已完成该前置，研究/竞品脚本变薄后 Go 不会再被摘要拦住。
 
-## 6. 第一批（计划与验证方法）
+## 6. 第一批（已实现）
 
-### 改动范围
+### 改动
 
-| 文件 | 现状 | 计划 |
+| 文件 | 改前 | 改后 |
 |---|---|---|
 | `research_semantic.go` | 校验器字节 ≠ `2b6f…0078` → `Unavailable CAPABILITY` | 仍读取校验器并要求其摘要与验证记录一致（`s.Basis`），不再要求等于固定摘要；规则由 `validateResearchPackageSemantic` 执行 |
 | `research_competitive_semantic.go` | 竞品模块字节 ≠ `d52f…57e` → `Unavailable CAPABILITY` | 同上，仍读取该模块；规则由 Go 语义函数执行 |
-| `research_semantic.go` 竞品输入闭包比较 | 按规范化字节比较；模板写入 `sha256:<hex>`、Go 期望裸十六进制，二者永不相等，**真实竞品研究记录一律被拒** | 比较摘要值（去掉可选 `sha256:` 前缀）；ref、顺序、摘要值仍逐项一致 |
+| `research_semantic.go` `researchBindingDigests` | 竞品输入闭包按规范化字节与记录比较；模板写入 `sha256:<hex>`、Go 期望裸十六进制，二者永不相等 | 比较摘要值（去掉可选 `sha256:` 前缀）；ref、顺序、摘要值仍逐项一致；裸十六进制仍可接受 |
 
-不变的部分：记录里 `command`、`validator.ref`、`exit_code`、时间、stdout/stderr 绑定、`evidence_refs` 登记、Context 不适用说明、阻断项为空、继续维护授权。
+不变的部分：记录里 `command`、`validator.ref`、`exit_code`、时间、stdout/stderr 绑定、`evidence_refs` 登记、Context 不适用说明、阻断项为空、继续维护授权，全部保持原样。
 
-### 验证方法（开发期；夹具与脚本在仓外，不入库，不构成测试体系）
+### 证据（对拍与黑盒）
+
+方法（可重复；夹具与脚本在仓外，不入库，不构成测试体系）：
 
 1. 对基线二进制初始化 spec 实例；用模板固定提交的 `validate-research-package.mjs` 作预言机（Node 仅开发期使用，不成为运行依赖）。
-2. 生成研究包夹具：基础有效包（无扩展、matrix、report、both 四种）；对每个 JSON 路径做 11 类变异；手写语义场景（Claim/证据/反证引用、审计、profile 与 claim_kind、brief 标题与 Claim 引用、slug、非 JSON/BOM/重复键、竞品状态与限定条件、受管输出缺失/漂移/双标记/符号链接/目录/CRLF/BOM/非法 UTF-8 等）。
-3. 同一夹具分别交给 Node 校验器与 Go `validateResearchPackageSemantic`，只比较接受/拒绝；Go 偏松的差异必须先修。
-4. 端到端收尾夹具（检查点 + 验证记录）：Node 一侧用模板 `validateResearchCompletion`，Go 一侧用 `verifyResearchCompletionSemantic`；再对「校验器与竞品模块各追加一行注释」的实例重做一遍（字节变、语义不变），用来观测摘要闸门。
-5. 改动前后各跑一遍，字节未改的实例输出（含逐文件输入清单）必须逐字节相同；字节被改的实例，改后的接受/拒绝与错误码必须与字节未改的实例一致。
-6. `go build ./...`、`gofmt -l .`、`go vet -composites=false ./...`、`node tools/smoke/main.mjs --bin <新二进制>`。
+2. 生成 4609 个研究包夹具：基础有效包（无扩展、matrix、report、both 四种）；对每个 JSON 路径做 11 类变异（删除、`null`、空串、空白、数字、字符串、`true`、`false`、空数组、空对象、单元素数组；数组另加重复末项）；171 个手写场景（其中竞品 123 个），覆盖 Claim/证据/反证引用、审计、profile 与 claim_kind、brief 标题与 Claim 引用、slug、非 JSON/BOM/重复键、竞品状态与限定条件、受管输出缺失/漂移/双标记/符号链接/目录/CRLF/BOM/非法 UTF-8 等。
+3. 同一夹具分别交给 Node 校验器与 Go `validateResearchPackageSemantic`，只比较接受/拒绝。
+4. 另做 25 个端到端收尾夹具（检查点 + 验证记录），Node 一侧用模板 `validateResearchCompletion`，Go 一侧用 `verifyResearchCompletionSemantic`；再对「校验器与竞品模块各追加一行注释」的实例重做一遍（字节变、语义不变），用来观测摘要闸门。
 
-结果记录在实现 PR 的说明里，并回写本节。
+结果：
+
+| 项 | 结果 |
+|---|---|
+| Node 与 Go 接受/拒绝一致 | 4609 个里 4607 个一致：接受 328、拒绝 4279 |
+| Node 拒绝而 Go 接受（Go 偏松） | **0** |
+| Go 拒绝而 Node 接受（Go 偏严） | 2：`JSON 重复键`（Go 拒绝，Node 取后者）、`schema_version: 1.0000000000000000001`（Go 精确比较，Node 取 float64）。方向安全，保留 |
+| 端到端收尾（字节未改） | 25 个里 24 个一致；唯一差异为竞品有效记录：Node 接受、Go 拒绝「竞品输入闭包不匹配」，原因是摘要前缀写法，由第三项改动修复，修复后 25/25 一致 |
+| 改动前后对比（字节未改的实例，4635 个输出含逐文件输入清单） | **逐字节相同** |
+| 校验器与模块字节被改的实例 | 改前：依赖校验器/模块的 493 个用例一律 `CAPABILITY`；改后：4634 个用例的接受/拒绝与错误码与未改字节实例**完全一致**，其中拒绝类（如 `exit_code=1`、命令不符、证据未登记、Claim 反证非法、受管输出漂移）仍被拒绝 |
+| 构建与检查 | `CGO_ENABLED=0 go build ./...`、`gofmt -l .`（无输出）、`go vet -composites=false ./...` 通过；`node tools/smoke/main.mjs --bin <新二进制>` `SMOKE PASS` |
+
+### 如实记录
+
+- 没有放宽任何拒绝条件。唯一增加的接受范围是：「脚本字节与固定版本不同、但与验证记录登记一致」的输入，现在由 Go 语义判断，而不是一律拒绝；对拍表明在固定版本脚本下 Go 不松于 Node。
+- 对拍只证明在上述语料下一致，不是形式化证明；语料之外（例如超大文件、`localeCompare` 与 Go 排序在非 ASCII 路径上的差异）未覆盖。
+- 同一份闭包里「`schema`」一项依赖 Python `jsonschema`（模板的 `json-schema.mjs`）作 Node 侧预言机；Go 侧使用内置 `jsonschema/v6`。对拍通过说明两者在该语料上一致，不说明一般等价。
+- Go 的 `Basis` 对记录摘要接受裸十六进制与 `sha256:` 前缀两种写法，而模板只写前缀写法；此宽容是既有行为，本批未收紧，列入批 6 评估。
 
 ## 7. 辅助证据：模板固定提交的 Node 测试对二进制的结果
 
-仅作发现问题的线索，不是验收，也不恢复本仓的测试体系：把模板固定提交 `981f7399` 展开到仓外临时目录，对其 `tests/` 里涉及 `yss` 的文件逐个执行 `node --test`，`YSS_NATIVE_BINARY` 指向被测二进制（Node 仅开发期使用）。被测二进制由 `main@0d8a752` 构建。
+仅作发现问题的线索，不是验收，也不恢复本仓的测试体系：把模板固定提交 `981f7399` 展开到仓外临时目录，对其 `tests/` 里涉及 `yss` 的文件逐个执行 `node --test`，`YSS_NATIVE_BINARY` 指向被测二进制（Node 仅开发期使用）。基线二进制由 `main@0d8a752` 构建。
 
 | 测试文件 | 通过/失败 | 说明 |
 |---|---|---|
@@ -233,6 +250,8 @@
 | `native-instance-drift` | 37/27 | `INSTANCE_DISTRIBUTION: Skill 平台范围与实例运行时不一致`，来自夹具拼装模板文件，未定位 |
 
 结论：与 `yss` 治理校验直接相关的回放（用户决定、批准、任务包、业务票、project-ci、候选当前性）全部通过；失败项来自模板测试与 2.3.1 基线的不一致（固定 2.2.0 摘要、已移除的 `migrate`、已不再支持的 Handoff v3）或展开环境，**与本阶段的规则收敛无关，但会在阶段二调整模板测试与固定档时遇到**。
+
+批 1 的二进制（本 PR 构建）上重跑同一批文件，逐文件的通过/失败数与基线完全相同。
 
 运行环境注意：需要真实 `HOME` 下的 Python `jsonschema`，否则会出现与产品无关的 `python3 EPIPE`（本次首次运行因此误判过一个失败，已重跑）。
 
