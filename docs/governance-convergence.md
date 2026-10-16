@@ -17,6 +17,7 @@
 | `nodeDelegation` 34 条 | 33 条对应模板 `scripts/lib/native-evidence.mjs` 的能力协商；固定提交里这些入口的 Node 领域实现已被删除，Node 只剩薄壳，**没有可比对的 Node 语义**，Go 已是唯一实现。1 条（`user-decision.from-record.v1`）在固定提交里没有协商点。完整性只能依赖历史对拍记录与薄壳回放，见 §4 |
 | 第一批 | 研究校验器与竞品模块的摘要绑定 → 语义校验；4609 个研究包夹具上 Node 与 Go 接受/拒绝一致 4607 个，其余 2 个为 Go 更严，见 §6 |
 | 第二批 | 阅读渲染闭包 7 个指纹 → 语义校验（Go 自己重算并逐字节比对，清单登记的闭包摘要必须与当前一致）。同时修了 Go 的三处缺口：依赖归类、清单序、超范围整数；4.4.1 的 managed 阅读不再一律 `Unavailable`，见 §6.5 |
+| 层 4（阶段一，已实现） | 阅读视图的渲染、校验、启用全部有 Go 实现：`yss reading check-views / affected / render / plan-enable / apply-enable`，`stage apply` 提交后刷新 managed 阅读；清单 v2 与 `rules_version` 已就绪但**休眠**，等模板（阶段二）的清单 schema 接受 v2。令牌 34 → 37。详见 §6.6 |
 
 ## 2. 固定 SHA-256 绑定（9 个）
 
@@ -173,6 +174,16 @@
 3. 历史对拍记录列出的**未覆盖**项（Plan 聚合、业务票通过审查组合、`loadExecutionScope`、`--history`、`local-evidence`、Slice v2 结构层）是后续对拍的优先对象；它们在 Go 里是否正确**未验证**。
 4. 令牌是粗粒度契约（`*.v1`），不描述参数细节；阶段二调整薄壳时，不能只靠令牌判断「旧 yss 能否承接新参数」。
 
+### 层 4 新增的令牌（35–37）
+
+层 4（§6.6）新增 3 条，`nodeDelegation` 现为 37 条。它们是粗粒度契约，不描述清单版本或渲染规则版本；这些信息由 `capabilities` 的 `readingViews.managed` 给出。
+
+| # | 令牌 | Go 公开接口 | 说明 |
+|---|---|---|---|
+| 35 | `reading.views.v1` | `reading check-views`、`reading affected`（只读） | 薄壳的 manual 实例不需要它（能力短路）；managed 才协商 |
+| 36 | `reading.render.v1` | `reading render` | 事务写入 |
+| 37 | `reading.enable.v1` | `reading plan-enable`、`reading apply-enable` | 单事务启用 |
+
 ## 5. 分批计划
 
 原则：每批只动一类边界清晰的规则；先对拍、后改动；任何拒绝都不放宽；出现 Go 比 Node 松的差异，先把 Go 修到不松于 Node 再谈删除保险。「依赖模板仓变更」指是否必须先改模板仓。
@@ -256,7 +267,7 @@
 
 - 没有放宽任何拒绝条件。新增的接受范围只有一类：闭包文件字节与固定版本不同、但渲染结果与 Go 重算逐字节相同的实例（此前一律 `Unavailable`）。渲染语义变化会被拒绝（退出码 1，不再是 2），所以改模板渲染器的语义时，Go 必须同步修改。
 - Go 比 Node 严的情形（均保留）：重复 JSON 键；checkpoint 缺 `feature_id` 或与路径不符（Node 会退回旧布局）；注册表 `public_name: null` 等 Go 会做 Schema 校验而 Node 不做的字段；源资产结构不合法或带阻断项时 Node 仍渲染「诊断视图」、Go 拒绝（源码注释已声明）；Node 渲染器在键名恰为 `constructor` 时输出 `function Object() { [native code] }`（原型链缺陷），Go 输出 `constructor`，故 Go 会拒绝 Node 写出的该输出。
-- 残留：① 缺失文件依赖行之间的相对顺序不比较；② 对拍中 `reading-output-conflict`（写路径遇到非受管同名文件）不属于校验，Go 没有写路径；③ 非 ASCII 路径的本地化排序用 `x/text/collate` 近似 JS `localeCompare`，对拍语料（含中文、全角、重音字符）一致，语料外未覆盖；④ 阅读写路径（plan/apply-enable、render）仍只在 Node。
+- 残留：① 缺失文件依赖行之间的相对顺序不比较；② 对拍中 `reading-output-conflict`（写路径遇到非受管同名文件）不属于校验，Go 没有写路径；③ 非 ASCII 路径的本地化排序用 `x/text/collate` 近似 JS `localeCompare`，对拍语料（含中文、全角、重音字符）一致，语料外未覆盖；④ 阅读写路径（plan/apply-enable、render）仍只在 Node（**层 4 已补齐 Go 写路径，见 §6.6**）。
 
 ### 防回归与维护
 
@@ -264,7 +275,99 @@
 - 对拍工具（仓外，位于侧会话笔记目录 `diff-harness-batch2/`）分两档，按触发条件运行，不属于日常流程：
   - 快档 `quick.sh`：212 个代表用例，约 100 秒。改动 `internal/governance/reading/*.go` 或升级模板固定提交后运行；结果不得出现 `GO-LOOSER`、`BYTE-DIFF`。
   - 全档 `gen.mjs`（可 `--only A|B|C --skip N --limit N` 分批）：约 4000 个用例，只在渲染规则大改时运行，单批不超过 5 分钟。
-- 根治方向（阶段二，需改模板仓）：Go 增加 `reading render/check-views/plan-enable/apply-enable`，模板的 `scripts/contract` 对应命令改为薄壳，清单 `renderer` 改为 Go 渲染规则版本标识。届时对拍工具整体退休。
+- 根治方向（阶段二，需改模板仓；其中 Go 一侧的命令已在层 4 完成，见 §6.6）：Go 增加 `reading render/check-views/plan-enable/apply-enable`，模板的 `scripts/contract` 对应命令改为薄壳，清单 `renderer` 改为 Go 渲染规则版本标识。届时对拍工具整体退休。
+
+## 6.6 层 4（阶段一，已实现）：阅读视图只留 Go 一份渲染实现
+
+只动 CLI 仓。目标：managed 阅读视图的渲染、校验、启用全部由 Go 完成，为模板（阶段二）把 `scripts/contract` 的阅读命令改成薄壳扫清 Go 一侧的前置。**零放宽**：所有拒绝条件沿用，新增的接受范围为零。分 7 个小 PR：#33（S1）、#34（S2）、#36（S3）、#37（S4）、#38（S5）、#39（S6）、本文（S7）。
+
+### 命令集
+
+| 命令 | 读/写 | 说明 |
+|---|---|---|
+| `yss reading check-views --checkpoint <ref> [--required]` | 只读 | `status`：`manual`（策略未启用且未 `--required`）｜`current`｜`stale`。键与 Node `checkReadingViews` 一致（`read_only`、`execution_allowed`、`approval_validity`、`blockers`、`diagnostics`、`recovery`）。`stale` 退出码 1，信封 `code: READING_STALE`、`result` 为完整报告 |
+| `yss reading affected --asset <ref> --kind <kind>` | 只读 | 取代 Node `readingCheckpointsForAsset`。仅 `domain-strategy｜stage-decision-package｜checkpoint｜tracking-migration` 且策略 managed 时返回受影响 checkpoint，其余返回空集 |
+| `yss reading render --checkpoint <ref> [--dry-run]`；`--all [--dry-run]` | 写（事务） | 渲染 `<base>/reading/*.review.md`、`.manifest.json`、`map.md` 导航受管区。每个 checkpoint 一个事务（kind `reading-render`），提交后在事务内用新会话完整重新核验，不一致整体回滚。`--dry-run` 返回 `changed_refs` 与前后摘要，不写文件。`status`：`unchanged｜rendered` |
+| `yss reading plan-enable --checkpoint <ref> [--output <项目内新文件>]` | 只读 | 返回 Go 格式计划（`kind: reading-enable-plan`，含 `policy_after`、`operations`、`observed`、`preview`、`plan_digest`） |
+| `yss reading apply-enable <计划文件>` | 写（事务） | 重新规划并要求摘要一致（否则 `READING_ENABLE_PLAN_STALE`）；阅读策略与全部阅读文件在**同一个**事务里写入（kind `reading-enable`），提交后完整重新核验，失败整体回滚；已应用且当前一致 → `unchanged` |
+| `yss stage apply`（行为变化） | 写 | 阶段写事务提交后，若该 checkpoint 已启用 managed，立即渲染并在结果里增加 `source_operation` 与 `reading_update`（`manual｜unchanged｜rendered｜failed`）。渲染失败**不回滚**已提交的阶段写入（与 Node `finalizeReading` 一致），`failed` 附 `recovery: yss reading render --checkpoint <ref>` |
+
+`yss recover` / `yss rollback` 识别 `reading-render`、`reading-enable`，恢复范围限定在阅读文件、清单、同级 `map.md` 与阅读策略文件（`ValidateReadingTransaction`）。
+
+### 写路径设计
+
+- 写入走 `internal/transaction`，**不复刻** Node 的 `reading/.lock` 与 `.transaction.json`。同实例的并发写由事务层互斥（实例级，而非 Node 的目录级）。
+- 代码分层：`reading/render.go` 是纯构建（`RenderReading`/`RenderReadingMode` 返回结构化结果，遇到的第一个阻断诊断放进 `Finding`）；`BuildReading` 是策略层，把 `Finding` 转成原错误码的拒绝（退出码 1）或不可用（2）。`reading/manifest.go` 的 `PlanReading` 是纯函数式的变更规划（旧状态 + 新构建 → 变更集或错误码）。
+- 提交后核验：事务提交回调里用 `SemanticSession.InsideTransaction`（默认 false，只供该回调使用）建新会话，跑与 `check-views` 相同的校验。写出的字节若不被校验接受，整个事务回滚——写和验是同一套规则。
+- 字节一致：清单由自写序列化生成（JS `JSON.stringify` 的转义规则、固定键序、依赖行按 `scope+ref` 的本地化序、缺失文件行靠后），输出与导航块由同一构建产出；`map.md` 无标记时追加（保持 Node 的换行规则），有标记时只替换受管区。
+- 冲突保护逐条移植为错误码：`READING_OUTPUT_CONFLICT`、`READING_RETIRED_OUTPUT`、`READING_MANIFEST_INVALID`、`READING_NAVIGATION_CONFLICT`；另有 `READING_LEGACY_JOURNAL`（见下）、`READING_ENABLE_PLAN_STALE`、`READING_MANIFEST_MIGRATION_REQUIRED`、`READING_TEMPLATE_UPGRADE_REQUIRED`。
+
+### 清单 v2 与 `rules_version`（已就绪，休眠）
+
+- v2：`schema_version: 2`，`renderer = {id: "yss-reading", rules_version: N}`，依赖只含项目文件与渲染所读 Schema，没有 Node 渲染器闭包。v1 校验路径不变。
+- **休眠**：真实模板的 `reading-manifest.schema.json` 仍是 `schema_version const 1`。`render` 与 `apply-enable` 只在实例自带的清单 schema 接受 v2 样本时写 v2，否则写与 Node 逐字节相同的 v1；已有 v2 清单而 schema 不接受 v2 → `READING_TEMPLATE_UPGRADE_REQUIRED`，绝不降级写 v1。因此在今天所有真实实例上 v2 代码不会被触发，须等模板（阶段二）把清单 schema 改为 `oneOf(v1, v2)`。
+- v1 清单而实例里的 Node 闭包文件已不存在（薄壳模板）→ `READING_MANIFEST_MIGRATION_REQUIRED`（拒绝，`check-views` blocker 为 `reading-manifest-migration-required`），迁移方法是 `yss reading render --all`；输出文件与导航块字节不变，只重写清单。
+- 校验规则：`id` 必须是 `yss-reading`；`rules_version` 高于当前 → `Unavailable CAPABILITY`（退出 2，旧 yss 读到新清单时 fail-closed）；低于当前 → `READING_MANIFEST_STALE` 并提示迁移；等于 → 沿用逐字节重算。**安全性不依赖它**：Go 总是重算并逐字节比较，`rules_version` 只负责给出明确的迁移提示。
+- `capabilities.readingViews.managed = {commands, manifestSchemaVersions: {read: [1,2], write: [1,2]}, rulesVersion, rendererId}`。
+
+### `rules_version` 维护纪律（不恢复仓内测试体系）
+
+- 常量是 `reading.RulesVersion`（`internal/governance/reading/manifest.go`）。**递增条件**：渲染输出的任何字节语义变化——标签表 `readingLabels`、排序表 `readingOrders`、转义规则、导航文案、检查项文案、状态阅读说明、`map.md` 追加规则。纯重构、不改输出字节则不递增。
+- 渲染相关文件（`build.go`、`render.go`、`manifest.go`）头部有一行提示；不设仓内黄金文件，也不加摘要常量护栏（`tools/check-no-pinned-digests.mjs` 继续有效，`rules_version` 是整数）。
+- 发行前由人核对：改动了上述文件时先决定是否递增，并在仓外对拍工具里跑 W1–W5（整树对拍与启用对拍，约 1–2 分钟）与快档 `quick.sh`，结果不得出现 `GO-LOOSER`、`TREE-DIFF`、`BYTE-DIFF`。
+
+### 与 Node 的差异（如实）
+
+1. **来源有阻断诊断时 fail-closed**：阻断项、稳定 ID 重复、Schema 失败、来源摘要过期等，Go 不写任何文件（Node 会写「诊断视图」）。现有转移校验本来就拒绝诊断视图，没有放行路径依赖它。
+2. **Node 遗留 `.lock` / `.transaction.json`**：Go 的 `render`/`apply-enable` 拒绝（`READING_LEGACY_JOURNAL`），不覆盖、不恢复；`check-views`/校验照旧把它们视为未完成（`reading-update-incomplete`）。
+3. **blockers**：Go 只报第一个拒绝原因（Node 累积多个）；Node 构建期异常文案对应成 `code: message`。接受/拒绝结论一致。
+4. **计划格式**：`plan-enable` 输出新格式；Node 旧计划一律 `PLAN` 拒绝，须重新生成。计划预览里的 `.manifest.json` 是策略写入后的最终字节（Node 在写策略前规划，策略行仍是旧摘要）；应用后的整树与 Node 逐字节一致。
+5. **单事务启用**：策略与渲染原子提交；Node 是先写策略、渲染失败再尽力回滚。
+6. **并发**：实例级互斥，替代 Node 的目录级 `.lock`。
+7. 缺失依赖行之间的相对顺序按 Go 的发现顺序（策略文件最后）；Node 按引用绑定顺序。
+
+### Go 偏严的情形（均保留；Go 偏松恒为 0）
+
+- 重复 JSON 键、超范围整数（含旧清单）；旧清单取最后一个重复键的 Node 行为不被接受。
+- legacy 布局（checkpoint 缺 `feature_id`／与路径不符，`TRACKING_FEATURE`）：`check-views`、`affected`、`render`、`plan-enable` 对它们报错，而 Node 退回旧布局并成功。**阶段二薄壳化前需确认是否存在 legacy 布局的 managed 实例。**
+- `map.md` 不是合法 UTF-8：Go 拒绝（Node 会把坏字节替换为 U+FFFD 后重写）。
+- 来源有阻断诊断（见差异 1）、遗留 `.lock`/日志（差异 2）。
+- 批 2 已知：注册表 `public_name: null` 等字段的 Schema 校验、Node 渲染器 `constructor` 键输出缺陷。
+
+### 未提供 `--recover-legacy` 的取舍
+
+设计里把「恢复 Node 崩溃遗留的 `.transaction.json`」列为可选项（约 15 行的只读恢复，不移植 `.lock` 获取）。本层**没有提供**：遗留现场只拒绝并说明，由原渲染器恢复。理由：兼容窗口内 Node 渲染器仍在；一个能改写项目文件的恢复入口，其冲突判定需要与 Node 逐字节对拍，收益只覆盖「Node 崩溃且之后改用 Go」这一窄场景。**若兼容窗口缩短到不再保留 Node 渲染器，则需要补上**，届时按设计在 `reading render` 上加 `--recover-legacy`。
+
+### 版本与兼容矩阵（阶段二后）
+
+| | 旧模板（Node 渲染，v1 清单） | 新模板（薄壳，清单 schema 接受 v2） |
+|---|---|---|
+| **旧 yss**（无 `reading.*` 令牌） | 现状：managed 由 Node 写、Go 校验 | managed 不可用（薄壳缺令牌 → 请升级 yss，不回退）；manual 正常 |
+| **新 yss**（本层） | v1 校验与 v1 写入；`yss reading *` 可直接运行，与 Node 产物逐字节一致 | v1 清单未迁移 → `reading-manifest-migration-required`，执行 `yss reading render --all --dry-run` 确认仅清单变化后 `render --all` |
+
+兼容窗口建议：v1 校验路径与 v1 写入保留至少两个次版本，窗口结束后连同 `readingToolClosure` 一并删除（清理步骤 C1）。
+
+### 证据（仓外对拍，不入库）
+
+方法同 §6.5；工具扩展为整树 `diff -r`（Node `contract render` vs Go `yss reading render`）、崩溃注入（kill -9 后 `yss recover --apply`）、启用对拍（Node/Go 各 plan+apply）与 v2 休眠代码的补丁 schema 验证。
+
+| 项 | 用例 | 结果 |
+|---|---|---|
+| 整树对拍 W1–W4 | 52（首次/增量渲染、特殊字符、重渲染、BOM/CRLF、手改输出与导航、清单损坏、退役输出、符号链接、预置输出、非 ASCII/缺失引用路径排序等） | 整树一致 27；两边都拒绝 21；Go 偏严 4（legacy 布局 2、遗留 `.lock`/日志 2）；**Go 偏松 0，树差异 0** |
+| 启用对拍 W5 | 10 | 整树一致 5；两边都拒绝 4；Go 偏严 1（legacy）；计划语义差异 0 |
+| 崩溃注入 | render 13（80–1200 ms，4 例落在事务中途）；apply-enable 6 | 全部回到旧态或新态，无半成品 |
+| `check-views` 对拍（A 类 111 例） | 111 | 偏松 0，状态不一致 0，偏严 3（同批 2） |
+| `affected` 对拍 | 216 | 零差异（legacy 夹具另见偏严） |
+| v2 补丁 schema 实例 | 34 项断言 | 迁移只改清单；新实例直写 v2；闭包缺失/降级/12 种篡改均被拒 |
+| 快档 `quick.sh` | 212 | 每步改动前后逐项相同 |
+
+### 阶段二（需改模板仓，另行批准）仍待完成
+
+- 模板：`reading-view-bundle.mjs` 改为薄壳（保留文件名与导出名），`native-evidence.mjs` 导出通用 `nativeInvoke`，`NEEDS` 增加 `reading.views.v1` / `reading.render.v1` / `reading.enable.v1`，`reading-manifest.schema.json` 改为 `oneOf(v1, v2)`，`yss-cli-pin` 提到含层 4 的发行版，相关模板测试改为集成用例。manual 实例必须保持不依赖新 yss（能力短路）。
+- CLI 仓随后：刷新内嵌 bundle 与 `docs/source-lock.json`。
+- 存量 managed 实例按「`render --all --dry-run` → `render --all` → `check-views --required`」一次性迁移，与升级分开提交。
+- 阶段三：Go 提供 `contract view/diff` 的四类阅读视图后，才能删除 Node 的 `reading-view-{markdown,model,diff}.mjs` 与 `contract-views.mjs` 的阅读分支。在此之前阅读 Markdown 仍有两份实现（managed 渲染与 `contract view` 预览），靠对拍的「预览一致」用例防漂移（`layer4.mjs preview` 模式，待 Go 之外的预览形状确定后接入）。
+- 清理：兼容窗口结束后删除 v1 校验/写入路径与对拍工具。
 
 ## 7. 辅助证据：模板固定提交的 Node 测试对二进制的结果
 
@@ -298,3 +401,4 @@
 - §4 的「历史对拍」全部来自模板仓文档的转述，未在本仓重跑；摘要里 `196` 个回放用例在固定提交中已被删减，无法复现。
 - 阅读渲染闭包的「Go 渲染与 Node 渲染逐字节一致」只在 §6.5 的语料上验证（约 1700 个源资产变异，429 个有效渲染逐字节相同），不是形式化证明；语料之外（超大文件、非 ASCII 路径的本地化排序）见 §6.5「残留」。
 - 本阶段没有恢复任何测试体系；对拍夹具与脚本在仓外，只在 PR 说明里描述方法。
+- 层 4（§6.6）的 Go 渲染与 Node 渲染逐字节一致，只在 52 + 10 个整树/启用用例与 §6.5 的校验语料上验证；`rules_version` 低于当前的路径无法实测（目前只有版本 1）；v2 清单代码只在补丁 schema 的仓外实例上验证过，真实模板尚未启用它；预览一致（Node `contract view` 与 Go managed 渲染）的用例骨架已写但未接入真实比较。

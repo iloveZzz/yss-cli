@@ -1,5 +1,7 @@
 package reading
 
+// 渲染规则提示：本文件输出字节语义变化时须评估是否递增 RulesVersion（见 manifest.go 与 docs/governance-convergence.md §6.6）。
+
 import (
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
