@@ -1,6 +1,7 @@
 package reading
 
 import (
+	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"golang.org/x/text/collate"
@@ -61,7 +62,8 @@ func verifyReadingCurrent(s *kernel.SemanticSession, ref string) error {
 			return s.Reject("READING_INCOMPLETE", "阅读材料仍有未完成事务")
 		}
 	}
-	expected, err := BuildReading(s, ref)
+	v2 := peekManifestVersion(s, base+"/reading/.manifest.json") == 2
+	expected, err := BuildReadingMode(s, ref, v2)
 	if err != nil {
 		return err
 	}
@@ -72,7 +74,14 @@ func verifyReadingCurrent(s *kernel.SemanticSession, ref string) error {
 	if err = s.ValidateSchema(".template-spec/process/schemas/reading-manifest.schema.json", manifest); err != nil {
 		return err
 	}
-	if manifest["checkpoint_ref"] != ref || !kernel.ApEqual(manifest["renderer"], expected.Renderer) {
+	if manifest["checkpoint_ref"] != ref {
+		return s.Reject("READING_MANIFEST_STALE", "阅读清单的 checkpoint 或固定工具闭包不匹配")
+	}
+	if v2 {
+		if err = verifyRendererV2(s, manifest["renderer"]); err != nil {
+			return err
+		}
+	} else if !kernel.ApEqual(manifest["renderer"], expected.Renderer) {
 		return s.Reject("READING_MANIFEST_STALE", "阅读清单的 checkpoint 或固定工具闭包不匹配")
 	}
 	actualDependencies := map[string]any{}
@@ -113,7 +122,7 @@ func verifyReadingCurrent(s *kernel.SemanticSession, ref string) error {
 	if err != nil {
 		return err
 	}
-	if err = verifyReadingManifestOrder(s, manifestBytes, expected.OutputOrder); err != nil {
+	if err = verifyReadingManifestOrder(s, manifestBytes, expected.OutputOrder, v2); err != nil {
 		return err
 	}
 	navigation := kernel.SemMap(manifest["navigation"])
@@ -136,7 +145,7 @@ func verifyReadingCurrent(s *kernel.SemanticSession, ref string) error {
 // verifyReadingManifestOrder 要求清单的键序、依赖行序与渲染器写出的序列化一致：渲染器按序列化文本比较清单，
 // 所以仅顺序不同的清单也算过期。依赖按 scope+ref 的本地化顺序排列，缺失文件的行（摘要为空）追加在其后；
 // 缺失行彼此之间的相对顺序取决于渲染器的发现顺序，这里不比较，其集合已由前面的依赖闭包比较核对。
-func verifyReadingManifestOrder(s *kernel.SemanticSession, raw []byte, outputOrder []string) error {
+func verifyReadingManifestOrder(s *kernel.SemanticSession, raw []byte, outputOrder []string, v2 bool) error {
 	stale := func() error {
 		return s.Reject("READING_MANIFEST_STALE", "阅读清单的键序或依赖顺序与渲染器写出的不一致")
 	}
@@ -171,9 +180,15 @@ func verifyReadingManifestOrder(s *kernel.SemanticSession, raw []byte, outputOrd
 		return stale()
 	}
 	renderer := keysOf(node.get("renderer"))
-	for i := 1; i < len(renderer); i++ {
-		if order.CompareString(renderer[i-1], renderer[i]) > 0 {
+	if v2 {
+		if !same(renderer, []string{"id", "rules_version"}) {
 			return stale()
+		}
+	} else {
+		for i := 1; i < len(renderer); i++ {
+			if order.CompareString(renderer[i-1], renderer[i]) > 0 {
+				return stale()
+			}
 		}
 	}
 	previous, missing := "", false
@@ -192,6 +207,23 @@ func verifyReadingManifestOrder(s *kernel.SemanticSession, raw []byte, outputOrd
 			}
 			previous = key
 		}
+	}
+	return nil
+}
+
+// verifyRendererV2 校验 v2 清单的渲染器标识：id 必须是 yss-reading，rules_version 必须等于当前规则版本。
+// 更高的版本由更新的 yss 写出，旧程序无法判断其输出，按不可用拒绝；更低的版本需要重新渲染。
+func verifyRendererV2(s *kernel.SemanticSession, value any) error {
+	renderer := kernel.SemMap(value)
+	version, isInteger := kernel.Integer(renderer["rules_version"])
+	if len(renderer) != 2 || renderer["id"] != RendererID || !isInteger {
+		return s.Reject("READING_MANIFEST_STALE", "阅读清单的渲染器标识不是 "+RendererID)
+	}
+	switch {
+	case version > RulesVersion:
+		return s.Unavailable("CAPABILITY", fmt.Sprintf("阅读清单由更新的渲染规则 rules_version=%d 写出，当前 yss 只支持 %d；请升级 yss", version, RulesVersion))
+	case version < RulesVersion:
+		return s.Reject("READING_MANIFEST_STALE", fmt.Sprintf("阅读清单的渲染规则 rules_version=%d 已过期（当前 %d）；运行 yss reading render 迁移", version, RulesVersion))
 	}
 	return nil
 }

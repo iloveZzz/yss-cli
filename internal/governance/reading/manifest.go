@@ -1,9 +1,11 @@
 package reading
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -15,6 +17,17 @@ import (
 
 // 渲染规则提示：本文件、render.go、build.go 里的渲染相关代码改变输出语义时，
 // 必须同步评估是否需要递增清单 renderer 的规则版本（见 docs/governance-convergence.md）。
+
+// RulesVersion 是 v2 清单 renderer.rules_version 的当前值。渲染输出的任何字节语义变化
+// （标签表、排序表、转义、导航文案、检查项文案、说明段落）都必须递增它。
+// 安全性不依赖它：校验总是重算并逐字节比对，它只用于给出明确的迁移提示，
+// 以及让旧 yss 读到更高版本清单时 fail-closed。
+const RulesVersion = 1
+
+// RendererID 是 v2 清单里 renderer.id 的固定值。
+const RendererID = "yss-reading"
+
+const manifestSchemaRef = ".template-spec/process/schemas/reading-manifest.schema.json"
 
 const (
 	navBegin = "<!-- YSS-READING:BEGIN -->"
@@ -119,15 +132,21 @@ func (b *ReadingBuild) ManifestRows(s *kernel.SemanticSession, policyRef string)
 }
 
 // RenderManifest 序列化 v1 清单：键序固定、两格缩进、末尾换行，与 Node `JSON.stringify(x, null, 2) + "\n"` 相同。
-func (b *ReadingBuild) RenderManifest(s *kernel.SemanticSession, checkpoint, navRef string) []byte {
+func (b *ReadingBuild) RenderManifest(s *kernel.SemanticSession, checkpoint, navRef string, v2 bool) []byte {
 	var out strings.Builder
-	out.WriteString("{\n  \"schema_version\": 1,\n  \"checkpoint_ref\": " + jsString(checkpoint) + ",\n  \"renderer\": ")
+	version := "1"
+	if v2 {
+		version = "2"
+	}
+	out.WriteString("{\n  \"schema_version\": " + version + ",\n  \"checkpoint_ref\": " + jsString(checkpoint) + ",\n  \"renderer\": ")
 	keys := make([]string, 0, len(b.Renderer))
 	for key := range b.Renderer {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool { return readingOrder.CompareString(keys[i], keys[j]) < 0 })
-	if len(keys) == 0 {
+	if v2 {
+		out.WriteString("{\n    \"id\": " + jsString(RendererID) + ",\n    \"rules_version\": " + strconv.Itoa(RulesVersion) + "\n  }")
+	} else if len(keys) == 0 {
 		out.WriteString("{}")
 	} else {
 		out.WriteString("{\n")
@@ -192,7 +211,7 @@ func parseOldManifest(s *kernel.SemanticSession, raw []byte, base, directory str
 		return nil, invalid()
 	}
 	version := node.get("schema_version")
-	if n, ok := kernel.Integer(versionValue(version)); !ok || n != 1 {
+	if n, ok := kernel.Integer(versionValue(version)); !ok || n != 1 && n != 2 {
 		return nil, invalid()
 	}
 	outputs, navigation := node.get("outputs"), node.get("navigation")
@@ -290,7 +309,11 @@ func PlanReadingWith(s *kernel.SemanticSession, cpRef string, overrides map[stri
 			return nil, s.Reject("READING_LEGACY_JOURNAL", "阅读目录留有旧版渲染的事务日志或锁："+directory+"/"+name+"；先用原渲染器恢复，不能直接覆盖")
 		}
 	}
-	build, err := BuildReading(s, cpRef)
+	v2, err := chooseManifestVersion(s, cpRef, directory)
+	if err != nil {
+		return nil, err
+	}
+	build, err := BuildReadingMode(s, cpRef, v2)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +397,7 @@ func PlanReadingWith(s *kernel.SemanticSession, cpRef string, overrides map[stri
 	if next != current {
 		plan.Changes = append(plan.Changes, RenderChange{Ref: navRef, Before: mapRaw, After: []byte(next), Exists: mapExists})
 	}
-	manifest := build.RenderManifest(s, cpRef, navRef)
+	manifest := build.RenderManifest(s, cpRef, navRef, v2)
 	oldRaw, manifestExists, err := readOptional(s, manifestRef)
 	if err != nil {
 		return nil, err
@@ -383,4 +406,47 @@ func PlanReadingWith(s *kernel.SemanticSession, cpRef string, overrides map[stri
 		plan.Changes = append(plan.Changes, RenderChange{Ref: manifestRef, Before: oldRaw, After: manifest, Exists: manifestExists})
 	}
 	return plan, nil
+}
+
+// peekManifestVersion 只判断现有清单是否声明 schema_version 2；无法读取或解析时按 1 处理，
+// 让原有路径给出原有的错误。
+func peekManifestVersion(s *kernel.SemanticSession, manifestRef string) int {
+	raw, exists, err := readOptional(s, manifestRef)
+	if err != nil || !exists {
+		return 1
+	}
+	node, err := readingParse(raw)
+	if err != nil || node.Kind != '{' {
+		return 1
+	}
+	if n, ok := kernel.Integer(versionValue(node.get("schema_version"))); ok && n == 2 {
+		return 2
+	}
+	return 1
+}
+
+// manifestSchemaAcceptsV2 用一份结构合法的 v2 样本询问实例自带的清单 schema 是否接受 v2。
+// 模板尚未升级的实例（schema 的 schema_version 仍为 const 1）返回 false。
+func manifestSchemaAcceptsV2(s *kernel.SemanticSession, cpRef string) bool {
+	sample := map[string]any{
+		"schema_version": json.Number("2"), "checkpoint_ref": cpRef,
+		"renderer":     map[string]any{"id": RendererID, "rules_version": json.Number(strconv.Itoa(RulesVersion))},
+		"dependencies": []any{}, "outputs": map[string]any{},
+		"navigation":  map[string]any{"ref": "a/map.md", "block_digest": "sha256:" + strings.Repeat("0", 64)},
+		"diagnostics": []any{},
+	}
+	return s.ValidateSchema(manifestSchemaRef, sample) == nil
+}
+
+// chooseManifestVersion 决定写出哪一版清单：已有 v2 清单继续写 v2（schema 不再接受 v2 时拒绝，
+// 不降级写 v1）；否则当且仅当实例 schema 接受 v2 时写 v2，其余保持 v1（Node 兼容）。
+func chooseManifestVersion(s *kernel.SemanticSession, cpRef, directory string) (bool, error) {
+	accepts := manifestSchemaAcceptsV2(s, cpRef)
+	if peekManifestVersion(s, directory+"/.manifest.json") == 2 {
+		if !accepts {
+			return false, s.Reject("READING_TEMPLATE_UPGRADE_REQUIRED", "现有阅读清单是 v2，但实例的清单 schema 不接受 v2；先升级模板，不会降级写 v1")
+		}
+		return true, nil
+	}
+	return accepts, nil
 }

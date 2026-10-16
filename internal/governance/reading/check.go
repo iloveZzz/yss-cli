@@ -68,6 +68,8 @@ func CheckViews(s *kernel.SemanticSession, ref string, required bool) (map[strin
 		blocker, compared = err.Error(), false
 	case de.Code == "READING_INCOMPLETE":
 		blocker, compared = "reading-update-incomplete", false
+	case de.Code == "READING_MANIFEST_MIGRATION_REQUIRED":
+		blocker, compared = "reading-manifest-migration-required", false
 	case de.Code == "READING_MANIFEST_STALE":
 		blocker = "reading-manifest-stale"
 	case de.Code == "READING_OUTPUT_STALE":

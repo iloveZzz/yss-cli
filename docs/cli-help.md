@@ -4215,7 +4215,7 @@ yss 2.3.2 — reading render
 
 前置条件:
 合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
-写入经事务层完成并在提交后重新核验，失败整体回滚，可用 yss recover/rollback 处理中断。来源有阻断诊断、输出或导航被人手改、清单无效或旧版日志残留时拒绝且不写任何文件。
+写入经事务层完成并在提交后重新核验，失败整体回滚，可用 yss recover/rollback 处理中断。来源有阻断诊断、输出或导航被人手改、清单无效或旧版日志残留时拒绝且不写任何文件。清单版本由实例的清单 schema 决定：接受 v2 时写 v2（renderer 为 yss-reading 规则版本，不含 Node 渲染器闭包），否则写与 Node 逐字节相同的 v1；已有 v2 清单不会降级。
 
 最小示例:
 yss reading render --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --dry-run --json
@@ -8096,6 +8096,32 @@ READING_LEGACY_JOURNAL — 当前治理条件或证据未满足
 
 ```text
 READING_ENABLE_PLAN_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_MIGRATION_REQUIRED
+
+```text
+READING_MANIFEST_MIGRATION_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_TEMPLATE_UPGRADE_REQUIRED
+
+```text
+READING_TEMPLATE_UPGRADE_REQUIRED — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
