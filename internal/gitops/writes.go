@@ -288,7 +288,7 @@ func (r *Runner) buildTag(ctx context.Context, params map[string]string) (Plan, 
 		return Plan{}, domain.Fail("CONFLICT", "发布标签须在默认分支 "+pol.DefaultBranch+" 上，当前 "+s.status.Branch.Head)
 	}
 	if len(s.status.Entries) > 0 {
-		return Plan{}, domain.Fail("CONFLICT", "工作区有 "+itoa(len(s.status.Entries))+" 个未提交路径；发布标签前须干净")
+		return Plan{}, domain.Fail("CONFLICT", "工作区有 "+itoa(len(s.status.Entries))+" 个未提交路径；发布标签前须干净（hooks install / policy set 的写入需按其提示提交，.yss/ 可加入 .gitignore）")
 	}
 	name2, _ := r.ConfigValue(ctx, "user.name")
 	email, _ := r.ConfigValue(ctx, "user.email")

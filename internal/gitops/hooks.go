@@ -35,11 +35,26 @@ func hookScript(chain string) string {
   "$chain_dir/commit-msg" "$@" || exit $?
 fi
 if command -v yss >/dev/null 2>&1; then
-  exec yss git verify-message --file "$1" >/dev/null
+  if yss git verify-message --help >/dev/null 2>&1; then
+    exec yss git verify-message --file "$1" >/dev/null
+  fi
+  echo "yss: 版本过旧，不支持 git 子命令，已跳过 Ticket 检查；请升级 yss 或调整 PATH" >&2
+  exit 0
 fi
 echo "yss: 未找到 yss，已跳过提交信息检查" >&2
 exit 0
 `
+}
+
+// uncommittedNotice explains that yss's own writes show up as uncommitted
+// paths (which blocks release tag) and how to commit them. yss never edits
+// .gitignore itself: that would be a write outside the reviewed plan.
+func uncommittedNotice(paths ...string) []string {
+	commit := strings.Join(append(paths, ".gitignore"), ",")
+	return []string{
+		"注意：这些写入会使 " + strings.Join(paths, "、") + " 以及 .yss/（事务目录）在工作区显示为未提交路径；未处理时 release tag 会以「工作区有未提交路径」拒绝",
+		"建议：先把 .yss/ 加入 .gitignore（yss 不会自动修改 .gitignore），再运行 yss git commit --task <Ticket> --message <主题> --paths " + commit + " 提交",
+	}
 }
 
 func chainOrDash(chain string) string {
@@ -105,6 +120,7 @@ func (r *Runner) buildHooks(ctx context.Context, params map[string]string) (Plan
 			return p, nil
 		}
 	}
+	p.Effects = append(p.Effects, uncommittedNotice(HooksDir)...)
 	if st, e := os.Lstat(filepath.Join(r.Root, HooksDir)); e != nil {
 		if !os.IsNotExist(e) {
 			return Plan{}, e
@@ -132,7 +148,11 @@ func (r *Runner) applyHooks(ctx context.Context, p Plan) (any, error) {
 	if _, err := r.Mutate(ctx, "", "config", "--local", "core.hooksPath", HooksDir); err != nil {
 		return nil, domain.WithMessage(err, err.Error()+"（钩子文件已写入；修复后重新规划即可）")
 	}
-	return map[string]any{"status": "applied", "hooksPath": HooksDir, "scriptWritten": written, "chain": p.Observed["chain"], "note": "core.hooksPath 是本地配置；其他克隆需各自运行 yss git hooks install"}, nil
+	res := map[string]any{"status": "applied", "hooksPath": HooksDir, "scriptWritten": written, "chain": p.Observed["chain"], "note": "core.hooksPath 是本地配置；其他克隆需各自运行 yss git hooks install"}
+	if written {
+		res["notice"] = uncommittedNotice(HooksDir)
+	}
+	return res, nil
 }
 
 // ---- policy set ----
@@ -207,6 +227,7 @@ func (r *Runner) buildPolicySet(ctx context.Context, params map[string]string) (
 	if before.Type == "file" {
 		p.Effects = append(p.Effects, "整文件按固定格式重写；原有注释不会保留")
 	}
+	p.Effects = append(p.Effects, uncommittedNotice(PolicyRef)...)
 	for dir := path0(PolicyRef); dir != "."; dir = path0(dir) {
 		if _, e := os.Lstat(filepath.Join(r.Root, filepath.FromSlash(dir))); e != nil {
 			if !os.IsNotExist(e) {
@@ -244,7 +265,7 @@ func (r *Runner) applyPolicySet(ctx context.Context, p Plan) (any, error) {
 	if err != nil {
 		return nil, domain.WithMessage(err, "策略已写入但重新读取失败: "+err.Error())
 	}
-	return map[string]any{"status": "applied", "policy": pol}, nil
+	return map[string]any{"status": "applied", "policy": pol, "notice": uncommittedNotice(PolicyRef)}, nil
 }
 
 // ---- commit message check (called by the commit-msg hook) ----
