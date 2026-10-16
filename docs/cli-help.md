@@ -792,7 +792,9 @@ YSS 离线入门教程
 | `project-ci verify` | 按完整 Git 基线核验 CI。 | `yss help examples project-ci verify` |
 | `reading` | 只读核验或查询 managed 阅读视图。 | `yss help examples reading` |
 | `reading affected` | 列出受某个资产变化影响的 managed checkpoint。 | `yss help examples reading affected` |
+| `reading apply-enable` | 应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。 | `yss help examples reading apply-enable` |
 | `reading check-views` | 只读核验 checkpoint 的阅读视图是否与当前来源一致。 | `yss help examples reading check-views` |
+| `reading plan-enable` | 规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。 | `yss help examples reading plan-enable` |
 | `reading render` | 渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。 | `yss help examples reading render` |
 | `recover` | 查询或恢复未完成的项目事务。 | `yss help examples recover` |
 | `rollback` | 查询或整体回退最近一次成功项目事务。 | `yss help examples rollback` |
@@ -3987,13 +3989,15 @@ yss 2.3.2 — reading
 
 子命令:
 affected  列出受某个资产变化影响的 managed checkpoint。
+apply-enable  应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
 check-views  只读核验 checkpoint 的阅读视图是否与当前来源一致。
+plan-enable  规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
 render  渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
 
 前置条件:
 合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
-阅读视图是来源快照，不授予执行权限；check-views / affected 只读；render 经事务写入阅读目录、清单与 map.md 的受管区。
+阅读视图是来源快照，不授予执行权限；check-views / affected / plan-enable 只读；render / apply-enable 经事务写入阅读目录、清单与 map.md 的受管区。
 
 最小示例:
 yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
@@ -4068,6 +4072,48 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 详细示例: yss help examples reading affected
 ```
 
+### reading apply-enable
+
+```text
+yss 2.3.2 — reading apply-enable
+──────────────────────
+应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
+
+用法: yss reading apply-enable --root <目录> <计划文件>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+写入前重新规划并要求计划摘要一致（READING_ENABLE_PLAN_STALE 时重新 plan-enable）；策略与渲染文件同一事务，提交后重新核验，失败整体回滚。已应用且视图当前一致时返回 unchanged。
+
+最小示例:
+yss reading apply-enable --root ./demo-spec .work/feature/tmp/reading-enable.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+计划文件  项目内由 plan-enable 保存的 JSON
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading apply-enable
+```
+
 ### reading check-views
 
 ```text
@@ -4111,6 +4157,51 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples reading check-views
+```
+
+### reading plan-enable
+
+```text
+yss 2.3.2 — reading plan-enable
+──────────────────────
+规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
+
+用法: yss reading plan-enable --root <目录> --checkpoint <文件> [--output <新文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+只读。计划含 policy_after、将写的全部文件（operations）与 preview，并绑定当前输入摘要；不写任何文件。旧版 Node 计划不能由 apply-enable 应用，须重新生成。
+
+最小示例:
+yss reading plan-enable --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --output .work/feature/tmp/reading-enable.json --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output <路径>                 文件或目录路径
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+--checkpoint  待启用的 checkpoint
+--output  把计划保存为项目内新文件；不保存则只输出到结果
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading plan-enable
 ```
 
 ### reading render
@@ -7992,6 +8083,19 @@ READING_NAVIGATION_CONFLICT — 当前治理条件或证据未满足
 
 ```text
 READING_LEGACY_JOURNAL — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_ENABLE_PLAN_STALE
+
+```text
+READING_ENABLE_PLAN_STALE — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 

@@ -416,7 +416,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "reading-render":
+			case "reading-render", "reading-enable":
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
@@ -478,7 +478,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "reading-render":
+			case "reading-render", "reading-enable":
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
@@ -822,6 +822,7 @@ var nodeDelegation = []string{
 	"user-decision.result.v1",
 	"reading.views.v1",
 	"reading.render.v1",
+	"reading.enable.v1",
 
 	"template-source.verify-root.v1",
 }
