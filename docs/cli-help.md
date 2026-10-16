@@ -793,6 +793,7 @@ YSS 离线入门教程
 | `reading` | 只读核验或查询 managed 阅读视图。 | `yss help examples reading` |
 | `reading affected` | 列出受某个资产变化影响的 managed checkpoint。 | `yss help examples reading affected` |
 | `reading check-views` | 只读核验 checkpoint 的阅读视图是否与当前来源一致。 | `yss help examples reading check-views` |
+| `reading render` | 渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。 | `yss help examples reading render` |
 | `recover` | 查询或恢复未完成的项目事务。 | `yss help examples recover` |
 | `rollback` | 查询或整体回退最近一次成功项目事务。 | `yss help examples rollback` |
 | `runtime` | 管理独立运行记录与保护标记。 | `yss help examples runtime` |
@@ -3987,11 +3988,12 @@ yss 2.3.2 — reading
 子命令:
 affected  列出受某个资产变化影响的 managed checkpoint。
 check-views  只读核验 checkpoint 的阅读视图是否与当前来源一致。
+render  渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
 
 前置条件:
 合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
-阅读视图是来源快照，不授予执行权限；当前只提供只读命令。
+阅读视图是来源快照，不授予执行权限；check-views / affected 只读；render 经事务写入阅读目录、清单与 map.md 的受管区。
 
 最小示例:
 yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
@@ -4109,6 +4111,53 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples reading check-views
+```
+
+### reading render
+
+```text
+yss 2.3.2 — reading render
+──────────────────────
+渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
+
+用法: yss reading render --root <目录> --checkpoint <文件> [--dry-run] 或 --all [--dry-run]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+写入经事务层完成并在提交后重新核验，失败整体回滚，可用 yss recover/rollback 处理中断。来源有阻断诊断、输出或导航被人手改、清单无效或旧版日志残留时拒绝且不写任何文件。
+
+最小示例:
+yss reading render --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --dry-run --json
+
+参数:
+  --all                           对策略登记的全部对象逐个执行；与指定单个对象互斥
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --dry-run                       只返回将写的文件与摘要，不写任何文件
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+--checkpoint  已登记的 checkpoint
+--all  渲染策略登记的全部 checkpoint，每个一个事务
+--dry-run  只返回将写的文件与摘要，不写任何文件
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading render
 ```
 
 ### recover
@@ -7878,6 +7927,71 @@ READING_NAVIGATION_STALE — 当前治理条件或证据未满足
 
 ```text
 READING_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_OUTPUT_CONFLICT
+
+```text
+READING_OUTPUT_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_RETIRED_OUTPUT
+
+```text
+READING_RETIRED_OUTPUT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_INVALID
+
+```text
+READING_MANIFEST_INVALID — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_NAVIGATION_CONFLICT
+
+```text
+READING_NAVIGATION_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_LEGACY_JOURNAL
+
+```text
+READING_LEGACY_JOURNAL — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
