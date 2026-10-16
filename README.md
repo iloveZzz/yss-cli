@@ -44,6 +44,7 @@ yss sync --root ./my-project --plan --out /tmp/yss-sync-plan.json
 yss sync --root ./my-project --apply --plan-file /tmp/yss-sync-plan.json
 yss context verify --root ./my-project --json
 yss lifecycle query --root ./my-project --id work-unit.entry-triage --json
+yss git base --root ./my-project --json
 ```
 
 程序版本、协议、Profile 模板版本和旧 CLI 兼容版本分别存储。已有旧实例需要先 doctor/diff，再显式 migrate；不会用 1.0.0 与旧 Spec 3.5.10 比较并误判降级。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。

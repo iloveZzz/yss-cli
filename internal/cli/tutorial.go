@@ -55,6 +55,8 @@ func prerequisite(key string) string {
 		return "查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。"
 	case "runtime", "archive", "xml":
 		return "准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。"
+	case "git":
+		return "--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。"
 	default:
 		return "合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。"
 	}
@@ -68,6 +70,9 @@ func exampleKind(key string) string {
 	return "直接运行（替换路径；写入示例在独立演示目录执行）"
 }
 func expectedResult(key string) string {
+	if strings.Fields(key)[0] == "git" {
+		return "只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。"
+	}
 	if strings.Fields(key)[0] == "scaffold" {
 		return "在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。"
 	}
@@ -105,12 +110,17 @@ func nextReading(key string) string {
 		return "yss update status --help；程序来源一致后，独立规划项目模板同步。"
 	case "skills", "assets":
 		return "先 list 核对当前 Profile 支持的标识，再按保存计划补装。"
+	case "git":
+		return "yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。"
 	default:
 		return "查看同组命令帮助和当前查询结果，选择需要的下一项操作。"
 	}
 }
 func commonErrorCodes(key string) []string {
 	group := strings.Fields(key)[0]
+	if group == "git" {
+		return []string{"ARGUMENT", "ROOT", "IDENTITY", "INPUT", "CONFLICT", "CAPABILITY", "EXECUTION"}
+	}
 	if group == "upgrade" || group == "update" {
 		return []string{"ARGUMENT", "NETWORK", "ARTIFACT", "INSTALLATION", "INTERRUPTED", "CONCURRENT", "VERSION"}
 	}

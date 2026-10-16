@@ -56,6 +56,8 @@ Profile 职责:
     skills           查询或补装 Skill 及其依赖闭包。
     assets           查询或补装 阶段资源和 Skill 闭包。
     bundle           读取或导出完整固定 Bundle 与 manifest。
+  [Git]
+    git              查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
   [程序]
     version          查看 CLI、协议和固定来源身份。
     capabilities     查看原生能力、治理接口与发行证据边界。
@@ -772,6 +774,21 @@ YSS 离线入门教程
 | `evidence` | 校验 evidence 的结构或原生领域语义。 | `yss help examples evidence` |
 | `evidence check` | 执行显式 Schema 结构校验。 | `yss help examples evidence check` |
 | `evidence verify` | 执行当前领域规则和独立消费者绑定校验。 | `yss help examples evidence verify` |
+| `git` | 查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。 | `yss help examples git` |
+| `git audit` | 按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。 | `yss help examples git audit` |
+| `git base` | 解析 HEAD 与默认分支的合并基线，输出完整 SHA。 | `yss help examples git base` |
+| `git branch` | branch start：按 Ticket 生成符合策略的分支名并切换。 | `yss help examples git branch` |
+| `git changelog` | 按 Ticket 汇总提交范围内的变更。 | `yss help examples git changelog` |
+| `git commit` | 只提交明确列出的路径，并追加 Ticket trailer。 | `yss help examples git commit` |
+| `git doctor` | 检查 Git 版本、提交身份、远端、历史深度与策略文件。 | `yss help examples git doctor` |
+| `git guard` | 事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。 | `yss help examples git guard` |
+| `git hooks` | hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。 | `yss help examples git hooks` |
+| `git policy` | 显示生效的 Git 策略；policy set 经计划修改一个字段。 | `yss help examples git policy` |
+| `git push` | 推送当前分支或一个本地标签；需保存计划并由用户确认远端。 | `yss help examples git push` |
+| `git release` | release tag：在默认分支的干净 HEAD 上创建本地带注释标签。 | `yss help examples git release` |
+| `git status` | 分支、上游差异、改动路径及进行中的合并/变基。 | `yss help examples git status` |
+| `git submodules` | 列出子模块状态及其本地入口文件。 | `yss help examples git submodules` |
+| `git verify-message` | 校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。 | `yss help examples git verify-message` |
 | `handoff` | 校验 handoff 的结构或原生领域语义。 | `yss help examples handoff` |
 | `handoff check` | 执行显式 Schema 结构校验。 | `yss help examples handoff check` |
 | `handoff export` | 导出当前已批准的 Spec 基线及来源证据。 | `yss help examples handoff export` |
@@ -2499,6 +2516,725 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples evidence verify
+```
+
+### git
+
+```text
+yss 2.2.0 — git
+──────────────────────
+查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
+
+用法: yss git <子命令> --root <仓库顶层>
+
+子命令:
+audit  按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
+base  解析 HEAD 与默认分支的合并基线，输出完整 SHA。
+branch  branch start：按 Ticket 生成符合策略的分支名并切换。
+changelog  按 Ticket 汇总提交范围内的变更。
+commit  只提交明确列出的路径，并追加 Ticket trailer。
+doctor  检查 Git 版本、提交身份、远端、历史深度与策略文件。
+guard  事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
+hooks  hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+policy  显示生效的 Git 策略；policy set 经计划修改一个字段。
+push  推送当前分支或一个本地标签；需保存计划并由用户确认远端。
+release  release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+status  分支、上游差异、改动路径及进行中的合并/变基。
+submodules  列出子模块状态及其本地入口文件。
+verify-message  校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git status --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git
+```
+
+### git audit
+
+```text
+yss 2.2.0 — git audit
+──────────────────────
+按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
+
+用法: yss git audit --root <仓库顶层> --since <引用> [--until <引用>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+有发现时 status=attention，退出码仍为 0。require_signed 为 true 时才调用 gpg 读取签名。
+
+最小示例:
+yss git audit --root ./demo-spec --since v2.1.0 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--since <引用>  必需，起始（不含）
+--until <引用>  默认 HEAD
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git audit
+```
+
+### git base
+
+```text
+yss 2.2.0 — git base
+──────────────────────
+解析 HEAD 与默认分支的合并基线，输出完整 SHA。
+
+用法: yss git base --root <仓库顶层> [--branch <分支>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+输出的 base 可直接用于 yss lifecycle route --base。
+
+最小示例:
+yss git base --root ./impl --json
+
+参数:
+  --branch <值>                   按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--branch <分支>  默认取策略 default_branch；先本地分支，再 origin/<分支>
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git base
+```
+
+### git branch
+
+```text
+yss 2.2.0 — git branch
+──────────────────────
+branch start：按 Ticket 生成符合策略的分支名并切换。
+
+用法: yss git branch start --root <仓库顶层> --task <Ticket> --slug <短名> [--type <类型>] [--from <引用>] --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+分支名为 <类型>/<Ticket>-<短名>。结果的 base 可用于 yss lifecycle route --base；未提交改动随工作区保留。
+
+最小示例:
+yss git branch start --root ./demo-spec --task FEAT-142 --slug order-refund --plan --out /tmp/branch-plan.json
+yss git branch start --root ./demo-spec --apply --plan-file /tmp/branch-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --from <Git引用>                git branch start 的起点；默认策略默认分支
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --slug <短名>                   git branch start 的分支短名，小写字母、数字、连字符
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --type <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  须符合 ticket_pattern
+--slug <短名>  小写字母、数字、连字符
+--type <类型>  默认 feat
+--from <引用>  起点，默认策略默认分支
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git branch
+```
+
+### git changelog
+
+```text
+yss 2.2.0 — git changelog
+──────────────────────
+按 Ticket 汇总提交范围内的变更。
+
+用法: yss git changelog --root <仓库顶层> --since <引用> [--until <引用>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+无 Ticket 的提交归入 unlinked。
+
+最小示例:
+yss git changelog --root ./demo-spec --since v2.1.0 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--since <引用>  必需，起始（不含）
+--until <引用>  默认 HEAD
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git changelog
+```
+
+### git commit
+
+```text
+yss 2.2.0 — git commit
+──────────────────────
+只提交明确列出的路径，并追加 Ticket trailer。
+
+用法: yss git commit --root <仓库顶层> --task <Ticket> --message <主题> --paths <路径,路径…> --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+范围外改动列入计划的 excluded，不暂存、不提交。拒绝：受保护分支、分离 HEAD、进行中的合并/变基、未解决冲突。计划文件须保存在仓库之外。
+
+最小示例:
+yss git commit --root ./demo-spec --task FEAT-142 --message "支持部分退款" --paths src/refund,docs/refund.md --plan --out /tmp/commit-plan.json
+yss git commit --root ./demo-spec --apply --plan-file /tmp/commit-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --message <主题>                git commit 的单行提交主题；Ticket trailer 由策略追加
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --paths <路径,路径…>            git commit 要提交的仓库相对路径，逗号分隔；范围外改动不会暂存
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  须符合 ticket_pattern
+--message <主题>  单行，1–200 字
+--paths <路径,…>  仓库相对路径，逗号分隔
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git commit
+```
+
+### git doctor
+
+```text
+yss 2.2.0 — git doctor
+──────────────────────
+检查 Git 版本、提交身份、远端、历史深度与策略文件。
+
+用法: yss git doctor --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git doctor --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+status 为 ok/warn/fail；只读
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git doctor
+```
+
+### git guard
+
+```text
+yss 2.2.0 — git guard
+──────────────────────
+事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
+
+用法: yss git guard --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+只报告，不暂存、不还原、不清理任何文件。
+
+最小示例:
+yss git guard --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+就绪返回 status=clear；否则以 CONFLICT 失败并附明细
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git guard
+```
+
+### git hooks
+
+```text
+yss 2.2.0 — git hooks
+──────────────────────
+hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+
+用法: yss git hooks install --root <仓库顶层> --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+脚本写入 .githooks/（纳入版本控制）；原 core.hooksPath 或 .git/hooks/commit-msg 先被链式调用；已有非 yss 的 .githooks/commit-msg 不覆盖。找不到 yss 时钩子跳过检查。其他克隆需各自安装。
+
+最小示例:
+yss git hooks install --root ./demo-spec --plan --out /tmp/hooks-plan.json
+yss git hooks install --root ./demo-spec --apply --plan-file /tmp/hooks-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git hooks
+```
+
+### git policy
+
+```text
+yss 2.2.0 — git policy
+──────────────────────
+显示生效的 Git 策略；policy set 经计划修改一个字段。
+
+用法: yss git policy --root <仓库顶层> [set --key <字段> --value <值> --plan --out <新文件>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+未知字段或非法正则会被拒绝，不回退默认值。set 整文件按固定格式重写，原注释不保留。
+
+最小示例:
+yss git policy --root ./demo-spec --json
+yss git policy set --root ./demo-spec --key protected_branches --value '["main","release"]' --plan --out /tmp/policy-plan.json
+yss git policy set --root ./demo-spec --apply --plan-file /tmp/policy-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --key <字段>                    git policy set 的策略字段
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --value <JSON>                  单个 JSON 值，默认 null
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+无子命令时只读。字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed
+--key / --value  set：字符串可直接写，列表用 JSON 数组，布尔写 true/false
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git policy
+```
+
+### git push
+
+```text
+yss 2.2.0 — git push
+──────────────────────
+推送当前分支或一个本地标签；需保存计划并由用户确认远端。
+
+用法: yss git push --root <仓库顶层> --remote <远端名> [--tag <标签>] --plan --out <新文件>；应用： --apply --plan-file <文件> --confirm-remote <远端名>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+计划阶段不联网：按本地远端跟踪引用审计待推送提交（ticket、自审、签名），受保护分支、分离 HEAD、已分叉或落后一律拒绝。不使用 --force，远端拒绝时原样报告。没有 --confirm-remote 时不触达远端。
+
+最小示例:
+yss git push --root ./demo-spec --remote origin --plan --out /tmp/push-plan.json
+yss git push --root ./demo-spec --apply --plan-file /tmp/push-plan.json --confirm-remote origin
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --confirm-remote <远端名>       git push --apply 的用户确认；必须与计划中的远端同名
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --remote <远端名>               git push 的远端，如 origin
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --tag <标签>                    git push 改为推送该本地带注释标签，如 v1.2.3
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--remote <远端名>  必需
+--tag <标签>  改推本地带注释标签 vX.Y.Z，而不是当前分支
+--confirm-remote <远端名>  仅 --apply，须与计划中的远端同名
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git push
+```
+
+### git release
+
+```text
+yss 2.2.0 — git release
+──────────────────────
+release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+
+用法: yss git release tag --root <仓库顶层> --tag-version <版本> [--evidence-file <路径>] --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+只创建本地标签，不推送。要求当前在 default_branch、工作区干净；require_signed 时使用签名标签。
+
+最小示例:
+yss git release tag --root ./demo-spec --tag-version 2.2.0 --plan --out /tmp/tag-plan.json
+yss git release tag --root ./demo-spec --apply --plan-file /tmp/tag-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --evidence-file <路径>          git release tag 记录摘要的仓库内证据文件，须已纳入版本控制
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --tag-version <版本>            git release tag 的版本，如 2.2.0，标签为 v2.2.0
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--tag-version <版本>  如 2.2.0，标签为 v2.2.0
+--evidence-file <路径>  可选，已纳入版本控制的文件，摘要写入标签信息
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git release
+```
+
+### git status
+
+```text
+yss 2.2.0 — git status
+──────────────────────
+分支、上游差异、改动路径及进行中的合并/变基。
+
+用法: yss git status --root <仓库顶层> [--task <Ticket>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git status --root ./demo-spec --task FEAT-142 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  报告当前分支名是否包含该 Ticket
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git status
+```
+
+### git submodules
+
+```text
+yss 2.2.0 — git submodules
+──────────────────────
+列出子模块状态及其本地入口文件。
+
+用法: yss git submodules --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+子模块是独立实现仓，进入前先读其 AGENTS.md。
+
+最小示例:
+yss git submodules --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+只读；不初始化、不拉取子模块
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git submodules
+```
+
+### git verify-message
+
+```text
+yss 2.2.0 — git verify-message
+──────────────────────
+校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
+
+用法: yss git verify-message --root <仓库顶层> --file <提交信息文件> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+合并、Revert、fixup!/squash! 提交跳过检查。
+
+最小示例:
+yss git verify-message --root ./demo-spec --file .git/COMMIT_EDITMSG
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--file <文件>  Git 传给钩子的提交信息文件
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git verify-message
 ```
 
 ### handoff
