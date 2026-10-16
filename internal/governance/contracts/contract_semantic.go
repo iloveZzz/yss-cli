@@ -574,6 +574,7 @@ func contractPlatformCatalog(s *kernel.SemanticSession) (map[string]any, error) 
 func init() {
 	kernel.RegisterSemanticValidator("slice", verifySliceSemantic)
 	kernel.RegisterSemanticValidator("scaffold", verifyScaffoldSemantic)
+	kernel.RegisterSemanticValidator("scaffold-inputs", verifyScaffoldInputsSemantic)
 	kernel.RegisterSemanticValidator("business-checkpoint", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		cp, e := s.Doc(ref)
 		if e != nil {
@@ -4250,61 +4251,95 @@ func contractTactical(s *kernel.SemanticSession, d map[string]any) error {
 	return nil
 }
 
-func verifyScaffoldSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+// verifyScaffoldCommon is the contract-level part shared by every scaffold
+// verification: JSON form, schema, approval state, generation policy and the
+// fixed write/evidence declarations.
+func verifyScaffoldCommon(s *kernel.SemanticSession, ref string) (map[string]any, error) {
 	bytes, e := s.Bytes(ref)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	if !json.Valid(bytes) {
-		return s.Reject("SCAFFOLD_FORMAT", "脚手架合同必须为 JSON 对象")
+		return nil, s.Reject("SCAFFOLD_FORMAT", "脚手架合同必须为 JSON 对象")
 	}
 	doc, e := s.Doc(ref)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	if e = s.ValidateSchema(".template-spec/process/schemas/project-scaffold-contract.schema.json", doc); e != nil {
-		return e
+		return nil, e
 	}
 	if (kernel.ContractN(doc["schema_version"]) != 4 && kernel.ContractN(doc["schema_version"]) != 5) || kernel.Text(doc["status"]) != "approved" || doc["current_version"] != true || kernel.Text(doc["persisted_ref"]) == "" {
-		return s.Reject("SCAFFOLD_CONTRACT", "脚手架合同必须已批准、持久化且当前")
+		return nil, s.Reject("SCAFFOLD_CONTRACT", "脚手架合同必须已批准、持久化且当前")
 	}
 	policy := kernel.SemMap(doc["generation_policy"])
 	for key, value := range map[string]string{"mode": "initialize-only", "existing_target": "unsupported", "old_project_migration": "unsupported", "template_upgrade": "unsupported"} {
 		if kernel.Text(policy[key]) != value {
-			return s.Reject("SCAFFOLD_POLICY", "不支持的生成政策")
+			return nil, s.Reject("SCAFFOLD_POLICY", "不支持的生成政策")
 		}
 	}
 	if !ContractUnique(doc["allowed_write_paths"], true) || !ContractUnique(doc["verification_commands"], true) || !kernel.SemHas(doc["expected_evidence_files"], ".yss/scaffold-generation.json") {
-		return s.Reject("SCAFFOLD_CONTRACT", "写范围/固定验证/Manifest 证据缺失")
+		return nil, s.Reject("SCAFFOLD_CONTRACT", "写范围/固定验证/Manifest 证据缺失")
+	}
+	return doc, nil
+}
+
+func verifyScaffoldSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	doc, e := verifyScaffoldCommon(s, ref)
+	if e != nil {
+		return e
 	}
 	if kernel.Text(doc["delivery_role"]) == "frontend" {
 		boundOpts := kernel.SemanticOptions(opts)
 		boundOpts["contract-ref"] = ref
 		return contractFrontendScaffold(s, doc, boundOpts)
 	}
+	decision, e := scaffoldBackendInputs(s, ref, doc, opts)
+	if e != nil {
+		return e
+	}
+	return scaffoldPlatformQualification(s, doc, decision)
+}
+
+// verifyScaffoldInputsSemantic checks everything a backend generator consumes
+// except platform qualification, which the generator evaluates itself because it
+// may be run against a candidate catalog.
+func verifyScaffoldInputsSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	doc, e := verifyScaffoldCommon(s, ref)
+	if e != nil {
+		return e
+	}
+	if kernel.Text(doc["delivery_role"]) != "backend" {
+		return s.Reject("SCAFFOLD_CONTRACT", "后端脚手架身份无效")
+	}
+	_, e = scaffoldBackendInputs(s, ref, doc, opts)
+	return e
+}
+
+func scaffoldBackendInputs(s *kernel.SemanticSession, ref string, doc map[string]any, opts map[string]string) (map[string]any, error) {
 	work := kernel.SemMap(doc["work_unit"])
 	if work["primary_skill"] != doc["generator_skill"] || kernel.Text(work["tdd_mode"]) != "controlled-generation" || work["controlled_generation"] != true || !ContractSame(work["allowed_write_paths"], doc["allowed_write_paths"]) || !ContractSame(work["verification_commands"], doc["verification_commands"]) {
-		return s.Reject("SCAFFOLD_WORK_UNIT", "受控生成工作单元与合同冲突")
+		return nil, s.Reject("SCAFFOLD_WORK_UNIT", "受控生成工作单元与合同冲突")
 	}
 	if kernel.Text(doc["delivery_role"]) != "backend" || kernel.Text(doc["scaffold_status"]) != "required" {
-		return s.Reject("SCAFFOLD_CONTRACT", "后端脚手架身份无效")
+		return nil, s.Reject("SCAFFOLD_CONTRACT", "后端脚手架身份无效")
 	}
 	family, skill := kernel.Text(doc["architecture_family"]), kernel.Text(doc["generator_skill"])
 	if family == "domain-driven" && skill != "yss-ddd-scaffold-generator" || family == "layered-mvc" && skill != "yss-layered-mvc-scaffold-generator" || !kernel.SemHas([]string{"domain-driven", "layered-mvc"}, family) {
-		return s.Reject("SCAFFOLD_ARCHITECTURE", "生成器和架构族冲突")
+		return nil, s.Reject("SCAFFOLD_ARCHITECTURE", "生成器和架构族冲突")
 	}
 	if !ContractSame(doc["verification_commands"], []string{"./mvnw validate", "./mvnw test", "./mvnw package"}) {
-		return s.Reject("SCAFFOLD_VERIFICATION", "Maven 验证入口须为固定三条命令")
+		return nil, s.Reject("SCAFFOLD_VERIFICATION", "Maven 验证入口须为固定三条命令")
 	}
 	approval := kernel.SemMap(doc["approval"])
 	if approval["approval_ref"] != doc["lifecycle_approval_ref"] || approval["persisted_ref"] != doc["persisted_ref"] || approval["current_version"] != doc["contract_version"] {
-		return s.Reject("SCAFFOLD_APPROVAL", "批准指针或版本冲突")
+		return nil, s.Reject("SCAFFOLD_APPROVAL", "批准指针或版本冲突")
 	}
 	coordinates := kernel.SemMap(doc["maven_coordinates"])
 	values := []any{coordinates["group_id"], coordinates["project_version"], kernel.SemMap(coordinates["parent"])["group_id"], kernel.SemMap(coordinates["parent"])["artifact_id"], kernel.SemMap(coordinates["parent"])["version"], coordinates["yss_components_version"]}
 	for _, v := range values {
 		if !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(kernel.Text(v)) {
-			return s.Reject("SCAFFOLD_COORDINATES", "Maven 坐标非法")
+			return nil, s.Reject("SCAFFOLD_COORDINATES", "Maven 坐标非法")
 		}
 	}
 	decisionRef := kernel.Text(doc["decision_ref"])
@@ -4314,39 +4349,45 @@ func verifyScaffoldSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 	if filepath.IsAbs(decisionRef) {
 		r, e := filepath.Rel(s.Root, decisionRef)
 		if e != nil || strings.HasPrefix(r, "..") {
-			return s.Reject("PATH", "架构决定越出治理 root")
+			return nil, s.Reject("PATH", "架构决定越出治理 root")
 		}
 		decisionRef = filepath.ToSlash(r)
 	}
 	record, e := ContractBoundDoc(s, map[string]any{"ref": decisionRef, "digest": doc["decision_digest"]})
 	if e != nil {
-		return e
+		return nil, e
 	}
 	decision := kernel.ApFind(record["decisions"], "decision_id", kernel.Text(doc["decision_id"]))
 	if kernel.Text(record["kind"]) != "scaffold-architecture-decisions" || record["template"] != false || kernel.Text(record["status"]) != "current" || kernel.Text(decision["status"]) != "lifecycle-approved" || decision["confirmed_architecture"] != doc["architecture_family"] || decision["project_id"] != doc["project_name"] {
-		return s.Reject("SCAFFOLD_DECISION", "架构决定不是当前项目正式批准")
+		return nil, s.Reject("SCAFFOLD_DECISION", "架构决定不是当前项目正式批准")
 	}
 	profiles, modules := kernel.SemMap(doc["profiles"]), kernel.SemMap(doc["module_profile"])
 	if decision["platform_profile"] != profiles["platform"] || decision["architecture_profile"] != doc["architecture_profile"] || kernel.Text(decision["verification_database"]) != "h2" || kernel.Text(decision["production_database"]) != "not-bound" || decision["database_profile"] != nil || !ContractSame(decision["requested_capabilities"], modules["requested_capabilities"]) || !ContractSame(decision["resolved_modules"], modules["resolved_modules"]) {
-		return s.Reject("SCAFFOLD_DECISION", "架构 Profile/模块闭包冲突")
+		return nil, s.Reject("SCAFFOLD_DECISION", "架构 Profile/模块闭包冲突")
 	}
 	if e = ContractScaffoldUserDecision(s, decision); e != nil {
-		return e
+		return nil, e
 	}
 	if kernel.Text(doc["architecture_profile"]) == "mvc-data-analysis-v1" {
-		return s.Reject("SCAFFOLD_RETIRED", "数据分析合同仅允许历史只读审计")
+		return nil, s.Reject("SCAFFOLD_RETIRED", "数据分析合同仅允许历史只读审计")
 	}
 	if family == "layered-mvc" && doc["init_git"] != false {
-		return s.Reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
+		return nil, s.Reject("SCAFFOLD_POLICY", "通用 MVC 不允许初始化 Git")
 	}
 	if kernel.ContractN(doc["schema_version"]) == 5 {
 		if e = contractReferenceExample(s, kernel.SemMap(doc["reference_example"])); e != nil {
-			return e
+			return nil, e
 		}
 	}
 	if e = contractBackendPrerequisites(s, kernel.SemMap(doc["design_prerequisites"]), doc, opts); e != nil {
-		return e
+		return nil, e
 	}
+	return decision, nil
+}
+
+func scaffoldPlatformQualification(s *kernel.SemanticSession, doc, decision map[string]any) error {
+	profiles, modules := kernel.SemMap(doc["profiles"]), kernel.SemMap(doc["module_profile"])
+	coordinates := kernel.SemMap(doc["maven_coordinates"])
 	profile, entry, reports, e := contractPlatform(s, kernel.SemMap(doc["platform_configuration"]), true)
 	if e != nil {
 		return e

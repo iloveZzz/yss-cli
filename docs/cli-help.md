@@ -4591,7 +4591,7 @@ mvc  生成 mvc 后端业务空骨架。
 
 前置条件:
 PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
-无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
 
 最小示例:
 yss scaffold ddd --help
@@ -4649,7 +4649,7 @@ yss 2.3.1 — scaffold ddd
 
 前置条件:
 PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
-无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
 
 最小示例:
 yss scaffold ddd --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
@@ -4706,7 +4706,7 @@ yss 2.3.1 — scaffold mvc
 
 前置条件:
 PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。
-无需 Harness 项目、需求合同或阶段批准。需要 PATH 中的 Node.js 和 Git；模板来自程序内置 Bundle，生成不联网。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验，不回退到直接生成；正式模式另需 Python3 的 jsonschema/referencing 校验环境。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
 
 最小示例:
 yss scaffold mvc --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT

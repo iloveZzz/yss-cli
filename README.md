@@ -18,7 +18,7 @@ yss help tutorial
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
 
-直接生成后端工程使用 `yss scaffold ddd` 或 `yss scaffold mvc`，无需先初始化 Harness；完整参数见 `yss scaffold ddd --help`。需要 PATH 中的 Node.js（建议 22 或更新版本）和 Git。生成器、模板和依赖来自二进制内置的固定 Spec Bundle，不需要本地模板仓库或联网下载技能。
+直接生成后端工程使用 `yss scaffold ddd` 或 `yss scaffold mvc`，无需先初始化 Harness；完整参数见 `yss scaffold ddd --help`。由程序内置的 Go 实现直接生成（见 [docs/scaffold-go.md](docs/scaffold-go.md)），不依赖 Node.js 或 Python；目录保护需要 PATH 中的 Git。模板和 Maven Wrapper 来自二进制内置的固定 Spec Bundle，不需要本地模板仓库或联网下载技能。
 
 ```sh
 yss scaffold mvc --project-name order-service --base-package com.yss.orders \
@@ -31,7 +31,7 @@ yss scaffold mvc --project-name order-service --base-package com.yss.orders \
 
 将 `mvc` 改为 `ddd` 可生成 DDD 架构；版本示例须替换为自己的精确平台与可获取的 Maven 坐标。输出目标是 `./backend/order-service`，必须不存在；已有目录、符号链接和 `--force` 均拒绝。独立命令生成业务空骨架，禁用技能的独立参考示例，不初始化 Git、治理实例或批准记录。显式传入合同或批准参数时保留技能的正式校验，缺失或无效合同不会回退到独立模式。
 
-JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式还需要技能原有的 Python3、`jsonschema` 和 `referencing` 校验环境；独立生成无需这些 Python 依赖。
+JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式的合同、架构决定、用户决定和设计前置校验由内置治理核心完成，不再需要 Python3、`jsonschema`、`referencing`。
 
 内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
 

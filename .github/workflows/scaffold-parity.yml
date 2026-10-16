@@ -1,0 +1,58 @@
+name: Scaffold parity (Go vs Node)
+# 构建后黑盒对拍：yss scaffold 的 Go 实现与模板仓 Node 生成器逐字节比较。
+# 这不是发行验收；Node/Python 只是对拍基准的运行条件，yss 运行时不依赖它们。
+# 单独成 job：失败不影响 artifacts.yml 的构建与发行包。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scaffold-parity:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli-source
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: cli-source
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: cli-source/go.mod
+          cache-dependency-path: cli-source/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve fixed template commit
+        id: source
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const commit=JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
+          if(!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed source required');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`commit=${commit}\n`);
+          JS
+      - uses: actions/checkout@v5
+        with:
+          repository: iloveZzz/yss-spec-project-template
+          ref: ${{ steps.source.outputs.commit }}
+          path: template-source
+          fetch-depth: 1
+          submodules: false
+      - name: Python dependencies of the Node baseline (formal contract scenarios)
+        run: |
+          # 系统自带的 python3-jsonschema 版本过旧（没有 referencing），用独立 venv 并放到 PATH 最前。
+          python3 -m venv "$RUNNER_TEMP/parity-venv"
+          "$RUNNER_TEMP/parity-venv/bin/pip" install --quiet jsonschema referencing
+          echo "$RUNNER_TEMP/parity-venv/bin" >> "$GITHUB_PATH"
+      - name: Produce embedded bundle archive (not stored in git)
+        run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
+      - name: Build the binary under test
+        env:
+          CGO_ENABLED: 0
+        run: go build -o "$RUNNER_TEMP/yss-parity/yss" ./cmd/yss
+      - name: Byte-for-byte parity against the Node generators
+        run: node tools/scaffold-parity/main.mjs --bin "$RUNNER_TEMP/yss-parity/yss" --template-root "$GITHUB_WORKSPACE/template-source"
