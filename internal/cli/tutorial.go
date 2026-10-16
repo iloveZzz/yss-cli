@@ -367,6 +367,6 @@ const maintenanceIntroduction = `维护与恢复
 先核对状态及归档，在已确认范围内恢复。已绑定插件使用对应插件 project-upgrade-plan/apply 或 project-migration-plan/apply。
 预期结果：计划、应用与恢复均绑定实际输入；后续用户修改阻止覆盖。
 下一步：核对 doctor/diff 或 update status，保留本次真实验证与恢复材料。
-失败恢复：冲突与输入漂移先保留现场，再检查诊断并重新规划；原始旧事务由对应固定旧执行器恢复。
+失败恢复：冲突与输入漂移先保留现场，再检查诊断并重新规划。
 
 `
