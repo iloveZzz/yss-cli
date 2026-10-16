@@ -219,6 +219,26 @@ func TestRouteDecisionsOnInitializedInstance(t *testing.T) {
 	}
 }
 
+func TestRouteResolvesBaseRef(t *testing.T) {
+	f := routeFixtureFor(t)
+	ref := writeTask(t, f, "REF-1", nil)
+	code, env, err := runYSS("lifecycle", "route", "--root", f.project, "--task", ref, "--implementation-root", f.impl, "--base", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, _ := env["result"].(map[string]any)
+	if code != 0 || result["delivery_path"] != "daily" || result["base_ref"] != "HEAD" || result["base_sha"] != f.base {
+		t.Errorf("--base HEAD 应解析为完整 SHA 并回显：退出码=%d 路径=%v base_ref=%v base_sha=%v；%s", code, result["delivery_path"], result["base_ref"], result["base_sha"], summary(env))
+	}
+	code, env, err = runYSS("lifecycle", "route", "--root", f.project, "--task", ref, "--implementation-root", f.impl, "--base", "no-such-branch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 2 {
+		t.Errorf("无法解析的引用应返回不可判定（退出码 2），得到 %d；%s", code, summary(env))
+	}
+}
+
 func TestRouteNeverDowngradesFormalBinding(t *testing.T) {
 	f := routeFixtureFor(t)
 	// 正式资产（带 stage）被记录引用时，即使记录写 daily 也必须走正式流程。

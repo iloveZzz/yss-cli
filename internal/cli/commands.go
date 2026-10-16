@@ -121,6 +121,8 @@ func initializeCommands() {
 			}
 		case "recover", "rollback":
 			opts = append(opts, "root", "target-dir", "profile", "apply")
+		case "explain":
+			opts = append(opts, "root")
 		case "profile":
 			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
 		case "git":
@@ -373,7 +375,9 @@ func validateArguments(command string, o options) error {
 			if len(children) > 0 {
 				return argumentError("未知子命令: " + child + suggestions(o.args[1], children))
 			}
-			return argumentError("命令 " + command + " 不接受位置参数: " + o.args[1])
+			if !spec.help.positional {
+				return argumentError("命令 " + command + " 不接受位置参数: " + o.args[1])
+			}
 		}
 	}
 	if len(o.args) > 2 && !spec.help.positional {

@@ -313,6 +313,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "capabilities" {
 		return capabilities(), profile, nil
 	}
+	if command == "explain" {
+		result, err := explainCommand(root, o.args[1:])
+		return result, profile, err
+	}
 	if command == "profile" {
 		return profileCommand(ctx, root, o)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,9 +22,14 @@ const dailyPolicyRef = ".template-spec/process/orchestration-contract.yaml"
 
 const dailyMarker = "<!-- yss-task-evidence -->"
 
+// baseRef 只接受不以 - 开头、不含 .. 的常见引用写法，避免被 git 当作选项或范围。
+var baseRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/~^@{}-]{0,199}$`)
+
 type DailyReport struct {
 	*kernel.SemanticReport
 	DeliveryPath      string           `json:"delivery_path"`
+	BaseRef           string           `json:"base_ref,omitempty"`
+	BaseSHA           string           `json:"base_sha,omitempty"`
 	TaskID            string           `json:"task_id,omitempty"`
 	CandidateDigest   string           `json:"candidate_digest,omitempty"`
 	DiffDigest        string           `json:"diff_digest,omitempty"`
@@ -117,8 +123,10 @@ func (d *dailySession) run(action string, args map[string]string) error {
 			return d.s.Unavailable("ARGUMENT", "需要显式 --"+key)
 		}
 	}
-	if !kernel.CiCommit.MatchString(args["base"]) {
-		return d.s.Unavailable("ARGUMENT", "--base 必须是完整小写 Git SHA")
+	// --base 可写完整 SHA 或实现仓内可解析的引用（如 HEAD、main）；引用在读取实现仓后解析为完整 SHA，
+	// 报告里同时回显输入与解析结果，记录中的 baseline_sha 仍须写完整 SHA。
+	if !kernel.CiCommit.MatchString(args["base"]) && (!baseRef.MatchString(args["base"]) || strings.Contains(args["base"], "..")) {
+		return d.s.Unavailable("ARGUMENT", "--base 必须是完整 Git SHA 或可解析的引用（如 HEAD、main）")
 	}
 	d.taskRef = args["task"]
 	d.base = args["base"]
@@ -152,11 +160,24 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	}
 	commit, err := d.s.Git(repo, "rev-parse", "--verify", d.base+"^{commit}")
 	if err != nil {
+		if !kernel.CiCommit.MatchString(d.base) {
+			return d.s.Unavailable("BASELINE", "--base 引用在实现仓中无法解析: "+d.base)
+		}
 		return err
 	}
-	if strings.TrimSpace(string(commit)) != d.base {
-		return d.s.Unavailable("BASELINE", "--base 不是当前可读的完整 commit")
+	resolved := strings.TrimSpace(string(commit))
+	if kernel.CiCommit.MatchString(d.base) {
+		if resolved != d.base {
+			return d.s.Unavailable("BASELINE", "--base 不是当前可读的完整 commit")
+		}
+	} else {
+		if !kernel.CiCommit.MatchString(resolved) {
+			return d.s.Unavailable("BASELINE", "--base 引用无法解析为完整 commit")
+		}
+		d.report.BaseRef = d.base
+		d.base = resolved
 	}
+	d.report.BaseSHA = d.base
 	if _, err = d.basisRef("CONTEXT.md", ""); err != nil {
 		return err
 	}

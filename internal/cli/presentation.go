@@ -35,6 +35,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		out.WriteString("详细来源：yss version --json")
 		return out.String()
 	}
+	if command == "explain" {
+		return renderExplain(m)
+	}
 	title := "查询完成"
 	if command == "scaffold" {
 		title = "脚手架已生成（未执行 Maven 验证）"

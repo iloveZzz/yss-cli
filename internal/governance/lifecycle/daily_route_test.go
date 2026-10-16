@@ -30,7 +30,8 @@ func TestRouteRejectsIncompleteInputBeforeReadingProject(t *testing.T) {
 	}{
 		"缺少任务":    {"route", routeArgs(map[string]string{"root": root, "implementation-root": root, "task": ""}), "ARGUMENT"},
 		"缺少实现仓":   {"route", routeArgs(map[string]string{"root": root}), "ARGUMENT"},
-		"短 SHA":   {"route", routeArgs(map[string]string{"root": root, "implementation-root": root, "base": "0123456"}), "ARGUMENT"},
+		"选项形式的基线": {"route", routeArgs(map[string]string{"root": root, "implementation-root": root, "base": "--output=x"}), "ARGUMENT"},
+		"范围形式的基线": {"route", routeArgs(map[string]string{"root": root, "implementation-root": root, "base": "main..HEAD"}), "ARGUMENT"},
 		"任务非记录文件": {"route", routeArgs(map[string]string{"root": root, "implementation-root": root, "task": "FEAT-1"}), "NEEDS_INFO"},
 		"未知动作":    {"promote", routeArgs(map[string]string{"root": root, "implementation-root": root}), "UNPORTED"},
 	} {

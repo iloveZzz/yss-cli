@@ -137,7 +137,7 @@ func rootHelp() string {
 		{"资源", []string{"skills", "assets", "bundle"}},
 		{"Git", []string{"git"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
-		{"治理", []string{"context", "lifecycle", "stage", "reading", "contract", "evidence", "handoff", "project-ci"}},
+		{"治理", []string{"explain", "context", "lifecycle", "stage", "reading", "contract", "evidence", "handoff", "project-ci"}},
 		{"工具", []string{"runtime", "archive", "xml"}},
 	} {
 		fmt.Fprintf(&out, "  [%s]\n", group.label)

@@ -51,6 +51,8 @@ func prerequisite(key string) string {
 		return "合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。"
 	case "lifecycle":
 		return "查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。"
+	case "explain":
+		return "在 YSS 项目根运行，读取其流程术语表与生命周期注册表；无需 checkpoint。"
 	case "runtime", "archive", "xml":
 		return "准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。"
 	case "git":

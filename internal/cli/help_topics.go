@@ -27,6 +27,7 @@ func init() {
 	helpTopics["recover"] = helpTopic{"查询或恢复未完成的项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行保护性恢复；默认只查询", "yss recover --root ./demo-spec --json\nyss recover --root ./demo-spec --apply --json", "程序安装事务使用 yss update recover --tool-root <目录>。", false}
 	helpTopics["rollback"] = helpTopic{"查询或整体回退最近一次成功项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行回退；默认只查询", "yss rollback --root ./demo-spec --json\nyss rollback --root ./demo-spec --apply --json", "后续用户修改会阻止覆盖。程序版本回退使用 yss update rollback。", false}
 	helpTopics["version"] = helpTopic{"查看 CLI、协议和固定来源身份。", "[--json]", "也可使用 yss -V 或 yss --version", "yss version --json", "不需要项目目录。", false}
+	helpTopics["explain"] = helpTopic{"解释流程术语或生命周期稳定 ID。", "<术语或稳定ID> [--root <目录>]", "<术语或稳定ID>  例如 Slice Implementation Contract、gate.plan-approved 或 plan-approved\n--root  项目根，默认当前目录", "yss explain gate.plan-approved\nyss explain 工作单元 --json", "只读当前项目的流程术语表与生命周期注册表；业务术语见根 CONTEXT.md。最多返回 10 条。", true}
 	helpTopics["capabilities"] = helpTopic{"查看原生能力、治理接口与发行证据边界。", "[--json]", "--json  输出机器可读能力清单", "yss capabilities --json", "支持清单不等于某个平台已通过原生发行验收。", false}
 	helpTopics["upgrade"] = helpTopic{"从 GitHub 下载并事务安装稳定版 CLI。", "[--check] [--to <稳定版本>] [--tool-root <目录>] [--json]", "--check  只检查版本，不下载、不写入\n--to <版本>  指定稳定版，如 1.3.0 或 v1.3.0；默认最新稳定版\n--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录", "yss upgrade --check\nyss upgrade\nyss upgrade --to 1.3.0 --tool-root ./tools/yss --json", "固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝。恢复: yss update recover --tool-root <目录>；回退: yss update rollback --tool-root <目录>。1.0.0 首次安装新版使用离线 update，见 yss help tutorial。", false}
 	registerGroup("update", "安装、恢复或回退指定本地发行包。", "--tool-root <目录>", "--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根", "yss update status --tool-root ./tools/yss --json", "保留离线安装接口；每次写入绑定摘要和程序事务。", map[string]helpTopic{
@@ -208,7 +209,7 @@ func registerGovernanceHelp() {
 }
 
 func dailyHelp(summary, action string) helpTopic {
-	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <完整SHA>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位基线 SHA；不接受缩写", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base <完整40位SHA> --json", "只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。", false}
+	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <SHA或引用>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json", "只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。", false}
 }
 
 const maintenanceTutorial = `YSS 离线入门教程

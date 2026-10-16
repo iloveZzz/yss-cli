@@ -63,6 +63,7 @@ Profile 职责:
     upgrade          从 GitHub 下载并事务安装稳定版 CLI。
     update           安装、恢复或回退指定本地发行包。
   [治理]
+    explain          解释流程术语或生命周期稳定 ID。
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
@@ -753,6 +754,7 @@ YSS 离线入门教程
 | `evidence` | 校验 evidence 的结构或原生领域语义。 | `yss help examples evidence` |
 | `evidence check` | 执行显式 Schema 结构校验。 | `yss help examples evidence check` |
 | `evidence verify` | 执行当前领域规则和独立消费者绑定校验。 | `yss help examples evidence verify` |
+| `explain` | 解释流程术语或生命周期稳定 ID。 | `yss help examples explain` |
 | `git` | 查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。 | `yss help examples git` |
 | `git audit` | 按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。 | `yss help examples git audit` |
 | `git base` | 解析 HEAD 与默认分支的合并基线，输出完整 SHA。 | `yss help examples git base` |
@@ -2051,6 +2053,46 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 详细示例: yss help examples evidence verify
 ```
 
+### explain
+
+```text
+yss 2.3.3 — explain
+──────────────────────
+解释流程术语或生命周期稳定 ID。
+
+用法: yss explain <术语或稳定ID> [--root <目录>]
+
+前置条件:
+在 YSS 项目根运行，读取其流程术语表与生命周期注册表；无需 checkpoint。
+只读当前项目的流程术语表与生命周期注册表；业务术语见根 CONTEXT.md。最多返回 10 条。
+
+最小示例:
+yss explain gate.plan-approved
+yss explain 工作单元 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+<术语或稳定ID>  例如 Slice Implementation Contract、gate.plan-approved 或 plan-approved
+--root  项目根，默认当前目录
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples explain
+```
+
 ### git
 
 ```text
@@ -3193,14 +3235,14 @@ yss 2.3.3 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
-用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <完整SHA>
+用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用>
 
 前置条件:
 查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
 只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。
 
 最小示例:
-yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base "<完整40位SHA>" --json
+yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
 
 参数:
   --base <完整SHA>                已确认实现仓的完整 Git 基线
@@ -3221,7 +3263,7 @@ yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementatio
 --profile <spec|design|backend>  必需或从项目身份检测
 --task  同一任务的需求、验收及证据
 --implementation-root  已确认实现仓 Git 根
---base  完整40位基线 SHA；不接受缩写
+--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -3398,14 +3440,14 @@ yss 2.3.3 — lifecycle verify-daily
 ──────────────────────
 核验同一日常任务的当前差异、测试和独立审查。
 
-用法: yss lifecycle verify-daily --root <目录> --task <Markdown> --implementation-root <Git根> --base <完整SHA>
+用法: yss lifecycle verify-daily --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用>
 
 前置条件:
 查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
 只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。
 
 最小示例:
-yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base "<完整40位SHA>" --json
+yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
 
 参数:
   --base <完整SHA>                已确认实现仓的完整 Git 基线
@@ -3425,7 +3467,7 @@ yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implem
 --profile <spec|design|backend>  必需或从项目身份检测
 --task  同一任务的需求、验收及证据
 --implementation-root  已确认实现仓 Git 根
---base  完整40位基线 SHA；不接受缩写
+--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA
 
 预期结果:
 返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
