@@ -129,18 +129,12 @@ func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
 		return nil, err
 	}
 	put(tree, manifestRef, JSON(manifest, "  "))
-	if err = checkPlaceholdersMVC(tree); err != nil {
-		return nil, err
-	}
 	root, err := publish(tree, staging, o.OutputDir, o.ProjectName)
 	if err != nil {
 		return nil, err
 	}
 	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: manifest, Modules: g.modules}, nil
 }
-
-// The MVC generator never scans for leftover placeholders; keep that behaviour.
-func checkPlaceholdersMVC(*Tree) error { return nil }
 
 func (g *mvcGen) referenceEnabled() bool {
 	reference := asMap(mustGet(g.contract, "reference_example"))

@@ -26,7 +26,6 @@ type Source interface {
 
 type bundleSource struct {
 	files map[string]bundle.File
-	dirs  map[string]bool
 }
 
 // BundleSource reads from the embedded fixed Spec Bundle.
@@ -39,13 +38,7 @@ func BundleSource() (Source, error) {
 }
 
 func newBundleSource(files map[string]bundle.File) *bundleSource {
-	source := &bundleSource{files: files, dirs: map[string]bool{}}
-	for path := range files {
-		for dir := parent(path); dir != ""; dir = parent(dir) {
-			source.dirs[dir] = true
-		}
-	}
-	return source
+	return &bundleSource{files: files}
 }
 
 func parent(path string) string {

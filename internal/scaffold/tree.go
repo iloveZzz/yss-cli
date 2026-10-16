@@ -96,26 +96,6 @@ func (t *Tree) Paths() []string {
 	return paths
 }
 
-// Merge copies the entries of other into t below prefix.
-func (t *Tree) Merge(prefix string, other *Tree) {
-	join := func(path string) string {
-		if prefix == "" {
-			return path
-		}
-		return prefix + "/" + path
-	}
-	for path, file := range other.files {
-		copy := *file
-		t.files[join(path)] = &copy
-	}
-	for dir, mode := range other.dirs {
-		t.dirs[join(dir)] = mode
-	}
-	if prefix != "" {
-		t.Mkdir(prefix)
-	}
-}
-
 // Commit writes the tree below root, which must already exist.
 func (t *Tree) Commit(root string) error {
 	dirs := map[string]os.FileMode{}

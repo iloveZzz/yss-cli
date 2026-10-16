@@ -3,7 +3,6 @@ package scaffold
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"sort"
 	"strings"
 )
@@ -65,18 +64,15 @@ func sortedMap(entries map[string]*OMap) *OMap {
 // platformSourceFingerprint binds the generator and verifier sources, as
 // platformSourceFingerprint(family) in backend-platform-provenance.mjs does.
 func platformSourceFingerprint(src Source, family string) (*OMap, error) {
-	skill := dddSkill
 	base := skillRoot("domain-driven")
 	refs := []string{base + "/scripts/generate_scaffold.mjs", base + "/assets"}
 	if family != "domain-driven" {
 		if family != "layered-mvc" {
 			return nil, fail("platform-provenance: unknown architecture")
 		}
-		skill = mvcSkill
 		base = skillRoot(family)
 		refs = []string{base + "/scripts/generate_scaffold.mjs", base + "/assets", skillRoot("domain-driven") + "/assets/wrapper"}
 	}
-	_ = skill
 	refs = append(refs, "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs", "scripts/lib/standalone-backend-scaffold.mjs", "scripts/lib/scaffold-reference-example.mjs", wireRef)
 	if family == "layered-mvc" {
 		refs = append(refs, skillRoot("domain-driven")+"/assets/reference")
@@ -125,11 +121,6 @@ func sourceTreeDigest(src Source, prefix string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-type ownedFile struct {
-	path   string
-	sha256 string
-}
-
 // generatedFiles lists the project's files (except the manifest) the way the
 // generators' fileEntries does, with their content digests.
 func generatedFiles(tree *Tree, skipGit bool) []any {
@@ -158,8 +149,6 @@ func containsGit(path string) bool {
 	}
 	return false
 }
-
-func executable(mode os.FileMode) bool { return mode&0o111 != 0 }
 
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))

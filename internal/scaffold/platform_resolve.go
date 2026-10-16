@@ -8,13 +8,10 @@ import (
 
 var (
 	sha256Pattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	driftPattern  = regexp.MustCompile(`(?i)drift|stale`)
 )
 
 // platformDigestBytes is platformDigest for raw bytes (Buffer input in Node).
 func platformDigestBytes(data []byte) string { return sha256Ref(data) }
-
-func hasField(m *OMap, key string) bool { return m.Has(key) }
 
 func portableRef(ref string) bool {
 	if ref == "" || strings.HasPrefix(ref, "/") || strings.Contains(ref, `:\`) {
