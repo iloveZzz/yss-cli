@@ -47,6 +47,22 @@ jobs:
         run: |
           go build ./...
           node tools/build-candidate.mjs --out "$RUNNER_TEMP/yss-candidate"
+      - name: Check gofmt and go vet
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未经 gofmt 格式化:"
+            echo "$unformatted"
+            exit 1
+          fi
+          # internal/governance 既有 unkeyed 复合字面量告警，不为此改业务代码，故关闭 composites 分析器；其余分析器全部保留。
+          go vet -composites=false ./...
+      - name: Black-box smoke of the built binary
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go build -o "$RUNNER_TEMP/yss-smoke/yss" ./cmd/yss
+          node tools/smoke/main.mjs --bin "$RUNNER_TEMP/yss-smoke/yss"
       - name: Rebuild and compare all generated artifacts
         run: node tools/artifacts.mjs check --scope all --source-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-artifacts"
       - uses: actions/upload-artifact@v4
