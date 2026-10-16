@@ -607,7 +607,7 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": tx.Status, "transaction": tx, "scope": "stage-work-only", "approval_created": false, "ready_for_agent_created": false, "execution_authorization": "not-evaluated"}, nil
+		return map[string]any{"status": tx.Status, "source_operation": tx.Status, "reading_update": stageReadingUpdate(ctx, root, plan.CheckpointRef), "transaction": tx, "scope": "stage-work-only", "approval_created": false, "ready_for_agent_created": false, "execution_authorization": "not-evaluated"}, nil
 	}
 	if args["refresh"] != "" {
 		return nil, domain.Fail("UNPORTED", "refresh 保留历史并重置执行态的语义尚未迁移")

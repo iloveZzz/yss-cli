@@ -260,3 +260,24 @@ func ValidateReadingTransaction(root, profile string, paths []string) error {
 	}
 	return nil
 }
+
+// stageReadingUpdate 在阶段写事务提交之后更新 managed 阅读视图，语义同 Node finalizeReading：
+// 策略未启用该 checkpoint → manual；渲染失败不回滚已提交的源，只在结果里报告失败和恢复命令。
+func stageReadingUpdate(ctx context.Context, root, ref string) map[string]any {
+	failed := func(err error) map[string]any {
+		return map[string]any{"status": "failed", "error": err.Error(), "recovery": "yss reading render --checkpoint " + ref}
+	}
+	s := kernel.NewSemanticSession(ctx, root, map[string]string{})
+	policy, present, err := reading.LoadPolicy(s)
+	if err != nil {
+		return failed(err)
+	}
+	if !present || policy["mode"] != "managed" || !kernel.SemHas(policy["checkpoints"], ref) {
+		return map[string]any{"status": "manual"}
+	}
+	result, err := readingRenderOne(ctx, root, map[string]string{}, ref, false)
+	if err != nil {
+		return failed(err)
+	}
+	return result
+}
