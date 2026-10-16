@@ -1,4 +1,4 @@
-// 对拍专用驱动：直接调用 internal/scaffold.Run，覆盖 CLI 不暴露的开关（独立模式的参考示例）。
+// 对拍专用驱动：直接调用 internal/scaffold.Run，覆盖 CLI 不暴露的开关（独立模式的参考示例、候选平台目录）。
 // 仅供 tools/scaffold-parity 使用，不进入发行包，也不是运行依赖。
 //
 //	go run ./tools/scaffold-parity/driver --options options.json
@@ -35,6 +35,7 @@ type input struct {
 	CompilerDraftRef     string `json:"compilerDraftRef"`
 	PersistedRef         string `json:"persistedRef"`
 	WithExample          *bool  `json:"withExample"`
+	CandidateCatalog     string `json:"candidateCatalog"`
 }
 
 func main() {
@@ -50,7 +51,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	var catalog []byte
+	if in.CandidateCatalog != "" {
+		if catalog, err = os.ReadFile(in.CandidateCatalog); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	}
 	result, err := scaffold.Run(context.Background(), scaffold.Options{
+		PlatformCatalog: catalog, AllowCandidate: catalog != nil,
 		Architecture: in.Architecture, ProjectName: in.ProjectName, BasePackage: in.BasePackage, OutputDir: in.OutputDir,
 		PlatformProfile: in.PlatformProfile, SpringBootVersion: in.SpringBootVersion, JavaVersion: in.JavaVersion,
 		GroupID: in.GroupID, ProjectVersion: in.ProjectVersion, ParentGroupID: in.ParentGroupID, ParentArtifactID: in.ParentArtifactID,

@@ -819,7 +819,7 @@ var nodeDelegation = []string{
 func capabilities() map[string]any {
 	m := capabilitiesBase()
 	m["nodeDelegation"] = nodeDelegation
-	m["scaffold"] = map[string]any{"architectures": []string{"ddd", "mvc"}, "runtime": "node", "source": "embedded-spec-bundle", "initializeOnly": true, "buildExecuted": false}
+	m["scaffold"] = map[string]any{"architectures": []string{"ddd", "mvc"}, "runtime": "go", "source": "embedded-spec-bundle", "initializeOnly": true, "buildExecuted": false}
 	return m
 }
 func capabilitiesBase() map[string]any {
