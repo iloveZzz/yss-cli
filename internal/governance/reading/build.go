@@ -1,5 +1,7 @@
 package reading
 
+// 渲染规则提示：标签表、排序表、转义与文案变化会改变输出字节，须评估是否递增 RulesVersion（见 docs/governance-convergence.md §6.6）。
+
 import (
 	"bytes"
 	"encoding/json"
