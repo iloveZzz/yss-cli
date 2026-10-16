@@ -270,7 +270,7 @@ func (e *gitGuardError) Error() string    { return e.message }
 func (e *gitGuardError) ErrorResult() any { return e.report }
 func (e *gitGuardError) Unwrap() error    { return domain.Fail("CONFLICT", e.message) }
 
-// gitGuard blocks before sync/migrate style transactions: uncommitted
+// gitGuard blocks before init/attach/sync style transactions: uncommitted
 // changes, an operation in progress or a pending yss transaction.
 func gitGuard(ctx context.Context, r *gitops.Runner) (any, error) {
 	s, err := r.ReadStatus(ctx)
