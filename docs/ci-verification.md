@@ -1,16 +1,28 @@
 # 测试与 CI 状态
 
-本仓已移除全部自动化测试源码及对应测试 CI：
+## Go 测试
 
-- Go 的单元、集成、差分、恢复、生命周期和基准测试，以及 Node 测试。
-- 测试专用 `testdata`、预言机录制与 fixture 适配工具。
-- 变更验证选择器、分片调度、测试执行与报告工具。
-- 原生冒烟、恢复、插件验收、验收回执及性能测试工具。
-- `Native verification` workflow 和测试环境准备 action，包括 `prepare`、全部 `verify` 分片与最终 `native` job。
+本仓曾移除全部自动化测试；现以轻量 Go 测试重新建立回归保障。历史上的差分、预言机录制、原生验收回执、分片调度与性能测试**不恢复**。
 
-当前仓库没有自动测试 workflow，也没有恢复上述任何一类测试。CLI 运行时的治理校验、来源与摘要检查、事务恢复及内嵌模板属于产品能力，仍然保留。兼容桥、Bundle／帮助生成和打包工具也保留。
+```sh
+go test -tags yss_nobundle -timeout 5m ./...          # 纯逻辑测试，无需内嵌 Bundle
+node tools/fetch-bundle.mjs && go test -timeout 5m ./...  # 含用内嵌 Bundle 初始化真实实例的集成用例
+```
 
-`Build and generated artifacts` workflow 执行生产包构建、候选来源记录、格式／静态检查、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。不执行 Go/Node 测试，不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
+约束：
+
+- 全量硬上限 5 分钟（`-timeout 5m`，CI 步骤 `timeout-minutes: 5`），超时即失败，不放宽上限；单个测试约 1 秒内，单个包 30 秒内。
+- 只用 `t.TempDir()` 或测试结束即删除的临时目录与内联小数据；不访问网络，不读取用户 git 配置（测试内 git 命令显式传入身份并设 `GIT_CONFIG_GLOBAL`）。
+- 实现仓路由用例需要 Git 2.44+（`--no-lazy-fetch`）。本地 git 过旧时跳过；CI 设 `YSS_TEST_REQUIRE_GIT=1`，过旧即失败。
+- 覆盖率按 `-coverpkg=./internal/...` 统计，CI 设棘轮下限 10%（首批测试实测 10.2%），补测试后上调，不下调。
+
+当前覆盖：语义化版本区间、可移植路径与符号链接拒绝、Git 策略/审计/提交信息 trailer、三方合并候选、`lifecycle route` 的前置参数检查，以及在真实 spec 实例上的路由判定（daily、governed 标签、排除影响、未登记影响、正式绑定不可降级、前端拒绝、缺事实与摘要不匹配）。
+
+测试通过不代表正式发行验收通过，也不生成验收回执。发行装配仍要求既有真实证据。
+
+## CI
+
+`Build and generated artifacts` workflow 执行生产包构建、候选来源记录、格式／静态检查、Go 测试、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
 
 ## 格式与静态检查
 
@@ -42,7 +54,7 @@ node tools/smoke/main.mjs --bin /仓库外/路径/yss [--only profiles|git] [--k
 - `GIT_CONFIG_GLOBAL` 指向临时文件、`GIT_CONFIG_NOSYSTEM=1`、`HOME` 也在临时目录。`yss` 会清除全部 `GIT_*` 变量并按 `HOME` 读取全局配置，所以 `GIT_CONFIG_GLOBAL` 与 `$HOME/.gitconfig` 为同一文件。不触碰用户的全局或系统 git 配置。
 - 任一断言失败即以非 0 退出，并保留临时目录供排查（`--keep` 可在成功时也保留）。
 - CI 只在 ubuntu 运行；本地（如 macOS）运行不构成其他平台的运行验收，也不构成发行验收。
-- 不含 fixture、预言机、录制或回执；通过只说明主路径在当前构建上能走通，不代表测试通过，也不替代原生、恢复、插件或安装等发行门禁。新增检查须保持这个范围，不要扩写成测试套件。
+- 不含 fixture、预言机、录制或回执；通过只说明主路径在当前构建上能走通，不代表测试通过，也不替代原生、恢复、插件或安装等发行门禁。冒烟保持黑盒主路径范围；行为回归写成 Go 测试，不扩写进冒烟。
 
 ## scaffold 对拍
 

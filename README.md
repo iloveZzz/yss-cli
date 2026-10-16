@@ -35,7 +35,7 @@ JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅
 
 内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
 
-编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。本仓已移除自动化测试源码、测试专用工具及 GitHub Actions 测试 workflow；本地可使用 `CGO_ENABLED=0 go build ./...` 检查构建。编译成功不代表功能或发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
+编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -tags yss_nobundle -timeout 5m ./...`（纯逻辑），生成内嵌 Bundle 后 `go test -timeout 5m ./...`（含真实实例集成用例）。编译或测试成功都不代表发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
 ```sh
 yss init --profile spec --root ./my-project --project-name 项目名称
