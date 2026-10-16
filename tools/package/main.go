@@ -35,7 +35,7 @@ func main() {
 		return
 	}
 	if len(os.Args) != 2 {
-		panic("用法: go run ./tools/package [--native-manifest <manifest.json> --gate-basis <basis.json> --required-platforms <os/arch,...>] <仓库外新目录>")
+		panic("用法: go run ./tools/package [--native-manifest <manifest.json> [--gate-basis <basis.json>] [--qualification-scope local-platform-program-install] --required-platforms <os/arch,...>] <仓库外新目录>")
 	}
 	out, e := filepath.Abs(os.Args[1])
 	must(e)
@@ -139,6 +139,7 @@ func nativeArguments(args []string, candidate bool) error {
 	input := args[0]
 	basis, out := "", ""
 	platformsSet := false
+	scope := release.LocalQualificationScope
 	platforms := []string{runtime.GOOS + "/" + runtime.GOARCH}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -148,6 +149,12 @@ func nativeArguments(args []string, candidate bool) error {
 			}
 			i++
 			basis = args[i]
+		case "--qualification-scope":
+			if i+1 >= len(args) {
+				return &release.Error{Code: "SCHEMA", Detail: "missing qualification scope"}
+			}
+			i++
+			scope = args[i]
 		case "--required-platforms":
 			if platformsSet || i+1 >= len(args) {
 				return &release.Error{Code: "PLATFORMS", Detail: "missing independent platform scope"}
@@ -165,9 +172,9 @@ func nativeArguments(args []string, candidate bool) error {
 	if out == "" {
 		return &release.Error{Code: "SCHEMA", Detail: "new output required"}
 	}
-	return packageNative(input, out, basis, platforms, candidate)
+	return packageNative(input, out, basis, platforms, scope, candidate)
 }
-func packageNative(input, out, basisFile string, platforms []string, candidate bool) error {
+func packageNative(input, out, basisFile string, platforms []string, scope string, candidate bool) error {
 	root, err := os.Getwd()
 	if err != nil {
 		return err
@@ -185,7 +192,7 @@ func packageNative(input, out, basisFile string, platforms []string, candidate b
 	}
 	expected := release.Expected{Identity: release.Identity{CLIVersion: domain.Version, ProtocolVersion: domain.ProtocolVersion, CLICommit: strings.TrimSpace(string(revision)), SourceState: "committed", Bundles: map[string]release.BundleIdentity{}}, Documents: map[string][]byte{}, RepositoryRoot: root}
 	expected.RequiredPlatforms = platforms
-	expected.QualificationScope = release.LocalQualificationScope
+	expected.QualificationScope = scope
 	for _, profile := range []string{"spec", "design", "backend"} {
 		b, err := bundle.Inspect(profile)
 		if err != nil {
@@ -223,6 +230,9 @@ func packageNative(input, out, basisFile string, platforms []string, candidate b
 		}
 		if basis.SchemaVersion != 1 || !reflect.DeepEqual(basis.Identity, expected.Identity) || !reflect.DeepEqual(basis.RequiredPlatforms, platforms) {
 			return &release.Error{Code: "PROVENANCE", Detail: "independent gate basis identity or platform scope mismatch"}
+		}
+		if scope != release.LocalQualificationScope {
+			return &release.Error{Code: "SCHEMA", Detail: "gate basis is only valid for the complete-template scope"}
 		}
 		expected.QualificationScope = release.FullQualificationScope
 		expected.TemplateRoot = basis.TemplateRoot

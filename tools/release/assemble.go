@@ -598,7 +598,7 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 		if err = r.additionalCommands(receipt, version, input.Identity); err != nil {
 			return err
 		}
-		if err = r.checks(receipt.Checks, nativeChecks, p, a.Binary.SHA256); err != nil {
+		if err = r.checks(receipt.Checks, nativeChecksFor(expected.QualificationScope), p, a.Binary.SHA256); err != nil {
 			return err
 		}
 		contents[p] = bin
