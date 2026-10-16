@@ -416,6 +416,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
+			case "reading-render":
+				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
+					return e
+				}
 			case "init", "attach", "sync", "migrate", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
@@ -472,6 +476,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				}
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
+					return e
+				}
+			case "reading-render":
+				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
 			case "init", "attach", "sync", "migrate", "skills", "assets":
@@ -813,6 +821,7 @@ var nodeDelegation = []string{
 	"contract.business-tickets-source-views.v1",
 	"user-decision.result.v1",
 	"reading.views.v1",
+	"reading.render.v1",
 
 	"template-source.verify-root.v1",
 }

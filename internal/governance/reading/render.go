@@ -16,8 +16,10 @@ type ReadingBuild struct {
 	OutputOrder []string
 	Block       string
 	ProjectRefs map[string]any
-	ToolRefs    map[string]any
-	Renderer    map[string]any
+	// ProjectOrder 记录项目文件的首次发现顺序，用于清单里缺失文件行的稳定排序。
+	ProjectOrder []string
+	ToolRefs     map[string]any
+	Renderer     map[string]any
 }
 
 // FindingClass 区分策略层把构建诊断转换成哪一类错误。
@@ -78,6 +80,9 @@ func buildReading(s *kernel.SemanticSession, cpRef string) (*ReadingBuild, error
 	directory := base + "/reading"
 	b := &ReadingBuild{Outputs: map[string]string{}, ProjectRefs: map[string]any{}, ToolRefs: map[string]any{}, Renderer: map[string]any{}}
 	project := func(ref string) ([]byte, error) {
+		if _, seen := b.ProjectRefs[ref]; !seen {
+			b.ProjectOrder = append(b.ProjectOrder, ref)
+		}
 		exists, err := s.Exists(ref)
 		if err != nil {
 			return nil, err

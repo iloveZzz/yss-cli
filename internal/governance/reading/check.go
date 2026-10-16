@@ -30,7 +30,7 @@ func loadReadingPolicy(s *kernel.SemanticSession) (map[string]any, bool, error) 
 	return policy, true, nil
 }
 
-func readingRecovery(ref string) string { return "scripts/contract render --checkpoint " + ref }
+func readingRecovery(ref string) string { return "yss reading render --checkpoint " + ref }
 
 // CheckViews 只读判断 checkpoint 的阅读视图是否与当前来源一致。
 // status 取值 manual（策略未启用且未要求）、current、stale；与 Node checkReadingViews 的键一致。
@@ -120,6 +120,22 @@ func AffectedCheckpoints(s *kernel.SemanticSession, assetRef, kind string) ([]st
 		if assetRef == checkpoint || strings.HasPrefix(assetRef, base+"/") {
 			out = append(out, checkpoint)
 		}
+	}
+	return out, nil
+}
+
+// VerifyCurrent 供写路径在提交前后复核：阅读材料必须与当前原生重算逐项一致。
+func VerifyCurrent(s *kernel.SemanticSession, ref string) error { return verifyReadingCurrent(s, ref) }
+
+// ManagedCheckpoints 返回阅读策略登记的 checkpoint 列表；策略未启用 managed 时返回空集。
+func ManagedCheckpoints(s *kernel.SemanticSession) ([]string, error) {
+	policy, present, err := loadReadingPolicy(s)
+	if err != nil || !present || policy["mode"] != "managed" {
+		return []string{}, err
+	}
+	out := []string{}
+	for _, item := range kernel.SemList(policy["checkpoints"]) {
+		out = append(out, kernel.Text(item))
 	}
 	return out, nil
 }

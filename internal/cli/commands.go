@@ -39,7 +39,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check required include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
@@ -60,6 +60,8 @@ func initializeCommands() {
 	defineArgument("exit-code", "<整数>", "实际退出码；成功状态必须为 0")
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("asset", "<路径>", "发生变化的项目内资产路径")
+	argumentSpecs["all"] = argumentSpec{description: "对策略登记的全部对象逐个执行；与指定单个对象互斥", boolean: true}
+	argumentSpecs["dry-run"] = argumentSpec{description: "只返回将写的文件与摘要，不写任何文件", boolean: true}
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
 	defineArgument("mode", "<模式>", "业务票报告模式；默认 draft", "draft", "formal")

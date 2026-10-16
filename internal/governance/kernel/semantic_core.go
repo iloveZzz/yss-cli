@@ -70,18 +70,21 @@ type SemanticReport struct {
 }
 
 type SemanticSession struct {
-	Ctx           context.Context     `json:"-" yaml:"-"`
-	Root          string              `json:"-" yaml:"-"`
-	V             *View               `json:"-" yaml:"-"`
-	Args          map[string]string   `json:"-" yaml:"-"`
-	CheckpointRef string              `json:"-" yaml:"-"`
-	Registry      map[string]any      `json:"-" yaml:"-"`
-	Roles         map[string]any      `json:"-" yaml:"-"`
-	Report        *SemanticReport     `json:"-" yaml:"-"`
-	Scans         map[string][]string `json:"-" yaml:"-"`
-	active        map[string]bool
-	ExternalViews map[string]*View  `json:"-" yaml:"-"`
-	Aliases       map[string]string `json:"-" yaml:"-"`
+	Ctx           context.Context   `json:"-" yaml:"-"`
+	Root          string            `json:"-" yaml:"-"`
+	V             *View             `json:"-" yaml:"-"`
+	Args          map[string]string `json:"-" yaml:"-"`
+	CheckpointRef string            `json:"-" yaml:"-"`
+	// InsideTransaction 只供事务提交回调使用：回调运行时本事务必然处于未完成状态，
+	// 因此权威加载不再把 Go 事务待处理当作拒绝原因。默认 false，其余调用方不受影响。
+	InsideTransaction bool                `json:"-" yaml:"-"`
+	Registry          map[string]any      `json:"-" yaml:"-"`
+	Roles             map[string]any      `json:"-" yaml:"-"`
+	Report            *SemanticReport     `json:"-" yaml:"-"`
+	Scans             map[string][]string `json:"-" yaml:"-"`
+	active            map[string]bool
+	ExternalViews     map[string]*View  `json:"-" yaml:"-"`
+	Aliases           map[string]string `json:"-" yaml:"-"`
 	// All source sessions share these observations, including immutable Handoff payloads.
 	Children          []*SemanticSession `json:"-" yaml:"-"`
 	gitInputs         map[string]semanticGitObservation
@@ -828,7 +831,7 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 		if err != nil {
 			return s.Unavailable("INPUT", err.Error())
 		}
-		if len(status.Pending) > 0 || len(status.Preparations) > 0 {
+		if !s.InsideTransaction && (len(status.Pending) > 0 || len(status.Preparations) > 0) {
 			return s.Reject("TRANSACTION_PENDING", "存在未完成 Go 事务，先恢复")
 		}
 	}
