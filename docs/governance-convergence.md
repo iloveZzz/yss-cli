@@ -212,11 +212,29 @@
 
 结果记录在实现 PR 的说明里，并回写本节。
 
-## 7. 辅助证据：模板固定提交的 Node 测试对基线二进制的结果
+## 7. 辅助证据：模板固定提交的 Node 测试对二进制的结果
 
-仅作发现问题的线索，不是验收：在基线二进制（`0d8a752` 构建）上运行模板固定提交 `tests/` 中涉及 `yss` 的文件，`YSS_NATIVE_BINARY` 指向该二进制。
+仅作发现问题的线索，不是验收，也不恢复本仓的测试体系：把模板固定提交 `981f7399` 展开到仓外临时目录，对其 `tests/` 里涉及 `yss` 的文件逐个执行 `node --test`，`YSS_NATIVE_BINARY` 指向被测二进制（Node 仅开发期使用）。被测二进制由 `main@0d8a752` 构建。
 
-（结果在批 1 PR 说明里补充；运行环境需要真实 `HOME` 下的 Python `jsonschema`，否则会出现与产品无关的 `python3 EPIPE` 失败。）
+| 测试文件 | 通过/失败 | 说明 |
+|---|---|---|
+| `go-validator-replay` | 5/0 | 薄壳回放：用户决定、批准记录、任务包、能力协商 |
+| `business-ticket-native-report` | 18/0 | 业务票报告与严格消费者（对应 §4 第 18、32 条） |
+| `project-ci` | 15/0 | |
+| `implementation-candidate-current` | 23/0 | |
+| `native-context-retirement` | 6/0 | |
+| `ensure-native-yss`、`harness-skill-scope`、`verification-preflight`、`yss-cli-pin`、`specialist-business-inputs` | 全部通过 | |
+| `cli-core-retirement` | 1/1 | 失败：测试调用 `yss migrate`，2.3.1 已移除该命令（返回 `ARGUMENT`）。模板测试与 2.3.1 基线不一致 |
+| `cli-retirement` | 11/2 | 失败 1：断言固定二进制是 2.2.0 的摘要；失败 2：同 `yss migrate` |
+| `verification-artifacts` | 4/1 | 同 `yss migrate` |
+| `progression-target-evidence` | 0/1 | 夹具使用 Handoff v3，2.3.1 起返回 `MIGRATION_REQUIRED`（前代协议已不再支持），与测试预期的错误不符 |
+| `native-consumer-routing` | 0/1 | 缺 `.agents/skills/harness-orchestrator/...` 夹具文件，未定位 |
+| `verification-report-v2`、`runtime-store-integration` | 各 1 个失败 | 需要 git 工作树，`git archive` 展开的目录没有 `.git`；与产品无关 |
+| `native-instance-drift` | 37/27 | `INSTANCE_DISTRIBUTION: Skill 平台范围与实例运行时不一致`，来自夹具拼装模板文件，未定位 |
+
+结论：与 `yss` 治理校验直接相关的回放（用户决定、批准、任务包、业务票、project-ci、候选当前性）全部通过；失败项来自模板测试与 2.3.1 基线的不一致（固定 2.2.0 摘要、已移除的 `migrate`、已不再支持的 Handoff v3）或展开环境，**与本阶段的规则收敛无关，但会在阶段二调整模板测试与固定档时遇到**。
+
+运行环境注意：需要真实 `HOME` 下的 Python `jsonschema`，否则会出现与产品无关的 `python3 EPIPE`（本次首次运行因此误判过一个失败，已重跑）。
 
 ## 8. 未验证与限制
 
