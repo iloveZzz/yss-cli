@@ -245,7 +245,12 @@ func readingNames(n *readingNode, registry, roles map[string]any) map[string]str
 
 // BuildReading 是策略层：构建诊断按原有错误码转换为拒绝（退出码 1）或不可用（退出码 2）。
 func BuildReading(s *kernel.SemanticSession, cpRef string) (*ReadingBuild, error) {
-	result, err := RenderReading(s, cpRef)
+	return BuildReadingMode(s, cpRef, false)
+}
+
+// BuildReadingMode 与 BuildReading 相同，v2 为真时按 v2 清单构建（无渲染器闭包）。
+func BuildReadingMode(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingBuild, error) {
+	result, err := RenderReadingMode(s, cpRef, v2)
 	if err != nil {
 		return nil, err
 	}

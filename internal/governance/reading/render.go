@@ -58,7 +58,13 @@ type ReadingResult struct {
 // RenderReading 只构建，不做拒绝决策。读取与会话错误原样返回；
 // 构建诊断放进 Finding，由调用方策略决定如何处理。
 func RenderReading(s *kernel.SemanticSession, cpRef string) (*ReadingResult, error) {
-	b, err := buildReading(s, cpRef)
+	return RenderReadingMode(s, cpRef, false)
+}
+
+// RenderReadingMode 的 v2 为真时构建 v2 清单对应的结果：不读取、不登记 Node 渲染器闭包，
+// 依赖只含项目文件与渲染所读的 Schema。
+func RenderReadingMode(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingResult, error) {
+	b, err := buildReading(s, cpRef, v2)
 	if err != nil {
 		if finding, ok := err.(*ReadingFinding); ok {
 			return &ReadingResult{Finding: finding}, nil
@@ -68,7 +74,7 @@ func RenderReading(s *kernel.SemanticSession, cpRef string) (*ReadingResult, err
 	return &ReadingResult{Build: b}, nil
 }
 
-func buildReading(s *kernel.SemanticSession, cpRef string) (*ReadingBuild, error) {
+func buildReading(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingBuild, error) {
 	checkpoint, err := s.Doc(cpRef)
 	if err != nil {
 		return nil, err
@@ -342,8 +348,10 @@ func buildReading(s *kernel.SemanticSession, cpRef string) (*ReadingBuild, error
 	}
 	lines = append(lines, "", "以上为来源快照；提交审阅或交接前运行 `scripts/contract check-views --checkpoint "+cpRef+"`。", "<!-- YSS-READING:END -->")
 	b.Block = strings.Join(lines, "\n")
-	if err = b.readingToolClosure(s); err != nil {
-		return nil, err
+	if !v2 {
+		if err = b.readingToolClosure(s); err != nil {
+			return nil, err
+		}
 	}
 	if err = b.readingToolSchema(s, ".template-spec/process/schemas/reading-manifest.schema.json", map[string]bool{}); err != nil {
 		return nil, err
@@ -423,7 +431,18 @@ func (b *ReadingBuild) readingToolClosure(s *kernel.SemanticSession) error {
 		}
 		return nil
 	}
+	toolSession, err := s.ToolSourceSession()
+	if err != nil {
+		return err
+	}
 	for _, ref := range []string{"scripts/lib/reading-view-bundle.mjs", "scripts/contract"} {
+		exists, err := toolSession.Exists(ref)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return readingReject("READING_MANIFEST_MIGRATION_REQUIRED", "v1 阅读清单需要实例自带的 Node 渲染器闭包，但缺少 "+ref+"；请迁移到 v2 清单（yss reading render）")
+		}
 		if err := visit(ref); err != nil {
 			return err
 		}
