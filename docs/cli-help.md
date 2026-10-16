@@ -66,6 +66,7 @@ Profile 职责:
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
+    reading          只读核验或查询 managed 阅读视图。
     contract         校验 contract 的结构或原生领域语义。
     evidence         校验 evidence 的结构或原生领域语义。
     handoff          校验 handoff 的结构或原生领域语义。
@@ -789,6 +790,9 @@ YSS 离线入门教程
 | `project-ci plan` | 生成有限原生 CI 安装计划。 | `yss help examples project-ci plan` |
 | `project-ci transition` | 核验工作单元流转条件。 | `yss help examples project-ci transition` |
 | `project-ci verify` | 按完整 Git 基线核验 CI。 | `yss help examples project-ci verify` |
+| `reading` | 只读核验或查询 managed 阅读视图。 | `yss help examples reading` |
+| `reading affected` | 列出受某个资产变化影响的 managed checkpoint。 | `yss help examples reading affected` |
+| `reading check-views` | 只读核验 checkpoint 的阅读视图是否与当前来源一致。 | `yss help examples reading check-views` |
 | `recover` | 查询或恢复未完成的项目事务。 | `yss help examples recover` |
 | `rollback` | 查询或整体回退最近一次成功项目事务。 | `yss help examples rollback` |
 | `runtime` | 管理独立运行记录与保护标记。 | `yss help examples runtime` |
@@ -3969,6 +3973,142 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples project-ci verify
+```
+
+### reading
+
+```text
+yss 2.3.1 — reading
+──────────────────────
+只读核验或查询 managed 阅读视图。
+
+用法: yss reading <子命令> --root <目录>
+
+子命令:
+affected  列出受某个资产变化影响的 managed checkpoint。
+check-views  只读核验 checkpoint 的阅读视图是否与当前来源一致。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+阅读视图是来源快照，不授予执行权限；当前只提供只读命令。
+
+最小示例:
+yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading
+```
+
+### reading affected
+
+```text
+yss 2.3.1 — reading affected
+──────────────────────
+列出受某个资产变化影响的 managed checkpoint。
+
+用法: yss reading affected --root <目录> --asset <路径> --kind <domain-strategy|stage-decision-package|checkpoint|tracking-migration>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+未启用 managed 策略时返回空集。
+
+最小示例:
+yss reading affected --root ./demo-spec --asset .work/feature/plan/domain-strategy.yaml --kind domain-strategy --json
+
+参数:
+  --asset <路径>                  发生变化的项目内资产路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+--asset  变化的资产路径
+--kind  资产类型；其他类型返回空集
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading affected
+```
+
+### reading check-views
+
+```text
+yss 2.3.1 — reading check-views
+──────────────────────
+只读核验 checkpoint 的阅读视图是否与当前来源一致。
+
+用法: yss reading check-views --root <目录> --checkpoint <文件> [--required]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+status 为 manual（未启用）、current 或 stale；stale 以退出码 1 返回，结果含 blockers 与恢复提示。
+
+最小示例:
+yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
+  --required                      即使 managed 策略未启用也按阅读视图要求核验
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|design|backend>  必需或从项目身份检测
+--checkpoint  已登记的 checkpoint
+--required  即使策略未启用也按 managed 要求核验
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading check-views
 ```
 
 ### recover
@@ -7614,6 +7754,136 @@ NOT_FOUND — 项目身份或路径无法核验
 处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_IDENTITY
+
+```text
+READING_IDENTITY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_ASSET
+
+```text
+READING_ASSET — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_CYCLE
+
+```text
+READING_CYCLE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_SOURCE_DRIFT
+
+```text
+READING_SOURCE_DRIFT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_SOURCE_BLOCKED
+
+```text
+READING_SOURCE_BLOCKED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_INCOMPLETE
+
+```text
+READING_INCOMPLETE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_STALE
+
+```text
+READING_MANIFEST_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_OUTPUT_STALE
+
+```text
+READING_OUTPUT_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_NAVIGATION_STALE
+
+```text
+READING_NAVIGATION_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_STALE
+
+```text
+READING_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
 ```
 

@@ -812,6 +812,7 @@ var nodeDelegation = []string{
 	"contract.scaffold-user-decision.v1",
 	"contract.business-tickets-source-views.v1",
 	"user-decision.result.v1",
+	"reading.views.v1",
 
 	"template-source.verify-root.v1",
 }
