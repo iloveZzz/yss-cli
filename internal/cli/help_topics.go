@@ -146,6 +146,10 @@ func registerGovernanceHelp() {
 	}
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes, true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
+	registerGroup("reading", "只读核验或查询 managed 阅读视图。", "--root <目录>", projectFlags, "yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", governanceNotes+"\n阅读视图是来源快照，不授予执行权限；当前只提供只读命令。", map[string]helpTopic{
+		"check-views": {"只读核验 checkpoint 的阅读视图是否与当前来源一致。", "--checkpoint <文件> [--required]", "--checkpoint  已登记的 checkpoint\n--required  即使策略未启用也按 managed 要求核验", "yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", "status 为 manual（未启用）、current 或 stale；stale 以退出码 1 返回，结果含 blockers 与恢复提示。", false},
+		"affected":    {"列出受某个资产变化影响的 managed checkpoint。", "--asset <路径> --kind <domain-strategy|stage-decision-package|checkpoint|tracking-migration>", "--asset  变化的资产路径\n--kind  资产类型；其他类型返回空集", "yss reading affected --root ./demo-spec --asset .work/feature/plan/domain-strategy.yaml --kind domain-strategy --json", "未启用 managed 策略时返回空集。", false},
+	})
 	for _, group := range []string{"contract", "evidence", "handoff"} {
 		kinds := "slice|scaffold|task|openapi-validation|backend-delivery-terminal|scaffold-decisions|slice-preflight|business-tickets|plan-entry|implementation-scope|checkpoint-user-decisions|checkpoint-approvals|gate-checks|spec-baseline-binding|scaffold-user-decision"
 		example := "yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json"

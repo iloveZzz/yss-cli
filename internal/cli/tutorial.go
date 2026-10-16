@@ -47,7 +47,7 @@ func prerequisite(key string) string {
 		return "已有普通工程；先检查定制与受管范围，再保存接管计划。"
 	case "version", "capabilities", "bundle", "upgrade", "update":
 		return "无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。"
-	case "contract", "evidence", "handoff", "stage":
+	case "contract", "evidence", "handoff", "stage", "reading":
 		return "合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。"
 	case "lifecycle":
 		return "查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。"
@@ -62,7 +62,7 @@ func prerequisite(key string) string {
 
 func exampleKind(key string) string {
 	group := strings.Fields(key)[0]
-	if group == "contract" || group == "evidence" || group == "handoff" || group == "stage" || strings.Contains(key, "lifecycle verify") || key == "lifecycle status" || key == "lifecycle target" || key == "lifecycle route" || group == "compat-api" {
+	if group == "contract" || group == "evidence" || group == "handoff" || group == "stage" || group == "reading" || strings.Contains(key, "lifecycle verify") || key == "lifecycle status" || key == "lifecycle target" || key == "lifecycle route" || group == "compat-api" {
 		return "需要当前资产"
 	}
 	return "直接运行（替换路径；写入示例在独立演示目录执行）"
@@ -102,7 +102,7 @@ func nextReading(key string) string {
 		return "yss doctor --help；核对身份后用 lifecycle 查询当前入口。"
 	case "doctor", "diff", "sync", "recover", "rollback":
 		return "根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。"
-	case "contract", "stage", "evidence", "handoff", "lifecycle", "project-ci":
+	case "contract", "stage", "reading", "evidence", "handoff", "lifecycle", "project-ci":
 		return "yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。"
 	case "upgrade", "update":
 		return "yss update status --help；程序来源一致后，独立规划项目模板同步。"
@@ -121,6 +121,9 @@ func commonErrorCodes(key string) []string {
 	}
 	if group == "upgrade" || group == "update" {
 		return []string{"ARGUMENT", "NETWORK", "ARTIFACT", "INSTALLATION", "INTERRUPTED", "CONCURRENT", "VERSION"}
+	}
+	if group == "reading" {
+		return []string{"ARGUMENT", "IDENTITY", "INPUT", "SCHEMA_VALIDATION", "READING_STALE", "UNPORTED"}
 	}
 	if group == "contract" || group == "evidence" || group == "handoff" || group == "lifecycle" || group == "stage" || group == "project-ci" {
 		return []string{"ARGUMENT", "IDENTITY", "INPUT", "SCHEMA_VALIDATION", "GOVERNED_REQUIRED", "UNPORTED"}

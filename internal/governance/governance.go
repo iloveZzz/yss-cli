@@ -71,6 +71,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if semantic {
 		return semanticRun(ctx, group, action, root, args)
 	}
+	if group == "reading" {
+		return readingRun(ctx, action, root, args)
+	}
 	if group == "lifecycle" && (action == "route" || action == "verify-daily") {
 		return lifecycle.Run(ctx, action, root, args)
 	}
@@ -150,6 +153,10 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
 		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "unit", "slice", "phase", "mode", "review-ref", "no-reconciliation", "source-context-snapshot")
+	case "reading.check-views":
+		allowed = append(allowed, "checkpoint", "required")
+	case "reading.affected":
+		allowed = append(allowed, "asset", "kind")
 	case "archive.pack", "archive.unpack":
 		allowed = append(allowed, "source", "file", "output", "arg0")
 	case "archive.verify":

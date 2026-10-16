@@ -26,26 +26,24 @@ func readingDependencyScope(s *kernel.SemanticSession, toolRef string) (string, 
 func init() { kernel.RegisterSemanticValidator("reading-transition", verifyReadingTransitionSemantic) }
 
 func verifyReadingTransitionSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
-	const policyRef = ".template-spec/process/reading-policy.yaml"
-	exists, err := s.Exists(policyRef)
+	policy, present, err := loadReadingPolicy(s)
 	if err != nil {
 		return err
 	}
-	if !exists {
+	if !present {
 		s.Report.Applicability = append(s.Report.Applicability, map[string]any{"id": "reading-views", "status": "not-applicable", "reason": "项目未启用 managed 阅读视图"})
 		return nil
-	}
-	policy, err := s.Doc(policyRef)
-	if err != nil {
-		return err
-	}
-	if err = s.ValidateSchema(".template-spec/process/schemas/reading-policy.schema.json", policy); err != nil {
-		return err
 	}
 	if policy["mode"] != "managed" || !kernel.SemHas(policy["checkpoints"], ref) {
 		s.Report.Applicability = append(s.Report.Applicability, map[string]any{"id": "reading-views", "status": "not-applicable", "reason": "当前 checkpoint 不要求 managed 阅读视图"})
 		return nil
 	}
+	return verifyReadingCurrent(s, ref)
+}
+
+// verifyReadingCurrent 要求 checkpoint 的 managed 阅读材料与当前原生重算逐项一致。
+// 它不判断策略是否启用；策略门禁由调用方负责。
+func verifyReadingCurrent(s *kernel.SemanticSession, ref string) error {
 	cp, err := s.Doc(ref)
 	if err != nil {
 		return err
