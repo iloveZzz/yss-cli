@@ -49,6 +49,13 @@ type Options struct {
 
 	// Source overrides the embedded Spec Bundle (nil uses BundleSource).
 	Source Source
+
+	// PlatformCatalog replaces the Bundle's platform catalog and AllowCandidate
+	// accepts platform combinations that are not qualified (the manifest then
+	// records platform_verification=candidate). They exist for maintenance
+	// parity runs; the CLI never sets them.
+	PlatformCatalog []byte
+	AllowCandidate  bool
 }
 
 // Result describes a generated project.

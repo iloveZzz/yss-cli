@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-const dddAssets = ".agents/skills/yss-ddd-scaffold-generator/assets"
+const (
+	dddSkillRoot = ".agents/skills/yss-ddd-scaffold-generator"
+	dddAssets    = dddSkillRoot + "/assets"
+)
 
 var userOwnedGlobs = []any{"**/src/main/java/**", "**/src/test/java/**", "db/**"}
 

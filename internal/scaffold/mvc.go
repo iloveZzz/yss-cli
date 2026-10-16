@@ -67,6 +67,9 @@ func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
 		return nil, err
 	}
 	g := &mvcGen{src: src, o: o}
+	if err := g.preflight(); err != nil {
+		return nil, err
+	}
 	final := filepath.Join(o.OutputDir, o.ProjectName)
 	gitRoot := findGitRoot(final)
 	if gitRoot == "" {

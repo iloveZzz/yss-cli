@@ -43,6 +43,10 @@ func loadCatalog(src Source) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseCatalog(data)
+}
+
+func parseCatalog(data []byte) (*Catalog, error) {
 	parsed, err := ParseJSON(data)
 	if err != nil {
 		return nil, fail("backend-platform: invalid catalog")
