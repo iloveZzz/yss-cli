@@ -90,7 +90,7 @@ func verifyResearchCompletionSemantic(s *kernel.SemanticSession, ref string, opt
 		if err = s.Basis(inputs["competitive"]); err != nil {
 			return err
 		}
-		if !kernel.ApEqual(inputs["competitive"], expected) {
+		if !kernel.ApEqual(researchBindingDigests(inputs["competitive"]), expected) {
 			return s.Reject("RESEARCH_BINDING", "竞品输入闭包不匹配")
 		}
 	}
@@ -120,6 +120,32 @@ func verifyResearchCompletionSemantic(s *kernel.SemanticSession, ref string, opt
 		}
 	}
 	return nil
+}
+
+// Records written by the template bind digests as "sha256:<hex>"; the native
+// closure carries bare hex. Compare the digest values, not their spelling.
+func researchBindingDigests(value any) any {
+	rows, ok := value.([]any)
+	if !ok {
+		return value
+	}
+	out := make([]any, len(rows))
+	for i, row := range rows {
+		m, ok := kernel.Object(row)
+		if !ok {
+			out[i] = row
+			continue
+		}
+		copied := make(map[string]any, len(m))
+		for k, v := range m {
+			copied[k] = v
+		}
+		if digest, ok := copied["digest"].(string); ok {
+			copied["digest"] = strings.TrimPrefix(digest, "sha256:")
+		}
+		out[i] = copied
+	}
+	return out
 }
 
 func researchIndex(s *kernel.SemanticSession, value any, label string, nonempty bool) (map[string]map[string]any, error) {
