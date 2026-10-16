@@ -205,18 +205,6 @@ func registerGovernanceHelp() {
 		"inspect": {"读取 Maven project 结构。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml inspect --root ./demo-backend --file pom.xml --json", "", true},
 		"query":   {"查询 Maven project 读取结果。", "--file <文件>", "--file  项目本地 Maven XML，大小上限 16 MiB", "yss xml query --root ./demo-backend --file pom.xml --json", "", true},
 	})
-	helpTopics["compat"] = helpTopic{"显式旧命令兼容适配。", "<旧命令> [参数]", "旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend", "yss compat create-yss-spec --help", "仅维护已登记兼容行为；新增用户操作优先使用原生 yss 命令。未迁移行为返回明确错误，详见 compat/README.md。", true}
-	helpTopics["compat-api"] = helpTopic{"供现役 JavaScript 消费者使用的原生传输接口。", "<API标识>", "从 stdin 读取版本化请求 JSON", "yss help compat-api", "调用形状见 compat/README.md；不复刻无人消费的私有 CommonJS API。", true}
-	for _, p := range []string{"spec", "design", "backend"} {
-		alias := "create-yss-harness-" + p
-		if p == "spec" {
-			alias = "create-yss-spec"
-		}
-		helpTopics["compat "+alias] = helpTopic{"固定旧别名的显式原生适配。", "--native <命令> [参数]", "--native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED", "yss compat " + alias + " --native doctor --target-dir ./demo-" + p + " --json", "优先使用 yss doctor --root；兼容说明见 compat/README.md。", true}
-	}
-	for _, method := range []string{"native.snapshot", "native.run", "toErrorEnvelope", "projectDoctor", "projectDiff", "templatePlan", "templateApply"} {
-		helpTopics["compat-api "+method] = helpTopic{"版本化兼容传输方法。", "< request.json", "stdin  单个 JSON object，上限 4 MiB", "yss compat-api " + method + " < request.json", "请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。", false}
-	}
 }
 
 func dailyHelp(summary, action string) helpTopic {

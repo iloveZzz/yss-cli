@@ -47,8 +47,6 @@ func prerequisite(key string) string {
 		return "已有普通工程；先检查定制与受管范围，再保存接管计划。"
 	case "version", "capabilities", "bundle", "upgrade", "update":
 		return "无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。"
-	case "compat", "compat-api":
-		return "固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。"
 	case "contract", "evidence", "handoff", "stage":
 		return "合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。"
 	case "lifecycle":

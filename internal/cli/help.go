@@ -138,7 +138,7 @@ func rootHelp() string {
 		{"Git", []string{"git"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"context", "lifecycle", "stage", "contract", "evidence", "handoff", "project-ci"}},
-		{"工具", []string{"runtime", "archive", "xml", "compat", "compat-api"}},
+		{"工具", []string{"runtime", "archive", "xml"}},
 	} {
 		fmt.Fprintf(&out, "  [%s]\n", group.label)
 		for _, name := range group.names {

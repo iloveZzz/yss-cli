@@ -164,9 +164,6 @@ func initializeCommands() {
 			if len(parts) == 1 || parts[1] == "export" {
 				opts = append(opts, "out")
 			}
-		case "compat", "compat-api":
-			// Compatibility dispatchers retain their frozen flag contracts.
-			opts = []string{"help", "json", "version", "native"}
 		case "version", "capabilities":
 		case "contract", "evidence", "handoff", "lifecycle":
 			if len(parts) > 1 && parts[1] == "verify" {
@@ -385,7 +382,7 @@ func validateArguments(command string, o options) error {
 	if len(o.args) > 2 && !spec.help.positional {
 		return argumentError("命令 " + key + " 不接受额外位置参数")
 	}
-	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "compat" && command != "git" {
+	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" {
 		positional := false
 		for _, k := range governance.ArgumentKeys(command, o.args[1]) {
 			if k == "arg0" {
