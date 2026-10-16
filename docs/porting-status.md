@@ -14,7 +14,7 @@
 | runtime | 纯 Go SQLite v1，inspect/begin/event/complete；run/events/commands/pins 只读查询；Go token 的幂等 pin/unpin，终态可用 | inputs/reports/checkpoint/清理、备份/恢复等旧能力仍走旧路径；只读 WAL 明确拒绝，避免生成 sidecar；保护标记不删除证据、不授予批准 |
 | project-ci | 默认完整治理；显式 `--scope native-go` 保留有限检查；完整范围包含 checkpoint/task/approval/next-route/Slice/scaffold/验证证据/Handoff/evidence refs/基线保护 | 本批完整检查仅支持 runtime-store off，默认旧工作流不切换 |
 | 四旧入口及 Spec JS API | 历史 discovery/拒绝与显式 native transport | 按消费者迁移至版本化 envelope；无人消费的旧成功 schema/API 不全量仿制 |
-| 插件 | 固定二进制、bundle inspect/export、事务绑定 init/migrate/sync/recover/rollback | 固定来源打包、旧实例桥接、实际取消/恢复/回退和完整交接验收闭合后发行 |
+| 插件 | 固定二进制、bundle inspect/export、事务绑定 init/sync/recover/rollback | 固定来源打包、旧实例桥接、实际取消/恢复/回退和完整交接验收闭合后发行 |
 
 Schema 已固定 `jsonschema/v6`、`yaml/v3`、Unicode15 Python 字符类和离线引用闭包。差分语料包含现实 Schema、JSON/YAML 标量、format、动态/嵌套 ID 引用。旧 Python 环境缺少可选 date-time checker 时的误接受在 Go 中严格拒绝，属于显式兼容差异。高级正则不能支持时明确拒绝，不静默放宽。
 

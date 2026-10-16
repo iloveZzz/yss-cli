@@ -37,4 +37,4 @@ yss skills ensure code-review codebase-design --root /path/to/project --apply --
 
 既有任务授权覆盖范围且计划无冲突才应用；安装后重新 resolve。整体 ready 后，在当前会话读取 `entryPath` 并记录 `contentDigest`，不依赖原生技能目录刷新。`invocation.invocation_mode=user` 仍需用户明确调用；就绪不授予业务批准、阶段资格或实施权限。文件变化后重验。
 
-受管文件丢失、内容/权限/投影漂移、路径占用、来源不匹配均为 blocked，不强制覆盖、隐式 sync 或 migrate。1.3.4 将新指引绑定到已提交的固定 Bundle；新建实例直接消费。既有实例需显式核验并通过 sync 更新受管指引，不在查询时隐式升级。当前发行及原生验收范围为 darwin/arm64，运行时就绪核验仅支持 Codex；其他平台与运行时未取得本次验收资格。
+受管文件丢失、内容/权限/投影漂移、路径占用、来源不匹配均为 blocked，不强制覆盖或隐式 sync。1.3.4 将新指引绑定到已提交的固定 Bundle；新建实例直接消费。既有实例需显式核验并通过 sync 更新受管指引，不在查询时隐式升级。当前发行及原生验收范围为 darwin/arm64，运行时就绪核验仅支持 Codex；其他平台与运行时未取得本次验收资格。

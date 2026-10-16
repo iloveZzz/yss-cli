@@ -11,7 +11,7 @@ go run ./tools/package --native-manifest INPUT.json --required-platforms darwin/
 
 ## 本机程序安装范围（`local-platform-program-install`）
 
-2.3.0 起新增更窄的资格范围，用 `go run ./tools/package --native-manifest INPUT.json --qualification-scope local-platform-program-install --required-platforms darwin/arm64 NEW_RELEASE_DIR` 选择；默认仍是 `local-platform-impacted-consumers`。该范围只要求：
+2.3.1 起新增更窄的资格范围，用 `go run ./tools/package --native-manifest INPUT.json --qualification-scope local-platform-program-install --required-platforms darwin/arm64 NEW_RELEASE_DIR` 选择；默认仍是 `local-platform-impacted-consumers`。该范围只要求：
 
 * 每个所选平台的原生 receipt 含同 binary 的 version envelope 与 spec/design/backend 三个 bundle inspect 原始 envelope，`checks` 为空数组（不要求 `native-smoke`、`native-recovery`、`plugin-native-smoke`）；
 * 同源 `releaseGate` 的唯一 check 为 `program-installation`，沿用上文的五个固定 case、候选归档物理 SHA、公开 `update plan/apply/rollback/recover` 实际执行与 payload 摘要校验。

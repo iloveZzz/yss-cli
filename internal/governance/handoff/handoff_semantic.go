@@ -514,7 +514,7 @@ func HandoffSourceAuthorities(s *kernel.SemanticSession, ref string) error {
 	}
 	protocol, valid := kernel.Integer(handoff["schema_version"])
 	if valid && protocol == 3 {
-		return s.Unavailable("MIGRATION_REQUIRED", "Handoff v3 仅支持 migrate --migration-kind asset-schema")
+		return s.Unavailable("MIGRATION_REQUIRED", "Handoff v3 为前代协议，已不再支持；请使用当前协议重新生成")
 	}
 	if !valid || protocol < 4 || protocol > 5 {
 		return s.Unavailable("CAPABILITY", "未知 Handoff 协议")
@@ -538,7 +538,7 @@ func ContractInspectHandoff(s *kernel.SemanticSession, ref string) (*NativeHando
 	}
 	n := kernel.ContractN(h["schema_version"])
 	if n == 3 {
-		return nil, s.Unavailable("MIGRATION_REQUIRED", "Handoff v3 仅支持 migrate --migration-kind asset-schema")
+		return nil, s.Unavailable("MIGRATION_REQUIRED", "Handoff v3 为前代协议，已不再支持；请使用当前协议重新生成")
 	}
 	if !kernel.SemHas([]string{"4", "5"}, strconv.Itoa(n)) {
 		return nil, s.Unavailable("CAPABILITY", "未知 Handoff 协议")

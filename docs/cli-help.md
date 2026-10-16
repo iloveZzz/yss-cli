@@ -8,7 +8,7 @@
 ## 入口导航
 
 ```text
-yss 2.3.0 — Spec / Design / Backend 统一入口
+yss 2.3.1 — Spec / Design / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
@@ -45,11 +45,10 @@ Profile 职责:
     init             创建固定模板来源的项目实例。
     scaffold         直接生成 DDD 或分层 MVC 后端工程。
     profile          准备独立的下游 Profile 工程并登记显式关联。
-    attach           首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。
+    attach           首次接管已有工程的模板受管资产；使用 sync 同步模板。
     doctor           检查项目身份、受管基线和冲突。
     diff             查看当前文件相对固定模板的差异和同步计划。
     sync             将项目模板升级到本 CLI 内置固定 Bundle。
-    migrate          显式迁移旧实例 metadata、受管基线及 binding。
     recover          查询或恢复未完成的项目事务。
     rollback         查询或整体回退最近一次成功项目事务。
   [资源]
@@ -75,8 +74,6 @@ Profile 职责:
     runtime          管理独立运行记录与保护标记。
     archive          安全打包、读取或核验 ZIP 资产。
     xml              读取 Maven project XML。
-    compat           显式旧命令兼容适配。
-    compat-api       供现役 JavaScript 消费者使用的原生传输接口。
   help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程
 
 项目常用参数（程序升级不接受这些参数）:
@@ -95,7 +92,7 @@ Profile 职责:
 按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|maintenance
 示例索引: yss help examples [命令/子命令]
 错误索引: yss help errors [错误码]
-入口区别: upgrade 升级程序；sync 同步模板；migrate 迁移旧实例；recover 恢复未完成事务；rollback 回退最近成功事务。
+入口区别: upgrade 升级程序；sync 同步模板；recover 恢复未完成事务；rollback 回退最近成功事务。
 能力与限制: yss capabilities --json；未迁移行为返回 UNPORTED。
 帮助不读取项目、不访问网络、不创建资产。
 
@@ -643,9 +640,9 @@ Profile backend
 
 ```text
 维护与恢复
-前置条件：分别确认程序、项目模板、旧实例及插件绑定的来源与事务范围。
-程序升级：upgrade；模板同步：sync；旧实例迁移：migrate。
-普通 recover/rollback 默认只读，增加 --apply 执行；migrate recover/rollback 与 update recover/rollback 本身写入。
+前置条件：分别确认程序、项目模板及插件绑定的来源与事务范围。
+程序升级：upgrade；模板同步：sync。
+普通 recover/rollback 默认只读，增加 --apply 执行；update recover/rollback 本身写入。
 先核对状态及归档，在已确认范围内恢复。已绑定插件使用对应插件 project-upgrade-plan/apply 或 project-migration-plan/apply。
 预期结果：计划、应用与恢复均绑定实际输入；后续用户修改阻止覆盖。
 下一步：核对 doctor/diff 或 update status，保留本次真实验证与恢复材料。
@@ -675,14 +672,7 @@ YSS 离线入门教程
    yss assets list --root ./demo-spec --json
    使用 list 的实际标识；阶段资源以当前 Profile 登记为准。
 
-5. 旧实例迁移
-   yss doctor --root ./old-project --json
-   yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
-   yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --json
-   yss migrate rollback --root ./old-project --json
-   旧未完成事务先由对应仓外固定旧执行器恢复，不能跳过恢复直接迁移。
-
-6. 升级 CLI 程序
+5. 升级 CLI 程序
    yss upgrade --check
    yss upgrade
    yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
@@ -701,7 +691,7 @@ YSS 离线入门教程
    yss update recover --tool-root ./tools/yss --json
    yss update rollback --tool-root ./tools/yss --json
    自动安装用户应使用 upgrade 输出的 toolRoot，示例目录只是显式安装案例。
-   后续用户修改会阻止覆盖；程序事务与项目 sync/migrate 事务分别恢复。
+   后续用户修改会阻止覆盖；程序事务与项目 sync 事务分别恢复。
 
    出现“受管程序文件与安装清单不一致”时：
    先对错误中实际 toolRoot 执行 update status，查看 diagnostic.files 的
@@ -744,23 +734,11 @@ YSS 离线入门教程
 | `assets` | 查询或补装 阶段资源和 Skill 闭包。 | `yss help examples assets` |
 | `assets ensure` | 补装指定 阶段资源和 Skill 闭包。 | `yss help examples assets ensure` |
 | `assets list` | 列出当前 Profile 支持的标识。 | `yss help examples assets list` |
-| `attach` | 首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。 | `yss help examples attach` |
+| `attach` | 首次接管已有工程的模板受管资产；使用 sync 同步模板。 | `yss help examples attach` |
 | `bundle` | 读取或导出完整固定 Bundle 与 manifest。 | `yss help examples bundle` |
 | `bundle export` | 导出 Bundle 全部 bytes、mode 和 manifest。 | `yss help examples bundle export` |
 | `bundle inspect` | 检查 Bundle 身份、来源及摘要。 | `yss help examples bundle inspect` |
 | `capabilities` | 查看原生能力、治理接口与发行证据边界。 | `yss help examples capabilities` |
-| `compat` | 显式旧命令兼容适配。 | `yss help examples compat` |
-| `compat create-yss-harness-backend` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-harness-backend` |
-| `compat create-yss-harness-design` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-harness-design` |
-| `compat create-yss-spec` | 固定旧别名的显式原生适配。 | `yss help examples compat create-yss-spec` |
-| `compat-api` | 供现役 JavaScript 消费者使用的原生传输接口。 | `yss help examples compat-api` |
-| `compat-api native.run` | 版本化兼容传输方法。 | `yss help examples compat-api native.run` |
-| `compat-api native.snapshot` | 版本化兼容传输方法。 | `yss help examples compat-api native.snapshot` |
-| `compat-api projectDiff` | 版本化兼容传输方法。 | `yss help examples compat-api projectDiff` |
-| `compat-api projectDoctor` | 版本化兼容传输方法。 | `yss help examples compat-api projectDoctor` |
-| `compat-api templateApply` | 版本化兼容传输方法。 | `yss help examples compat-api templateApply` |
-| `compat-api templatePlan` | 版本化兼容传输方法。 | `yss help examples compat-api templatePlan` |
-| `compat-api toErrorEnvelope` | 版本化兼容传输方法。 | `yss help examples compat-api toErrorEnvelope` |
 | `context` | 查询或校验唯一 CONTEXT.md 及词汇快照。 | `yss help examples context` |
 | `context check` | 校验词汇结构。 | `yss help examples context check` |
 | `context query` | 查询稳定词汇。 | `yss help examples context query` |
@@ -802,12 +780,6 @@ YSS 离线入门教程
 | `lifecycle target` | 读取或事务设置 Spec 单功能的本次推进目标。 | `yss help examples lifecycle target` |
 | `lifecycle verify` | 核验当前 checkpoint 的领域门禁。 | `yss help examples lifecycle verify` |
 | `lifecycle verify-daily` | 核验同一日常任务的当前差异、测试和独立审查。 | `yss help examples lifecycle verify-daily` |
-| `migrate` | 显式迁移旧实例 metadata、受管基线及 binding。 | `yss help examples migrate` |
-| `migrate apply` | 应用迁移计划。 | `yss help examples migrate apply` |
-| `migrate plan` | 生成只读迁移计划（默认动作）。 | `yss help examples migrate plan` |
-| `migrate recover` | 恢复未完成迁移事务。 | `yss help examples migrate recover` |
-| `migrate rollback` | 恢复迁移前实例。 | `yss help examples migrate rollback` |
-| `migrate status` | 查询迁移事务。 | `yss help examples migrate status` |
 | `profile` | 准备独立的下游 Profile 工程并登记显式关联。 | `yss help examples profile` |
 | `profile prepare` | 生成或执行单端、联合初始化保存计划。 | `yss help examples profile prepare` |
 | `project-ci` | 核验或配置项目 CI。 | `yss help examples project-ci` |
@@ -861,7 +833,7 @@ YSS 离线入门教程
 ### archive
 
 ```text
-yss 2.3.0 — archive
+yss 2.3.1 — archive
 ──────────────────────
 安全打包、读取或核验 ZIP 资产。
 
@@ -907,7 +879,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive pack
 
 ```text
-yss 2.3.0 — archive pack
+yss 2.3.1 — archive pack
 ──────────────────────
 打包指定项目目录。
 
@@ -953,7 +925,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive unpack
 
 ```text
-yss 2.3.0 — archive unpack
+yss 2.3.1 — archive unpack
 ──────────────────────
 安全解包到新位置。
 
@@ -999,7 +971,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive verify
 
 ```text
-yss 2.3.0 — archive verify
+yss 2.3.1 — archive verify
 ──────────────────────
 只读核验归档结构。
 
@@ -1043,7 +1015,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets
 
 ```text
-yss 2.3.0 — assets
+yss 2.3.1 — assets
 ──────────────────────
 查询或补装 阶段资源和 Skill 闭包。
 
@@ -1098,7 +1070,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets ensure
 
 ```text
-yss 2.3.0 — assets ensure
+yss 2.3.1 — assets ensure
 ──────────────────────
 补装指定 阶段资源和 Skill 闭包。
 
@@ -1153,7 +1125,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets list
 
 ```text
-yss 2.3.0 — assets list
+yss 2.3.1 — assets list
 ──────────────────────
 列出当前 Profile 支持的标识。
 
@@ -1205,9 +1177,9 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### attach
 
 ```text
-yss 2.3.0 — attach
+yss 2.3.1 — attach
 ──────────────────────
-首次接管已有工程的模板受管资产；原生实例使用 sync，旧实例使用 migrate。
+首次接管已有工程的模板受管资产；使用 sync 同步模板。
 
 用法: yss attach --root <目录> --profile <Profile> --plan --out <新文件>
 
@@ -1267,7 +1239,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle
 
 ```text
-yss 2.3.0 — bundle
+yss 2.3.1 — bundle
 ──────────────────────
 读取或导出完整固定 Bundle 与 manifest。
 
@@ -1310,7 +1282,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle export
 
 ```text
-yss 2.3.0 — bundle export
+yss 2.3.1 — bundle export
 ──────────────────────
 导出 Bundle 全部 bytes、mode 和 manifest。
 
@@ -1350,7 +1322,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle inspect
 
 ```text
-yss 2.3.0 — bundle inspect
+yss 2.3.1 — bundle inspect
 ──────────────────────
 检查 Bundle 身份、来源及摘要。
 
@@ -1389,7 +1361,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### capabilities
 
 ```text
-yss 2.3.0 — capabilities
+yss 2.3.1 — capabilities
 ──────────────────────
 查看原生能力、治理接口与发行证据边界。
 
@@ -1423,456 +1395,10 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 详细示例: yss help examples capabilities
 ```
 
-### compat
-
-```text
-yss 2.3.0 — compat
-──────────────────────
-显式旧命令兼容适配。
-
-用法: yss compat <旧命令> [参数]
-
-子命令:
-create-yss-harness-backend  固定旧别名的显式原生适配。
-create-yss-harness-design  固定旧别名的显式原生适配。
-create-yss-spec  固定旧别名的显式原生适配。
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-仅维护已登记兼容行为；新增用户操作优先使用原生 yss 命令。未迁移行为返回明确错误，详见 compat/README.md。
-
-最小示例:
-yss compat create-yss-spec --help
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-旧命令: create-yss-spec / create-yss-harness-design / create-yss-harness-backend
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat
-```
-
-### compat create-yss-harness-backend
-
-```text
-yss 2.3.0 — compat create-yss-harness-backend
-──────────────────────
-固定旧别名的显式原生适配。
-
-用法: yss compat create-yss-harness-backend --native <命令> [参数]
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-优先使用 yss doctor --root；兼容说明见 compat/README.md。
-
-最小示例:
-yss compat create-yss-harness-backend --native doctor --target-dir ./demo-backend --json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat create-yss-harness-backend
-```
-
-### compat create-yss-harness-design
-
-```text
-yss 2.3.0 — compat create-yss-harness-design
-──────────────────────
-固定旧别名的显式原生适配。
-
-用法: yss compat create-yss-harness-design --native <命令> [参数]
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-优先使用 yss doctor --root；兼容说明见 compat/README.md。
-
-最小示例:
-yss compat create-yss-harness-design --native doctor --target-dir ./demo-design --json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat create-yss-harness-design
-```
-
-### compat create-yss-spec
-
-```text
-yss 2.3.0 — compat create-yss-spec
-──────────────────────
-固定旧别名的显式原生适配。
-
-用法: yss compat create-yss-spec --native <命令> [参数]
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-优先使用 yss doctor --root；兼容说明见 compat/README.md。
-
-最小示例:
-yss compat create-yss-spec --native doctor --target-dir ./demo-spec --json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---native  使用原生协议 1；其余旧成功行为可能返回 UNPORTED
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat create-yss-spec
-```
-
-### compat-api
-
-```text
-yss 2.3.0 — compat-api
-──────────────────────
-供现役 JavaScript 消费者使用的原生传输接口。
-
-用法: yss compat-api <API标识>
-
-子命令:
-native.run  版本化兼容传输方法。
-native.snapshot  版本化兼容传输方法。
-projectDiff  版本化兼容传输方法。
-projectDoctor  版本化兼容传输方法。
-templateApply  版本化兼容传输方法。
-templatePlan  版本化兼容传输方法。
-toErrorEnvelope  版本化兼容传输方法。
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-调用形状见 compat/README.md；不复刻无人消费的私有 CommonJS API。
-
-最小示例:
-yss help compat-api
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-从 stdin 读取版本化请求 JSON
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api
-```
-
-### compat-api native.run
-
-```text
-yss 2.3.0 — compat-api native.run
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api native.run < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api native.run < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api native.run
-```
-
-### compat-api native.snapshot
-
-```text
-yss 2.3.0 — compat-api native.snapshot
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api native.snapshot < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api native.snapshot < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api native.snapshot
-```
-
-### compat-api projectDiff
-
-```text
-yss 2.3.0 — compat-api projectDiff
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api projectDiff < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api projectDiff < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api projectDiff
-```
-
-### compat-api projectDoctor
-
-```text
-yss 2.3.0 — compat-api projectDoctor
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api projectDoctor < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api projectDoctor < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api projectDoctor
-```
-
-### compat-api templateApply
-
-```text
-yss 2.3.0 — compat-api templateApply
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api templateApply < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api templateApply < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api templateApply
-```
-
-### compat-api templatePlan
-
-```text
-yss 2.3.0 — compat-api templatePlan
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api templatePlan < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api templatePlan < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api templatePlan
-```
-
-### compat-api toErrorEnvelope
-
-```text
-yss 2.3.0 — compat-api toErrorEnvelope
-──────────────────────
-版本化兼容传输方法。
-
-用法: yss compat-api toErrorEnvelope < request.json
-
-前置条件:
-固定历史别名或已登记的原生传输请求；保留旧接口的兼容边界。
-请求形状见 compat/README.md；旧成功方法 projectDoctor/projectDiff/templatePlan/templateApply 返回 UNPORTED。
-
-最小示例:
-yss compat-api toErrorEnvelope < request.json
-
-参数:
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --native <值>                   按当前命令说明指定
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
-stdin  单个 JSON object，上限 4 MiB
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-查看同组命令帮助和当前查询结果，选择需要的下一项操作。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples compat-api toErrorEnvelope
-```
-
 ### context
 
 ```text
-yss 2.3.0 — context
+yss 2.3.1 — context
 ──────────────────────
 查询或校验唯一 CONTEXT.md 及词汇快照。
 
@@ -1919,7 +1445,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context check
 
 ```text
-yss 2.3.0 — context check
+yss 2.3.1 — context check
 ──────────────────────
 校验词汇结构。
 
@@ -1966,7 +1492,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context query
 
 ```text
-yss 2.3.0 — context query
+yss 2.3.1 — context query
 ──────────────────────
 查询稳定词汇。
 
@@ -2014,7 +1540,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context verify
 
 ```text
-yss 2.3.0 — context verify
+yss 2.3.1 — context verify
 ──────────────────────
 校验当前词汇和可选快照。
 
@@ -2062,7 +1588,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### contract
 
 ```text
-yss 2.3.0 — contract
+yss 2.3.1 — contract
 ──────────────────────
 校验 contract 的结构或原生领域语义。
 
@@ -2108,7 +1634,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract check
 
 ```text
-yss 2.3.0 — contract check
+yss 2.3.1 — contract check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2153,7 +1679,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract verify
 
 ```text
-yss 2.3.0 — contract verify
+yss 2.3.1 — contract verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2219,7 +1745,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract view
 
 ```text
-yss 2.3.0 — contract view
+yss 2.3.1 — contract view
 ──────────────────────
 按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
 
@@ -2264,7 +1790,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### diff
 
 ```text
-yss 2.3.0 — diff
+yss 2.3.1 — diff
 ──────────────────────
 查看当前文件相对固定模板的差异和同步计划。
 
@@ -2272,7 +1798,7 @@ yss 2.3.0 — diff
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-只读。旧实例需要显式 migrate；遇到业务定制先查看诊断。
+只读。遇到业务定制先查看诊断。
 
 最小示例:
 yss diff --root ./demo-spec --json
@@ -2305,7 +1831,7 @@ yss diff --root ./demo-spec --json
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
 
 下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -2315,7 +1841,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### doctor
 
 ```text
-yss 2.3.0 — doctor
+yss 2.3.1 — doctor
 ──────────────────────
 检查项目身份、受管基线和冲突。
 
@@ -2323,7 +1849,7 @@ yss 2.3.0 — doctor
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-只读。旧实例需要显式 migrate；遇到业务定制先查看诊断。
+只读。遇到业务定制先查看诊断。
 
 最小示例:
 yss doctor --root ./demo-spec --json
@@ -2356,7 +1882,7 @@ yss doctor --root ./demo-spec --json
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
 
 下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -2366,7 +1892,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### evidence
 
 ```text
-yss 2.3.0 — evidence
+yss 2.3.1 — evidence
 ──────────────────────
 校验 evidence 的结构或原生领域语义。
 
@@ -2411,7 +1937,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence check
 
 ```text
-yss 2.3.0 — evidence check
+yss 2.3.1 — evidence check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2456,7 +1982,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence verify
 
 ```text
-yss 2.3.0 — evidence verify
+yss 2.3.1 — evidence verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2521,7 +2047,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### git
 
 ```text
-yss 2.3.0 — git
+yss 2.3.1 — git
 ──────────────────────
 查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
 
@@ -2578,7 +2104,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git audit
 
 ```text
-yss 2.3.0 — git audit
+yss 2.3.1 — git audit
 ──────────────────────
 按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
 
@@ -2623,7 +2149,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git base
 
 ```text
-yss 2.3.0 — git base
+yss 2.3.1 — git base
 ──────────────────────
 解析 HEAD 与默认分支的合并基线，输出完整 SHA。
 
@@ -2666,7 +2192,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git branch
 
 ```text
-yss 2.3.0 — git branch
+yss 2.3.1 — git branch
 ──────────────────────
 branch start：按 Ticket 生成符合策略的分支名并切换。
 
@@ -2722,7 +2248,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git changelog
 
 ```text
-yss 2.3.0 — git changelog
+yss 2.3.1 — git changelog
 ──────────────────────
 按 Ticket 汇总提交范围内的变更。
 
@@ -2767,7 +2293,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git commit
 
 ```text
-yss 2.3.0 — git commit
+yss 2.3.1 — git commit
 ──────────────────────
 只提交明确列出的路径，并追加 Ticket trailer。
 
@@ -2821,7 +2347,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git doctor
 
 ```text
-yss 2.3.0 — git doctor
+yss 2.3.1 — git doctor
 ──────────────────────
 检查 Git 版本、提交身份、远端、历史深度与策略文件。
 
@@ -2863,7 +2389,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git guard
 
 ```text
-yss 2.3.0 — git guard
+yss 2.3.1 — git guard
 ──────────────────────
 事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
 
@@ -2905,7 +2431,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git hooks
 
 ```text
-yss 2.3.0 — git hooks
+yss 2.3.1 — git hooks
 ──────────────────────
 hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
 
@@ -2953,7 +2479,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git policy
 
 ```text
-yss 2.3.0 — git policy
+yss 2.3.1 — git policy
 ──────────────────────
 显示生效的 Git 策略；policy set 经计划修改一个字段。
 
@@ -3006,7 +2532,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git push
 
 ```text
-yss 2.3.0 — git push
+yss 2.3.1 — git push
 ──────────────────────
 推送当前分支或一个本地标签；需保存计划并由用户确认远端。
 
@@ -3060,7 +2586,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git release
 
 ```text
-yss 2.3.0 — git release
+yss 2.3.1 — git release
 ──────────────────────
 release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
 
@@ -3112,7 +2638,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git status
 
 ```text
-yss 2.3.0 — git status
+yss 2.3.1 — git status
 ──────────────────────
 分支、上游差异、改动路径及进行中的合并/变基。
 
@@ -3155,7 +2681,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git submodules
 
 ```text
-yss 2.3.0 — git submodules
+yss 2.3.1 — git submodules
 ──────────────────────
 列出子模块状态及其本地入口文件。
 
@@ -3197,7 +2723,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git verify-message
 
 ```text
-yss 2.3.0 — git verify-message
+yss 2.3.1 — git verify-message
 ──────────────────────
 校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
 
@@ -3240,7 +2766,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### handoff
 
 ```text
-yss 2.3.0 — handoff
+yss 2.3.1 — handoff
 ──────────────────────
 校验 handoff 的结构或原生领域语义。
 
@@ -3287,7 +2813,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff check
 
 ```text
-yss 2.3.0 — handoff check
+yss 2.3.1 — handoff check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -3332,7 +2858,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff export
 
 ```text
-yss 2.3.0 — handoff export
+yss 2.3.1 — handoff export
 ──────────────────────
 导出当前已批准的 Spec 基线及来源证据。
 
@@ -3383,7 +2909,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff import
 
 ```text
-yss 2.3.0 — handoff import
+yss 2.3.1 — handoff import
 ──────────────────────
 将批准 Spec 基线接入独立 Design。
 
@@ -3436,7 +2962,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff verify
 
 ```text
-yss 2.3.0 — handoff verify
+yss 2.3.1 — handoff verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -3498,7 +3024,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### init
 
 ```text
-yss 2.3.0 — init
+yss 2.3.1 — init
 ──────────────────────
 创建固定模板来源的项目实例。
 
@@ -3556,7 +3082,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### lifecycle
 
 ```text
-yss 2.3.0 — lifecycle
+yss 2.3.1 — lifecycle
 ──────────────────────
 查询当前生命周期、配置本次推进目标并核验门禁。
 
@@ -3609,7 +3135,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle query
 
 ```text
-yss 2.3.0 — lifecycle query
+yss 2.3.1 — lifecycle query
 ──────────────────────
 查询注册表中的稳定 ID。
 
@@ -3656,7 +3182,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle route
 
 ```text
-yss 2.3.0 — lifecycle route
+yss 2.3.1 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
@@ -3704,7 +3230,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle status
 
 ```text
-yss 2.3.0 — lifecycle status
+yss 2.3.1 — lifecycle status
 ──────────────────────
 只读核验 checkpoint、本次目标与显式消费者的当前证据。
 
@@ -3752,7 +3278,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle target
 
 ```text
-yss 2.3.0 — lifecycle target
+yss 2.3.1 — lifecycle target
 ──────────────────────
 读取或事务设置 Spec 单功能的本次推进目标。
 
@@ -3809,7 +3335,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify
 
 ```text
-yss 2.3.0 — lifecycle verify
+yss 2.3.1 — lifecycle verify
 ──────────────────────
 核验当前 checkpoint 的领域门禁。
 
@@ -3861,7 +3387,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify-daily
 
 ```text
-yss 2.3.0 — lifecycle verify-daily
+yss 2.3.1 — lifecycle verify-daily
 ──────────────────────
 核验同一日常任务的当前差异、测试和独立审查。
 
@@ -3905,311 +3431,10 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 详细示例: yss help examples lifecycle verify-daily
 ```
 
-### migrate
-
-```text
-yss 2.3.0 — migrate
-──────────────────────
-显式迁移旧实例 metadata、受管基线及 binding。
-
-用法: yss migrate <子命令> --root <目录>
-
-子命令:
-apply  应用迁移计划。
-plan  生成只读迁移计划（默认动作）。
-recover  恢复未完成迁移事务。
-rollback  恢复迁移前实例。
-status  查询迁移事务。
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
-  --binding-file <路径>           文件或目录路径
-  --business-domain <领域>        项目业务领域，作为模板变量
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --full                          init/attach 安装完整资源；默认初始分发集合
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --input <值>                    按当前命令说明指定
-  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --migration-kind <类型>         目录或资产协议迁移；缺省保持模板迁移；可选值: work-layout|asset-schema
-  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --plan                          只生成计划，使用 --out 保存；不应用项目修改
-  --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --project-name <名称>           项目名称，作为模板变量
-  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
-  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  --team-size <规模>              团队规模，作为模板变量
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate
-```
-
-### migrate apply
-
-```text
-yss 2.3.0 — migrate apply
-──────────────────────
-应用迁移计划。
-
-用法: yss migrate apply --root <目录> --plan-file <文件>
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate apply --root ./old-project --plan-file /tmp/yss-migrate-plan.json --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --binding-file <路径>           文件或目录路径
-  --business-domain <领域>        项目业务领域，作为模板变量
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --full                          init/attach 安装完整资源；默认初始分发集合
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --plan                          只生成计划，使用 --out 保存；不应用项目修改
-  --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --project-name <名称>           项目名称，作为模板变量
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  --team-size <规模>              团队规模，作为模板变量
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
---plan-file <文件>  必需；身份、基线与 binding 同一事务
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate apply
-```
-
-### migrate plan
-
-```text
-yss 2.3.0 — migrate plan
-──────────────────────
-生成只读迁移计划（默认动作）。
-
-用法: yss migrate plan --root <目录> --out <新文件>
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate plan --root ./old-project --out /tmp/yss-migrate-plan.json --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
-  --binding-file <路径>           文件或目录路径
-  --business-domain <领域>        项目业务领域，作为模板变量
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --full                          init/attach 安装完整资源；默认初始分发集合
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --input <值>                    按当前命令说明指定
-  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --migration-kind <类型>         目录或资产协议迁移；缺省保持模板迁移；可选值: work-layout|asset-schema
-  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --plan                          只生成计划，使用 --out 保存；不应用项目修改
-  --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --project-name <名称>           项目名称，作为模板变量
-  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
-  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  --team-size <规模>              团队规模，作为模板变量
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
---out <新文件>  保存迁移计划
-
-预期结果:
-输出可审阅计划；应用保存计划时重新核验当前输入。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate plan
-```
-
-### migrate recover
-
-```text
-yss 2.3.0 — migrate recover
-──────────────────────
-恢复未完成迁移事务。
-
-用法: yss migrate recover --root <目录> [--json]
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate recover --root ./old-project --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
-仅消费项目迁移范围
-
-预期结果:
-显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate recover
-```
-
-### migrate rollback
-
-```text
-yss 2.3.0 — migrate rollback
-──────────────────────
-恢复迁移前实例。
-
-用法: yss migrate rollback --root <目录> [--json]
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate rollback --root ./old-project --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
-最近成功迁移，拒绝覆盖后续用户修改
-
-预期结果:
-显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate rollback
-```
-
-### migrate status
-
-```text
-yss 2.3.0 — migrate status
-──────────────────────
-查询迁移事务。
-
-用法: yss migrate status --root <目录> [--json]
-
-前置条件:
-合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-旧未完成事务先由仓外固定旧执行器恢复；原 metadata 字节进入回退材料。
-
-最小示例:
-yss migrate status --root ./old-project --json
-
-参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  -V, --version                   显示 CLI 版本及来源；不需要项目
-
-参数说明与条件:
---root <目录>  项目根，默认当前目录；推荐显式指定
---profile <spec|design|backend>  必需或从项目身份检测
-只读查询
-
-预期结果:
-返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
-
-下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
-
-常见错误:
-ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
-详细示例: yss help examples migrate status
-```
-
 ### profile
 
 ```text
-yss 2.3.0 — profile
+yss 2.3.1 — profile
 ──────────────────────
 准备独立的下游 Profile 工程并登记显式关联。
 
@@ -4261,7 +3486,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### profile prepare
 
 ```text
-yss 2.3.0 — profile prepare
+yss 2.3.1 — profile prepare
 ──────────────────────
 生成或执行单端、联合初始化保存计划。
 
@@ -4315,7 +3540,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project-ci
 
 ```text
-yss 2.3.0 — project-ci
+yss 2.3.1 — project-ci
 ──────────────────────
 核验或配置项目 CI。
 
@@ -4364,7 +3589,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci apply
 
 ```text
-yss 2.3.0 — project-ci apply
+yss 2.3.1 — project-ci apply
 ──────────────────────
 应用有限原生 CI 保存计划。
 
@@ -4426,7 +3651,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci check
 
 ```text
-yss 2.3.0 — project-ci check
+yss 2.3.1 — project-ci check
 ──────────────────────
 核验完整治理或显式有限 CI。
 
@@ -4489,7 +3714,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci install
 
 ```text
-yss 2.3.0 — project-ci install
+yss 2.3.1 — project-ci install
 ──────────────────────
 生成有限原生 CI 安装计划。
 
@@ -4556,7 +3781,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci plan
 
 ```text
-yss 2.3.0 — project-ci plan
+yss 2.3.1 — project-ci plan
 ──────────────────────
 生成有限原生 CI 安装计划。
 
@@ -4623,7 +3848,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci transition
 
 ```text
-yss 2.3.0 — project-ci transition
+yss 2.3.1 — project-ci transition
 ──────────────────────
 核验工作单元流转条件。
 
@@ -4686,7 +3911,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci verify
 
 ```text
-yss 2.3.0 — project-ci verify
+yss 2.3.1 — project-ci verify
 ──────────────────────
 按完整 Git 基线核验 CI。
 
@@ -4749,7 +3974,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### recover
 
 ```text
-yss 2.3.0 — recover
+yss 2.3.1 — recover
 ──────────────────────
 查询或恢复未完成的项目事务。
 
@@ -4783,7 +4008,7 @@ yss recover --root ./demo-spec --apply --json
 显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
 
 下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -4793,7 +4018,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### rollback
 
 ```text
-yss 2.3.0 — rollback
+yss 2.3.1 — rollback
 ──────────────────────
 查询或整体回退最近一次成功项目事务。
 
@@ -4827,7 +4052,7 @@ yss rollback --root ./demo-spec --apply --json
 显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
 
 下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -4837,7 +4062,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime
 
 ```text
-yss 2.3.0 — runtime
+yss 2.3.1 — runtime
 ──────────────────────
 管理独立运行记录与保护标记。
 
@@ -4890,7 +4115,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime begin
 
 ```text
-yss 2.3.0 — runtime begin
+yss 2.3.1 — runtime begin
 ──────────────────────
 创建运行记录并返回所有权 token。
 
@@ -4938,7 +4163,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime commands
 
 ```text
-yss 2.3.0 — runtime commands
+yss 2.3.1 — runtime commands
 ──────────────────────
 只读查询运行记录。
 
@@ -4983,7 +4208,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime complete
 
 ```text
-yss 2.3.0 — runtime complete
+yss 2.3.1 — runtime complete
 ──────────────────────
 以实际退出码结束运行记录。
 
@@ -5032,7 +4257,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime event
 
 ```text
-yss 2.3.0 — runtime event
+yss 2.3.1 — runtime event
 ──────────────────────
 追加运行事件。
 
@@ -5081,7 +4306,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime events
 
 ```text
-yss 2.3.0 — runtime events
+yss 2.3.1 — runtime events
 ──────────────────────
 只读查询运行记录。
 
@@ -5126,7 +4351,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime inspect
 
 ```text
-yss 2.3.0 — runtime inspect
+yss 2.3.1 — runtime inspect
 ──────────────────────
 只读查询运行记录。
 
@@ -5170,7 +4395,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pin
 
 ```text
-yss 2.3.0 — runtime pin
+yss 2.3.1 — runtime pin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -5217,7 +4442,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pins
 
 ```text
-yss 2.3.0 — runtime pins
+yss 2.3.1 — runtime pins
 ──────────────────────
 只读查询运行记录。
 
@@ -5262,7 +4487,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime run
 
 ```text
-yss 2.3.0 — runtime run
+yss 2.3.1 — runtime run
 ──────────────────────
 只读查询运行记录。
 
@@ -5307,7 +4532,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime unpin
 
 ```text
-yss 2.3.0 — runtime unpin
+yss 2.3.1 — runtime unpin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -5354,7 +4579,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold
 
 ```text
-yss 2.3.0 — scaffold
+yss 2.3.1 — scaffold
 ──────────────────────
 直接生成 DDD 或分层 MVC 后端工程。
 
@@ -5416,7 +4641,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold ddd
 
 ```text
-yss 2.3.0 — scaffold ddd
+yss 2.3.1 — scaffold ddd
 ──────────────────────
 生成 ddd 后端业务空骨架。
 
@@ -5473,7 +4698,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold mvc
 
 ```text
-yss 2.3.0 — scaffold mvc
+yss 2.3.1 — scaffold mvc
 ──────────────────────
 生成 mvc 后端业务空骨架。
 
@@ -5530,7 +4755,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills
 
 ```text
-yss 2.3.0 — skills
+yss 2.3.1 — skills
 ──────────────────────
 查询或补装 Skill 及其依赖闭包。
 
@@ -5586,7 +4811,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills ensure
 
 ```text
-yss 2.3.0 — skills ensure
+yss 2.3.1 — skills ensure
 ──────────────────────
 补装指定 Skill 及其依赖闭包。
 
@@ -5641,7 +4866,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills list
 
 ```text
-yss 2.3.0 — skills list
+yss 2.3.1 — skills list
 ──────────────────────
 列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。
 
@@ -5693,7 +4918,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills resolve
 
 ```text
-yss 2.3.0 — skills resolve
+yss 2.3.1 — skills resolve
 ──────────────────────
 只读核验所选内置技能及命中的上下文依赖。
 
@@ -5738,7 +4963,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### stage
 
 ```text
-yss 2.3.0 — stage
+yss 2.3.1 — stage
 ──────────────────────
 查询、登记或更新既有阶段工作项。
 
@@ -5793,7 +5018,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage apply
 
 ```text
-yss 2.3.0 — stage apply
+yss 2.3.1 — stage apply
 ──────────────────────
 事务应用已保存的阶段工作项计划。
 
@@ -5842,7 +5067,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage check
 
 ```text
-yss 2.3.0 — stage check
+yss 2.3.1 — stage check
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -5889,7 +5114,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage plan
 
 ```text
-yss 2.3.0 — stage plan
+yss 2.3.1 — stage plan
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -5943,7 +5168,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage query
 
 ```text
-yss 2.3.0 — stage query
+yss 2.3.1 — stage query
 ──────────────────────
 查询阶段或 checkpoint 中的工作项。
 
@@ -5991,7 +5216,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage register
 
 ```text
-yss 2.3.0 — stage register
+yss 2.3.1 — stage register
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -6045,7 +5270,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage status
 
 ```text
-yss 2.3.0 — stage status
+yss 2.3.1 — stage status
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -6092,7 +5317,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage update
 
 ```text
-yss 2.3.0 — stage update
+yss 2.3.1 — stage update
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -6146,7 +5371,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### sync
 
 ```text
-yss 2.3.0 — sync
+yss 2.3.1 — sync
 ──────────────────────
 将项目模板升级到本 CLI 内置固定 Bundle。
 
@@ -6196,7 +5421,7 @@ yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
 输出可审阅计划；应用保存计划时重新核验当前输入。
 
 下一步:
-根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -6206,7 +5431,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### update
 
 ```text
-yss 2.3.0 — update
+yss 2.3.1 — update
 ──────────────────────
 安装、恢复或回退指定本地发行包。
 
@@ -6257,7 +5482,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update apply
 
 ```text
-yss 2.3.0 — update apply
+yss 2.3.1 — update apply
 ──────────────────────
 应用保存的程序安装计划。
 
@@ -6302,7 +5527,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update plan
 
 ```text
-yss 2.3.0 — update plan
+yss 2.3.1 — update plan
 ──────────────────────
 生成离线程序安装计划（默认动作）。
 
@@ -6349,7 +5574,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update recover
 
 ```text
-yss 2.3.0 — update recover
+yss 2.3.1 — update recover
 ──────────────────────
 恢复唯一未完成的程序事务。
 
@@ -6388,7 +5613,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update rollback
 
 ```text
-yss 2.3.0 — update rollback
+yss 2.3.1 — update rollback
 ──────────────────────
 回退最近一次成功程序安装。
 
@@ -6427,7 +5652,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update status
 
 ```text
-yss 2.3.0 — update status
+yss 2.3.1 — update status
 ──────────────────────
 只读诊断安装一致性及程序事务状态。
 
@@ -6467,7 +5692,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### upgrade
 
 ```text
-yss 2.3.0 — upgrade
+yss 2.3.1 — upgrade
 ──────────────────────
 从 GitHub 下载并事务安装稳定版 CLI。
 
@@ -6511,7 +5736,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### version
 
 ```text
-yss 2.3.0 — version
+yss 2.3.1 — version
 ──────────────────────
 查看 CLI、协议和固定来源身份。
 
@@ -6548,7 +5773,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml
 
 ```text
-yss 2.3.0 — xml
+yss 2.3.1 — xml
 ──────────────────────
 读取 Maven project XML。
 
@@ -6593,7 +5818,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml inspect
 
 ```text
-yss 2.3.0 — xml inspect
+yss 2.3.1 — xml inspect
 ──────────────────────
 读取 Maven project 结构。
 
@@ -6636,7 +5861,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml query
 
 ```text
-yss 2.3.0 — xml query
+yss 2.3.1 — xml query
 ──────────────────────
 查询 Maven project 读取结果。
 
@@ -7254,7 +6479,7 @@ IDENTITY — 项目身份或路径无法核验
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 常见类型：PROJECT_ROOT_NOT_FOUND、PROJECT_METADATA_MISSING、PROFILE_IDENTITY_CONFLICT、METADATA_SCHEMA_UNSUPPORTED。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -7347,7 +6572,6 @@ LEGACY — 当前来源、格式或能力不兼容
 LEGACY_INTERRUPTED — 事务或恢复状态需要处理
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
-常见类型：LEGACY_EXECUTOR_PENDING。保留旧事务；固定旧执行器的 recover 或 migrate recover 消费原事务，原生 recover --apply 不能替代。
 
 处理：先查询所属事务及恢复材料；项目、迁移和程序事务各自恢复。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
@@ -7456,7 +6680,7 @@ PATH — 项目身份或路径无法核验
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 常见类型：UNSAFE_ROOT_COMPONENT；核对错误中的实际路径组件，使用已确认的普通目录。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -7522,7 +6746,7 @@ PROFILE — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -7627,7 +6851,7 @@ ROOT — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -8374,7 +7598,7 @@ PERMISSION — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -8387,7 +7611,7 @@ NOT_FOUND — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -8465,7 +7689,7 @@ PROFILE_LINKS — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
@@ -8895,7 +8119,7 @@ YSS_FAMILY_IDENTITY_INVALID — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_FAMILY_IDENTITY_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
@@ -8921,7 +8145,7 @@ YSS_IDENTITY_INVALID — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_IDENTITY_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
@@ -8974,7 +8198,7 @@ YSS_PATH_SAFETY — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_PATH_SAFETY 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
@@ -9001,7 +8225,7 @@ YSS_TARGET_INVALID — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_TARGET_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
@@ -9028,7 +8252,7 @@ YSS_UNSAFE_PATH — 项目身份或路径无法核验
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 
-处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss doctor --help
 历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_UNSAFE_PATH 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。

@@ -1,6 +1,6 @@
 # yss
 
-统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.3.0，新增 `yss git` 命令组（见 [docs/git.md](docs/git.md)）。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.3.1，新增 `yss git` 命令组（见 [docs/git.md](docs/git.md)）。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -47,7 +47,7 @@ yss lifecycle query --root ./my-project --id work-unit.entry-triage --json
 yss git base --root ./my-project --json
 ```
 
-程序版本、协议、Profile 模板版本和旧 CLI 兼容版本分别存储。已有旧实例需要先 doctor/diff，再显式 migrate；不会用 1.0.0 与旧 Spec 3.5.10 比较并误判降级。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
+程序版本、协议和 Profile 模板版本分别存储。以 2.3.1 为基线：不再支持旧版本实例的迁移，只含旧家族 metadata 而没有统一 CLI metadata 的目录会被 `doctor` 等命令拒绝（`LEGACY_INSTANCE_UNSUPPORTED`）。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
 
 三个 Profile 的 Bundle 由 Go 构建工具读取同一固定模板提交及其有序覆盖层，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
 
@@ -94,9 +94,6 @@ yss update apply --tool-root ./tools/yss --plan-file /path/install-plan.json --j
 yss update status --tool-root ./tools/yss --json
 yss update recover --tool-root ./tools/yss --json
 yss update rollback --tool-root ./tools/yss --json
-yss migrate plan --root ./old-project --out /path/migrate-plan.json --json
-yss migrate apply --root ./old-project --plan-file /path/migrate-plan.json --json
-yss migrate rollback --root ./old-project --json
 ```
 
 程序恢复仅消费 `program-update` 事务；回退只针对最近一次成功程序安装，不跨过后来的成功事务。恢复开始还原后会完成保护性还原，避免取消把工具目录留在混合状态；进程被强制结束时可再次执行恢复。用户后来修改的文件会使整体回退停止。
@@ -105,7 +102,7 @@ yss migrate rollback --root ./old-project --json
 
 当前 checkpoint、批准、真实用户决定、实现合同、验证证据、战略交接及默认完整 project-ci 使用原生 Go 校验，接口见 [治理校验合同](docs/native-governance.md)。这些检查只消费既有资产，不执行业务验证命令或创建批准。
 
-完整覆盖表、平台限制及剩余切换条件见 [迁移清单](docs/porting-status.md)。旧命令兼容与显式原生 API 用法见 [兼容适配](compat/README.md)。
+完整覆盖表、平台限制及剩余切换条件见 [迁移清单](docs/porting-status.md)。`compat`、`compat-api` 与 `create-yss-*` 入口已移除（见 [compat/README.md](compat/README.md)）。
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
@@ -138,7 +135,7 @@ yss assets list --root ./demo-spec --json
 
 安装和项目就绪由 `setup-yss-harness` 技能编排。已发布二进制的 Bundle 标识以 `skills list` 为准；源码更名进入内嵌分发需要后续固定来源发行。
 
-计划输出文件必须不存在。输入变化或定制冲突时，先处理诊断并重新生成计划。旧实例需要显式 `migrate plan/apply`；旧未完成事务先用对应仓外固定旧执行器恢复。
+计划输出文件必须不存在。输入变化或定制冲突时，先处理诊断并重新生成计划。
 
 升级 CLI 程序：
 
@@ -163,7 +160,7 @@ yss update recover --tool-root ./tools/yss --json
 yss update rollback --tool-root ./tools/yss --json
 ```
 
-恢复和回退保留受管文件及权限；后续用户修改会使整体覆盖停止。项目 `sync/migrate` 与 CLI 程序安装分别使用自己的事务入口。
+恢复和回退保留受管文件及权限；后续用户修改会使整体覆盖停止。项目 `sync` 与 CLI 程序安装分别使用自己的事务入口。
 
 ## 从 1.0.0 首次安装新版（macOS arm64）
 
