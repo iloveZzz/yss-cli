@@ -312,19 +312,18 @@ type upgradePlanner struct {
 	plan             *Plan
 	old              map[string]Managed
 	options          PlanningOptions
-	trustedModes     map[string]bool
 	archive          *transaction.MaterialReader
 	base             *bundle.Bundle
 	decisions        map[string]Resolution
 	maintenanceRules map[string]bundle.MigrationRule
 }
 
-func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]Managed, o PlanningOptions, modes map[string]bool) (*upgradePlanner, error) {
+func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]Managed, o PlanningOptions) (*upgradePlanner, error) {
 	reader, e := transaction.NewMaterialReader(id.Root)
 	if e != nil {
 		return nil, e
 	}
-	u := &upgradePlanner{id: id, bundle: b, plan: p, old: old, options: o, trustedModes: modes, archive: reader, decisions: map[string]Resolution{}}
+	u := &upgradePlanner{id: id, bundle: b, plan: p, old: old, options: o, archive: reader, decisions: map[string]Resolution{}}
 	u.maintenanceRules = u.maintenanceRetirements()
 	for ref, rule := range u.projectionRetirements() {
 		if _, declared := u.maintenanceRules[ref]; !declared {
@@ -406,9 +405,6 @@ func (u *upgradePlanner) noteSourceVersion(rules []bundle.MigrationRule) error {
 func (u *upgradePlanner) previousSource() (string, string, string) {
 	if u.id.Native != nil {
 		return u.id.Native.TemplateCommit, u.id.Native.SnapshotHash, u.id.Native.BundleHash
-	}
-	if u.id.Legacy != nil {
-		return text(u.id.Legacy["templateCommit"]), text(u.id.Legacy["snapshotHash"]), text(u.id.Legacy["bundleHash"])
 	}
 	return "", "", ""
 }
@@ -556,20 +552,8 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		kind := u.bundle.AssetKind(ref, f)
 		a := AssetResult{Path: ref, Policy: kind, Before: before, Target: desired, Baseline: previous.Baseline, BaselineSource: "unavailable"}
 		modeConflict := before.Mode != previous.Applied.Mode
-		if u.id.Native == nil && u.id.Profile.Name == "spec" {
-			modeConflict = before.Mode != desired.Mode && !u.trustedModes[ref]
-		}
 		appliedMatches := before == previous.Applied
 		baselineMatches := before == previous.Baseline
-		if u.id.Legacy != nil && u.id.Profile.Name == "spec" {
-			// Legacy contentHash records have no permission claim. The current
-			// template mode, or the exact registered overlay, supplies that guard.
-			appliedMatches = before.Type == "file" && before.Digest == previous.Applied.Digest && !modeConflict
-			baselineMatches = before.Type == "file" && before.Digest == previous.Baseline.Digest && !modeConflict
-		}
-		// A fixed historical overlay is itself source-proven, even when the
-		// old CLI retained its pre-overlay template baseline in metadata.
-		baselineMatches = baselineMatches || u.id.Legacy != nil && u.trustedModes[ref]
 		strictLock := !initial && selectedLock && ref == "skills-lock.json"
 		if strictLock && (!managedDerivedSkillsLock(u.id, ref, f, previous, wasManaged, selectedLock) || before.Type != "file" || before.Digest != previous.Applied.Digest || modeConflict) {
 			u.conflict(&a, "生成锁被修改或缺少可信登记，须由固定生成器重建")

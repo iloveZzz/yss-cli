@@ -121,12 +121,12 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 	if id.Profile.Name == "" {
 		return transaction.Result{}, true, domain.Fail("IDENTITY", "准备恢复必须显式指定 Profile")
 	}
-	installed := id.Native != nil || id.Legacy != nil
+	installed := id.Native != nil
 	if !installed && explicit == "" {
 		return transaction.Result{}, true, domain.Fail("IDENTITY", "空初始化准备必须显式指定 Profile")
 	}
 	descriptors := map[string]domain.Descriptor{}
-	for _, ref := range []string{MetadataFile, id.LegacyFile, "yss-project.yaml", id.ProfileRef} {
+	for _, ref := range []string{MetadataFile, "yss-project.yaml", id.ProfileRef} {
 		if ref == "" {
 			continue
 		}
@@ -141,7 +141,7 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 		if e != nil {
 			return e
 		}
-		if (current.Native != nil || current.Legacy != nil) != installed {
+		if (current.Native != nil) != installed {
 			return domain.Fail("IDENTITY", "准备恢复期间项目身份变化")
 		}
 		for ref, want := range descriptors {

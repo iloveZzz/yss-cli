@@ -42,10 +42,6 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 	source := b.Distribution
 	if id.Native != nil {
 		source = id.Native.Distribution
-	} else if id.Legacy != nil {
-		if d, ok := object(id.Legacy["distribution"]); ok {
-			source = d
-		}
 	}
 	data, _ := json.Marshal(source)
 	var d map[string]any

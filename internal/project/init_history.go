@@ -11,7 +11,7 @@ import (
 // history. No business file, installed identity, unfinished state or foreign
 // profile can make a project eligible for re-initialization.
 func verifyRestoredInitialization(id *Identity) error {
-	if id.Native != nil || id.Legacy != nil {
+	if id.Native != nil {
 		return domain.Fail("CONFLICT", "已安装实例不能重新初始化")
 	}
 	status, err := transaction.Status(id.Root)

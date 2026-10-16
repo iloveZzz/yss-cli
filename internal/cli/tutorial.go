@@ -100,8 +100,8 @@ func nextReading(key string) string {
 		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
 		return "yss doctor --help；核对身份后用 lifecycle 查询当前入口。"
-	case "doctor", "diff", "sync", "migrate", "recover", "rollback":
-		return "根据实际诊断选择计划、恢复或迁移入口；应用后再 doctor/diff。"
+	case "doctor", "diff", "sync", "recover", "rollback":
+		return "根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。"
 	case "contract", "stage", "evidence", "handoff", "lifecycle", "project-ci":
 		return "yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。"
 	case "upgrade", "update":
@@ -361,9 +361,9 @@ func profileTutorial(profile string) (string, error) {
 }
 
 const maintenanceIntroduction = `维护与恢复
-前置条件：分别确认程序、项目模板、旧实例及插件绑定的来源与事务范围。
-程序升级：upgrade；模板同步：sync；旧实例迁移：migrate。
-普通 recover/rollback 默认只读，增加 --apply 执行；migrate recover/rollback 与 update recover/rollback 本身写入。
+前置条件：分别确认程序、项目模板及插件绑定的来源与事务范围。
+程序升级：upgrade；模板同步：sync。
+普通 recover/rollback 默认只读，增加 --apply 执行；update recover/rollback 本身写入。
 先核对状态及归档，在已确认范围内恢复。已绑定插件使用对应插件 project-upgrade-plan/apply 或 project-migration-plan/apply。
 预期结果：计划、应用与恢复均绑定实际输入；后续用户修改阻止覆盖。
 下一步：核对 doctor/diff 或 update status，保留本次真实验证与恢复材料。

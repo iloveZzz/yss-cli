@@ -57,7 +57,7 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 	}
 	if command == "recover" || command == "rollback" || len(o.args) > 1 && (o.args[1] == "recover" || o.args[1] == "rollback") {
 		title = "事务状态查询完成"
-		if o.values["apply"] == "true" || command == "update" || command == "migrate" {
+		if o.values["apply"] == "true" || command == "update" {
 			title = "事务操作已完成"
 		}
 	}
@@ -327,7 +327,7 @@ func savedPlanApplyCommand(o options, profile string, result map[string]any) []s
 	if command == "update" || command == "upgrade" {
 		return []string{"yss", "update", "apply", "--tool-root", stringValue(result["toolRoot"], o.values["tool-root"]), "--plan-file", o.values["out"], "--json"}
 	}
-	if command == "migrate" || command == "stage" {
+	if command == "stage" {
 		argv = []string{"yss", command, "apply", "--root", root, "--plan-file", o.values["out"], "--json"}
 	} else {
 		argv = append(argv, "--root", root, "--apply", "--plan-file", o.values["out"], "--json")

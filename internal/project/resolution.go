@@ -224,39 +224,6 @@ func ExportReview(p *Plan, out string) error {
 		return e
 	}
 	inventory := []map[string]any{}
-	if p.WorkLayout != nil {
-		for _, c := range p.Changes {
-			if c.After.Type != "file" {
-				continue
-			}
-			ref := c.Path
-			for from, to := range p.WorkLayout.Mapping {
-				if to == c.Path {
-					ref = from
-					break
-				}
-			}
-			conflict := false
-			for _, a := range p.Assets {
-				conflict = conflict || a.Path == c.Path && a.Action == "conflict"
-			}
-			if !conflict {
-				if e = write("candidates/"+c.Path, mustDecode(c.Data)); e != nil {
-					return e
-				}
-			}
-			if e = write("layout-diff/"+c.Path+".diff", []byte("--- "+ref+"\n+++ "+c.Path+"\n"+lineComparison(mustRead(p.Root, ref), mustDecode(c.Data)))); e != nil {
-				return e
-			}
-		}
-		raw, e := jsonBytes(p.WorkLayout)
-		if e != nil {
-			return e
-		}
-		if e = write("layout-mapping.json", raw); e != nil {
-			return e
-		}
-	}
 	for _, a := range p.Assets {
 		if !resolvable(a) {
 			continue

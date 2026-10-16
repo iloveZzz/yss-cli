@@ -20,7 +20,7 @@ type errorDefinition struct {
 
 var errorFamilies = map[string]errorDefinition{
 	"argument":    {"命令或参数不符合当前接口", "核对当前子命令、必需参数、可选值和互斥条件。", "yss --help", false},
-	"identity":    {"项目身份或路径无法核验", "核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach，旧实例先诊断再显式 migrate。", "yss doctor --help", false},
+	"identity":    {"项目身份或路径无法核验", "核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。", "yss doctor --help", false},
 	"version":     {"当前来源、格式或能力不兼容", "核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例迁移入口。", "yss capabilities --help", true},
 	"plan":        {"保存计划或当前输入未通过核验", "检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。", "yss sync --help", false},
 	"conflict":    {"文件冲突或用户后续修改阻止操作", "查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。", "yss diff --help", false},
@@ -169,8 +169,6 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 	} else if errorFamily(code) == "transaction" {
 		if program && o.values["tool-root"] != "" {
 			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "write", Description: "恢复未完成程序事务。", Condition: "已核对安装状态与归档，且当前操作授权覆盖恢复。", Argv: []string{"yss", "update", "recover", "--tool-root", o.values["tool-root"], "--json"}})
-		} else if root != "" && len(o.args) > 0 && o.args[0] == "migrate" {
-			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "read-only", Description: "先检查项目事务状态。", Argv: []string{"yss", "recover", "--root", root, "--json"}}, domain.DiagnosticStep{Effect: "write", Description: "恢复已确认的原生迁移事务。", Condition: "已核对 migration 事务范围与归档；此子命令直接写入。", Argv: []string{"yss", "migrate", "recover", "--root", root, "--json"}})
 		} else if root != "" {
 			d.Steps = append(d.Steps, domain.DiagnosticStep{Effect: "read-only", Description: "查询项目事务；旧 CLI 事务由固定旧执行器恢复。", Argv: []string{"yss", "recover", "--root", root, "--json"}}, domain.DiagnosticStep{Effect: "write", Description: "恢复已确认的原生项目事务。", Condition: "原生项目事务状态已核对，且当前授权覆盖恢复。", Argv: []string{"yss", "recover", "--root", root, "--apply", "--json"}})
 		}
