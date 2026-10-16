@@ -265,6 +265,13 @@ func readOptional(s *kernel.SemanticSession, ref string) ([]byte, bool, error) {
 // PlanReading 先做策略层构建（任何来源诊断都 fail-closed），再按 Node changesFor 的判定顺序比较现状，
 // 产出变更集或拒绝。它只读，不写文件；错误码与 Node 的冲突保护一一对应。
 func PlanReading(s *kernel.SemanticSession, cpRef string) (*RenderPlan, error) {
+	return PlanReadingWith(s, cpRef, nil)
+}
+
+// PlanReadingWith 在 PlanReading 的基础上假定 overrides 中的项目文件已被写成给定内容：
+// 构建结果里这些文件的依赖摘要按给定内容计算（例如启用时先写入的阅读策略）。
+// 提交后的完整核验仍以磁盘上的实际内容为准，所以假定错误只会导致回滚，不会放行。
+func PlanReadingWith(s *kernel.SemanticSession, cpRef string, overrides map[string][]byte) (*RenderPlan, error) {
 	cp, err := s.Doc(cpRef)
 	if err != nil {
 		return nil, err
@@ -286,6 +293,12 @@ func PlanReading(s *kernel.SemanticSession, cpRef string) (*RenderPlan, error) {
 	build, err := BuildReading(s, cpRef)
 	if err != nil {
 		return nil, err
+	}
+	for ref, data := range overrides {
+		if _, seen := build.ProjectRefs[ref]; !seen {
+			build.ProjectOrder = append(build.ProjectOrder, ref)
+		}
+		build.ProjectRefs[ref] = "sha256:" + safefs.Digest(data)
 	}
 	navRef, manifestRef := base+"/map.md", directory+"/.manifest.json"
 

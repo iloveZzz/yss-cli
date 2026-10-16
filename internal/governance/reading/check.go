@@ -139,3 +139,6 @@ func ManagedCheckpoints(s *kernel.SemanticSession) ([]string, error) {
 	}
 	return out, nil
 }
+
+// LoadPolicy 读取并校验阅读策略；present 为 false 表示策略文件不存在。
+func LoadPolicy(s *kernel.SemanticSession) (map[string]any, bool, error) { return loadReadingPolicy(s) }

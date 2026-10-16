@@ -33,6 +33,10 @@ func readingRun(ctx context.Context, action, root string, args map[string]string
 	switch action {
 	case "render":
 		return readingRender(ctx, root, args)
+	case "plan-enable":
+		return readingPlanEnable(ctx, root, args)
+	case "apply-enable":
+		return readingApplyEnable(ctx, root, args)
 	case "check-views":
 		ref := args["checkpoint"]
 		if ref == "" {
@@ -157,9 +161,20 @@ func readingRenderOne(ctx context.Context, root string, args map[string]string, 
 		result["dry_run"] = true
 		return result, nil
 	}
-	ops, err := readingOperations(s, plan)
+	tx, err := readingCommit(ctx, root, args, s, plan, ref, readingRenderKind)
 	if err != nil {
 		return nil, err
+	}
+	result["transaction"] = tx
+	return result, nil
+}
+
+// readingCommit 把变更集作为一个事务提交；事务内用新会话对磁盘上的最终状态做完整核验，
+// 不一致则整体回滚。输入被其他进程改动时由守卫拒绝。
+func readingCommit(ctx context.Context, root string, args map[string]string, s *kernel.SemanticSession, plan *reading.RenderPlan, ref, kind string) (transaction.Result, error) {
+	ops, err := readingOperations(s, plan)
+	if err != nil {
+		return transaction.Result{}, err
 	}
 	guards := map[string]domain.Descriptor{}
 	written := map[string]bool{}
@@ -183,12 +198,7 @@ func readingRenderOne(ctx context.Context, root string, args map[string]string, 
 		}
 		return fresh.Finish()
 	}
-	tx, err := transaction.ApplyContextWithValidation(ctx, root, readingRenderKind, ops, guards, nil, validate)
-	if err != nil {
-		return nil, err
-	}
-	result["transaction"] = tx
-	return result, nil
+	return transaction.ApplyContextWithValidation(ctx, root, kind, ops, guards, nil, validate)
 }
 
 // readingOperations 把变更集转成事务操作。新建的父目录须显式登记，由浅到深。
@@ -237,10 +247,10 @@ func readingOperations(s *kernel.SemanticSession, plan *reading.RenderPlan) ([]t
 	return ops, nil
 }
 
-var readingTransactionPath = regexp.MustCompile(`^(?:.+/)?(?:reading/(?:(?:domain-strategy|stage-decision-package|status)\.review\.md|\.manifest\.json)|map\.md)$`)
+var readingTransactionPath = regexp.MustCompile(`^(?:(?:.+/)?(?:reading/(?:(?:domain-strategy|stage-decision-package|status)\.review\.md|\.manifest\.json)|map\.md)|\.template-spec/process/reading-policy\.yaml)$`)
 
 // ValidateReadingTransaction 约束恢复/回退范围：reading-render 事务只允许触碰阅读目录、
-// 其清单与同级 map.md（及为它们新建的目录）。
+// 其清单、同级 map.md 与阅读策略文件（及为它们新建的目录）。
 func ValidateReadingTransaction(root, profile string, paths []string) error {
 	for _, p := range paths {
 		if readingTransactionPath.MatchString(p) || strings.HasSuffix(p, "/reading") || path.Base(p) == "reading" {
