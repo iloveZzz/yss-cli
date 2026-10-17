@@ -80,6 +80,9 @@ type SemanticSession struct {
 	InsideTransaction bool                `json:"-" yaml:"-"`
 	Registry          map[string]any      `json:"-" yaml:"-"`
 	Roles             map[string]any      `json:"-" yaml:"-"`
+	GovernanceVersion int                 `json:"-" yaml:"-"`
+	GovernancePolicy  map[string]any      `json:"-" yaml:"-"`
+	GovernanceDigest  string              `json:"-" yaml:"-"`
 	Report            *SemanticReport     `json:"-" yaml:"-"`
 	Scans             map[string][]string `json:"-" yaml:"-"`
 	active            map[string]bool
@@ -559,7 +562,11 @@ func (s *SemanticSession) Verify(kind, ref string, opts map[string]string) error
 	if s.active[key] {
 		return s.Reject("REFERENCE_CYCLE", "未完成的语义校验形成循环: "+kind+"/"+ref)
 	}
-	fn, ok := SemanticValidators[kind]
+	validators := SemanticValidators
+	if s.GovernanceVersion == 2 {
+		validators = RoleIndependentValidators
+	}
+	fn, ok := validators[kind]
 	if !ok {
 		return s.Unavailable("CAPABILITY", "尚缺原生语义校验能力: "+kind)
 	}
@@ -907,7 +914,7 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 		return err
 	}
 	n, ok := Integer(identity["schema_version"])
-	if !ok || n != 1 || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) {
+	if !ok || (n != 1 && n != 2) || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) || n == 2 && identity["repository_mode"] != "project-instance" {
 		return s.Unavailable("IDENTITY", "未知仓库身份")
 	}
 	// 模板源仓根没有 Profile 身份文件；只有它自己（repository_mode: template-source）可以省略，实例缺失仍是错误。
@@ -915,13 +922,14 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 	if err != nil {
 		return err
 	}
+	var profile map[string]any
 	if hasProfile || Text(identity["repository_mode"]) != "template-source" {
-		profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+		profile, err = s.Doc(".template-spec/process/harness-profile.yaml")
 		if err != nil {
 			return err
 		}
 		version, valid := Integer(profile["schema_version"])
-		if !valid || version < 1 || version > 2 {
+		if !valid || version < 1 || version > 3 {
 			return s.Unavailable("IDENTITY", "未知 Profile schema")
 		}
 		matched := ""
@@ -939,21 +947,32 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 	if err != nil {
 		return err
 	}
-	s.Roles, err = s.Doc(".template-spec/agents/digital-human-roles.yaml")
-	if err != nil {
+	if err = s.loadGovernancePolicy(identity, profile); err != nil {
 		return err
 	}
-	for _, authority := range []map[string]any{s.Registry, s.Roles} {
+	authorities := []map[string]any{s.Registry}
+	s.Roles = nil
+	if s.GovernanceVersion != 2 {
+		s.Roles, err = s.Doc(".template-spec/agents/digital-human-roles.yaml")
+		if err != nil {
+			return err
+		}
+		authorities = append(authorities, s.Roles)
+	}
+	for _, authority := range authorities {
 		version, ok := Integer(authority["schema_version"])
 		if !ok || version != 1 || authority["status"] != "active" {
 			return s.Unavailable("CAPABILITY", "未知注册表/角色规则版本或非active状态")
 		}
 	}
 	if sourcePolicy != nil {
+		if s.GovernanceVersion == 2 {
+			return s.Unavailable("CAPABILITY", "历史来源签字适配器不支持新治理政策；不能用接收方政策重解释")
+		}
 		if err = sourcePolicy(s); err != nil {
 			return err
 		}
-	} else {
+	} else if s.GovernanceVersion != 2 {
 		decisionPolicy, present := Object(s.Roles["user_decision_policy"])
 		policyVersion, policyVersionValid := Integer(decisionPolicy["schema_version"])
 		_, gatesValid := decisionPolicy["gates"].([]any)

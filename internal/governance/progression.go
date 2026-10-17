@@ -72,7 +72,7 @@ func progressionScope(s *kernel.SemanticSession, target string) error {
 func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "lifecycle-target-go-plan", Root: root, Action: "target", CheckpointRef: cpRef, InputRef: inputRef, Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}, Scope: "progression-intent-only"}
 	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
-	if err := kernel.ProjectIdentity(s.V); err != nil {
+	if err := s.RequireGovernanceWrite(); err != nil {
 		return plan, err
 	}
 	if err := pendingOldTransaction(s.V); err != nil {

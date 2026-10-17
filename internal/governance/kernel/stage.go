@@ -322,7 +322,7 @@ func ProjectIdentity(v *View, sessions ...*SemanticSession) error {
 		return err
 	}
 	version, ok := Integer(m["schema_version"])
-	if !ok || version != 1 || Text(m["repository_mode"]) != "project-instance" {
+	if !ok || (version != 1 && version != 2) || Text(m["repository_mode"]) != "project-instance" {
 		return domain.Fail("IDENTITY", "stage/project-ci 仅适用于 project-instance")
 	}
 	return nil

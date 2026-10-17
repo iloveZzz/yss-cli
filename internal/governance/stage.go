@@ -131,7 +131,7 @@ func buildStagePlan(root, action, cpRef, inputRef string, refresh bool, contexts
 	}
 	s := kernel.NewSemanticSession(ctx, root, nil)
 	v := s.V
-	if err := kernel.ProjectIdentity(v); err != nil {
+	if err := s.RequireGovernanceWrite(); err != nil {
 		return plan, err
 	}
 	if err := pendingOldTransaction(v); err != nil {
