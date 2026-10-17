@@ -1,6 +1,10 @@
 package kernel
 
-import "github.com/iloveZzz/yss-cli/internal/schema"
+import (
+	"github.com/iloveZzz/yss-cli/internal/schema"
+	"path/filepath"
+	"strings"
+)
 
 // Only bound inputs of already validated implementation/review consumers supply requirements.
 func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[string]any, scope []string, bindings ...any) (string, error) {
@@ -19,6 +23,12 @@ func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[strin
 			raw, err := s.EvidenceAsset(asset)
 			if err != nil {
 				return "", err
+			}
+			if strings.EqualFold(filepath.Ext(ref), ".md") {
+				raw, _, err = Frontmatter(raw)
+				if err != nil {
+					continue
+				}
 			}
 			value, err := schema.Parse(raw)
 			if err != nil {

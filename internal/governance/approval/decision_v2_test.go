@@ -66,7 +66,7 @@ func TestPolicy2RealDecisionDoesNotNeedRoles(t *testing.T) {
 }
 
 func TestCapturedIndependentRequirementCannotBeAgentOrUnboundScope(t *testing.T) {
-	for _, scenario := range []string{"human", "agent", "wrong-scope", "negated", "stale"} {
+	for _, scenario := range []string{"human", "markdown", "agent", "wrong-scope", "negated", "stale"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, _, _ := trueDecisionFixture(t)
 			message := map[string]any{"id": "require", "actor_kind": "biological-human", "principal_ref": "human", "original_ref": "chat:require", "sent_at": "2026-01-01T00:00:00Z", "text": "请独立复核 drafts"}
@@ -84,12 +84,20 @@ func TestCapturedIndependentRequirementCannotBeAgentOrUnboundScope(t *testing.T)
 			requirement := map[string]any{"kind": "review-requirement", "mode": "independent-review", "scope": []string{"drafts"}, "source": map[string]any{"kind": "session-export", "ref": "require-source.json", "digest": kernel.ApDigest(raw), "message_id": "require"}}
 			decisionFile(t, s.Root, "required-review.json", requirement)
 			raw, _ = os.ReadFile(filepath.Join(s.Root, "required-review.json"))
-			binding := map[string]any{"ref": "required-review.json", "digest": strings.TrimPrefix(kernel.ApDigest(raw), "sha256:")}
+			ref := "required-review.json"
+			if scenario == "markdown" {
+				ref = "required-review.md"
+				raw = append(append([]byte("---\n"), raw...), []byte("\n---\nActual captured requirement")...)
+				if err := os.WriteFile(filepath.Join(s.Root, ref), raw, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			binding := map[string]any{"ref": ref, "digest": strings.TrimPrefix(kernel.ApDigest(raw), "sha256:")}
 			if scenario == "stale" {
 				decisionFile(t, s.Root, "require-source.json", map[string]any{"changed": true})
 			}
 			mode, err := s.RequiredReviewMode(nil, nil, []string{"drafts"}, []any{binding})
-			if (err == nil) != (scenario == "human") {
+			if (err == nil) != (scenario == "human" || scenario == "markdown") {
 				t.Fatalf("%s: %v", scenario, err)
 			}
 			if err == nil && mode != "independent-review" {

@@ -280,6 +280,12 @@ func TrustedTaskImplementation(s *kernel.SemanticSession, review map[string]any)
 		if err != nil {
 			return nil, err
 		}
+		if strings.EqualFold(filepath.Ext(ref), ".md") {
+			raw, _, err = kernel.Frontmatter(raw)
+			if err != nil {
+				continue
+			}
+		}
 		value, parseErr := schema.Parse(raw)
 		task, object := kernel.Object(value)
 		if parseErr != nil || !object {
