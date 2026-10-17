@@ -10,6 +10,24 @@ import (
 
 // Only bound inputs of already validated implementation/review consumers supply requirements.
 func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[string]any, scope []string, bindings ...any) (string, error) {
+	return s.requiredReviewMode(candidate, implementation, scope, "", bindings...)
+}
+
+// Daily consumers have already verified their Markdown Ticket and registered implementation root.
+func (s *SemanticSession) RequiredReviewModeAtRoot(candidate, implementation map[string]any, scope []string, root string, bindings ...any) (string, error) {
+	if Text(implementation["task_ref"]) == "" || root == "" {
+		return "", s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "缺少真实任务和已验证实施根")
+	}
+	if _, err := s.Bytes(Text(implementation["task_ref"])); err != nil {
+		return "", err
+	}
+	if err := s.reviewRoot(root); err != nil {
+		return "", err
+	}
+	return s.requiredReviewMode(candidate, implementation, scope, root, bindings...)
+}
+
+func (s *SemanticSession) requiredReviewMode(candidate, implementation map[string]any, scope []string, root string, bindings ...any) (string, error) {
 	mode := "self-check"
 	seen := map[string]string{}
 	for _, basis := range bindings {
@@ -31,6 +49,10 @@ func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[strin
 				if err != nil {
 					continue
 				}
+			}
+			text := strings.TrimSpace(string(raw))
+			if strings.HasPrefix(ref, "#") && strings.HasPrefix(text, "```json\n") && strings.HasSuffix(text, "\n```") {
+				raw = []byte(strings.TrimSuffix(strings.TrimPrefix(text, "```json\n"), "\n```"))
 			}
 			value, err := schema.Parse(raw)
 			if err != nil {
@@ -54,7 +76,7 @@ func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[strin
 			if err = s.Verify("review-requirement", ref, nil); err != nil {
 				return "", err
 			}
-			applies, err := s.reviewScopesIntersect(implementation, scope, ApStrings(record["scope"]))
+			applies, err := s.reviewScopesIntersectAtRoot(implementation, scope, ApStrings(record["scope"]), root)
 			if err != nil {
 				return "", err
 			}
@@ -71,16 +93,29 @@ func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[strin
 // caller supplied provenance comes from completed task revalidation, not review
 // declarations; unregistered roots or ambiguous paths are input gaps.
 func (s *SemanticSession) reviewScopesIntersect(implementation map[string]any, actual, requested []string) (bool, error) {
-	root := s.Root
-	if taskRef := Text(implementation["task_ref"]); taskRef != "" {
-		task, err := s.Doc(taskRef)
-		if err != nil {
-			return false, err
-		}
-		root = Text(ApMap(task["baseline"])["repository_root"])
-	}
+	return s.reviewScopesIntersectAtRoot(implementation, actual, requested, "")
+}
+
+func (s *SemanticSession) reviewRoot(root string) error {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || (root != s.Root && s.ExternalViews[root] == nil) {
-		return false, s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "无法确认独立复核要求的实际实施仓库")
+		return s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "无法确认独立复核要求的实际实施仓库")
+	}
+	return nil
+}
+
+func (s *SemanticSession) reviewScopesIntersectAtRoot(implementation map[string]any, actual, requested []string, root string) (bool, error) {
+	if root == "" {
+		root = s.Root
+		if taskRef := Text(implementation["task_ref"]); taskRef != "" {
+			task, err := s.Doc(taskRef)
+			if err != nil {
+				return false, err
+			}
+			root = Text(ApMap(task["baseline"])["repository_root"])
+		}
+	}
+	if err := s.reviewRoot(root); err != nil {
+		return false, err
 	}
 	if !ApUnique(actual) || !ApUnique(requested) {
 		return false, s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "无法确认实际复核路径范围")

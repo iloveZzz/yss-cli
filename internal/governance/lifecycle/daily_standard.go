@@ -1,6 +1,9 @@
 package lifecycle
 
-import "github.com/iloveZzz/yss-cli/internal/governance/kernel"
+import (
+	"github.com/iloveZzz/yss-cli/internal/governance/approval"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+)
 
 // standard 是 daily 与 governed 之间的交付路线：沿用 daily 的单一任务记录与全部完成条件，
 // 另需一页 Spec-lite 与一次绑定其摘要的生物人决定。它不是生命周期阶段，不创建 checkpoint、
@@ -17,7 +20,11 @@ func (d *dailySession) readStandardPolicy() {
 	if !ok {
 		return
 	}
-	if v, valid := kernel.Integer(p["version"]); !valid || v != 1 {
+	version := int64(1)
+	if d.s.GovernanceVersion == 2 {
+		version = 2
+	}
+	if v, valid := kernel.Integer(p["version"]); !valid || v != version {
 		return
 	}
 	impacts, valid := dailyStrings(p["impacts"])
@@ -32,6 +39,9 @@ func (d *dailySession) readStandardPolicy() {
 	}
 	decision, ok := kernel.Object(p["decision"])
 	if !ok || kernel.Text(decision["id"]) != standardDecisionID || kernel.Text(decision["actor_kind"]) != "human" {
+		return
+	}
+	if version == 2 && (decision["requester_may_confirm"] != true || decision["agent_may_generate_user_response"] != false) {
 		return
 	}
 	d.standard = p
@@ -89,12 +99,29 @@ func (d *dailySession) standardEvidence() error {
 	if _, err := d.basisRef(kernel.Text(decision["response_ref"]), kernel.Text(decision["response_digest"])); err != nil {
 		return err
 	}
+	if d.s.GovernanceVersion == 2 {
+		record, err := d.s.Doc(kernel.Text(decision["response_ref"]))
+		if err != nil {
+			return err
+		}
+		result, err := approval.ValidateUserDecisionSemantic(d.s, record, []map[string]any{{"boundary": standardDecisionID, "subject_ref": spec["ref"], "scope": kernel.ApMap(d.record["scope"])["paths"]}})
+		if err != nil {
+			return err
+		}
+		rows := result.Rows()
+		if len(rows) != 1 || rows[0]["principal_ref"] != decision["decided_by"] {
+			return d.rejected("standard 决定人与真实来源不一致")
+		}
+	}
 	d.report.Checks = append(d.report.Checks, kernel.SemanticCheck{ID: "standard.spec-lite-decision", SourceRef: d.taskRef, Status: "passed"})
 	return nil
 }
 
-// standardIndependence：决定人不能同时是实现者或审查者。
+// Legacy policy1 requires separate actors; policy2 already validated the actual human source.
 func (d *dailySession) standardIndependence(implementer string) error {
+	if d.s.GovernanceVersion == 2 {
+		return nil
+	}
 	decision, _ := kernel.Object(d.record["standard_decision"])
 	review, _ := kernel.Object(d.record["review"])
 	decider := kernel.Text(decision["decided_by"])

@@ -8,7 +8,13 @@ import (
 
 func init() { kernel.RegisterRoleIndependentValidator("review-requirement", verifyReviewRequirement) }
 func verifyReviewRequirement(s *kernel.SemanticSession, ref string, _ map[string]string) error {
-	requirement, err := s.Doc(ref)
+	var requirement map[string]any
+	var err error
+	if strings.HasPrefix(ref, "#") {
+		requirement, err = s.EvidenceFact(ref)
+	} else {
+		requirement, err = s.Doc(ref)
+	}
 	if err != nil {
 		return err
 	}

@@ -70,11 +70,13 @@ type SemanticReport struct {
 }
 
 type SemanticSession struct {
-	Ctx           context.Context   `json:"-" yaml:"-"`
-	Root          string            `json:"-" yaml:"-"`
-	V             *View             `json:"-" yaml:"-"`
-	Args          map[string]string `json:"-" yaml:"-"`
-	CheckpointRef string            `json:"-" yaml:"-"`
+	// Only a current daily Ticket supplies original section bytes; all file reads remain guarded.
+	EvidenceFragment func(string) ([]byte, error) `json:"-" yaml:"-"`
+	Ctx              context.Context              `json:"-" yaml:"-"`
+	Root             string                       `json:"-" yaml:"-"`
+	V                *View                        `json:"-" yaml:"-"`
+	Args             map[string]string            `json:"-" yaml:"-"`
+	CheckpointRef    string                       `json:"-" yaml:"-"`
 	// InsideTransaction 只供事务提交回调使用：回调运行时本事务必然处于未完成状态，
 	// 因此权威加载不再把 Go 事务待处理当作拒绝原因。默认 false，其余调用方不受影响。
 	InsideTransaction bool                `json:"-" yaml:"-"`

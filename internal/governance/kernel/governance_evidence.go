@@ -8,13 +8,20 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
+func (s *SemanticSession) evidenceBytes(ref string) ([]byte, error) {
+	if strings.HasPrefix(ref, "#") && s.EvidenceFragment != nil {
+		return s.EvidenceFragment(ref)
+	}
+	return s.Bytes(ref)
+}
+
 // EvidenceAsset uses the same confined, observed bytes as all semantic inputs.
 func (s *SemanticSession) EvidenceAsset(asset map[string]any) ([]byte, error) {
 	ref, digest := Text(asset["ref"]), Text(asset["digest"])
 	if !IsSHA256(digest) || ref == "" {
 		return nil, s.Reject("EVIDENCE_BINDING", "证据缺少明确引用和64位摘要")
 	}
-	raw, err := s.Bytes(ref)
+	raw, err := s.evidenceBytes(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +33,7 @@ func (s *SemanticSession) EvidenceAsset(asset map[string]any) ([]byte, error) {
 
 // EvidenceFact reuses the JSON/YAML execution-log carrier; it creates no extra identity registry.
 func (s *SemanticSession) EvidenceFact(ref string) (map[string]any, error) {
-	raw, err := s.Bytes(ref)
+	raw, err := s.evidenceBytes(ref)
 	if err != nil {
 		return nil, err
 	}

@@ -195,6 +195,12 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	if err != nil {
 		return d.info(err.Error())
 	}
+	if err = d.recordVersion(); err != nil {
+		return err
+	}
+	if d.s.GovernanceVersion == 2 {
+		d.s.EvidenceFragment = d.recordRef
+	}
 	d.report.TaskID = kernel.Text(d.record["task_id"])
 	if d.report.TaskID == "" {
 		return d.info("记录缺少 task_id")
@@ -340,7 +346,7 @@ func (d *dailySession) run(action string, args map[string]string) error {
 		return nil
 	}
 	implementation, ok := kernel.Object(d.record["implementation"])
-	if !ok || kernel.Text(implementation["actor_id"]) == "" {
+	if !ok || d.s.GovernanceVersion != 2 && kernel.Text(implementation["actor_id"]) == "" {
 		return d.info("缺少实现者身份")
 	}
 	if kernel.Text(implementation["diff_digest"]) != d.report.DiffDigest {
@@ -349,6 +355,11 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	files, ok := dailyStrings(implementation["changed_files"])
 	if !ok || !kernel.EqualStrings(files, d.report.ChangedFiles) {
 		return d.rejected("实现文件清单不等于实际 diff")
+	}
+	if d.s.GovernanceVersion == 2 {
+		if err = d.verifyImplementation(); err != nil {
+			return err
+		}
 	}
 	if err = d.verifyTests(d.record["tests"], true); err != nil {
 		return err
@@ -382,6 +393,15 @@ func (d *dailySession) identity(requested string) error {
 		return err
 	}
 	v, ok := kernel.Integer(m["schema_version"])
+	if ok && v == 2 && m["repository_mode"] == "project-instance" {
+		if err := d.s.Authorities(); err != nil {
+			return err
+		}
+		if d.s.GovernanceVersion != 2 || !kernel.SemHas([]string{"spec", "backend"}, d.s.Report.Profile) || requested != "" && requested != d.s.Report.Profile {
+			return d.s.Unavailable("IDENTITY", "日常路线需要一致的新Profile和政策")
+		}
+		return nil
+	}
 	if !ok || v != 1 || kernel.Text(m["repository_mode"]) != "project-instance" {
 		return d.s.Unavailable("UNPORTED", "日常路线仅适用于当前 project-instance")
 	}
@@ -460,7 +480,11 @@ func (d *dailySession) readPolicy() error {
 	triage, _ := kernel.Object(m["request_triage"])
 	p, ok := kernel.Object(triage["delivery_path"])
 	v, valid := kernel.Integer(p["version"])
-	if !ok || !valid || v != 1 {
+	version := int64(1)
+	if d.s.GovernanceVersion == 2 {
+		version = 2
+	}
+	if !ok || !valid || v != version {
 		return d.s.Unavailable("UNPORTED", "未知日常路线策略版本")
 	}
 	enabled, valid := dailyStrings(p["enabled_profiles"])
@@ -473,6 +497,13 @@ func (d *dailySession) readPolicy() error {
 		}
 	}
 	required := map[string][]string{"eligible_requirements": {"goal", "acceptance", "single_repository", "current_baseline", "skills", "commands", "rollback", "known_risk"}, "excluded_impacts": {"data-migration", "cross-repository", "platform-conversion", "architecture-conversion", "permission-change", "deployment", "release", "external-approval", "breaking-api", "unknown-api"}, "read_only_capabilities": {"lifecycle.route", "lifecycle.verify-daily"}, "completion_requires": {"current-scope", "passing-actual-tests", "independent-review", "no-open-blocking-findings", "current-api-evidence-if-applicable"}}
+	if version == 2 {
+		required["completion_requires"] = []string{"current-scope", "passing-actual-tests", "applicable-review-evidence", "no-open-blocking-findings", "current-api-evidence-if-applicable"}
+		contract := kernel.ApMap(p["record_contract"])
+		if p["default_review"] != "self-check" || kernel.ApNumber(p["result_schema_version"]) != 2 || kernel.ApNumber(contract["schema_version"]) != 2 || kernel.ApNumber(contract["policy_version"]) != 2 {
+			return d.s.Unavailable("UNPORTED", "日常新记录或默认复核政策缺失")
+		}
+	}
 	for key, want := range required {
 		got, ok := dailyStrings(p[key])
 		if !ok || !equalStringSets(got, want) {
@@ -930,7 +961,7 @@ func (d *dailySession) verifyTests(v any, coverAll bool) error {
 		if !ok || !valid || index < 0 || index >= int64(len(commands)) || !exitValid {
 			return d.info("测试证据需要有效 command_index 与实际 exit_code")
 		}
-		if exit != 0 {
+		if exit != 0 || d.s.GovernanceVersion == 2 && (m["status"] != nil && m["status"] != "passed") {
 			return d.rejected("实际测试没有通过")
 		}
 		if kernel.Text(m["candidate_digest"]) != d.report.CandidateDigest {
@@ -953,6 +984,9 @@ func (d *dailySession) verifyReview(v any, actor string) error {
 }
 
 func (d *dailySession) verifyBoundReview(v any, actor, bindingField, currentDigest string) error {
+	if d.s.GovernanceVersion == 2 {
+		return d.verifyRoleIndependentReview(v, bindingField, currentDigest)
+	}
 	m, ok := kernel.Object(v)
 	if !ok || kernel.Text(m["reviewer_id"]) == "" {
 		return d.info("缺少独立审查身份与结论")
@@ -1001,6 +1035,9 @@ func (d *dailySession) executionLog(row map[string]any, argv any, cwd, bindingFi
 	when, timeErr := time.Parse(time.RFC3339Nano, kernel.Text(log["executed_at"]))
 	if !valid || !expectedValid || timeErr != nil || when.After(time.Now().Add(time.Minute)) {
 		return d.info("执行日志缺少有效实际退出码或执行时间")
+	}
+	if d.s.GovernanceVersion == 2 && (log["status"] != nil && log["status"] != "passed" || log["result"] != nil && log["result"] != "passed") {
+		return d.rejected("原始执行记录不是passed")
 	}
 	if !kernel.ApEqual(log["argv"], argv) || kernel.Text(log["cwd"]) != cwd || exit != expected {
 		return d.rejected("执行日志与登记命令、实现根或实际退出码自相矛盾")
