@@ -5416,7 +5416,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --refresh <值>                  按当前命令说明指定
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -5513,7 +5513,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --refresh <值>                  按当前命令说明指定
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -5525,7 +5525,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
 --apply --plan-file  应用已保存计划
---refresh 尚未支持，返回 UNPORTED
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
 
 预期结果:
 输出可审阅计划；应用保存计划时重新核验当前输入。
@@ -5573,7 +5573,7 @@ yss stage query --root ./demo-spec --id stage.spec-architecture --json
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend>  必需或从项目身份检测
 无 checkpoint: --id / --stage  阶段 ID
-有 checkpoint: --id  工作项 ID；--work-unit / --stage 筛选尚未支持
+有 checkpoint: --id  工作项 ID；--stage / --work-unit 筛选工作项（结果 items）
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
@@ -5615,7 +5615,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --refresh <值>                  按当前命令说明指定
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -5627,7 +5627,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
 --apply --plan-file  应用已保存计划
---refresh 尚未支持，返回 UNPORTED
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
 
 预期结果:
 输出可审阅计划；应用保存计划时重新核验当前输入。
@@ -5716,7 +5716,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
   --json                          执行结果输出 JSON；帮助始终输出文本
   --plan-file <文件>              消费已有计划；写入前核验输入摘要
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
-  --refresh <值>                  按当前命令说明指定
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -5728,7 +5728,7 @@ yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
 --items / --item  合同规定的工作项 JSON
 默认只输出计划；保存计划必须位于项目内
 --apply --plan-file  应用已保存计划
---refresh 尚未支持，返回 UNPORTED
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
 
 预期结果:
 输出可审阅计划；应用保存计划时重新核验当前输入。

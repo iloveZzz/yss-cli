@@ -884,3 +884,42 @@ func (v *View) CheckPathIdentities() error {
 	}
 	return nil
 }
+
+// StageDrift 返回来源或证据绑定漂移的工作项，并沿依赖传递；与 CheckStage 的漂移规则一致，
+// 但不因已运行/完成项漂移而拒绝，供 refresh 保留历史并重置执行态。
+func StageDrift(s *SemanticSession, t *StageTracking) []string {
+	stale := map[string]bool{}
+	for _, item := range t.Items {
+		bindings := append([]Binding{}, item.SourceRefs...)
+		for _, c := range item.Completion {
+			bindings = append(bindings, c.EvidenceRefs...)
+		}
+		for _, binding := range bindings {
+			if _, err := safefs.Path(s.V.Root, binding.Ref); err != nil {
+				stale[item.ID] = true
+				continue
+			}
+			raw, err := s.Bytes(binding.Ref)
+			if err != nil || "sha256:"+safefs.Digest(raw) != binding.Digest {
+				stale[item.ID] = true
+			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, item := range t.Items {
+			for _, dep := range item.Dependencies {
+				if stale[dep] && !stale[item.ID] {
+					stale[item.ID] = true
+					changed = true
+				}
+			}
+		}
+	}
+	ids := []string{}
+	for id := range stale {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}

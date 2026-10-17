@@ -192,7 +192,7 @@
 |---|---|---|---|---|
 | 1（本 PR 系列已完成） | 研究校验器与竞品模块摘要 → 语义校验；修竞品输入闭包的摘要前缀比较 | 低。对拍 4609 夹具 + 25 个端到端收尾夹具；脚本字节不变时 Go 输出逐字节相同 | §6 | 否 |
 | 2（已完成，见 §6.5） | 阅读渲染闭包 5 个文件的 7 个绑定。先修 `contract-views.mjs` 落后问题：用固定模板的 Node 渲染器对同一 managed checkpoint 生成 `reading/*`，Go 的 `reading-transition` 校验必须逐字节通过；通过后再把「指纹」改为「摘要与清单登记一致」 | 中。渲染器有 5 个文件、约 500 行 Node，输出逐字节比较；前端整线移除可能改变渲染分支 | 在 managed 项目上：Node 生成 → Go 校验接受；对每类变异（改一个字节、少/多文件、过期清单）Go 与 Node 的 `check-views` 结论一致 | 否（读固定提交即可） |
-| 3 | stage `refresh`、`--stage/--work-unit` 过滤、`register` 种子字段（§3 的 19、22、23） | 中。涉及写入与 checkpoint | 对拍 Node `stage-tracking plan --refresh` 的计划；写入走既有事务 | 否 |
+| 3（已完成） | stage `refresh`、`--stage/--work-unit` 过滤、`register` 种子字段（§3 的 19、22、23）。refresh：`--refresh` 改为布尔，计划绑定 refresh 与被重置项，应用时重建；同一状态下与 Node `stage-tracking plan --refresh` 的 stage_tracking 逐字段一致（直接漂移、依赖传递、cancelled 不重置）。过滤：Node 无对应能力，为新增只读筛选。种子字段：Go 允许集合与 Node `planTracking` 消费的 12 个字段相同，未知字段 Go 拒绝而 Node 忽略，属 Go 偏严，保留 | 中。涉及写入与 checkpoint | 对拍 Node `stage-tracking plan --refresh` 的计划；写入走既有事务 | 否 |
 | 4（已完成） | project-ci 计划/安装的范围与文案（28）：默认范围安装完整治理工作流，`--scope native-go` 保留有限安装；`unportedProjectChecks` 改名 `nativeScopeSkippedChecks`，只表示有限范围不执行的门禁 | 低～中 | 黑盒：默认范围 `plan/install/apply` 的 envelope；对拍 Node `planProjectCi` | 否 |
 | 5 | runtime-store：`begin --input/--report-dir`、run 引用扫描、project-ci `--runtime-store` | 高。涉及 SQLite、pin、报告保护 | 对拍 Node `runtime-store.mjs` 的行为；需要新的事务/并发验证 | 否 |
 | 6（部分完成） | 令牌与文案清理：不可达兜底分支（5–9、14、21、30）的「尚未迁移」改为「不支持的…动作」，错误码不变；`lifecycle/query.go` 的 verify 分支经确认不可达，保留为防御性 `INTERNAL` 拒绝，避免将来降级为结构校验；`user-decision.from-record.v1` 需模板协同，留待阶段二 | 低，文案类会改变 envelope 的 `message` | 黑盒 envelope 对比（仅文案差异） | 阶段二协同 |

@@ -139,13 +139,13 @@ func registerGovernanceHelp() {
 		"verify-daily": dailyHelp("核验同一日常任务的当前差异、测试和独立审查。", "verify-daily"),
 	})
 	stage := map[string]helpTopic{
-		"query": {"查询阶段或 checkpoint 中的工作项。", "[--checkpoint <文件>] [--id <ID>]", "无 checkpoint: --id / --stage  阶段 ID\n有 checkpoint: --id  工作项 ID；--work-unit / --stage 筛选尚未支持", "yss stage query --root ./demo-spec --id stage.spec-architecture --json", "", true},
+		"query": {"查询阶段或 checkpoint 中的工作项。", "[--checkpoint <文件>] [--id <ID>]", "无 checkpoint: --id / --stage  阶段 ID\n有 checkpoint: --id  工作项 ID；--stage / --work-unit 筛选工作项（结果 items）", "yss stage query --root ./demo-spec --id stage.spec-architecture --json", "", true},
 	}
 	for _, action := range []string{"status", "check"} {
 		stage[action] = helpTopic{"读取并校验当前阶段工作项。", "--checkpoint <文件>", "--checkpoint / --file  已存在的 checkpoint", "yss stage " + action + " --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json", governanceNotes, true}
 	}
 	for _, action := range []string{"register", "update", "plan"} {
-		stage[action] = helpTopic{"生成阶段工作项写入计划。", "--checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]", "--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读\n--items / --item  合同规定的工作项 JSON\n默认只输出计划；保存计划必须位于项目内\n--apply --plan-file  应用已保存计划\n--refresh 尚未支持，返回 UNPORTED", "yss stage " + action + " --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json\nyss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", "使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。", true}
+		stage[action] = helpTopic{"生成阶段工作项写入计划。", "--checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]", "--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读\n--items / --item  合同规定的工作项 JSON\n默认只输出计划；保存计划必须位于项目内\n--apply --plan-file  应用已保存计划\n--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items", "yss stage " + action + " --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json\nyss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", "使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。", true}
 	}
 	stage["apply"] = helpTopic{"事务应用已保存的阶段工作项计划。", "--plan-file <文件>", "--plan-file  项目内保存的原始写入计划", "yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json", governanceNotes + "\n提交后若该 checkpoint 已启用 managed 阅读视图，会立即渲染并在结果 reading_update 中报告（unchanged/rendered/failed；未启用为 manual）；渲染失败不回滚已提交的阶段写入，按 recovery 提示运行 yss reading render。", true}
 	registerGroup("stage", "查询、登记或更新既有阶段工作项。", "--root <目录>", projectFlags, "yss stage query --root ./demo-spec --id stage.spec-architecture --json", governanceNotes, stage)
