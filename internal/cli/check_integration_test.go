@@ -67,7 +67,7 @@ func TestCheckRejectsUnfilledApprovalTemplate(t *testing.T) {
 			t.Errorf("%s: %v", key, items[key])
 		}
 	}
-	if command := explainString(items[dir+"/approval.yaml|approval-record"]["command"]); !strings.HasPrefix(command, "yss evidence verify --kind approval --history --file "+dir+"/approval.yaml") {
+	if command := explainString(items[dir+"/approval.yaml|approval-record"]["command"]); !strings.HasPrefix(command, "yss evidence check --schema .template-spec/process/schemas/approval-record.schema.json --file "+dir+"/approval.yaml") {
 		t.Errorf("须记录实际调用的现有命令: %s", command)
 	}
 }

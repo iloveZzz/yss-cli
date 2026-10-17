@@ -55,10 +55,10 @@ var checkDetectors = []checkDetector{
 		return []string{"evidence", "verify", "--kind", "user-decision", "--file", ref, "--checkpoint", cp}
 	}, true, "current"},
 	{"approval-record", func(d map[string]any) bool { return checkHas(d, "gate_id", "decision", "actor_kind") }, func(ref, _ string) []string {
-		return []string{"evidence", "verify", "--kind", "approval", "--history", "--file", ref}
+		return []string{"evidence", "check", "--schema", ".template-spec/process/schemas/approval-record.schema.json", "--file", ref}
 	}, false, "structure"},
 	{"lifecycle-checkpoint", func(d map[string]any) bool { return checkHas(d, "repository_mode", "mode", "stage", "artifacts") }, func(ref, _ string) []string {
-		return []string{"lifecycle", "verify", "--history", "--checkpoint", ref}
+		return []string{"contract", "check", "--schema", ".template-spec/process/schemas/lifecycle-checkpoint.schema.json", "--file", ref}
 	}, false, "structure"},
 	{"context-reconciliation", func(d map[string]any) bool { return checkHas(d, "repository_mode", "work_unit", "context_snapshot") }, func(ref, _ string) []string {
 		return []string{"evidence", "verify", "--kind", "context-reconciliation", "--file", ref}

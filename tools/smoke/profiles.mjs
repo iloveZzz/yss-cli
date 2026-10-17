@@ -1,9 +1,9 @@
-// Profile 实例流程：spec / design / backend 各走一遍 init → 查询类命令 → sync → 回退。
+// 当前 Spec/Backend 实例各走一遍 init → 查询类命令 → sync → 回退。
 import fs from 'node:fs';
 import path from 'node:path';
 import {check} from './lib.mjs';
 
-export const PROFILES = ['spec', 'design', 'backend'];
+export const PROFILES = ['spec', 'backend'];
 
 export function runProfile(session, profile, tempRoot) {
   session.log(`[profile:${profile}]`);

@@ -30,7 +30,9 @@ type pendingReviewPublication struct {
 var pendingReviewFiles = []string{"task.json", "task-issued.json", "bundle-draft.yaml", "coverage.md"}
 
 func reviewPublicationRef(ref string) bool {
-	if !kernel.ContractPath(ref) { return false }
+	if !kernel.ContractPath(ref) {
+		return false
+	}
 	first := strings.ToLower(strings.SplitN(ref, "/", 2)[0])
 	return !kernel.SemHas([]string{".git", ".yss", ".agents", ".template-spec", "scripts", "yss-project.yaml", ".yss.json"}, first)
 }
