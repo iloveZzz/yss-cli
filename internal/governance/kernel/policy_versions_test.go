@@ -31,7 +31,7 @@ func policyFixture(t *testing.T) (string, map[string]any) {
 	}
 	writePolicyFixture(t, root, "yss-project.yaml", map[string]any{"schema_version": 2, "repository_mode": "project-instance"})
 	writePolicyFixture(t, root, ".template-spec/process/harness-profile.yaml", map[string]any{"schema_version": 3, "profile_id": "harness.backend-delivery", "status": "active", "required_capabilities": []string{"role-independent-governance-v1"}, "lifecycle": map[string]any{}, "execution": map[string]any{}})
-	registry := map[string]any{"schema_version": 1, "status": "active", "gates": []any{map[string]any{"id": "gate.spec-baseline-approved"}}, "checks": []any{map[string]any{"id": "check.design-reviewed"}}, "work_units": []any{map[string]any{"id": "work-unit.technical-design"}}}
+	registry := map[string]any{"schema_version": 1, "status": "active", "gates": []any{map[string]any{"id": "gate.spec-baseline-approved"}}, "checks": []any{map[string]any{"id": "check.design-reviewed"}}, "work_units": []any{map[string]any{"id": "work-unit.technical-design"}, map[string]any{"id": "work-unit.slice-implementation"}, map[string]any{"id": "work-unit.implementation-repository-preparation"}, map[string]any{"id": "work-unit.spec-synthesis"}}}
 	writePolicyFixture(t, root, ".template-spec/process/lifecycle-registry.yaml", registry)
 	writePolicyFixture(t, root, ".template-spec/process/schemas/lifecycle-registry.schema.json", map[string]any{"type": "object"})
 	versions := map[string]any{"required_capability": "role-independent-governance-v1", "activation": "native-consumers-and-bundle-closure-required-before-instance-writes", "legacy_policy": "read-verify-explicit-migrate-only-no-new-task-or-stage-write"}
@@ -39,7 +39,8 @@ func policyFixture(t *testing.T) (string, map[string]any) {
 		versions[key] = map[string]any{"current": version}
 	}
 	gates := map[string]any{"automatic_checks": []any{}, "check_reviews": []any{map[string]any{"gate": "check.design-reviewed", "capability_ids": []string{"capability.technical-design"}}}, "technical_reviews": []any{map[string]any{"gate": "gate.spec-baseline-approved", "capability_ids": []string{"capability.technical-design"}}}, "user_decision_gates": []any{}, "contract_approval_gates": []any{}, "evidence_only": []any{}, "work_unit_reviews": []any{map[string]any{"work_unit": "work-unit.technical-design", "capability_ids": []string{"capability.technical-design"}}}}
-	policy := map[string]any{"schema_version": 2, "governance_versions": versions, "gate_policy": map[string]any{"default_if_unlisted": "reject-unlisted", "profiles": map[string]any{"backend": gates}}, "technical_checks": []any{map[string]any{"id": "capability.technical-design", "profiles": []string{"backend"}, "review_skills": []string{"code-review"}}}, "user_decision_policy": map[string]any{"schema_version": 2, "source_kinds": []string{"session-export"}, "profile_scope": map[string]any{"backend": map[string]any{"gates": []string{"gate.spec-baseline-approved"}, "work_units": map[string]any{}, "work_unit_gates": map[string]any{}}}, "continuation": map[string]any{"schema_version": 2, "kind": "approved-scope-continuation-v2", "boundaries_by_profile": map[string]any{"backend": []string{"gate.spec-baseline-approved", "implementation-scope"}}}}, "review_modes": map[string]any{"default": "self-check"}, "external_rules_policy": map[string]any{"states": map[string]any{"none-known": "proceed", "known-verifiable": "verify", "known-unverifiable": "block"}}}
+	policy := map[string]any{"schema_version": 2, "governance_versions": versions, "gate_policy": map[string]any{"default_if_unlisted": "reject-unlisted", "profiles": map[string]any{"backend": gates}}, "technical_checks": []any{map[string]any{"id": "capability.technical-design", "profiles": []string{"backend"}, "review_skills": []string{"code-review"}}}, "user_decision_policy": map[string]any{"schema_version": 2, "source_kinds": []string{"session-export"}, "profile_scope": map[string]any{"backend": map[string]any{"gates": []string{"gate.spec-baseline-approved"}, "work_units": map[string]any{"work-unit.slice-implementation": "implementation-scope", "work-unit.implementation-repository-preparation": "scaffold-choice"}, "work_unit_gates": map[string]any{"work-unit.spec-synthesis": []string{"gate.spec-baseline-approved"}}}}, "continuation": map[string]any{"schema_version": 2, "kind": "approved-scope-continuation-v2", "boundaries_by_profile": map[string]any{"backend": []string{"gate.spec-baseline-approved", "implementation-scope"}}}}, "review_modes": map[string]any{"default": "self-check"}, "external_rules_policy": map[string]any{"states": map[string]any{"none-known": "proceed", "known-verifiable": "verify", "known-unverifiable": "block"}}}
+	policy["work_unit_routes"] = map[string]any{"work-unit.spec-synthesis": map[string]any{"human_gate": "spec-baseline"}}
 	writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", policy)
 	return root, policy
 }
@@ -117,5 +118,41 @@ func TestLegacyAuthoritiesReadButCannotWriteAndNewConsumersFailClosed(t *testing
 	}
 	if s.GatePolicy()["technical_reviews"] == nil || ApContains(s.GatePolicy()["user_decision_gates"], "gate.delivery-accepted") {
 		t.Fatal("profile gate selection failed")
+	}
+}
+
+func TestRoleIndependentPolicyCompleteness(t *testing.T) {
+	for _, scenario := range []string{"empty-gates", "missing-check", "missing-gate", "empty-user-gates", "missing-work-unit", "empty-work-unit-gates", "missing-continuation"} {
+		t.Run(scenario, func(t *testing.T) {
+			root, p := policyFixture(t)
+			gates := ApMap(ApMap(ApMap(p["gate_policy"])["profiles"])["backend"])
+			decisions := ApMap(p["user_decision_policy"])
+			scope := ApMap(ApMap(decisions["profile_scope"])["backend"])
+			switch scenario {
+			case "empty-gates":
+				for k := range gates {
+					gates[k] = []any{}
+				}
+				scope["gates"] = []any{}
+				scope["work_units"] = map[string]any{}
+				scope["work_unit_gates"] = map[string]any{}
+			case "missing-check":
+				gates["check_reviews"] = []any{}
+			case "missing-gate":
+				gates["technical_reviews"] = []any{}
+			case "empty-user-gates":
+				scope["gates"] = []any{}
+			case "missing-work-unit":
+				delete(ApMap(scope["work_units"]), "work-unit.slice-implementation")
+			case "empty-work-unit-gates":
+				scope["work_unit_gates"] = map[string]any{}
+			case "missing-continuation":
+				ApMap(ApMap(decisions["continuation"])["boundaries_by_profile"])["backend"] = []string{"implementation-scope"}
+			}
+			writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
+			if err := NewSemanticSession(context.Background(), root, nil).Authorities(); SemanticCode(err) != "GOVERNANCE_POLICY" {
+				t.Fatalf("incomplete policy accepted: %v", err)
+			}
+		})
 	}
 }

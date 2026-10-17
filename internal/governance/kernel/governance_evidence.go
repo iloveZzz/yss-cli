@@ -164,13 +164,21 @@ func reviewResult(s *SemanticSession, actual map[string]any, scope []string) err
 	return nil
 }
 
-// requiredMode comes from the consumer's applicable user/external requirements, never the review's own assertion.
-func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]any, scope []string, requiredMode string) error {
+// requiredMode comes from applicable user/external requirements. implementation and
+// implementationTask must come from the consumer's verified task/execution facts,
+// never from this review's independence declaration. Review tasks may differ.
+func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string) error {
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
 	}
 	if !ApUnique(scope) {
 		return s.Reject("EVIDENCE_REVIEW", "复核范围必须明确且非空")
+	}
+	if implementationTask == "" {
+		return s.Reject("EVIDENCE_INDEPENDENCE", "缺少可信实施任务")
+	}
+	if _, err := s.ValidateProvenance(implementation, implementationTask, Text(candidate["digest"])); err != nil {
+		return err
 	}
 	mode := Text(review["mode"])
 	if !SemHas([]string{"self-check", "independent-review", "external-required-review"}, mode) || !SemHas([]string{"self-check", "independent-review", "external-required-review"}, requiredMode) {
@@ -196,7 +204,7 @@ func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]an
 		return s.Reject("EVIDENCE_REVIEW", "独立复核不能混写外部批准")
 	}
 	if mode == "independent-review" || requiredMode == "independent-review" || review["independence"] != nil {
-		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope); err != nil {
+		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope, implementation, implementationTask); err != nil {
 			return err
 		}
 	}
@@ -206,14 +214,21 @@ func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]an
 	return nil
 }
 
-func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string) error {
+func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string, trustedImplementation map[string]any, implementationTask string) error {
 	implementation, indReviewer := ApMap(ind["implementation"]), ApMap(ind["reviewer"])
+	if !ApEqual(implementation, trustedImplementation) {
+		return s.Reject("EVIDENCE_INDEPENDENCE", "独立性声明未绑定当前任务的真实实施来源")
+	}
 	ii, ri := ApMap(implementation["identity"]), ApMap(indReviewer["identity"])
 	if !ApEqual(indReviewer, reviewer) || ii["status"] != "available" || ri["status"] != "available" || ii["session_ref"] == ri["session_ref"] || implementation["execution_ref"] == indReviewer["execution_ref"] || ind["implementation_context_ref"] == ind["reviewer_context_ref"] || ind["readonly"] != true || !ApEqual(ind["candidate"], candidate) || !SameStringSet(ind["scope"], scope) {
 		return s.Reject("EVIDENCE_INDEPENDENCE", "独立复核需要不同真实执行上下文、同一候选范围和只读结果；换名字或同会话不能证明独立")
 	}
 	for _, p := range []map[string]any{implementation, indReviewer} {
-		actual, err := s.ValidateProvenance(p, "", Text(candidate["digest"]))
+		expectedTask := ""
+		if ApEqual(p, trustedImplementation) {
+			expectedTask = implementationTask
+		}
+		actual, err := s.ValidateProvenance(p, expectedTask, Text(candidate["digest"]))
 		if err != nil {
 			return err
 		}

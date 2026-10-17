@@ -28,14 +28,14 @@ func evidenceFixture(t *testing.T) (*SemanticSession, map[string]any, map[string
 func TestTraceableSelfCheckWithoutStableIdentity(t *testing.T) {
 	s, c, p := evidenceFixture(t)
 	review := map[string]any{"mode": "self-check", "provenance": p}
-	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check"); err != nil {
+	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check", p, "task.json"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "independent-review"); err == nil {
+	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "independent-review", p, "task.json"); err == nil {
 		t.Fatal("self-check replaced mandatory independent review")
 	}
 	review["independence"] = map[string]any{}
-	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check"); err == nil {
+	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check", p, "task.json"); err == nil {
 		t.Fatal("self-check carried fake independence")
 	}
 }
@@ -88,6 +88,9 @@ func independentFixture(t *testing.T) (*SemanticSession, map[string]any, map[str
 	writePolicyFixture(t, s.Root, "execution.json", actual)
 	reviewer := ApCopy(implementation)
 	reviewer["execution_ref"] = "review.json"
+	reviewer["task_ref"] = "review-task.json"
+	writePolicyFixture(t, s.Root, "review-task.json", map[string]any{"task_id": "REVIEW-1"})
+	actual["task_ref"] = reviewer["task_ref"]
 	reviewer["identity"] = map[string]any{"status": "available", "principal_ref": "same-account", "session_ref": "review-session"}
 	actual["identity"] = reviewer["identity"]
 	writePolicyFixture(t, s.Root, "review.json", actual)
@@ -107,6 +110,7 @@ func TestIndependentReviewRequiresActualSeparateContexts(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			s, c, r := independentFixture(t)
 			ind := ApMap(r["independence"])
+			trusted := ApCopy(ApMap(ind["implementation"]))
 			switch scenario {
 			case "same-context":
 				ApMap(ApMap(ind["reviewer"])["identity"])["session_ref"] = "implementation-session"
@@ -127,7 +131,7 @@ func TestIndependentReviewRequiresActualSeparateContexts(t *testing.T) {
 			case "source-mismatch":
 				ApMap(r["provenance"])["tool"] = "made-up-tool"
 			}
-			err := s.ValidateReviewEvidence(r, c, []string{"src/"}, "independent-review")
+			err := s.ValidateReviewEvidence(r, c, []string{"src/"}, "independent-review", trusted, "task.json")
 			if (err == nil) != (scenario == "same-account-separate-contexts") {
 				t.Fatalf("%s: %v", scenario, err)
 			}
@@ -172,6 +176,47 @@ func TestExternalRequirementsUseCurrentSourceAndScope(t *testing.T) {
 			err := s.ValidateExternalRules(rules, c, []string{"src/"})
 			if (err == nil) != (scenario == "none-known" || scenario == "satisfied") {
 				t.Fatalf("%s: %v", scenario, err)
+			}
+		})
+	}
+}
+
+func TestIndependentReviewCannotBorrowImplementationSession(t *testing.T) {
+	s, c, r := independentFixture(t)
+	ind := ApMap(r["independence"])
+	trusted := ApCopy(ApMap(ind["implementation"]))
+	// A really implemented and self-checked. B's separate real log must not replace A.
+	ind["implementation"], ind["reviewer"] = ind["reviewer"], ind["implementation"]
+	ind["implementation_context_ref"], ind["reviewer_context_ref"] = ind["reviewer_context_ref"], ind["implementation_context_ref"]
+	r["provenance"] = ind["reviewer"]
+	raw, err := os.ReadFile(filepath.Join(s.Root, "execution.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ind["evidence"] = map[string]any{"ref": "execution.json", "digest": safefs.Digest(raw)}
+	if err = s.ValidateReviewEvidence(r, c, []string{"src/"}, "independent-review", trusted, "task.json"); err == nil {
+		t.Fatal("actual implementer self-check accepted as independent by swapping real sessions")
+	}
+}
+
+func TestReviewRequiresTrustedImplementationTask(t *testing.T) {
+	for _, scenario := range []string{"missing-task", "wrong-task", "missing-provenance", "different-execution"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, c, r := independentFixture(t)
+			trusted := ApCopy(ApMap(ApMap(r["independence"])["implementation"]))
+			task := "task.json"
+			switch scenario {
+			case "missing-task":
+				task = ""
+			case "wrong-task":
+				task = "review-task.json"
+			case "missing-provenance":
+				trusted = nil
+			case "different-execution":
+				trusted["execution_ref"] = "review.json"
+			}
+			if err := s.ValidateReviewEvidence(r, c, []string{"src/"}, "independent-review", trusted, task); err == nil {
+				t.Fatal("missing or mismatched trusted implementation accepted")
 			}
 		})
 	}

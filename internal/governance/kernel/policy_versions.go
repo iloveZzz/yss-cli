@@ -156,7 +156,78 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 			return s.Unavailable("GOVERNANCE_POLICY", "用户决定超出当前Profile门禁: "+id)
 		}
 	}
+	if err := s.validatePolicyCompleteness(policy, scope, continuation, seen); err != nil {
+		return err
+	}
 	s.GovernanceVersion, s.GovernancePolicy, s.GovernanceDigest = 2, policy, digest
+	return nil
+}
+
+// Every registered gate/check must have exactly one classification (including legitimate
+// empty classes). User decision mappings must agree with continuation and work-unit routes.
+func (s *SemanticSession) validatePolicyCompleteness(policy, scope, continuation map[string]any, seen map[string]bool) error {
+	for _, bucket := range []string{"gates", "checks"} {
+		for _, row := range ApRows(s.Registry[bucket]) {
+			if id := Text(row["id"]); !seen[id] {
+				return s.Unavailable("GOVERNANCE_POLICY", "当前Profile缺少注册边界的门禁分类: "+id)
+			}
+		}
+	}
+	boundaries := ApMap(continuation["boundaries_by_profile"])[s.Report.Profile]
+	if !ApUnique(boundaries) || !ApUnique(scope["gates"]) {
+		return s.Unavailable("GOVERNANCE_POLICY", "用户决定或延续边界缺失、重复")
+	}
+	expectedGates := []string{}
+	for _, id := range ApStrings(boundaries) {
+		if strings.HasPrefix(id, "gate.") {
+			if ApFind(s.Registry["gates"], "id", id) == nil {
+				return s.Unavailable("GOVERNANCE_POLICY", "延续边界超出当前Profile注册表: "+id)
+			}
+			expectedGates = append(expectedGates, id)
+		} else if id != "implementation-scope" {
+			return s.Unavailable("GOVERNANCE_POLICY", "未知延续边界: "+id)
+		}
+	}
+	if !SameStringSet(scope["gates"], expectedGates) {
+		return s.Unavailable("GOVERNANCE_POLICY", "用户决定门禁与当前Profile延续边界不完整或不一致")
+	}
+	// These two protocol boundaries are task/continuation semantics, not actor qualifications.
+	expectedUnits := map[string]any{}
+	for unit, boundary := range map[string]string{"work-unit.implementation-repository-preparation": "scaffold-choice", "work-unit.slice-implementation": "implementation-scope"} {
+		if ApFind(s.Registry["work_units"], "id", unit) != nil {
+			expectedUnits[unit] = boundary
+		}
+	}
+	if !ApEqual(scope["work_units"], expectedUnits) || (expectedUnits["work-unit.slice-implementation"] != nil && !ApContains(boundaries, "implementation-scope")) {
+		return s.Unavailable("GOVERNANCE_POLICY", "当前Profile工作单元的用户决定映射缺失或不一致")
+	}
+	expectedUnitGates := map[string]any{}
+	for _, unit := range ApRows(s.Registry["work_units"]) {
+		id := Text(unit["id"])
+		route := ApMap(ApMap(policy["work_unit_routes"])[id])
+		required := []string{}
+		for _, field := range []string{"entry_user_gate", "human_gate"} {
+			gate := Text(route[field])
+			if gate == "spec-baseline" {
+				gate = "gate.spec-baseline-approved"
+			}
+			if SemHas(expectedGates, gate) && !SemHas(required, gate) {
+				required = append(required, gate)
+			}
+		}
+		if len(required) > 0 {
+			expectedUnitGates[id] = required
+		}
+	}
+	actual := ApMap(scope["work_unit_gates"])
+	if len(actual) != len(expectedUnitGates) {
+		return s.Unavailable("GOVERNANCE_POLICY", "工作单元的用户决定门禁映射不完整")
+	}
+	for unit, required := range expectedUnitGates {
+		if !ApUnique(actual[unit]) || !SameStringSet(actual[unit], ApStrings(required)) {
+			return s.Unavailable("GOVERNANCE_POLICY", "工作单元的用户决定门禁与路由不一致: "+unit)
+		}
+	}
 	return nil
 }
 
