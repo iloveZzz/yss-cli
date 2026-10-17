@@ -94,8 +94,22 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 		if err != nil {
 			return err
 		}
-		for _, v := range []any{doc["impacted_areas"], kernel.ApMap(doc["scope"])["impacted_areas"], kernel.ApMap(doc["impact_assessment"])["impacted_areas"]} {
-			impacts = ContractUnion(impacts, kernel.ApStrings(v))
+		for _, location := range []map[string]any{doc, kernel.ApMap(doc["scope"]), kernel.ApMap(doc["impact_assessment"])} {
+			v, present := location["impacted_areas"]
+			if !present {
+				continue
+			}
+			if !kernel.ApIsArray(v) || (len(kernel.ApArray(v)) > 0 && !kernel.ApUnique(v)) {
+				return s.Reject("TASK_IMPACT", "输入影响必须为无重复的非空字符串数组")
+			}
+			if len(kernel.ApArray(v)) == 0 {
+				continue
+			}
+			values := kernel.ApStrings(v)
+			if _, err = kernel.CompileTaskSelection(s, kernel.Text(task["work_unit_id"]), values); err != nil {
+				return err
+			}
+			impacts = ContractUnion(impacts, values)
 		}
 	}
 	if len(seen) != len(kernel.ApStrings(task["inputs"])) || !seen[kernel.Text(contract["contract_ref"])] {

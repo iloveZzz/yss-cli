@@ -155,3 +155,72 @@ func TestTask3DraftRejectsMissingOrStaleFacts(t *testing.T) {
 		}
 	})
 }
+
+func TestTask3DraftValidatesEveryImpactLocation(t *testing.T) {
+	cases := []struct {
+		name     string
+		location string
+		value    any
+		wantOK   bool
+	}{
+		{"scope-string", "scope", "api-schema", false},
+		{"top-string", "top", "api-schema", false},
+		{"assessment-string", "impact_assessment", "api-schema", false},
+		{"scope-mixed", "scope", []any{"api-schema", 7}, false},
+		{"top-mixed", "top", []any{"api-schema", false}, false},
+		{"assessment-mixed", "impact_assessment", []any{"api-schema", nil}, false},
+		{"duplicate", "scope", []string{"wording", "wording"}, false},
+		{"null", "scope", nil, false},
+		{"unknown", "scope", []string{"unknown"}, false},
+		{"blank", "scope", []string{" "}, false},
+		{"absent-positions", "absent", nil, true},
+		{"empty-position", "scope", []string{}, true},
+		{"same-across-positions", "scope", []string{"wording"}, true},
+		{"api-preserved", "scope", []string{"api-schema"}, true},
+		{"no-facts", "none", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, task := taskFixture(t)
+			unit := "work-unit.technical-analysis"
+			s.Registry["work_units"] = []any{map[string]any{"id": unit, "scope": "project-instance"}}
+			s.GovernancePolicy["preparation_policy"] = map[string]any{"work_units": []string{unit}}
+			s.GovernancePolicy["work_unit_routes"] = map[string]any{unit: map[string]any{"primary_skill": "yss-product-lifecycle", "check_ids": []string{"gate.spec-baseline-approved"}, "impact_check_ids": map[string]any{"wording": []string{}, "api-schema": []string{"check.openapi-draft-reviewed", "check.openapi-frozen"}}}}
+			kernel.ApMap(kernel.ApMap(kernel.ApMap(s.GovernancePolicy["gate_policy"])["profiles"])["backend"])["automatic_checks"] = []string{"check.openapi-draft-reviewed", "check.openapi-frozen"}
+			task["work_unit_id"] = unit
+			kernel.ApMap(task["convergence"])["parent_work_unit"] = unit
+			input := map[string]any{"impacted_areas": []string{"wording"}}
+			if tc.location == "top" {
+				input["impacted_areas"] = tc.value
+				input["scope"] = map[string]any{"impacted_areas": []string{"wording"}}
+			} else if tc.location == "none" {
+				delete(input, "impacted_areas")
+			} else if tc.location != "absent" {
+				input[tc.location] = map[string]any{"impacted_areas": tc.value}
+			}
+			impacts := []string{"wording"}
+			if tc.name == "api-preserved" {
+				impacts = append(impacts, "api-schema")
+			}
+			selection, err := kernel.CompileTaskSelection(s, unit, impacts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task["skill_source"] = selection
+			taskFile(t, s.Root, "input.json", input)
+			bytes, err := os.ReadFile(filepath.Join(s.Root, "input.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			bound := kernel.ApRows(task["input_bindings"])[0]
+			bound["digest"] = safefs.Digest(bytes)
+			taskFile(t, s.Root, "task.json", task)
+			provenance := kernel.ApMap(task["provenance"])
+			taskFile(t, s.Root, "origin.json", map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": provenance["tool"], "task_ref": "task.json", "identity": provenance["identity"], "candidate": bound, "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"]})
+			err = verifyTaskPackageSemantic(s, "task.json", nil)
+			if (err == nil) != tc.wantOK {
+				t.Fatalf("want success=%v, got %v", tc.wantOK, err)
+			}
+		})
+	}
+}
