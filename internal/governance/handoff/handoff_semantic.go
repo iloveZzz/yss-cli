@@ -1041,13 +1041,6 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 			a := kernel.SemMap(v)
 			match = match || a["id"] == kernel.First(kernel.Text(source["id"]), kernel.Text(source["baseline_id"])) && dependencies.ContractSame(a["version"], source["version"]) && kernel.Text(a["digest"]) == actual
 		}
-		if s.GovernanceVersion == 2 {
-			bound, err := s.Bind(assetRef)
-			if err != nil {
-				return err
-			}
-			match = match && reviewedSource(record, assetRef, strings.TrimPrefix(bound.Digest, "sha256:"))
-		}
 		if !match {
 			return s.Reject("HANDOFF_APPROVAL", "来源批准未绑定身份、版本和摘要")
 		}
@@ -1175,6 +1168,7 @@ func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error 
 }
 
 func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string) error {
+	artifactDigest := kernel.Text(binding["digest"])
 	if err := sourceApprovalContextVersion(s, kernel.SemMap(binding["approval_context"])); err != nil {
 		return err
 	}
@@ -1193,6 +1187,37 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 	// while a standalone historical record retains its declared signing gate.
 	if kernel.SemHas([]string{"check.domain-strategy-approved", "check.stage-decision-package-approved"}, gate) && kernel.Text(record["gate_id"]) != gate {
 		gate = kernel.Text(record["gate_id"])
+	}
+	if s.GovernanceVersion == 2 {
+		assetRef := kernel.Text(binding["ref"])
+		raw, err := s.Bytes(assetRef)
+		if err != nil {
+			return err
+		}
+		if !reviewedSource(record, assetRef, safefs.Digest(raw)) {
+			return s.Reject("HANDOFF_APPROVAL", "来源资产未被实际审查主体或依据绑定")
+		}
+		if binding["id"] != nil || binding["version"] != nil {
+			actual := "sha256:" + safefs.Digest(raw)
+			switch binding["digest_kind"] {
+			case "canonical-json":
+				doc, err := s.Doc(assetRef)
+				if err != nil {
+					return err
+				}
+				actual = dependencies.ContractDigest(doc)
+			case "sha256-bytes":
+			default:
+				return s.Reject("HANDOFF_APPROVAL", "当前来源必须明确资产摘要算法")
+			}
+			if binding["digest"] != nil && binding["digest"] != actual {
+				return s.Reject("HANDOFF_SOURCE_STALE", "来源资产摘要过期")
+			}
+			binding = dependencies.ContractCopy(binding)
+			artifactDigest = actual
+			// Approval subjects bind bytes; artifact identities may bind canonical JSON.
+			binding["digest"] = safefs.Digest(raw)
+		}
 	}
 	savedRoles, savedRegistry := s.Roles, s.Registry
 	defer func() { s.Roles, s.Registry = savedRoles, savedRegistry }()
@@ -1285,7 +1310,7 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 			if binding["id"] != nil || binding["version"] != nil {
 				matched := false
 				for _, asset := range kernel.ApRows(record["artifact_bindings"]) {
-					matched = matched || (binding["id"] == nil || dependencies.ContractSame(asset["id"], binding["id"])) && (binding["version"] == nil || dependencies.ContractSame(asset["version"], binding["version"])) && kernel.Text(asset["digest"]) == kernel.Text(binding["digest"])
+					matched = matched || (binding["id"] == nil || dependencies.ContractSame(asset["id"], binding["id"])) && (binding["version"] == nil || dependencies.ContractSame(asset["version"], binding["version"])) && kernel.Text(asset["digest"]) == artifactDigest
 				}
 				if !matched {
 					return s.Reject("APPROVAL_CURRENT_INVALID", "批准未绑定当前资产身份/版本/摘要")
