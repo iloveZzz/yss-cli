@@ -241,7 +241,7 @@ func TestDerivedCandidateKeepsFileBoundary(t *testing.T) {
 	writePolicyFixture(t, s.Root, "execution.json", raw)
 	s = NewSemanticSession(context.Background(), s.Root, nil)
 	review := map[string]any{"mode": "self-check", "provenance": p}
-	if err = s.ValidateReviewEvidenceDigest(review, c, []string{"src/"}, "self-check", p, "task.json", c); err != nil {
+	if err = s.ValidateReviewEvidenceDigest(review, c, []string{"src/"}, "self-check", p, "task.json", c, []string{"src/"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check", p, "task.json"); err == nil {
@@ -292,7 +292,7 @@ func TestReviewMemberCandidateKeepsImplementationComposition(t *testing.T) {
 	ApRows(capture["messages"])[0]["text"] = "executed execution.json for " + Text(composite["digest"])
 	writePolicyFixture(t, s.Root, "implementation-context.json", capture)
 	s = NewSemanticSession(context.Background(), s.Root, nil)
-	if err := s.ValidateReviewEvidenceDigest(r, c, []string{"src/"}, "independent-review", p, "task.json", composite); err != nil {
+	if err := s.ValidateReviewEvidenceDigest(r, c, []string{"src/"}, "independent-review", p, "task.json", composite, []string{"src/"}); err != nil {
 		t.Fatal(err)
 	}
 }

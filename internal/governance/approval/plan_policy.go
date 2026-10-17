@@ -566,11 +566,11 @@ func planSelfCheck3(s *kernel.SemanticSession, record map[string]any) error {
 		return s.Reject("PLAN_APPROVAL_CONTEXT", "Plan自检范围未按实际任务选择")
 	}
 	implementation := kernel.ApMap(source["provenance"])
-	mode, err := s.RequiredReviewMode(candidate, implementation, scope, task["input_bindings"], record["basis"])
+	mode, err := s.RequiredReviewModeForTask(candidate, implementation, scope, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"], record["basis"])
 	if err != nil {
 		return err
 	}
-	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(record["review"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"])); err != nil {
+	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(record["review"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"]), kernel.ApStrings(task["allowed_write_paths"])); err != nil {
 		return err
 	}
 	if !kernel.ApUnique(record["evidence_refs"]) {

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -179,8 +180,8 @@ func TestContinuationImplementationManifestChecksActualContracts(t *testing.T) {
 	}
 }
 
-func requiredReviewer(t *testing.T) (*kernel.SemanticSession, map[string]any) {
-	s, task := completedReviewer(t, true)
+func requiredReviewer(t *testing.T, configure ...func(*kernel.SemanticSession, map[string]any)) (*kernel.SemanticSession, map[string]any) {
+	s, task := completedReviewer(t, true, configure...)
 	s.GovernancePolicy["user_decision_policy"] = map[string]any{"source_kinds": []string{"session-export"}}
 	taskFile(t, s.Root, "request-source.json", map[string]any{"source_kind": "session-export", "messages": []any{map[string]any{"id": "R1", "actor_kind": "biological-human", "principal_ref": "user", "original_ref": "conversation:request", "sent_at": "2026-01-01T00:00:00Z", "text": "请独立复核 drafts/spec.md"}}})
 	raw, _ := os.ReadFile(filepath.Join(s.Root, "request-source.json"))
@@ -201,17 +202,41 @@ func requiredReviewer(t *testing.T) (*kernel.SemanticSession, map[string]any) {
 	return s, task
 }
 func TestCompletedSelfCheckCannotDowngradeBoundUserRequirement(t *testing.T) {
-	s, _ := requiredReviewer(t)
-	err := s.Verify("task", "review-task.json", nil)
-	if err == nil || !strings.Contains(err.Error(), "不能替代当前必需复核") {
-		t.Fatalf("bound child-path human requirement was not enforced: %v", err)
+	for _, formal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "path-scope", true: "formal-feature"}[formal], func(t *testing.T) {
+			var configure []func(*kernel.SemanticSession, map[string]any)
+			if formal {
+				configure = append(configure, configureReviewFeature(t))
+			}
+			s, _ := requiredReviewer(t, configure...)
+			err := s.Verify("task", "review-task.json", nil)
+			if err == nil || !strings.Contains(err.Error(), "不能替代当前必需复核") {
+				t.Fatalf("bound child-path human requirement was not enforced: %v", err)
+			}
+		})
+	}
+}
+
+func configureReviewFeature(t *testing.T) func(*kernel.SemanticSession, map[string]any) {
+	return func(s *kernel.SemanticSession, task map[string]any) {
+		task["feature_id"], task["checkpoint_ref"] = "feature.orders", "feature.json"
+		taskFile(t, s.Root, "feature.json", map[string]any{"feature_id": "feature.orders"})
+		input, _ := s.Doc("input.json")
+		input["feature_id"] = "feature.orders"
+		taskFile(t, s.Root, "input.json", input)
+		raw, _ := os.ReadFile(filepath.Join(s.Root, "input.json"))
+		task["input_bindings"] = []any{map[string]any{"ref": "input.json", "digest": safefs.Digest(raw)}}
 	}
 }
 
 func TestRequiredChildPathReviewUsesActualIndependentContexts(t *testing.T) {
-	for _, scenario := range []string{"separate-contexts", "same-context"} {
+	for _, scenario := range []string{"separate-contexts", "same-context", "formal-separate-contexts", "formal-same-context", "sealed-formal-separate-contexts"} {
 		t.Run(scenario, func(t *testing.T) {
-			s, task := requiredReviewer(t)
+			var configure []func(*kernel.SemanticSession, map[string]any)
+			if strings.Contains(scenario, "formal-") {
+				configure = append(configure, configureReviewFeature(t))
+			}
+			s, task := requiredReviewer(t, configure...)
 			implementation, _ := s.Doc("task.json")
 			implementation = ContractCopy(implementation)
 			ip := kernel.ApMap(implementation["provenance"])
@@ -234,7 +259,7 @@ func TestRequiredChildPathReviewUsesActualIndependentContexts(t *testing.T) {
 			}
 			rp := kernel.ApMap(task["provenance"])
 			session := "review-session"
-			if scenario == "same-context" {
+			if strings.HasSuffix(scenario, "same-context") {
 				session = "implementation-session"
 			}
 			rp["identity"] = map[string]any{"status": "available", "principal_ref": "same-account", "session_ref": session}
@@ -255,12 +280,90 @@ func TestRequiredChildPathReviewUsesActualIndependentContexts(t *testing.T) {
 			}
 			taskFile(t, s.Root, "review-task.json", task)
 			s.V = kernel.NewView(s.Root)
+			if strings.HasPrefix(scenario, "sealed-") {
+				s = sealedReviewSession(t, s)
+			}
 			err := s.Verify("task", "review-task.json", nil)
-			if (err == nil) != (scenario == "separate-contexts") {
+			if (err == nil) != strings.HasSuffix(scenario, "separate-contexts") {
 				t.Fatalf("%s: %v", scenario, err)
 			}
 		})
 	}
+}
+
+func sealedReviewSession(t *testing.T, source *kernel.SemanticSession) *kernel.SemanticSession {
+	t.Helper()
+	refs := []string{}
+	if err := filepath.WalkDir(source.Root, func(file string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ref, err := filepath.Rel(source.Root, file)
+		if err != nil {
+			return err
+		}
+		refs = append(refs, filepath.ToSlash(ref))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proof, refs, err := source.CaptureTaskSnapshot(refs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver := kernel.NewSemanticSession(source.Ctx, t.TempDir(), nil)
+	aliases := map[string]string{}
+	for _, ref := range refs {
+		raw, err := source.Bytes(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		aliases[ref] = "sources/" + ref
+		for a, b := path.Dir(ref), path.Dir(aliases[ref]); a != "." && b != "."; a, b = path.Dir(a), path.Dir(b) {
+			aliases[a] = b
+		}
+		// The receiver supplies only the test's schema engine inputs, never source authority.
+		if strings.HasPrefix(ref, ".template-spec/process/schemas/") {
+			taskFile(t, receiver.Root, ref, map[string]any{"type": "object"})
+		}
+		target := filepath.Join(receiver.Root, "package/sources", filepath.FromSlash(ref))
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, raw, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taskFile(t, receiver.Root, "proof.json", proof)
+	transported, err := receiver.Doc("proof.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := receiver.SourceSnapshotSession("package", aliases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed.GovernanceVersion, sealed.GovernancePolicy, sealed.GovernanceDigest = source.GovernanceVersion, source.GovernancePolicy, source.GovernanceDigest
+	sealed.Registry, sealed.Report.Profile = source.Registry, source.Report.Profile
+	if err := sealed.BindTaskSnapshot(transported); err != nil {
+		t.Fatal(err)
+	}
+	offline := source.Root + ".offline"
+	if err := os.Rename(source.Root, offline); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(offline, source.Root); err != nil {
+			t.Error(err)
+		}
+	})
+	return sealed
 }
 
 func TestContinuation2RejectsDifferentImplementationSource(t *testing.T) {

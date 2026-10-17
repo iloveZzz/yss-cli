@@ -217,8 +217,8 @@ func TestDraftCandidateBindsEveryDeclaredOutput(t *testing.T) {
 	}
 }
 
-func completedReviewer(t *testing.T, rawAsset bool) (*kernel.SemanticSession, map[string]any) {
-	s, implementation := completedDraft(t)
+func completedReviewer(t *testing.T, rawAsset bool, configure ...func(*kernel.SemanticSession, map[string]any)) (*kernel.SemanticSession, map[string]any) {
+	s, implementation := completedDraft(t, configure...)
 	candidate, err := draftExecutionCandidate(s, implementation)
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +234,7 @@ func completedReviewer(t *testing.T, rawAsset bool) (*kernel.SemanticSession, ma
 	task["allowed_write_paths"] = []string{"reviews"}
 	task["inputs"] = []string{"input.json", "task.json"}
 	task["input_bindings"] = append(kernel.ApArray(implementation["input_bindings"]), basis)
-	task["expected_outputs"] = []string{"review report"}
+	task["expected_outputs"] = []string{"reviews/result.json"}
 	task["expected_evidence_files"] = []string{"reviews/result.json"}
 	baseline := ContractCopy(kernel.ApMap(implementation["baseline"]))
 	source, err := TaskBaselineSource(s, s.Root, kernel.Text(baseline["commit"]), []string{"reviews"})
@@ -247,7 +247,11 @@ func completedReviewer(t *testing.T, rawAsset bool) (*kernel.SemanticSession, ma
 	provenance["task_ref"] = "review-task.json"
 	provenance["execution_ref"] = "review-log.json"
 	task["provenance"] = provenance
-	task["review_context"] = map[string]any{"candidate": candidate, "policy": task["policy"], "check_ids": kernel.ApMap(task["skill_source"])["check_ids"], "approval_scope": implementation["allowed_write_paths"], "basis": []any{basis}, "review": map[string]any{"mode": "self-check", "provenance": provenance}}
+	scope, err := taskApprovalScope(s, implementation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task["review_context"] = map[string]any{"candidate": candidate, "policy": task["policy"], "check_ids": kernel.ApMap(task["skill_source"])["check_ids"], "approval_scope": scope, "basis": []any{basis}, "review": map[string]any{"mode": "self-check", "provenance": provenance}}
 	log, err := s.Doc("origin.json")
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +263,7 @@ func completedReviewer(t *testing.T, rawAsset bool) (*kernel.SemanticSession, ma
 	log["input_bindings"] = task["input_bindings"]
 	log["expected_outputs"] = task["expected_outputs"]
 	log["readonly"] = true
+	log["scope"] = scope
 	taskFile(t, s.Root, "review-log.json", log)
 	raw, _ = os.ReadFile(filepath.Join(s.Root, "review-log.json"))
 	row := ContractCopy(kernel.ApRows(task["verification_results"])[0])

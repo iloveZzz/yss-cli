@@ -39,7 +39,7 @@ func (d *dailySession) verifyRoleIndependentReview(value any, bindingField, dige
 		}
 	}
 	assessment := kernel.ApMap(review["assessment"])
-	if err := d.s.ValidateReviewEvidenceDigest(assessment, candidate, scope, mode, implementation, d.taskRef, implementationCandidate); err != nil {
+	if err := d.s.ValidateReviewEvidenceDigest(assessment, candidate, scope, mode, implementation, d.taskRef, implementationCandidate, scope); err != nil {
 		return err
 	}
 	original, err := d.s.EvidenceFact(kernel.Text(kernel.ApMap(assessment["provenance"])["execution_ref"]))

@@ -376,11 +376,11 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 		if err != nil {
 			return err
 		}
-		mode, err := s.RequiredReviewMode(candidate, implementation, scope, implementationTask["input_bindings"], task["input_bindings"], review["basis"])
+		mode, err := s.RequiredReviewModeForTask(candidate, implementation, scope, kernel.ApStrings(implementationTask["allowed_write_paths"]), implementationTask["input_bindings"], task["input_bindings"], review["basis"])
 		if err != nil {
 			return err
 		}
-		return s.ValidateReviewEvidenceDigest(actual, candidate, scope, mode, implementation, implementationRef, kernel.ApMap(source["candidate"]))
+		return s.ValidateReviewEvidenceDigest(actual, candidate, scope, mode, implementation, implementationRef, kernel.ApMap(source["candidate"]), kernel.ApStrings(implementationTask["allowed_write_paths"]))
 	}
 	return nil
 }

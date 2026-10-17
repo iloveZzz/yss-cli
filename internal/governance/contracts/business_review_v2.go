@@ -19,11 +19,11 @@ func contractBusinessReview2(s *kernel.SemanticSession, review map[string]any, r
 		return err
 	}
 	scope, implementation := kernel.ApStrings(source["scope"]), kernel.ApMap(source["provenance"])
-	mode, err := s.RequiredReviewMode(candidate, implementation, scope, task["input_bindings"], review["basis"])
+	mode, err := s.RequiredReviewModeForTask(candidate, implementation, scope, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"], review["basis"])
 	if err != nil {
 		return err
 	}
-	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(review["assessment"]), candidate, scope, mode, implementation, kernel.Text(source["task_ref"]), kernel.ApMap(source["candidate"])); err != nil {
+	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(review["assessment"]), candidate, scope, mode, implementation, kernel.Text(source["task_ref"]), kernel.ApMap(source["candidate"]), kernel.ApStrings(task["allowed_write_paths"])); err != nil {
 		return err
 	}
 	rules := kernel.ApMap(review["external_rules"])

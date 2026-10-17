@@ -2154,11 +2154,11 @@ func backendReviewProvenance(s *kernel.SemanticSession, input, result map[string
 	}
 	implementation := kernel.ApMap(source["provenance"])
 	scope := kernel.ApStrings(source["scope"])
-	mode, err := s.RequiredReviewMode(candidate, implementation, scope, task["input_bindings"], input["basis"])
+	mode, err := s.RequiredReviewModeForTask(candidate, implementation, scope, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"], input["basis"])
 	if err != nil {
 		return err
 	}
-	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(result["assessment"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"])); err != nil {
+	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(result["assessment"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"]), kernel.ApStrings(task["allowed_write_paths"])); err != nil {
 		return err
 	}
 	rules := kernel.ApMap(input["external_rules"])

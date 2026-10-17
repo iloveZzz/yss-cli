@@ -10,7 +10,12 @@ import (
 
 // Only bound inputs of already validated implementation/review consumers supply requirements.
 func (s *SemanticSession) RequiredReviewMode(candidate, implementation map[string]any, scope []string, bindings ...any) (string, error) {
-	return s.requiredReviewMode(candidate, implementation, scope, "", bindings...)
+	return s.requiredReviewMode(candidate, implementation, scope, scope, "", bindings...)
+}
+
+// The validated task maps approval scope (for example feature.orders) to its filesystem write scope.
+func (s *SemanticSession) RequiredReviewModeForTask(candidate, implementation map[string]any, scope, paths []string, bindings ...any) (string, error) {
+	return s.requiredReviewMode(candidate, implementation, scope, paths, "", bindings...)
 }
 
 // Daily consumers have already verified their Markdown Ticket and registered implementation root.
@@ -24,10 +29,10 @@ func (s *SemanticSession) RequiredReviewModeAtRoot(candidate, implementation map
 	if err := s.reviewRoot(root); err != nil {
 		return "", err
 	}
-	return s.requiredReviewMode(candidate, implementation, scope, root, bindings...)
+	return s.requiredReviewMode(candidate, implementation, scope, scope, root, bindings...)
 }
 
-func (s *SemanticSession) requiredReviewMode(candidate, implementation map[string]any, scope []string, root string, bindings ...any) (string, error) {
+func (s *SemanticSession) requiredReviewMode(candidate, implementation map[string]any, scope, paths []string, root string, bindings ...any) (string, error) {
 	mode := "self-check"
 	seen := map[string]string{}
 	for _, basis := range bindings {
@@ -76,7 +81,7 @@ func (s *SemanticSession) requiredReviewMode(candidate, implementation map[strin
 			if err = s.Verify("review-requirement", ref, nil); err != nil {
 				return "", err
 			}
-			applies, err := s.reviewScopesIntersectAtRoot(implementation, scope, ApStrings(record["scope"]), root)
+			applies, err := s.reviewScopesIntersectAtRoot(implementation, paths, ApStrings(record["scope"]), root)
 			if err != nil {
 				return "", err
 			}
@@ -97,6 +102,9 @@ func (s *SemanticSession) reviewScopesIntersect(implementation map[string]any, a
 }
 
 func (s *SemanticSession) reviewRoot(root string) error {
+	if s.IsTaskSnapshotRoot(root) {
+		return nil
+	}
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || (root != s.Root && s.ExternalViews[root] == nil) {
 		return s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "无法确认独立复核要求的实际实施仓库")
 	}
@@ -128,9 +136,13 @@ func (s *SemanticSession) reviewScopesIntersectAtRoot(implementation map[string]
 			if err := spellings.Add(ref); err != nil {
 				return nil, s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "复核路径无法安全确定: "+err.Error())
 			}
-			path, err := safefs.Path(root, ref)
+			path, err := s.TaskPath(root, ref)
 			if err != nil {
 				return nil, s.Reject("EVIDENCE_REVIEW_REQUIREMENT", "复核路径无法安全确定: "+err.Error())
+			}
+			if s.IsTaskSnapshotRoot(root) {
+				// Manifest storage aliases need not preserve the source directory hierarchy.
+				path = filepath.FromSlash(ref)
 			}
 			out = append(out, path)
 		}

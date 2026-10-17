@@ -188,15 +188,15 @@ func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]an
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
 	}
-	return s.ValidateReviewEvidenceDigest(review, candidate, scope, requiredMode, implementation, implementationTask, candidate)
+	return s.ValidateReviewEvidenceDigest(review, candidate, scope, requiredMode, implementation, implementationTask, candidate, scope)
 }
 
 // ValidateReviewEvidenceDigest requires the caller to compute the candidate from verified current sources.
-func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string, implementationCandidate map[string]any) error {
+func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string, implementationCandidate map[string]any, implementationScope []string) error {
 	if !IsSHA256(Text(candidate["digest"])) || Text(candidate["ref"]) == "" {
 		return s.Reject("EVIDENCE_CANDIDATE", "缺少原生候选绑定")
 	}
-	if !ApUnique(scope) {
+	if !ApUnique(scope) || !ApUnique(implementationScope) {
 		return s.Reject("EVIDENCE_REVIEW", "复核范围必须明确且非空")
 	}
 	if implementationTask == "" {
@@ -229,7 +229,7 @@ func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[str
 		return s.Reject("EVIDENCE_REVIEW", "独立复核不能混写外部批准")
 	}
 	if mode == "independent-review" || requiredMode == "independent-review" || review["independence"] != nil {
-		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope, implementation, implementationTask, implementationCandidate); err != nil {
+		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope, implementation, implementationTask, implementationCandidate, implementationScope); err != nil {
 			return err
 		}
 	}
@@ -239,7 +239,7 @@ func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[str
 	return nil
 }
 
-func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string, trustedImplementation map[string]any, implementationTask string, implementationCandidate map[string]any) error {
+func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string, trustedImplementation map[string]any, implementationTask string, implementationCandidate map[string]any, implementationScope []string) error {
 	implementation, indReviewer := ApMap(ind["implementation"]), ApMap(ind["reviewer"])
 	if !ApEqual(implementation, trustedImplementation) {
 		return s.Reject("EVIDENCE_INDEPENDENCE", "独立性声明未绑定当前任务的真实实施来源")
@@ -250,15 +250,17 @@ func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[stri
 	}
 	for _, p := range []map[string]any{implementation, indReviewer} {
 		expectedTask, digest := "", Text(candidate["digest"])
+		expectedScope := scope
 		if ApEqual(p, trustedImplementation) {
 			expectedTask, digest = implementationTask, Text(implementationCandidate["digest"])
+			expectedScope = implementationScope
 		}
 		actual, err := s.ValidateProvenance(p, expectedTask, digest)
 		if err != nil {
 			return err
 		}
-		if !SameStringSet(actual["scope"], scope) {
-			return s.Reject("EVIDENCE_INDEPENDENCE", "实施与复核执行记录未绑定同一检查范围")
+		if !SameStringSet(actual["scope"], expectedScope) {
+			return s.Reject("EVIDENCE_INDEPENDENCE", "实际实施文件范围或复核批准范围不匹配")
 		}
 	}
 	originalRefs := map[string]bool{}
