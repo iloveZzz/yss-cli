@@ -16,7 +16,7 @@ func init() {
 			return err
 		}
 		root := kernel.Text(input["repository_root"])
-		if len(input) != 3 || !filepath.IsAbs(root) || (root != s.Root && s.ExternalViews[root] == nil) {
+		if len(input) != 3 || !filepath.IsAbs(root) || (root != s.Root && !s.IsTaskSnapshotRoot(root) && s.ExternalViews[root] == nil) {
 			return s.Reject("TASK_BASELINE", "查询只接受当前或已登记工程的实际基线")
 		}
 		source, err := TaskBaselineSource(s, root, kernel.Text(input["commit"]), kernel.ApStrings(input["allowed_write_paths"]))
@@ -113,8 +113,11 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 		}
 	}
 	root := kernel.Text(kernel.ApMap(task["baseline"])["repository_root"])
+	if err = s.ValidateSnapshotTask(actualRef, task); err != nil {
+		return err
+	}
 	// Repository registration must have come from current Slice bindings, never task self-registration.
-	if contract["kind"] != "slice-implementation" && root != s.Root && s.ExternalViews[root] == nil {
+	if contract["kind"] != "slice-implementation" && root != s.Root && !s.IsTaskSnapshotRoot(root) && s.ExternalViews[root] == nil {
 		return s.Reject("TASK_BASELINE", "实现仓未由当前合同登记")
 	}
 	for _, key := range []string{"allowed_write_paths", "expected_evidence_files"} {
@@ -122,7 +125,7 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			if !kernel.ContractPath(strings.TrimSuffix(p, "/")) {
 				return s.Reject("TASK_SCOPE", "路径必须为明确相对路径")
 			}
-			if _, err = safefs.Path(root, strings.TrimSuffix(p, "/")); err != nil {
+			if _, err = s.TaskPath(root, strings.TrimSuffix(p, "/")); err != nil {
 				return err
 			}
 		}

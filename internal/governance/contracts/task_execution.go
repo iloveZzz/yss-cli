@@ -1,7 +1,6 @@
 package contracts
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,7 +16,7 @@ func executionCandidate(s *kernel.SemanticSession, root string, source map[strin
 		return nil, nil, s.Reject("TASK_SOURCE", "缺少工程基线的明确源码范围与冻结清单")
 	}
 	view := s
-	if root != s.Root {
+	if root != s.Root && !s.IsTaskSnapshotRoot(root) {
 		if s.ExternalViews[root] == nil {
 			return nil, nil, s.Reject("TASK_SOURCE", "源码工程未由合同登记")
 		}
@@ -73,21 +72,16 @@ func executionCandidate(s *kernel.SemanticSession, root string, source map[strin
 	inventory := []any{}
 	changed := []string{}
 	for _, ref := range paths {
-		p, err := safefs.Path(root, ref)
+		descriptor, err := s.TaskDescriptor(root, ref)
 		if err != nil {
 			return nil, nil, err
 		}
-		info, err := os.Lstat(p)
 		row := map[string]any{"path": ref}
 		digest := ""
-		if os.IsNotExist(err) {
-			row["deleted"] = true
-			row["digest"] = nil
+		if descriptor.Type == "missing" {
+			row["deleted"], row["digest"] = true, nil
 		} else {
-			if err != nil {
-				return nil, nil, err
-			}
-			if !info.Mode().IsRegular() {
+			if descriptor.Type != "file" {
 				return nil, nil, s.Reject("TASK_SOURCE", "源码必须为普通文件")
 			}
 			raw, err := backendCodeBytes(s, root, ref)
@@ -95,14 +89,9 @@ func executionCandidate(s *kernel.SemanticSession, root string, source map[strin
 				return nil, nil, err
 			}
 			digest = safefs.Digest(raw)
-			row["digest"] = digest
-			row["mode"] = info.Mode().Perm()
+			row["digest"], row["mode"] = digest, descriptor.Mode
 		}
-		modeChanged := false
-		if info != nil && frozen[ref] != "" && modes[ref] != "" {
-			executable := info.Mode().Perm()&0111 != 0
-			modeChanged = executable != (modes[ref] == "100755")
-		}
+		modeChanged := descriptor.Type == "file" && frozen[ref] != "" && modes[ref] != "" && (uint32(descriptor.Mode)&0111 != 0) != (modes[ref] == "100755")
 		if digest != frozen[ref] || modeChanged {
 			allowed := false
 			for _, parent := range scope {
@@ -117,7 +106,11 @@ func executionCandidate(s *kernel.SemanticSession, root string, source map[strin
 	}
 	sortedScope := append([]string{}, scope...)
 	sort.Strings(sortedScope)
-	value := map[string]any{"repository_root": filepath.Clean(root), "source": source, "scope": sortedScope, "input_bindings": inputs, "files": inventory}
+	candidateRoot := filepath.Clean(root)
+	if s.IsTaskSnapshotRoot(root) {
+		candidateRoot = root
+	}
+	value := map[string]any{"repository_root": candidateRoot, "source": source, "scope": sortedScope, "input_bindings": inputs, "files": inventory}
 	return map[string]any{"ref": root, "digest": strings.TrimPrefix(ContractDigest(value), "sha256:")}, changed, nil
 }
 
@@ -244,7 +237,7 @@ func validateTaskOutputRefs(s *kernel.SemanticSession, ref string, task map[stri
 		if output == ref || output == kernel.Text(kernel.ApMap(task["provenance"])["execution_ref"]) || kernel.ApContains(task["expected_evidence_files"], output) {
 			return s.Reject("TASK_OUTPUT", "候选产出与task/结果证据自引用")
 		}
-		if _, err := safefs.Path(kernel.Text(kernel.ApMap(task["baseline"])["repository_root"]), output); err != nil {
+		if _, err := s.TaskPath(kernel.Text(kernel.ApMap(task["baseline"])["repository_root"]), output); err != nil {
 			return err
 		}
 	}
@@ -330,9 +323,32 @@ func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any)
 
 // Raw assets are members only under the completed task's verified physical root.
 func taskOutputMember(s *kernel.SemanticSession, task, source, asset map[string]any) (bool, error) {
+	// A Slice result lives in governance storage; it must be a registered, fully validated result of this actual Worker.
+	if s.GovernanceVersion == 2 && source["completed"] == true && task["execution_state"] == "Worker" && kernel.ApMap(task["contract"])["kind"] == "slice-implementation" && kernel.ApContains(kernel.ApMap(task["result"])["evidence_refs"], kernel.Text(asset["ref"])) {
+		if _, err := s.EvidenceAsset(asset); err != nil {
+			return false, err
+		}
+		result, err := s.Doc(kernel.Text(asset["ref"]))
+		if err != nil {
+			return false, err
+		}
+		if nested := kernel.ApMap(result["execution_result"]); len(nested) > 0 {
+			result = nested
+		}
+		if kernel.ContractN(result["schema_version"]) == 2 && len(kernel.ApMap(result["consumed_contract"])) > 0 {
+			c, err := LoadNativeSlice(s, kernel.Text(kernel.ApMap(task["contract"])["slice_contract_ref"]))
+			if err != nil {
+				return false, err
+			}
+			if err = validateSlice4ExecutionResult(s, result, c, task, kernel.ApMap(source["candidate"])); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
 	protection := kernel.ApMap(source["candidate_scope"])
 	root := kernel.Text(protection["repository_root"])
-	if !filepath.IsAbs(root) {
+	if !filepath.IsAbs(root) && !s.IsTaskSnapshotRoot(root) {
 		return false, nil
 	}
 	v, ref, err := s.ReferenceView(kernel.Text(asset["ref"]))
@@ -344,7 +360,7 @@ func taskOutputMember(s *kernel.SemanticSession, task, source, asset map[string]
 		return false, err
 	}
 	for _, output := range kernel.ApStrings(task["expected_outputs"]) {
-		expected, err := safefs.Path(root, output)
+		expected, err := s.TaskPath(root, output)
 		if err != nil {
 			return false, err
 		}
@@ -370,19 +386,19 @@ func taskOutputMember(s *kernel.SemanticSession, task, source, asset map[string]
 // Compare physical roots too: equal relative names in different repositories are not overlaps.
 func validateReviewCandidateWrites(s *kernel.SemanticSession, task, protection map[string]any) error {
 	root := kernel.Text(protection["repository_root"])
-	if !filepath.IsAbs(root) || !kernel.ApUnique(protection["paths"]) {
+	if (!filepath.IsAbs(root) && !s.IsTaskSnapshotRoot(root)) || !kernel.ApUnique(protection["paths"]) {
 		return s.Reject("TASK_REVIEW", "已验证实施候选缺少真实路径范围")
 	}
 	reviewerRoot := kernel.Text(kernel.ApMap(task["baseline"])["repository_root"])
 	writes := append([]string{}, kernel.ApStrings(task["allowed_write_paths"])...)
 	writes = append(writes, kernel.ApStrings(kernel.ApMap(task["result"])["changed_files"])...)
 	for _, ref := range kernel.ApStrings(protection["paths"]) {
-		protected, err := safefs.Path(root, strings.TrimSuffix(ref, "/"))
+		protected, err := s.TaskPath(root, strings.TrimSuffix(ref, "/"))
 		if err != nil {
 			return err
 		}
 		for _, write := range writes {
-			actual, err := safefs.Path(reviewerRoot, strings.TrimSuffix(write, "/"))
+			actual, err := s.TaskPath(reviewerRoot, strings.TrimSuffix(write, "/"))
 			if err != nil {
 				return err
 			}

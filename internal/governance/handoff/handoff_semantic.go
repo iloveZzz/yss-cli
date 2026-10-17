@@ -45,6 +45,9 @@ func init() {
 		}
 		return ContractHandoffConsumption(s, doc, opts)
 	})
+	for _, kind := range []string{"handoff-package", "handoff-source", "handoff-source-approval", "handoff-delivery", "strategic-delivery", "handoff-consumption"} {
+		kernel.RegisterRoleIndependentValidator(kind, kernel.SemanticValidators[kind])
+	}
 }
 
 type NativeHandoff struct {
@@ -178,7 +181,11 @@ func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*Nativ
 	names, originals := []string{"manifest.json"}, map[string]bool{}
 	folds := map[string]bool{"manifest.json": true}
 	fold := cases.Fold()
-	total := 0
+	manifestBytes, e := s.Bytes(path.Join(prefix, "manifest.json"))
+	if e != nil {
+		return nil, e
+	}
+	total := len(manifestBytes)
 	for _, v := range kernel.SemList(manifest["files"]) {
 		file := kernel.SemMap(v)
 		ref := kernel.Text(file["path"])
@@ -272,14 +279,35 @@ func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*Nativ
 	if e != nil {
 		return nil, e
 	}
-	source.Roles, e = source.Doc(".template-spec/agents/digital-human-roles.yaml")
+	identity, e := source.Doc("yss-project.yaml")
 	if e != nil {
 		return nil, e
 	}
-	if len(kernel.SemMap(source.Roles["gate_policy"])) == 0 {
-		return nil, source.Reject("HANDOFF_POLICY", "来源角色策略缺少 gate_policy")
+	if kernel.ApNumber(identity["schema_version"]) == 2 {
+		if e = source.Authorities(); e != nil {
+			return nil, e
+		}
+		if kernel.ApNumber(manifest["schema_version"]) != 2 {
+			return nil, source.Reject("TASK_SNAPSHOT", "新政策交接需要封存任务来源的package2")
+		}
+		if e = source.BindTaskSnapshot(kernel.SemMap(manifest["source_execution"])); e != nil {
+			return nil, e
+		}
+	} else {
+		if kernel.ApNumber(manifest["schema_version"]) != 1 {
+			return nil, source.Reject("HANDOFF_POLICY", "旧政策只接受原package1")
+		}
+		source.Roles, e = source.Doc(".template-spec/agents/digital-human-roles.yaml")
+		if e != nil {
+			return nil, e
+		}
+		if len(kernel.SemMap(source.Roles["gate_policy"])) == 0 {
+			return nil, source.Reject("HANDOFF_POLICY", "来源角色策略缺少 gate_policy")
+		}
+		// Package1 carries its original signing policy; it is never the receiver's governance2.
+		source.GovernanceVersion = 1
+		contractSourceSigningRegistry(source)
 	}
-	contractSourceSigningRegistry(source)
 	handoff, e := source.Doc(kernel.Text(manifest["handoff_ref"]))
 	if e != nil {
 		return nil, e
@@ -410,6 +438,10 @@ func ContractOpenHandoff(s *kernel.SemanticSession, prefix string) (*NativeHando
 	if e != nil {
 		return nil, e
 	}
+	_, closure, e = source.CaptureTaskSnapshot(closure)
+	if e != nil {
+		return nil, e
+	}
 	expectedOriginals := []string{}
 	for _, v := range kernel.SemList(manifest["files"]) {
 		if ref := kernel.Text(kernel.SemMap(v)["original_ref"]); ref != "" {
@@ -527,7 +559,9 @@ func HandoffSourceAuthorities(s *kernel.SemanticSession, ref string) error {
 	}); err != nil {
 		return err
 	}
-	contractSourceSigningRegistry(s)
+	if s.GovernanceVersion != 2 {
+		contractSourceSigningRegistry(s)
+	}
 	return nil
 }
 
@@ -869,10 +903,12 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 	if e := contractHandoffSourcePolicy(s, kernel.ContractN(b.Handoff["schema_version"])); e != nil {
 		return e
 	}
-	contractNormalizeSourceRoles(s)
+	if s.GovernanceVersion != 2 {
+		contractNormalizeSourceRoles(s)
+	}
 	roles := s.Roles
 	policy := kernel.SemMap(s.Roles["gate_policy"])
-	currentPlan := kernel.ApFind(policy["dual_digital_human"], "gate", "gate.plan-approved") != nil
+	currentPlan := s.GovernanceVersion == 2 || kernel.ApFind(policy["dual_digital_human"], "gate", "gate.plan-approved") != nil
 	explicit := func(g string) bool {
 		return kernel.ApFind(policy["digital_human_review"], "gate", g) != nil || kernel.ApFind(policy["dual_digital_human"], "gate", g) != nil || kernel.SemHas(policy["biological_human"], g)
 	}
@@ -890,6 +926,10 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 		version any
 		gate    string
 	}{{b.Strategy, b.Strategy["domain_version"], "check.domain-strategy-approved"}, {b.Stage, b.Stage["package_version"], "check.stage-decision-package-approved"}} {
+		if s.GovernanceVersion == 2 {
+			// Context2 descriptors below are current authority; embedded legacy approval annotations remain historical.
+			continue
+		}
 		key := "domain_strategy_ref"
 		if row.gate == "check.stage-decision-package-approved" {
 			key = "stage_decision_package_ref"
@@ -912,11 +952,15 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 	if e != nil {
 		return e
 	}
-	capabilities := kernel.SemMap(roles["user_decision_policy"])["required_capabilities"]
-	if kernel.Text(setSource["kind"]) == "business-ticket-set" && !kernel.SemHas(capabilities, "business-ticket-approval-v1") {
+	decisionPolicy := kernel.SemMap(roles["user_decision_policy"])
+	if s.GovernanceVersion == 2 {
+		decisionPolicy = kernel.SemMap(s.GovernancePolicy["user_decision_policy"])
+	}
+	capabilities := decisionPolicy["required_capabilities"]
+	if kernel.Text(setSource["kind"]) == "business-ticket-set" && s.GovernanceVersion != 2 && !kernel.SemHas(capabilities, "business-ticket-approval-v1") {
 		return s.Reject("HANDOFF_POLICY", "业务集合缺少来源批准策略能力")
 	}
-	if kernel.SemHas(capabilities, "business-ticket-approval-v1") {
+	if s.GovernanceVersion == 2 || kernel.SemHas(capabilities, "business-ticket-approval-v1") {
 		gates["business_ticket_set_ref"] = terminal
 		business, businessReport, e := dependencies.ContractCollectBusinessTickets(s, kernel.Text(kernel.SemMap(sources["business_ticket_set_ref"])["persisted_ref"]), "formal", "")
 		if e != nil {
@@ -949,7 +993,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 			}
 			actual = kernel.Text(kernel.SemMap(baseline["bundle"])["digest"])
 			if key == "existing_ui_baseline_ref" {
-				if kernel.Text(approval["digest_kind"]) != "sha256-bytes" || !kernel.SemHas(kernel.SemMap(roles["user_decision_policy"])["gates"], gates[key]) {
+				if kernel.Text(approval["digest_kind"]) != "sha256-bytes" || s.GovernanceVersion != 2 && !kernel.SemHas(decisionPolicy["gates"], gates[key]) {
 					return s.Reject("HANDOFF_POLICY", "既有 UI 未绑定真实产品设计决定策略")
 				}
 				bound, e := s.Bind(assetRef)
@@ -996,6 +1040,13 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 		for _, v := range kernel.SemList(record["artifact_bindings"]) {
 			a := kernel.SemMap(v)
 			match = match || a["id"] == kernel.First(kernel.Text(source["id"]), kernel.Text(source["baseline_id"])) && dependencies.ContractSame(a["version"], source["version"]) && kernel.Text(a["digest"]) == actual
+		}
+		if s.GovernanceVersion == 2 {
+			bound, err := s.Bind(assetRef)
+			if err != nil {
+				return err
+			}
+			match = match && reviewedSource(record, assetRef, strings.TrimPrefix(bound.Digest, "sha256:"))
 		}
 		if !match {
 			return s.Reject("HANDOFF_APPROVAL", "来源批准未绑定身份、版本和摘要")
@@ -1060,7 +1111,27 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 	return nil
 }
 
+// Asset declarations cannot extend what the completed review actually inspected.
+func reviewedSource(record map[string]any, ref, digest string) bool {
+	if record["subject_ref"] == ref && record["subject_digest"] == digest {
+		return true
+	}
+	for _, asset := range kernel.SemList(record["basis"]) {
+		row := kernel.SemMap(asset)
+		if row["ref"] == ref && row["digest"] == digest {
+			return true
+		}
+	}
+	return false
+}
+
 func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error {
+	if s.GovernanceVersion == 2 {
+		if protocol != 5 || s.Report.Profile != "spec" || s.GovernancePolicy == nil {
+			return s.Reject("HANDOFF_POLICY", "新 Handoff5 必须使用源 Spec 自身的 Profile3/policy2")
+		}
+		return nil
+	}
 	version, valid := kernel.Integer(s.Roles["schema_version"])
 	gates, gatesPresent := kernel.Object(s.Roles["gate_policy"])
 	policy, present := kernel.Object(s.Roles["user_decision_policy"])
@@ -1104,6 +1175,9 @@ func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error 
 }
 
 func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string) error {
+	if err := sourceApprovalContextVersion(s, kernel.SemMap(binding["approval_context"])); err != nil {
+		return err
+	}
 	if inherited, err := inheritedSourceApproval(s, gate, binding, approvalRef); inherited {
 		return err
 	}
@@ -1227,8 +1301,28 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 	return nil
 }
 
+// The source's own policy chooses a context version; a receiving policy cannot reinterpret legacy signers.
+func sourceApprovalContextVersion(s *kernel.SemanticSession, context map[string]any) error {
+	value, declared := context["schema_version"]
+	version, valid := kernel.Integer(value)
+	if s.GovernanceVersion == 2 && declared && valid && version == 2 || s.GovernanceVersion == 1 && !declared {
+		return nil
+	}
+	return s.Reject("HANDOFF_CONTEXT_VERSION", "来源批准上下文与原政策不匹配；新政策须显式context2，旧格式按原记录读取")
+}
+
 func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHandoff) ([]string, error) {
-	queue := []string{ref, "CONTEXT.md", ".template-spec/agents/digital-human-roles.yaml"}
+	queue := []string{ref, "CONTEXT.md"}
+	if s.GovernanceVersion == 2 {
+		_, policyRefs, _, err := schema.LoadOrchestration(s.Bytes, schema.OrchestrationRef)
+		if err != nil {
+			return nil, err
+		}
+		queue = append(queue, policyRefs...)
+		queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/yss-skill-registry.yaml")
+	} else {
+		queue = append(queue, ".template-spec/agents/digital-human-roles.yaml")
+	}
 	savedRegistry := s.Registry
 	defer func() { s.Registry = savedRegistry }()
 	sealedPackages := map[string]bool{}
@@ -1287,7 +1381,7 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 		}
 	}
 	symbolic := kernel.SemMap(b.Config["reference_map"])
-	boundedPlan := false
+	boundedPlan := s.GovernanceVersion == 2
 	for _, value := range kernel.SemList(kernel.SemMap(kernel.SemMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
 		row := kernel.SemMap(value)
 		boundedPlan = boundedPlan || row["aggregate_gate"] == "gate.plan-approved" && row["aggregate_additional_review_task"] == "forbidden"
@@ -1421,7 +1515,14 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 			return nil, s.Reject("HANDOFF_CLOSURE", "引用不在来源快照: "+ref)
 		}
 		mapped := s.LocalRef(ref)
-		if _, directory := s.Scans[mapped]; directory {
+		directory := false
+		for _, entry := range s.Scans[mapped] {
+			if strings.HasPrefix(entry, "dir:"+mapped+":") {
+				directory = true
+				break
+			}
+		}
+		if directory {
 			files, e := s.Scan(ref)
 			if e != nil {
 				return nil, e
@@ -2005,6 +2106,9 @@ func contractPreview(s *kernel.SemanticSession, config map[string]any, cases []s
 }
 
 func contractNormalizeSourceRoles(s *kernel.SemanticSession) {
+	if s.GovernanceVersion == 2 {
+		return
+	}
 	roles := dependencies.ContractCopy(s.Roles)
 	policy := dependencies.ContractCopy(kernel.SemMap(roles["gate_policy"]))
 	review := kernel.SemList(policy["digital_human_review"])
@@ -2049,11 +2153,19 @@ func handoffSourceCoverage(report, source *kernel.SemanticSession, ref string, h
 	if e != nil {
 		return e
 	}
+	proof, refs, e := source.CaptureTaskSnapshot(refs)
+	if e != nil {
+		return e
+	}
 	closure, e := sourceClosureBindings(source, refs)
 	if e != nil {
 		return e
 	}
-	kernel.SemanticCoverage(report, "handoff_source", map[string]any{"handoff": h.Handoff, "config": h.Config, "indexes": map[string]any{"rules": h.Rules, "scenarios": h.Scenarios}, "strategy": h.Strategy, "stage": h.Stage, "business": h.BusinessReport, "closure": closure})
+	view := map[string]any{"handoff": h.Handoff, "config": h.Config, "indexes": map[string]any{"rules": h.Rules, "scenarios": h.Scenarios}, "strategy": h.Strategy, "stage": h.Stage, "business": h.BusinessReport, "closure": closure}
+	if proof != nil {
+		view["source_execution"] = proof
+	}
+	kernel.SemanticCoverage(report, "handoff_source", view)
 	return nil
 }
 func handoffPackageCoverage(s *kernel.SemanticSession, h *NativeHandoff) error {
@@ -2099,7 +2211,9 @@ func verifySourceApprovalPublic(s *kernel.SemanticSession, ref string, opts map[
 	}
 	saved := s.Roles
 	defer func() { s.Roles = saved }()
-	contractNormalizeSourceRoles(s)
+	if s.GovernanceVersion != 2 {
+		contractNormalizeSourceRoles(s)
+	}
 	if e = contractSourceApproval(s, gate, binding, approvalRef); e != nil {
 		return e
 	}

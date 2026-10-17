@@ -403,6 +403,12 @@ func backendPublishedRegistry(roles map[string]any) map[string]any {
 }
 
 func backendSourcePolicy(s *kernel.SemanticSession) error {
+	if s.GovernanceVersion == 2 {
+		if s.GovernancePolicy == nil || !kernel.SemHas([]string{"spec", "backend"}, s.Report.Profile) {
+			return s.Reject("GOVERNANCE_POLICY", "来源须具有自己的当前政策")
+		}
+		return nil
+	}
 	version, valid := kernel.Integer(s.Roles["schema_version"])
 	gatePolicy, gatesPresent := kernel.Object(s.Roles["gate_policy"])
 	decisionPolicy, decisionsPresent := kernel.Object(s.Roles["user_decision_policy"])
@@ -423,6 +429,12 @@ func backendSourcePolicy(s *kernel.SemanticSession) error {
 }
 
 func backendArtifactApproval(s *kernel.SemanticSession, gate string, binding, record map[string]any, opts map[string]string) error {
+	if s.GovernanceVersion == 2 {
+		if kernel.ApNumber(record["schema_version"]) != 3 {
+			return s.Reject("APPROVAL", "新来源不能用旧批准取得当前资格")
+		}
+		return ContractApproval(s, gate, binding, kernel.ApText(binding["approval_ref"]), opts)
+	}
 	if kernel.ApNumber(record["schema_version"]) != 1 {
 		// The v2 source task must freeze both actual source registries. Merely
 		// declaring them as inputs, or hashing a consumer-updated task, cannot
@@ -770,19 +782,29 @@ func backendOpenDelivery(s *kernel.SemanticSession, prefix string, opts map[stri
 	if e != nil {
 		return nil, nil, e
 	}
-	source.Roles, e = source.Doc(kernel.ApprovalRolesRef)
+	identity, e := source.Doc("yss-project.yaml")
 	if e != nil {
 		return nil, nil, e
 	}
-	if e = backendSourcePolicy(source); e != nil {
-		return nil, nil, e
-	}
-	source.Registry = backendPublishedRegistry(source.Roles)
-	if _, captured := aliases[kernel.ApprovalRegistryRef]; captured {
-		source.Registry, e = source.Doc(kernel.ApprovalRegistryRef)
+	if kernel.ApNumber(identity["schema_version"]) == 2 {
+		if e = source.Authorities(); e != nil {
+			return nil, nil, e
+		}
+	} else {
+		source.Roles, e = source.Doc(kernel.ApprovalRolesRef)
 		if e != nil {
 			return nil, nil, e
 		}
+		source.Registry = backendPublishedRegistry(source.Roles)
+		if _, captured := aliases[kernel.ApprovalRegistryRef]; captured {
+			source.Registry, e = source.Doc(kernel.ApprovalRegistryRef)
+			if e != nil {
+				return nil, nil, e
+			}
+		}
+	}
+	if e = backendSourcePolicy(source); e != nil {
+		return nil, nil, e
 	}
 	d, e := BackendInspectDelivery(source, kernel.ApText(manifest["delivery_ref"]), backendSourceOptions(opts))
 	if e != nil {
@@ -1217,7 +1239,7 @@ func backendCoverageDigest(v any) string {
 }
 
 func backendCodeBytes(s *kernel.SemanticSession, root, ref string) ([]byte, error) {
-	if root == s.Root {
+	if root == s.Root || s.IsTaskSnapshotRoot(root) {
 		return s.Bytes(ref)
 	}
 	return s.ExternalBytes(root, ref)

@@ -68,6 +68,9 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 		if e != nil {
 			return nil, e
 		}
+		if e = progressionCurrentConsumers(s, target); e != nil {
+			return nil, e
+		}
 		if target.FeatureID != kernel.Text(cp["feature_id"]) || target.CheckpointRef != cpRef || profile != "spec" {
 			return nil, s.Reject("PROGRESSION_BINDING", "目标配置未绑定当前 Spec 功能 checkpoint")
 		}

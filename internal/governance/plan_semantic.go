@@ -3,6 +3,7 @@ package governance
 import "github.com/iloveZzz/yss-cli/internal/governance/approval"
 
 import (
+	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -17,12 +18,60 @@ func init() {
 	kernel.RegisterRoleIndependentValidator("plan-checkpoint", verifyPlanCheckpointSemantic)
 	kernel.RegisterSemanticValidator("plan-review-task", verifyPlanReviewTaskSemantic)
 	kernel.RegisterRoleIndependentValidator("plan-review-task", verifyPlanReviewTaskSemantic)
+	kernel.RegisterRoleIndependentValidator("plan-review-control", verifyPlanReviewControlSemantic)
 	kernel.RegisterSemanticValidator("plan-spec-entry", verifyPlanEntrySemantic)
 	kernel.RegisterRoleIndependentValidator("plan-spec-entry", verifyPlanEntrySemantic)
 	kernel.RegisterSemanticValidator("plan-aggregate", verifyPlanAggregateSemantic)
 	kernel.RegisterRoleIndependentValidator("plan-aggregate", verifyPlanAggregateSemantic)
 	kernel.RegisterSemanticValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
 	kernel.RegisterRoleIndependentValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
+}
+
+// Validate the proposed control in an observed overlay before the existing Node transaction writes it.
+func verifyPlanReviewControlSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	input, err := s.Doc(ref)
+	if err != nil {
+		return err
+	}
+	cpRef := kernel.Text(input["checkpoint_ref"])
+	if !kernel.ContractPath(cpRef) {
+		return s.Reject("PLAN_REVIEW_CHECKPOINT_DRIFT", "缺少当前 checkpoint")
+	}
+	raw, err := s.Bytes(cpRef)
+	if err != nil {
+		return err
+	}
+	if kernel.Text(input["checkpoint_digest"]) != safefs.Digest(raw) {
+		return s.Reject("PLAN_REVIEW_CHECKPOINT_DRIFT", "准备更新前 checkpoint 字节变化")
+	}
+	cp, err := s.Doc(cpRef)
+	if err != nil {
+		return err
+	}
+	cp["plan_review_control"] = input["plan_review_control"]
+	proposed, err := json.Marshal(cp)
+	if err != nil {
+		return err
+	}
+	if err = s.V.Set(cpRef, proposed); err != nil {
+		return err
+	}
+	control, _, err := approval.PlanControl(s, cp)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range kernel.ApRows(control["attempts"]) {
+		if attempt["status"] == "completed" {
+			if err = s.Verify("task", kernel.Text(attempt["task_ref"]), nil); err != nil {
+				return err
+			}
+			if err = s.Verify("plan-review-task", kernel.Text(attempt["task_ref"]), map[string]string{"require-completed": "true"}); err != nil {
+				return err
+			}
+		}
+	}
+	kernel.SemanticCoverage(s, "plan_review_control", map[string]any{"checkpoint_ref": cpRef, "read_only": true, "execution_authorization": "not-granted"})
+	return nil
 }
 
 func verifySourcePlanApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {

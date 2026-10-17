@@ -83,6 +83,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if group == "lifecycle" && action == "target" {
 		return progressionTargetRun(ctx, root, args)
 	}
+	if group == "contract" && action == "publish-review" {
+		return publishPendingReview(ctx, root, args)
+	}
 	if group == "context" {
 		return contextRun(action, root, args)
 	}
@@ -131,6 +134,8 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "id", "work-unit", "stage", "arg0", "view")
 	case "lifecycle.status":
 		allowed = append(allowed, "checkpoint", "file", "arg0", "view")
+	case "contract.publish-review":
+		allowed = append(allowed, "file")
 	case "contract.view":
 		allowed = append(allowed, "kind", "file", "unit", "view")
 	case "lifecycle.target":

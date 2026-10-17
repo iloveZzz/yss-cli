@@ -5,6 +5,8 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
 // standard 路线：模板 4.5.0 起 Bundle 自带 standard 策略；旧 Bundle 没有时在实例副本里注入同一策略块。
@@ -46,6 +50,11 @@ func (v *triageVariant) fixture(t *testing.T, name string, rewrite func(string) 
 		if out, err := exec.Command("cp", "-a", f.project, dir).CombinedOutput(); err != nil {
 			v.err = err
 			t.Log(string(out))
+			return
+		}
+		// Init journals bind an absolute root; a new fixture must not replay the parent's transaction.
+		if err := os.RemoveAll(filepath.Join(dir, ".yss")); err != nil {
+			v.err = err
 			return
 		}
 		ref := filepath.Join(dir, ".template-spec/process/orchestration/entry/request-triage.yaml")
@@ -102,12 +111,35 @@ func digestOf(t *testing.T, project, ref, content string) string {
 func standardEvidence(t *testing.T, f routeFixture, id string) func(map[string]any) {
 	dir := ".work/" + strings.ToLower(id)
 	spec := digestOf(t, f.project, dir+"/spec-lite.md", "# Spec-lite\n\n目标：a.txt 增加 b。\n")
-	reply := digestOf(t, f.project, dir+"/decision-reply.md", "同意按 Spec-lite 实施。—— 张三\n")
+	// Synthetic source messages exercise the real policy2 reader; a bare signature is no longer approval evidence.
+	writeJSON := func(ref string, value any) string {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return digestOf(t, f.project, ref, string(raw))
+	}
+	capture := func(name, actor, principal, at, text, replyTo string) map[string]any {
+		ref := dir + "/" + name + ".json"
+		message := map[string]any{"id": name, "actor_kind": actor, "principal_ref": principal, "sent_at": at, "text": text, "original_ref": "test-only://" + id + "/" + name}
+		if replyTo != "" {
+			message["reply_to"] = replyTo
+		}
+		digest := writeJSON(ref, map[string]any{"source_kind": "session-export", "messages": []any{message}})
+		return map[string]any{"kind": "session-export", "ref": ref, "digest": digest, "message_id": name}
+	}
+	request := map[string]any{"id": id, "requester_ref": "zhangsan", "requester_source": capture("request", "biological-human", "zhangsan", "2026-01-01T00:00:00Z", "请准备本次具体方案。", ""), "items": []any{map[string]any{"id": "D1", "boundary": "standard-change-approved", "title": "确认范围", "subject": map[string]any{"ref": dir + "/spec-lite.md", "version": "v1", "digest": spec}, "basis": []any{}, "scope": []string{"a.txt"}, "changes": "增加 b", "risks": []any{}, "recommendation": "批准", "next_actions": []string{"修改 a.txt"}, "responder_ref": "zhangsan"}}}
+	requestDigest := kernel.ApDigest(request)
+	presentation := fmt.Sprintf("决定请求 %s (%s)\n提问者：zhangsan\n事项 D1 / standard-change-approved：确认范围\n资产：%s/spec-lite.md；版本：v1；摘要：%s\n依据：无额外依据\n关键变化：增加 b\n范围：a.txt\n风险：已评估，无已知残余风险\n推荐方案：批准\n批准后动作：修改 a.txt\n回复负责人：zhangsan\n请明确批准、拒绝或提出修改；多事项回复须说明事项，或明确批准以上全部事项。", id, requestDigest, dir, spec)
+	request["presented_source"] = capture("presentation", "agent", "agent", "2026-01-01T00:01:00Z", presentation, "")
+	responseSource := capture("response", "biological-human", "zhangsan", "2026-01-01T00:02:00Z", "批准", "test-only://"+id+"/presentation")
+	replyRef := dir + "/decision.json"
+	reply := writeJSON(replyRef, map[string]any{"schema_version": 1, "kind": "user-decision", "request": request, "responses": []any{map[string]any{"source": responseSource, "principal_ref": "zhangsan", "responded_at": "2026-01-01T00:02:00Z", "text": "批准", "request_digest": requestDigest, "selection": "single", "item_ids": []string{"D1"}, "decision": "approved", "approved_scope": []string{"a.txt"}}}})
 	return func(e map[string]any) {
 		e["delivery_path"] = "standard"
 		e["scope"].(map[string]any)["impacts"] = []any{"behavior-change"}
 		e["spec_lite"] = map[string]any{"ref": dir + "/spec-lite.md", "digest": spec}
-		e["standard_decision"] = map[string]any{"id": "standard-change-approved", "decision": "approved", "actor_kind": "human", "decided_by": "zhangsan", "spec_lite_digest": spec, "response_ref": dir + "/decision-reply.md", "response_digest": reply}
+		e["standard_decision"] = map[string]any{"id": "standard-change-approved", "decision": "approved", "actor_kind": "human", "decided_by": "zhangsan", "spec_lite_digest": spec, "response_ref": replyRef, "response_digest": reply}
 	}
 }
 

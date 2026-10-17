@@ -3,6 +3,7 @@ package contracts
 import (
 	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +56,33 @@ func TestSlice4ResultUsesCompletedTaskAndActualCoverage(t *testing.T) {
 			err = validateSlice4ExecutionResult(s, result, c, task, candidate)
 			if (err == nil) != (name == "passed") {
 				t.Fatalf("%s: %v", name, err)
+			}
+		})
+	}
+}
+
+func TestWorkerEvidenceMembershipCannotQualifyAnUnvalidatedSliceResult(t *testing.T) {
+	for _, name := range []string{"unregistered", "unvalidated-contract", "stale-bytes"} {
+		t.Run(name, func(t *testing.T) {
+			s, task := completedDraft(t)
+			task["execution_state"] = "Worker"
+			task["contract"] = map[string]any{"kind": "slice-implementation", "slice_contract_ref": "missing-slice.json"}
+			taskFile(t, s.Root, "result.json", map[string]any{"schema_version": 2, "consumed_contract": map[string]any{"contract_id": "unvalidated"}})
+			binding, err := s.Bind("result.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			asset := map[string]any{"ref": binding.Ref, "digest": strings.TrimPrefix(binding.Digest, "sha256:")}
+			if name != "unregistered" {
+				kernel.ApMap(task["result"])["evidence_refs"] = []string{"result.json"}
+			}
+			if name == "stale-bytes" {
+				asset["digest"] = strings.Repeat("a", 64)
+			}
+			source := map[string]any{"completed": true, "candidate_scope": map[string]any{"repository_root": s.Root, "paths": []string{"drafts"}}}
+			member, err := taskOutputMember(s, task, source, asset)
+			if member || (name != "unregistered" && err == nil) {
+				t.Fatalf("%s must not qualify: member=%v err=%v", name, member, err)
 			}
 		})
 	}

@@ -310,7 +310,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if err = ctx.Err(); err != nil {
 		return nil, profile, domain.Wrap("CANCELLED", err)
 	}
-	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "recover" || command == "rollback" || command == "version" || command == "capabilities" {
+	if command == "migrate" || command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "recover" || command == "rollback" || command == "version" || command == "capabilities" {
 		if len(o.args) > 1 {
 			return nil, profile, domain.Fail("ARGUMENT", "不支持额外子命令或位置参数")
 		}
@@ -451,6 +451,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		r, e := transaction.RollbackContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
 			switch summary.Kind {
+			case "migrate":
+				if e := project.ValidateMigrationRollback(root); e != nil {
+					return e
+				}
 			case "profile-links":
 				if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
 					return e
@@ -466,11 +470,15 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
+			case "review-package":
+				if e := governance.ValidateReviewPublicationTransaction(root, paths); e != nil {
+					return e
+				}
 			case "reading-render", "reading-enable":
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "init", "attach", "sync", "migrate", "skills", "assets":
+			case "init", "attach", "sync", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
 			}
@@ -528,6 +536,10 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
+			case "review-package":
+				if e := governance.ValidateReviewPublicationTransaction(root, paths); e != nil {
+					return e
+				}
 			case "reading-render", "reading-enable":
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
@@ -547,7 +559,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		})
 		return r, profile, err
 	}
-	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "skills" || command == "assets" {
+	if command == "migrate" || command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "skills" || command == "assets" {
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["stack"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
@@ -562,11 +574,17 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			r, e := project.ApplyContext(ctx, p)
 			return r, p.Profile, e
 		}
-		id, e := project.Detect(root, profile, command == "init" || command == "attach")
+		detectProfile := profile
+		if command == "migrate" {
+			detectProfile = ""
+		}
+		id, e := project.Detect(root, detectProfile, command == "init" || command == "attach")
 		if e != nil {
 			return nil, profile, e
 		}
-		profile = id.Profile.Name
+		if command != "migrate" || profile == "" {
+			profile = id.Profile.Name
+		}
 		var selection []string
 		if o.values["stack"] != "" && o.values["full"] != "true" {
 			return nil, profile, domain.Fail("ARGUMENT", "--stack 只与 --full 同用；默认初始分发只含通用技能")
@@ -876,6 +894,7 @@ var nodeDelegation = []string{
 	"handoff.source-context-snapshot.v1",
 	"handoff.spec-baseline-source-view.v1",
 	"contract.spec-baseline-binding.v1",
+	"contract.pending-review-publication.v1",
 	"contract.plan-entry.v1",
 	"contract.gate-checks.v1",
 	"contract.checkpoint-approvals.v1",

@@ -32,7 +32,7 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 	if e != nil {
 		return e
 	}
-	if id.Native == nil || id.Native.SchemaVersion != 3 || id.Native.TemplateCommit != p.TemplateCommit || id.Native.Profile != p.Profile {
+	if id.Native == nil || id.Native.SchemaVersion != b.SchemaVersion || id.Native.TemplateCommit != p.TemplateCommit || id.Native.Profile != p.Profile {
 		return domain.Fail("VERIFY", "应用后身份或来源不匹配")
 	}
 	if _, e = governance.RunContext(ctx, "context", "verify", p.Root, nil); e != nil {

@@ -1697,7 +1697,11 @@ func ContractApproval(s *kernel.SemanticSession, gate string, binding map[string
 			if e != nil {
 				return e
 			}
-			basis = append(basis, map[string]any{"ref": b.Ref, "digest": b.Digest})
+			digest := b.Digest
+			if s.GovernanceVersion == 2 {
+				digest = strings.TrimPrefix(digest, "sha256:")
+			}
+			basis = append(basis, map[string]any{"ref": b.Ref, "digest": digest})
 		}
 		expected["basis"] = basis
 	}
@@ -2846,7 +2850,9 @@ func ContractCollectBusinessTickets(s *kernel.SemanticSession, ref, mode, review
 		reviewRef = kernel.First(reviewRef, kernel.Text(kernel.SemMap(set["review"])["ref"]), kernel.Text(set["review_ref"]))
 		if review, valid := doc(reviewRef); valid {
 			validate(review, reviewRef)
-			if kernel.ContractN(review["schema_version"]) != 1 || review["kind"] != "business-ticket-review" || review["result"] != "passed" || strings.TrimSpace(kernel.Text(review["reviewer"])) == "" || strings.TrimSpace(kernel.Text(review["drafter"])) == "" || ContractSame(review["reviewer"], review["drafter"]) || review["subject_ref"] != ref || review["subject_digest"] != observed[ref] || len(kernel.SemList(review["evidence"])) == 0 {
+			if s.GovernanceVersion == 2 {
+				problem(contractBusinessReview2(s, review, ref, kernel.Text(observed[ref])), "", reviewRef, nil)
+			} else if kernel.ContractN(review["schema_version"]) != 1 || review["kind"] != "business-ticket-review" || review["result"] != "passed" || strings.TrimSpace(kernel.Text(review["reviewer"])) == "" || strings.TrimSpace(kernel.Text(review["drafter"])) == "" || ContractSame(review["reviewer"], review["drafter"]) || review["subject_ref"] != ref || review["subject_digest"] != observed[ref] || len(kernel.SemList(review["evidence"])) == 0 {
 				issue("REVIEW_REQUIRED", "需要独立且绑定当前集合的专业审查", reviewRef, nil)
 			}
 			// Keep the existing approval-evidence boundary while collecting business bindings.
@@ -3286,6 +3292,7 @@ func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string
 		return s.Reject("ARCH_SOURCE_MISSING", "固定源码范围或摘要不一致")
 	}
 	queries := [][]string{{"rev-parse", "--show-toplevel"}, {"rev-parse", kernel.Text(source["base_commit"]) + "^{commit}"}, {"config", "--local", "--get", "remote.origin.url"}, {"rev-parse", "HEAD"}}
+	committedChanges := []string{}
 	expect := []string{repoRoot, kernel.Text(source["base_commit"]), kernel.Text(reg["repository_url"]), kernel.Text(source["base_commit"])}
 	for i, q := range queries {
 		out, e := s.Git(repoRoot, q...)
@@ -3304,7 +3311,18 @@ func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string
 			if err != nil {
 				return err
 			}
-			if err = candidateOnlyIntentPaths(s, differences, allowed, "ARCH_SOURCE_STALE"); err != nil {
+			if s.GovernanceVersion == 2 && kernel.ContractN(c.Raw["schema_version"]) == 4 {
+				// A commit does not widen a Slice: validate committed deltas with the same two scopes as working bytes below.
+				for _, ref := range strings.Split(string(differences), "\x00") {
+					if ref != "" && !allowed[ref] {
+						rel, err := filepath.Rel(root, filepath.Join(repoRoot, filepath.FromSlash(ref)))
+						if err != nil {
+							return err
+						}
+						committedChanges = append(committedChanges, filepath.ToSlash(rel))
+					}
+				}
+			} else if err = candidateOnlyIntentPaths(s, differences, allowed, "ARCH_SOURCE_STALE"); err != nil {
 				return err
 			}
 		}
@@ -3350,7 +3368,7 @@ func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string
 	if err != nil {
 		return err
 	}
-	seen, changes := map[string]bool{}, []string{}
+	seen, changes := map[string]bool{}, committedChanges
 	for _, v := range kernel.SemList(source["files"]) {
 		f := kernel.SemMap(v)
 		ref := kernel.Text(f["path"])
@@ -3491,19 +3509,34 @@ func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string
 		return e
 	}
 	gate := kernel.Text(review["gate_id"])
-	if !kernel.SemHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate) {
+	validGate := kernel.SemHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate)
+	if s.GovernanceVersion == 2 {
+		rule := kernel.ApFind(s.GatePolicy()["check_reviews"], "gate", gate)
+		validGate = kernel.ApContains(rule["capability_ids"], "capability.technical-design") || kernel.ApContains(rule["capability_ids"], "capability.engineering-baseline")
+	}
+	if !validGate {
 		return s.Reject("ARCH_REVIEW_MISSING", "边界审查门禁无效")
 	}
 	if e = ContractApproval(s, gate, c.Basis["manifest"], kernel.Text(kernel.SemMap(base["boundary_review"])["ref"]), opts); e != nil {
 		return e
 	}
-	found := false
-	for _, v := range kernel.SemList(review["artifact_bindings"]) {
-		b := kernel.SemMap(v)
-		found = found || b["id"] == base["id"] && b["version"] == base["version"] && kernel.Text(b["digest"]) == ContractDigest(ContractWithout(base, "boundary_review"))
-	}
-	if !found || kernel.Text(base["author"]) == "" || kernel.Text(review["principal_ref"]) == kernel.Text(base["author"]) {
-		return s.Reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
+	if s.GovernanceVersion == 2 {
+		subject, err := s.Doc(kernel.Text(review["subject_ref"]))
+		if err != nil {
+			return err
+		}
+		if !kernel.ApEqual(subject, ContractWithout(base, "boundary_review")) {
+			return s.Reject("ARCH_REVIEW_STALE", "边界复核主体未绑定完整当前基线")
+		}
+	} else {
+		found := false
+		for _, v := range kernel.SemList(review["artifact_bindings"]) {
+			b := kernel.SemMap(v)
+			found = found || b["id"] == base["id"] && b["version"] == base["version"] && kernel.Text(b["digest"]) == ContractDigest(ContractWithout(base, "boundary_review"))
+		}
+		if !found || kernel.Text(base["author"]) == "" || kernel.Text(review["principal_ref"]) == kernel.Text(base["author"]) {
+			return s.Reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
+		}
 	}
 	if e = ContractEvidence(s, review["evidence_refs"]); e != nil {
 		return e

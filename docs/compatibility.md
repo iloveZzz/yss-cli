@@ -2,7 +2,7 @@
 
 呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
 
-程序兼容基线：1.2.0；运行协议和 JSON envelope：1；升级计划：v2；Bundle 和 .yss.json：v3（保留 native metadata v1/v2 识别与历史原生事务恢复）。旧保存计划可以诊断，应用返回 `PLAN_VERSION`，须重新生成。内部来源锁支持 schema v2/v3；当前三个 Profile 的同源覆盖层组合构建使用 v3，历史 v2 仍可读取。每目录一个 Profile；旧家族 metadata 同时存在或与显式 Profile 矛盾时拒绝。现役旧 CLI 恢复基线分别为 Spec 3.5.10、Design 0.8.17、Backend 0.4.21；固定来源见 source-lock.json。Frontend 独立 Profile 已退役，旧实例拒绝并保留文件。
+程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前新实例使用 Bundle4 / metadata4、identity2 / Profile3 / governance2，仅支持 Spec/Backend。项目保存计划使用 v3，旧计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 保持原构建语义。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design 明确以 `--profile spec` 迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
 
 `attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 
@@ -12,7 +12,7 @@ Bundle 生产器按固定 Git 对象取源；`native-upgrade-v3` 兼容生成器
 
 已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
 
-Context 的 check/verify 对合法 schema v1 template-source 支持只读校验并返回可复用 context_snapshot；实例身份检测保持原边界，模板源携带实例 metadata 会被拒绝。三个 Profile 的 JS 消费者只负责固定二进制传输和 envelope/摘要校验。
+Context 的 check/verify 对合法 schema v1 template-source 支持只读校验并返回可复用 context_snapshot；实例身份检测保持原边界，模板源携带实例 metadata 会被拒绝。当前 Spec/Backend 的 JS 消费者只负责固定二进制传输和 envelope/摘要校验；历史 Design 保留原协议读取。
 
 当前治理 verify、完整 project-ci、Stage 写入、离线程序安装与 JS native transport 的边界见 porting-status.md。两个插件迁至固定二进制与公开 Bundle 接口；必要 Node/Python 治理工具继续独立维护。旧成功 JSON、私有 JS API 和停用参数仅按实际消费者迁移，不全量仿制；停用项明确拒绝并提供替代命令。独立 Go Bundle 生产不再调用旧 Node 私有导出模块。
 
@@ -27,3 +27,20 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 2.1.0 的发行目标为 darwin/arm64 与 windows/amd64。macOS 归档与目标须位于同一支持原子克隆的 APFS 卷。macOS 从已校验的归档文件描述符原子克隆完整临时文件，再设置权限与同步；目标存在、来源或目标链接及摘要变化仍拒绝，安装文件与归档不共享可修改的 inode。不支持克隆或跨卷返回 UNPORTED，不退回普通复制；无法据此保证不受支持文件系统上的旧事务可恢复。旧版本已留下的未知或零字节事务临时文件仍保留并阻断。按本次明确授权，Mac ARM64 保留实际原生、安装与恢复验收；Windows x64 仅交付同源构建包及独立摘要，不执行该平台运行验收。Windows 包标记 stableReady=false、nativeRuntimeVerified=false，下载核验后解压使用；现有在线升级资格检查保持，Windows 不列入本次 requiredPlatforms。Linux 不在本版本发行目标内。
 
 本次资格范围为 local-platform-impacted-consumers；无关全仓回归及可复用重复检查按用户调整裁剪，未执行项不作完整模板通过声明。
+
+治理版本边界：
+
+| 组合 | 当前行为 |
+| --- | --- |
+| Bundle4 + metadata4 + identity2 + Profile3 + governance2 | 新建 Spec/Backend；按适用检查与真实自检执行，独立复核取决于当前要求 |
+| metadata3 + identity1 + 原 Profile/政策 | 原语义读取；显式 migrate 保存计划、审阅冲突后事务应用，不直接创建旧 task/stage |
+| Design4.5 multipart container2 | 原 role policy；仅确切旧 Design 身份且无 governance_versions 时识别，不等于新治理2 |
+| 迁移后的旧记录 | --history 显式选择 metadata 绑定的完整原快照；当前读取不回退、不重写批准 |
+| 新政策 Handoff5 / package2 | 显式 context2、approval3 和任务来源快照；重算 Git 对象、基线、候选与执行事实，源仓不可用时仍只读验包；目标先对账，不授予实现资格 |
+| 原政策 Handoff4 / package1 / Receipt2 | 按包内原签署政策读取；实际 Receipt2 在显式迁移后保持原字节并重读 |
+| 历史 task1 / task2 | task1 的 --history 保留原模板维护限制；task2 只读分诊按原政策核验，issued 不等于已执行或已完成 |
+| 缺失或漂移的原政策快照 | 明确拒绝 --history，不回退到当前政策或当前批准资格 |
+| 已完成治理迁移的 downgrade | DOWNGRADE_UNSUPPORTED；原件和新记录保留，未完成迁移使用原事务 recover |
+| 旧 CLI + 新身份 | 拒绝不支持的 schema/字段；以实际退出和文件未变作为错配证据 |
+
+新实例不分发岗位/数字人注册表；真实用户决定、当前合同范围、原始摘要、实际执行和未知外部规则边界继续生效。旧 SourceLock、原始政策和审批字节只作为原协议输入，不用于新资格。程序升级、项目迁移及发布分别授权；此候选尚未更新公开 CLI pin。

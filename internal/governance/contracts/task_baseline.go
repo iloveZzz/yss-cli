@@ -15,7 +15,7 @@ import (
 // {base_commit, roots, files:[{path, base_blob, sha256}]} over the real Git tree.
 // The caller must register an external repository from its verified contract first.
 func TaskBaselineSource(s *kernel.SemanticSession, root, commit string, scope []string) (map[string]any, error) {
-	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(commit) || !kernel.ApUnique(scope) || !filepath.IsAbs(root) || filepath.Clean(root) != root {
+	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(commit) || !kernel.ApUnique(scope) || (!filepath.IsAbs(root) || filepath.Clean(root) != root) && !s.IsTaskSnapshotRoot(root) {
 		return nil, s.Reject("TASK_BASELINE", "基线提交、工程根或范围不明确")
 	}
 	roots := append([]string{}, scope...)
@@ -24,7 +24,7 @@ func TaskBaselineSource(s *kernel.SemanticSession, root, commit string, scope []
 		if !kernel.ContractPath(roots[i]) {
 			return nil, s.Reject("TASK_BASELINE", "基线范围必须为明确相对路径")
 		}
-		if _, err := safefs.Path(root, roots[i]); err != nil {
+		if _, err := s.TaskPath(root, roots[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -66,7 +66,7 @@ func TaskBaselineSource(s *kernel.SemanticSession, root, commit string, scope []
 		if len(meta) != 3 || !kernel.SemHas([]string{"100644", "100755"}, meta[0]) {
 			return nil, s.Reject("TASK_BASELINE", "基线范围含symlink/gitlink")
 		}
-		if _, err = safefs.Path(root, ref); err != nil {
+		if _, err = s.TaskPath(root, ref); err != nil {
 			return nil, err
 		}
 		raw, err := s.Git(root, "cat-file", "blob", meta[2])

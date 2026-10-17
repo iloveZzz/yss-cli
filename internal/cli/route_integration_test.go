@@ -132,6 +132,7 @@ func routeFixtureFor(t *testing.T) routeFixture {
 func writeTask(t *testing.T, f routeFixture, id string, mutate func(map[string]any)) string {
 	t.Helper()
 	evidence := map[string]any{
+		"schema_version": 2, "policy_version": 2,
 		"task_id": id, "delivery_path": "daily", "formal_bindings": []any{},
 		"goal_ref": "#目标", "acceptance_ref": "#验收",
 		"repository": map[string]any{"root": f.impl, "baseline_sha": f.base, "baseline_ref": "#基线", "rollback_ref": "#回滚"},

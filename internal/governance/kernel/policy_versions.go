@@ -38,7 +38,21 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 		return nil
 	}
 	if !newIdentity {
-		if version != 1 || ApNumber(profile["schema_version"]) > 2 {
+		// Design4.5 uses multipart container2 with original role policy; it predates governance_versions.
+		_, declaresNewGovernance := policy["governance_versions"]
+		legacyContainer := false
+		if version == 2 && !declaresNewGovernance && s.Report.Profile == "design" {
+			raw, readErr := s.Bytes(schema.OrchestrationRef)
+			if readErr != nil {
+				return readErr
+			}
+			parsed, parseErr := schema.Parse(raw)
+			if parseErr != nil {
+				return parseErr
+			}
+			legacyContainer = len(ApArray(ApMap(parsed)["parts"])) > 0
+		}
+		if (version != 1 && !legacyContainer) || declaresNewGovernance || ApNumber(profile["schema_version"]) > 2 {
 			return s.Unavailable("GOVERNANCE_POLICY", "根身份、Profile和编排政策混代；先显式迁移治理实例")
 		}
 		return nil
@@ -318,4 +332,18 @@ func (s *SemanticSession) ValidateGovernancePolicyBinding(binding map[string]any
 		return s.Reject("GOVERNANCE_POLICY_BINDING", "记录未绑定当前完整编排政策及版本")
 	}
 	return nil
+}
+
+func init() {
+	RegisterSemanticValidator("governance-policy", func(s *SemanticSession, ref string, _ map[string]string) error {
+		if ref != ".template-spec/process/harness-profile.yaml" || s.GovernanceVersion != 2 || s.GovernancePolicy == nil {
+			return s.Reject("GOVERNANCE_POLICY", "当前入口只核验明确的新治理 Profile")
+		}
+		if _, err := s.Bind(ref); err != nil {
+			return err
+		}
+		s.Report.Coverage["governance_policy"] = map[string]any{"profile": s.Report.Profile, "policy_digest": s.GovernanceDigest, "read_only": true, "execution_allowed": false}
+		return nil
+	})
+	RegisterRoleIndependentValidator("governance-policy", SemanticValidators["governance-policy"])
 }

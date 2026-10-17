@@ -185,7 +185,7 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
-前置条件：在独立新目录选择一个 Profile；spec 综合研发主控，design 产品与业务设计，backend 承担技术设计与专职交付。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；新建仅 Spec/Backend，旧 Design 显式迁移到 Spec。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -208,7 +208,7 @@ const specProgressionTutorial = `本次目标、停止与续推（Spec 主控）
 五个可写目标：
   spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
   product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
-  backend-deliverable：当前批准合同、适用 API、后端实现、独立审查、构建及契约/部署验证闭合。
+  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
   business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
 专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
 
@@ -242,8 +242,8 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 本地或独立专职：
   consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
-  外部专职：consumers 每项给 profile（design/backend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend 消费同一冻结战略基线。
+  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。旧 Spec→Design 只按原政策只读核验。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
 
 读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
@@ -258,23 +258,24 @@ func dailyTutorial() string {
 	if e == nil {
 		source = fmt.Sprintf("来源摘要：template=%s；policy=%s；日常能力=%t", v.TemplateCommit, v.PolicySHA256, v.DailyEnabled)
 	}
-	return `日常交付（Spec）
+	return `日常交付（Spec / Backend，依实例当前政策）
 ` + source + `
-前置条件：当前 Spec 实例启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、独立审查和回滚依据。
+前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
-顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 独立审查 → verify-daily。
+默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
+顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 适用复核 → verify-daily。
 
   yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
   yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
 预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
-  daily：满足政策，按同一记录实现、实际测试及独立审查，再 verify-daily。
+  daily：满足政策，按同一记录实现、实际测试及适用复核，再 verify-daily。
   standard：需求需一页确认；补 Spec-lite 与一次生物人决定（standard_required 为 true 时先补齐并把 delivery_path 改为 standard），其余同 daily。
   governed：已有正式绑定或命中排除风险，从最近可信正式阶段继续。
   needs-info：缺事实先调查，补齐同一任务记录后再次 route。
 下一步：verify-daily 通过后按当前范围交付；它核验已有记录，不执行业务测试或创建批准。
-失败恢复：缺独立审查、过期测试或差异变化时补当前证据；已有正式任务不降级。其他 Profile 以实际政策与能力为准。
-内部测试中的模拟日志和审查记录仅验证协议；公开项目的实际命令、独立审查和批准由对应负责人取得。`
+失败恢复：缺适用复核、过期测试或差异变化时补当前证据；已有正式任务不降级。其他 Profile 以实际政策与能力为准。
+内部测试中的模拟日志和审查记录仅验证协议；公开项目的实际命令、适用复核和批准由对应负责人取得。`
 }
 
 func governedTutorial(profile string) (string, error) {
@@ -314,7 +315,7 @@ func governedTutorial(profile string) (string, error) {
 				out.WriteString("  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。\n")
 			}
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind scaffold --file docs/scaffold.json --json --diagnostics\n  yss handoff verify --root %s --kind package --package docs/handoff --json\n", root, root)
-			out.WriteString("  API：OAS 3.1 YAML Draft → 锁定工具校验 → 独立 Review → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。\n")
+			out.WriteString("  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。\n")
 		case "stage.ticket-formalization":
 			if profile == "design" {
 				fmt.Fprintf(&out, "  yss handoff verify --root %s --kind package --package docs/handoff --json --diagnostics\n", root)
@@ -328,7 +329,7 @@ func governedTutorial(profile string) (string, error) {
 			}
 		case "stage.technical-design":
 			fmt.Fprintf(&out, "  yss handoff verify --root %s --kind package --package docs/handoff --json --diagnostics\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
-			out.WriteString("  消费当前上游接收与工程约束；适用的技术设计 Skill 及负责人完成设计、独立审查和批准。输入通过不授予实现资格。\n")
+			out.WriteString("  消费当前上游接收与工程约束；适用的技术设计 Skill 及负责人完成设计、适用复核和批准。输入通过不授予实现资格。\n")
 		case "stage.implementation-repository-preparation":
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind scaffold --file docs/scaffold.json --json --diagnostics\n", root)
 			out.WriteString("  由工程接入或脚手架 Skill 在批准且当前的工程合同下接入真实实现仓；先核对 Scaffold/Preparation 证据。\n")
@@ -337,7 +338,7 @@ func governedTutorial(profile string) (string, error) {
 			out.WriteString("  消费批准且当前的 Slice 合同、条件化交接与工程输入；编译器不创建批准。\n")
 		case "stage.vertical-slice-implementation", "stage.slice-implementation":
 			fmt.Fprintf(&out, "  yss skills list --root %s --json\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
-			out.WriteString("  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端在实际实现仓 pnpm，后端优先根 ./mvnw；记录真实测试并由独立审查者审查。\n")
+			out.WriteString("  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。\n")
 		case "stage.verification-release-retrospective", "stage.verification":
 			fmt.Fprintf(&out, "  yss evidence verify --root %s --kind verification --file docs/verification.json --json --diagnostics\n  yss project-ci verify --root %s --base \"<已确认40位SHA>\" --runtime-store off --json\n  yss lifecycle verify --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root, root)
 			out.WriteString("  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。\n")
@@ -361,6 +362,10 @@ func registeredDigest(value string) string {
 }
 
 func profileTutorial(profile string) (string, error) {
+	if profile == "design" {
+		return "Design 是历史 Profile，新建已合入 Spec。必要产品设计仍在 Spec 内完成。\n旧统一 metadata3 Design：先 yss migrate --profile spec --root ./old-design --plan --out /tmp/design-migration.json；核对冲突与原政策快照后，再 --apply --plan-file /tmp/design-migration.json。\n原记录保持原字节，--history 按原政策只读；旧批准不授予新资格。未知格式保留原件并报告不支持。\n", nil
+	}
+
 	v, e := helpview.Load(profile)
 	if e != nil {
 		return "", e

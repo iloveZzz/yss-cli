@@ -42,7 +42,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot changed refresh") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
-	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
+	defineArgument("profile", "<Profile>", "新建仅 spec/backend；design 仅历史读取与显式迁移；项目命令可从身份检测", "spec", "design", "backend")
 	defineArgument("root", "<目录>", "项目根，默认当前目录；仅项目命令")
 	defineArgument("target-dir", "<目录>", "项目根的兼容参数；优先使用 --root")
 	defineArgument("tool-root", "<目录>", "程序安装目录；update 必需，upgrade 默认识别运行目录")
@@ -73,7 +73,7 @@ func initializeCommands() {
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
 	defineArgument("mode", "<模式>", "业务票报告模式；默认 draft", "draft", "formal")
-	defineArgument("review-ref", "<路径>", "业务票 formal 报告的显式独立审查来源")
+	defineArgument("review-ref", "<路径>", "业务票 formal 报告的实际审查来源")
 	defineArgument("kind", "<类型>", "当前命令的领域类型；runtime begin 默认 command")
 	defineArgument("status", "<终态>", "运行记录的终态；成功状态必须匹配退出码 0")
 	defineArgument("project-name", "<名称>", "项目名称，作为模板变量")
@@ -116,7 +116,7 @@ func initializeCommands() {
 		switch parts[0] {
 		case "scaffold":
 			opts = append(opts, strings.Fields(scaffoldValues+" "+scaffoldFlags)...)
-		case "init", "attach", "sync", "doctor", "diff", "skills", "assets":
+		case "init", "attach", "sync", "migrate", "doctor", "diff", "skills", "assets":
 			opts = append(opts, projectOptionNames...)
 			if key == "skills list" {
 				opts = append(opts, "details")
@@ -127,7 +127,7 @@ func initializeCommands() {
 			if parts[0] == "init" || parts[0] == "attach" {
 				opts = append(opts, "stack")
 			}
-			if parts[0] == "attach" || parts[0] == "sync" {
+			if parts[0] == "attach" || parts[0] == "sync" || parts[0] == "migrate" {
 				opts = append(opts, "review-out", "base-bundle", "resolution-file")
 			}
 		case "recover", "rollback":
@@ -530,7 +530,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status", "lifecycle route":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
+		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "governance-policy", "architecture-evidence", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "backend-review", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-review-control", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
@@ -583,6 +583,8 @@ func verificationOptions(group, kind string) []string {
 			options = append(options, "gate")
 		case "handoff.source-approval":
 			options = append(options, "gate", "source-context-snapshot")
+		case "handoff.source":
+			options = append(options, "history")
 		case "handoff.delivery", "handoff.package":
 			options = append(options, "package")
 		case "handoff.spec-baseline":

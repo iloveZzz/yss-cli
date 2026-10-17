@@ -42,7 +42,7 @@ func checkItems(t *testing.T, env map[string]any) map[string]map[string]any {
 	return byKey
 }
 
-func TestCheckRunsExistingVerifiers(t *testing.T) {
+func TestCheckRejectsUnfilledApprovalTemplate(t *testing.T) {
 	project := checkProject(t)
 	dir := ".work/check-it"
 	copyTemplate(t, project, ".template-spec/templates/approval-record-template.yaml", dir+"/approval.yaml")
@@ -50,16 +50,16 @@ func TestCheckRunsExistingVerifiers(t *testing.T) {
 	copyTemplate(t, project, ".template-spec/process/templates/user-decision-template.yaml", dir+"/decision.yaml")
 
 	code, env, err := runYSS("check", dir+"/approval.yaml", dir+"/checkpoint.yaml", dir+"/decision.yaml", "--root", project)
-	if err != nil || code != 0 {
+	if err != nil || code != 1 {
 		t.Fatalf("code=%d err=%v env=%v", code, err, env)
 	}
 	result := env["result"].(map[string]any)
-	if result["status"] != "incomplete" || result["execution_authorization"] != "not-evaluated" {
+	if result["status"] != "failed" || result["execution_authorization"] != "not-evaluated" {
 		t.Fatalf("存在未评估项时不能报告通过: %v", result)
 	}
 	items := checkItems(t, env)
 	for key, want := range map[string]string{
-		dir + "/approval.yaml|approval-record":        "passed",
+		dir + "/approval.yaml|approval-record":        "failed",
 		dir + "/checkpoint.yaml|lifecycle-checkpoint": "passed",
 		dir + "/decision.yaml|user-decision":          "not-evaluated",
 	} {

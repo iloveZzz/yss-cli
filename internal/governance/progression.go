@@ -106,6 +106,9 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 	if err != nil {
 		return plan, err
 	}
+	if err = progressionCurrentConsumers(s, target); err != nil {
+		return plan, err
+	}
 	if target.CheckpointRef != cpRef || target.FeatureID != kernel.Text(cp["feature_id"]) {
 		return plan, s.Reject("PROGRESSION_BINDING", "目标输入与显式 checkpoint/feature 不匹配")
 	}
@@ -204,6 +207,17 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 	plan.Options["scan_inputs"] = string(scanBytes)
 	plan.PlanDigest, err = nativePlanDigest(plan)
 	return plan, err
+}
+
+func progressionCurrentConsumers(s *kernel.SemanticSession, target ProgressionTarget) error {
+	if s.GovernanceVersion == 2 {
+		for _, consumer := range target.Consumers {
+			if consumer.Profile != "backend" {
+				return s.Reject("PROFILE_RETIRED", "新政策只承接显式 Backend 消费者；产品设计在 Spec 内继续")
+			}
+		}
+	}
+	return nil
 }
 
 func progressionTargetRun(ctx context.Context, root string, args map[string]string) (any, error) {

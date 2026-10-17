@@ -93,6 +93,7 @@ type SemanticSession struct {
 	// All source sessions share these observations, including immutable Handoff payloads.
 	Children          []*SemanticSession `json:"-" yaml:"-"`
 	gitInputs         map[string]semanticGitObservation
+	taskSnapshot      *taskSourceSnapshot
 	Directories       map[string][]string       `json:"-" yaml:"-"`
 	ContextInventory  []string                  `json:"-" yaml:"-"`
 	IntakeInputs      map[string]map[string]any `json:"-" yaml:"-"`
@@ -968,9 +969,6 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 		}
 	}
 	if sourcePolicy != nil {
-		if s.GovernanceVersion == 2 {
-			return s.Unavailable("CAPABILITY", "历史来源签字适配器不支持新治理政策；不能用接收方政策重解释")
-		}
 		if err = sourcePolicy(s); err != nil {
 			return err
 		}

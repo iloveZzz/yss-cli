@@ -202,9 +202,21 @@ func readingCommit(ctx context.Context, root string, args map[string]string, s *
 }
 
 // readingOperations 把变更集转成事务操作。新建的父目录须显式登记，由浅到深。
+type assetChange struct {
+	Ref   string
+	After []byte
+}
+
 func readingOperations(s *kernel.SemanticSession, plan *reading.RenderPlan) ([]transaction.Operation, error) {
+	changes := make([]assetChange, 0, len(plan.Changes))
+	for _, change := range plan.Changes {
+		changes = append(changes, assetChange{Ref: change.Ref, After: change.After})
+	}
+	return assetOperations(s, changes)
+}
+func assetOperations(s *kernel.SemanticSession, changes []assetChange) ([]transaction.Operation, error) {
 	dirs, seen := []string{}, map[string]bool{}
-	for _, c := range plan.Changes {
+	for _, c := range changes {
 		missing := []string{}
 		for parent := path.Dir(c.Ref); parent != "." && parent != "/" && !seen[parent]; parent = path.Dir(parent) {
 			p, err := safefs.Path(s.Root, parent)
@@ -232,7 +244,7 @@ func readingOperations(s *kernel.SemanticSession, plan *reading.RenderPlan) ([]t
 	for _, dir := range dirs {
 		ops = append(ops, transaction.Operation{Path: dir, Directory: true})
 	}
-	for _, c := range plan.Changes {
+	for _, c := range changes {
 		d, err := s.V.Watch(c.Ref)
 		if err != nil {
 			return nil, err

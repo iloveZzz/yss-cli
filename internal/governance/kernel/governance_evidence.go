@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,7 +20,7 @@ func (s *SemanticSession) evidenceBytes(ref string) ([]byte, error) {
 func (s *SemanticSession) EvidenceAsset(asset map[string]any) ([]byte, error) {
 	ref, digest := Text(asset["ref"]), Text(asset["digest"])
 	if !IsSHA256(digest) || ref == "" {
-		return nil, s.Reject("EVIDENCE_BINDING", "证据缺少明确引用和64位摘要")
+		return nil, s.Reject("EVIDENCE_BINDING", fmt.Sprintf("证据缺少明确引用和64位摘要: ref=%q digest_length=%d", ref, len(digest)))
 	}
 	raw, err := s.evidenceBytes(ref)
 	if err != nil {
