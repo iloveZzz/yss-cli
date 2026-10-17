@@ -279,8 +279,9 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
   yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
   yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
-预期结果：route 返回 daily、governed 或 needs-info 及原因。
+预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及独立审查，再 verify-daily。
+  standard：需求需一页确认；补 Spec-lite 与一次生物人决定（standard_required 为 true 时先补齐并把 delivery_path 改为 standard），其余同 daily。
   governed：已有正式绑定或命中排除风险，从最近可信正式阶段继续。
   needs-info：缺事实先调查，补齐同一任务记录后再次 route。
 下一步：verify-daily 通过后按当前范围交付；它核验已有记录，不执行业务测试或创建批准。
@@ -3288,7 +3289,7 @@ yss 2.3.3 — lifecycle route
 
 前置条件:
 查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
-只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。
+只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
 
 最小示例:
 yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
@@ -3493,7 +3494,7 @@ yss 2.3.3 — lifecycle verify-daily
 
 前置条件:
 查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
-只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。
+只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
 
 最小示例:
 yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
@@ -8320,6 +8321,19 @@ STALE — 操作未完成
 
 ```text
 CHECK_FAILED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 STANDARD_REQUIRED
+
+```text
+STANDARD_REQUIRED — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 

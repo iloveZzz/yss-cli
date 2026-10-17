@@ -211,7 +211,7 @@ func registerGovernanceHelp() {
 }
 
 func dailyHelp(summary, action string) helpTopic {
-	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <SHA或引用>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json", "只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。已有正式任务不得降级。", false}
+	return helpTopic{summary, "--task <Markdown> --implementation-root <Git根> --base <SHA或引用>", "--task  同一任务的需求、验收及证据\n--implementation-root  已确认实现仓 Git 根\n--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA", "yss lifecycle " + action + " --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json", "只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。", false}
 }
 
 const maintenanceTutorial = `YSS 离线入门教程

@@ -265,8 +265,9 @@ func dailyTutorial() string {
   yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
   yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
-预期结果：route 返回 daily、governed 或 needs-info 及原因。
+预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及独立审查，再 verify-daily。
+  standard：需求需一页确认；补 Spec-lite 与一次生物人决定（standard_required 为 true 时先补齐并把 delivery_path 改为 standard），其余同 daily。
   governed：已有正式绑定或命中排除风险，从最近可信正式阶段继续。
   needs-info：缺事实先调查，补齐同一任务记录后再次 route。
 下一步：verify-daily 通过后按当前范围交付；它核验已有记录，不执行业务测试或创建批准。
