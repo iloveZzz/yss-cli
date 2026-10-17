@@ -199,7 +199,7 @@ func registerGovernanceHelp() {
 		}
 		run[action] = helpTopic{"只读查询运行记录。", usage, "--home  独立 SQLite 运行存储；默认用户运行存储\n--id  已登记运行 ID", example, "运行记录不授予生命周期批准或执行授权。", true}
 	}
-	run["begin"] = helpTopic{"创建运行记录并返回所有权 token。", "[--kind <类型>]", "--home  独立 SQLite 运行存储\n--kind  默认 command\n--input / --report-dir 尚未支持，返回 UNPORTED", "yss runtime begin --root ./demo-spec --kind command --json", "保存返回的 id/token；之后 event、complete 和 pin 操作都须提供 token。", true}
+	run["begin"] = helpTopic{"创建运行记录并返回所有权 token。", "[--kind <类型>] [--input <值>] [--report-dir <仓外绝对目录>]", "--home  独立 SQLite 运行存储\n--kind  默认 command\n--input  原字节存为共享 gzip 对象并登记引用（≤16 MiB），结果回显 input_digest\n--report-dir  正式报告目录，须为仓外绝对路径且无符号链接，以 report-dir:<路径> 保护", "yss runtime begin --root ./demo-spec --kind command --json", "保存返回的 id/token；之后 event、complete 和 pin 操作都须提供 token。", true}
 	run["event"] = helpTopic{"追加运行事件。", "--id <ID> --token <token> --type <类型> [--value <JSON>]", "--id / --token  begin 返回的所有权凭证\n--type  必需\n--value  单个 JSON 值，默认 null", "yss runtime event --root ./demo-spec --id <ID> --token <token> --type progress --value '{\"message\":\"checked\"}' --json", governanceNotes, true}
 	run["complete"] = helpTopic{"以实际退出码结束运行记录。", "--id <ID> --token <token> --status <终态> --exit-code <整数>", "--id / --token  begin 返回的所有权凭证\n--status  已知终态\n--exit-code  实际整数退出码，passed 必须为 0", "yss runtime complete --root ./demo-spec --id <ID> --token <token> --status passed --exit-code 0 --json", governanceNotes, true}
 	for _, action := range []string{"pin", "unpin"} {

@@ -4538,7 +4538,7 @@ yss 2.3.3 — runtime begin
 ──────────────────────
 创建运行记录并返回所有权 token。
 
-用法: yss runtime begin --root <目录> [--kind <类型>]
+用法: yss runtime begin --root <目录> [--kind <类型>] [--input <值>] [--report-dir <仓外绝对目录>]
 
 前置条件:
 准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
@@ -4566,7 +4566,8 @@ yss runtime begin --root ./demo-spec --kind command --json
 --profile <spec|design|backend>  必需或从项目身份检测
 --home  独立 SQLite 运行存储
 --kind  默认 command
---input / --report-dir 尚未支持，返回 UNPORTED
+--input  原字节存为共享 gzip 对象并登记引用（≤16 MiB），结果回显 input_digest
+--report-dir  正式报告目录，须为仓外绝对路径且无符号链接，以 report-dir:<路径> 保护
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
