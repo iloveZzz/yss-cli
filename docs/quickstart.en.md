@@ -61,7 +61,7 @@ never `passed`. Neither command approves anything or authorises execution.
 
 `yss mcp --root <project>` serves read-only tools over stdio (JSON-RPC, one message per line):
 `lifecycle_route`, `verify_daily`, `lifecycle_status`, `lifecycle_query`, `context_query`,
-`contract_view`, `explain`, `check`, `verify_gate`. Each tool returns the same JSON envelope as the
+`contract_view`, `explain`, `check`, `trace`, `verify_gate`. Each tool returns the same JSON envelope as the
 command line; nothing writes, commits or pushes, and tool arguments cannot change `--root`.
 
 ```json

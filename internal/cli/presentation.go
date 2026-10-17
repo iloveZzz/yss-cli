@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/trace"
 	"io"
 	"sort"
 	"strings"
@@ -40,6 +41,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 	}
 	if command == "check" || command == "verify" {
 		return renderCheck(m)
+	}
+	if command == "trace" {
+		return trace.Summary(m)
 	}
 	title := "查询完成"
 	if command == "scaffold" {

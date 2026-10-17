@@ -68,6 +68,7 @@ Profile 职责:
     verify           核验一个门禁所需的当前 checkpoint 与检查依赖。
     mcp              以 MCP stdio 服务提供只读治理工具。
     tracker          把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
+    trace            汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
@@ -834,6 +835,7 @@ YSS 离线入门教程
 | `stage status` | 读取并校验当前阶段工作项。 | `yss help examples stage status` |
 | `stage update` | 生成阶段工作项写入计划。 | `yss help examples stage update` |
 | `sync` | 将项目模板升级到本 CLI 内置固定 Bundle。 | `yss help examples sync` |
+| `trace` | 汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。 | `yss help examples trace` |
 | `tracker` | 把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。 | `yss help examples tracker` |
 | `tracker link` | 在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。 | `yss help examples tracker link` |
 | `tracker status` | 列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。 | `yss help examples tracker status` |
@@ -3548,7 +3550,7 @@ yss 2.3.3 — mcp
 
 前置条件:
 由 MCP 客户端以子进程启动；--root 指向 YSS 项目根。stdout 只承载 JSON-RPC，诊断写 stderr。
-工具：lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、verify_gate。全部只读，结果是与命令行相同的 JSON envelope；不暴露写入、提交或推送。客户端配置示例：{"mcpServers":{"yss":{"command":"yss","args":["mcp","--root","."]}}}
+工具：lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate。全部只读，结果是与命令行相同的 JSON envelope；不暴露写入、提交或推送。客户端配置示例：{"mcpServers":{"yss":{"command":"yss","args":["mcp","--root","."]}}}
 
 最小示例:
 yss mcp --root ./demo-spec
@@ -5844,6 +5846,54 @@ yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples sync
+```
+
+### trace
+
+```text
+yss 2.3.3 — trace
+──────────────────────
+汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
+
+用法: yss trace --feature <功能包> [--implementation-root <Git根> --since <引用> [--until <引用>]] [--html <新文件>] [--strict]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+只读：识别业务票、垂直切片 Ticket 与 Slice 合同，缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要已变化。结论不代表批准、完成或可发布。
+
+最小示例:
+yss trace --root ./demo-spec --feature apply-flow --json
+yss trace --root ./demo-spec --feature apply-flow --implementation-root /repo/app --since main~20 --html /tmp/trace.html
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --feature <功能包>              tracker 根下的功能包名
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --html <新文件>                 trace 另写的静态矩阵页；须在项目外且不存在
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --implementation-root <路径>    文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --strict                        trace 存在缺口时以 TRACE_GAPS 失败
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--feature  tracker 根下的功能包名
+--implementation-root / --since / --until  读取实现仓提交，按 Ticket trailer 关联 slice_id
+--html  另写静态矩阵页（项目外的新文件）
+--strict  存在缺口时以 TRACE_GAPS 失败（退出码 1）
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples trace
 ```
 
 ### tracker
@@ -8607,6 +8657,19 @@ TRACKER_DRIFT — 当前治理条件或证据未满足
 
 ```text
 TRACKER_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACE_GAPS
+
+```text
+TRACE_GAPS — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 

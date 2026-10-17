@@ -195,9 +195,11 @@ yss -V --json
 
 治理资产的统一入口是 `yss check` 与 `yss verify --gate`：`yss check --changed` 按字段识别改动的批准记录、checkpoint、上下文对账、OpenAPI 草稿验证与脚手架决策，逐个调用对应的现有 `verify`，汇总成一份报告；每条发现都带 `code`、`file`、`pointer`、`message`、`fix` 与可复现的 `command`。`yss verify --gate <门禁> --checkpoint <文件>` 依次运行 `lifecycle verify` 与 `contract verify --kind gate-checks`。两者只聚合、不新增校验语义：模板目录与未识别文件列为 skipped，缺当前上下文（如用户决定）列为 not-evaluated，整体为 incomplete 而非通过，均不授予批准或执行。
 
-`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
+`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
 
 `yss tracker status|link|sync` 把本地 Ticket 五态镜像到已链接 GitHub Issue 的同名标签：本地 Markdown 始终权威；`link` 写入 `Tracker-Link: github:owner/repo#N`；`sync` 先 `--plan --out` 读取远端保存计划（项目外），再 `--apply --plan-file --confirm-remote github` 复核本地字节与远端标签/更新时间未变后写入，成功后记录 `Tracker-Synced`。只改五态标签，保留其他标签，不创建、关闭或评论 Issue；需 `GH_TOKEN`，`GITHUB_API_URL` 可指向 GitHub Enterprise。git 策略 `ticket_pattern: github` 接受 `#123` / `owner/repo#123`，分支名使用 `gh-123`。
+
+`yss trace --feature <功能包>` 只读汇总业务票（FR/AC）、垂直切片 Ticket 与 Slice 合同的验证映射，给出每个验收的切片、验证与提交；加 `--implementation-root --since [--until]` 时按 Ticket trailer 把实现仓提交关联到 `slice_id`。缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要在冻结后变化；`--html` 另写静态矩阵页（项目外新文件），`--strict` 有缺口时以 `TRACE_GAPS` 失败。MCP 同名工具 `trace` 只读、不写 HTML。
 
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 

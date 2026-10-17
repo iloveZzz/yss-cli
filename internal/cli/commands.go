@@ -64,6 +64,9 @@ func initializeCommands() {
 	argumentSpecs["fetch"] = argumentSpec{description: "tracker status 读取链接 Issue 的远端标签；只读", boolean: true}
 	defineArgument("ticket", "<文件>", "tracker 根下的 parent-ticket.md 或 issues/*.md")
 	defineArgument("issue", "<owner/repo#编号>", "要链接的 GitHub Issue")
+	defineArgument("feature", "<功能包>", "tracker 根下的功能包名")
+	defineArgument("html", "<新文件>", "trace 另写的静态矩阵页；须在项目外且不存在")
+	argumentSpecs["strict"] = argumentSpec{description: "trace 存在缺口时以 TRACE_GAPS 失败", boolean: true}
 	argumentSpecs["changed"] = argumentSpec{description: "yss check 选择工作树相对 HEAD 的改动与未跟踪文件", boolean: true}
 	argumentSpecs["dry-run"] = argumentSpec{description: "只返回将写的文件与摘要，不写任何文件", boolean: true}
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
@@ -131,6 +134,8 @@ func initializeCommands() {
 			opts = append(opts, "root", "changed", "base", "checkpoint")
 		case "mcp":
 			opts = append(opts, "root")
+		case "trace":
+			opts = append(opts, "root", "feature", "implementation-root", "since", "until", "html", "strict")
 		case "tracker":
 			opts = append(opts, "root")
 			if len(parts) > 1 {

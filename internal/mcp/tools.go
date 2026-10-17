@@ -54,6 +54,12 @@ var tools = []tool{
 		{name: "base", kind: "string", flag: "base", description: "与 changed 同用，并入 base..HEAD 的提交改动"},
 		{name: "checkpoint", kind: "string", flag: "checkpoint", description: "需要当前上下文的资产（如用户决定）使用的 checkpoint"},
 	}},
+	{"trace", "汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口；只读，不写 HTML。", []string{"trace"}, []param{
+		{name: "feature", kind: "string", flag: "feature", description: "tracker 根下的功能包名", required: true},
+		{name: "implementation_root", kind: "string", flag: "implementation-root", description: "读取提交的实现仓 Git 根（与 since 同用）"},
+		{name: "since", kind: "string", flag: "since", description: "提交范围起点引用"},
+		{name: "until", kind: "string", flag: "until", description: "提交范围终点引用，默认 HEAD"},
+	}},
 	{"verify_gate", "核验一个门禁所需的当前 checkpoint 与检查依赖；只核验不批准。", []string{"verify"}, []param{
 		{name: "gate", kind: "string", flag: "gate", description: "门禁 ID，如 plan-approved", required: true},
 		{name: "checkpoint", kind: "string", flag: "checkpoint", description: "当前 checkpoint 文件", required: true},
