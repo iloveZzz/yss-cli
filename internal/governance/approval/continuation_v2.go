@@ -175,6 +175,13 @@ func assertDecisionContinuation2(s *kernel.SemanticSession, requirement map[stri
 	if completed["task_ref"] != reviewRef || completed["completed"] != true || !kernel.ApContains([]string{"Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) || !kernel.ApEqual(context["candidate"], after) || !kernel.ApEqual(context["review"], review) || !kernel.ApSetEqual(context["approval_scope"], proof["scope"]) {
 		return bad("延续未绑定当前真实完成复核")
 	}
+	actualImplementation, err := dependencies.TrustedTaskImplementation(s, context)
+	if err != nil {
+		return result, err
+	}
+	if !kernel.ApEqual(implementation, actualImplementation) {
+		return bad("延续依据与实际复核的实施来源不一致")
+	}
 	if !kernel.ApSetEqual(comparison["affected_check_ids"], context["check_ids"]) || !reviewCoversBoundary(s, context["check_ids"], kernel.Text(requirement["boundary"])) && requirement["boundary"] != "implementation-scope" {
 		return bad("延续遗漏当前边界的实际必需检查")
 	}

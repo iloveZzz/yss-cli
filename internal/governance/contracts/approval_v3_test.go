@@ -95,7 +95,7 @@ func TestReviewBundle3UsesActualReviewWithoutRoles(t *testing.T) {
 	}
 }
 
-func TestContinuation2UsesOriginalHumanApprovalAndActualDelta(t *testing.T) {
+func continuation2Fixture(t *testing.T) (*kernel.SemanticSession, map[string]any) {
 	s, _, task := approval3Fixture(t)
 	s.GovernancePolicy["user_decision_policy"] = map[string]any{"source_kinds": []string{"session-export"}, "continuation": map[string]any{"capability": "role-independent-governance-v1", "boundaries_by_profile": map[string]any{"backend": []string{"gate.spec-baseline-approved"}}}}
 	taskFile(t, s.Root, ".template-spec/process/schemas/user-decision.schema.json", map[string]any{"type": "object"})
@@ -137,11 +137,14 @@ func TestContinuation2UsesOriginalHumanApprovalAndActualDelta(t *testing.T) {
 	requirement := map[string]any{"boundary": "gate.spec-baseline-approved", "subject_ref": candidate["ref"], "scope": review["approval_scope"], "continuation_ref": "continuation.json"}
 	taskFile(t, s.Root, "requirements.json", requirement)
 	s.V = kernel.NewView(s.Root)
+	return s, proof
+}
+func TestContinuation2UsesOriginalHumanApprovalAndActualDelta(t *testing.T) {
+	s, _ := continuation2Fixture(t)
 	if err := s.Verify("user-decision", "continuation.json", map[string]string{"requirements": "requirements.json", "continuation": "true"}); err != nil {
 		t.Fatal(err)
 	}
 }
-
 func TestContinuationImplementationManifestChecksActualContracts(t *testing.T) {
 	for _, scenario := range []string{"current", "expanded-write", "wrong-repository", "stale-contract", "stale-baseline", "duplicate-ticket"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -197,5 +200,37 @@ func TestCompletedSelfCheckCannotDowngradeBoundUserRequirement(t *testing.T) {
 	err := s.Verify("task", "review-task.json", nil)
 	if err == nil || !strings.Contains(err.Error(), "不能替代当前必需复核") {
 		t.Fatalf("bound human requirement was not enforced: %v", err)
+	}
+}
+
+func TestContinuation2RejectsDifferentImplementationSource(t *testing.T) {
+	s, proof := continuation2Fixture(t)
+	task, _ := s.Doc("task.json")
+	task = ContractCopy(task)
+	provenance := ContractCopy(kernel.ApMap(task["provenance"]))
+	provenance["task_ref"] = "other-task.json"
+	provenance["execution_ref"] = "other-log.json"
+	task["provenance"] = provenance
+	log, _ := s.Doc("origin.json")
+	log = ContractCopy(log)
+	log["task_ref"] = "other-task.json"
+	taskFile(t, s.Root, "other-log.json", log)
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "other-log.json"))
+	row := ContractCopy(kernel.ApRows(task["verification_results"])[0])
+	row["evidence_ref"] = "other-log.json"
+	row["evidence_digest"] = safefs.Digest(raw)
+	task["verification_results"] = []any{row}
+	taskFile(t, s.Root, "other-task.json", task)
+	s.V = kernel.NewView(s.Root)
+	if err := s.Verify("task", "other-task.json", nil); err != nil {
+		t.Fatalf("test requires second actually valid completed source: %v", err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(s.Root, "other-task.json"))
+	proof["basis"] = []any{map[string]any{"ref": "other-task.json", "digest": safefs.Digest(raw)}}
+	taskFile(t, s.Root, "continuation.json", proof)
+	s.V = kernel.NewView(s.Root)
+	err := s.Verify("user-decision", "continuation.json", map[string]string{"requirements": "requirements.json", "continuation": "true"})
+	if err == nil || !strings.Contains(err.Error(), "实施来源不一致") {
+		t.Fatalf("different real source was not rejected: %v", err)
 	}
 }
