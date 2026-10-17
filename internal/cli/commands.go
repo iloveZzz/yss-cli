@@ -64,7 +64,6 @@ func initializeCommands() {
 	argumentSpecs["fetch"] = argumentSpec{description: "tracker status 读取链接 Issue 的远端标签；只读", boolean: true}
 	defineArgument("ticket", "<文件>", "tracker 根下的 parent-ticket.md 或 issues/*.md")
 	defineArgument("issue", "<owner/repo#编号>", "要链接的 GitHub Issue")
-	defineArgument("stack", "<技术栈>", "init/attach --full 只分发该栈的专项技能；none 为完整分发", "java", "vue", "none")
 	defineArgument("feature", "<功能包>", "tracker 根下的功能包名")
 	defineArgument("html", "<新文件>", "trace 另写的静态矩阵页；须在项目外且不存在")
 	argumentSpecs["strict"] = argumentSpec{description: "trace 存在缺口时以 TRACE_GAPS 失败", boolean: true}
@@ -123,9 +122,6 @@ func initializeCommands() {
 			}
 			if key == "skills resolve" {
 				opts = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "agent-runtime", "when")
-			}
-			if parts[0] == "init" || parts[0] == "attach" {
-				opts = append(opts, "stack")
 			}
 			if parts[0] == "attach" || parts[0] == "sync" {
 				opts = append(opts, "review-out", "base-bundle", "resolution-file")

@@ -2957,6 +2957,9 @@ func verifyRepositoryReadySemantic(s *kernel.SemanticSession, ref string, opts m
 				}
 				continue
 			}
+			if role == "frontend" {
+				return s.Reject("REPOSITORY_NOT_READY", "前端工程准备已从生命周期移除；frontend 只能声明 not-applicable")
+			}
 			if e = ContractRequired(s, p, "project_id", "repository_ref", "project_root", "repository_scope"); e != nil {
 				return e
 			}
@@ -2992,9 +2995,6 @@ func verifyRepositoryReadySemantic(s *kernel.SemanticSession, ref string, opts m
 				}
 				if e = s.Verify("verification", kernel.Text(verification["ref"]), opts); e != nil {
 					return e
-				}
-				if role == "frontend" && p["template_available"] != true {
-					return s.Reject("SCAFFOLD_TEMPLATE", "前端模板未验证")
 				}
 			default:
 				return s.Reject("REPOSITORY_NOT_READY", "不支持的准备状态")
@@ -4290,9 +4290,7 @@ func verifyScaffoldSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 		return e
 	}
 	if kernel.Text(doc["delivery_role"]) == "frontend" {
-		boundOpts := kernel.SemanticOptions(opts)
-		boundOpts["contract-ref"] = ref
-		return contractFrontendScaffold(s, doc, boundOpts)
+		return s.Reject("SCAFFOLD_CONTRACT", "前端脚手架已从生命周期移除")
 	}
 	decision, e := scaffoldBackendInputs(s, ref, doc, opts)
 	if e != nil {
@@ -4414,135 +4412,6 @@ func scaffoldPlatformQualification(s *kernel.SemanticSession, doc, decision map[
 	}
 	if !found {
 		return s.Reject("SCAFFOLD_PLATFORM", "架构/能力组合缺少qualification证据")
-	}
-	return nil
-}
-
-func contractFrontendScaffold(s *kernel.SemanticSession, doc map[string]any, opts map[string]string) error {
-	if kernel.Text(doc["scaffold_kind"]) != "frontend-yss-vue3" || kernel.Text(doc["generator_skill"]) != "yss-frontend-scaffold-generator" {
-		return s.Reject("SCAFFOLD_CONTRACT", "前端生成器身份错误")
-	}
-	front := kernel.SemMap(doc["frontend"])
-	template := kernel.SemMap(front["template"])
-	if kernel.Text(template["kind"]) == "bundled" {
-		for _, key := range []string{"app_name", "microapp_name"} {
-			if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`).MatchString(kernel.Text(front[key])) {
-				return s.Reject("SCAFFOLD_NAME", "应用名称非法")
-			}
-		}
-		if !regexp.MustCompile(`^/(?:[a-zA-Z0-9_-]+/?)*$`).MatchString(kernel.Text(front["base_route"])) || len(kernel.SemMap(front["replacements"])) > 0 {
-			return s.Reject("SCAFFOLD_TEMPLATE", "内置基线不接受任意替换或非法 route")
-		}
-		manifestRef := ".agents/skills/yss-frontend-scaffold-generator/references/data-quality-v1.manifest.json"
-		b, e := s.Bind(manifestRef)
-		if e != nil {
-			return e
-		}
-		if b.Digest != kernel.Text(template["manifest_digest"]) {
-			return s.Reject("SCAFFOLD_TEMPLATE", "内置 manifest 摘要冲突")
-		}
-		manifest, e := s.Doc(manifestRef)
-		if e != nil {
-			return e
-		}
-		if manifest["baseline_id"] != template["baseline_id"] {
-			return s.Reject("SCAFFOLD_TEMPLATE", "基线身份冲突")
-		}
-		prefix := ".agents/skills/yss-frontend-scaffold-generator/assets/data-quality-v1"
-		files, e := s.Scan(prefix)
-		if e != nil {
-			return e
-		}
-		expected := kernel.SemMap(manifest["files"])
-		if len(files) != len(expected) {
-			return s.Reject("SCAFFOLD_TEMPLATE", "基线文件清单变化")
-		}
-		for _, file := range files {
-			raw, e := s.Bytes(file)
-			if e != nil {
-				return e
-			}
-			ref := strings.TrimPrefix(file, prefix+"/")
-			if strings.TrimPrefix(kernel.Text(expected[ref]), "sha256:") != safefs.Digest(raw) {
-				return s.Reject("SCAFFOLD_TEMPLATE", "基线源字节变化")
-			}
-		}
-	} else {
-		if e := contractFrontendGitTemplate(s, doc, template, opts); e != nil {
-			return e
-		}
-	}
-	if kernel.Text(front["openapi_impact"]) == "frozen" {
-		if _, e := contractBinding(s, map[string]any{"ref": front["openapi_json_ref"], "digest": front["openapi_json_digest"]}); e != nil {
-			return e
-		}
-	} else if kernel.Text(front["openapi_impact"]) != "not-applicable" || kernel.Text(front["openapi_not_applicable_reason"]) == "" {
-		return s.Reject("SCAFFOLD_API", "API 不适用须说明理由")
-	}
-	return nil
-}
-
-func contractFrontendGitTemplate(s *kernel.SemanticSession, doc, template map[string]any, opts map[string]string) error {
-	checkout := kernel.First(opts["template-checkout"], s.Args["template-checkout"])
-	if checkout == "" {
-		return s.Unavailable("CAPABILITY", "外部Git模板需要显式template-checkout")
-	}
-	if !filepath.IsAbs(checkout) || filepath.Clean(checkout) != checkout {
-		return s.Reject("SCAFFOLD_TEMPLATE", "模板checkout必须为规范绝对目录")
-	}
-	if kernel.Text(template["repository"]) == "" || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(kernel.Text(template["commit"])) {
-		return s.Reject("SCAFFOLD_TEMPLATE", "模板须绑定仓库及完整固定commit")
-	}
-	if e := s.RegisterExternalRoot(checkout, opts["contract-ref"]); e != nil {
-		return e
-	}
-	top, e := s.Git(checkout, "rev-parse", "--show-toplevel")
-	if e != nil {
-		return e
-	}
-	if filepath.Clean(strings.TrimSpace(string(top))) != checkout {
-		return s.Reject("SCAFFOLD_TEMPLATE", "模板checkout不是Git工作树")
-	}
-	head, e := s.Git(checkout, "rev-parse", "HEAD")
-	if e != nil {
-		return e
-	}
-	if strings.TrimSpace(string(head)) != kernel.Text(template["commit"]) {
-		return s.Reject("SCAFFOLD_TEMPLATE", "模板HEAD与批准commit不一致")
-	}
-	origin, e := s.Git(checkout, "config", "--local", "--get", "remote.origin.url")
-	if e != nil {
-		return e
-	}
-	if strings.TrimSpace(string(origin)) != kernel.Text(template["repository"]) {
-		return s.Reject("SCAFFOLD_TEMPLATE", "模板origin与批准仓库不一致")
-	}
-	// Read the approved immutable tree. Uncommitted checkout edits do not become
-	// template authority, matching the old producer's fixed-commit archive.
-	tree, e := s.Git(checkout, "ls-tree", "-rz", "--full-tree", kernel.Text(template["commit"]))
-	if e != nil {
-		return e
-	}
-	seen := map[string]bool{}
-	total := 0
-	for _, line := range strings.Split(string(tree), "\x00") {
-		if line == "" {
-			continue
-		}
-		header, ref, ok := strings.Cut(line, "\t")
-		parts := strings.Fields(header)
-		if !ok || len(parts) != 3 || !kernel.ContractPath(ref) || seen[ref] || parts[1] != "blob" || !kernel.SemHas([]string{"100644", "100755", "120000"}, parts[0]) || !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(parts[2]) {
-			return s.Reject("SCAFFOLD_TEMPLATE", "模板Git树路径、类型或对象非法")
-		}
-		seen[ref] = true
-		bytes, e := s.Git(checkout, "cat-file", "blob", parts[2])
-		if e != nil {
-			return e
-		}
-		total += len(bytes)
-		if total > 256<<20 {
-			return s.Unavailable("CAPABILITY", "模板固定树超过256MiB观测上限")
-		}
 	}
 	return nil
 }

@@ -37,7 +37,7 @@ func verifyVerificationSemantic(s *kernel.SemanticSession, ref string, opts map[
 	case "template-verification-report":
 		return contractTemplateVerification(s, doc, opts)
 	case "frontend-scaffold-verification":
-		return contractFrontendScaffoldVerification(s, doc, opts)
+		return s.Unavailable("CAPABILITY", "前端脚手架验证已从生命周期移除")
 	case "backend-contract", "backend-deployment":
 		if e = s.ValidateSchema(".template-spec/process/schemas/backend-delivery-verification.schema.json", doc); e != nil {
 			return e
@@ -482,133 +482,6 @@ func contractVerificationDoc(s *kernel.SemanticSession, ref string) (map[string]
 		return nil, s.Reject("VERIFICATION_FORMAT", "验证资产必须为对象")
 	}
 	return m, nil
-}
-
-func contractFrontendScaffoldVerification(s *kernel.SemanticSession, doc map[string]any, opts map[string]string) error {
-	if kernel.ContractN(doc["schema_version"]) != 1 || kernel.Text(doc["status"]) != "passed" {
-		return s.Reject("VERIFICATION_FAILED", "前端脚手架验证未通过")
-	}
-	projectRoot := kernel.Text(doc["project_root"])
-	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot {
-		return s.Reject("VERIFICATION_REQUIRED", "报告缺少规范项目根")
-	}
-	if expected := opts["project-root"]; expected != "" && expected != projectRoot {
-		return s.Reject("VERIFICATION_CURRENT_REQUIRED", "报告项目根与消费者不一致")
-	}
-	if owner := opts["contract"]; owner != "" {
-		if e := s.Verify("scaffold", owner, opts); e != nil {
-			return e
-		}
-		contract, e := s.Doc(owner)
-		if e != nil {
-			return e
-		}
-		if kernel.Text(contract["delivery_role"]) != "frontend" || kernel.Text(contract["target_output_dir"]) != projectRoot {
-			return s.Reject("VERIFICATION_CURRENT_REQUIRED", "显式批准合同目标与报告工程不一致")
-		}
-		if e = s.RegisterExternalRoot(projectRoot, owner); e != nil {
-			return e
-		}
-	}
-	manifestRef, e := ContractVerificationRef(s, kernel.Text(doc["scaffold_manifest_ref"]))
-	if e != nil {
-		return e
-	}
-	manifest, e := contractVerificationDoc(s, manifestRef)
-	if e != nil {
-		return e
-	}
-	if kernel.ContractN(manifest["schema_version"]) != 4 || kernel.Text(manifest["kind"]) != "frontend-scaffold" || kernel.Text(manifest["generation_mode"]) != "controlled-generation" || !contracts.ContractUnique(manifest["generated_files"], true) || !kernel.SemHas(manifest["generated_files"], "pnpm-lock.yaml") {
-		return s.Reject("VERIFICATION_MANIFEST", "前端 Manifest 类型、生成方式或锁文件清单无效")
-	}
-	manifestFile := manifestRef
-	if !filepath.IsAbs(manifestFile) {
-		manifestFile = filepath.Join(s.Root, filepath.FromSlash(manifestFile))
-	}
-	if kernel.Text(manifest["target_output_dir"]) != projectRoot || manifestFile != filepath.Join(projectRoot, ".yss", "scaffold-generation.json") {
-		return s.Reject("VERIFICATION_MANIFEST", "Manifest 与报告项目根不一致")
-	}
-	contractRef, e := ContractVerificationRef(s, kernel.Text(manifest["contract_file_ref"]))
-	if e != nil {
-		return e
-	}
-	raw, e := s.Bytes(contractRef)
-	if e != nil {
-		return e
-	}
-	if kernel.Text(manifest["contract_digest"]) != "sha256:"+safefs.Digest(raw) {
-		return s.Reject("VERIFICATION_MANIFEST", "原始生成合同摘要变化")
-	}
-	contract, e := s.Doc(contractRef)
-	if e != nil {
-		return e
-	}
-	if contract["contract_id"] != manifest["contract_id"] || contract["contract_version"] != manifest["contract_version"] || kernel.Text(contract["delivery_role"]) != "frontend" || kernel.Text(contract["status"]) != "approved" || contract["current_version"] != true || kernel.Text(contract["persisted_ref"]) == "" || !contracts.ContractSame(contract["verification_commands"], manifest["verification_commands"]) {
-		return s.Reject("VERIFICATION_MANIFEST", "当前合同身份、状态或固定验证命令变化")
-	}
-	if persisted, exists := manifest["persisted_ref"]; exists && persisted != contract["persisted_ref"] {
-		return s.Reject("VERIFICATION_MANIFEST", "Manifest持久化合同身份变化")
-	}
-	if e = s.Verify("scaffold", contractRef, opts); e != nil {
-		return e
-	}
-	if !contracts.ContractSame(contracts.ContractWithout(kernel.SemMap(manifest["template"]), "checkout"), kernel.SemMap(kernel.SemMap(contract["frontend"])["template"])) {
-		return s.Reject("VERIFICATION_MANIFEST", "Manifest模板与当前批准合同不一致")
-	}
-	commands := kernel.SemStrings(manifest["verification_commands"])
-	allowed := []string{"pnpm install --frozen-lockfile", "pnpm lint", "pnpm lint:check", "pnpm type-check", "pnpm build", "pnpm build:standalone"}
-	required := []string{"pnpm install --frozen-lockfile", "pnpm lint", "pnpm type-check", "pnpm build"}
-	if kernel.Text(kernel.SemMap(manifest["template"])["kind"]) == "bundled" {
-		required[1] = "pnpm lint:check"
-		required = append(required, "pnpm build:standalone")
-	}
-	if !contracts.ContractUnique(manifest["verification_commands"], true) {
-		return s.Reject("VERIFICATION_REQUIRED", "固定命令缺失或重复")
-	}
-	for _, command := range commands {
-		if !kernel.SemHas(allowed, command) {
-			return s.Reject("VERIFICATION_FAILED", "不支持的验证命令")
-		}
-	}
-	for _, command := range required {
-		if !kernel.SemHas(commands, command) {
-			return s.Reject("VERIFICATION_REQUIRED", "缺少固定验证命令: "+command)
-		}
-	}
-	rows := kernel.SemList(doc["commands"])
-	if len(rows) != len(commands) {
-		return s.Reject("VERIFICATION_FAILED", "实际结果未覆盖固定命令集合")
-	}
-	for i, v := range rows {
-		row := kernel.SemMap(v)
-		at, e := time.Parse(time.RFC3339Nano, kernel.Text(row["executed_at"]))
-		exit, ok := kernel.Integer(row["exit_code"])
-		if row["command"] != commands[i] || !ok || exit != 0 || e != nil || at.After(time.Now().Add(time.Minute)) || row["termination"] != nil {
-			return s.Reject("VERIFICATION_FAILED", "实际命令、退出码、时间或取消状态不允许通过")
-		}
-		for _, key := range []string{"stdout_ref", "stderr_ref"} {
-			ref, e := ContractVerificationRef(s, kernel.Text(row[key]))
-			if e != nil {
-				return e
-			}
-			if _, e = s.Bytes(ref); e != nil {
-				return e
-			}
-		}
-	}
-	for _, ref := range kernel.SemStrings(manifest["generated_files"]) {
-		if !kernel.ContractPath(ref) {
-			return s.Reject("VERIFICATION_MANIFEST", "生成文件路径非法")
-		}
-		local, e := ContractVerificationRef(s, filepath.Join(projectRoot, filepath.FromSlash(ref)))
-		if e != nil {
-			return e
-		}
-		if _, e = contractVerificationBytes(s, local); e != nil {
-			return e
-		}
-	}
-	return nil
 }
 
 func contractTemplateVerification(s *kernel.SemanticSession, doc map[string]any, opts map[string]string) error {

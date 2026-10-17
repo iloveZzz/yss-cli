@@ -1,6 +1,6 @@
 # 功能推进目标使用手册
 
-Spec 是“综合研发主控”，Design 是“产品与业务设计”；后端和前端承担技术设计与专职交付。启用 `lifecycle-target-v1` 政策的新正式 Spec 功能默认推进到完整业务验收。用户要求“先完成 Spec”或“先完成设计”时，保存对应的本次目标，到点停止；后续在同一功能上继续。日常任务仍使用既有 `daily/governed` 分流。
+Spec 是“综合研发主控”，Design 是“产品与业务设计”；后端承担技术设计与专职交付，前端实现由独立的前端规格与 CLI 维护。启用 `lifecycle-target-v1` 政策的新正式 Spec 功能默认推进到完整业务验收。用户要求“先完成 Spec”或“先完成设计”时，保存对应的本次目标，到点停止；后续在同一功能上继续。日常任务仍使用既有 `daily/governed` 分流。
 
 帮助入口：`yss lifecycle target --help`、`yss lifecycle status --help`、`yss help examples lifecycle target`、`yss help tutorial spec`。帮助和教程仅输出离线文本；下面的操作需要当前实例与真实资产。
 
@@ -27,12 +27,11 @@ yss lifecycle target --root ./spec --checkpoint .work/example/checkpoint.json --
 | `spec-approved` | 当前 Spec 基线批准有效，业务 Ticket 草案及需求／验收覆盖可核验。 |
 | `product-design-completed` | 适用产品设计审查、验证、批准以及业务 Ticket 正式化闭合。产品设计不适用时须核验当前依据，不生成空原型。 |
 | `backend-deliverable` | 当前后端实现、批准合同、适用接口、独立审查、构建和真实契约／部署验证闭合。 |
-| `frontend-accepted` | 当前前端实现、适用还原验证和独立验收闭合；前端不适用另核批准影响评估及 Slice。 |
 | `business-accepted` | Spec 主控完成同一业务范围内适用交付的统一验收。 |
 
 区分三个结论：本次目标达到、Profile 职责完成、业务整体完成。短目标达到不会把 checkpoint 改成整个业务完成；业务验收也不自动提交、合并或发布。
 
-完整 Spec 默认 `business-accepted`。已有 `plan-to-backend` 永久职责默认 `backend-deliverable`，只允许表中前三目标；修改目标不能扩大职责。专职工程只读显示 `profile-terminal`，这是本端职责终点，不是第六个可写枚举。目标写入只限支持当前政策的 Spec 主控。
+完整 Spec 默认 `business-accepted`。已有 `plan-to-backend` 永久职责默认 `backend-deliverable`，只允许表中前三目标；修改目标不能扩大职责。专职工程只读显示 `profile-terminal`，这是本端职责终点，不是可写枚举。目标写入只限支持当前政策的 Spec 主控。
 
 ## 保存目标，再按当前工作单元推进
 
@@ -88,19 +87,17 @@ yss lifecycle status --root ./spec --checkpoint .work/example/checkpoint.json --
 ```json
 "consumers": [
   {"profile": "design", "root": "/absolute/design", "checkpoint_ref": ".work/example/checkpoint.json"},
-  {"profile": "backend", "root": "/absolute/backend", "checkpoint_ref": ".work/example/checkpoint.json"},
-  {"profile": "frontend", "root": "/absolute/frontend", "checkpoint_ref": ".work/example/checkpoint.json"}
+  {"profile": "backend", "root": "/absolute/backend", "checkpoint_ref": ".work/example/checkpoint.json"}
 ]
 ```
 
 这是上面完整 JSON 的字段替换示例。每种 Profile 最多绑定一个消费者；`root` 为目标工程的规范绝对路径，不能指向主控自身，checkpoint 路径相对于该目标工程。已有目标须核验真实 Profile、同一 `feature_id` 及唯一当前登记。尚未创建的工程可以登记未来意图，但身份、接收、Context、Receipt 和交付未核验前不能报完成。初始化和绑定分别消费既有计划及交接接口，配置消费者不等于创建或批准它。
 
 - Spec → Design：复用已批准 SpecBaseline、导入 Receipt 和目标 Context 对账，继承有效 Plan／Spec。
-- Spec／Design → Backend、Frontend：消费同一冻结战略基线，各端完成接收、对账和实现准入。
-- Backend → Frontend：消费当前后端包、接口与运行证据。
+- Spec／Design → Backend：消费同一冻结战略基线，完成接收、对账和实现准入。
 - 专职交付 → Spec：主控消费显式同功能 checkpoint、Receipt 和交付引用，统一计算业务验收。
 
-前端可提前核对战略输入、准备工程设计和计划；有后端／API／数据依赖时，正式实现等待当前后端交付与批准合同。纯 UI 路线须核验有依据的不适用记录。产品设计不适用和生产前端不适用分别判定，不能用其中一个代替另一个。
+前端整线（Profile、生命周期门禁、`frontend-accepted` 目标与前端技能）已从本 CLI 与模板移除，由独立的前端规格与 CLI 维护。
 
 ## 读取结果和处理等待
 

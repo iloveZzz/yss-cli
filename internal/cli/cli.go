@@ -549,7 +549,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "skills" || command == "assets" {
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
-			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["stack"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
+			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
 			}
 			p, e := project.ReadPlan(o.values["plan-file"])
@@ -568,9 +568,6 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		profile = id.Profile.Name
 		var selection []string
-		if o.values["stack"] != "" && o.values["full"] != "true" {
-			return nil, profile, domain.Fail("ARGUMENT", "--stack 只与 --full 同用；默认初始分发只含通用技能")
-		}
 		if o.values["full"] == "true" {
 			if command != "init" && command != "attach" {
 				return nil, profile, domain.Fail("ARGUMENT", "--full only supports init or attach")
@@ -579,19 +576,8 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			if e != nil {
 				return nil, profile, e
 			}
-			excluded, e := bundle.StackExclusions(b, o.values["stack"])
-			if e != nil {
-				return nil, profile, e
-			}
-			skip := map[string]bool{}
-			for _, name := range excluded {
-				skip[name] = true
-			}
 			for ref := range b.Files {
 				if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/")) {
-					continue
-				}
-				if parts := strings.Split(ref, "/"); len(parts) > 3 && parts[0] == ".agents" && parts[1] == "skills" && skip[parts[2]] {
 					continue
 				}
 				selection = append(selection, ref)
