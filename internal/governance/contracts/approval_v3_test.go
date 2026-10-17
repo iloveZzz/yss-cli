@@ -1,13 +1,14 @@
 package contracts
 
 import (
-	"github.com/iloveZzz/yss-cli/internal/governance/approval"
-	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/approval"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 func approval3Fixture(t *testing.T) (*kernel.SemanticSession, map[string]any, map[string]any) {
@@ -178,12 +179,12 @@ func TestContinuationImplementationManifestChecksActualContracts(t *testing.T) {
 	}
 }
 
-func TestCompletedSelfCheckCannotDowngradeBoundUserRequirement(t *testing.T) {
+func requiredReviewer(t *testing.T) (*kernel.SemanticSession, map[string]any) {
 	s, task := completedReviewer(t, true)
 	s.GovernancePolicy["user_decision_policy"] = map[string]any{"source_kinds": []string{"session-export"}}
-	taskFile(t, s.Root, "request-source.json", map[string]any{"source_kind": "session-export", "messages": []any{map[string]any{"id": "R1", "actor_kind": "biological-human", "principal_ref": "user", "original_ref": "conversation:request", "sent_at": "2026-01-01T00:00:00Z", "text": "请独立复核 drafts"}}})
+	taskFile(t, s.Root, "request-source.json", map[string]any{"source_kind": "session-export", "messages": []any{map[string]any{"id": "R1", "actor_kind": "biological-human", "principal_ref": "user", "original_ref": "conversation:request", "sent_at": "2026-01-01T00:00:00Z", "text": "请独立复核 drafts/spec.md"}}})
 	raw, _ := os.ReadFile(filepath.Join(s.Root, "request-source.json"))
-	taskFile(t, s.Root, "review-requirement.json", map[string]any{"kind": "review-requirement", "mode": "independent-review", "scope": []string{"drafts"}, "source": map[string]any{"kind": "session-export", "ref": "request-source.json", "digest": kernel.ApDigest(raw), "message_id": "R1"}})
+	taskFile(t, s.Root, "review-requirement.json", map[string]any{"kind": "review-requirement", "mode": "independent-review", "scope": []string{"drafts/spec.md"}, "source": map[string]any{"kind": "session-export", "ref": "request-source.json", "digest": kernel.ApDigest(raw), "message_id": "R1"}})
 	raw, _ = os.ReadFile(filepath.Join(s.Root, "review-requirement.json"))
 	binding := map[string]any{"ref": "review-requirement.json", "digest": safefs.Digest(raw)}
 	task["inputs"] = append(kernel.ApStrings(task["inputs"]), "review-requirement.json")
@@ -197,9 +198,68 @@ func TestCompletedSelfCheckCannotDowngradeBoundUserRequirement(t *testing.T) {
 	kernel.ApRows(task["verification_results"])[0]["evidence_digest"] = safefs.Digest(raw)
 	taskFile(t, s.Root, "review-task.json", task)
 	s.V = kernel.NewView(s.Root)
+	return s, task
+}
+func TestCompletedSelfCheckCannotDowngradeBoundUserRequirement(t *testing.T) {
+	s, _ := requiredReviewer(t)
 	err := s.Verify("task", "review-task.json", nil)
 	if err == nil || !strings.Contains(err.Error(), "不能替代当前必需复核") {
-		t.Fatalf("bound human requirement was not enforced: %v", err)
+		t.Fatalf("bound child-path human requirement was not enforced: %v", err)
+	}
+}
+
+func TestRequiredChildPathReviewUsesActualIndependentContexts(t *testing.T) {
+	for _, scenario := range []string{"separate-contexts", "same-context"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, task := requiredReviewer(t)
+			implementation, _ := s.Doc("task.json")
+			implementation = ContractCopy(implementation)
+			ip := kernel.ApMap(implementation["provenance"])
+			ip["identity"] = map[string]any{"status": "available", "principal_ref": "same-account", "session_ref": "implementation-session"}
+			ilog, _ := s.Doc("origin.json")
+			ilog = ContractCopy(ilog)
+			ilog["identity"] = ip["identity"]
+			taskFile(t, s.Root, "origin.json", ilog)
+			raw, _ := os.ReadFile(filepath.Join(s.Root, "origin.json"))
+			kernel.ApRows(implementation["verification_results"])[0]["evidence_digest"] = safefs.Digest(raw)
+			taskFile(t, s.Root, "task.json", implementation)
+			raw, _ = os.ReadFile(filepath.Join(s.Root, "task.json"))
+			context := kernel.ApMap(task["review_context"])
+			for _, bindings := range []any{task["input_bindings"], context["basis"]} {
+				for _, binding := range kernel.ApRows(bindings) {
+					if binding["ref"] == "task.json" {
+						binding["digest"] = safefs.Digest(raw)
+					}
+				}
+			}
+			rp := kernel.ApMap(task["provenance"])
+			session := "review-session"
+			if scenario == "same-context" {
+				session = "implementation-session"
+			}
+			rp["identity"] = map[string]any{"status": "available", "principal_ref": "same-account", "session_ref": session}
+			rlog, _ := s.Doc("review-log.json")
+			rlog = ContractCopy(rlog)
+			rlog["identity"] = rp["identity"]
+			rlog["input_bindings"] = task["input_bindings"]
+			taskFile(t, s.Root, "review-log.json", rlog)
+			raw, _ = os.ReadFile(filepath.Join(s.Root, "review-log.json"))
+			kernel.ApRows(task["verification_results"])[0]["evidence_digest"] = safefs.Digest(raw)
+			context["review"] = map[string]any{"mode": "independent-review", "provenance": rp, "independence": map[string]any{"implementation": ip, "reviewer": rp, "implementation_context_ref": "implementation-context.json", "reviewer_context_ref": "review-context.json", "evidence": map[string]any{"ref": "review-log.json", "digest": safefs.Digest(raw)}, "candidate": context["candidate"], "scope": context["approval_scope"], "readonly": true}}
+			for _, row := range []struct {
+				ref    string
+				p, log map[string]any
+			}{{"implementation-context.json", ip, ilog}, {"review-context.json", rp, rlog}} {
+				identity := kernel.ApMap(row.p["identity"])
+				taskFile(t, s.Root, row.ref, map[string]any{"source_kind": "session-export", "session_ref": identity["session_ref"], "messages": []any{map[string]any{"id": "trace", "original_ref": row.ref + "/trace", "principal_ref": "same-account", "sent_at": "2026-01-01T00:00:00Z", "text": "executed " + kernel.Text(row.p["execution_ref"]) + " for " + kernel.Text(row.log["candidate_digest"])}}})
+			}
+			taskFile(t, s.Root, "review-task.json", task)
+			s.V = kernel.NewView(s.Root)
+			err := s.Verify("task", "review-task.json", nil)
+			if (err == nil) != (scenario == "separate-contexts") {
+				t.Fatalf("%s: %v", scenario, err)
+			}
+		})
 	}
 }
 

@@ -1,8 +1,10 @@
 package approval
 
 import (
-	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"encoding/json"
 	"sort"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
 func init() {
@@ -38,7 +40,12 @@ func init() {
 		for _, path := range paths {
 			rows = append(rows, changes[path])
 		}
-		kernel.SemanticCoverage(s, "continuation_comparison", map[string]any{"before": before, "after": after, "difference": map[string]any{"schema_version": 1, "changes": rows}, "read_only": true, "execution_allowed": false, "approval_created": false})
+		difference := map[string]any{"schema_version": 1, "changes": rows}
+		exact, err := json.Marshal(difference)
+		if err != nil {
+			return s.Reject("CONTINUATION_COMPARISON", "实际差异不能精确序列化: "+err.Error())
+		}
+		kernel.SemanticCoverage(s, "continuation_comparison", map[string]any{"before": before, "after": after, "difference": difference, "difference_json": string(exact), "read_only": true, "execution_allowed": false, "approval_created": false})
 		return nil
 	})
 	for _, register := range []func(string, kernel.SemanticValidator){kernel.RegisterSemanticValidator, kernel.RegisterRoleIndependentValidator} {

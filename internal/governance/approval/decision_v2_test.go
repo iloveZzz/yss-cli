@@ -3,11 +3,12 @@ package approval
 import (
 	"context"
 	"encoding/json"
-	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
 func decisionFile(t *testing.T, root, ref string, value any) {
@@ -104,5 +105,102 @@ func TestCapturedIndependentRequirementCannotBeAgentOrUnboundScope(t *testing.T)
 				t.Fatal("captured user requirement downgraded")
 			}
 		})
+	}
+}
+
+func TestRequiredReviewScopeUsesRepositoryPathIntersection(t *testing.T) {
+	for _, scenario := range []string{"child", "parent", "trailing-slash", "disjoint", "prefix-boundary", "escape", "case-ambiguity", "symlink", "unknown-root", "registered-root"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, _, _ := trueDecisionFixture(t)
+			requested, actual := []string{"drafts/spec.md"}, []string{"drafts"}
+			var implementation map[string]any
+			wantMode, wantError := "independent-review", false
+			switch scenario {
+			case "parent":
+				requested, actual = []string{"drafts"}, []string{"drafts/spec.md"}
+			case "trailing-slash":
+				requested = []string{"drafts/"}
+			case "disjoint":
+				requested = []string{"docs"}
+				wantMode = "self-check"
+			case "prefix-boundary":
+				requested = []string{"draftstuff"}
+				wantMode = "self-check"
+			case "escape":
+				requested = []string{"../drafts"}
+				wantError = true
+			case "case-ambiguity":
+				requested = []string{"DRAFTS/spec.md"}
+				wantError = true
+			case "symlink":
+				if err := os.MkdirAll(filepath.Join(s.Root, "drafts"), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(t.TempDir(), filepath.Join(s.Root, "drafts", "link")); err != nil {
+					t.Fatal(err)
+				}
+				requested = []string{"drafts/link/file.md"}
+				wantError = true
+			case "unknown-root", "registered-root":
+				external, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				decisionFile(t, s.Root, "implementation.json", map[string]any{"baseline": map[string]any{"repository_root": external}})
+				implementation = map[string]any{"task_ref": "implementation.json"}
+				if scenario == "registered-root" {
+					s.ExternalViews[external] = kernel.NewView(external)
+				} else {
+					wantError = true
+				}
+			}
+			binding := capturedRequirement(t, s, "请独立复核 "+strings.Join(requested, "、"), requested)
+			mode, err := s.RequiredReviewMode(nil, implementation, actual, []any{binding})
+			if wantError {
+				if err == nil {
+					t.Fatalf("ambiguous/unsafe scope silently accepted: %q", mode)
+				}
+			} else if err != nil || mode != wantMode {
+				t.Fatalf("%s: mode=%q err=%v", scenario, mode, err)
+			}
+		})
+	}
+}
+
+func capturedRequirement(t *testing.T, s *kernel.SemanticSession, text string, scope []string) map[string]any {
+	t.Helper()
+	decisionFile(t, s.Root, "captured-message.json", map[string]any{"source_kind": "session-export", "messages": []any{map[string]any{"id": "R1", "actor_kind": "biological-human", "principal_ref": "human", "original_ref": "chat:R1", "sent_at": "2026-01-01T00:00:00Z", "text": text}}})
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "captured-message.json"))
+	decisionFile(t, s.Root, "captured-requirement.json", map[string]any{"kind": "review-requirement", "mode": "independent-review", "scope": scope, "source": map[string]any{"kind": "session-export", "ref": "captured-message.json", "digest": kernel.ApDigest(raw), "message_id": "R1"}})
+	raw, _ = os.ReadFile(filepath.Join(s.Root, "captured-requirement.json"))
+	return map[string]any{"ref": "captured-requirement.json", "digest": strings.TrimPrefix(kernel.ApDigest(raw), "sha256:")}
+}
+
+func TestReviewRequirementMatchesOnlyCompleteExplicitRequest(t *testing.T) {
+	for _, row := range []struct {
+		text  string
+		scope []string
+		valid bool
+	}{
+		{"请独立复核 drafts", []string{"drafts"}, true}, {"  请独立复核 drafts。 \n", []string{"drafts"}, true},
+		{"Please independently review drafts.", []string{"drafts"}, true}, {"请独立复核 drafts、docs", []string{"drafts", "docs"}, true},
+		{"drafts 无需进行独立复核", []string{"drafts"}, false}, {"drafts 是独立服务", []string{"drafts"}, false},
+		{"不要独立复核 drafts", []string{"drafts"}, false}, {"如果失败，请独立复核 drafts", []string{"drafts"}, false},
+		{"引用：请独立复核 drafts", []string{"drafts"}, false}, {"请对 drafts 做独立审查", []string{"drafts"}, false},
+		{"请独立复核 drafts。无需实际复核", []string{"drafts"}, false}, {"Please independently review drafts, docs.", []string{"drafts, docs"}, false},
+	} {
+		t.Run(row.text, func(t *testing.T) {
+			s, _, _ := trueDecisionFixture(t)
+			binding := capturedRequirement(t, s, row.text, row.scope)
+			mode, err := s.RequiredReviewMode(nil, nil, []string{"drafts"}, []any{binding})
+			if (err == nil) != row.valid || row.valid && mode != "independent-review" {
+				t.Fatalf("mode=%q err=%v", mode, err)
+			}
+		})
+	}
+	s, _, _ := trueDecisionFixture(t)
+	mode, err := s.RequiredReviewMode(nil, nil, []string{"drafts"})
+	if err != nil || mode != "self-check" {
+		t.Fatalf("ordinary unbound work: %q %v", mode, err)
 	}
 }

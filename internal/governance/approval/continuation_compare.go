@@ -1,13 +1,17 @@
 package approval
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
-	"github.com/iloveZzz/yss-cli/internal/schema"
+	"math/big"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 var decisionDimensions = []string{"business_scope", "acceptance", "contract_commitments", "authorization", "risk_acceptance", "quality", "external_commitments"}
@@ -94,11 +98,85 @@ func presentValue(value any, present bool) map[string]any {
 	}
 	return out
 }
+
+// New continuation comparisons preserve decimal source precision. Historical
+// ApCanonical/ApDigest protocols deliberately retain their existing semantics.
+func comparisonEqual(a, b any) bool {
+	switch av := a.(type) {
+	case json.Number:
+		bv, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		an, aok := comparisonNumber(av)
+		bn, bok := comparisonNumber(bv)
+		return aok && bok && an == bn
+	case map[string]any:
+		bv, ok := b.(map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for key, value := range av {
+			other, present := bv[key]
+			if !present || !comparisonEqual(value, other) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		bv, ok := b.([]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i, value := range av {
+			if !comparisonEqual(value, bv[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(a, b)
+	}
+}
+
+// Normalize coefficient/exponent without expanding powers (including huge
+// exponents); 1, 1.0 and 10e-1 compare equally without a float64 conversion.
+func comparisonNumber(number json.Number) (string, bool) {
+	text := string(number)
+	if !json.Valid([]byte(text)) {
+		return "", false
+	}
+	sign := ""
+	if strings.HasPrefix(text, "-") {
+		sign = "-"
+		text = text[1:]
+	}
+	exponent := new(big.Int)
+	if index := strings.IndexAny(text, "eE"); index >= 0 {
+		if _, ok := exponent.SetString(text[index+1:], 10); !ok {
+			return "", false
+		}
+		text = text[:index]
+	}
+	fraction := 0
+	if index := strings.IndexByte(text, '.'); index >= 0 {
+		fraction = len(text) - index - 1
+		text = text[:index] + text[index+1:]
+	}
+	text = strings.TrimLeft(text, "0")
+	if text == "" {
+		return "0", true
+	}
+	coefficient := strings.TrimRight(text, "0")
+	exponent.Add(exponent, big.NewInt(int64(len(text)-len(coefficient)-fraction)))
+	return sign + coefficient + "e" + exponent.String(), true
+}
+
 func actualDifferences(before, after any) map[string]map[string]any {
 	out := map[string]map[string]any{}
 	var walk func(string, any, bool, any, bool)
 	walk = func(path string, a any, ap bool, b any, bp bool) {
-		if ap == bp && kernel.ApEqual(a, b) {
+		if ap == bp && comparisonEqual(a, b) {
 			return
 		}
 		am, aok := kernel.Object(a)
@@ -188,7 +266,7 @@ func compareContinuation(s *kernel.SemanticSession, target, comparison map[strin
 	for _, p := range protected {
 		a, ap := pointerValue(before, p)
 		b, bp := pointerValue(after, p)
-		if !ap || !bp || !kernel.ApEqual(a, b) {
+		if !ap || !bp || !comparisonEqual(a, b) {
 			return bad("原批准决定依据或实施范围发生变化: " + p)
 		}
 	}
@@ -230,7 +308,7 @@ func compareContinuation(s *kernel.SemanticSession, target, comparison map[strin
 		}
 		for _, change := range kernel.ApRows(diff["changes"]) {
 			path := kernel.Text(change["path"])
-			if seen[path] || actual[path] == nil || !kernel.ApEqual(change, actual[path]) {
+			if seen[path] || actual[path] == nil || !comparisonEqual(change, actual[path]) {
 				return bad("差异遗漏、伪造、重复或值不符: " + path)
 			}
 			covered := false

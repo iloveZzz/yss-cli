@@ -1,11 +1,13 @@
 package approval
 
 import (
-	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 func TestContinuationComparisonRequiresCompleteActualChanges(t *testing.T) {
@@ -87,5 +89,71 @@ func TestDecisionSelectorsResolveConcreteArrayMembers(t *testing.T) {
 		if _, ok := pointerValue(model, pointer); ok {
 			t.Fatalf("nonexistent or noncanonical index resolved: %s", pointer)
 		}
+	}
+}
+
+func TestContinuationComparisonPreservesNumericValues(t *testing.T) {
+	for _, scenario := range []string{"protected-large-integer", "large-integer-detail", "rounded-delta", "precise-decimal", "equivalent-exponent", "huge-exponent", "negative-zero", "number-not-string"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, _, _ := trueDecisionFixture(t)
+			old, next := `9007199254740992`, `9007199254740993`
+			equivalent := false
+			switch scenario {
+			case "precise-decimal":
+				old, next = `0.12345678901234567890`, `0.12345678901234567891`
+			case "equivalent-exponent":
+				old, next = `9007199254740993.00`, `9.007199254740993e15`
+				equivalent = true
+			case "huge-exponent":
+				old, next = `1e99999999999999999999`, `10e99999999999999999998`
+				equivalent = true
+			case "negative-zero":
+				old, next = `-0.000`, `0`
+				equivalent = true
+			case "number-not-string":
+				next = `"9007199254740992"`
+			}
+			before := []byte(`{"decision":true,"technical":{"value":` + old + `}}`)
+			after := []byte(`{"decision":true,"technical":{"value":` + next + `}}`)
+			a, _, err := comparisonModel("current.json", before)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _, err := comparisonModel("current.json", after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			changes := actualDifferences(a, b)
+			if (len(changes) == 0) != equivalent {
+				t.Fatalf("numeric equality lost precision: %v", changes)
+			}
+			target := map[string]any{"boundary": "gate.spec-baseline-approved", "subject_ref": "current.json", "decision_basis": map[string]any{}, "continuation_paths": map[string]any{"implementation-detail": []string{"/technical"}}}
+			protected := "/decision"
+			class := "implementation-detail"
+			rows := []any{}
+			if scenario == "protected-large-integer" {
+				protected = "/technical/value"
+				class = "presentation-only"
+				delete(target, "continuation_paths")
+			} else if equivalent {
+				class = "presentation-only"
+			} else {
+				rows = append(rows, changes["/technical/value"])
+			}
+			for _, dimension := range decisionDimensions {
+				kernel.ApMap(target["decision_basis"])[dimension] = []string{protected}
+			}
+			if scenario == "rounded-delta" {
+				kernel.ApMap(kernel.ApMap(rows[0])["after"])["value"] = json.Number(old)
+			}
+			decisionFile(t, s.Root, "delta.json", map[string]any{"schema_version": 1, "changes": rows})
+			raw, _ := os.ReadFile(filepath.Join(s.Root, "delta.json"))
+			comparison := map[string]any{"after": map[string]any{"ref": "current.json"}, "decision_basis_unchanged": true, "material_changes": []any{}, "differences": []any{map[string]any{"ref": "delta.json", "digest": safefs.Digest(raw), "classification": class, "reason": "actual precise numeric comparison"}}}
+			err = compareContinuation(s, target, comparison, before, after)
+			want := scenario != "protected-large-integer" && scenario != "rounded-delta"
+			if (err == nil) != want {
+				t.Fatalf("%s: %v", scenario, err)
+			}
+		})
 	}
 }
