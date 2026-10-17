@@ -1180,8 +1180,11 @@ func LoadNativeSlice(s *kernel.SemanticSession, ref string) (*NativeSlice, error
 		raw = m
 	}
 	n := kernel.ContractN(raw["schema_version"])
-	if n != 2 && n != 3 {
-		return nil, s.Reject("CONTRACT_SCHEMA", "Slice schema 仅支持 v2/v3")
+	if n != 2 && n != 3 && n != 4 {
+		return nil, s.Reject("CONTRACT_SCHEMA", "Slice schema 仅支持 v2/v3/v4")
+	}
+	if n == 4 && s.GovernanceVersion != 2 {
+		return nil, s.Reject("CONTRACT_SCHEMA", "Slice4需要当前role-independent政策；不能混用旧政策")
 	}
 	out := &NativeSlice{Raw: raw, Normalized: ContractCopy(raw), Ref: ref, Basis: map[string]map[string]any{}, Repositories: map[string]map[string]any{}}
 	if n == 2 {
@@ -1230,7 +1233,7 @@ func LoadNativeSlice(s *kernel.SemanticSession, ref string) (*NativeSlice, error
 		}
 		return out, nil
 	}
-	if e = s.ValidateSchema(".template-spec/process/schemas/slice-implementation-contract-v3.schema.json", raw); e != nil {
+	if e = s.ValidateSchema(fmt.Sprintf(".template-spec/process/schemas/slice-implementation-contract-v%d.schema.json", n), raw); e != nil {
 		return nil, e
 	}
 	basis, e := contractBasis(s, raw)
@@ -2143,7 +2146,8 @@ func ContractSliceFresh(s *kernel.SemanticSession, c *NativeSlice, opts map[stri
 // A responsibility view is derived only after the entire source Slice has
 // been normalized and approved. It never changes that source or its basis.
 func ContractSelectLocalUnit(s *kernel.SemanticSession, c *NativeSlice, unit string) (*NativeSlice, error) {
-	if kernel.ContractN(c.Raw["schema_version"]) != 3 || unit == "" || len(c.Repositories) != 0 {
+	version := kernel.ContractN(c.Raw["schema_version"])
+	if (version != 3 && version != 4) || unit == "" || len(c.Repositories) != 0 {
 		return c, nil
 	}
 	u := kernel.ApFind(c.Normalized["work_units"], "id", unit)
@@ -2151,7 +2155,7 @@ func ContractSelectLocalUnit(s *kernel.SemanticSession, c *NativeSlice, unit str
 		return nil, s.Reject("WORK_UNIT", "未知当前批准工作单元")
 	}
 	role := kernel.Text(u["role_id"])
-	if !kernel.SemHas([]string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"}, role) {
+	if kernel.ContractN(c.Raw["schema_version"]) == 3 && !kernel.SemHas([]string{"role.backend-engineer", "role.frontend-engineer", "role.backend-agent", "role.frontend-agent"}, role) {
 		return nil, s.Reject("WORK_UNIT", "单仓职责选择需要明确后端或前端角色")
 	}
 	selected := *c
@@ -2161,7 +2165,7 @@ func ContractSelectLocalUnit(s *kernel.SemanticSession, c *NativeSlice, unit str
 	common["allowed_write_paths"] = u["allowed_write_paths"]
 	selected.Normalized["common"] = common
 	selected.Normalized["work_units"] = []any{u}
-	if role == "role.backend-engineer" || role == "role.backend-agent" {
+	if kernel.ContractN(c.Raw["schema_version"]) == 4 || role == "role.backend-engineer" || role == "role.backend-agent" {
 		selected.Normalized["frontend"] = map[string]any{"status": "not-applicable"}
 	} else {
 		selected.Normalized["backend"] = map[string]any{"status": "not-applicable"}

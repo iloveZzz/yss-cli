@@ -55,7 +55,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
+		allowed := map[string][]string{"contract": {"slice-draft", "task-selection", "governance-write", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}

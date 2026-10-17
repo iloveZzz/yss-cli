@@ -105,7 +105,15 @@ func buildReading(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingBui
 		}
 		return raw, err
 	}
-	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md", ".template-spec/process/reading-policy.yaml", kernel.ApprovalRegistryRef, kernel.ApprovalRolesRef} {
+	governanceRefs := []string{kernel.ApprovalRolesRef}
+	if s.GovernanceVersion == 2 {
+		_, refs, _, err := s.OrchestrationDocument(kernel.GuidanceContractRef(s.Report.Profile))
+		if err != nil {
+			return nil, err
+		}
+		governanceRefs = refs
+	}
+	for _, ref := range append([]string{"yss-project.yaml", "CONTEXT.md", ".template-spec/process/reading-policy.yaml", kernel.ApprovalRegistryRef}, governanceRefs...) {
 		if _, err := project(ref); err != nil {
 			return nil, err
 		}

@@ -340,6 +340,13 @@ func enforceHarnessTaskSemanticMode(s *kernel.SemanticSession, task map[string]a
 }
 
 func verifyTaskPackageSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+	task, err := s.Doc(ref)
+	if err != nil {
+		return err
+	}
+	if kernel.ContractN(task["schema_version"]) == 3 {
+		return verifyRoleIndependentTask(s, ref, opts)
+	}
 	return verifyTaskPackageSemanticMode(s, ref, opts, false)
 }
 

@@ -152,8 +152,13 @@ func Run(ctx context.Context, group, action, root string, args map[string]string
 		return nil, err
 	}
 	n, ok := kernel.Integer(identity["schema_version"])
-	if !ok || n != 1 || (kernel.Text(identity["repository_mode"]) != "project-instance" && !(group == "context" && kernel.Text(identity["repository_mode"]) == "template-source")) {
-		return nil, domain.Fail("IDENTITY", "阅读入口需要合法 schema v1 工程身份")
+	if !ok || (n != 1 && n != 2) || (kernel.Text(identity["repository_mode"]) != "project-instance" && !(group == "context" && kernel.Text(identity["repository_mode"]) == "template-source")) {
+		return nil, domain.Fail("IDENTITY", "阅读入口需要合法 schema v1/v2 工程身份")
+	}
+	if n == 2 {
+		if err = r.s.Authorities(); err != nil {
+			return nil, err
+		}
 	}
 	var content, binding map[string]any
 	scope := "selected-object-and-explicit-byte-bindings"
@@ -379,11 +384,14 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		raw = wrapped
 	}
 	n, ok := kernel.Integer(raw["schema_version"])
-	if !ok || (n != 2 && n != 3) {
-		return nil, nil, domain.Fail("CONTRACT_SCHEMA", "Slice 阅读仅支持 v2/v3")
+	if !ok || (n != 2 && n != 3 && n != 4) {
+		return nil, nil, domain.Fail("CONTRACT_SCHEMA", "Slice 阅读仅支持 v2/v3/v4")
 	}
-	if n == 3 {
-		err = r.validate(".template-spec/process/schemas/slice-implementation-contract-v3.schema.json", raw)
+	if n == 4 && r.s.GovernanceVersion != 2 {
+		return nil, nil, domain.Fail("CONTRACT_SCHEMA", "Slice4需要当前role-independent政策")
+	}
+	if n == 3 || n == 4 {
+		err = r.validate(fmt.Sprintf(".template-spec/process/schemas/slice-implementation-contract-v%d.schema.json", n), raw)
 	} else {
 		err = r.sliceV2(raw)
 	}
@@ -426,7 +434,7 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		return nil, nil, domain.Fail("ARGUMENT", "--unit 仅适用于 task")
 	}
 	acceptance := map[string]any{}
-	if n == 3 {
+	if n == 3 || n == 4 {
 		for id, v := range kernel.SemMap(raw["acceptance"]) {
 			a := kernel.SemMap(v)
 			src, ok := sources[kernel.Text(a["source"])]
@@ -459,7 +467,7 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		}
 		content["work_units"] = []any{selected}
 		content["reading_stop_conditions"] = "发现 violation、drift 或 new_impacts 时停止受影响工作，保留修改与证据并回交治理；阅读视图不授予批准或执行权。"
-		if n == 3 {
+		if n == 3 || n == 4 {
 			scope := kernel.SemMap(raw["scope"])
 			for _, k := range []string{"project_root", "allowed_write_paths"} {
 				if selected[k] == nil {
@@ -512,10 +520,10 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 			}
 			content["full_acceptance_ref"] = map[string]any{"binding": binding, "pointer": pointer, "ids": sortedMapKeys(acceptance)}
 		}
-	} else if n == 3 {
+	} else if n == 3 || n == 4 {
 		content["acceptance"] = acceptance
 	}
-	if n == 3 {
+	if n == 3 || n == 4 {
 		content["basis"] = sources
 	}
 	return content, binding, nil
