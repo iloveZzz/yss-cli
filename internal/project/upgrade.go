@@ -209,6 +209,10 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 	if maintenanceSkillMigration(id, b, command) {
 		skills = migratedMaintenanceSkills(skills)
 	}
+	skills, err := withoutRetiredSkills(b, skills)
+	if err != nil {
+		return err
+	}
 	visited := map[string]bool{}
 	for {
 		changed := false

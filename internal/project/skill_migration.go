@@ -215,3 +215,41 @@ func (u *upgradePlanner) projectionRetirements() map[string]bundle.MigrationRule
 	}
 	return rules
 }
+
+// A selection may name a Skill that the target Bundle hard-retired: its
+// registry entry, closure and canonical tree are gone and its ID is in the
+// fixed retired contract. Such a selection is dropped instead of failing the
+// whole sync; previously managed files stay retired-preserved unless an
+// explicit upgrade rule proposes their deletion.
+func withoutRetiredSkills(b *bundle.Bundle, skills []string) ([]string, error) {
+	var retired map[string]bool
+	out := make([]string, 0, len(skills))
+	for _, name := range skills {
+		if _, ok := b.SkillRequirements[name]; ok || hasSkillTree(b, name) {
+			out = append(out, name)
+			continue
+		}
+		if retired == nil {
+			if _, ok := b.Files["scripts/lib/skill-supply-chain.mjs"]; !ok {
+				return skills, nil
+			}
+			var err error
+			if retired, err = retiredSkillIDs(b); err != nil {
+				return nil, err
+			}
+		}
+		if !retired[name] {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
+
+func hasSkillTree(b *bundle.Bundle, name string) bool {
+	for ref := range b.Files {
+		if strings.HasPrefix(ref, ".agents/skills/"+name+"/") || strings.HasPrefix(ref, ".claude/skills/"+name+"/") {
+			return true
+		}
+	}
+	return false
+}

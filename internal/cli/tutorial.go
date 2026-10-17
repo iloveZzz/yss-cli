@@ -241,7 +241,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
 
 本地或独立专职：
-  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。本地前端有后端/API/数据依赖时等待当前后端交付；纯 UI 以有依据的不适用记录核验。
+  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
   外部专职：consumers 每项给 profile（design/backend）、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
   Spec→Design 使用当前 SpecBaseline、Receipt 和目标 Context 对账；Spec/Design→Backend 消费同一冻结战略基线。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
@@ -337,7 +337,7 @@ func governedTutorial(profile string) (string, error) {
 			out.WriteString("  消费批准且当前的 Slice 合同、条件化交接与工程输入；编译器不创建批准。\n")
 		case "stage.vertical-slice-implementation", "stage.slice-implementation":
 			fmt.Fprintf(&out, "  yss skills list --root %s --json\n  yss lifecycle status --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root)
-			out.WriteString("  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端在实际实现仓 pnpm，后端优先根 ./mvnw；记录真实测试并由独立审查者审查。\n")
+			out.WriteString("  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。后端优先根 ./mvnw（前端实现由独立前端规格与 CLI 维护）；记录真实测试并由独立审查者审查。\n")
 		case "stage.verification-release-retrospective", "stage.verification":
 			fmt.Fprintf(&out, "  yss evidence verify --root %s --kind verification --file docs/verification.json --json --diagnostics\n  yss project-ci verify --root %s --base \"<已确认40位SHA>\" --runtime-store off --json\n  yss lifecycle verify --root %s --checkpoint .work/feature/checkpoint.yaml --json\n", root, root, root)
 			out.WriteString("  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。\n")

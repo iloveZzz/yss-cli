@@ -2,7 +2,7 @@
 
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.4.0，新增只读 `yss mcp` 服务、`yss tracker`（GitHub Issues 五态镜像）、`yss trace` 追溯矩阵、运行时输入对象存储与 `--stack` 按技术栈裁剪技能；`yss git` 命令组见 [docs/git.md](docs/git.md)。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.4.0，新增只读 `yss mcp` 服务、`yss tracker`（GitHub Issues 五态镜像）、`yss trace` 追溯矩阵、运行时输入对象存储；`yss git` 命令组见 [docs/git.md](docs/git.md)。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件；前端技能已从模板整线退役，改由独立的前端规格与 CLI 维护，`yss sync` 从已有实例的安装选择中移除这些退役技能并原样保留本地文件，`--stack` 按技术栈裁剪随之移除。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -201,8 +201,6 @@ yss -V --json
 
 `yss trace --feature <功能包>` 只读汇总业务票（FR/AC）、垂直切片 Ticket 与 Slice 合同的验证映射，给出每个验收的切片、验证与提交；加 `--implementation-root --since [--until]` 时按 Ticket trailer 把实现仓提交关联到 `slice_id`。缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要在冻结后变化；`--html` 另写静态矩阵页（项目外新文件），`--strict` 有缺口时以 `TRACE_GAPS` 失败。MCP 同名工具 `trace` 只读、不写 HTML。
 
-`yss init|attach --full --stack java|vue|none` 按技术栈裁剪完整分发：`java` 不装前端专项技能，`vue` 不装后端专项技能，`none`（默认）保持完整分发。分组只取 Bundle 内技能注册表的显式 `stack` 名单（`java`、`vue`；未声明为通用技能，始终保留），不按 `impacts` 推断。保留技能对被排除技能的 `context-required` 依赖，或未用 `stacks` 限定到另一栈的 `context-conditional` 依赖，视为名单矛盾直接失败；注册表未声明 `stack` 的旧 Bundle 拒绝裁剪。锁与安装清单随选择一致；`--stack` 只与 `--full` 同用。
-
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 
 更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。文档案例只说明协议，不构成真实批准。
@@ -228,6 +226,6 @@ yss upgrade --tool-root ./tools/yss-clean
 
 核验一致后再调整 PATH 入口。离线案例见 `yss help tutorial`。只替换二进制、改写旧收据或强制覆盖会破坏来源和回退依据；现有摘要、来源、冲突及事务保护继续生效。
 
-Backend/Frontend 支持 `standalone` 本地业务事实与 `upstream` 权威来源两种输入。日常 Ticket 的 `business_input` 记录 `mode`、`side`、`ref`、当前 `digest`、显式 `conflicts: []`；前端额外记录 `backend_dependency` 的 `mode: aligned | not-applicable`、`reason`、`ref`、`digest`。上游审批仍消费真实当前批准，冲突回交权威方；本端分析不扩大另一端代码写范围，本端完成不等于跨端业务验收。高风险与已有正式任务仍走 governed。
+Backend 支持 `standalone` 本地业务事实与 `upstream` 权威来源两种输入。日常 Ticket 的 `business_input` 记录 `mode`、`side`、`ref`、当前 `digest`、显式 `conflicts: []`。上游审批仍消费真实当前批准，冲突回交权威方；本端分析不扩大另一端代码写范围，本端完成不等于跨端业务验收。高风险与已有正式任务仍走 governed。
 
 独立后端骨架使用生成器 `--standalone` 并明确精确平台、Maven 坐标及输出目录；无需 Harness 合同，不生成业务代码、批准或 ready-for-agent。Maven 优先根 `./mvnw` 与现有 settings 配置；缺配置询问路径/仓库信息并保留待验证骨架。

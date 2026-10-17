@@ -201,7 +201,7 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 		return nil, domain.Fail("IDENTITY", "Profile 准备来源只支持 Spec 或 Design 原生实例")
 	}
 	if len(targets) == 0 || len(targets) > 2 {
-		return nil, domain.Fail("ARGUMENT", "选择独立 Design，或 Backend、Frontend 中的一项或两项")
+		return nil, domain.Fail("ARGUMENT", "选择独立 Design 或 Backend")
 	}
 	if _, design := targets["design"]; design && (len(targets) != 1 || id.Profile.Name != "spec") {
 		return nil, domain.Fail("ARGUMENT", "独立 Design 只能单独承接 Spec 来源")
