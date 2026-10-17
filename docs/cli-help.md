@@ -67,6 +67,7 @@ Profile 职责:
     check            识别实例资产并调用对应 verify 做结构与当前校验。
     verify           核验一个门禁所需的当前 checkpoint 与检查依赖。
     mcp              以 MCP stdio 服务提供只读治理工具。
+    tracker          把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
@@ -833,6 +834,10 @@ YSS 离线入门教程
 | `stage status` | 读取并校验当前阶段工作项。 | `yss help examples stage status` |
 | `stage update` | 生成阶段工作项写入计划。 | `yss help examples stage update` |
 | `sync` | 将项目模板升级到本 CLI 内置固定 Bundle。 | `yss help examples sync` |
+| `tracker` | 把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。 | `yss help examples tracker` |
+| `tracker link` | 在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。 | `yss help examples tracker link` |
+| `tracker status` | 列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。 | `yss help examples tracker status` |
+| `tracker sync` | 把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。 | `yss help examples tracker sync` |
 | `update` | 安装、恢复或回退指定本地发行包。 | `yss help examples update` |
 | `update apply` | 应用保存的程序安装计划。 | `yss help examples update apply` |
 | `update plan` | 生成离线程序安装计划（默认动作）。 | `yss help examples update plan` |
@@ -5841,6 +5846,182 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 详细示例: yss help examples sync
 ```
 
+### tracker
+
+```text
+yss 2.3.3 — tracker
+──────────────────────
+把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
+
+用法: yss tracker <子命令> --root <目录>
+
+子命令:
+link  在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
+status  列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
+sync  把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker status --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker
+```
+
+### tracker link
+
+```text
+yss 2.3.3 — tracker link
+──────────────────────
+在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
+
+用法: yss tracker link --root <目录> --ticket <文件> --issue <owner/repo#编号> [--apply]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker link --root ./demo-spec --ticket .work/feat/parent-ticket.md --issue acme/app#12 --apply --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue <owner/repo#编号>       要链接的 GitHub Issue
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --ticket <文件>                 tracker 根下的 parent-ticket.md 或 issues/*.md
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--ticket  tracker 根下的 parent-ticket.md 或 issues/*.md
+--issue  owner/repo#编号
+--apply  以当前字节为守卫事务写入；不覆盖已有不同链接
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker link
+```
+
+### tracker status
+
+```text
+yss 2.3.3 — tracker status
+──────────────────────
+列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
+
+用法: yss tracker status --root <目录> [--fetch]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker status --root ./demo-spec --fetch --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --fetch                         tracker status 读取链接 Issue 的远端标签；只读
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--fetch  读取链接 Issue 的标签（需 GH_TOKEN）；只读
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker status
+```
+
+### tracker sync
+
+```text
+yss 2.3.3 — tracker sync
+──────────────────────
+把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
+
+用法: yss tracker sync --root <目录> --plan [--out <新文件>] [--ticket <文件>]；应用：--apply --plan-file <文件> --confirm-remote github
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+需要 issue-tracker.md 的 remote_mirror: true（或主 tracker 为 github）。非五态标签保留；成功后在 Ticket 写入 Tracker-Synced 行。
+
+最小示例:
+yss tracker sync --root ./demo-spec --plan --out /tmp/tracker-plan.json
+yss tracker sync --root ./demo-spec --apply --plan-file /tmp/tracker-plan.json --confirm-remote github
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --confirm-remote <远端名>       git push --apply 的用户确认；必须与计划中的远端同名
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --ticket <文件>                 tracker 根下的 parent-ticket.md 或 issues/*.md
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--plan / --out  读取远端并保存计划（文件须在项目外）
+--ticket  只同步一个 Ticket
+--apply --plan-file  复核本地字节与远端标签/更新时间未变后写入
+--confirm-remote github  用户确认写入 GitHub；缺少时不触达远端
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker sync
+```
+
 ### update
 
 ```text
@@ -8374,6 +8555,58 @@ CHECK_FAILED — 当前治理条件或证据未满足
 
 ```text
 STANDARD_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_AUTH
+
+```text
+TRACKER_AUTH — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_REMOTE
+
+```text
+TRACKER_REMOTE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_DRIFT
+
+```text
+TRACKER_DRIFT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_CONFLICT
+
+```text
+TRACKER_CONFLICT — 当前治理条件或证据未满足
 
 原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
 

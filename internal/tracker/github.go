@@ -1,0 +1,141 @@
+package tracker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/iloveZzz/yss-cli/internal/domain"
+)
+
+// Issue 是同步所需的最小远端事实；labels 已排序，便于比较与绑定。
+type Issue struct {
+	Repository string   `json:"repository"`
+	Number     int      `json:"number"`
+	State      string   `json:"state"`
+	Labels     []string `json:"labels"`
+	UpdatedAt  string   `json:"updated_at"`
+	URL        string   `json:"url"`
+}
+
+// Client 只做两件事：读取 Issue、整体设置 Issue 标签。不创建、不关闭、不评论。
+type Client struct {
+	Base, Token string
+	HTTP        *http.Client
+}
+
+var repoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$`)
+
+func NewClient(env func(string) string) (*Client, error) {
+	token := env("GH_TOKEN")
+	if token == "" {
+		token = env("GITHUB_TOKEN")
+	}
+	if token == "" {
+		return nil, domain.Fail("TRACKER_AUTH", "需要 GH_TOKEN（或 GITHUB_TOKEN）才能读取或写入 GitHub Issue")
+	}
+	base := strings.TrimRight(env("GITHUB_API_URL"), "/")
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	if !strings.HasPrefix(base, "https://") && !strings.HasPrefix(base, "http://127.0.0.1") && !strings.HasPrefix(base, "http://localhost") {
+		return nil, domain.Fail("TRACKER_REMOTE", "GITHUB_API_URL 必须是 https 地址")
+	}
+	return &Client{Base: base, Token: token, HTTP: &http.Client{Timeout: 20 * time.Second}}, nil
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.Base+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, domain.Wrap("CANCELLED", ctx.Err())
+		}
+		return nil, domain.Fail("NETWORK", "GitHub 请求失败: "+method+" "+path)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, domain.Fail("NETWORK", "GitHub 响应读取失败")
+	}
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return nil, domain.Fail("TRACKER_AUTH", fmt.Sprintf("GitHub 拒绝访问（HTTP %d）：检查令牌权限", resp.StatusCode))
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, domain.Fail("TRACKER_REMOTE", "GitHub Issue 不存在或无权读取: "+path)
+	case resp.StatusCode >= 300:
+		return nil, domain.Fail("TRACKER_REMOTE", fmt.Sprintf("GitHub 返回 HTTP %d: %s %s", resp.StatusCode, method, path))
+	}
+	return data, nil
+}
+
+func (c *Client) GetIssue(ctx context.Context, repository string, number int) (Issue, error) {
+	data, err := c.do(ctx, http.MethodGet, issuePath(repository, number), nil)
+	if err != nil {
+		return Issue{}, err
+	}
+	return parseIssue(repository, data)
+}
+
+// SetLabels 用 PATCH 一次性设置完整标签集，返回更新后的 Issue。
+func (c *Client) SetLabels(ctx context.Context, repository string, number int, labels []string) (Issue, error) {
+	data, err := c.do(ctx, http.MethodPatch, issuePath(repository, number), map[string]any{"labels": labels})
+	if err != nil {
+		return Issue{}, err
+	}
+	return parseIssue(repository, data)
+}
+
+func issuePath(repository string, number int) string {
+	return "/repos/" + repository + "/issues/" + strconv.Itoa(number)
+}
+
+func parseIssue(repository string, data []byte) (Issue, error) {
+	var raw struct {
+		Number    int    `json:"number"`
+		State     string `json:"state"`
+		UpdatedAt string `json:"updated_at"`
+		HTMLURL   string `json:"html_url"`
+		Labels    []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		PullRequest any `json:"pull_request"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil || raw.Number == 0 {
+		return Issue{}, domain.Fail("TRACKER_REMOTE", "GitHub Issue 响应无效")
+	}
+	if raw.PullRequest != nil {
+		return Issue{}, domain.Fail("TRACKER_REMOTE", "链接目标是 Pull Request，不是 Issue")
+	}
+	labels := []string{}
+	for _, l := range raw.Labels {
+		labels = append(labels, l.Name)
+	}
+	sort.Strings(labels)
+	return Issue{Repository: repository, Number: raw.Number, State: raw.State, Labels: labels, UpdatedAt: raw.UpdatedAt, URL: raw.HTMLURL}, nil
+}

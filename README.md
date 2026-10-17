@@ -197,6 +197,8 @@ yss -V --json
 
 `yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
 
+`yss tracker status|link|sync` 把本地 Ticket 五态镜像到已链接 GitHub Issue 的同名标签：本地 Markdown 始终权威；`link` 写入 `Tracker-Link: github:owner/repo#N`；`sync` 先 `--plan --out` 读取远端保存计划（项目外），再 `--apply --plan-file --confirm-remote github` 复核本地字节与远端标签/更新时间未变后写入，成功后记录 `Tracker-Synced`。只改五态标签，保留其他标签，不创建、关闭或评论 Issue；需 `GH_TOKEN`，`GITHUB_API_URL` 可指向 GitHub Enterprise。git 策略 `ticket_pattern: github` 接受 `#123` / `owner/repo#123`，分支名使用 `gh-123`。
+
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 
 更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。文档案例只说明协议，不构成真实批准。

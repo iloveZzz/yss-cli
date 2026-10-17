@@ -12,6 +12,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/project"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/tracker"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"github.com/iloveZzz/yss-cli/internal/updater"
 	"github.com/iloveZzz/yss-cli/internal/worklayout"
@@ -342,6 +343,14 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	if command == "git" {
 		return gitCommand(ctx, root, o)
+	}
+	if command == "tracker" {
+		action := "status"
+		if len(o.args) > 1 {
+			action = o.args[1]
+		}
+		result, err := tracker.Run(ctx, action, root, o.values, tracker.Env{})
+		return result, profile, err
 	}
 	if command == "update" {
 		if len(o.args) > 2 {

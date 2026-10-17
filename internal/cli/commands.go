@@ -61,6 +61,9 @@ func initializeCommands() {
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("asset", "<路径>", "发生变化的项目内资产路径")
 	argumentSpecs["all"] = argumentSpec{description: "对策略登记的全部对象逐个执行；与指定单个对象互斥", boolean: true}
+	argumentSpecs["fetch"] = argumentSpec{description: "tracker status 读取链接 Issue 的远端标签；只读", boolean: true}
+	defineArgument("ticket", "<文件>", "tracker 根下的 parent-ticket.md 或 issues/*.md")
+	defineArgument("issue", "<owner/repo#编号>", "要链接的 GitHub Issue")
 	argumentSpecs["changed"] = argumentSpec{description: "yss check 选择工作树相对 HEAD 的改动与未跟踪文件", boolean: true}
 	argumentSpecs["dry-run"] = argumentSpec{description: "只返回将写的文件与摘要，不写任何文件", boolean: true}
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
@@ -128,6 +131,18 @@ func initializeCommands() {
 			opts = append(opts, "root", "changed", "base", "checkpoint")
 		case "mcp":
 			opts = append(opts, "root")
+		case "tracker":
+			opts = append(opts, "root")
+			if len(parts) > 1 {
+				switch parts[1] {
+				case "status":
+					opts = append(opts, "fetch")
+				case "link":
+					opts = append(opts, "ticket", "issue", "apply")
+				case "sync":
+					opts = append(opts, "ticket", "plan", "out", "apply", "plan-file", "confirm-remote")
+				}
+			}
 		case "verify":
 			opts = append(opts, "root", "gate", "checkpoint")
 		case "profile":

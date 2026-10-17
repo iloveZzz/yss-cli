@@ -171,3 +171,21 @@ func TestVerifyMessage(t *testing.T) {
 		t.Error("不存在的文件应拒绝")
 	}
 }
+
+func TestGitHubTicketPreset(t *testing.T) {
+	p, err := LoadPolicy(writePolicy(t, "schema_version: 1\nticket_pattern: github\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, ok := range map[string]bool{"#123": true, "acme/app#7": true, "PROJ-1": false, "#0": false, "acme/app#": false, "a b#1": false} {
+		if p.TicketValid(id) != ok {
+			t.Errorf("TicketValid(%q) != %v", id, ok)
+		}
+	}
+	if got := p.BranchToken("acme/app#7"); got != "gh-7" {
+		t.Errorf("分支片段应去掉 # 与仓库: %s", got)
+	}
+	if got := defaultPolicy(t).BranchToken("PROJ-1"); got != "PROJ-1" {
+		t.Errorf("默认策略原样使用 Ticket: %s", got)
+	}
+}
