@@ -294,3 +294,69 @@ func TestContinuation2RejectsDifferentImplementationSource(t *testing.T) {
 		t.Fatalf("different real source was not rejected: %v", err)
 	}
 }
+
+func TestPolicy2GateChecksConsumeCurrentApprovalWithoutRoleRegistry(t *testing.T) {
+	s, record, _ := approval3Fixture(t)
+	policy := kernel.ApMap(kernel.ApMap(kernel.ApMap(s.GovernancePolicy["gate_policy"])["profiles"])["backend"])
+	policy["user_decision_gates"] = []any{}
+	policy["technical_reviews"] = []any{map[string]any{"gate": "gate.spec-baseline-approved", "capability_ids": []string{"capability.spec-acceptance"}}}
+	s.GovernancePolicy["technical_checks"] = []any{map[string]any{"id": "capability.spec-acceptance", "profiles": []string{"backend"}, "review_skills": []string{"yss-product-lifecycle"}}}
+	s.Registry["gates"] = []any{map[string]any{"id": "gate.spec-baseline-approved"}}
+	cp, err := s.Doc("checkpoint.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := kernel.ApMap(kernel.ApMap(cp["gates"])["gate.spec-baseline-approved"])
+	item["status"] = "approved"
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "approval.json"))
+	item["basis"] = append(kernel.ApArray(item["basis"]), map[string]any{"ref": "approval.json", "digest": safefs.Digest(raw)}, map[string]any{"ref": record["subject_ref"], "digest": record["subject_digest"]})
+	if err = approval.GateChecks(s, cp, "checkpoint.json", "gate.spec-baseline-approved"); err != nil {
+		t.Fatal(err)
+	}
+	delete(item, "approval_ref")
+	if err = approval.GateChecks(s, cp, "checkpoint.json", "gate.spec-baseline-approved"); err == nil {
+		t.Fatal("accepted missing actual approval")
+	}
+}
+
+func TestPlan3WithoutApplicableProfessionalChecksUsesActualSelfCheckWithoutEmptyTask(t *testing.T) {
+	s, task := completedDraft(t, func(s *kernel.SemanticSession, task map[string]any) {
+		task["feature_id"] = "feature.orders"
+		task["checkpoint_ref"] = "feature.json"
+		taskFile(t, s.Root, "feature.json", map[string]any{"feature_id": "feature.orders"})
+		input, _ := s.Doc("input.json")
+		input["feature_id"] = "feature.orders"
+		taskFile(t, s.Root, "input.json", input)
+		raw, _ := os.ReadFile(filepath.Join(s.Root, "input.json"))
+		task["input_bindings"] = []any{map[string]any{"ref": "input.json", "digest": safefs.Digest(raw)}}
+	})
+	approval.Bind(approval.Inputs{TrustedTaskImplementation: TrustedTaskImplementation})
+	policy := kernel.ApMap(kernel.ApMap(kernel.ApMap(s.GovernancePolicy["gate_policy"])["profiles"])["backend"])
+	policy["technical_reviews"] = []any{map[string]any{"gate": "gate.plan-approved"}}
+	taskFile(t, s.Root, kernel.ApprovalSchemaRef, map[string]any{"type": "object"})
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "drafts/spec.md"))
+	subject := map[string]any{"ref": "drafts/spec.md", "digest": safefs.Digest(raw)}
+	log, _ := s.Doc("origin.json")
+	log = kernel.ApCopy(log)
+	log["candidate_digest"] = subject["digest"]
+	log["scope"] = []string{"feature.orders"}
+	taskFile(t, s.Root, "plan-selfcheck.json", log)
+	provenance := kernel.ApCopy(kernel.ApMap(task["provenance"]))
+	provenance["execution_ref"] = "plan-selfcheck.json"
+	raw, _ = os.ReadFile(filepath.Join(s.Root, "task.json"))
+	basis := []any{map[string]any{"ref": "task.json", "digest": safefs.Digest(raw)}}
+	record := map[string]any{"schema_version": 3, "gate_id": "gate.plan-approved", "decision": "approved", "actor_kind": "agent", "subject_ref": subject["ref"], "subject_digest": subject["digest"], "approval_scope": []string{"feature.orders"}, "basis": basis, "policy": task["policy"], "check_ids": kernel.ApMap(task["skill_source"])["check_ids"], "review": map[string]any{"mode": "self-check", "provenance": provenance}, "evidence_refs": []string{"plan-selfcheck.json"}}
+	taskFile(t, s.Root, "plan-approval.json", record)
+	s.V = kernel.NewView(s.Root)
+	cp := map[string]any{"feature_id": "feature.orders", "plan_review_ref": subject["ref"], "plan_approval_ref": "plan-approval.json", "plan_review_control": map[string]any{"attempts": []any{}}}
+	review := map[string]any{"internal_checks": map[string]any{"check.domain-strategy-approved": map[string]any{"status": "not-applicable"}, "check.stage-decision-package-approved": map[string]any{"status": "not-applicable"}}}
+	if err := approval.PlanAggregateRecord(s, cp, review, basis, map[string]map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	record["review"] = map[string]any{"mode": "self-check", "provenance": task["provenance"]}
+	taskFile(t, s.Root, "plan-approval.json", record)
+	s.V = kernel.NewView(s.Root)
+	if err := approval.PlanAggregateRecord(s, cp, review, basis, map[string]map[string]any{}); err == nil {
+		t.Fatal("accepted implementation log as raw-subject self-check")
+	}
+}

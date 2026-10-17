@@ -11,6 +11,7 @@ func init() {
 	kernel.RegisterRoleIndependentValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("checkpoint-user-decisions", verifyCheckpointUserDecisionsSemantic)
+	kernel.RegisterRoleIndependentValidator("checkpoint-user-decisions", verifyCheckpointUserDecisionsSemantic)
 }
 
 // Public current verification requires a separate consumer's expectation. The
@@ -286,6 +287,9 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 		completionGate := "gate.delivery-accepted"
 		if s.Report.Profile == "design" {
 			completionGate = "gate.strategic-design-handoff-approved"
+		}
+		if s.GovernanceVersion == 2 && s.Report.Profile == "backend" {
+			completionGate = "gate.fresh-verification-passed"
 		}
 		if kernel.ApText(kernel.ApMap(kernel.ApMap(checkpoint["gates"])[completionGate])["status"]) != "approved" {
 			return kernel.ApFail(s, "LIFECYCLE_CONTROL", "阶段完成须当前交付或战略交接验收，不等于发布授权")

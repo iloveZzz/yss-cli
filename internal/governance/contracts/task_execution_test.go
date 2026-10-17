@@ -56,8 +56,11 @@ func TestExecutionCandidateIncludesRealSourceNotEvidence(t *testing.T) {
 	}
 }
 
-func completedDraft(t *testing.T) (*kernel.SemanticSession, map[string]any) {
+func completedDraft(t *testing.T, configure ...func(*kernel.SemanticSession, map[string]any)) (*kernel.SemanticSession, map[string]any) {
 	s, task := taskFixture(t)
+	for _, apply := range configure {
+		apply(s, task)
+	}
 	taskFile(t, s.Root, "drafts/spec.md", map[string]any{"current": "draft output"})
 	candidate, err := draftExecutionCandidate(s, task)
 	if err != nil {
@@ -316,5 +319,67 @@ func TestRawOutputReviewUsesCompletedTaskMembership(t *testing.T) {
 				t.Fatal("not actual completed source")
 			}
 		})
+	}
+}
+
+func TestFormalTaskScopeComesFromCurrentFeatureAndBoundInput(t *testing.T) {
+	s, task := taskFixture(t)
+	task["feature_id"] = "feature.orders"
+	task["checkpoint_ref"] = "checkpoint.json"
+	taskFile(t, s.Root, "checkpoint.json", map[string]any{"feature_id": "feature.orders"})
+	input := map[string]any{"feature_id": "feature.orders"}
+	taskFile(t, s.Root, "input.json", input)
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "input.json"))
+	task["input_bindings"] = []any{map[string]any{"ref": "input.json", "digest": safefs.Digest(raw)}}
+	scope, err := taskApprovalScope(s, task)
+	if err != nil || !kernel.ApSetEqual(scope, []string{"feature.orders"}) {
+		t.Fatalf("formal scope: %v %v", scope, err)
+	}
+	taskFile(t, s.Root, "checkpoint.json", map[string]any{"feature_id": "feature.other"})
+	s.V = kernel.NewView(s.Root)
+	if _, err = taskApprovalScope(s, task); err == nil {
+		t.Fatal("accepted different checkpoint feature")
+	}
+}
+
+func TestTaskBaselineQueryReturnsActualSourceDigestWithoutWriteAuthority(t *testing.T) {
+	s, task := taskFixture(t)
+	input := map[string]any{"repository_root": s.Root, "commit": kernel.ApMap(task["baseline"])["commit"], "allowed_write_paths": task["allowed_write_paths"]}
+	taskFile(t, s.Root, "baseline-query.json", input)
+	s.V = kernel.NewView(s.Root)
+	if err := s.Verify("task-baseline", "baseline-query.json", nil); err != nil {
+		t.Fatal(err)
+	}
+	observed := kernel.ApMap(s.Report.Coverage["task_baseline"])
+	if !kernel.ApEqual(observed["baseline"], task["baseline"]) || observed["execution_allowed"] != false {
+		t.Fatalf("wrong baseline: %v", observed)
+	}
+	input["repository_root"] = filepath.Dir(s.Root)
+	taskFile(t, s.Root, "baseline-query.json", input)
+	s.V = kernel.NewView(s.Root)
+	if err := s.Verify("task-baseline", "baseline-query.json", nil); err == nil {
+		t.Fatal("query admitted unregistered root")
+	}
+}
+
+func TestReview3DispatchBindsActualCompletedImplementationCandidate(t *testing.T) {
+	s, task := completedReviewer(t, true)
+	task["workflow_status"] = "not-started"
+	task["verification_status"] = "not-executed"
+	task["verification_results"] = []any{}
+	delete(task, "result")
+	p := kernel.ApMap(task["provenance"])
+	origin := map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": p["tool"], "task_ref": p["task_ref"], "identity": p["identity"], "candidate": kernel.ApMap(task["review_context"])["candidate"], "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"], "expected_outputs": task["expected_outputs"]}
+	taskFile(t, s.Root, "review-log.json", origin)
+	taskFile(t, s.Root, "review-task.json", task)
+	s.V = kernel.NewView(s.Root)
+	if err := verifyRoleIndependentTask(s, "review-task.json", nil); err != nil {
+		t.Fatal(err)
+	}
+	kernel.ApMap(task["review_context"])["candidate"] = map[string]any{"ref": "input.json", "digest": kernel.ApRows(task["input_bindings"])[0]["digest"]}
+	taskFile(t, s.Root, "review-task.json", task)
+	s.V = kernel.NewView(s.Root)
+	if err := verifyRoleIndependentTask(s, "review-task.json", nil); err == nil {
+		t.Fatal("dispatch accepted unrelated candidate")
 	}
 }

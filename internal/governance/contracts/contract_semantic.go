@@ -596,6 +596,9 @@ func init() {
 	kernel.RegisterSemanticValidator("repository-ready", verifyRepositoryReadySemantic)
 	kernel.RegisterSemanticValidator("technical-transition", contractTechnicalTransition)
 	kernel.RegisterSemanticValidator("service-transition", contractServiceTransition)
+	for _, kind := range []string{"scaffold", "scaffold-inputs", "business-checkpoint", "openapi-validation", "scaffold-decisions", "business-tickets", "technical-completion", "repository-ready", "technical-transition", "service-transition"} {
+		kernel.RegisterRoleIndependentValidator(kind, kernel.SemanticValidators[kind])
+	}
 }
 
 func contractTechnicalTransition(s *kernel.SemanticSession, ref string, opts map[string]string) error {

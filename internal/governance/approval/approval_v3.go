@@ -91,7 +91,20 @@ func assertCurrentApproval3(s *kernel.SemanticSession, record, expected map[stri
 	if task["schema_version"] == nil || kernel.ApNumber(task["schema_version"]) != 3 || verified["task_ref"] != taskRef || verified["completed"] != true || !kernel.ApContains([]string{"Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) {
 		return s.Reject("APPROVAL_REVIEW", "需要实际完成且当前的审查任务")
 	}
-	if !kernel.ApEqual(candidate, review["candidate"]) || !kernel.ApEqual(record["review"], review["review"]) || !kernel.ApSetEqual(record["approval_scope"], review["approval_scope"]) || !kernel.ApSetEqual(record["check_ids"], review["check_ids"]) || !reviewCoversBoundary(s, record["check_ids"], kernel.Text(record["gate_id"])) {
+	matchesCandidate := kernel.ApEqual(candidate, review["candidate"])
+	if !matchesCandidate && record["plan_review_binding"] != nil {
+		if !kernel.ApEqual(record["plan_review_binding"], review["plan_review_binding"]) {
+			return s.Reject("PLAN_REVIEW_TASK_DRIFT", "逐项结论与当前Plan任务周期不同")
+		}
+		if err = s.Verify("plan-review-task", taskRef, map[string]string{"require-completed": "true", "boundary": kernel.Text(record["gate_id"])}); err != nil {
+			return err
+		}
+		observed := kernel.ApMap(s.Report.Coverage["plan_review_task"])
+		for _, row := range kernel.ApRows(observed["members"]) {
+			matchesCandidate = matchesCandidate || (observed["task_ref"] == taskRef && row["subject_ref"] == candidate["ref"] && row["subject_digest"] == candidate["digest"] && kernel.ApSetEqual(row["approval_scope"], record["approval_scope"]))
+		}
+	}
+	if !matchesCandidate || !kernel.ApEqual(record["review"], review["review"]) || !kernel.ApSetEqual(record["approval_scope"], review["approval_scope"]) || !kernel.ApSetEqual(record["check_ids"], review["check_ids"]) || !reviewCoversBoundary(s, record["check_ids"], kernel.Text(record["gate_id"])) {
 		return s.Reject("APPROVAL_REVIEW", "批准未绑定实际审查的候选、检查和范围")
 	}
 	if err = approvalBasis3(s, record["basis"], expected["basis"]); err != nil {

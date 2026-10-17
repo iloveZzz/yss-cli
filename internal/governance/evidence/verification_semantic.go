@@ -16,7 +16,10 @@ import (
 	"time"
 )
 
-func init() { kernel.RegisterSemanticValidator("verification", verifyVerificationSemantic) }
+func init() {
+	kernel.RegisterSemanticValidator("verification", verifyVerificationSemantic)
+	kernel.RegisterRoleIndependentValidator("verification", verifyVerificationSemantic)
+}
 
 // This validates persisted execution evidence. It never runs a command from it.
 func verifyVerificationSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {

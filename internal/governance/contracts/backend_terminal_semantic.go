@@ -31,6 +31,10 @@ func init() {
 		_, e := BackendInspectDelivery(s, ref, opts)
 		return e
 	})
+	for _, kind := range []string{"backend-terminal", "backend-delivery-terminal", "handoff-backend-delivery", "backend-review", "backend-delivery"} {
+		kernel.RegisterRoleIndependentValidator(kind, kernel.SemanticValidators[kind])
+	}
+
 }
 
 // 公开入口 contract verify --kind backend-delivery-terminal：由当前功能 checkpoint（或执行范围）推出固定的终点引用，
@@ -106,7 +110,8 @@ func backendProject(s *kernel.SemanticSession) error {
 	if e != nil {
 		return e
 	}
-	if kernel.ApNumber(d["schema_version"]) != 1 || d["repository_mode"] != "project-instance" {
+	version := kernel.ApNumber(d["schema_version"])
+	if (version != 1 && version != 2) || (version == 2) != (s.GovernanceVersion == 2) || d["repository_mode"] != "project-instance" {
 		return BackendReject(s, "后端交付仅适用于项目实例")
 	}
 	if _, e = s.ContextContract(); e != nil {
@@ -240,6 +245,13 @@ func backendProfileFresh(s *kernel.SemanticSession, cpRef string, delivery map[s
 	if len(refs) == 0 {
 		return BackendReject(s, "后端专职终点缺少当前实际Fresh Verification报告")
 	}
+	taskRef := ""
+	if kernel.ContractN(slice.Raw["schema_version"]) == 4 {
+		taskRef, err = backendFreshTask(s, cp, slice.Ref)
+		if err != nil {
+			return err
+		}
+	}
 	for _, ref := range refs {
 		report, err := s.Doc(ref)
 		if err != nil {
@@ -259,7 +271,12 @@ func backendProfileFresh(s *kernel.SemanticSession, cpRef string, delivery map[s
 				return BackendReject(s, "未知或未实现的Fresh Verification报告")
 			}
 			binding := kernel.SemMap(delivery["slice_contract"])
-			if err = dependencies.ContractExecutionResult(s, report, map[string]string{"contract": kernel.Text(binding["ref"]), "approval-ref": kernel.Text(binding["approval_ref"])}); err != nil {
+			resultOptions := map[string]string{"contract": kernel.Text(binding["ref"]), "approval-ref": kernel.Text(binding["approval_ref"])}
+			if taskRef != "" {
+				resultOptions["result-ref"] = ref
+				resultOptions["task"] = taskRef
+			}
+			if err = dependencies.ContractExecutionResult(s, report, resultOptions); err != nil {
 				return err
 			}
 			for _, row := range kernel.SemList(report["verification_results"]) {
@@ -886,16 +903,22 @@ func backendReview(s *kernel.SemanticSession, state map[string]any, opts map[str
 	if result["skill"] != "code-review" || result["result"] != "completed" {
 		return nil, BackendReject(s, "需要已完成独立 code-review")
 	}
-	for _, who := range []string{"reviewer", "implementer"} {
-		for _, k := range []string{"actor_id", "runtime_id", "instance_id"} {
-			if strings.TrimSpace(kernel.ApText(kernel.ApMap(result[who])[k])) == "" {
-				return nil, BackendReject(s, "独立审查身份缺失")
+	if s.GovernanceVersion == 2 {
+		if e = backendReviewProvenance(s, input, result, root); e != nil {
+			return nil, e
+		}
+	} else {
+		for _, who := range []string{"reviewer", "implementer"} {
+			for _, k := range []string{"actor_id", "runtime_id", "instance_id"} {
+				if strings.TrimSpace(kernel.ApText(kernel.ApMap(result[who])[k])) == "" {
+					return nil, BackendReject(s, "独立审查身份缺失")
+				}
 			}
 		}
-	}
-	reviewer, implementer := kernel.ApMap(result["reviewer"]), kernel.ApMap(result["implementer"])
-	if reviewer["actor_id"] == implementer["actor_id"] || reviewer["instance_id"] == implementer["instance_id"] || implementer["actor_id"] != input["implementation_actor_id"] || implementer["instance_id"] != input["implementation_instance_id"] {
-		return nil, BackendReject(s, "审查者/实现者不独立或身份不匹配")
+		reviewer, implementer := kernel.ApMap(result["reviewer"]), kernel.ApMap(result["implementer"])
+		if reviewer["actor_id"] == implementer["actor_id"] || reviewer["instance_id"] == implementer["instance_id"] || implementer["actor_id"] != input["implementation_actor_id"] || implementer["instance_id"] != input["implementation_instance_id"] {
+			return nil, BackendReject(s, "审查者/实现者不独立或身份不匹配")
+		}
 	}
 	comparison := ""
 	if kind == "change" {
@@ -2086,4 +2109,74 @@ func backendCoverageRows(s *kernel.SemanticSession, root string, coverage map[st
 		return BackendReject(s, "存在未登记约束审查")
 	}
 	return nil
+}
+
+// Code coverage and candidate-currentness stay in backendReview; this validates actual review origin.
+func backendReviewProvenance(s *kernel.SemanticSession, input, result map[string]any, root string) error {
+	candidate := kernel.ApMap(input["implementation_candidate"])
+	source, err := TrustedTaskImplementation(s, map[string]any{"candidate": candidate, "basis": input["basis"]})
+	if err != nil {
+		return err
+	}
+	protection := kernel.ApMap(source["candidate_scope"])
+	if filepath.Clean(kernel.Text(protection["repository_root"])) != filepath.Clean(root) {
+		return BackendReject(s, "审查实际实施任务属于其他工程")
+	}
+	taskRef := kernel.Text(source["task_ref"])
+	task, err := s.Doc(taskRef)
+	if err != nil {
+		return err
+	}
+	if input["scope_kind"] == "change" && (task["execution_state"] != "Worker" || kernel.ApMap(task["contract"])["slice_contract_ref"] != input["slice_contract_ref"] || (input["work_unit_id"] != nil && task["work_unit_id"] != input["work_unit_id"])) {
+		return BackendReject(s, "后端变更复核未绑定当前Slice实际完成任务")
+	}
+	implementation := kernel.ApMap(source["provenance"])
+	scope := kernel.ApStrings(source["scope"])
+	mode, err := s.RequiredReviewMode(candidate, implementation, scope, task["input_bindings"], input["basis"])
+	if err != nil {
+		return err
+	}
+	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(result["assessment"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"])); err != nil {
+		return err
+	}
+	rules := kernel.ApMap(input["external_rules"])
+	if rules == nil {
+		rules = map[string]any{"state": "none-known"}
+	}
+	return s.ValidateExternalRulesDigest(rules, candidate, scope, implementation)
+}
+
+// GateChecks has verified this consumer's approval; its real review basis selects the unique current implementation.
+func backendFreshTask(s *kernel.SemanticSession, cp map[string]any, sliceRef string) (string, error) {
+	gate := kernel.ApMap(kernel.ApMap(cp["gates"])["gate.fresh-verification-passed"])
+	doc, err := s.Doc(kernel.Text(gate["approval_ref"]))
+	if err != nil {
+		return "", err
+	}
+	record, err := approval.SelectApprovalRecordSemantic(s, doc, "gate.fresh-verification-passed")
+	if err != nil {
+		return "", err
+	}
+	reviewRef := kernel.Text(record["review_task_ref"])
+	if err = s.Verify("task", reviewRef, nil); err != nil {
+		return "", err
+	}
+	review, err := s.Doc(reviewRef)
+	if err != nil {
+		return "", err
+	}
+	source, err := TrustedTaskImplementation(s, kernel.ApMap(review["review_context"]))
+	if err != nil {
+		return "", err
+	}
+	ref := kernel.Text(source["task_ref"])
+	task, err := s.Doc(ref)
+	if err != nil {
+		return "", err
+	}
+	contract := kernel.ApMap(task["contract"])
+	if task["execution_state"] != "Worker" || contract["kind"] != "slice-implementation" || contract["slice_contract_ref"] != sliceRef {
+		return "", BackendReject(s, "Fresh Verification来源不是当前Slice实际完成Worker任务")
+	}
+	return ref, nil
 }

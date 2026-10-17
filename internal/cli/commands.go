@@ -530,7 +530,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status", "lifecycle route":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
+		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":

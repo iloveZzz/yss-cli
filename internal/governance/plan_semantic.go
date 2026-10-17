@@ -14,10 +14,15 @@ import (
 
 func init() {
 	kernel.RegisterSemanticValidator("plan-checkpoint", verifyPlanCheckpointSemantic)
+	kernel.RegisterRoleIndependentValidator("plan-checkpoint", verifyPlanCheckpointSemantic)
 	kernel.RegisterSemanticValidator("plan-review-task", verifyPlanReviewTaskSemantic)
+	kernel.RegisterRoleIndependentValidator("plan-review-task", verifyPlanReviewTaskSemantic)
 	kernel.RegisterSemanticValidator("plan-spec-entry", verifyPlanEntrySemantic)
+	kernel.RegisterRoleIndependentValidator("plan-spec-entry", verifyPlanEntrySemantic)
 	kernel.RegisterSemanticValidator("plan-aggregate", verifyPlanAggregateSemantic)
+	kernel.RegisterRoleIndependentValidator("plan-aggregate", verifyPlanAggregateSemantic)
 	kernel.RegisterSemanticValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
+	kernel.RegisterRoleIndependentValidator("source-plan-approval", verifySourcePlanApprovalSemantic)
 }
 
 func verifySourcePlanApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -151,6 +156,14 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 		return err
 	}
 	rc := kernel.SemMap(task["review_context"])
+	candidateRef, candidateDigest := kernel.Text(rc["candidate_ref"]), kernel.Text(rc["candidate_digest"])
+	if s.GovernanceVersion == 2 {
+		if kernel.ApNumber(task["schema_version"]) != 3 {
+			return s.Reject("TASK_VERSION", "当前Plan任务须为task3")
+		}
+		candidate := kernel.ApMap(rc["candidate"])
+		candidateRef, candidateDigest = kernel.Text(candidate["ref"]), kernel.Text(candidate["digest"])
+	}
 	checkIDs := kernel.SemStrings(rc["check_ids"])
 	applicable := false
 	for _, id := range checkIDs {
@@ -190,25 +203,29 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 	if kernel.Text(a["task_digest"]) == "" || !kernel.SemHas([]string{"reserved", "dispatched", "completed"}, kernel.Text(a["status"])) || opts["require-completed"] == "true" && a["status"] != "completed" {
 		return s.Reject("PLAN_REVIEW_NOT_COMPLETED", "任务字节未绑定或审查尚未完成")
 	}
-	if !kernel.ApEqual(rc["check_ids"], a["check_ids"]) || rc["candidate_ref"] != a["candidate_ref"] || !kernel.ApEqual(planNormalizedBasis(rc["basis"]), a["basis"]) {
+	if !kernel.ApEqual(rc["check_ids"], a["check_ids"]) || candidateRef != a["candidate_ref"] || !kernel.ApEqual(planNormalizedBasis(rc["basis"]), a["basis"]) {
 		return s.Reject("PLAN_REVIEW_TASK_DRIFT", "任务候选、范围或依据变化")
 	}
-	bytes, err := s.Bytes(kernel.Text(a["task_ref"]))
+	taskBinding, err := approval.PlanTaskAsset(s, a)
 	if err != nil {
 		return err
 	}
-	actual, err := s.Doc(kernel.Text(a["task_ref"]))
+	bytes, err := s.Bytes(kernel.Text(taskBinding["ref"]))
 	if err != nil {
 		return err
 	}
-	if safefs.Digest(bytes) != kernel.Text(a["task_digest"]) || !kernel.ApEqual(actual, task) {
+	actual, err := s.Doc(kernel.Text(taskBinding["ref"]))
+	if err != nil {
+		return err
+	}
+	if safefs.Digest(bytes) != kernel.Text(taskBinding["digest"]) || !kernel.ApEqual(actual, task) {
 		return s.Reject("PLAN_REVIEW_TASK_DRIFT", "登记任务实际字节变化")
 	}
-	subjectBytes, err := s.Bytes(kernel.Text(a["candidate_ref"]))
+	subjectBytes, err := s.Bytes(candidateRef)
 	if err != nil {
 		return err
 	}
-	subject, err := s.Doc(kernel.Text(a["candidate_ref"]))
+	subject, err := s.Doc(candidateRef)
 	if err != nil {
 		return err
 	}
@@ -216,7 +233,7 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 	if err != nil {
 		return err
 	}
-	if safefs.Digest(subjectBytes) != strings.TrimPrefix(kernel.Text(rc["candidate_digest"]), "sha256:") || !kernel.ApEqual(subject["plan_review_binding"], binding) || kernel.SemMap(subject["source_checkpoint"])["ref"] != binding["checkpoint_ref"] || kernel.SemMap(subject["source_checkpoint"])["digest"] != a["candidate_digest"] || digest != kernel.Text(a["candidate_digest"]) || !kernel.ApEqual(subject["current_approvals"], rc["current_approvals"]) {
+	if safefs.Digest(subjectBytes) != strings.TrimPrefix(candidateDigest, "sha256:") || ((s.GovernanceVersion != 2 || subject["plan_review_binding"] != nil) && !kernel.ApEqual(subject["plan_review_binding"], binding)) || kernel.SemMap(subject["source_checkpoint"])["ref"] != binding["checkpoint_ref"] || kernel.SemMap(subject["source_checkpoint"])["digest"] != a["candidate_digest"] || digest != kernel.Text(a["candidate_digest"]) || (s.GovernanceVersion != 2 && !kernel.ApEqual(subject["current_approvals"], rc["current_approvals"])) {
 		return s.Reject("PLAN_REVIEW_TASK_DRIFT", "审阅主体与登记候选摘要不一致")
 	}
 	all := kernel.SemList(subject["current_approvals"])
@@ -270,6 +287,7 @@ func verifyPlanReviewTaskSemantic(s *kernel.SemanticSession, ref string, opts ma
 			return s.Reject("PLAN_REVIEW_CANDIDATE_DRIFT", "当前检查主体、范围或作者变化")
 		}
 	}
+	kernel.SemanticCoverage(s, "plan_review_task", map[string]any{"task_ref": ref, "binding": binding, "members": rows, "read_only": true, "execution_allowed": false})
 	return nil
 }
 
@@ -283,6 +301,9 @@ func verifyPlanCheckpointSemantic(s *kernel.SemanticSession, ref string, opts ma
 	}
 	if cp["upstream_spec_baseline"] != nil && (kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" || kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved") {
 		return handoff.VerifyInheritedSpecCheckpoint(s, ref, cp)
+	}
+	if s.DraftPreparation(cp) {
+		return nil
 	}
 	if cp["next_work_unit"] == "work-unit.spec-synthesis" || cp["stage"] == "stage.spec-architecture" || kernel.SemMap(cp["stage_trace"])["completed_work_unit"] == "work-unit.spec-synthesis" {
 		return s.Verify("plan-spec-entry", ref, opts)
@@ -559,7 +580,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 				return err
 			}
 			v, _ := kernel.Integer(source["schema_version"])
-			if v != 2 || source["plan_review_binding"] == nil {
+			if (v != 2 && !(s.GovernanceVersion == 2 && v == 3)) || source["plan_review_binding"] == nil {
 				linked, e := planHistoricalLinked(s, c, approvalRef)
 				if e != nil {
 					return e
@@ -569,7 +590,11 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 				}
 			} else {
 				var declared map[string]any
-				for _, row := range kernel.SemList(kernel.SemMap(kernel.SemMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
+				policy := kernel.SemMap(s.Roles["gate_policy"])
+				if s.GovernanceVersion == 2 {
+					policy = kernel.ApMap(s.GovernancePolicy["gate_policy"])
+				}
+				for _, row := range kernel.SemList(kernel.SemMap(policy["review_execution"])["review_bundles"]) {
 					m := kernel.SemMap(row)
 					if m["aggregate_gate"] == "gate.plan-approved" {
 						declared = m
@@ -587,7 +612,14 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 					return s.Reject("PLAN_REVIEW_COVERAGE_REQUIRED", "组合结论未覆盖实际检查范围")
 				}
 				a := approval.PlanLatest(c, id)
-				if a == nil || a["attempt_id"] != binding["attempt_id"] || a["status"] != "completed" || a["task_ref"] != source["review_task_ref"] || a["task_digest"] != source["review_task_digest"] {
+				if a == nil {
+					return s.Reject("PLAN_REVIEW_RESULT_REQUIRED", "检查缺少登记尝试")
+				}
+				taskBinding, err := approval.PlanTaskAsset(s, a)
+				if err != nil {
+					return err
+				}
+				if a["attempt_id"] != binding["attempt_id"] || a["status"] != "completed" || taskBinding["ref"] != source["review_task_ref"] || taskBinding["digest"] != source["review_task_digest"] {
 					return s.Reject("PLAN_REVIEW_RESULT_REQUIRED", "检查缺少登记且通过的当前结论")
 				}
 				passed := false

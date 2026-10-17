@@ -298,7 +298,7 @@ func (s *SemanticSession) RequireGovernanceWrite() error {
 		return s.Reject("GOVERNANCE_MIGRATION_REQUIRED", "任务或阶段写入需要完整的新治理合同；先显式迁移")
 	}
 	// Registration is the executable capability check; no flag can enable absent consumers.
-	for _, kind := range []string{"task", "slice", "approval", "user-decision", "verification", "checkpoint"} {
+	for _, kind := range []string{"task", "task-baseline", "task-candidate", "task-selection", "slice", "slice-draft", "slice-preflight", "slice-execution-result", "approval", "user-decision", "verification", "daily-record", "standard-record", "checkpoint", "checkpoint-boundary", "tracking-entry", "business-checkpoint", "plan-checkpoint", "plan-review-task", "plan-entry", "plan-aggregate", "checkpoint-user-decisions", "checkpoint-approvals", "gate-checks", "execution-scope", "next-route", "context-reconciliation", "reading-transition", "backend-terminal", "backend-review", "backend-delivery", "handoff-package", "handoff-source-approval"} {
 		if RoleIndependentValidators[kind] == nil {
 			return s.Unavailable("CAPABILITY", "新治理写入尚未激活，缺少原生消费者: "+kind)
 		}

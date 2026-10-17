@@ -204,3 +204,18 @@ func TestReviewRequirementMatchesOnlyCompleteExplicitRequest(t *testing.T) {
 		t.Fatalf("ordinary unbound work: %q %v", mode, err)
 	}
 }
+
+func TestPolicy2BackendCompletionRequiresTechnicalTerminalGate(t *testing.T) {
+	s, _, _ := trueDecisionFixture(t)
+	cp := map[string]any{"repository_mode": "project-instance", "status": "completed", "gates": map[string]any{"gate.fresh-verification-passed": map[string]any{"status": "approved"}}}
+	decisionFile(t, s.Root, "cp.json", cp)
+	if err := s.Verify("checkpoint-user-decisions", "cp.json", nil); err != nil {
+		t.Fatal(err)
+	}
+	kernel.ApMap(kernel.ApMap(cp["gates"])["gate.fresh-verification-passed"])["status"] = "pending"
+	decisionFile(t, s.Root, "cp.json", cp)
+	s.V = kernel.NewView(s.Root)
+	if err := s.Verify("checkpoint-user-decisions", "cp.json", nil); err == nil {
+		t.Fatal("accepted unfinished technical terminal")
+	}
+}

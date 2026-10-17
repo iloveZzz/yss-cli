@@ -102,6 +102,12 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 				if e = s.Verify("plan-aggregate", checkpointRef, map[string]string{"approval": ref, "gate": gate}); e != nil {
 					return e
 				}
+				rule, err := ApprovalRuleSemantic(s, selected)
+				if err != nil {
+					return err
+				}
+				validated, _ := s.Report.Coverage["approval_validated"].([]any)
+				s.Report.Coverage["approval_validated"] = append(validated, map[string]any{"gate_id": gate, "rule": rule, "subject_ref": selected["subject_ref"], "approval_scope": selected["approval_scope"]})
 				continue
 			}
 		}

@@ -70,7 +70,10 @@ type dailySession struct {
 }
 
 func Run(ctx context.Context, action, root string, args map[string]string) (any, error) {
-	s := kernel.NewSemanticSession(ctx, root, args)
+	return runDailySession(kernel.NewSemanticSession(ctx, root, args), action, args)
+}
+
+func runDailySession(s *kernel.SemanticSession, action string, args map[string]string) (any, error) {
 	s.Report.Kind = "lifecycle." + action
 	s.Report.Scope = "daily-record-and-current-git-only"
 	d := &dailySession{s: s, report: &DailyReport{SemanticReport: s.Report, DeliveryPath: "needs-info", ChangedFiles: []string{}}, basis: map[string]string{}}
@@ -1132,4 +1135,16 @@ func (d *dailySession) implementationPaths(paths []string) error {
 		}
 	}
 	return nil
+}
+
+func init() {
+	// Both persisted record2 paths use this same actual route/verification implementation.
+	for _, kind := range []string{"daily-record", "standard-record"} {
+		kernel.RegisterRoleIndependentValidator(kind, func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
+			args := kernel.SemanticOptions(opts)
+			args["task"] = ref
+			_, err := runDailySession(s, "verify-daily", args)
+			return err
+		})
+	}
 }

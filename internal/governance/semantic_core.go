@@ -55,7 +55,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice-draft", "slice-execution-result", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
+		allowed := map[string][]string{"contract": {"slice-draft", "slice-execution-result", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
@@ -176,8 +176,11 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 
 func init() {
 	kernel.RegisterSemanticValidator("plan-entry", verifyPlanEntrySemantic)
+	kernel.RegisterRoleIndependentValidator("plan-entry", verifyPlanEntrySemantic)
 	kernel.RegisterSemanticValidator("gate-checks", verifyGateChecksPublic)
+	kernel.RegisterRoleIndependentValidator("gate-checks", verifyGateChecksPublic)
 	kernel.RegisterSemanticValidator("checkpoint-approvals", verifyCheckpointApprovalsPublic)
+	kernel.RegisterRoleIndependentValidator("checkpoint-approvals", verifyCheckpointApprovalsPublic)
 	kernel.RegisterSemanticValidator("implementation-scope", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		state, err := s.Doc(ref)
 		if err != nil {

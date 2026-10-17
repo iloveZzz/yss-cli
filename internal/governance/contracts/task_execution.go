@@ -215,7 +215,11 @@ func validateTask3Execution(s *kernel.SemanticSession, ref string, task, candida
 	if s.Report.Coverage == nil {
 		s.Report.Coverage = map[string]any{}
 	}
-	s.Report.Coverage["task_execution"] = map[string]any{"task_ref": ref, "candidate": candidate, "provenance": task["provenance"], "scope": task["allowed_write_paths"], "completed": true}
+	scope, err := taskApprovalScope(s, task)
+	if err != nil {
+		return err
+	}
+	s.Report.Coverage["task_execution"] = map[string]any{"task_ref": ref, "candidate": candidate, "provenance": task["provenance"], "scope": scope, "completed": true}
 	if protectedPaths != nil {
 		kernel.ApMap(s.Report.Coverage["task_execution"])["candidate_scope"] = map[string]any{"repository_root": kernel.ApMap(task["baseline"])["repository_root"], "paths": protectedPaths}
 	}
@@ -482,4 +486,35 @@ func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[str
 		candidate["ref"] = ref
 	}
 	return candidate, changed, kernel.ApStrings(source["roots"]), err
+}
+
+// Formal feature scope is distinct from the protected filesystem write scope.
+func taskApprovalScope(s *kernel.SemanticSession, task map[string]any) ([]string, error) {
+	feature := kernel.Text(task["feature_id"])
+	if feature == "" || kernel.ApMap(task["contract"])["kind"] != "lifecycle-work-unit" {
+		return kernel.ApStrings(task["allowed_write_paths"]), nil
+	}
+	if !strings.HasPrefix(feature, "feature.") || kernel.Text(task["checkpoint_ref"]) == "" {
+		return nil, s.Reject("TASK_SCOPE", "正式功能范围缺少当前checkpoint来源")
+	}
+	cp, err := s.Doc(kernel.Text(task["checkpoint_ref"]))
+	if err != nil {
+		return nil, err
+	}
+	ref := kernel.Text(kernel.ApMap(task["contract"])["contract_ref"])
+	input := kernel.ApFind(task["input_bindings"], "ref", ref)
+	if input == nil {
+		return nil, s.Reject("TASK_SCOPE", "功能范围没有冻结合同来源")
+	}
+	if _, err = s.EvidenceAsset(input); err != nil {
+		return nil, err
+	}
+	source, err := s.Doc(ref)
+	if err != nil {
+		return nil, err
+	}
+	if cp["feature_id"] != feature || source["feature_id"] != feature {
+		return nil, s.Reject("TASK_SCOPE", "功能范围与当前checkpoint及冻结合同不一致")
+	}
+	return []string{feature}, nil
 }

@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -9,6 +10,22 @@ import (
 )
 
 func init() {
+	kernel.RegisterRoleIndependentValidator("task-baseline", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		input, err := s.Doc(ref)
+		if err != nil {
+			return err
+		}
+		root := kernel.Text(input["repository_root"])
+		if len(input) != 3 || !filepath.IsAbs(root) || (root != s.Root && s.ExternalViews[root] == nil) {
+			return s.Reject("TASK_BASELINE", "查询只接受当前或已登记工程的实际基线")
+		}
+		source, err := TaskBaselineSource(s, root, kernel.Text(input["commit"]), kernel.ApStrings(input["allowed_write_paths"]))
+		if err != nil {
+			return err
+		}
+		kernel.SemanticCoverage(s, "task_baseline", map[string]any{"baseline": map[string]any{"repository_root": root, "commit": input["commit"], "digest": strings.TrimPrefix(ContractDigest(source), "sha256:")}, "read_only": true, "execution_allowed": false, "approval_created": false})
+		return nil
+	})
 	kernel.RegisterRoleIndependentValidator("task", verifyRoleIndependentTask)
 	kernel.RegisterRoleIndependentValidator("implementation-scope", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		state, err := s.Doc(ref)
@@ -177,7 +194,7 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			return err
 		}
 	}
-	if (!dispatch || query) && (task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier") {
+	if task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier" {
 		review := kernel.ApMap(task["review_context"])
 		if _, _, _, _, err = trustedTaskImplementation(s, review); err != nil {
 			return err
@@ -222,6 +239,11 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 		execution := s.Report.Coverage["task_execution"]
 		if err = validateTask3Review(s, task, candidate); err != nil {
 			return err
+		}
+		if kernel.ApMap(task["review_context"])["plan_review_binding"] != nil {
+			if err = s.Verify("plan-review-task", actualRef, nil); err != nil {
+				return err
+			}
 		}
 		// Nested implementation verification must not replace this review's completion observation.
 		if execution != nil {
@@ -306,7 +328,15 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 		return s.Reject("TASK_REVIEW", "审查派发来源与当前任务不符")
 	}
 
-	if !kernel.ApEqual(review["candidate"], candidate) || !kernel.ApSetEqual(review["check_ids"], kernel.ApMap(task["skill_source"])["check_ids"]) {
+	selected := kernel.ApMap(task["skill_source"])["check_ids"]
+	matchesChecks := kernel.ApSetEqual(review["check_ids"], selected)
+	if review["plan_review_binding"] != nil {
+		matchesChecks = kernel.ApUnique(review["check_ids"])
+		for _, check := range kernel.ApStrings(review["check_ids"]) {
+			matchesChecks = matchesChecks && kernel.ApContains(selected, check)
+		}
+	}
+	if !kernel.ApEqual(review["candidate"], candidate) || !matchesChecks {
 		return s.Reject("TASK_REVIEW", "审查未绑定当前候选或检查范围")
 	}
 	if err := s.ValidateGovernancePolicyBinding(kernel.ApMap(review["policy"])); err != nil {
