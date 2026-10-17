@@ -201,7 +201,7 @@ yss -V --json
 
 `yss trace --feature <功能包>` 只读汇总业务票（FR/AC）、垂直切片 Ticket 与 Slice 合同的验证映射，给出每个验收的切片、验证与提交；加 `--implementation-root --since [--until]` 时按 Ticket trailer 把实现仓提交关联到 `slice_id`。缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要在冻结后变化；`--html` 另写静态矩阵页（项目外新文件），`--strict` 有缺口时以 `TRACE_GAPS` 失败。MCP 同名工具 `trace` 只读、不写 HTML。
 
-`yss init|attach --full --stack java|vue|none` 按技术栈裁剪完整分发：`java` 不装前端专项技能，`vue` 不装后端专项技能，`none`（默认）保持完整分发。专项按 Bundle 内技能注册表的 `impacts` 判定：只影响另一端（可另含 `api`）的技能才排除；生命周期、原型、质量与跨两端的技能始终保留，保留技能 `context-required` 依赖到的技能放回。锁与安装清单随选择一致；`--stack` 只与 `--full` 同用。
+`yss init|attach --full --stack java|vue|none` 按技术栈裁剪完整分发：`java` 不装前端专项技能，`vue` 不装后端专项技能，`none`（默认）保持完整分发。分组只取 Bundle 内技能注册表的显式 `stack` 名单（`java`、`vue`；未声明为通用技能，始终保留），不按 `impacts` 推断。保留技能对被排除技能的 `context-required` 依赖，或未用 `stacks` 限定到另一栈的 `context-conditional` 依赖，视为名单矛盾直接失败；注册表未声明 `stack` 的旧 Bundle 拒绝裁剪。锁与安装清单随选择一致；`--stack` 只与 `--full` 同用。
 
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 

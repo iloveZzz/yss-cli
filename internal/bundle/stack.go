@@ -13,10 +13,10 @@ const skillRegistryRef = ".template-spec/agents/yss-skill-registry.yaml"
 // Stacks 是 init/attach --full 可选的技术栈；none 保持完整分发。
 var Stacks = []string{"java", "vue", "none"}
 
-// StackExclusions 返回选择某个技术栈时不分发的技能：java 排除前端专项，vue 排除后端专项；
-// 专项指 impacts 只含该端（可另含 api），其余技能始终保留。分组只取 Bundle
-// 内注册表的 impacts；保留技能经 context-required 依赖到的技能放回。context-conditional 依赖
-// 只在条件成立时需要（如 when: pojo），显式选栈后另一端的条件不会出现，不据此放回。
+// StackExclusions 返回选择某个技术栈时不分发的技能：java 排除 stack: vue 的技能，vue 排除
+// stack: java 的技能，未声明 stack 的技能为通用技能，始终保留。分组只取 Bundle 内注册表的
+// 显式 stack 名单，不按 impacts 推断。保留技能对被排除技能的 context-required 依赖，以及未用
+// stacks 限定到另一栈的 context-conditional 依赖，说明名单与依赖矛盾，直接拒绝而不自行放回。
 func StackExclusions(b *Bundle, stack string) ([]string, error) {
 	if stack == "" || stack == "none" {
 		return nil, nil
@@ -41,50 +41,53 @@ func StackExclusions(b *Bundle, stack string) ([]string, error) {
 	if len(skills) == 0 {
 		return nil, domain.Fail("BUNDLE", "技能注册表没有技能")
 	}
-	other := "frontend"
+	other := "vue"
 	if stack == "vue" {
-		other = "backend"
+		other = "java"
 	}
 	excluded := map[string]bool{}
+	declared := false
 	for _, item := range skills {
 		s, _ := item.(map[string]any)
 		id, _ := s["id"].(string)
-		impacts := map[string]bool{}
-		list, _ := s["impacts"].([]any)
-		for _, v := range list {
-			if name, ok := v.(string); ok {
-				impacts[name] = true
-			}
+		value, has := s["stack"]
+		if !has {
+			continue
 		}
-		// 栈专项：影响另一端，且除 api 外不影响任何其他面。同时涉及生命周期、原型、质量或
-		// 两端的技能（如合同编译器、设计系统、技术设计）属于流程能力，始终保留。
-		onlyOther := impacts[other]
-		for name := range impacts {
-			if name != other && name != "api" {
-				onlyOther = false
-			}
+		declared = true
+		name, _ := value.(string)
+		if name != "java" && name != "vue" {
+			return nil, domain.Fail("BUNDLE", "技能注册表 stack 只允许 java 或 vue: "+id)
 		}
-		if id != "" && onlyOther {
+		if id != "" && name == other {
 			excluded[id] = true
 		}
 	}
+	if !declared {
+		return nil, domain.Fail("BUNDLE", "Bundle 内技能注册表未声明 stack 名单，不能按技术栈裁剪；升级到包含 stack 字段的模板版本")
+	}
 	deps, _ := registry["skill_dependencies"].(map[string]any)
-	for changed := true; changed; {
-		changed = false
-		for owner, rows := range deps {
-			if excluded[owner] {
+	owners := make([]string, 0, len(deps))
+	for owner := range deps {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+	for _, owner := range owners {
+		if excluded[owner] {
+			continue
+		}
+		list, _ := deps[owner].([]any)
+		for _, row := range list {
+			m, _ := row.(map[string]any)
+			target, _ := m["skill"].(string)
+			kind, _ := m["type"].(string)
+			if !excluded[target] || (kind != "context-required" && kind != "context-conditional") {
 				continue
 			}
-			list, _ := rows.([]any)
-			for _, row := range list {
-				m, _ := row.(map[string]any)
-				target, _ := m["skill"].(string)
-				kind, _ := m["type"].(string)
-				if excluded[target] && kind == "context-required" {
-					delete(excluded, target)
-					changed = true
-				}
+			if kind == "context-conditional" && onlyFor(m["stacks"], other) {
+				continue
 			}
+			return nil, domain.Fail("BUNDLE", "技能注册表 stack 名单与依赖矛盾: "+owner+" → "+target+"（"+kind+"），--stack "+stack+" 不能裁剪")
 		}
 	}
 	out := make([]string, 0, len(excluded))
@@ -93,4 +96,18 @@ func StackExclusions(b *Bundle, stack string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// onlyFor 判断依赖的 stacks 限定是否只含指定栈（未声明视为所有栈都适用）。
+func onlyFor(value any, stack string) bool {
+	list, _ := value.([]any)
+	if len(list) == 0 {
+		return false
+	}
+	for _, v := range list {
+		if name, _ := v.(string); name != stack {
+			return false
+		}
+	}
+	return true
 }
