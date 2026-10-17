@@ -253,10 +253,7 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 		return nil, err
 	}
 	if action != "inspect" && action != "begin" && action != "event" && action != "complete" && !runtimeQueryAction(action) && action != "pin" && action != "unpin" {
-		return nil, domain.Fail("UNPORTED", "运行存储动作尚未迁移: "+action)
-	}
-	if action == "begin" && (args["input"] != "" || args["report-dir"] != "") {
-		return nil, domain.Fail("UNPORTED", "输入对象与正式报告保护尚未迁移")
+		return nil, domain.Fail("UNPORTED", "不支持的运行存储动作: "+action)
 	}
 	dir, err := kernel.RuntimeLocation(root, args["home"])
 	if err != nil {
@@ -327,8 +324,19 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 		if kind == "" {
 			kind = "command"
 		}
-		if args["input"] != "" || args["report-dir"] != "" {
-			return nil, domain.Fail("UNPORTED", "输入对象与正式报告保护尚未迁移")
+		// 与 Node RuntimeStore.begin 同义：输入按原字节存为共享 gzip 对象并登记引用；
+		// 正式报告目录须在仓外，以 report-dir:<路径> 保护。先完成文件准备，再在同一事务登记。
+		report := ""
+		if raw := args["report-dir"]; raw != "" {
+			if report, err = kernel.ExternalPath(root, raw); err != nil {
+				return nil, err
+			}
+		}
+		var input *runtimeObject
+		if value, present := args["input"]; present && value != "" {
+			if input, err = storeRuntimeInput(dir, []byte(value)); err != nil {
+				return nil, err
+			}
 		}
 		random := make([]byte, 32)
 		if _, err = rand.Read(random); err != nil {
@@ -361,14 +369,49 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 			return nil, err
 		}
 		host, _ := os.Hostname()
-		if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,kind,root,started_at,status,run_dir,owner_pid,hostname) VALUES(?,?,?,?,?,?,?,?)", id, kind, root, time.Now().UTC().Format(time.RFC3339Nano), "running", runDir, os.Getpid(), host); err != nil {
+		started := time.Now().UTC().Format(time.RFC3339Nano)
+		var inputDigest, reportDir any
+		if input != nil {
+			inputDigest = input.digest
+		}
+		if report != "" {
+			reportDir = report
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,kind,root,started_at,status,input_digest,run_dir,report_dir,owner_pid,hostname) VALUES(?,?,?,?,?,?,?,?,?,?)", id, kind, root, started, "running", inputDigest, runDir, reportDir, os.Getpid(), host); err != nil {
 			return nil, err
+		}
+		if input != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO objects(digest,bytes,compressed_bytes,relative_path) VALUES(?,?,?,?)", input.digest, input.bytes, input.compressed, input.relative); err != nil {
+				return nil, err
+			}
+			var deleting int
+			if err = tx.QueryRowContext(ctx, "SELECT deleting FROM objects WHERE digest=?", input.digest).Scan(&deleting); err != nil {
+				return nil, err
+			}
+			if deleting != 0 {
+				return nil, domain.Fail("RUNTIME_STATE", "输入对象正在清理，拒绝新增引用")
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT INTO run_objects(run_id,digest) VALUES(?,?)", id, input.digest); err != nil {
+				return nil, err
+			}
+		}
+		if report != "" {
+			if _, err = tx.ExecContext(ctx, "INSERT INTO pins(run_id,reason,created_at) VALUES(?,?,?)", id, "report-dir:"+report, started); err != nil {
+				return nil, err
+			}
 		}
 		if err = tx.Commit(); err != nil {
 			return nil, err
 		}
 		created = true
-		return map[string]any{"id": id, "token": token, "run_dir": runDir, "directory": dir, "status": "running", "execution_authorization": "not-evaluated"}, nil
+		out := map[string]any{"id": id, "token": token, "run_dir": runDir, "directory": dir, "status": "running", "execution_authorization": "not-evaluated"}
+		if input != nil {
+			out["input_digest"] = input.digest
+		}
+		if report != "" {
+			out["report_dir"], out["protection"] = report, []string{"report-dir:" + report}
+		}
+		return out, nil
 	}
 	id := args["id"]
 	if id == "" {

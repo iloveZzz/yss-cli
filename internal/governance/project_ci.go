@@ -21,7 +21,8 @@ const nativeCIReceiptRef = ".template-spec/process/project-ci-native-install.jso
 
 const nativeCIWorkflowRef = ".github/workflows/yss-governance-native.yml"
 
-var unportedProjectChecks = []string{"checkpoint-boundary-and-deep-verification", "digital-human-task-role-and-contract", "approval-ownership-and-current-context", "lifecycle-next-route", "slice-contract-approval", "git-base-deletion-protection"}
+// nativeScopeSkippedChecks 是 --scope native-go 有限检查不执行的深层门禁；默认完整治理范围会执行它们。
+var nativeScopeSkippedChecks = []string{"checkpoint-boundary-and-deep-verification", "digital-human-task-role-and-contract", "approval-ownership-and-current-context", "lifecycle-next-route", "slice-contract-approval", "git-base-deletion-protection"}
 
 func governanceScope(v *kernel.View) ([]string, map[string]any, error) {
 	if err := kernel.ProjectIdentity(v); err != nil {
@@ -68,7 +69,8 @@ func governanceScope(v *kernel.View) ([]string, map[string]any, error) {
 		}
 		n, valid := kernel.Integer(c["schema_version"])
 		paths, list := c["roots"].([]any)
-		if !valid || n != 1 || !list || kernel.Text(c["kind"]) != "project-ci-native-scope" || kernel.Text(c["scope"]) != "native-go" || c["full_project_governance"] != false {
+		scope := kernel.Text(c["scope"])
+		if !valid || n != 1 || !list || kernel.Text(c["kind"]) != "project-ci-native-scope" || ciPlanKinds[scope] == "" || c["full_project_governance"] != (scope == ciScopeComplete) {
 			return nil, nil, domain.Fail("CI_CONFIG", "未知原生 CI 范围配置")
 		}
 		for _, p := range paths {
@@ -334,8 +336,25 @@ func nativeWorkflow(branch, source string) []byte {
 	return []byte(fmt.Sprintf("# Managed by Go project-ci explicit plan/apply. Scope: Context, stage work, local references and digests.\nname: YSS Context and stage work\non:\n  pull_request:\n  push:\n    branches: [%q]\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  native-scope:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          persist-credentials: false\n      - uses: actions/setup-go@v5\n        with:\n          go-version-file: %s/go.mod\n          cache: false\n      - name: Verify native implementation\n        run: go -C %s test ./internal/governance ./internal/schema ./internal/transaction\n      - name: Check Context and stage work only\n        shell: bash\n        run: go -C %s run ./cmd/yss project-ci check --root \"$GITHUB_WORKSPACE\" --scope native-go --json > \"$RUNNER_TEMP/yss-governance-native.json\"\n      - uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: yss-governance-native-scope\n          path: ${{ runner.temp }}/yss-governance-native.json\n          if-no-files-found: error\n", branch, source, source, source))
 }
 
+// CI 安装范围：native-go 只装有限检查；complete-governance 装与默认 project-ci check 相同的完整治理检查。
+const (
+	ciScopeNative   = "native-go"
+	ciScopeComplete = "complete-governance"
+)
+
+var ciPlanKinds = map[string]string{ciScopeNative: "project-ci-native-go-plan", ciScopeComplete: "project-ci-complete-plan"}
+
+// completeWorkflow 运行与默认 project-ci check 相同的完整治理检查；source 与 branch 已是校验过的令牌。
+func completeWorkflow(branch, source string) []byte {
+	return []byte(fmt.Sprintf("# Managed by Go project-ci explicit plan/apply. Scope: complete governance (same as default project-ci check).\nname: YSS governance\non:\n  pull_request:\n  push:\n    branches: [%q]\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  complete-governance:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          persist-credentials: false\n      - uses: actions/setup-go@v5\n        with:\n          go-version-file: %s/go.mod\n          cache: false\n      - name: Check complete governance\n        shell: bash\n        run: go -C %s run ./cmd/yss project-ci check --root \"$GITHUB_WORKSPACE\" --runtime-store off --json > \"$RUNNER_TEMP/yss-governance.json\"\n      - uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: yss-governance\n          path: ${{ runner.temp }}/yss-governance.json\n          if-no-files-found: error\n", branch, source, source))
+}
+
 func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
-	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "project-ci-native-go-plan", Root: root, Action: "install", Scope: "native-go", Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
+	scope := kernel.First(args["scope"], ciScopeComplete)
+	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: ciPlanKinds[scope], Root: root, Action: "install", Scope: scope, Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
+	if plan.Kind == "" {
+		return plan, domain.Fail("ARGUMENT", "--scope 只支持 native-go；省略时安装完整治理")
+	}
 	v := kernel.NewView(root)
 	if err := pendingOldTransaction(v); err != nil {
 		return plan, err
@@ -396,13 +415,18 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 		}
 		roots = kernel.UniqueStrings(roots)
 	}
-	plan.Options = map[string]string{"scope": "native-go", "provider": provider, "branch": branch, "cli-source": source, "additional-path": args["additional-path"]}
-	nativeConfig := map[string]any{"schema_version": 1, "kind": "project-ci-native-scope", "scope": "native-go", "full_project_governance": false, "provider": provider, "branch": branch, "roots": roots, "cli_source": source, "verification_status": "not-executed"}
+	complete := scope == ciScopeComplete
+	plan.Options = map[string]string{"scope": scope, "provider": provider, "branch": branch, "cli-source": source, "additional-path": args["additional-path"]}
+	nativeConfig := map[string]any{"schema_version": 1, "kind": "project-ci-native-scope", "scope": scope, "full_project_governance": complete, "provider": provider, "branch": branch, "roots": roots, "cli_source": source, "verification_status": "not-executed"}
 	conf, err := jsonBytes(nativeConfig)
 	if err != nil {
 		return plan, err
 	}
-	outputs := map[string][]byte{nativeCIConfigRef: conf, nativeCIWorkflowRef: nativeWorkflow(branch, source)}
+	workflow := nativeWorkflow(branch, source)
+	if complete {
+		workflow = completeWorkflow(branch, source)
+	}
+	outputs := map[string][]byte{nativeCIConfigRef: conf, nativeCIWorkflowRef: workflow}
 	owned := map[string]any(nil)
 	d, err := v.Watch(nativeCIReceiptRef)
 	if err != nil {
@@ -436,7 +460,7 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 			return plan, err
 		}
 	}
-	receipt, err := jsonBytes(map[string]any{"schema_version": 1, "kind": "project-ci-native-installation", "scope": "native-go", "full_project_governance": false, "managed": managed})
+	receipt, err := jsonBytes(map[string]any{"schema_version": 1, "kind": "project-ci-native-installation", "scope": scope, "full_project_governance": complete, "managed": managed})
 	if err != nil {
 		return plan, err
 	}
@@ -456,8 +480,9 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 	if (action == "check" || action == "verify") && args["scope"] != "native-go" {
 		return fullProjectCIRun(ctx, action, root, args)
 	}
-	if args["scope"] != "native-go" {
-		return nil, domain.Fail("UNPORTED", "完整 project-ci 深层门禁尚未迁移: "+strings.Join(unportedProjectChecks, ", ")+"；仅显式 --scope native-go 可校验 Context、stage work 和当前本地引用摘要")
+	installing := action == "install" || action == "plan" || action == "apply"
+	if args["scope"] != ciScopeNative && !installing {
+		return nil, domain.Fail("ARGUMENT", "project-ci "+action+" 只支持显式 --scope native-go")
 	}
 	for _, key := range []string{"base", "runtime-store", "recover"} {
 		if args[key] != "" {
@@ -471,7 +496,7 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		return nativeStageTransition(root, args)
 	}
 	if action != "install" && action != "plan" && action != "apply" {
-		return nil, domain.Fail("UNPORTED", "project-ci 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 project-ci 动作: "+action)
 	}
 	if action == "apply" || args["apply"] == "true" {
 		ref := args["plan-file"]
@@ -490,7 +515,7 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		if err = json.Unmarshal(b, &plan); err != nil {
 			return nil, err
 		}
-		if plan.Kind != "project-ci-native-go-plan" || plan.Root != root || plan.SchemaVersion != 1 || plan.ProtocolVersion != 1 || plan.Scope != "native-go" || plan.Action != "install" {
+		if plan.Kind == "" || plan.Kind != ciPlanKinds[plan.Scope] || plan.Root != root || plan.SchemaVersion != 1 || plan.ProtocolVersion != 1 || plan.Action != "install" || kernel.First(args["scope"], ciScopeComplete) != plan.Scope {
 			return nil, domain.Fail("UNPORTED", "未知或旧 CI 计划不能由 Go 直接应用")
 		}
 		digest, err := nativePlanDigest(plan)
@@ -508,7 +533,7 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": tx.Status, "transaction": tx, "scope": "native-go", "full_project_governance": false, "remote_changed": false, "verification_status": "not-executed"}, nil
+		return map[string]any{"status": tx.Status, "transaction": tx, "scope": plan.Scope, "full_project_governance": plan.Scope == ciScopeComplete, "remote_changed": false, "verification_status": "not-executed"}, nil
 	}
 	return buildCIPlan(root, args)
 }
@@ -603,5 +628,5 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 			}
 		}
 	}
-	return map[string]any{"status": "work-conditions-satisfied", "scope": "stage-work-only", "full_project_governance": false, "transition_allowed": "not-evaluated", "approval_created": false, "read_only": true, "current_work_unit": current, "next_work_unit": next, "unported_checks": unportedProjectChecks}, nil
+	return map[string]any{"status": "work-conditions-satisfied", "scope": "stage-work-only", "full_project_governance": false, "transition_allowed": "not-evaluated", "approval_created": false, "read_only": true, "current_work_unit": current, "next_work_unit": next, "unported_checks": nativeScopeSkippedChecks}, nil
 }

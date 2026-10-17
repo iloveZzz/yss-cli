@@ -50,7 +50,8 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 		return d, nil
 	}
 	// 目标 Bundle 不再分发的运行时投影（投影根收敛）：运行时登记随之清掉，升级后锁与元数据一致。
-	d["runtimes"] = shippedRuntimes(b, stringsOf(d["runtimes"]))
+	// 目标 Bundle 新声明并实际分发的运行时（如恢复 .claude/skills）随 sync 进入实例。
+	d["runtimes"] = shippedRuntimes(b, union(stringsOf(d["runtimes"]), stringsOf(b.Distribution["runtimes"])))
 	added := []string{}
 	set := map[string]bool{}
 	for _, ref := range selection {

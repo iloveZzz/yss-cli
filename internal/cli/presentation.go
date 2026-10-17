@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/trace"
 	"io"
 	"sort"
 	"strings"
@@ -34,6 +35,15 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		}
 		out.WriteString("详细来源：yss version --json")
 		return out.String()
+	}
+	if command == "explain" {
+		return renderExplain(m)
+	}
+	if command == "check" || command == "verify" {
+		return renderCheck(m)
+	}
+	if command == "trace" {
+		return trace.Summary(m)
 	}
 	title := "查询完成"
 	if command == "scaffold" {
@@ -176,11 +186,11 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 // 摘要只翻译已有字段，不重新判断路径；字段缺失时返回 false，回退到通用输出。
 func renderRouteSummary(o options, profile string, m map[string]any) (string, bool) {
 	path, _ := m["delivery_path"].(string)
-	if m["kind"] != "lifecycle.route" || (path != "daily" && path != "governed") {
+	if m["kind"] != "lifecycle.route" || (path != "daily" && path != "standard" && path != "governed") {
 		return "", false
 	}
 	var out strings.Builder
-	label := map[string]string{"daily": "日常路径（只维护同一张任务单，不生成阶段文档）", "governed": "正式路径（需要从最近可信阶段恢复正式治理）"}[path]
+	label := map[string]string{"daily": "日常路径（只维护同一张任务单，不生成阶段文档）", "standard": "standard 路径（同一张任务单 + 一页 Spec-lite + 一次生物人决定）", "governed": "正式路径（需要从最近可信阶段恢复正式治理）"}[path]
 	fmt.Fprintf(&out, "路由判定完成：%s\n", label)
 	if profile != "" {
 		fmt.Fprintf(&out, "Profile：%s\n", profile)
@@ -204,7 +214,9 @@ func renderRouteSummary(o options, profile string, m map[string]any) (string, bo
 		}
 	}
 	root, task := o.values["root"], o.values["task"]
-	if path == "daily" {
+	if path == "standard" && m["standard_required"] == true {
+		out.WriteString("下一步：按 Spec-lite 模板写一页需求，取得 standard-change-approved 决定，把 delivery_path 改为 standard 后重新路由。\n")
+	} else if path == "daily" || path == "standard" {
 		out.WriteString("下一步：按“需求验收 → 实现 → 测试 → 独立审查”推进，结果记回同一张任务单；完成后核验：\n")
 		fmt.Fprintf(&out, "  %s\n", formatArgv([]string{"yss", "lifecycle", "verify-daily", "--root", stringValue(root, ""), "--task", stringValue(task, ""), "--implementation-root", stringValue(o.values["implementation-root"], ""), "--base", stringValue(o.values["base"], "")}))
 	} else {

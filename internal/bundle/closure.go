@@ -558,6 +558,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 	var registry struct {
 		InstanceDistribution struct {
 			InitialSkills []string `yaml:"initial_skills"`
+			Runtimes      []string `yaml:"runtimes"`
 		} `yaml:"instance_distribution"`
 	}
 	if e := yaml.Unmarshal(raw[".template-spec/agents/yss-skill-registry.yaml"].data, &registry); e != nil {
@@ -566,6 +567,16 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 	skills := registry.InstanceDistribution.InitialSkills
 	if len(skills) == 0 {
 		return fmt.Errorf("Skill 注册表缺少 initial_skills")
+	}
+	// 实例运行时只接受 claude：Claude Code 只从 .claude/skills 发现项目技能，其他运行时直接读 .agents/skills。
+	runtimes := []string{}
+	claude := false
+	for _, runtime := range registry.InstanceDistribution.Runtimes {
+		if runtime != "claude" || claude {
+			return fmt.Errorf("Skill 注册表 instance_distribution.runtimes 只支持一次 claude: %s", runtime)
+		}
+		claude = true
+		runtimes = append(runtimes, runtime)
 	}
 	// A stage policy change must explicitly account for every authoritative stage.
 	re := regexp.MustCompile(`(?m)^  - id: (stage\.[a-z0-9-]+)\s*$`)
@@ -584,7 +595,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 	}
 	paths := stringSet(initial.Paths)
 	selected := stringSet(initial.Skills)
-	b.Distribution = map[string]any{"mode": "selected", "runtimes": []string{}, "installedSkills": skills, "assetProfile": "stage-selective", "installedStages": stages, "resourceSkills": []string{}}
+	b.Distribution = map[string]any{"mode": "selected", "runtimes": runtimes, "installedSkills": skills, "assetProfile": "stage-selective", "installedStages": stages, "resourceSkills": []string{}}
 	for ref, f := range raw {
 		if !includedByManifest(ref, p.Manifest, true) || ref == ".cursorrules" {
 			continue
@@ -601,7 +612,7 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 				continue
 			}
 		}
-		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") || strings.HasPrefix(ref, ".claude/skills/") {
+		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") || (!claude && strings.HasPrefix(ref, ".claude/skills/")) {
 			continue
 		}
 		if strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".codex/skills/") {

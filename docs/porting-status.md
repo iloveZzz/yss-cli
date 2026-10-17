@@ -9,10 +9,10 @@
 | 程序安装 | `update plan/apply/status/recover/rollback`；指定 `--tool-root`、发行包 SHA-256；独立安装记录和持久归档 | 只接受显式离线发行包；恢复锁内匹配 `program-update`，回退最近一次成功安装；无网络自动查询、全局 npm 更新或发布动作；平台恢复以对应发行包的原生收据为准 |
 | Skill/阶段资源补装 | 已登记的资源/Skill 闭包；Spec selected lock 更新 | Inspect 暴露闭包和 unsupportedReason，必要消费者出现 UNPORTED 即阻断 |
 | Context、生命周期 | 唯一根合同、词汇、摘要、快照核验；当前登记状态查询；已接入当前 checkpoint、阶段、批准、决定与下一路由原生校验 | 本地预发布验收以冻结报告为准；校验不创建批准或授予实现资格 |
-| Stage work | JSON checkpoint 的 register/update/apply、语义校验、依赖/stale/证据检查 | 自动创建 checkpoint、refresh、YAML 写入及外部 Schema 引用仍未迁移 |
+| Stage work | JSON checkpoint 的 register/update/apply、语义校验、依赖/stale/证据检查；`plan --refresh`（漂移项沿依赖传递重置为 pending 并标记 recheck_required，与模板 Node refreshTracking 对拍一致）；checkpoint 查询的 `--stage/--work-unit` 筛选 | 自动创建 checkpoint、YAML 写入及外部 Schema 引用仍未迁移 |
 | contract/evidence/handoff | `check` 保留结构合同；`verify` 已接入批准、真实决定、task、Slice、scaffold、验证结果、目录/虚拟 ZIP 包与消费收据原生语义 | 未知类型或尚未覆盖的协议分支明确拒绝；缺少本地规则或当前期待明确拒绝，禁止 Schema 替代领域规则 |
-| runtime | 纯 Go SQLite v1，inspect/begin/event/complete；run/events/commands/pins 只读查询；Go token 的幂等 pin/unpin，终态可用 | inputs/reports/checkpoint/清理、备份/恢复等旧能力仍走旧路径；只读 WAL 明确拒绝，避免生成 sidecar；保护标记不删除证据、不授予批准 |
-| project-ci | 默认完整治理；显式 `--scope native-go` 保留有限检查；完整范围包含 checkpoint/task/approval/next-route/Slice/scaffold/验证证据/Handoff/evidence refs/基线保护 | 本批完整检查仅支持 runtime-store off，默认旧工作流不切换 |
+| runtime | 纯 Go SQLite v1，inspect/begin/event/complete；`begin --input` 按原字节写共享 gzip 对象（与 Node 同一布局，互相复用并复核摘要），`--report-dir` 以 `report-dir:<路径>` 保护仓外报告目录；run/events/commands/pins 只读查询；Go token 的幂等 pin/unpin，终态可用 | 引用扫描、清理（plan-gc/apply-gc）、导出、备份/恢复与 checkpoint 索引仍走 Node `scripts/runtime-store`；只读 WAL 明确拒绝，避免生成 sidecar；保护标记不删除证据、不授予批准 |
+| project-ci | 默认完整治理；显式 `--scope native-go` 保留有限检查；完整范围包含 checkpoint/task/approval/next-route/Slice/scaffold/验证证据/Handoff/evidence refs/基线保护；`plan/install/apply` 默认安装运行完整治理检查的工作流，`--scope native-go` 安装有限检查，应用范围须与计划一致 | 本批完整检查仅支持 runtime-store off，默认旧工作流不切换；`transition` 仍只支持 `--scope native-go` |
 | 四旧入口及 Spec JS API | 历史 discovery/拒绝与显式 native transport | 按消费者迁移至版本化 envelope；无人消费的旧成功 schema/API 不全量仿制 |
 | 插件 | 固定二进制、bundle inspect/export、事务绑定 init/sync/recover/rollback | 固定来源打包、旧实例桥接、实际取消/恢复/回退和完整交接验收闭合后发行 |
 

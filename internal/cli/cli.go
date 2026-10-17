@@ -12,6 +12,8 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/project"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/trace"
+	"github.com/iloveZzz/yss-cli/internal/tracker"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"github.com/iloveZzz/yss-cli/internal/updater"
 	"github.com/iloveZzz/yss-cli/internal/worklayout"
@@ -167,6 +169,18 @@ func RunWithTerminal(ctx context.Context, args []string, stdout, stderr io.Write
 	if err == nil {
 		err = validateArguments(command, o)
 	}
+	// MCP 服务独占 stdin/stdout 传输 JSON-RPC，不能再输出 envelope。
+	if err == nil && command == "mcp" {
+		root := o.values["root"]
+		if root == "" {
+			root = "."
+		}
+		if serveErr := ServeMCP(ctx, root, os.Stdin, stdout); serveErr != nil {
+			fmt.Fprintln(stderr, "MCP: "+serveErr.Error())
+			return 1
+		}
+		return 0
+	}
 	human := !o.json && (o.values["human"] == "true" || terminal != nil && terminal(stdout))
 	withDiagnostics := o.values["diagnostics"] == "true"
 	inputError := err != nil
@@ -313,11 +327,46 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	if command == "capabilities" {
 		return capabilities(), profile, nil
 	}
+	if command == "explain" {
+		result, err := explainCommand(root, o.args[1:])
+		return result, profile, err
+	}
+	if command == "check" {
+		result, err := checkCommand(ctx, root, o)
+		return result, profile, err
+	}
+	if command == "verify" {
+		result, err := gateVerifyCommand(ctx, root, o)
+		return result, profile, err
+	}
 	if command == "profile" {
 		return profileCommand(ctx, root, o)
 	}
 	if command == "git" {
 		return gitCommand(ctx, root, o)
+	}
+	if command == "trace" {
+		report, err := trace.Build(ctx, root, trace.Options{Feature: o.values["feature"], ImplementationRoot: o.values["implementation-root"], Since: o.values["since"], Until: o.values["until"]})
+		if err != nil {
+			return nil, profile, err
+		}
+		if out := o.values["html"]; out != "" {
+			if err = trace.WriteHTML(root, out, report); err != nil {
+				return nil, profile, err
+			}
+		}
+		if o.values["strict"] == "true" && report.HasGaps() {
+			return nil, profile, &trace.GapsFound{Report: report}
+		}
+		return report, profile, nil
+	}
+	if command == "tracker" {
+		action := "status"
+		if len(o.args) > 1 {
+			action = o.args[1]
+		}
+		result, err := tracker.Run(ctx, action, root, o.values, tracker.Env{})
+		return result, profile, err
 	}
 	if command == "update" {
 		if len(o.args) > 2 {
@@ -500,7 +549,7 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 	}
 	if command == "init" || command == "attach" || command == "sync" || command == "diff" || command == "doctor" || command == "skills" || command == "assets" {
 		if o.values["apply"] == "true" && o.values["plan-file"] != "" {
-			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
+			if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["stack"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 				return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
 			}
 			p, e := project.ReadPlan(o.values["plan-file"])
@@ -519,6 +568,9 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		}
 		profile = id.Profile.Name
 		var selection []string
+		if o.values["stack"] != "" && o.values["full"] != "true" {
+			return nil, profile, domain.Fail("ARGUMENT", "--stack 只与 --full 同用；默认初始分发只含通用技能")
+		}
 		if o.values["full"] == "true" {
 			if command != "init" && command != "attach" {
 				return nil, profile, domain.Fail("ARGUMENT", "--full only supports init or attach")
@@ -527,8 +579,19 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 			if e != nil {
 				return nil, profile, e
 			}
+			excluded, e := bundle.StackExclusions(b, o.values["stack"])
+			if e != nil {
+				return nil, profile, e
+			}
+			skip := map[string]bool{}
+			for _, name := range excluded {
+				skip[name] = true
+			}
 			for ref := range b.Files {
 				if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/")) {
+					continue
+				}
+				if parts := strings.Split(ref, "/"); len(parts) > 3 && parts[0] == ".agents" && parts[1] == "skills" && skip[parts[2]] {
 					continue
 				}
 				selection = append(selection, ref)
@@ -835,7 +898,7 @@ func capabilities() map[string]any {
 	return m
 }
 func capabilitiesBase() map[string]any {
-	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "managed": map[string]any{"commands": []string{"render", "check-views", "plan-enable", "apply-enable", "affected"}, "manifestSchemaVersions": map[string]any{"read": []int{1, 2}, "write": []int{1, 2}}, "rulesVersion": reading.RulesVersion, "rendererId": reading.RendererID}, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}, "lifecycle.route": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "transaction-recover", "contextual-help", "work-layout-v1", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "git-workflow-v1", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task,business-tickets", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false}
+	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "managed": map[string]any{"commands": []string{"render", "check-views", "plan-enable", "apply-enable", "affected"}, "manifestSchemaVersions": map[string]any{"read": []int{1, 2}, "write": []int{1, 2}}, "rulesVersion": reading.RulesVersion, "rendererId": reading.RendererID}, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}, "lifecycle.route": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "transaction-recover", "contextual-help", "work-layout-v1", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "git-workflow-v1", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "mcp-stdio-read-only-v1", "tracker-github-mirror-v1", "trace-matrix-v1", "runtime-input-objects-and-report-pin-v1"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task,business-tickets", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false}
 }
 
 var _ = os.ErrNotExist

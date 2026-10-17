@@ -1,6 +1,8 @@
 # yss
 
-统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.3.3，新增 `yss git` 命令组（见 [docs/git.md](docs/git.md)）。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+English: [quickstart](docs/quickstart.en.md).
+
+统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.4.0，新增只读 `yss mcp` 服务、`yss tracker`（GitHub Issues 五态镜像）、`yss trace` 追溯矩阵、运行时输入对象存储与 `--stack` 按技术栈裁剪技能；`yss git` 命令组见 [docs/git.md](docs/git.md)。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件，已保留的前端技能不受影响。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -35,7 +37,7 @@ JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅
 
 内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
 
-编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。本仓已移除自动化测试源码、测试专用工具及 GitHub Actions 测试 workflow；本地可使用 `CGO_ENABLED=0 go build ./...` 检查构建。编译成功不代表功能或发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
+编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -tags yss_nobundle -timeout 5m ./...`（纯逻辑），生成内嵌 Bundle 后 `go test -timeout 5m ./...`（含真实实例集成用例）。编译或测试成功都不代表发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
 ```sh
 yss init --profile spec --root ./my-project --project-name 项目名称
@@ -190,6 +192,16 @@ yss -V --json
 ```
 
 完整离线教程和命令索引见 [生成帮助指南](docs/cli-help.md)。按主题使用 `yss help tutorial daily` 或 `yss help tutorial backend`；按问题使用 `yss help examples sync` 或 `yss help errors INPUT_DRIFT`。阶段名称及退出条件消费固定 Bundle 注册表，执行范围和顺序消费固定 Profile 路由；Design 的下游兼容登记不授予本 Profile 实现资格。
+
+治理资产的统一入口是 `yss check` 与 `yss verify --gate`：`yss check --changed` 按字段识别改动的批准记录、checkpoint、上下文对账、OpenAPI 草稿验证与脚手架决策，逐个调用对应的现有 `verify`，汇总成一份报告；每条发现都带 `code`、`file`、`pointer`、`message`、`fix` 与可复现的 `command`。`yss verify --gate <门禁> --checkpoint <文件>` 依次运行 `lifecycle verify` 与 `contract verify --kind gate-checks`。两者只聚合、不新增校验语义：模板目录与未识别文件列为 skipped，缺当前上下文（如用户决定）列为 not-evaluated，整体为 incomplete 而非通过，均不授予批准或执行。
+
+`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
+
+`yss tracker status|link|sync` 把本地 Ticket 五态镜像到已链接 GitHub Issue 的同名标签：本地 Markdown 始终权威；`link` 写入 `Tracker-Link: github:owner/repo#N`；`sync` 先 `--plan --out` 读取远端保存计划（项目外），再 `--apply --plan-file --confirm-remote github` 复核本地字节与远端标签/更新时间未变后写入，成功后记录 `Tracker-Synced`。只改五态标签，保留其他标签，不创建、关闭或评论 Issue；需 `GH_TOKEN`，`GITHUB_API_URL` 可指向 GitHub Enterprise。git 策略 `ticket_pattern: github` 接受 `#123` / `owner/repo#123`，分支名使用 `gh-123`。
+
+`yss trace --feature <功能包>` 只读汇总业务票（FR/AC）、垂直切片 Ticket 与 Slice 合同的验证映射，给出每个验收的切片、验证与提交；加 `--implementation-root --since [--until]` 时按 Ticket trailer 把实现仓提交关联到 `slice_id`。缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要在冻结后变化；`--html` 另写静态矩阵页（项目外新文件），`--strict` 有缺口时以 `TRACE_GAPS` 失败。MCP 同名工具 `trace` 只读、不写 HTML。
+
+`yss init|attach --full --stack java|vue|none` 按技术栈裁剪完整分发：`java` 不装前端专项技能，`vue` 不装后端专项技能，`none`（默认）保持完整分发。分组只取 Bundle 内技能注册表的显式 `stack` 名单（`java`、`vue`；未声明为通用技能，始终保留），不按 `impacts` 推断。保留技能对被排除技能的 `context-required` 依赖，或未用 `stacks` 限定到另一栈的 `context-conditional` 依赖，视为名单矛盾直接失败；注册表未声明 `stack` 的旧 Bundle 拒绝裁剪。锁与安装清单随选择一致；`--stack` 只与 `--full` 同用。
 
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 

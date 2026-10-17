@@ -12,6 +12,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,9 +22,14 @@ const dailyPolicyRef = ".template-spec/process/orchestration-contract.yaml"
 
 const dailyMarker = "<!-- yss-task-evidence -->"
 
+// baseRef 只接受不以 - 开头、不含 .. 的常见引用写法，避免被 git 当作选项或范围。
+var baseRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/~^@{}-]{0,199}$`)
+
 type DailyReport struct {
 	*kernel.SemanticReport
 	DeliveryPath      string           `json:"delivery_path"`
+	BaseRef           string           `json:"base_ref,omitempty"`
+	BaseSHA           string           `json:"base_sha,omitempty"`
 	TaskID            string           `json:"task_id,omitempty"`
 	CandidateDigest   string           `json:"candidate_digest,omitempty"`
 	DiffDigest        string           `json:"diff_digest,omitempty"`
@@ -32,6 +38,7 @@ type DailyReport struct {
 	TestsExecuted     bool             `json:"tests_executed"`
 	Reasons           []string         `json:"reasons"`
 	RequiredChecks    []map[string]any `json:"required_checks"`
+	StandardRequired  bool             `json:"standard_required,omitempty"`
 }
 
 type dailyFailure struct {
@@ -58,6 +65,8 @@ type dailySession struct {
 	orchestration       map[string]any
 	agentUnit           string
 	agentRules          map[string]any
+	standard            map[string]any
+	declaredPath        string
 }
 
 func Run(ctx context.Context, action, root string, args map[string]string) (any, error) {
@@ -117,8 +126,10 @@ func (d *dailySession) run(action string, args map[string]string) error {
 			return d.s.Unavailable("ARGUMENT", "需要显式 --"+key)
 		}
 	}
-	if !kernel.CiCommit.MatchString(args["base"]) {
-		return d.s.Unavailable("ARGUMENT", "--base 必须是完整小写 Git SHA")
+	// --base 可写完整 SHA 或实现仓内可解析的引用（如 HEAD、main）；引用在读取实现仓后解析为完整 SHA，
+	// 报告里同时回显输入与解析结果，记录中的 baseline_sha 仍须写完整 SHA。
+	if !kernel.CiCommit.MatchString(args["base"]) && (!baseRef.MatchString(args["base"]) || strings.Contains(args["base"], "..")) {
+		return d.s.Unavailable("ARGUMENT", "--base 必须是完整 Git SHA 或可解析的引用（如 HEAD、main）")
 	}
 	d.taskRef = args["task"]
 	d.base = args["base"]
@@ -152,11 +163,24 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	}
 	commit, err := d.s.Git(repo, "rev-parse", "--verify", d.base+"^{commit}")
 	if err != nil {
+		if !kernel.CiCommit.MatchString(d.base) {
+			return d.s.Unavailable("BASELINE", "--base 引用在实现仓中无法解析: "+d.base)
+		}
 		return err
 	}
-	if strings.TrimSpace(string(commit)) != d.base {
-		return d.s.Unavailable("BASELINE", "--base 不是当前可读的完整 commit")
+	resolved := strings.TrimSpace(string(commit))
+	if kernel.CiCommit.MatchString(d.base) {
+		if resolved != d.base {
+			return d.s.Unavailable("BASELINE", "--base 不是当前可读的完整 commit")
+		}
+	} else {
+		if !kernel.CiCommit.MatchString(resolved) {
+			return d.s.Unavailable("BASELINE", "--base 引用无法解析为完整 commit")
+		}
+		d.report.BaseRef = d.base
+		d.base = resolved
 	}
+	d.report.BaseSHA = d.base
 	if _, err = d.basisRef("CONTEXT.md", ""); err != nil {
 		return err
 	}
@@ -180,8 +204,12 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	} else if governed {
 		return d.govern(action, "当前或历史正式任务绑定不可通过 daily 标签降级")
 	}
-	if kernel.Text(d.record["delivery_path"]) != "daily" {
-		return d.govern(action, "记录没有选择日常交付路线")
+	d.declaredPath = kernel.Text(d.record["delivery_path"])
+	if d.declaredPath != "daily" && d.declaredPath != "standard" {
+		return d.govern(action, "记录没有选择日常或 standard 交付路线")
+	}
+	if d.declaredPath == "standard" && d.standard == nil {
+		return d.govern(action, "当前 Profile 未启用 standard 路线")
 	}
 	for _, key := range []string{"goal_ref", "acceptance_ref"} {
 		if _, err = d.basisRef(kernel.Text(d.record[key]), ""); err != nil {
@@ -227,9 +255,24 @@ func (d *dailySession) run(action string, args map[string]string) error {
 		return d.s.Reject("FRONTEND_REMOVED", "前端实现已从生命周期移除；不能路由或验收日常前端任务")
 	}
 	excluded, _ := dailyStrings(d.policy["excluded_impacts"])
+	standardImpact := ""
 	for _, impact := range impacts {
-		if kernel.SemHas(excluded, impact) || !kernel.SemHas([]string{"no-api", "backend", "compatible-additive-api"}, impact) {
+		switch {
+		case kernel.SemHas(excluded, impact):
 			return d.govern(action, "风险影响需要正式治理: "+impact)
+		case kernel.SemHas([]string{"no-api", "backend", "compatible-additive-api"}, impact):
+		case d.standardImpact(impact):
+			standardImpact = impact
+		default:
+			return d.govern(action, "风险影响需要正式治理: "+impact)
+		}
+	}
+	if standardImpact != "" && d.declaredPath == "daily" {
+		return d.requireStandard(action, standardImpact)
+	}
+	if d.declaredPath == "standard" {
+		if err = d.standardEvidence(); err != nil {
+			return err
 		}
 	}
 	if d.report.Profile != "spec" {
@@ -279,8 +322,12 @@ func (d *dailySession) run(action string, args map[string]string) error {
 		return nil
 	}
 	d.report.CandidateDigest = d.candidateDigest()
-	d.report.DeliveryPath = "daily"
-	d.report.Reasons = append(d.report.Reasons, "当前目标、范围、工程基线、技能与已知风险符合日常路线；路由不授予实现、批准或发布资格")
+	d.report.DeliveryPath = d.declaredPath
+	if d.declaredPath == "standard" {
+		d.report.Reasons = append(d.report.Reasons, "日常条件齐全，Spec-lite 与生物人决定已绑定；符合 standard 路线，路由不授予实现、批准或发布资格")
+	} else {
+		d.report.Reasons = append(d.report.Reasons, "当前目标、范围、工程基线、技能与已知风险符合日常路线；路由不授予实现、批准或发布资格")
+	}
 	completion, _ := dailyStrings(d.policy["completion_requires"])
 	eligibility, _ := dailyStrings(d.policy["eligible_requirements"])
 	for _, key := range eligibility {
@@ -308,6 +355,11 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	}
 	if err = d.verifyReview(d.record["review"], kernel.Text(implementation["actor_id"])); err != nil {
 		return err
+	}
+	if d.declaredPath == "standard" {
+		if err = d.standardIndependence(kernel.Text(implementation["actor_id"])); err != nil {
+			return err
+		}
 	}
 	api, _ := kernel.Object(d.record["api"])
 	if kernel.Text(api["mode"]) == "compatible-additive" {
@@ -433,6 +485,7 @@ func (d *dailySession) readPolicy() error {
 		}
 	}
 	d.policy = p
+	d.readStandardPolicy()
 	d.orchestration = m
 	d.orchestrationDigest = contractDigest
 	raw, _ := json.Marshal(p)

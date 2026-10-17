@@ -36,10 +36,10 @@ func initializeCommands() {
 	for _, key := range strings.Fields("root target-dir asset design-root backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
-	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
+	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot changed refresh") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
@@ -61,6 +61,14 @@ func initializeCommands() {
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("asset", "<路径>", "发生变化的项目内资产路径")
 	argumentSpecs["all"] = argumentSpec{description: "对策略登记的全部对象逐个执行；与指定单个对象互斥", boolean: true}
+	argumentSpecs["fetch"] = argumentSpec{description: "tracker status 读取链接 Issue 的远端标签；只读", boolean: true}
+	defineArgument("ticket", "<文件>", "tracker 根下的 parent-ticket.md 或 issues/*.md")
+	defineArgument("issue", "<owner/repo#编号>", "要链接的 GitHub Issue")
+	defineArgument("stack", "<技术栈>", "init/attach --full 只分发该栈的专项技能；none 为完整分发", "java", "vue", "none")
+	defineArgument("feature", "<功能包>", "tracker 根下的功能包名")
+	defineArgument("html", "<新文件>", "trace 另写的静态矩阵页；须在项目外且不存在")
+	argumentSpecs["strict"] = argumentSpec{description: "trace 存在缺口时以 TRACE_GAPS 失败", boolean: true}
+	argumentSpecs["changed"] = argumentSpec{description: "yss check 选择工作树相对 HEAD 的改动与未跟踪文件", boolean: true}
 	argumentSpecs["dry-run"] = argumentSpec{description: "只返回将写的文件与摘要，不写任何文件", boolean: true}
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
@@ -116,11 +124,36 @@ func initializeCommands() {
 			if key == "skills resolve" {
 				opts = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "agent-runtime", "when")
 			}
+			if parts[0] == "init" || parts[0] == "attach" {
+				opts = append(opts, "stack")
+			}
 			if parts[0] == "attach" || parts[0] == "sync" {
 				opts = append(opts, "review-out", "base-bundle", "resolution-file")
 			}
 		case "recover", "rollback":
 			opts = append(opts, "root", "target-dir", "profile", "apply")
+		case "explain":
+			opts = append(opts, "root")
+		case "check":
+			opts = append(opts, "root", "changed", "base", "checkpoint")
+		case "mcp":
+			opts = append(opts, "root")
+		case "trace":
+			opts = append(opts, "root", "feature", "implementation-root", "since", "until", "html", "strict")
+		case "tracker":
+			opts = append(opts, "root")
+			if len(parts) > 1 {
+				switch parts[1] {
+				case "status":
+					opts = append(opts, "fetch")
+				case "link":
+					opts = append(opts, "ticket", "issue", "apply")
+				case "sync":
+					opts = append(opts, "ticket", "plan", "out", "apply", "plan-file", "confirm-remote")
+				}
+			}
+		case "verify":
+			opts = append(opts, "root", "gate", "checkpoint")
 		case "profile":
 			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
 		case "git":
@@ -335,14 +368,7 @@ func optionCandidates(args []string) []string {
 			opts = append(append([]string{}, commonOptionNames...), verificationOptions(group, kind)...)
 		}
 	}
-	out := []string{}
-	for _, k := range opts {
-		if k == "refresh" || strings.HasPrefix(key, "stage query") && (k == "work-unit" || k == "stage") {
-			continue
-		}
-		out = append(out, k)
-	}
-	return out
+	return append([]string{}, opts...)
 }
 func validateArguments(command string, o options) error {
 	if o.values["version"] == "true" {
@@ -373,13 +399,15 @@ func validateArguments(command string, o options) error {
 			if len(children) > 0 {
 				return argumentError("未知子命令: " + child + suggestions(o.args[1], children))
 			}
-			return argumentError("命令 " + command + " 不接受位置参数: " + o.args[1])
+			if !spec.help.positional {
+				return argumentError("命令 " + command + " 不接受位置参数: " + o.args[1])
+			}
 		}
 	}
 	if len(o.args) > 2 && !spec.help.positional {
 		return argumentError("命令 " + key + " 不接受额外位置参数")
 	}
-	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" {
+	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" && command != "check" {
 		positional := false
 		for _, k := range governance.ArgumentKeys(command, o.args[1]) {
 			if k == "arg0" {

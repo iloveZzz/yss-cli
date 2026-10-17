@@ -29,15 +29,18 @@ type AssetPolicy struct {
 //   - 精确来源：TemplateCommit 与 SnapshotHash（可再加 BundleHash）；
 //   - 版本区间：Versions，按实例的模板版本匹配，实例版本无法识别时规则不适用。
 type SourceMatch struct {
-	Profile        string        `json:"profile"`
-	TemplateCommit string        `json:"templateCommit,omitempty"`
-	SnapshotHash   string        `json:"sourceSnapshotHash,omitempty"`
-	BundleHash     string        `json:"bundleHash,omitempty"`
-	Versions       *VersionRange `json:"versions,omitempty"`
+	Profile        string `json:"profile"`
+	TemplateCommit string `json:"templateCommit,omitempty"`
+	SnapshotHash   string `json:"sourceSnapshotHash,omitempty"`
+	BundleHash     string `json:"bundleHash,omitempty"`
+	// TemplateVersion 是精确来源实例记录的模板版本（语义化版本或 git:<templateCommit>），只用于静态重叠判断。
+	TemplateVersion string        `json:"templateVersion,omitempty"`
+	Versions        *VersionRange `json:"versions,omitempty"`
 }
 
 // sourcesOverlap 判断两条规则的适用来源是否可能同时命中同一个实例。
-// 精确来源与版本区间混用时无法静态判断，按重叠处理。
+// 精确来源与版本区间混用时：精确来源记录了版本才可静态判断——语义化版本看是否落在区间内，
+// git:<commit> 版本的实例不会被版本区间匹配（运行时只按语义化版本匹配区间）；未记录版本按重叠处理。
 func sourcesOverlap(a, b SourceMatch) bool {
 	if a.Profile != b.Profile {
 		return false
@@ -45,10 +48,22 @@ func sourcesOverlap(a, b SourceMatch) bool {
 	switch {
 	case a.Versions != nil && b.Versions != nil:
 		return a.Versions.overlaps(*b.Versions)
-	case a.Versions != nil || b.Versions != nil:
-		return true
+	case a.Versions != nil:
+		return exactInRange(b, *a.Versions)
+	case b.Versions != nil:
+		return exactInRange(a, *b.Versions)
 	}
 	return a.TemplateCommit == b.TemplateCommit && a.SnapshotHash == b.SnapshotHash && (a.BundleHash == "" || b.BundleHash == "" || a.BundleHash == b.BundleHash)
+}
+
+func exactInRange(exact SourceMatch, r VersionRange) bool {
+	switch {
+	case exact.TemplateVersion == "":
+		return true
+	case IsSemver(exact.TemplateVersion):
+		return r.Contains(exact.TemplateVersion)
+	}
+	return false
 }
 
 type MigrationRule struct {
@@ -128,8 +143,11 @@ func (p *UpgradePolicy) Validate(b *Bundle) error {
 		if !regexp.MustCompile(`^[a-z0-9][a-z0-9._-]+$`).MatchString(r.ID) || seen[r.ID] || r.From.Profile != b.Profile {
 			return domain.Fail("BUNDLE_RULE", "迁移规则来源或 ID 不合法")
 		}
+		if r.From.TemplateVersion != "" && !IsSemver(r.From.TemplateVersion) && r.From.TemplateVersion != "git:"+r.From.TemplateCommit {
+			return domain.Fail("BUNDLE_RULE", "迁移规则来源版本须为语义化版本或 git:<templateCommit>")
+		}
 		if r.From.Versions != nil {
-			if r.From.TemplateCommit != "" || r.From.SnapshotHash != "" || r.From.BundleHash != "" {
+			if r.From.TemplateCommit != "" || r.From.SnapshotHash != "" || r.From.BundleHash != "" || r.From.TemplateVersion != "" {
 				return domain.Fail("BUNDLE_RULE", "迁移规则来源只能是精确来源或版本区间之一")
 			}
 			if e := r.From.Versions.Validate(); e != nil {

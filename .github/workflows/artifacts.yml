@@ -59,6 +59,18 @@ jobs:
           go vet -composites=false ./...
           # 治理规则以 Go 语义为准：不允许把 Node 脚本字节的摘要写成 Go 常量
           node tools/check-no-pinned-digests.mjs
+      - name: Go unit and integration tests (5 minute cap)
+        timeout-minutes: 5
+        env:
+          CGO_ENABLED: 0
+          YSS_TEST_REQUIRE_GIT: 1
+        run: |
+          git --version
+          go test -timeout 5m -coverpkg=./internal/... -coverprofile="$RUNNER_TEMP/cover.out" ./...
+          # 覆盖率只设棘轮下限：补测试后上调，不下调。数值见 docs/ci-verification.md。
+          total="$(go tool cover -func="$RUNNER_TEMP/cover.out" | awk '/^total:/ {sub("%","",$NF); print $NF}')"
+          echo "internal 语句覆盖率 ${total}%"
+          awk -v t="$total" -v floor=10 'BEGIN { exit !(t+0 >= floor) }' || { echo "覆盖率 ${total}% 低于下限 10%"; exit 1; }
       - name: Black-box smoke of the built binary
         env:
           CGO_ENABLED: 0

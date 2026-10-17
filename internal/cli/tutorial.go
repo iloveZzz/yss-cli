@@ -51,6 +51,14 @@ func prerequisite(key string) string {
 		return "合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。"
 	case "lifecycle":
 		return "查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。"
+	case "explain":
+		return "在 YSS 项目根运行，读取其流程术语表与生命周期注册表；无需 checkpoint。"
+	case "check":
+		return "在 YSS 项目根运行；--changed 需要 Git 仓库。用户决定等需当前上下文的资产另给 --checkpoint。"
+	case "verify":
+		return "合法项目身份与当前 checkpoint；门禁 ID 来自生命周期注册表。"
+	case "mcp":
+		return "由 MCP 客户端以子进程启动；--root 指向 YSS 项目根。stdout 只承载 JSON-RPC，诊断写 stderr。"
 	case "runtime", "archive", "xml":
 		return "准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。"
 	case "git":
@@ -259,8 +267,9 @@ func dailyTutorial() string {
   yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
   yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
-预期结果：route 返回 daily、governed 或 needs-info 及原因。
+预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及独立审查，再 verify-daily。
+  standard：需求需一页确认；补 Spec-lite 与一次生物人决定（standard_required 为 true 时先补齐并把 delivery_path 改为 standard），其余同 daily。
   governed：已有正式绑定或命中排除风险，从最近可信正式阶段继续。
   needs-info：缺事实先调查，补齐同一任务记录后再次 route。
 下一步：verify-daily 通过后按当前范围交付；它核验已有记录，不执行业务测试或创建批准。

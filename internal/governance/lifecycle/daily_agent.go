@@ -45,8 +45,11 @@ func (d *dailySession) selectAgentRules() error {
 
 func (d *dailySession) agentView() map[string]any {
 	next := "investigate-missing-facts"
-	if d.report.DeliveryPath == "daily" {
+	if d.report.DeliveryPath == "daily" || d.report.DeliveryPath == "standard" {
 		next = "continue-single-task-record"
+	}
+	if d.report.StandardRequired {
+		next = "add-spec-lite-and-standard-decision"
 	}
 	if d.report.DeliveryPath == "governed" {
 		next = "resume-trusted-governed-work-unit"

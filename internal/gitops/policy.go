@@ -122,10 +122,30 @@ func (p *Policy) compile() error {
 	if p.branch, err = regexp.Compile(p.BranchPattern); err != nil {
 		return domain.Fail("INPUT", "branch_pattern 不是合法正则")
 	}
+	if p.TicketPattern == GitHubTicketPreset {
+		p.ticket = githubTicket
+		return nil
+	}
 	if p.ticket, err = regexp.Compile(p.TicketPattern); err != nil {
 		return domain.Fail("INPUT", "ticket_pattern 不是合法正则")
 	}
 	return nil
+}
+
+// GitHubTicketPreset 让 ticket_pattern 接受 GitHub Issue 引用 #123 或 owner/repo#123。
+const GitHubTicketPreset = "github"
+
+var githubTicket = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})?#([1-9][0-9]{0,9})$`)
+
+// BranchToken 返回分支名里的 Ticket 片段：GitHub 引用含 # 与 /，转为 gh-<编号>；其余原样。
+// 提交 trailer 仍写原始引用，审计按原始引用匹配。
+func (p Policy) BranchToken(task string) string {
+	if p.TicketPattern == GitHubTicketPreset {
+		if m := githubTicket.FindStringSubmatch(task); m != nil {
+			return "gh-" + m[1]
+		}
+	}
+	return task
 }
 
 func (p Policy) BranchAllowed(name string) bool { return p.branch.MatchString(name) }

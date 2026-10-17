@@ -123,7 +123,7 @@ func enableTracker(b []byte) ([]byte, error) {
 	return append(result, body...), nil
 }
 
-func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Context) (WritePlan, error) {
+func buildStagePlan(root, action, cpRef, inputRef string, refresh bool, contexts ...context.Context) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "stage-tracking-go-plan", Root: root, Action: action, CheckpointRef: cpRef, InputRef: inputRef, Scope: "stage-work-only", Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
 	ctx := context.Background()
 	if len(contexts) > 0 {
@@ -169,7 +169,24 @@ func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Co
 	if err != nil {
 		return plan, err
 	}
-	if tracking != nil {
+	// refresh 与 Node refreshTracking 一致：漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记
+	// recheck_required；旧绑定与证据保留为历史。重置前不跑 CheckStage（它会因漂移的完成项拒绝），
+	// 结果由末尾的 CheckStage 完整校验。
+	if refresh {
+		refreshed := []string{}
+		if tracking != nil {
+			stale := kernel.StageDrift(s, tracking)
+			for i := range tracking.Items {
+				item := &tracking.Items[i]
+				if kernel.Contains(stale, item.ID) && item.Progress != "cancelled" {
+					item.Progress = "pending"
+					item.RecheckRequired = true
+					refreshed = append(refreshed, item.ID)
+				}
+			}
+		}
+		plan.Options = map[string]string{"refresh": "true", "refreshed_item_ids": strings.Join(refreshed, ",")}
+	} else if tracking != nil {
 		if _, err = kernel.CheckStage(v, cp, cpRef, s); err != nil {
 			return plan, err
 		}
@@ -181,13 +198,17 @@ func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Co
 		}
 		tracking = &kernel.StageTracking{SchemaVersion: 1, FeatureID: feature, CheckpointRef: cpRef, EntryStage: kernel.Text(cp["stage"]), Entry: entry, Items: []kernel.WorkItem{}}
 	}
-	input, err := v.Read(inputRef)
-	if err != nil {
-		return plan, err
-	}
-	value, err := schema.Parse(input)
-	if err != nil {
-		return plan, err
+	var value any = []any{}
+	if inputRef != "" {
+		input, err := v.Read(inputRef)
+		if err != nil {
+			return plan, err
+		}
+		if value, err = schema.Parse(input); err != nil {
+			return plan, err
+		}
+	} else if !refresh || action != "register" {
+		return plan, domain.Fail("INPUT", "register/update 需要 --items/--item")
 	}
 	if action == "register" {
 		seeds, ok := value.([]any)
@@ -315,7 +336,7 @@ func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Co
 			return plan, err
 		}
 	} else {
-		return plan, domain.Fail("UNPORTED", "stage 写入动作尚未迁移")
+		return plan, domain.Fail("UNPORTED", "不支持的 stage 写入动作")
 	}
 	for i := range tracking.Items {
 		item := &tracking.Items[i]
@@ -438,7 +459,10 @@ func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Co
 		if err != nil {
 			return plan, err
 		}
-		plan.Options = map[string]string{"stage_scan_inputs": string(data)}
+		if plan.Options == nil {
+			plan.Options = map[string]string{}
+		}
+		plan.Options["stage_scan_inputs"] = string(data)
 	}
 	plan.PlanDigest, err = nativePlanDigest(plan)
 	return plan, err
@@ -505,9 +529,6 @@ func validateStagePlanScans(ctx context.Context, root string, plan WritePlan) er
 func stageRun(ctx context.Context, action, root string, args map[string]string) (any, error) {
 	ref := kernel.First(args["checkpoint"], args["file"], args["arg0"])
 	if action == "query" || action == "status" || action == "check" {
-		if args["stage"] != "" || args["work-unit"] != "" {
-			return nil, domain.Fail("UNPORTED", "checkpoint 工作项查询不支持 --stage/--work-unit 过滤")
-		}
 		s := kernel.NewSemanticSession(ctx, root, args)
 		v := s.V
 		if err := pendingOldTransaction(v); err != nil {
@@ -539,14 +560,31 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 			}
 			return nil, domain.Fail("TRACKING_ID", "阶段工作项未登记: "+id)
 		}
+		if stage, unit := args["stage"], args["work-unit"]; stage != "" || unit != "" {
+			tracking, err := kernel.AsTracking(cp)
+			if err != nil {
+				return nil, err
+			}
+			if tracking == nil {
+				return nil, domain.Fail("TRACKING_REQUIRED", "按 --stage/--work-unit 筛选需要既有 stage_tracking")
+			}
+			items := []kernel.WorkItem{}
+			for _, item := range tracking.Items {
+				if (stage == "" || item.Stage == stage) && (unit == "" || item.WorkUnit == unit) {
+					items = append(items, item)
+				}
+			}
+			result["items"] = items
+			result["filter"] = map[string]string{"stage": stage, "work_unit": unit}
+		}
 		return result, nil
 	}
 	if action != "register" && action != "update" && action != "plan" && action != "apply" {
-		return nil, domain.Fail("UNPORTED", "stage 动作未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 stage 动作: "+action)
 	}
 	if action == "apply" || args["apply"] == "true" {
-		if args["refresh"] != "" {
-			return nil, domain.Fail("UNPORTED", "refresh 不能随 apply 忽略")
+		if args["refresh"] == "true" {
+			return nil, domain.Fail("ARGUMENT", "--refresh 只用于生成计划；应用时消费已保存计划")
 		}
 		planRef := args["plan-file"]
 		if planRef == "" {
@@ -577,7 +615,7 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		if err != nil || digest != plan.PlanDigest {
 			return nil, domain.Fail("PLAN", "计划摘要不一致")
 		}
-		fresh, err := buildStagePlan(root, plan.Action, plan.CheckpointRef, plan.InputRef, ctx)
+		fresh, err := buildStagePlan(root, plan.Action, plan.CheckpointRef, plan.InputRef, plan.Options["refresh"] == "true", ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -609,15 +647,16 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		}
 		return map[string]any{"status": tx.Status, "source_operation": tx.Status, "reading_update": stageReadingUpdate(ctx, root, plan.CheckpointRef), "transaction": tx, "scope": "stage-work-only", "approval_created": false, "ready_for_agent_created": false, "execution_authorization": "not-evaluated"}, nil
 	}
-	if args["refresh"] != "" {
-		return nil, domain.Fail("UNPORTED", "refresh 保留历史并重置执行态的语义尚未迁移")
-	}
+	refresh := args["refresh"] == "true"
 	if action == "plan" {
 		action = "register"
 	}
+	if refresh && action != "register" {
+		return nil, domain.Fail("ARGUMENT", "--refresh 只用于 plan/register")
+	}
 	input := kernel.First(args["items"], args["item"])
-	if input == "" {
+	if input == "" && !refresh {
 		return nil, domain.Fail("INPUT", "register/update 需要 --items/--item")
 	}
-	return buildStagePlan(root, action, ref, input, ctx)
+	return buildStagePlan(root, action, ref, input, refresh, ctx)
 }

@@ -41,7 +41,7 @@ func (r *Runner) buildBranch(ctx context.Context, params map[string]string) (Pla
 	if !typePattern.MatchString(kind) || !slugPattern.MatchString(slug) {
 		return Plan{}, domain.Fail("INPUT", "--type 须为小写字母，--slug 须为小写字母、数字和连字符")
 	}
-	name := kind + "/" + task + "-" + slug
+	name := kind + "/" + pol.BranchToken(task) + "-" + slug
 	if !safeBranch.MatchString(name) || !pol.BranchAllowed(name) {
 		return Plan{}, domain.Fail("INPUT", "分支名不符合策略 branch_pattern: "+name)
 	}
