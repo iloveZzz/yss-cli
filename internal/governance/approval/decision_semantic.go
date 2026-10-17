@@ -8,6 +8,7 @@ import (
 )
 
 func init() {
+	kernel.RegisterRoleIndependentValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("checkpoint-user-decisions", verifyCheckpointUserDecisionsSemantic)
 }
@@ -205,7 +206,8 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 }
 
 func AssertWorkUnitUserDecisionSemantic(s *kernel.SemanticSession, workUnit string, state map[string]any) error {
-	policy := kernel.ApMap(s.Roles["user_decision_policy"])
+	policy := s.UserDecisionPolicy()
+	rows := []map[string]any{}
 	boundaries := kernel.ApStrings(kernel.ApMap(policy["work_unit_gates"])[workUnit])
 	if boundary := kernel.ApText(kernel.ApMap(policy["work_units"])[workUnit]); boundary != "" {
 		boundaries = append(boundaries, boundary)
@@ -219,10 +221,13 @@ func AssertWorkUnitUserDecisionSemantic(s *kernel.SemanticSession, workUnit stri
 		if requirement == nil {
 			return kernel.ApFail(s, "user-decision-response-required", boundary)
 		}
-		if _, e := AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
+		validated, e := AssertUserDecisionRequirementSemantic(s, requirement)
+		if e != nil {
 			return e
 		}
+		rows = append(rows, validated.Rows()...)
 	}
+	decisionCoverage(s, rows)
 	return nil
 }
 

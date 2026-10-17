@@ -214,11 +214,15 @@ func TestDraftCandidateBindsEveryDeclaredOutput(t *testing.T) {
 	}
 }
 
-func TestCompletedReviewerUsesValidatedImplementation(t *testing.T) {
+func completedReviewer(t *testing.T, rawAsset bool) (*kernel.SemanticSession, map[string]any) {
 	s, implementation := completedDraft(t)
 	candidate, err := draftExecutionCandidate(s, implementation)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if rawAsset {
+		raw, _ := os.ReadFile(filepath.Join(s.Root, "drafts/spec.md"))
+		candidate = map[string]any{"ref": "drafts/spec.md", "digest": safefs.Digest(raw)}
 	}
 	raw, _ := os.ReadFile(filepath.Join(s.Root, "task.json"))
 	basis := map[string]any{"ref": "task.json", "digest": safefs.Digest(raw)}
@@ -247,6 +251,7 @@ func TestCompletedReviewerUsesValidatedImplementation(t *testing.T) {
 	}
 	log = ContractCopy(log)
 	log["task_ref"] = "review-task.json"
+	log["candidate_digest"] = candidate["digest"]
 	log["baseline"] = baseline
 	log["input_bindings"] = task["input_bindings"]
 	log["expected_outputs"] = task["expected_outputs"]
@@ -255,6 +260,7 @@ func TestCompletedReviewerUsesValidatedImplementation(t *testing.T) {
 	raw, _ = os.ReadFile(filepath.Join(s.Root, "review-log.json"))
 	row := ContractCopy(kernel.ApRows(task["verification_results"])[0])
 	row["evidence_ref"] = "review-log.json"
+	row["candidate_digest"] = candidate["digest"]
 	row["evidence_digest"] = safefs.Digest(raw)
 	task["verification_results"] = []any{row}
 	result := ContractCopy(kernel.ApMap(task["result"]))
@@ -265,13 +271,50 @@ func TestCompletedReviewerUsesValidatedImplementation(t *testing.T) {
 	taskFile(t, s.Root, "reviews/result.json", map[string]any{"status": "reconciled"})
 	taskFile(t, s.Root, "review-task.json", task)
 	s.V = kernel.NewView(s.Root)
-	if err = verifyRoleIndependentTask(s, "review-task.json", nil); err != nil {
+	return s, task
+}
+
+func TestCompletedReviewerUsesValidatedImplementation(t *testing.T) {
+	s, task := completedReviewer(t, false)
+	if err := verifyRoleIndependentTask(s, "review-task.json", nil); err != nil {
 		t.Fatal(err)
 	}
 	kernel.ApMap(kernel.ApMap(task["review_context"])["review"])["mode"] = "independent-review"
 	taskFile(t, s.Root, "review-task.json", task)
 	s.V = kernel.NewView(s.Root)
-	if err = verifyRoleIndependentTask(s, "review-task.json", nil); err == nil {
+	if err := verifyRoleIndependentTask(s, "review-task.json", nil); err == nil {
 		t.Fatal("missing independent source accepted")
+	}
+}
+
+func TestRawOutputReviewUsesCompletedTaskMembership(t *testing.T) {
+	for _, scenario := range []string{"member", "not-output", "changed-output", "wrong-root"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, task := completedDraft(t)
+			raw, _ := os.ReadFile(filepath.Join(s.Root, "task.json"))
+			assetBytes, _ := os.ReadFile(filepath.Join(s.Root, "drafts/spec.md"))
+			candidate := map[string]any{"ref": "drafts/spec.md", "digest": safefs.Digest(assetBytes)}
+			basis := []any{map[string]any{"ref": "task.json", "digest": safefs.Digest(raw)}}
+			if scenario == "not-output" {
+				taskFile(t, s.Root, "not-output.json", map[string]any{"current": "draft output"})
+				candidate["ref"] = "not-output.json"
+			}
+			if scenario == "changed-output" {
+				taskFile(t, s.Root, "drafts/spec.md", map[string]any{"current": "changed"})
+			}
+			if scenario == "wrong-root" {
+				other := t.TempDir()
+				taskFile(t, other, "drafts/spec.md", map[string]any{"current": "draft output"})
+				candidate["ref"] = filepath.Join(other, "drafts/spec.md")
+			}
+			s.V = kernel.NewView(s.Root)
+			p, ref, _, _, err := trustedTaskImplementation(s, map[string]any{"basis": basis, "candidate": candidate})
+			if (err == nil) != (scenario == "member") {
+				t.Fatalf("%s: %v", scenario, err)
+			}
+			if err == nil && (ref != "task.json" || !kernel.ApEqual(p, task["provenance"])) {
+				t.Fatal("not actual completed source")
+			}
+		})
 	}
 }

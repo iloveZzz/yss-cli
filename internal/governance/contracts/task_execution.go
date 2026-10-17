@@ -8,6 +8,7 @@ import (
 
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 // source is the engineering baseline's already verified frozen source, never the task's write allowlist.
@@ -265,45 +266,94 @@ func draftExecutionCandidate(s *kernel.SemanticSession, task map[string]any) (ma
 }
 
 // The basis is the authority lookup set; review.independence never selects implementation.
-func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any) (map[string]any, string, []string, map[string]any, error) {
-	var implementation map[string]any
-	var implementationRef string
-	var scope []string
-	var protection map[string]any
+func TrustedTaskImplementation(s *kernel.SemanticSession, review map[string]any) (map[string]any, error) {
+	var source map[string]any
 	matches := 0
 	seen := map[string]bool{}
 	for _, asset := range kernel.ApRows(review["basis"]) {
 		ref := kernel.Text(asset["ref"])
 		if seen[ref] {
-			return nil, "", nil, nil, s.Reject("TASK_REVIEW", "审查依据重复")
+			return nil, s.Reject("TASK_REVIEW", "审查依据重复")
 		}
 		seen[ref] = true
-		if _, err := s.EvidenceAsset(asset); err != nil {
-			return nil, "", nil, nil, err
-		}
-		task, err := s.Doc(ref)
+		raw, err := s.EvidenceAsset(asset)
 		if err != nil {
-			return nil, "", nil, nil, err
+			return nil, err
+		}
+		value, parseErr := schema.Parse(raw)
+		task, object := kernel.Object(value)
+		if parseErr != nil || !object {
+			continue
 		}
 		if kernel.ContractN(task["schema_version"]) != 3 || task["workflow_status"] != "resolved" || kernel.ApMap(task["result"])["result"] != "completed" || !kernel.ApContains([]string{"Drafter", "Explorer", "Worker"}, kernel.Text(task["execution_state"])) {
 			continue
 		}
 		if err = s.Verify("task", ref, nil); err != nil {
-			return nil, "", nil, nil, err
+			return nil, err
 		}
 		verified := kernel.ApMap(s.Report.Coverage["task_execution"])
-		if verified["task_ref"] == ref && verified["completed"] == true && kernel.ApEqual(verified["candidate"], review["candidate"]) {
+		matchesCandidate := kernel.ApEqual(verified["candidate"], review["candidate"])
+		if !matchesCandidate {
+			matchesCandidate, err = taskOutputMember(s, task, verified, kernel.ApMap(review["candidate"]))
+			if err != nil {
+				return nil, err
+			}
+		}
+		if verified["task_ref"] == ref && verified["completed"] == true && matchesCandidate {
 			matches++
-			implementation = kernel.ApMap(task["provenance"])
-			implementationRef = ref
-			scope = kernel.ApStrings(task["allowed_write_paths"])
-			protection = kernel.ApMap(verified["candidate_scope"])
+			source = ContractCopy(verified)
 		}
 	}
 	if matches != 1 {
-		return nil, "", nil, nil, s.Reject("TASK_REVIEW", "必须从当前候选依据找到唯一已验证完成的实施任务")
+		return nil, s.Reject("TASK_REVIEW", "必须从当前候选依据找到唯一已验证完成的实施任务")
 	}
-	return implementation, implementationRef, scope, protection, nil
+	return source, nil
+}
+
+func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any) (map[string]any, string, []string, map[string]any, error) {
+	source, err := TrustedTaskImplementation(s, review)
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+	return kernel.ApMap(source["provenance"]), kernel.Text(source["task_ref"]), kernel.ApStrings(source["scope"]), kernel.ApMap(source["candidate_scope"]), nil
+}
+
+// Raw assets are members only under the completed task's verified physical root.
+func taskOutputMember(s *kernel.SemanticSession, task, source, asset map[string]any) (bool, error) {
+	protection := kernel.ApMap(source["candidate_scope"])
+	root := kernel.Text(protection["repository_root"])
+	if !filepath.IsAbs(root) {
+		return false, nil
+	}
+	v, ref, err := s.ReferenceView(kernel.Text(asset["ref"]))
+	if err != nil {
+		return false, err
+	}
+	actual, err := safefs.Path(v.Root, ref)
+	if err != nil {
+		return false, err
+	}
+	for _, output := range kernel.ApStrings(task["expected_outputs"]) {
+		expected, err := safefs.Path(root, output)
+		if err != nil {
+			return false, err
+		}
+		if expected != actual {
+			continue
+		}
+		covered := false
+		for _, path := range kernel.ApStrings(protection["paths"]) {
+			covered = covered || kernel.TaskWithinPath(output, path)
+		}
+		if !covered {
+			return false, s.Reject("TASK_REVIEW", "产物不属于已验证候选范围")
+		}
+		if _, err = s.EvidenceAsset(asset); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 // protection is emitted by the uniquely matched completed task's candidate computation.

@@ -180,11 +180,11 @@ func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]an
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
 	}
-	return s.ValidateReviewEvidenceDigest(review, candidate, scope, requiredMode, implementation, implementationTask)
+	return s.ValidateReviewEvidenceDigest(review, candidate, scope, requiredMode, implementation, implementationTask, candidate)
 }
 
 // ValidateReviewEvidenceDigest requires the caller to compute the candidate from verified current sources.
-func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string) error {
+func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string, implementationCandidate map[string]any) error {
 	if !IsSHA256(Text(candidate["digest"])) || Text(candidate["ref"]) == "" {
 		return s.Reject("EVIDENCE_CANDIDATE", "缺少原生候选绑定")
 	}
@@ -194,7 +194,7 @@ func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[str
 	if implementationTask == "" {
 		return s.Reject("EVIDENCE_INDEPENDENCE", "缺少可信实施任务")
 	}
-	if _, err := s.ValidateProvenance(implementation, implementationTask, Text(candidate["digest"])); err != nil {
+	if _, err := s.ValidateProvenance(implementation, implementationTask, Text(implementationCandidate["digest"])); err != nil {
 		return err
 	}
 	mode := Text(review["mode"])
@@ -221,17 +221,17 @@ func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[str
 		return s.Reject("EVIDENCE_REVIEW", "独立复核不能混写外部批准")
 	}
 	if mode == "independent-review" || requiredMode == "independent-review" || review["independence"] != nil {
-		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope, implementation, implementationTask); err != nil {
+		if err = s.validateIndependence(ApMap(review["independence"]), ApMap(review["provenance"]), candidate, scope, implementation, implementationTask, implementationCandidate); err != nil {
 			return err
 		}
 	}
 	if mode == "external-required-review" {
-		return s.validateExternalRequirement(ApMap(review["external"]), candidate, scope)
+		return s.validateExternalRequirement(ApMap(review["external"]), candidate, scope, implementation)
 	}
 	return nil
 }
 
-func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string, trustedImplementation map[string]any, implementationTask string) error {
+func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[string]any, scope []string, trustedImplementation map[string]any, implementationTask string, implementationCandidate map[string]any) error {
 	implementation, indReviewer := ApMap(ind["implementation"]), ApMap(ind["reviewer"])
 	if !ApEqual(implementation, trustedImplementation) {
 		return s.Reject("EVIDENCE_INDEPENDENCE", "独立性声明未绑定当前任务的真实实施来源")
@@ -241,11 +241,11 @@ func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[stri
 		return s.Reject("EVIDENCE_INDEPENDENCE", "独立复核需要不同真实执行上下文、同一候选范围和只读结果；换名字或同会话不能证明独立")
 	}
 	for _, p := range []map[string]any{implementation, indReviewer} {
-		expectedTask := ""
+		expectedTask, digest := "", Text(candidate["digest"])
 		if ApEqual(p, trustedImplementation) {
-			expectedTask = implementationTask
+			expectedTask, digest = implementationTask, Text(implementationCandidate["digest"])
 		}
-		actual, err := s.ValidateProvenance(p, expectedTask, Text(candidate["digest"]))
+		actual, err := s.ValidateProvenance(p, expectedTask, digest)
 		if err != nil {
 			return err
 		}
@@ -263,12 +263,16 @@ func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[stri
 			return err
 		}
 		identity := ApMap(pair.p["identity"])
+		digest := Text(candidate["digest"])
+		if ApEqual(pair.p, trustedImplementation) {
+			digest = Text(implementationCandidate["digest"])
+		}
 		if capture["source_kind"] != "session-export" || capture["session_ref"] != identity["session_ref"] || !ApIsArray(capture["messages"]) {
 			return s.Reject("EVIDENCE_INDEPENDENCE", "缺少可核对的原始会话导出")
 		}
 		found := false
 		for _, message := range ApRows(capture["messages"]) {
-			if message["principal_ref"] == identity["principal_ref"] && Text(message["original_ref"]) != "" && Text(message["id"]) != "" && evidenceTime(message["sent_at"]) && strings.Contains(Text(message["text"]), Text(pair.p["execution_ref"])) && strings.Contains(Text(message["text"]), Text(candidate["digest"])) {
+			if message["principal_ref"] == identity["principal_ref"] && Text(message["original_ref"]) != "" && Text(message["id"]) != "" && evidenceTime(message["sent_at"]) && strings.Contains(Text(message["text"]), Text(pair.p["execution_ref"])) && strings.Contains(Text(message["text"]), digest) {
 				original := Text(message["original_ref"])
 				if originalRefs[original] {
 					return s.Reject("EVIDENCE_INDEPENDENCE", "两份上下文复用了同一原始执行来源")
@@ -297,9 +301,17 @@ func (s *SemanticSession) validateIndependence(ind, reviewer, candidate map[stri
 }
 
 // ValidateExternalRules consumes known constraints. Discovery and applicability belong to the calling boundary.
-func (s *SemanticSession) ValidateExternalRules(rules, candidate map[string]any, scope []string) error {
+func (s *SemanticSession) ValidateExternalRules(rules, candidate map[string]any, scope []string, implementation map[string]any) error {
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
+	}
+	return s.ValidateExternalRulesDigest(rules, candidate, scope, implementation)
+}
+
+// Candidate bytes or composition and implementation provenance must already be verified by the caller.
+func (s *SemanticSession) ValidateExternalRulesDigest(rules, candidate map[string]any, scope []string, implementation map[string]any) error {
+	if !IsSHA256(Text(candidate["digest"])) || Text(candidate["ref"]) == "" {
+		return s.Reject("EVIDENCE_CANDIDATE", "缺少当前外部约束候选")
 	}
 	if !ApUnique(scope) {
 		return s.Reject("EXTERNAL_REQUIREMENT", "外部约束范围缺失")
@@ -317,7 +329,7 @@ func (s *SemanticSession) ValidateExternalRules(rules, candidate map[string]any,
 			return s.Reject("EXTERNAL_REQUIREMENT", "已知规则缺少实际要求")
 		}
 		for _, requirement := range ApRows(rules["requirements"]) {
-			if err := s.validateExternalRequirement(requirement, candidate, scope); err != nil {
+			if err := s.validateExternalRequirement(requirement, candidate, scope, implementation); err != nil {
 				return err
 			}
 		}
@@ -327,7 +339,7 @@ func (s *SemanticSession) ValidateExternalRules(rules, candidate map[string]any,
 	}
 }
 
-func (s *SemanticSession) validateExternalRequirement(requirement, candidate map[string]any, scope []string) error {
+func (s *SemanticSession) validateExternalRequirement(requirement, candidate map[string]any, scope []string, implementation map[string]any) error {
 	if requirement["status"] != "satisfied" || Text(requirement["source"]) == "" || !SameStringSet(requirement["scope"], scope) {
 		return s.Reject("EXTERNAL_REQUIREMENT", "外部要求未满足或来源、范围不符")
 	}
@@ -356,9 +368,11 @@ func (s *SemanticSession) validateExternalRequirement(requirement, candidate map
 	if rule["source"] != requirement["source"] || !SameStringSet(rule["scope"], scope) || result["source"] != requirement["source"] || !ApEqual(result["rule"], requirement["rule"]) || !ApEqual(result["subject"], candidate) || !SameStringSet(result["scope"], scope) || result["status"] != "satisfied" || result["revoked"] != false || !evidenceTime(result["verified_at"]) || Text(result["original_ref"]) == "" {
 		return s.Reject("EXTERNAL_REQUIREMENT", "外部原始来源、候选、范围、状态或当前性不可核验")
 	}
-	expires, err := time.Parse(time.RFC3339Nano, Text(result["expires_at"]))
-	if err != nil || !expires.After(time.Now()) {
-		return s.Reject("EXTERNAL_REQUIREMENT", "外部结果已过期或缺少当前有效期")
+	if expiry, present := result["expires_at"]; present {
+		expires, err := time.Parse(time.RFC3339Nano, Text(expiry))
+		if err != nil || !expires.After(time.Now()) {
+			return s.Reject("EXTERNAL_REQUIREMENT", "外部来源声明的有效期已过期或无效")
+		}
 	}
 	if !ApUnique(result["principals"]) {
 		return s.Reject("EXTERNAL_REQUIREMENT", "外部结果缺少可核对主体")
@@ -378,7 +392,8 @@ func (s *SemanticSession) validateExternalRequirement(requirement, candidate map
 		if !ok {
 			return s.Unavailable("EXTERNAL_RULE_UNSUPPORTED", "外部账号分离条件无效")
 		}
-		if must && (Text(result["implementation_principal_ref"]) == "" || ApContains(result["principals"], Text(result["implementation_principal_ref"]))) {
+		identity := ApMap(implementation["identity"])
+		if must && (identity["status"] != "available" || Text(identity["principal_ref"]) == "" || result["implementation_principal_ref"] != identity["principal_ref"] || ApContains(result["principals"], Text(identity["principal_ref"]))) {
 			return s.Reject("EXTERNAL_REQUIREMENT", "外部规则要求不同账号，当前结果不满足")
 		}
 	}

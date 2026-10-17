@@ -748,25 +748,42 @@ func AssertImplementationDecisionSemantic(s *kernel.SemanticSession, state map[s
 // The independent scope receipt is not execution qualification. Historical v2
 // source approval checks consume the digest-bound scope fields; execution callers
 // above continue to require the complete current Slice contract. v3 is unchanged.
+func implementationContractView(s *kernel.SemanticSession, ref string) (map[string]any, error) {
+	doc, err := s.Doc(ref)
+	if err != nil {
+		return nil, err
+	}
+	raw := doc
+	if nested, ok := kernel.Object(doc["slice_contract"]); ok {
+		raw = nested
+	}
+	if kernel.ContractN(raw["schema_version"]) == 2 {
+		return raw, nil
+	}
+	contract, err := LoadNativeSlice(s, ref)
+	if err != nil {
+		return nil, err
+	}
+	return contract.Normalized, nil
+}
 func AssertImplementationScopeSemantic(s *kernel.SemanticSession, state map[string]any) error {
-	return implementationDecisionWithContract(s, state, func(ref string) (map[string]any, error) {
-		doc, err := s.Doc(ref)
-		if err != nil {
-			return nil, err
+	return implementationDecisionWithContract(s, state, func(ref string) (map[string]any, error) { return implementationContractView(s, ref) })
+}
+
+// Rechecks actual manifest contracts and baselines without recursively granting or requesting approval.
+func ValidateImplementationManifestSemantic(s *kernel.SemanticSession, ref string, scope []string) error {
+	manifest, err := s.Doc(ref)
+	if err != nil {
+		return err
+	}
+	for _, ticket := range scope {
+		row := kernel.ApFind(manifest["slices"], "ticket_ref", ticket)
+		state := map[string]any{"vertical_slice_ticket_ref": ticket, "slice_contract_ref": kernel.ApMap(row["contract"])["ref"]}
+		if err = validateImplementationSlice(s, state, map[string]any{"subject_ref": ref}, func(ref string) (map[string]any, error) { return implementationContractView(s, ref) }); err != nil {
+			return err
 		}
-		raw := doc
-		if nested, ok := kernel.Object(doc["slice_contract"]); ok {
-			raw = nested
-		}
-		if kernel.ContractN(raw["schema_version"]) == 2 {
-			return raw, nil
-		}
-		contract, err := LoadNativeSlice(s, ref)
-		if err != nil {
-			return nil, err
-		}
-		return contract.Normalized, nil
-	})
+	}
+	return nil
 }
 
 func implementationDecisionWithContract(s *kernel.SemanticSession, state map[string]any, contractView func(string) (map[string]any, error)) error {
@@ -778,6 +795,10 @@ func implementationDecisionWithContract(s *kernel.SemanticSession, state map[str
 	if _, e := approval.AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
 		return e
 	}
+	return validateImplementationSlice(s, state, requirement, contractView)
+}
+func validateImplementationSlice(s *kernel.SemanticSession, state, requirement map[string]any, contractView func(string) (map[string]any, error)) error {
+	ticket := kernel.ApText(state["vertical_slice_ticket_ref"])
 	manifest, e := s.Doc(kernel.ApText(requirement["subject_ref"]))
 	if e != nil {
 		return e

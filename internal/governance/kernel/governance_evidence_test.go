@@ -140,20 +140,28 @@ func TestIndependentReviewRequiresActualSeparateContexts(t *testing.T) {
 }
 
 func TestExternalRequirementsUseCurrentSourceAndScope(t *testing.T) {
-	for _, scenario := range []string{"none-known", "known-unverifiable", "satisfied", "wrong-candidate", "revoked", "expired", "unknown-rule", "different-accounts-required"} {
+	for _, scenario := range []string{"none-known", "known-unverifiable", "satisfied", "no-expiry", "wrong-candidate", "revoked", "expired", "unknown-rule", "different-accounts-required", "distinct-real-principals"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, c, _ := evidenceFixture(t)
 			rule := map[string]any{"source": "platform:review/1", "scope": []string{"src/"}, "required_principals": []string{"reviewer"}}
 			if scenario == "unknown-rule" {
 				rule["special-organization-rule"] = true
 			}
-			if scenario == "different-accounts-required" {
+			if scenario == "different-accounts-required" || scenario == "distinct-real-principals" {
 				rule["distinct_principals"] = true
 			}
 			writePolicyFixture(t, s.Root, "rule.json", rule)
 			raw, _ := os.ReadFile(filepath.Join(s.Root, "rule.json"))
 			ruleAsset := map[string]any{"ref": "rule.json", "digest": safefs.Digest(raw)}
 			result := map[string]any{"source": "platform:review/1", "scope": []string{"src/"}, "rule": ruleAsset, "subject": c, "status": "satisfied", "revoked": false, "verified_at": "2026-01-01T00:00:00Z", "expires_at": "2099-01-01T00:00:00Z", "original_ref": "platform:review/1/result", "principals": []string{"reviewer"}, "implementation_principal_ref": "reviewer"}
+			var implementation map[string]any
+			if scenario == "distinct-real-principals" {
+				implementation = map[string]any{"identity": map[string]any{"status": "available", "principal_ref": "actual-author"}}
+				result["implementation_principal_ref"] = "actual-author"
+			}
+			if scenario == "no-expiry" {
+				delete(result, "expires_at")
+			}
 			if scenario == "revoked" {
 				result["revoked"] = true
 			}
@@ -173,8 +181,8 @@ func TestExternalRequirementsUseCurrentSourceAndScope(t *testing.T) {
 			if scenario == "known-unverifiable" {
 				rules = map[string]any{"state": "known-unverifiable"}
 			}
-			err := s.ValidateExternalRules(rules, c, []string{"src/"})
-			if (err == nil) != (scenario == "none-known" || scenario == "satisfied") {
+			err := s.ValidateExternalRules(rules, c, []string{"src/"}, implementation)
+			if (err == nil) != (scenario == "none-known" || scenario == "satisfied" || scenario == "no-expiry" || scenario == "distinct-real-principals") {
 				t.Fatalf("%s: %v", scenario, err)
 			}
 		})
@@ -233,7 +241,7 @@ func TestDerivedCandidateKeepsFileBoundary(t *testing.T) {
 	writePolicyFixture(t, s.Root, "execution.json", raw)
 	s = NewSemanticSession(context.Background(), s.Root, nil)
 	review := map[string]any{"mode": "self-check", "provenance": p}
-	if err = s.ValidateReviewEvidenceDigest(review, c, []string{"src/"}, "self-check", p, "task.json"); err != nil {
+	if err = s.ValidateReviewEvidenceDigest(review, c, []string{"src/"}, "self-check", p, "task.json", c); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check", p, "task.json"); err == nil {
@@ -249,5 +257,42 @@ func TestDerivedCandidateKeepsFileBoundary(t *testing.T) {
 	}
 	if err = s.ValidateVerificationResults([]any{row}, []string{"go test ./..."}, c); err == nil {
 		t.Fatal("file result API skipped actual bytes")
+	}
+}
+
+func TestExternalReviewCannotChooseImplementationPrincipal(t *testing.T) {
+	s, c, p := evidenceFixture(t)
+	p["identity"] = map[string]any{"status": "available", "principal_ref": "actual-author", "session_ref": "actual-session"}
+	actual, _ := s.EvidenceFact("execution.json")
+	actual["identity"] = p["identity"]
+	writePolicyFixture(t, s.Root, "execution.json", actual)
+	rule := map[string]any{"source": "platform:rule", "scope": []string{"src/"}, "distinct_principals": true}
+	writePolicyFixture(t, s.Root, "rule.json", rule)
+	raw, _ := os.ReadFile(filepath.Join(s.Root, "rule.json"))
+	rb := map[string]any{"ref": "rule.json", "digest": safefs.Digest(raw)}
+	result := map[string]any{"source": "platform:rule", "scope": []string{"src/"}, "rule": rb, "subject": c, "status": "satisfied", "revoked": false, "verified_at": "2026-01-01T00:00:00Z", "expires_at": "2099-01-01T00:00:00Z", "original_ref": "platform:result", "principals": []string{"actual-author"}, "implementation_principal_ref": "invented-author"}
+	writePolicyFixture(t, s.Root, "result.json", result)
+	raw, _ = os.ReadFile(filepath.Join(s.Root, "result.json"))
+	external := map[string]any{"source": "platform:rule", "scope": []string{"src/"}, "rule": rb, "result": map[string]any{"ref": "result.json", "digest": safefs.Digest(raw)}, "subject": c, "status": "satisfied"}
+	review := map[string]any{"mode": "external-required-review", "provenance": p, "external": external}
+	s = NewSemanticSession(context.Background(), s.Root, nil)
+	if err := s.ValidateReviewEvidence(review, c, []string{"src/"}, "external-required-review", p, "task.json"); err == nil {
+		t.Fatal("captured result chose a fake implementation principal")
+	}
+}
+
+func TestReviewMemberCandidateKeepsImplementationComposition(t *testing.T) {
+	s, c, r := independentFixture(t)
+	p := ApMap(ApMap(r["independence"])["implementation"])
+	composite := map[string]any{"ref": "task.json", "digest": safefs.Digest([]byte("all outputs plus frozen baseline"))}
+	log, _ := s.EvidenceFact("execution.json")
+	log["candidate_digest"] = composite["digest"]
+	writePolicyFixture(t, s.Root, "execution.json", log)
+	capture, _ := s.EvidenceFact("implementation-context.json")
+	ApRows(capture["messages"])[0]["text"] = "executed execution.json for " + Text(composite["digest"])
+	writePolicyFixture(t, s.Root, "implementation-context.json", capture)
+	s = NewSemanticSession(context.Background(), s.Root, nil)
+	if err := s.ValidateReviewEvidenceDigest(r, c, []string{"src/"}, "independent-review", p, "task.json", composite); err != nil {
+		t.Fatal(err)
 	}
 }

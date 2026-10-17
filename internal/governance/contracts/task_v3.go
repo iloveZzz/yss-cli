@@ -10,6 +10,13 @@ import (
 
 func init() {
 	kernel.RegisterRoleIndependentValidator("task", verifyRoleIndependentTask)
+	kernel.RegisterRoleIndependentValidator("implementation-scope", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		state, err := s.Doc(ref)
+		if err != nil {
+			return err
+		}
+		return AssertImplementationScopeSemantic(s, state)
+	})
 	kernel.RegisterRoleIndependentValidator("task-candidate", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
 		return verifyRoleIndependentTask(s, ref, map[string]string{"candidate-query": "true"})
 	})
@@ -212,8 +219,13 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 		return err
 	}
 	if task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier" {
+		execution := s.Report.Coverage["task_execution"]
 		if err = validateTask3Review(s, task, candidate); err != nil {
 			return err
+		}
+		// Nested implementation verification must not replace this review's completion observation.
+		if execution != nil {
+			s.Report.Coverage["task_execution"] = execution
 		}
 	}
 	if contract["kind"] == "slice-implementation" {
@@ -316,7 +328,8 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 		}
 	}
 	if task["workflow_status"] != "not-started" {
-		implementation, implementationRef, scope, protection, err := trustedTaskImplementation(s, review)
+		source, err := TrustedTaskImplementation(s, review)
+		implementation, implementationRef, scope, protection := kernel.ApMap(source["provenance"]), kernel.Text(source["task_ref"]), kernel.ApStrings(source["scope"]), kernel.ApMap(source["candidate_scope"])
 		if err != nil {
 			return err
 		}
@@ -326,7 +339,15 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 		if !kernel.ApSetEqual(review["approval_scope"], scope) {
 			return s.Reject("TASK_REVIEW", "审查范围未绑定实际实施范围")
 		}
-		return s.ValidateReviewEvidenceDigest(actual, candidate, scope, "self-check", implementation, implementationRef)
+		implementationTask, err := s.Doc(implementationRef)
+		if err != nil {
+			return err
+		}
+		mode, err := s.RequiredReviewMode(candidate, implementation, scope, implementationTask["input_bindings"], task["input_bindings"], review["basis"])
+		if err != nil {
+			return err
+		}
+		return s.ValidateReviewEvidenceDigest(actual, candidate, scope, mode, implementation, implementationRef, kernel.ApMap(source["candidate"]))
 	}
 	return nil
 }

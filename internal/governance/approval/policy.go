@@ -142,6 +142,9 @@ func ApprovalExpectationFromStateWith(s *kernel.SemanticSession, boundary string
 }
 
 func ReviewBundleRowsSemantic(s *kernel.SemanticSession, bundle map[string]any) ([]map[string]any, error) {
+	if kernel.ApNumber(bundle["schema_version"]) == 3 {
+		return reviewBundleRows3(s, bundle)
+	}
 	version := kernel.ApNumber(bundle["schema_version"])
 	rows := kernel.ApRows(bundle["reviews"])
 	if (version != 1 && version != 2) || kernel.ApText(bundle["kind"]) != "review-bundle" || len(rows) == 0 {
@@ -231,6 +234,9 @@ func CurrentApprovalReferencesSemantic(s *kernel.SemanticSession, record map[str
 }
 
 func AssertCurrentApprovalSemantic(s *kernel.SemanticSession, record, expected map[string]any) error {
+	if kernel.ApNumber(record["schema_version"]) == 3 {
+		return assertCurrentApproval3(s, record, expected)
+	}
 	if err := CurrentApprovalReferencesSemantic(s, record); err != nil {
 		return err
 	}
@@ -497,5 +503,8 @@ func stringsToAny(values []string) []any {
 
 // 已通过当前批准校验的记录所适用的会签规则（桶、会签角色等），供调用方了解它按哪类门禁关闭。
 func ApprovalRuleSemantic(s *kernel.SemanticSession, record map[string]any) (map[string]any, error) {
+	if kernel.ApNumber(record["schema_version"]) == 3 {
+		return approvalRule3(s, record)
+	}
 	return assertApprovalSignerSemantic(s, record)
 }
