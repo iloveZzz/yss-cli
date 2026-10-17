@@ -342,12 +342,7 @@ func optionCandidates(args []string) []string {
 			opts = append(append([]string{}, commonOptionNames...), verificationOptions(group, kind)...)
 		}
 	}
-	out := []string{}
-	for _, k := range opts {
-
-		out = append(out, k)
-	}
-	return out
+	return append([]string{}, opts...)
 }
 func validateArguments(command string, o options) error {
 	if o.values["version"] == "true" {
