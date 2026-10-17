@@ -120,7 +120,7 @@ func executionCandidate(s *kernel.SemanticSession, root string, source map[strin
 	return map[string]any{"ref": root, "digest": strings.TrimPrefix(ContractDigest(value), "sha256:")}, changed, nil
 }
 
-func validateTask3Execution(s *kernel.SemanticSession, ref string, task, candidate map[string]any, changed []string) error {
+func validateTask3Execution(s *kernel.SemanticSession, ref string, task, candidate map[string]any, changed, protectedPaths []string) error {
 	actual, err := s.ValidateProvenance(kernel.ApMap(task["provenance"]), ref, kernel.Text(candidate["digest"]))
 	if err != nil {
 		return err
@@ -215,6 +215,9 @@ func validateTask3Execution(s *kernel.SemanticSession, ref string, task, candida
 		s.Report.Coverage = map[string]any{}
 	}
 	s.Report.Coverage["task_execution"] = map[string]any{"task_ref": ref, "candidate": candidate, "provenance": task["provenance"], "scope": task["allowed_write_paths"], "completed": true}
+	if protectedPaths != nil {
+		kernel.ApMap(s.Report.Coverage["task_execution"])["candidate_scope"] = map[string]any{"repository_root": kernel.ApMap(task["baseline"])["repository_root"], "paths": protectedPaths}
+	}
 	return nil
 }
 
@@ -262,30 +265,31 @@ func draftExecutionCandidate(s *kernel.SemanticSession, task map[string]any) (ma
 }
 
 // The basis is the authority lookup set; review.independence never selects implementation.
-func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any) (map[string]any, string, []string, error) {
+func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any) (map[string]any, string, []string, map[string]any, error) {
 	var implementation map[string]any
 	var implementationRef string
 	var scope []string
+	var protection map[string]any
 	matches := 0
 	seen := map[string]bool{}
 	for _, asset := range kernel.ApRows(review["basis"]) {
 		ref := kernel.Text(asset["ref"])
 		if seen[ref] {
-			return nil, "", nil, s.Reject("TASK_REVIEW", "审查依据重复")
+			return nil, "", nil, nil, s.Reject("TASK_REVIEW", "审查依据重复")
 		}
 		seen[ref] = true
 		if _, err := s.EvidenceAsset(asset); err != nil {
-			return nil, "", nil, err
+			return nil, "", nil, nil, err
 		}
 		task, err := s.Doc(ref)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, "", nil, nil, err
 		}
 		if kernel.ContractN(task["schema_version"]) != 3 || task["workflow_status"] != "resolved" || kernel.ApMap(task["result"])["result"] != "completed" || !kernel.ApContains([]string{"Drafter", "Explorer", "Worker"}, kernel.Text(task["execution_state"])) {
 			continue
 		}
 		if err = s.Verify("task", ref, nil); err != nil {
-			return nil, "", nil, err
+			return nil, "", nil, nil, err
 		}
 		verified := kernel.ApMap(s.Report.Coverage["task_execution"])
 		if verified["task_ref"] == ref && verified["completed"] == true && kernel.ApEqual(verified["candidate"], review["candidate"]) {
@@ -293,33 +297,62 @@ func trustedTaskImplementation(s *kernel.SemanticSession, review map[string]any)
 			implementation = kernel.ApMap(task["provenance"])
 			implementationRef = ref
 			scope = kernel.ApStrings(task["allowed_write_paths"])
+			protection = kernel.ApMap(verified["candidate_scope"])
 		}
 	}
 	if matches != 1 {
-		return nil, "", nil, s.Reject("TASK_REVIEW", "必须从当前候选依据找到唯一已验证完成的实施任务")
+		return nil, "", nil, nil, s.Reject("TASK_REVIEW", "必须从当前候选依据找到唯一已验证完成的实施任务")
 	}
-	return implementation, implementationRef, scope, nil
+	return implementation, implementationRef, scope, protection, nil
 }
 
-func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[string]any, []string, error) {
+// protection is emitted by the uniquely matched completed task's candidate computation.
+// Compare physical roots too: equal relative names in different repositories are not overlaps.
+func validateReviewCandidateWrites(s *kernel.SemanticSession, task, protection map[string]any) error {
+	root := kernel.Text(protection["repository_root"])
+	if !filepath.IsAbs(root) || !kernel.ApUnique(protection["paths"]) {
+		return s.Reject("TASK_REVIEW", "已验证实施候选缺少真实路径范围")
+	}
+	reviewerRoot := kernel.Text(kernel.ApMap(task["baseline"])["repository_root"])
+	writes := append([]string{}, kernel.ApStrings(task["allowed_write_paths"])...)
+	writes = append(writes, kernel.ApStrings(kernel.ApMap(task["result"])["changed_files"])...)
+	for _, ref := range kernel.ApStrings(protection["paths"]) {
+		protected, err := safefs.Path(root, strings.TrimSuffix(ref, "/"))
+		if err != nil {
+			return err
+		}
+		for _, write := range writes {
+			actual, err := safefs.Path(reviewerRoot, strings.TrimSuffix(write, "/"))
+			if err != nil {
+				return err
+			}
+			if actual == protected || strings.HasPrefix(actual, protected+string(filepath.Separator)) || strings.HasPrefix(protected, actual+string(filepath.Separator)) {
+				return s.Reject("TASK_REVIEW", "审查写范围或实际变化覆盖受审候选: "+ref)
+			}
+		}
+	}
+	return nil
+}
+
+func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[string]any, []string, []string, error) {
 	contract := kernel.ApMap(task["contract"])
 	ref := kernel.Text(contract["slice_contract_ref"])
 	if ref == "" || contract["contract_ref"] != ref || contract["lifecycle_ref"] != nil || contract["maintenance_ref"] != nil || kernel.ApMap(task["convergence"])["parent_work_unit"] != "work-unit.slice-implementation" {
-		return nil, nil, s.Reject("TASK_CONTRACT", "Slice引用与汇合不一致")
+		return nil, nil, nil, s.Reject("TASK_CONTRACT", "Slice引用与汇合不一致")
 	}
 	c, err := LoadNativeSlice(s, ref)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err = validateSlice4Selection(s, c); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if c.Raw["contract_id"] != contract["contract_id"] || c.Raw["contract_version"] != contract["contract_version"] {
-		return nil, nil, s.Reject("TASK_CONTRACT", "Slice身份/版本不一致")
+		return nil, nil, nil, s.Reject("TASK_CONTRACT", "Slice身份/版本不一致")
 	}
 	unit := kernel.ApFind(c.Normalized["work_units"], "id", kernel.Text(task["work_unit_id"]))
 	if unit == nil {
-		return nil, nil, s.Reject("TASK_CONTRACT", "Slice工作单元不存在")
+		return nil, nil, nil, s.Reject("TASK_CONTRACT", "Slice工作单元不存在")
 	}
 	stages := []string{}
 	for _, stage := range kernel.ApRows(s.Registry["stages"]) {
@@ -329,52 +362,52 @@ func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[str
 		}
 	}
 	if len(stages) != 1 || task["stage_id"] != stages[0] {
-		return nil, nil, s.Reject("TASK_STAGE", "任务未绑定当前Slice实现阶段")
+		return nil, nil, nil, s.Reject("TASK_STAGE", "任务未绑定当前Slice实现阶段")
 	}
 	if !kernel.ApSetEqual(task["allowed_write_paths"], unit["allowed_write_paths"]) {
-		return nil, nil, s.Reject("TASK_SCOPE", "任务范围不等于批准的工作单元范围")
+		return nil, nil, nil, s.Reject("TASK_SCOPE", "任务范围不等于批准的工作单元范围")
 	}
 	for field, want := range map[string]any{"verification_commands": kernel.ApMap(unit["work_unit"])["verification_commands"], "expected_evidence_files": kernel.ApMap(unit["work_unit"])["expected_evidence"]} {
 		if !kernel.ApSetEqual(task[field], want) {
-			return nil, nil, s.Reject("TASK_CONTRACT", "任务替换或遗漏Slice "+field)
+			return nil, nil, nil, s.Reject("TASK_CONTRACT", "任务替换或遗漏Slice "+field)
 		}
 	}
 	for _, forbidden := range kernel.ApStrings(kernel.ApMap(unit["work_unit"])["forbidden_patterns"]) {
 		if !kernel.ApContains(task["forbidden_actions"], forbidden) {
-			return nil, nil, s.Reject("TASK_CONTRACT", "任务遗漏Slice禁止动作")
+			return nil, nil, nil, s.Reject("TASK_CONTRACT", "任务遗漏Slice禁止动作")
 		}
 	}
 	gates := kernel.ApStrings(contract["gate_refs"])
 	if len(gates) != 1 {
-		return nil, nil, s.Reject("TASK_CONTRACT", "Slice需要唯一批准checkpoint")
+		return nil, nil, nil, s.Reject("TASK_CONTRACT", "Slice需要唯一批准checkpoint")
 	}
 	opts := map[string]string{"unit": kernel.Text(task["work_unit_id"]), "approval-ref": gates[0]}
 	selected, _, _, err := contractSliceSelect(s, c, opts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	base, err := ContractBoundDoc(s, selected.Basis["engineering_baseline"])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	source := kernel.ApMap(base["source"])
 	identity := kernel.ApMap(kernel.ApMap(selected.Normalized["resolution"])["architecture_identity"])
 	if kernel.ContractN(identity["schema_version"]) != 2 || identity["source_kind"] != "existing-registration" {
-		return nil, nil, s.Reject("TASK_SOURCE", "缺少可由现有工程来源算法验证的冻结source；不能猜测源码身份")
+		return nil, nil, nil, s.Reject("TASK_SOURCE", "缺少可由现有工程来源算法验证的冻结source；不能猜测源码身份")
 	}
 	if !kernel.ApUnique(source["roots"]) || len(kernel.ApRows(source["files"])) == 0 {
-		return nil, nil, s.Reject("TASK_SOURCE", "实际工程基线缺少source.roots/files；不能使用总写范围猜测源码")
+		return nil, nil, nil, s.Reject("TASK_SOURCE", "实际工程基线缺少source.roots/files；不能使用总写范围猜测源码")
 	}
 	baseline := kernel.ApMap(task["baseline"])
 	if baseline["repository_root"] != unit["project_root"] || baseline["commit"] != source["base_commit"] || baseline["digest"] != strings.TrimPrefix(ContractDigest(source), "sha256:") {
-		return nil, nil, s.Reject("TASK_BASELINE", "任务基线未绑定实际工程冻结source")
+		return nil, nil, nil, s.Reject("TASK_BASELINE", "任务基线未绑定实际工程冻结source")
 	}
 	// Existing native freshness validates the engineering source's Git tree, patches and registration.
 	if err = s.Verify("slice", ref, opts); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err = AssertImplementationDecisionSemantic(s, map[string]any{"slice_contract_ref": ref, "vertical_slice_ticket_ref": kernel.ApMap(c.Normalized["lifecycle_refs"])["ticket"], "user_decisions": task["user_decisions"]}); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	root := kernel.Text(baseline["repository_root"])
 	excludedEvidence := append([]string{}, kernel.ApStrings(task["expected_evidence_files"])...)
@@ -384,7 +417,7 @@ func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[str
 	for _, evidence := range excludedEvidence {
 		for _, sourceRoot := range kernel.ApStrings(source["roots"]) {
 			if ContractWithin(evidence, sourceRoot) {
-				return nil, nil, s.Reject("TASK_SOURCE", "源码范围包含任务或执行证据，会形成自引用；需要真实工程来源范围")
+				return nil, nil, nil, s.Reject("TASK_SOURCE", "源码范围包含任务或执行证据，会形成自引用；需要真实工程来源范围")
 			}
 		}
 	}
@@ -392,5 +425,5 @@ func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[str
 	if err == nil {
 		candidate["ref"] = ref
 	}
-	return candidate, changed, err
+	return candidate, changed, kernel.ApStrings(source["roots"]), err
 }

@@ -163,38 +163,28 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			candidate = asset
 		}
 	}
-	var changed []string
+	var changed, protectedPaths []string
 	if contract["kind"] == "slice-implementation" {
-		candidate, changed, err = sliceTaskCandidate(s, task)
+		candidate, changed, protectedPaths, err = sliceTaskCandidate(s, task)
 		if err != nil {
 			return err
 		}
 	}
 	if (!dispatch || query) && (task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier") {
 		review := kernel.ApMap(task["review_context"])
-		if _, _, _, err = trustedTaskImplementation(s, review); err != nil {
+		if _, _, _, _, err = trustedTaskImplementation(s, review); err != nil {
 			return err
 		}
 		candidate = kernel.ApMap(review["candidate"])
 	}
 	if (!dispatch || query) && (task["execution_state"] == "Drafter" || task["execution_state"] == "Explorer") {
 		candidate, err = draftExecutionCandidate(s, task)
+		protectedPaths = kernel.ApStrings(task["expected_outputs"])
 		if err != nil {
 			return err
 		}
-		if !query {
-			baseline := kernel.ApMap(task["baseline"])
-			source, e := TaskBaselineSource(s, root, kernel.Text(baseline["commit"]), kernel.ApStrings(task["allowed_write_paths"]))
-			if e != nil {
-				return e
-			}
-			_, changed, err = executionCandidate(s, root, source, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"])
-			if err != nil {
-				return err
-			}
-		}
 	}
-	if !dispatch && !query && (task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier") {
+	if !dispatch && !query && kernel.ApContains([]string{"Drafter", "Explorer", "Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) {
 		baseline := kernel.ApMap(task["baseline"])
 		source, e := TaskBaselineSource(s, root, kernel.Text(baseline["commit"]), kernel.ApStrings(task["allowed_write_paths"]))
 		if e != nil {
@@ -216,7 +206,7 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 	} else if dispatch {
 		err = validateTask3Origin(s, actualRef, task, candidate)
 	} else {
-		err = validateTask3Execution(s, ref, task, candidate, changed)
+		err = validateTask3Execution(s, ref, task, candidate, changed, protectedPaths)
 	}
 	if err != nil {
 		return err
@@ -326,8 +316,11 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 		}
 	}
 	if task["workflow_status"] != "not-started" {
-		implementation, implementationRef, scope, err := trustedTaskImplementation(s, review)
+		implementation, implementationRef, scope, protection, err := trustedTaskImplementation(s, review)
 		if err != nil {
+			return err
+		}
+		if err = validateReviewCandidateWrites(s, task, protection); err != nil {
 			return err
 		}
 		if !kernel.ApSetEqual(review["approval_scope"], scope) {

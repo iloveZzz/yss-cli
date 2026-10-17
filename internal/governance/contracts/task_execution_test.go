@@ -157,9 +157,12 @@ func TestReviewImplementationComesFromCompletedBasis(t *testing.T) {
 				basis[0] = map[string]any{"ref": "task.json", "digest": safefs.Digest(raw)}
 			}
 			s.V = kernel.NewView(s.Root)
-			p, ref, _, err := trustedTaskImplementation(s, map[string]any{"basis": basis, "candidate": c})
+			p, ref, _, protection, err := trustedTaskImplementation(s, map[string]any{"basis": basis, "candidate": c})
 			if (err == nil) != (name == "one") {
 				t.Fatalf("%s: %v", name, err)
+			}
+			if name == "one" && (protection["repository_root"] != s.Root || !kernel.ApSetEqual(protection["paths"], task["expected_outputs"])) {
+				t.Fatal("candidate protection not emitted from verified outputs")
 			}
 			if name == "one" && (ref != "task.json" || !kernel.ApEqual(p, task["provenance"])) {
 				t.Fatal("source not taken from completed task")
