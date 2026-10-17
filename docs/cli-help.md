@@ -66,6 +66,7 @@ Profile 职责:
     explain          解释流程术语或生命周期稳定 ID。
     check            识别实例资产并调用对应 verify 做结构与当前校验。
     verify           核验一个门禁所需的当前 checkpoint 与检查依赖。
+    mcp              以 MCP stdio 服务提供只读治理工具。
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
@@ -787,6 +788,7 @@ YSS 离线入门教程
 | `lifecycle target` | 读取或事务设置 Spec 单功能的本次推进目标。 | `yss help examples lifecycle target` |
 | `lifecycle verify` | 核验当前 checkpoint 的领域门禁。 | `yss help examples lifecycle verify` |
 | `lifecycle verify-daily` | 核验同一日常任务的当前差异、测试和独立审查。 | `yss help examples lifecycle verify-daily` |
+| `mcp` | 以 MCP stdio 服务提供只读治理工具。 | `yss help examples mcp` |
 | `profile` | 准备独立的下游 Profile 工程并登记显式关联。 | `yss help examples profile` |
 | `profile prepare` | 生成或执行单端、联合初始化保存计划。 | `yss help examples profile prepare` |
 | `project-ci` | 核验或配置项目 CI。 | `yss help examples project-ci` |
@@ -3528,6 +3530,44 @@ yss lifecycle status --help；消费当前证据和权威退出条件后，由�
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples lifecycle verify-daily
+```
+
+### mcp
+
+```text
+yss 2.3.3 — mcp
+──────────────────────
+以 MCP stdio 服务提供只读治理工具。
+
+用法: yss mcp [--root <目录>]
+
+前置条件:
+由 MCP 客户端以子进程启动；--root 指向 YSS 项目根。stdout 只承载 JSON-RPC，诊断写 stderr。
+工具：lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、verify_gate。全部只读，结果是与命令行相同的 JSON envelope；不暴露写入、提交或推送。客户端配置示例：{"mcpServers":{"yss":{"command":"yss","args":["mcp","--root","."]}}}
+
+最小示例:
+yss mcp --root ./demo-spec
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  固定的项目根，默认当前目录；工具参数不能改写
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples mcp
 ```
 
 ### profile

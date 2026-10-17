@@ -195,6 +195,8 @@ yss -V --json
 
 治理资产的统一入口是 `yss check` 与 `yss verify --gate`：`yss check --changed` 按字段识别改动的批准记录、checkpoint、上下文对账、OpenAPI 草稿验证与脚手架决策，逐个调用对应的现有 `verify`，汇总成一份报告；每条发现都带 `code`、`file`、`pointer`、`message`、`fix` 与可复现的 `command`。`yss verify --gate <门禁> --checkpoint <文件>` 依次运行 `lifecycle verify` 与 `contract verify --kind gate-checks`。两者只聚合、不新增校验语义：模板目录与未识别文件列为 skipped，缺当前上下文（如用户决定）列为 not-evaluated，整体为 incomplete 而非通过，均不授予批准或执行。
 
+`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
+
 支持 `lifecycle-target-v1` 的 Spec 实例默认推进到业务验收，也可先到 Spec 或产品设计后续推；目标设置、职责边界和状态字段见 [功能推进目标](docs/lifecycle-target.md)。旧实例需显式同步，目标达到不授予合并或发布权限。
 
 更新 Bundle 后运行 `go run ./tools/helpview`，再运行 `go run ./tools/helpdocs --reference` 保留完整命令与错误参考；两者追加 `--check` 验证来源与生成内容一致。模板统一指南的帮助块使用同一生成器的 `--embed --out <指南文件>` 同步。文档案例只说明协议，不构成真实批准。

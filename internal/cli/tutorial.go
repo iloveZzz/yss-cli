@@ -57,6 +57,8 @@ func prerequisite(key string) string {
 		return "在 YSS 项目根运行；--changed 需要 Git 仓库。用户决定等需当前上下文的资产另给 --checkpoint。"
 	case "verify":
 		return "合法项目身份与当前 checkpoint；门禁 ID 来自生命周期注册表。"
+	case "mcp":
+		return "由 MCP 客户端以子进程启动；--root 指向 YSS 项目根。stdout 只承载 JSON-RPC，诊断写 stderr。"
 	case "runtime", "archive", "xml":
 		return "准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。"
 	case "git":

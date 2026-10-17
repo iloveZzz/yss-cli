@@ -57,7 +57,18 @@ carries `code`, `file`, `pointer`, `message`, `fix` and a `command` to reproduce
 current context (such as user decisions) are reported as `not-evaluated`, so the result is `incomplete`,
 never `passed`. Neither command approves anything or authorises execution.
 
-## 5. Look things up
+## 5. Use it from an MCP client
+
+`yss mcp --root <project>` serves read-only tools over stdio (JSON-RPC, one message per line):
+`lifecycle_route`, `verify_daily`, `lifecycle_status`, `lifecycle_query`, `context_query`,
+`contract_view`, `explain`, `check`, `verify_gate`. Each tool returns the same JSON envelope as the
+command line; nothing writes, commits or pushes, and tool arguments cannot change `--root`.
+
+```json
+{"mcpServers": {"yss": {"command": "yss", "args": ["mcp", "--root", "."]}}}
+```
+
+## 6. Look things up
 
 ```sh
 yss explain gate.plan-approved        # stable lifecycle IDs and process terms

@@ -167,6 +167,18 @@ func RunWithTerminal(ctx context.Context, args []string, stdout, stderr io.Write
 	if err == nil {
 		err = validateArguments(command, o)
 	}
+	// MCP 服务独占 stdin/stdout 传输 JSON-RPC，不能再输出 envelope。
+	if err == nil && command == "mcp" {
+		root := o.values["root"]
+		if root == "" {
+			root = "."
+		}
+		if serveErr := ServeMCP(ctx, root, os.Stdin, stdout); serveErr != nil {
+			fmt.Fprintln(stderr, "MCP: "+serveErr.Error())
+			return 1
+		}
+		return 0
+	}
 	human := !o.json && (o.values["human"] == "true" || terminal != nil && terminal(stdout))
 	withDiagnostics := o.values["diagnostics"] == "true"
 	inputError := err != nil
@@ -847,7 +859,7 @@ func capabilities() map[string]any {
 	return m
 }
 func capabilitiesBase() map[string]any {
-	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "managed": map[string]any{"commands": []string{"render", "check-views", "plan-enable", "apply-enable", "affected"}, "manifestSchemaVersions": map[string]any{"read": []int{1, 2}, "write": []int{1, 2}}, "rulesVersion": reading.RulesVersion, "rendererId": reading.RendererID}, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}, "lifecycle.route": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "transaction-recover", "contextual-help", "work-layout-v1", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "git-workflow-v1", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task,business-tickets", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false}
+	return map[string]any{"readingViews": map[string]any{"schemaVersion": 1, "managed": map[string]any{"commands": []string{"render", "check-views", "plan-enable", "apply-enable", "affected"}, "manifestSchemaVersions": map[string]any{"read": []int{1, 2}, "write": []int{1, 2}}, "rulesVersion": reading.RulesVersion, "rendererId": reading.RendererID}, "contract.view": []string{"slice:review", "slice:task", "slice:full"}, "context.query": []string{"agent"}, "lifecycle.query": []string{"agent"}, "lifecycle.status": []string{"agent"}, "lifecycle.route": []string{"agent"}}, "workLayout": map[string]any{"schemaVersion": 1, "rootAuthority": worklayout.TrackerRef + "#tracker.root", "newProjectDefault": worklayout.DefaultRoot, "preserveExistingConfig": true}, "releaseQualification": "external-release-manifest", "version": domain.Version, "native": []string{"identity", "fixed-offline-bundles", "init", "attach-plan-and-apply", "diff", "sync-plan-and-apply", "transaction-recover", "contextual-help", "work-layout-v1", "offline-tutorial", "online-program-upgrade", "offline-program-update", "program-update-recover-and-rollback", "schema", "strict-yaml", "context", "lifecycle-query", "lifecycle-target-v1", "profile-guidance-v1", "profile-prepare", "git-workflow-v1", "spec-baseline-v1", "stage-register-and-update", "scoped-project-ci", "runtime-basic-records", "runtime-record-queries-and-pins", "safe-zip-and-xml", "mcp-stdio-read-only-v1"}, "governanceCandidate": map[string]any{"status": "implemented", "targetVersion": domain.Version, "readOnly": true, "approval_created": false, "defaultCIScope": "complete-governance", "runtimeStore": []string{"off"}, "interfaces": []string{"lifecycle.target", "lifecycle.status", "lifecycle.route", "lifecycle.verify-daily", "lifecycle.verify", "contract.verify:slice,scaffold,task,business-tickets", "evidence.verify:approval,user-decision,verification", "handoff.verify:package,consumption,spec-baseline", "project-ci.check", "project-ci.verify"}, "exitCodes": map[string]int{"passed": 0, "rejected": 1, "inputCapabilityExecution": 2}}, "requiredReleaseEvidence": []string{"plugin-consumer-cutover-verification", "native-declared-release-platform-validation", "fixed-source-release-gate"}, "legacyRuntimeRetained": false}
 }
 
 var _ = os.ErrNotExist

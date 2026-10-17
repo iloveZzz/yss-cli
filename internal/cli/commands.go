@@ -126,6 +126,8 @@ func initializeCommands() {
 			opts = append(opts, "root")
 		case "check":
 			opts = append(opts, "root", "changed", "base", "checkpoint")
+		case "mcp":
+			opts = append(opts, "root")
 		case "verify":
 			opts = append(opts, "root", "gate", "checkpoint")
 		case "profile":
