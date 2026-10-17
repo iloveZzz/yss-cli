@@ -92,7 +92,7 @@ func archiveRun(ctx context.Context, action, root string, args map[string]string
 		return nil, err
 	}
 	if action != "pack" && action != "unpack" && action != "verify" {
-		return nil, domain.Fail("UNPORTED", "ZIP 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 ZIP 动作: "+action)
 	}
 	source := args["source"]
 	if source == "" {
@@ -305,7 +305,7 @@ func archiveRun(ctx context.Context, action, root string, args map[string]string
 		complete = true
 		return map[string]any{"format": "zip", "files": len(refs), "bytes": actual, "output": output, "scope": "transport-only", "execution_authorization": "not-evaluated"}, nil
 	default:
-		return nil, domain.Fail("UNPORTED", "ZIP 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 ZIP 动作: "+action)
 	}
 }
 

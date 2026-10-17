@@ -13,7 +13,7 @@ import (
 
 func xmlRun(action, root string, args map[string]string) (any, error) {
 	if action != "inspect" && action != "query" {
-		return nil, domain.Fail("UNPORTED", "XML 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 XML 动作: "+action)
 	}
 	ref := kernel.First(args["file"], args["arg0"])
 	p, err := safefs.Path(root, ref)

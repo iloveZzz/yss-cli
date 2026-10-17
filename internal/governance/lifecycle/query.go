@@ -80,7 +80,7 @@ func ValidateRegistry(m map[string]any) error {
 
 func Query(ctx context.Context, group, action, root string, args map[string]string, sources QuerySources) (any, error) {
 	if action != "query" && action != "status" {
-		return nil, domain.Fail("UNPORTED", "生命周期动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的生命周期动作: "+action)
 	}
 	m, digest, err := Registry(root)
 	if err != nil {
@@ -235,11 +235,12 @@ func State(m, cp map[string]any) (map[string]any, error) {
 
 func AssetCheck(group, action, root string, args map[string]string) (any, error) {
 	if action != "check" && action != "verify" {
-		return nil, domain.Fail("UNPORTED", group+" 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 "+group+" 动作: "+action)
 	}
-	// Full verify remains blocked until each domain's approval, evidence and byte binding is ported.
+	// verify 在 governance.RunContext 已分派到原生语义校验；此处防御性拒绝，
+	// 避免任何新调用路径把 verify 降级为 Schema 结构校验。
 	if action == "verify" {
-		return nil, domain.Fail("UNPORTED", group+" 完整 verify 的语义门禁尚未迁移；使用 check 仅执行显式 Schema 结构校验")
+		return nil, domain.Fail("INTERNAL", group+" verify 必须经原生语义校验，结构校验入口不接收")
 	}
 	schemaRef := args["schema"]
 	fileRef := args["file"]

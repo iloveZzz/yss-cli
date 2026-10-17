@@ -61,7 +61,7 @@ func contextContract(root string) (map[string]any, error) {
 
 func contextRun(action, root string, args map[string]string) (any, error) {
 	if action != "check" && action != "verify" && action != "query" {
-		return nil, domain.Fail("UNPORTED", "Context 动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 Context 动作: "+action)
 	}
 	result, err := contextContract(root)
 	if err != nil {

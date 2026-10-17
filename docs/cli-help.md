@@ -790,10 +790,10 @@ YSS 离线入门教程
 | `profile` | 准备独立的下游 Profile 工程并登记显式关联。 | `yss help examples profile` |
 | `profile prepare` | 生成或执行单端、联合初始化保存计划。 | `yss help examples profile prepare` |
 | `project-ci` | 核验或配置项目 CI。 | `yss help examples project-ci` |
-| `project-ci apply` | 应用有限原生 CI 保存计划。 | `yss help examples project-ci apply` |
+| `project-ci apply` | 应用保存的 CI 安装计划。 | `yss help examples project-ci apply` |
 | `project-ci check` | 核验完整治理或显式有限 CI。 | `yss help examples project-ci check` |
-| `project-ci install` | 生成有限原生 CI 安装计划。 | `yss help examples project-ci install` |
-| `project-ci plan` | 生成有限原生 CI 安装计划。 | `yss help examples project-ci plan` |
+| `project-ci install` | 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。 | `yss help examples project-ci install` |
+| `project-ci plan` | 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。 | `yss help examples project-ci plan` |
 | `project-ci transition` | 核验工作单元流转条件。 | `yss help examples project-ci transition` |
 | `project-ci verify` | 按完整 Git 基线核验 CI。 | `yss help examples project-ci verify` |
 | `reading` | 只读核验或查询 managed 阅读视图。 | `yss help examples reading` |
@@ -3646,10 +3646,10 @@ yss 2.3.3 — project-ci
 用法: yss project-ci <子命令> --root <目录>
 
 子命令:
-apply  应用有限原生 CI 保存计划。
+apply  应用保存的 CI 安装计划。
 check  核验完整治理或显式有限 CI。
-install  生成有限原生 CI 安装计划。
-plan  生成有限原生 CI 安装计划。
+install  生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
+plan  生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 transition  核验工作单元流转条件。
 verify  按完整 Git 基线核验 CI。
 
@@ -3690,16 +3690,16 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ```text
 yss 2.3.3 — project-ci apply
 ──────────────────────
-应用有限原生 CI 保存计划。
+应用保存的 CI 安装计划。
 
-用法: yss project-ci apply --root <目录> --scope native-go --plan-file <文件>
+用法: yss project-ci apply --root <目录> --plan-file <文件> [--scope native-go]
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
-yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-plan.json --json
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
 
 参数:
   --additional-path <值>          按当前命令说明指定
@@ -3733,8 +3733,8 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend>  必需或从项目身份检测
---scope native-go  必需
 --plan-file  项目内原始写入计划
+--scope native-go  计划为有限检查时必需；须与计划范围一致
 
 预期结果:
 返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
@@ -3815,17 +3815,17 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ```text
 yss 2.3.3 — project-ci install
 ──────────────────────
-生成有限原生 CI 安装计划。
+生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
-用法: yss project-ci install --root <目录> --scope native-go --cli-source <路径> [--provider github]
+用法: yss project-ci install --root <目录> --cli-source <路径> [--scope native-go] [--provider github]
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI 不替代完整治理；保存原始计划时不加 --json。
+先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI（--scope native-go）不替代完整治理；应用时 --scope 须与计划一致；保存原始计划时不加 --json。
 
 最小示例:
-yss project-ci install --root ./demo-spec --scope native-go --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
-yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-plan.json --json
+yss project-ci install --root ./demo-spec --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
 
 参数:
   --additional-path <值>          按当前命令说明指定
@@ -3859,7 +3859,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend>  必需或从项目身份检测
---scope native-go  必需
+--scope native-go  只装有限检查；省略时安装与默认 project-ci check 相同的完整治理检查
 --provider github  当前唯一支持的 provider，默认 github
 --branch  默认项目配置分支或 main
 --cli-source  必需；项目内已存在的固定 Go CLI 源码目录
@@ -3882,17 +3882,17 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ```text
 yss 2.3.3 — project-ci plan
 ──────────────────────
-生成有限原生 CI 安装计划。
+生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
-用法: yss project-ci plan --root <目录> --scope native-go --cli-source <路径> [--provider github]
+用法: yss project-ci plan --root <目录> --cli-source <路径> [--scope native-go] [--provider github]
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI 不替代完整治理；保存原始计划时不加 --json。
+先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI（--scope native-go）不替代完整治理；应用时 --scope 须与计划一致；保存原始计划时不加 --json。
 
 最小示例:
-yss project-ci plan --root ./demo-spec --scope native-go --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
-yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-plan.json --json
+yss project-ci plan --root ./demo-spec --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
 
 参数:
   --additional-path <值>          按当前命令说明指定
@@ -3926,7 +3926,7 @@ yss project-ci apply --root ./demo-spec --scope native-go --plan-file docs/ci-pl
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|design|backend>  必需或从项目身份检测
---scope native-go  必需
+--scope native-go  只装有限检查；省略时安装与默认 project-ci check 相同的完整治理检查
 --provider github  当前唯一支持的 provider，默认 github
 --branch  默认项目配置分支或 main
 --cli-source  必需；项目内已存在的固定 Go CLI 源码目录

@@ -253,7 +253,7 @@ func runtimeRun(ctx context.Context, action, root string, args map[string]string
 		return nil, err
 	}
 	if action != "inspect" && action != "begin" && action != "event" && action != "complete" && !runtimeQueryAction(action) && action != "pin" && action != "unpin" {
-		return nil, domain.Fail("UNPORTED", "运行存储动作尚未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的运行存储动作: "+action)
 	}
 	if action == "begin" && (args["input"] != "" || args["report-dir"] != "") {
 		return nil, domain.Fail("UNPORTED", "输入对象与正式报告保护尚未迁移")

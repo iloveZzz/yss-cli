@@ -315,7 +315,7 @@ func buildStagePlan(root, action, cpRef, inputRef string, contexts ...context.Co
 			return plan, err
 		}
 	} else {
-		return plan, domain.Fail("UNPORTED", "stage 写入动作尚未迁移")
+		return plan, domain.Fail("UNPORTED", "不支持的 stage 写入动作")
 	}
 	for i := range tracking.Items {
 		item := &tracking.Items[i]
@@ -542,7 +542,7 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 		return result, nil
 	}
 	if action != "register" && action != "update" && action != "plan" && action != "apply" {
-		return nil, domain.Fail("UNPORTED", "stage 动作未迁移: "+action)
+		return nil, domain.Fail("UNPORTED", "不支持的 stage 动作: "+action)
 	}
 	if action == "apply" || args["apply"] == "true" {
 		if args["refresh"] != "" {
