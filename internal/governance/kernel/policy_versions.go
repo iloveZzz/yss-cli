@@ -207,11 +207,38 @@ func (s *SemanticSession) validatePolicyCompleteness(policy, scope, continuation
 		route := ApMap(ApMap(policy["work_unit_routes"])[id])
 		required := []string{}
 		for _, field := range []string{"entry_user_gate", "human_gate"} {
-			gate := Text(route[field])
+			value, present := route[field]
+			if !present {
+				continue
+			}
+			gate := Text(value)
 			if gate == "spec-baseline" {
 				gate = "gate.spec-baseline-approved"
 			}
-			if SemHas(expectedGates, gate) && !SemHas(required, gate) {
+			registered := ApFind(s.Registry["gates"], "id", gate)
+			if registered == nil {
+				return s.Unavailable("GOVERNANCE_POLICY", "工作单元路由引用未知或空门禁: "+id+"/"+field)
+			}
+			// The existing strategic handoff is an aggregate technical verification
+			// of source approvals, not a new user decision. Require the complete
+			// explicit relationship; never infer this exception from missing mappings.
+			handoff := ApMap(ApMap(policy["progression_target"])["external_strategic_handoff"])
+			if field == "human_gate" && handoff["work_unit"] == id && handoff["gate"] == gate {
+				classes := ApMap(ApMap(ApMap(policy["gate_policy"])["profiles"])[s.Report.Profile])
+				if handoff["source_authority"] != "original-profile-and-current-approved-assets" || handoff["completion_requires"] != "current-source-approvals-and-immutable-package-verification" || ApFind(classes["technical_reviews"], "gate", gate) == nil || !ApUnique(registered["requires_gates"]) {
+					return s.Unavailable("GOVERNANCE_POLICY", "技术交接缺少明确的源批准复用关系: "+gate)
+				}
+				for _, sourceGate := range ApStrings(registered["requires_gates"]) {
+					if !SemHas(expectedGates, sourceGate) {
+						return s.Unavailable("GOVERNANCE_POLICY", "技术交接缺少必需的源用户决定: "+sourceGate)
+					}
+				}
+				continue
+			}
+			if !SemHas(expectedGates, gate) {
+				return s.Unavailable("GOVERNANCE_POLICY", "工作单元路由要求的用户决定或延续边界缺失: "+gate)
+			}
+			if !SemHas(required, gate) {
 				required = append(required, gate)
 			}
 		}
