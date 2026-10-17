@@ -72,7 +72,7 @@ func taskFixture(t *testing.T) (*kernel.SemanticSession, map[string]any) {
 		t.Fatal(err)
 	}
 	task["skill_source"] = selection
-	origin := map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": provenance["tool"], "task_ref": "task.json", "identity": provenance["identity"], "candidate": bound, "input_bindings": task["input_bindings"], "baseline": baseline, "scope": task["allowed_write_paths"]}
+	origin := map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": provenance["tool"], "task_ref": "task.json", "identity": provenance["identity"], "candidate": bound, "input_bindings": task["input_bindings"], "baseline": baseline, "scope": task["allowed_write_paths"], "expected_outputs": task["expected_outputs"]}
 	taskFile(t, root, "origin.json", origin)
 	taskFile(t, root, "task.json", task)
 	return s, task
@@ -90,7 +90,7 @@ func TestTask3DispatchCannotClaimExecution(t *testing.T) {
 			s, task := taskFixture(t)
 			task["workflow_status"] = state
 			taskFile(t, s.Root, "task.json", task)
-			if err := verifyTaskPackageSemantic(s, "task.json", nil); err == nil || !strings.Contains(err.Error(), "尚未启用") {
+			if err := verifyTaskPackageSemantic(s, "task.json", nil); err == nil {
 				t.Fatalf("unimplemented execution must fail explicitly: %v", err)
 			}
 		})
@@ -216,7 +216,7 @@ func TestTask3DraftValidatesEveryImpactLocation(t *testing.T) {
 			bound["digest"] = safefs.Digest(bytes)
 			taskFile(t, s.Root, "task.json", task)
 			provenance := kernel.ApMap(task["provenance"])
-			taskFile(t, s.Root, "origin.json", map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": provenance["tool"], "task_ref": "task.json", "identity": provenance["identity"], "candidate": bound, "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"]})
+			taskFile(t, s.Root, "origin.json", map[string]any{"phase": "dispatch", "dispatched_at": "2026-01-01T00:00:00Z", "tool": provenance["tool"], "task_ref": "task.json", "identity": provenance["identity"], "candidate": bound, "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"], "expected_outputs": task["expected_outputs"]})
 			err = verifyTaskPackageSemantic(s, "task.json", nil)
 			if (err == nil) != tc.wantOK {
 				t.Fatalf("want success=%v, got %v", tc.wantOK, err)

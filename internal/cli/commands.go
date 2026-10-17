@@ -36,7 +36,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("root target-dir asset design-root backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
-	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
+	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref task-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot changed refresh") {
@@ -530,7 +530,7 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status", "lifecycle route":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice-draft", "task-selection", "governance-write", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
+		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "task-candidate", "task-selection", "governance-write", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
@@ -557,6 +557,8 @@ func verificationOptions(group, kind string) []string {
 	}
 	for _, k := range kinds {
 		switch group + "." + k {
+		case "contract.slice-execution-result":
+			options = append(options, "task")
 		case "contract.slice-preflight":
 			options = append(options, "approval-ref", "unit")
 		case "contract.slice":
@@ -564,7 +566,7 @@ func verificationOptions(group, kind string) []string {
 		case "contract.business-tickets":
 			options = append(options, "mode", "review-ref")
 		case "contract.task":
-			options = append(options, "history")
+			options = append(options, "history", "task-ref")
 		case "contract.scaffold-decisions":
 			options = append(options, "allow-template")
 		case "contract.openapi-validation":

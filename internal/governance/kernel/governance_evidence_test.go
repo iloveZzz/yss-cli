@@ -221,3 +221,33 @@ func TestReviewRequiresTrustedImplementationTask(t *testing.T) {
 		})
 	}
 }
+
+func TestDerivedCandidateKeepsFileBoundary(t *testing.T) {
+	s, c, p := evidenceFixture(t)
+	c["digest"] = safefs.Digest([]byte("native computed source inventory"))
+	raw, err := s.EvidenceFact("execution.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw["candidate_digest"] = c["digest"]
+	writePolicyFixture(t, s.Root, "execution.json", raw)
+	s = NewSemanticSession(context.Background(), s.Root, nil)
+	review := map[string]any{"mode": "self-check", "provenance": p}
+	if err = s.ValidateReviewEvidenceDigest(review, c, []string{"src/"}, "self-check", p, "task.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ValidateReviewEvidence(review, c, []string{"src/"}, "self-check", p, "task.json"); err == nil {
+		t.Fatal("file API accepted derived digest without checking bytes")
+	}
+	bytes, err := os.ReadFile(filepath.Join(s.Root, "execution.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]any{"command": raw["command"], "status": "passed", "exit_code": 0, "executed_at": raw["executed_at"], "candidate_digest": c["digest"], "evidence_ref": "execution.json", "evidence_digest": safefs.Digest(bytes)}
+	if err = s.ValidateVerificationResultsDigest([]any{row}, []string{"go test ./..."}, Text(c["digest"])); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ValidateVerificationResults([]any{row}, []string{"go test ./..."}, c); err == nil {
+		t.Fatal("file result API skipped actual bytes")
+	}
+}

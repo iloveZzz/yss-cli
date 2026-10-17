@@ -55,7 +55,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"slice-draft", "task-selection", "governance-write", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
+		allowed := map[string][]string{"contract": {"slice-draft", "slice-execution-result", "task-candidate", "task-selection", "governance-write", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
@@ -66,11 +66,11 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 			allowedFlags[flag] = true
 		}
 		for _, flag := range map[string][]string{
-			"slice": {"approval-ref", "unit"}, "slice-preflight": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
+			"slice-execution-result": {"task"}, "slice": {"approval-ref", "unit"}, "slice-preflight": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
 			"openapi-validation": {"allow-template"}, "scaffold-decisions": {"allow-template"},
 			"business-tickets": {"mode", "review-ref"},
 			"gate-checks":      {"gate"}, "spec-baseline-binding": {"no-reconciliation"}, "handoff-source-approval": {"gate", "source-context-snapshot"}, "handoff-delivery": {"package"},
-			"task": {"history"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected", "binding"},
+			"task": {"history", "task-ref"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected", "binding"},
 			"user-decision":   {"requirements", "continuation", "from-record", "task"},
 			"handoff-package": {"package"}, "handoff-backend-delivery": {"package"}, "handoff-consumption": {"consumer", "slice"}, "checkpoint": {"history"},
 		}[kind] {

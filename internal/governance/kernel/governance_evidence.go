@@ -119,6 +119,15 @@ func (s *SemanticSession) ValidateVerificationResults(results any, commands []st
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
 	}
+	return s.ValidateVerificationResultsDigest(results, commands, Text(candidate["digest"]))
+}
+
+// ValidateVerificationResultsDigest requires the caller to compute the candidate from verified current sources.
+func (s *SemanticSession) ValidateVerificationResultsDigest(results any, commands []string, digest string) error {
+	if !IsSHA256(digest) {
+		return s.Reject("EVIDENCE_CANDIDATE", "缺少原生候选摘要")
+	}
+	candidate := map[string]any{"digest": digest}
 	if !ApUnique(commands) || !ApIsArray(results) || len(ApArray(results)) == 0 {
 		return s.Reject("EVIDENCE_VERIFICATION", "正式验证命令与实际结果不能为空")
 	}
@@ -170,6 +179,14 @@ func reviewResult(s *SemanticSession, actual map[string]any, scope []string) err
 func (s *SemanticSession) ValidateReviewEvidence(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string) error {
 	if _, err := s.EvidenceAsset(candidate); err != nil {
 		return err
+	}
+	return s.ValidateReviewEvidenceDigest(review, candidate, scope, requiredMode, implementation, implementationTask)
+}
+
+// ValidateReviewEvidenceDigest requires the caller to compute the candidate from verified current sources.
+func (s *SemanticSession) ValidateReviewEvidenceDigest(review, candidate map[string]any, scope []string, requiredMode string, implementation map[string]any, implementationTask string) error {
+	if !IsSHA256(Text(candidate["digest"])) || Text(candidate["ref"]) == "" {
+		return s.Reject("EVIDENCE_CANDIDATE", "缺少原生候选绑定")
 	}
 	if !ApUnique(scope) {
 		return s.Reject("EVIDENCE_REVIEW", "复核范围必须明确且非空")

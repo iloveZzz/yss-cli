@@ -1729,6 +1729,9 @@ func contractSliceApproval(s *kernel.SemanticSession, c *NativeSlice, opts map[s
 }
 
 func ContractSliceApprovalBinding(s *kernel.SemanticSession, c *NativeSlice, opts map[string]string, consumerBinding map[string]any) error {
+	if kernel.ContractN(c.Raw["schema_version"]) == 4 {
+		return slice4Approval(s, c, opts)
+	}
 	raw := c.Raw
 	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
 	if approval == "" {

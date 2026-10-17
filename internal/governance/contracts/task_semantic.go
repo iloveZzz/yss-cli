@@ -347,6 +347,9 @@ func verifyTaskPackageSemantic(s *kernel.SemanticSession, ref string, opts map[s
 	if kernel.ContractN(task["schema_version"]) == 3 {
 		return verifyRoleIndependentTask(s, ref, opts)
 	}
+	if opts["task-ref"] != "" {
+		return s.Reject("TASK_VERSION", "历史任务不能使用新的派发运输参数")
+	}
 	return verifyTaskPackageSemanticMode(s, ref, opts, false)
 }
 

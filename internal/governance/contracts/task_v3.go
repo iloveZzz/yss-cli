@@ -8,7 +8,12 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
-func init() { kernel.RegisterRoleIndependentValidator("task", verifyRoleIndependentTask) }
+func init() {
+	kernel.RegisterRoleIndependentValidator("task", verifyRoleIndependentTask)
+	kernel.RegisterRoleIndependentValidator("task-candidate", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		return verifyRoleIndependentTask(s, ref, map[string]string{"candidate-query": "true"})
+	})
+}
 
 func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	task, err := s.Doc(ref)
@@ -27,9 +32,20 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 	if err = s.ValidateGovernancePolicyBinding(kernel.ApMap(task["policy"])); err != nil {
 		return err
 	}
-	// Dispatch is the only implemented task3 phase. Never infer a relaxed phase from a log.
-	if task["workflow_status"] != "not-started" || task["execution_state"] == "Worker" || task["verification_status"] == "executed" || len(kernel.ApMap(task["result"])) > 0 || len(kernel.ApRows(task["verification_results"])) > 0 {
-		return s.Reject("CAPABILITY", "task3执行及完成验证尚未启用；派发不授予执行资格")
+	query := opts["candidate-query"] == "true"
+	actualRef := ref
+	if opts["task-ref"] != "" {
+		if task["workflow_status"] != "not-started" || !kernel.ContractPath(opts["task-ref"]) {
+			return s.Reject("TASK_ORIGIN", "--task-ref仅运输未开始派发的规范目标路径")
+		}
+		if _, err = safefs.Path(s.Root, opts["task-ref"]); err != nil {
+			return err
+		}
+		actualRef = opts["task-ref"]
+	}
+	dispatch := task["workflow_status"] == "not-started"
+	if dispatch && (task["verification_status"] == "executed" || len(kernel.ApMap(task["result"])) > 0 || len(kernel.ApRows(task["verification_results"])) > 0) {
+		return s.Reject("TASK_STATE", "派发不能冒充实际执行结果")
 	}
 	identity, err := s.Doc("yss-project.yaml")
 	if err != nil {
@@ -41,9 +57,16 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 	if kernel.ApFind(s.Registry["stages"], "id", kernel.Text(task["stage_id"])) == nil {
 		return s.Reject("TASK_STAGE", "任务阶段不属于当前Profile注册表")
 	}
-	unit := kernel.ApFind(s.Registry["work_units"], "id", kernel.Text(task["work_unit_id"]))
 	contract := kernel.ApMap(task["contract"])
-	if contract["kind"] != "lifecycle-work-unit" {
+	selectionUnit := kernel.Text(task["work_unit_id"])
+	if contract["kind"] == "slice-implementation" {
+		selectionUnit = "work-unit.slice-implementation"
+	}
+	unit := kernel.ApFind(s.Registry["work_units"], "id", selectionUnit)
+	if task["execution_state"] == "Worker" && contract["kind"] != "slice-implementation" {
+		return s.Reject("TASK_CONTRACT", "业务实现必须绑定已批准Slice")
+	}
+	if contract["kind"] != "lifecycle-work-unit" && contract["kind"] != "slice-implementation" {
 		return s.Reject("CAPABILITY", "task3 Slice生产派发及模板维护尚未启用")
 	}
 	if unit == nil {
@@ -60,9 +83,14 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			return s.Reject("TASK_REQUIRED", "任务缺少明确且唯一的"+key)
 		}
 	}
+	if contract["kind"] == "slice-implementation" {
+		if _, err = LoadNativeSlice(s, kernel.Text(contract["slice_contract_ref"])); err != nil {
+			return err
+		}
+	}
 	root := kernel.Text(kernel.ApMap(task["baseline"])["repository_root"])
 	// Repository registration must have come from current Slice bindings, never task self-registration.
-	if root != s.Root && s.ExternalViews[root] == nil {
+	if contract["kind"] != "slice-implementation" && root != s.Root && s.ExternalViews[root] == nil {
 		return s.Reject("TASK_BASELINE", "实现仓未由当前合同登记")
 	}
 	for _, key := range []string{"allowed_write_paths", "expected_evidence_files"} {
@@ -75,7 +103,13 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			}
 		}
 	}
-	if err = validateTaskBaseline(s, task); err != nil {
+	if err = validateTaskOutputRefs(s, actualRef, task); err != nil {
+		return err
+	}
+	if contract["kind"] != "slice-implementation" {
+		err = validateTaskBaseline(s, task)
+	}
+	if err != nil {
 		return err
 	}
 	bindings := kernel.ApRows(task["input_bindings"])
@@ -106,7 +140,7 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 				continue
 			}
 			values := kernel.ApStrings(v)
-			if _, err = kernel.CompileTaskSelection(s, kernel.Text(task["work_unit_id"]), values); err != nil {
+			if _, err = kernel.CompileTaskSelection(s, selectionUnit, values); err != nil {
 				return err
 			}
 			impacts = ContractUnion(impacts, values)
@@ -118,7 +152,9 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 	if !kernel.ApUnique(impacts) || !kernel.ApSetEqual(impacts, kernel.ApMap(task["skill_source"])["impacts"]) {
 		return s.Reject("TASK_IMPACT", "实际绑定输入未完整支持声明的影响")
 	}
-	if err = kernel.ValidateTaskSkillSourceSemantic(s, task, true); err != nil {
+	selectionTask := ContractCopy(task)
+	selectionTask["work_unit_id"] = selectionUnit
+	if err = kernel.ValidateTaskSkillSourceSemantic(s, selectionTask, true); err != nil {
 		return err
 	}
 	candidate := map[string]any{}
@@ -127,13 +163,72 @@ func verifyRoleIndependentTask(s *kernel.SemanticSession, ref string, opts map[s
 			candidate = asset
 		}
 	}
-	if err = validateTask3Origin(s, ref, task, candidate); err != nil {
+	var changed []string
+	if contract["kind"] == "slice-implementation" {
+		candidate, changed, err = sliceTaskCandidate(s, task)
+		if err != nil {
+			return err
+		}
+	}
+	if (!dispatch || query) && (task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier") {
+		review := kernel.ApMap(task["review_context"])
+		if _, _, _, err = trustedTaskImplementation(s, review); err != nil {
+			return err
+		}
+		candidate = kernel.ApMap(review["candidate"])
+	}
+	if (!dispatch || query) && (task["execution_state"] == "Drafter" || task["execution_state"] == "Explorer") {
+		candidate, err = draftExecutionCandidate(s, task)
+		if err != nil {
+			return err
+		}
+		if !query {
+			baseline := kernel.ApMap(task["baseline"])
+			source, e := TaskBaselineSource(s, root, kernel.Text(baseline["commit"]), kernel.ApStrings(task["allowed_write_paths"]))
+			if e != nil {
+				return e
+			}
+			_, changed, err = executionCandidate(s, root, source, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"])
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !dispatch && !query && (task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier") {
+		baseline := kernel.ApMap(task["baseline"])
+		source, e := TaskBaselineSource(s, root, kernel.Text(baseline["commit"]), kernel.ApStrings(task["allowed_write_paths"]))
+		if e != nil {
+			return e
+		}
+		_, changed, err = executionCandidate(s, root, source, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"])
+		if err != nil {
+			return err
+		}
+	}
+	if query {
+		if s.Report.Coverage == nil {
+			s.Report.Coverage = map[string]any{}
+		}
+		s.Report.Coverage["task_candidate"] = map[string]any{"candidate": candidate, "read_only": true, "execution_allowed": false, "approval_created": false}
+	}
+	if query {
+		err = nil
+	} else if dispatch {
+		err = validateTask3Origin(s, actualRef, task, candidate)
+	} else {
+		err = validateTask3Execution(s, ref, task, candidate, changed)
+	}
+	if err != nil {
 		return err
 	}
 	if task["execution_state"] == "Reviewer" || task["execution_state"] == "Verifier" {
 		if err = validateTask3Review(s, task, candidate); err != nil {
 			return err
 		}
+	}
+	if contract["kind"] == "slice-implementation" {
+		s.Report.ExecutionAuthorization = "not-evaluated"
+		return nil
 	}
 	if contract["kind"] != "lifecycle-work-unit" || task["work_unit_id"] == "work-unit.slice-implementation" || unit["scope"] == "template-source" || contract["lifecycle_ref"] == nil || contract["slice_contract_ref"] != nil || contract["maintenance_ref"] != nil {
 		return s.Reject("TASK_CONTRACT", "task3生命周期合同引用冲突")
@@ -186,7 +281,7 @@ func validateTask3Origin(s *kernel.SemanticSession, ref string, task, candidate 
 			return s.Reject("TASK_ORIGIN", "来源登记与实际派发不符")
 		}
 	}
-	for key, want := range map[string]any{"candidate": candidate, "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"]} {
+	for key, want := range map[string]any{"candidate": candidate, "input_bindings": task["input_bindings"], "baseline": task["baseline"], "scope": task["allowed_write_paths"], "expected_outputs": task["expected_outputs"]} {
 		if !kernel.ApEqual(actual[key], want) {
 			return s.Reject("TASK_ORIGIN", "派发未绑定当前"+key)
 		}
@@ -202,7 +297,7 @@ func validateTask3Origin(s *kernel.SemanticSession, ref string, task, candidate 
 func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]any) error {
 	review := kernel.ApMap(task["review_context"])
 	actual := kernel.ApMap(review["review"])
-	if actual["mode"] != "self-check" {
+	if task["workflow_status"] == "not-started" && actual["mode"] != "self-check" {
 		return s.Reject("CAPABILITY", "独立审查执行事实尚未启用；草稿仅支持self-check派发")
 	}
 	if !kernel.ApEqual(actual["provenance"], task["provenance"]) {
@@ -229,6 +324,16 @@ func validateTask3Review(s *kernel.SemanticSession, task, candidate map[string]a
 				return s.Reject("TASK_REVIEW", "审查写范围覆盖候选或依据")
 			}
 		}
+	}
+	if task["workflow_status"] != "not-started" {
+		implementation, implementationRef, scope, err := trustedTaskImplementation(s, review)
+		if err != nil {
+			return err
+		}
+		if !kernel.ApSetEqual(review["approval_scope"], scope) {
+			return s.Reject("TASK_REVIEW", "审查范围未绑定实际实施范围")
+		}
+		return s.ValidateReviewEvidenceDigest(actual, candidate, scope, "self-check", implementation, implementationRef)
 	}
 	return nil
 }
