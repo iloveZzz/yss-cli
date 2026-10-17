@@ -1233,6 +1233,7 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
   --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
   --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
   --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stack <技术栈>                init/attach --full 只分发该栈的专项技能；none 为完整分发；可选值: java|vue|none
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --team-size <规模>              团队规模，作为模板变量
   -V, --version                   显示 CLI 版本及来源；不需要项目
@@ -3162,6 +3163,7 @@ yss init --profile design --root ./demo-design --plan --out /tmp/yss-init-plan.j
   --profile <Profile>             项目模板类型；项目命令可从身份检测，init 必需；可选值: spec|design|backend
   --project-name <名称>           项目名称，作为模板变量
   --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stack <技术栈>                init/attach --full 只分发该栈的专项技能；none 为完整分发；可选值: java|vue|none
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
   --team-size <规模>              团队规模，作为模板变量
   -V, --version                   显示 CLI 版本及来源；不需要项目
