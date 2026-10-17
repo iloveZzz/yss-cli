@@ -9,11 +9,11 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "981f7399ef6c77b515045a588e708be70af5fab3",
-      "templateVersion": "4.4.1",
-      "templateTag": "v4.4.1",
+      "templateCommit": "05a41aa2e0038a99c47db4e3f70b6f8a01d11e12",
+      "templateVersion": "4.5.0",
+      "templateTag": "v4.5.0",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "9acb4bcd626813381d2d6d3e6ffb8274f119e7bd3f9414d0b6ffbdec6a9149d2",
+      "policyHash": "4ce1ee9ed2dc3a486bd318c97780d5612b70276b8f72172b0ce1b10565a8ef22",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
@@ -24,9 +24,9 @@
     "design": {
       "profile": "design",
       "sourcePath": ".",
-      "templateCommit": "981f7399ef6c77b515045a588e708be70af5fab3",
-      "templateVersion": "4.4.1",
-      "templateTag": "v4.4.1",
+      "templateCommit": "05a41aa2e0038a99c47db4e3f70b6f8a01d11e12",
+      "templateVersion": "4.5.0",
+      "templateTag": "v4.5.0",
       "policyPath": "profiles/design/.template-source/distribution/bundle-profile.json",
       "policyHash": "e287e017da766050209702150c4a78dc4c36c649cca7370ccd77466a8b2fa367",
       "overlayPaths": [
@@ -43,9 +43,9 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "981f7399ef6c77b515045a588e708be70af5fab3",
-      "templateVersion": "4.4.1",
-      "templateTag": "v4.4.1",
+      "templateCommit": "05a41aa2e0038a99c47db4e3f70b6f8a01d11e12",
+      "templateVersion": "4.5.0",
+      "templateTag": "v4.5.0",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
       "policyHash": "a40b02c738a1053ff67e2d0d14b5c0501cebe1447ca0e904530a60cf80e07061",
       "overlayPaths": [

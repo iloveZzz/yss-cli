@@ -91,3 +91,32 @@ func TestVersionRangeOverlaps(t *testing.T) {
 		}
 	}
 }
+
+func TestSourcesOverlapExactAgainstRange(t *testing.T) {
+	t.Parallel()
+	commit := "7af9715c6136d1b48e2c731fe92603806d7bf22a"
+	upTo405 := SourceMatch{Profile: "spec", Versions: &VersionRange{Max: "4.0.5"}}
+	exact := func(version string) SourceMatch {
+		return SourceMatch{Profile: "spec", TemplateCommit: commit, SnapshotHash: "a", TemplateVersion: version}
+	}
+	for _, tc := range []struct {
+		name    string
+		exact   SourceMatch
+		overlap bool
+	}{
+		{"未记录版本按重叠处理", exact(""), true},
+		{"git 版本不会被版本区间匹配", exact("git:" + commit), false},
+		{"语义化版本落在区间内", exact("4.0.1"), true},
+		{"语义化版本在区间外", exact("4.1.0"), false},
+	} {
+		if got := sourcesOverlap(upTo405, tc.exact); got != tc.overlap {
+			t.Errorf("%s: range-exact overlap=%v, want %v", tc.name, got, tc.overlap)
+		}
+		if got := sourcesOverlap(tc.exact, upTo405); got != tc.overlap {
+			t.Errorf("%s: exact-range overlap=%v, want %v", tc.name, got, tc.overlap)
+		}
+	}
+	if sourcesOverlap(exact("git:"+commit), SourceMatch{Profile: "design", Versions: &VersionRange{Max: "4.0.5"}}) {
+		t.Error("不同 Profile 不重叠")
+	}
+}

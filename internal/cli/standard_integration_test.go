@@ -8,13 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 )
 
-// standard 路线：固定 Bundle 的模板尚未带 standard 策略，用例在实例副本里注入策略块；
-// 未注入的共享实例同时用来证明“未启用时 standard 记录走 governed”。
+// standard 路线：模板 4.5.0 起 Bundle 自带 standard 策略；旧 Bundle 没有时在实例副本里注入同一策略块。
+// "未启用"用例在另一份副本里删除策略块，证明 standard 记录回落到 governed。
 
 const standardPolicy = `    standard:
       version: 1
@@ -26,41 +27,68 @@ const standardPolicy = `    standard:
         actor_kind: human
 `
 
-var (
-	standardOnce    sync.Once
-	standardProject string
-	standardErr     error
-)
+var standardPolicyBlock = regexp.MustCompile(`(?m)^    standard:\n(?:      .*\n|\n)*`)
 
-func standardFixtureFor(t *testing.T) routeFixture {
+type triageVariant struct {
+	once    sync.Once
+	project string
+	err     error
+}
+
+var standardEnabled, standardDisabled triageVariant
+
+// fixture 复制共享实例并改写其 request-triage.yaml；改写未生效即失败，不静默沿用原策略。
+func (v *triageVariant) fixture(t *testing.T, name string, rewrite func(string) string) routeFixture {
 	t.Helper()
 	f := routeFixtureFor(t)
-	standardOnce.Do(func() {
-		dir := filepath.Join(fixtureDir, "standard")
+	v.once.Do(func() {
+		dir := filepath.Join(fixtureDir, name)
 		if out, err := exec.Command("cp", "-a", f.project, dir).CombinedOutput(); err != nil {
-			standardErr = err
+			v.err = err
 			t.Log(string(out))
 			return
 		}
 		ref := filepath.Join(dir, ".template-spec/process/orchestration/entry/request-triage.yaml")
 		raw, err := os.ReadFile(ref)
 		if err != nil {
-			standardErr = err
+			v.err = err
 			return
 		}
-		text := strings.Replace(string(raw), "  delivery_path:\n    version: 1\n", "  delivery_path:\n    version: 1\n"+standardPolicy, 1)
-		if text == string(raw) {
-			standardErr = os.ErrInvalid
+		text := rewrite(string(raw))
+		if text == "" {
+			v.err = os.ErrInvalid
 			return
 		}
-		standardErr = os.WriteFile(ref, []byte(text), 0o644)
-		standardProject = dir
+		v.err = os.WriteFile(ref, []byte(text), 0o644)
+		v.project = dir
 	})
-	if standardErr != nil {
-		t.Fatal(standardErr)
+	if v.err != nil {
+		t.Fatal(v.err)
 	}
-	f.project = standardProject
+	f.project = v.project
 	return f
+}
+
+func standardFixtureFor(t *testing.T) routeFixture {
+	return standardEnabled.fixture(t, "standard", func(raw string) string {
+		if standardPolicyBlock.MatchString(raw) {
+			return raw
+		}
+		text := strings.Replace(raw, "  delivery_path:\n    version: 1\n", "  delivery_path:\n    version: 1\n"+standardPolicy, 1)
+		if text == raw {
+			return ""
+		}
+		return text
+	})
+}
+
+func standardDisabledFixtureFor(t *testing.T) routeFixture {
+	return standardDisabled.fixture(t, "standard-disabled", func(raw string) string {
+		if !standardPolicyBlock.MatchString(raw) {
+			return raw
+		}
+		return standardPolicyBlock.ReplaceAllString(raw, "")
+	})
 }
 
 func digestOf(t *testing.T, project, ref, content string) string {
@@ -144,7 +172,7 @@ func TestStandardEscalationBlocksVerifyDaily(t *testing.T) {
 }
 
 func TestStandardDisabledFallsBackToGoverned(t *testing.T) {
-	f := routeFixtureFor(t)
+	f := standardDisabledFixtureFor(t)
 	for _, tc := range []struct {
 		id     string
 		mutate func(map[string]any)
