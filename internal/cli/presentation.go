@@ -38,6 +38,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 	if command == "explain" {
 		return renderExplain(m)
 	}
+	if command == "check" || command == "verify" {
+		return renderCheck(m)
+	}
 	title := "查询完成"
 	if command == "scaffold" {
 		title = "脚手架已生成（未执行 Maven 验证）"

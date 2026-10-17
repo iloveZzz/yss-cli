@@ -44,7 +44,20 @@ yss lifecycle verify-daily --root ./demo --task .work/demo-1/task.md \
   --implementation-root /path/to/impl-repo --base <full SHA> --json
 ```
 
-## 4. Look things up
+## 4. Check governance assets
+
+```sh
+yss check --changed --root ./demo                     # changed YAML/JSON assets, one report
+yss verify --gate plan-approved --checkpoint .work/demo/checkpoint.yaml --root ./demo
+```
+
+`check` recognises approval records, checkpoints, context reconciliations, OpenAPI draft validation
+and scaffold decision records, and runs the matching existing `verify` command for each. Every finding
+carries `code`, `file`, `pointer`, `message`, `fix` and a `command` to reproduce it. Assets that need
+current context (such as user decisions) are reported as `not-evaluated`, so the result is `incomplete`,
+never `passed`. Neither command approves anything or authorises execution.
+
+## 5. Look things up
 
 ```sh
 yss explain gate.plan-approved        # stable lifecycle IDs and process terms

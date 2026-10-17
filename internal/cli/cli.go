@@ -317,6 +317,14 @@ func execute(ctx context.Context, command string, o options) (any, string, error
 		result, err := explainCommand(root, o.args[1:])
 		return result, profile, err
 	}
+	if command == "check" {
+		result, err := checkCommand(ctx, root, o)
+		return result, profile, err
+	}
+	if command == "verify" {
+		result, err := gateVerifyCommand(ctx, root, o)
+		return result, profile, err
+	}
 	if command == "profile" {
 		return profileCommand(ctx, root, o)
 	}

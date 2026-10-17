@@ -64,6 +64,8 @@ Profile 职责:
     update           安装、恢复或回退指定本地发行包。
   [治理]
     explain          解释流程术语或生命周期稳定 ID。
+    check            识别实例资产并调用对应 verify 做结构与当前校验。
+    verify           核验一个门禁所需的当前 checkpoint 与检查依赖。
     context          查询或校验唯一 CONTEXT.md 及词汇快照。
     lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
     stage            查询、登记或更新既有阶段工作项。
@@ -741,6 +743,7 @@ YSS 离线入门教程
 | `bundle export` | 导出 Bundle 全部 bytes、mode 和 manifest。 | `yss help examples bundle export` |
 | `bundle inspect` | 检查 Bundle 身份、来源及摘要。 | `yss help examples bundle inspect` |
 | `capabilities` | 查看原生能力、治理接口与发行证据边界。 | `yss help examples capabilities` |
+| `check` | 识别实例资产并调用对应 verify 做结构与当前校验。 | `yss help examples check` |
 | `context` | 查询或校验唯一 CONTEXT.md 及词汇快照。 | `yss help examples context` |
 | `context check` | 校验词汇结构。 | `yss help examples context check` |
 | `context query` | 查询稳定词汇。 | `yss help examples context query` |
@@ -834,6 +837,7 @@ YSS 离线入门教程
 | `update rollback` | 回退最近一次成功程序安装。 | `yss help examples update rollback` |
 | `update status` | 只读诊断安装一致性及程序事务状态。 | `yss help examples update status` |
 | `upgrade` | 从 GitHub 下载并事务安装稳定版 CLI。 | `yss help examples upgrade` |
+| `verify` | 核验一个门禁所需的当前 checkpoint 与检查依赖。 | `yss help examples verify` |
 | `version` | 查看 CLI、协议和固定来源身份。 | `yss help examples version` |
 | `xml` | 读取 Maven project XML。 | `yss help examples xml` |
 | `xml inspect` | 读取 Maven project 结构。 | `yss help examples xml inspect` |
@@ -1402,6 +1406,51 @@ yss capabilities --json
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
 详细示例: yss help examples capabilities
+```
+
+### check
+
+```text
+yss 2.3.3 — check
+──────────────────────
+识别实例资产并调用对应 verify 做结构与当前校验。
+
+用法: yss check <文件>... | --changed [--base <Git引用>] [--checkpoint <文件>] [--root <目录>]
+
+前置条件:
+在 YSS 项目根运行；--changed 需要 Git 仓库。用户决定等需当前上下文的资产另给 --checkpoint。
+只聚合现有 verify，不新增校验语义；批准与 checkpoint 只做历史结构检查，execution_authorization=not-evaluated。模板目录与未识别文件列为 skipped，缺上下文列为 not-evaluated，均不算通过。
+
+最小示例:
+yss check --changed --root ./demo-spec
+yss check .work/feature/approval.yaml --json
+
+参数:
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --changed                       yss check 选择工作树相对 HEAD 的改动与未跟踪文件
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+<文件>  一个或多个项目内 YAML/JSON 资产
+--changed  工作树相对 HEAD 的改动与未跟踪文件
+--base <Git引用>  与 --changed 同用，并入 base..HEAD 的已提交改动
+--checkpoint <文件>  需要当前上下文的资产（如用户决定）使用它
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples check
 ```
 
 ### context
@@ -6056,6 +6105,47 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 详细示例: yss help examples upgrade
 ```
 
+### verify
+
+```text
+yss 2.3.3 — verify
+──────────────────────
+核验一个门禁所需的当前 checkpoint 与检查依赖。
+
+用法: yss verify --gate <门禁ID> --checkpoint <文件> [--root <目录>]
+
+前置条件:
+合法项目身份与当前 checkpoint；门禁 ID 来自生命周期注册表。
+依次运行 lifecycle verify 与 contract verify --kind gate-checks；只核验不批准，不授予执行。
+
+最小示例:
+yss verify --gate plan-approved --checkpoint .work/feature/checkpoint.yaml --root ./demo-spec
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --gate <值>                     按当前命令说明指定
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--gate <门禁ID>  如 gate.plan-approved 或 plan-approved
+--checkpoint <文件>  当前 checkpoint
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples verify
+```
+
 ### version
 
 ```text
@@ -8223,6 +8313,19 @@ STALE — 操作未完成
 处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
 复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
 帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CHECK_FAILED
+
+```text
+CHECK_FAILED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
 详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
 ```
 

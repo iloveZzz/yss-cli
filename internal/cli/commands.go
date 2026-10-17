@@ -39,7 +39,7 @@ func initializeCommands() {
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code refresh native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
-	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot") {
+	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot changed") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
 	defineArgument("profile", "<Profile>", "项目模板类型；项目命令可从身份检测，init 必需", "spec", "design", "backend")
@@ -61,6 +61,7 @@ func initializeCommands() {
 	defineArgument("value", "<JSON>", "单个 JSON 值，默认 null")
 	defineArgument("asset", "<路径>", "发生变化的项目内资产路径")
 	argumentSpecs["all"] = argumentSpec{description: "对策略登记的全部对象逐个执行；与指定单个对象互斥", boolean: true}
+	argumentSpecs["changed"] = argumentSpec{description: "yss check 选择工作树相对 HEAD 的改动与未跟踪文件", boolean: true}
 	argumentSpecs["dry-run"] = argumentSpec{description: "只返回将写的文件与摘要，不写任何文件", boolean: true}
 	argumentSpecs["required"] = argumentSpec{description: "即使 managed 策略未启用也按阅读视图要求核验", boolean: true}
 	defineArgument("view", "<视图>", "显式阅读模式；未指定时保持原查询输出")
@@ -123,6 +124,10 @@ func initializeCommands() {
 			opts = append(opts, "root", "target-dir", "profile", "apply")
 		case "explain":
 			opts = append(opts, "root")
+		case "check":
+			opts = append(opts, "root", "changed", "base", "checkpoint")
+		case "verify":
+			opts = append(opts, "root", "gate", "checkpoint")
 		case "profile":
 			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
 		case "git":
@@ -383,7 +388,7 @@ func validateArguments(command string, o options) error {
 	if len(o.args) > 2 && !spec.help.positional {
 		return argumentError("命令 " + key + " 不接受额外位置参数")
 	}
-	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" {
+	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" && command != "check" {
 		positional := false
 		for _, k := range governance.ArgumentKeys(command, o.args[1]) {
 			if k == "arg0" {
