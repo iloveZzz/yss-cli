@@ -38,6 +38,10 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 		}
 		r, e := transaction.RollbackContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
 			switch summary.Kind {
+			case "migrate":
+				if e := project.ValidateMigrationRollback(root); e != nil {
+					return e
+				}
 			case "profile-links":
 				if e := project.ValidateProfileLinksTransaction(root, profile, paths); e != nil {
 					return e
@@ -53,11 +57,15 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
 				}
+			case "review-package":
+				if e := governance.ValidateReviewPublicationTransaction(root, paths); e != nil {
+					return e
+				}
 			case "reading-render", "reading-enable":
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "init", "attach", "sync", "migrate", "skills", "assets":
+			case "init", "attach", "sync", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
 			}
@@ -113,6 +121,10 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				}
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
+					return e
+				}
+			case "review-package":
+				if e := governance.ValidateReviewPublicationTransaction(root, paths); e != nil {
 					return e
 				}
 			case "reading-render", "reading-enable":

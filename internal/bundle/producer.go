@@ -46,9 +46,10 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Source struct {
-	State        string       `json:"sourceState,omitempty"`
-	Tree         string       `json:"sourceTree,omitempty"`
-	SkillsSource *SkillSource `json:"skillsSource,omitempty"`
+	BundleVersion int          `json:"-"`
+	State         string       `json:"sourceState,omitempty"`
+	Tree          string       `json:"sourceTree,omitempty"`
+	SkillsSource  *SkillSource `json:"skillsSource,omitempty"`
 	// OverlayPaths 非空时，该 Profile 由同一仓库同一提交的内核目录与这些覆盖层目录依次组合而成
 	// （后面的覆盖前面的）；为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
 	OverlayPaths    []string      `json:"overlayPaths,omitempty"`
@@ -215,7 +216,11 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		s.Producer = Provenance{Version: "bundle-producer-v3", SourceState: "unspecified"}
 	}
 	manifestBytes, _ := json.Marshal(policy.Manifest)
-	b := &Bundle{SchemaVersion: 3, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: state, ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
+	version := s.BundleVersion
+	if version == 0 {
+		version = 3
+	}
+	b := &Bundle{SchemaVersion: version, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: state, ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
 	if b.Upgrade == nil {
 		b.Upgrade = DefaultUpgradePolicy()
 	}
@@ -288,6 +293,15 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 			return nil, e
 		}
 	}
+	if version == 4 {
+		for _, files := range []map[string]File{b.Files, b.Initial} {
+			f, ok := files["yss-project.yaml"]
+			if !ok {
+				return nil, fmt.Errorf("Bundle4 缺少根身份")
+			}
+			files["yss-project.yaml"] = encodedFile([]byte("schema_version: 2\nrepository_mode: project-instance\n"), f.Mode, f.Ownership)
+		}
+	}
 	if e = validate(b, s.Profile); e != nil {
 		return nil, e
 	}
@@ -295,11 +309,15 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3 && lock.SchemaVersion != 4) || len(lock.Profiles) != 3 {
-		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles")
+	profiles := []string{"spec", "design", "backend"}
+	if lock.SchemaVersion == 5 {
+		profiles = []string{"spec", "backend"}
+	}
+	if lock.SchemaVersion < 2 || lock.SchemaVersion > 5 || len(lock.Profiles) != len(profiles) {
+		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles; v5 requires Spec/Backend")
 	}
 	out := map[string]*Bundle{}
-	for _, profile := range []string{"spec", "design", "backend"} {
+	for _, profile := range profiles {
 		s, ok := lock.Profiles[profile]
 		if !ok || s.Profile != profile {
 			return nil, fmt.Errorf("source lock profile missing: %s", profile)
@@ -315,6 +333,12 @@ func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error)
 		}
 		if lock.SchemaVersion == 4 && (s.State != "working-tree" || lock.Producer.SourceState != "working-tree" || s.SkillsSource != nil && s.SkillsSource.State != "working-tree") {
 			return nil, fmt.Errorf("source lock v4 is local working-tree only")
+		}
+		if lock.SchemaVersion == 5 {
+			s.BundleVersion = 4
+			if s.State == "working-tree" && lock.Producer.SourceState != "working-tree" {
+				return nil, fmt.Errorf("worktree source requires actual worktree producer")
+			}
 		}
 		s.Producer = lock.Producer
 		b, e := Build(ctx, s)

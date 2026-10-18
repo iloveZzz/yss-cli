@@ -197,11 +197,14 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 	if err != nil {
 		return nil, err
 	}
+	if _, retired := targets["design"]; retired {
+		return nil, domain.Fail("PROFILE_RETIRED", "新建 Design 已合入 Spec；在 Spec 内继续设计，无需自交接")
+	}
 	if id.Profile.Name != "spec" && id.Profile.Name != "design" {
 		return nil, domain.Fail("IDENTITY", "Profile 准备来源只支持 Spec 或 Design 原生实例")
 	}
 	if len(targets) == 0 || len(targets) > 2 {
-		return nil, domain.Fail("ARGUMENT", "选择独立 Design 或 Backend")
+		return nil, domain.Fail("ARGUMENT", "仅为显式外部 Backend 消费者准备独立工程")
 	}
 	if _, design := targets["design"]; design && (len(targets) != 1 || id.Profile.Name != "spec") {
 		return nil, domain.Fail("ARGUMENT", "独立 Design 只能单独承接 Spec 来源")

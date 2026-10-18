@@ -83,6 +83,9 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if group == "lifecycle" && action == "target" {
 		return progressionTargetRun(ctx, root, args)
 	}
+	if group == "contract" && action == "publish-review" {
+		return publishPendingReview(ctx, root, args)
+	}
 	if group == "context" {
 		return contextRun(action, root, args)
 	}
@@ -131,6 +134,8 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "id", "work-unit", "stage", "arg0", "view")
 	case "lifecycle.status":
 		allowed = append(allowed, "checkpoint", "file", "arg0", "view")
+	case "contract.publish-review":
+		allowed = append(allowed, "file")
 	case "contract.view":
 		allowed = append(allowed, "kind", "file", "unit", "view")
 	case "lifecycle.target":
@@ -152,7 +157,7 @@ func ArgumentKeys(group, action string) []string {
 	case "handoff.export", "handoff.import":
 		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
-		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "unit", "slice", "phase", "mode", "review-ref", "no-reconciliation", "source-context-snapshot")
+		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "task-ref", "unit", "slice", "phase", "mode", "review-ref", "no-reconciliation", "source-context-snapshot")
 	case "reading.render":
 		allowed = append(allowed, "checkpoint", "all", "dry-run")
 	case "reading.plan-enable":

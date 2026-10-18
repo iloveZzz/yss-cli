@@ -53,7 +53,7 @@ func DecisionTime(value any) (time.Time, bool) {
 }
 
 func decisionMessage(s *kernel.SemanticSession, source map[string]any) (map[string]any, error) {
-	policy := kernel.ApMap(s.Roles["user_decision_policy"])
+	policy := s.UserDecisionPolicy()
 	if source == nil || !kernel.ApContains(policy["source_kinds"], kernel.ApText(source["kind"])) {
 		return nil, kernel.ApFail(s, "user-decision-source-invalid", "需要原始消息、会话导出或用户确认文件")
 	}
@@ -323,6 +323,15 @@ func ValidateUserDecisionSemantic(s *kernel.SemanticSession, record map[string]a
 			return result, kernel.ApFail(s, "user-decision-subject-mismatch", boundary)
 		}
 		item := matches[0]
+		if s.GovernanceVersion == 2 && boundary == "delivery-scope" {
+			mandate, err := s.Doc(ref)
+			if err != nil {
+				return result, err
+			}
+			if err = validateAuthorization2(s, mandate); err != nil {
+				return result, err
+			}
+		}
 		if e = DecisionCurrentAsset(s, kernel.ApMap(item["subject"]), "user-decision-stale"); e != nil {
 			return result, e
 		}
@@ -381,7 +390,7 @@ func AssertUserDecisionRequirementSemantic(s *kernel.SemanticSession, requiremen
 }
 
 func assertApprovalUserDecisionSemantic(s *kernel.SemanticSession, record map[string]any) (decisionValidation, error) {
-	policy := kernel.ApMap(s.Roles["user_decision_policy"])
+	policy := s.UserDecisionPolicy()
 	requirement := map[string]any{"boundary": record["gate_id"], "subject_ref": record["subject_ref"], "scope": record["approval_scope"], "user_decision_ref": record["user_decision_ref"]}
 	if kernel.ApTruthy(record["continuation_ref"]) {
 		delete(requirement, "user_decision_ref")
@@ -488,10 +497,13 @@ func assertApprovalUserDecisionSemantic(s *kernel.SemanticSession, record map[st
 }
 
 func assertDecisionContinuationSemantic(s *kernel.SemanticSession, requirement map[string]any) (decisionValidation, error) {
+	if s.GovernanceVersion == 2 {
+		return assertDecisionContinuation2(s, requirement)
+	}
 	bad := func(m string) (decisionValidation, error) {
 		return decisionValidation{}, kernel.ApFail(s, "user-decision-continuation-invalid", m)
 	}
-	policy := kernel.ApMap(kernel.ApMap(s.Roles["user_decision_policy"])["continuation"])
+	policy := kernel.ApMap(s.UserDecisionPolicy()["continuation"])
 	if kernel.ApText(policy["capability"]) != "approved-scope-continuation-v1" || !kernel.ApContains(policy["boundaries"], kernel.ApText(requirement["boundary"])) {
 		return bad("未授权的延续边界")
 	}

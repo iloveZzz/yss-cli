@@ -38,3 +38,13 @@ func SameStringSet(a, b any) bool {
 	}
 	return true
 }
+
+// New consumers register only after implementing policy2 semantics; legacy handlers cannot accidentally authorize them.
+var RoleIndependentValidators = map[string]SemanticValidator{}
+
+func RegisterRoleIndependentValidator(kind string, fn SemanticValidator) {
+	if kind == "" || fn == nil || RoleIndependentValidators[kind] != nil {
+		panic("duplicate or invalid role-independent validator: " + kind)
+	}
+	RoleIndependentValidators[kind] = fn
+}

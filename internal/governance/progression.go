@@ -72,7 +72,7 @@ func progressionScope(s *kernel.SemanticSession, target string) error {
 func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (WritePlan, error) {
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: "lifecycle-target-go-plan", Root: root, Action: "target", CheckpointRef: cpRef, InputRef: inputRef, Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}, Scope: "progression-intent-only"}
 	s := kernel.NewSemanticSession(ctx, root, map[string]string{"checkpoint": cpRef})
-	if err := kernel.ProjectIdentity(s.V); err != nil {
+	if err := s.RequireGovernanceWrite(); err != nil {
 		return plan, err
 	}
 	if err := pendingOldTransaction(s.V); err != nil {
@@ -104,6 +104,9 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 	}
 	target, err := parseProgressionTarget(raw)
 	if err != nil {
+		return plan, err
+	}
+	if err = progressionCurrentConsumers(s, target); err != nil {
 		return plan, err
 	}
 	if target.CheckpointRef != cpRef || target.FeatureID != kernel.Text(cp["feature_id"]) {
@@ -204,6 +207,17 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 	plan.Options["scan_inputs"] = string(scanBytes)
 	plan.PlanDigest, err = nativePlanDigest(plan)
 	return plan, err
+}
+
+func progressionCurrentConsumers(s *kernel.SemanticSession, target ProgressionTarget) error {
+	if s.GovernanceVersion == 2 {
+		for _, consumer := range target.Consumers {
+			if consumer.Profile != "backend" {
+				return s.Reject("PROFILE_RETIRED", "新政策只承接显式 Backend 消费者；产品设计在 Spec 内继续")
+			}
+		}
+	}
+	return nil
 }
 
 func progressionTargetRun(ctx context.Context, root string, args map[string]string) (any, error) {

@@ -192,7 +192,7 @@ func Derive(profile string) (*View, error) {
 		v.PolicySHA256 = policyDigest
 		p := policy.RequestTriage.DeliveryPath
 		for _, name := range p.EnabledProfiles {
-			if name == profile && p.Version == 1 {
+			if name == profile && (p.Version == 1 || p.Version == 2) {
 				v.DailyEnabled = true
 				v.DailySequence = p.DailySequence
 			}

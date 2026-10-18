@@ -16,6 +16,12 @@ func SemanticDefinition(registry map[string]any, bucket, id string) map[string]a
 }
 
 func (s *SemanticSession) Orchestration() (map[string]any, string, error) {
+	if s.GovernanceVersion == 2 {
+		if s.GovernancePolicy == nil {
+			return nil, "", s.Unavailable("GOVERNANCE_POLICY", "缺少已核验的当前编排政策")
+		}
+		return s.GovernancePolicy, ".template-spec/process/orchestration-contract.yaml", nil
+	}
 	ref := GuidanceContractRef("")
 	profileName := "spec"
 	if present, err := s.Exists(".template-spec/process/harness-profile.yaml"); err != nil {
@@ -58,4 +64,20 @@ func (s *SemanticSession) Orchestration() (map[string]any, string, error) {
 		}
 	}
 	return doc, ref, err
+}
+
+// Draft preparation is a route classification, never an approval or write grant.
+func (s *SemanticSession) DraftPreparation(cp map[string]any) bool {
+	if s.GovernanceVersion != 2 || cp["status"] != "routing" || !SemHas([]string{"resume", "orchestrate"}, Text(cp["mode"])) {
+		return false
+	}
+	if !SemHas(SemMap(s.GovernancePolicy["preparation_policy"])["work_units"], Text(cp["next_work_unit"])) {
+		return false
+	}
+	for _, id := range []string{"gate.plan-approved", "gate.spec-baseline-approved"} {
+		if SemMap(SemMap(cp["gates"])[id])["status"] == "approved" {
+			return false
+		}
+	}
+	return cp["plan_approval_ref"] == nil && cp["plan_review_control"] == nil
 }

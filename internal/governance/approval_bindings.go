@@ -6,6 +6,8 @@ import "github.com/iloveZzz/yss-cli/internal/governance/approval"
 
 func init() {
 	approval.Bind(approval.Inputs{
-		AssertImplementationDecisionSemantic: contracts.AssertImplementationDecisionSemantic,
+		ValidateImplementationManifestSemantic: contracts.ValidateImplementationManifestSemantic,
+		TrustedTaskImplementation:              contracts.TrustedTaskImplementation,
+		AssertImplementationDecisionSemantic:   contracts.AssertImplementationDecisionSemantic,
 	})
 }

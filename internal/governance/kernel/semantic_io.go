@@ -39,6 +39,9 @@ func (s *SemanticSession) GitBindings() []SemanticGitInput {
 
 // Only validators call this seam. Asset-declared commands are never dispatched.
 func (s *SemanticSession) Git(root string, args ...string) ([]byte, error) {
+	if s.taskSnapshot != nil {
+		return s.snapshotGit(root, args)
+	}
 	if s.V.Virtual != nil {
 		return nil, s.Reject("REPOSITORY", "归档来源不执行物理 Git 查询")
 	}
@@ -94,7 +97,7 @@ func semanticGitArguments(args []string) bool {
 		}
 	}
 	if args[0] == "cat-file" {
-		return len(args) == 3 && SemHas([]string{"-e", "-p", "-s", "-t", "blob"}, args[1]) && !strings.HasPrefix(args[2], "-")
+		return len(args) == 3 && SemHas([]string{"-e", "-p", "-s", "-t", "blob", "tree"}, args[1]) && !strings.HasPrefix(args[2], "-")
 	}
 	return true
 }

@@ -217,7 +217,11 @@ func renderRouteSummary(o options, profile string, m map[string]any) (string, bo
 	if path == "standard" && m["standard_required"] == true {
 		out.WriteString("下一步：按 Spec-lite 模板写一页需求，取得 standard-change-approved 决定，把 delivery_path 改为 standard 后重新路由。\n")
 	} else if path == "daily" || path == "standard" {
-		out.WriteString("下一步：按“需求验收 → 实现 → 测试 → 独立审查”推进，结果记回同一张任务单；完成后核验：\n")
+		review := "独立审查"
+		if m["schema_version"] == float64(2) {
+			review = "适用复核（默认真实自检，按当前要求提供独立或外部复核）"
+		}
+		fmt.Fprintf(&out, "下一步：按“需求验收 → 实现 → 测试 → %s”推进，结果记回同一张任务单；完成后核验：\n", review)
 		fmt.Fprintf(&out, "  %s\n", formatArgv([]string{"yss", "lifecycle", "verify-daily", "--root", stringValue(root, ""), "--task", stringValue(task, ""), "--implementation-root", stringValue(o.values["implementation-root"], ""), "--base", stringValue(o.values["base"], "")}))
 	} else {
 		out.WriteString("下一步：保留已有修改和证据，读取当前阶段状态后由对应负责人继续：\n")

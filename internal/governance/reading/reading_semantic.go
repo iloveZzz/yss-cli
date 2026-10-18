@@ -24,7 +24,10 @@ func readingDependencyScope(s *kernel.SemanticSession, toolRef string) (string, 
 	return "project", filepath.ToSlash(rel)
 }
 
-func init() { kernel.RegisterSemanticValidator("reading-transition", verifyReadingTransitionSemantic) }
+func init() {
+	kernel.RegisterSemanticValidator("reading-transition", verifyReadingTransitionSemantic)
+	kernel.RegisterRoleIndependentValidator("reading-transition", verifyReadingTransitionSemantic)
+}
 
 func verifyReadingTransitionSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	policy, present, err := loadReadingPolicy(s)

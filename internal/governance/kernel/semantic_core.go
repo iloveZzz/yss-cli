@@ -70,16 +70,21 @@ type SemanticReport struct {
 }
 
 type SemanticSession struct {
-	Ctx           context.Context   `json:"-" yaml:"-"`
-	Root          string            `json:"-" yaml:"-"`
-	V             *View             `json:"-" yaml:"-"`
-	Args          map[string]string `json:"-" yaml:"-"`
-	CheckpointRef string            `json:"-" yaml:"-"`
+	// Only a current daily Ticket supplies original section bytes; all file reads remain guarded.
+	EvidenceFragment func(string) ([]byte, error) `json:"-" yaml:"-"`
+	Ctx              context.Context              `json:"-" yaml:"-"`
+	Root             string                       `json:"-" yaml:"-"`
+	V                *View                        `json:"-" yaml:"-"`
+	Args             map[string]string            `json:"-" yaml:"-"`
+	CheckpointRef    string                       `json:"-" yaml:"-"`
 	// InsideTransaction 只供事务提交回调使用：回调运行时本事务必然处于未完成状态，
 	// 因此权威加载不再把 Go 事务待处理当作拒绝原因。默认 false，其余调用方不受影响。
 	InsideTransaction bool                `json:"-" yaml:"-"`
 	Registry          map[string]any      `json:"-" yaml:"-"`
 	Roles             map[string]any      `json:"-" yaml:"-"`
+	GovernanceVersion int                 `json:"-" yaml:"-"`
+	GovernancePolicy  map[string]any      `json:"-" yaml:"-"`
+	GovernanceDigest  string              `json:"-" yaml:"-"`
 	Report            *SemanticReport     `json:"-" yaml:"-"`
 	Scans             map[string][]string `json:"-" yaml:"-"`
 	active            map[string]bool
@@ -88,6 +93,7 @@ type SemanticSession struct {
 	// All source sessions share these observations, including immutable Handoff payloads.
 	Children          []*SemanticSession `json:"-" yaml:"-"`
 	gitInputs         map[string]semanticGitObservation
+	taskSnapshot      *taskSourceSnapshot
 	Directories       map[string][]string       `json:"-" yaml:"-"`
 	ContextInventory  []string                  `json:"-" yaml:"-"`
 	IntakeInputs      map[string]map[string]any `json:"-" yaml:"-"`
@@ -559,7 +565,11 @@ func (s *SemanticSession) Verify(kind, ref string, opts map[string]string) error
 	if s.active[key] {
 		return s.Reject("REFERENCE_CYCLE", "未完成的语义校验形成循环: "+kind+"/"+ref)
 	}
-	fn, ok := SemanticValidators[kind]
+	validators := SemanticValidators
+	if s.GovernanceVersion == 2 {
+		validators = RoleIndependentValidators
+	}
+	fn, ok := validators[kind]
 	if !ok {
 		return s.Unavailable("CAPABILITY", "尚缺原生语义校验能力: "+kind)
 	}
@@ -907,7 +917,7 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 		return err
 	}
 	n, ok := Integer(identity["schema_version"])
-	if !ok || n != 1 || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) {
+	if !ok || (n != 1 && n != 2) || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) || n == 2 && identity["repository_mode"] != "project-instance" {
 		return s.Unavailable("IDENTITY", "未知仓库身份")
 	}
 	// 模板源仓根没有 Profile 身份文件；只有它自己（repository_mode: template-source）可以省略，实例缺失仍是错误。
@@ -915,13 +925,14 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 	if err != nil {
 		return err
 	}
+	var profile map[string]any
 	if hasProfile || Text(identity["repository_mode"]) != "template-source" {
-		profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+		profile, err = s.Doc(".template-spec/process/harness-profile.yaml")
 		if err != nil {
 			return err
 		}
 		version, valid := Integer(profile["schema_version"])
-		if !valid || version < 1 || version > 2 {
+		if !valid || version < 1 || version > 3 {
 			return s.Unavailable("IDENTITY", "未知 Profile schema")
 		}
 		matched := ""
@@ -939,11 +950,19 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 	if err != nil {
 		return err
 	}
-	s.Roles, err = s.Doc(".template-spec/agents/digital-human-roles.yaml")
-	if err != nil {
+	if err = s.loadGovernancePolicy(identity, profile); err != nil {
 		return err
 	}
-	for _, authority := range []map[string]any{s.Registry, s.Roles} {
+	authorities := []map[string]any{s.Registry}
+	s.Roles = nil
+	if s.GovernanceVersion != 2 {
+		s.Roles, err = s.Doc(".template-spec/agents/digital-human-roles.yaml")
+		if err != nil {
+			return err
+		}
+		authorities = append(authorities, s.Roles)
+	}
+	for _, authority := range authorities {
 		version, ok := Integer(authority["schema_version"])
 		if !ok || version != 1 || authority["status"] != "active" {
 			return s.Unavailable("CAPABILITY", "未知注册表/角色规则版本或非active状态")
@@ -953,7 +972,7 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 		if err = sourcePolicy(s); err != nil {
 			return err
 		}
-	} else {
+	} else if s.GovernanceVersion != 2 {
 		decisionPolicy, present := Object(s.Roles["user_decision_policy"])
 		policyVersion, policyVersionValid := Integer(decisionPolicy["schema_version"])
 		_, gatesValid := decisionPolicy["gates"].([]any)

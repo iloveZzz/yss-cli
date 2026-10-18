@@ -568,6 +568,9 @@ func AssertReviewCapabilityBindingSemantic(s *SemanticSession, record, expected 
 }
 
 func ValidateTaskSkillSourceSemantic(s *SemanticSession, task map[string]any, compile bool) error {
+	if ApNumber(task["schema_version"]) == 3 {
+		return validateRoleIndependentSkillSource(s, task)
+	}
 	role := TaskRole(s, ApText(task["role_id"]))
 	source := ApMap(task["skill_source"])
 	if role == nil || source["registry_ref"] != ApprovalRolesRef || ApText(source["defaults_ref"]) != "taskPackageDefaults("+ApText(task["role_id"])+")" || !ApArraysEqual(source["core_skills"], role["core_skills"]) || !ApArraysEqual(source["forbidden_skills"], role["forbidden_skills"]) {

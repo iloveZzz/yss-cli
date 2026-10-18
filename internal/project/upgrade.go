@@ -332,7 +332,11 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 	p.materialData = map[string][]byte{}
 	if o.BaseBundlePath != "" {
 		var abs, hash string
-		u.base, abs, hash, e = bundle.ReadSnapshot(o.BaseBundlePath, id.Profile.Name)
+		baseProfile := id.Profile.Name
+		if p.Command == "migrate" && id.Native != nil {
+			baseProfile = id.Native.Profile
+		}
+		u.base, abs, hash, e = bundle.ReadSnapshot(o.BaseBundlePath, baseProfile)
 		if e != nil {
 			return nil, e
 		}
@@ -544,6 +548,9 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		desired := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: domain.FileMode(f.Mode)}
 		previous, wasManaged := u.old[ref]
 		kind := u.bundle.AssetKind(ref, f)
+		if u.plan.Command == "migrate" && u.bundle.SchemaVersion == 4 && ref == "yss-project.yaml" {
+			kind = "generated"
+		}
 		a := AssetResult{Path: ref, Policy: kind, Before: before, Target: desired, Baseline: previous.Baseline, BaselineSource: "unavailable"}
 		modeConflict := before.Mode != previous.Applied.Mode
 		appliedMatches := before == previous.Applied
@@ -909,7 +916,7 @@ func BuildWithOptions(root, profile, command string, vars map[string]string, sel
 		if o.Original == nil {
 			return nil, domain.Fail("PLAN_REQUIRED", "决议需要 --plan-file 原保存计划")
 		}
-		if o.Original.SchemaVersion != 2 {
+		if o.Original.SchemaVersion != p.SchemaVersion {
 			return nil, domain.Fail("PLAN_VERSION", "旧保存计划必须重新生成")
 		}
 		if o.Original.Digest != planDigest(o.Original) || o.Original.ResolvedFrom != "" {

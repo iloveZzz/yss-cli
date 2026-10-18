@@ -8,8 +8,10 @@ import (
 )
 
 func init() {
+	kernel.RegisterRoleIndependentValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("user-decision", verifyUserDecisionSemantic)
 	kernel.RegisterSemanticValidator("checkpoint-user-decisions", verifyCheckpointUserDecisionsSemantic)
+	kernel.RegisterRoleIndependentValidator("checkpoint-user-decisions", verifyCheckpointUserDecisionsSemantic)
 }
 
 // Public current verification requires a separate consumer's expectation. The
@@ -205,7 +207,8 @@ func verifyUserDecisionSemantic(s *kernel.SemanticSession, ref string, opts map[
 }
 
 func AssertWorkUnitUserDecisionSemantic(s *kernel.SemanticSession, workUnit string, state map[string]any) error {
-	policy := kernel.ApMap(s.Roles["user_decision_policy"])
+	policy := s.UserDecisionPolicy()
+	rows := []map[string]any{}
 	boundaries := kernel.ApStrings(kernel.ApMap(policy["work_unit_gates"])[workUnit])
 	if boundary := kernel.ApText(kernel.ApMap(policy["work_units"])[workUnit]); boundary != "" {
 		boundaries = append(boundaries, boundary)
@@ -219,10 +222,13 @@ func AssertWorkUnitUserDecisionSemantic(s *kernel.SemanticSession, workUnit stri
 		if requirement == nil {
 			return kernel.ApFail(s, "user-decision-response-required", boundary)
 		}
-		if _, e := AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
+		validated, e := AssertUserDecisionRequirementSemantic(s, requirement)
+		if e != nil {
 			return e
 		}
+		rows = append(rows, validated.Rows()...)
 	}
+	decisionCoverage(s, rows)
 	return nil
 }
 
@@ -281,6 +287,9 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 		completionGate := "gate.delivery-accepted"
 		if s.Report.Profile == "design" {
 			completionGate = "gate.strategic-design-handoff-approved"
+		}
+		if s.GovernanceVersion == 2 && s.Report.Profile == "backend" {
+			completionGate = "gate.fresh-verification-passed"
 		}
 		if kernel.ApText(kernel.ApMap(kernel.ApMap(checkpoint["gates"])[completionGate])["status"]) != "approved" {
 			return kernel.ApFail(s, "LIFECYCLE_CONTROL", "阶段完成须当前交付或战略交接验收，不等于发布授权")

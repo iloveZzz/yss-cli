@@ -7,7 +7,6 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
 	handoffdomain "github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"path"
 	"path/filepath"
@@ -16,7 +15,10 @@ import (
 	"time"
 )
 
-func init() { kernel.RegisterSemanticValidator("verification", verifyVerificationSemantic) }
+func init() {
+	kernel.RegisterSemanticValidator("verification", verifyVerificationSemantic)
+	kernel.RegisterRoleIndependentValidator("verification", verifyVerificationSemantic)
+}
 
 // This validates persisted execution evidence. It never runs a command from it.
 func verifyVerificationSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
@@ -29,7 +31,9 @@ func verifyVerificationSemantic(s *kernel.SemanticSession, ref string, opts map[
 	}
 	kind := kernel.Text(doc["kind"])
 	if doc["consumed_contract"] != nil || doc["work_unit_id"] != nil {
-		return ContractExecutionResult(s, doc, opts)
+		boundOpts := kernel.SemanticOptions(opts)
+		boundOpts["result-ref"] = ref
+		return ContractExecutionResult(s, doc, boundOpts)
 	}
 	switch kind {
 	case "verification":
@@ -541,6 +545,30 @@ func ContractExecutionResult(s *kernel.SemanticSession, result map[string]any, o
 	if e != nil {
 		return e
 	}
+	if kernel.ContractN(c.Raw["schema_version"]) == 4 {
+		ref := opts["result-ref"]
+		if ref == "" || opts["task"] == "" {
+			return s.Reject("TASK_RESULT", "Slice4消费需要实际结果引用与完成task3，不接受历史弱绑定")
+		}
+		saved, err := s.Doc(ref)
+		if err != nil {
+			return err
+		}
+		if nested, ok := kernel.Object(saved["execution_result"]); ok {
+			saved = nested
+		}
+		if !kernel.ApEqual(saved, result) {
+			return s.Reject("TASK_RESULT", "结果参数与实际原字节不符")
+		}
+		task, err := s.Doc(opts["task"])
+		if err != nil {
+			return err
+		}
+		if kernel.ApMap(task["contract"])["slice_contract_ref"] != contractRef {
+			return s.Reject("TASK_RESULT", "完成任务属于另一Slice")
+		}
+		return s.Verify("slice-execution-result", ref, map[string]string{"task": opts["task"]})
+	}
 	unitID := kernel.Text(result["work_unit_id"])
 	boundOpts := kernel.SemanticOptions(opts)
 	boundOpts["unit"] = unitID
@@ -639,7 +667,7 @@ func ContractExecutionResult(s *kernel.SemanticSession, result map[string]any, o
 		}
 	}
 	if kernel.ContractN(raw["schema_version"]) == 3 {
-		if e = contractExecutionEvidence(s, result, c, work); e != nil {
+		if e = contracts.ContractExecutionEvidence(s, result, c, work); e != nil {
 			return e
 		}
 	} else {
@@ -667,159 +695,6 @@ func ContractExecutionResult(s *kernel.SemanticSession, result map[string]any, o
 			if e = contracts.ContractRequired(s, kernel.SemMap(v), "risk", "owner", "follow_up_ticket", "verification_plan", "target_version_or_release_date"); e != nil {
 				return e
 			}
-		}
-	}
-	return nil
-}
-
-func contractExecutionEvidence(s *kernel.SemanticSession, result map[string]any, c *contracts.NativeSlice, work map[string]any) error {
-	if kernel.ContractN(result["evidence_binding_version"]) != 1 {
-		return s.Reject("EXECUTION_EVIDENCE_LEGACY", "缺少原始证据绑定协议")
-	}
-	bound, e := s.Bind(c.Ref)
-	if e != nil {
-		return e
-	}
-	if kernel.Text(kernel.SemMap(result["consumed_contract"])["contract_digest"]) != bound.Digest {
-		return s.Reject("EXECUTION_EVIDENCE_STALE", "执行证据合同原字节摘要不一致")
-	}
-	unitRoot := kernel.Text(work["project_root"])
-	cross := len(c.Repositories) > 0
-	read := func(root, ref string) ([]byte, error) {
-		if cross {
-			return s.ExternalBytes(root, ref)
-		}
-		return s.Bytes(ref)
-	}
-	sourceRead := func(root, ref string) ([]byte, error) {
-		if root == s.Root {
-			return s.Bytes(ref)
-		}
-		return s.ExternalBytes(root, ref)
-	}
-	files := kernel.SemList(result["evidence_files"])
-	checks := kernel.SemList(work["verification"])
-	allowedRoots := map[string]bool{unitRoot: true}
-	for _, v := range checks {
-		check := kernel.SemMap(v)
-		for _, root := range kernel.SemStrings(check["dependency_roots"]) {
-			allowedRoots[root] = true
-		}
-		rows := []map[string]any{}
-		for _, v := range kernel.SemList(result["verification_results"]) {
-			r := kernel.SemMap(v)
-			if r["verification_id"] == check["id"] {
-				rows = append(rows, r)
-			}
-		}
-		if len(rows) != 1 {
-			return s.Reject("EXECUTION_EVIDENCE_INVALID", "验证 ID 缺失或重复")
-		}
-		row := rows[0]
-		exit, ok := kernel.Integer(row["exit_code"])
-		if !ok || exit != 0 || row["command"] != check["command"] || row["cwd"] != check["cwd"] || !contracts.ContractDate(row["executed_at"]) || !kernel.SameStringSet(row["acceptance_refs"], check["acceptance_refs"]) {
-			return s.Reject("EXECUTION_EVIDENCE_INVALID", "验证命令/cwd/退出码/验收绑定冲突")
-		}
-		if check["dependency_roots"] != nil && !contracts.ContractSame(row["dependency_roots"], check["dependency_roots"]) {
-			return s.Reject("EXECUTION_EVIDENCE_INVALID", "验证依赖工程集合与冻结命令不一致")
-		}
-		refs := kernel.SemStrings(row["evidence_refs"])
-		for _, ref := range kernel.SemStrings(check["expected_evidence"]) {
-			if !kernel.SemHas(refs, ref) {
-				return s.Reject("EXECUTION_EVIDENCE_REQUIRED", "验证未关联所需证据")
-			}
-		}
-		covered := map[string]bool{}
-		for _, ref := range refs {
-			matched := false
-			for _, v := range files {
-				file := kernel.SemMap(v)
-				if kernel.Text(file["path"]) != ref || cross && kernel.Text(file["project_root"]) != unitRoot {
-					continue
-				}
-				matched = true
-				behavior := kernel.Text(file["behavior_ref"])
-				if !kernel.SemHas(check["acceptance_refs"], behavior) {
-					return s.Reject("EXECUTION_EVIDENCE_INVALID", "证据关联无关行为")
-				}
-				bytes, e := read(unitRoot, ref)
-				if e != nil {
-					return e
-				}
-				if "sha256:"+safefs.Digest(bytes) != kernel.Text(file["digest"]) {
-					return s.Reject("EXECUTION_EVIDENCE_STALE", "证据原字节变化")
-				}
-				covered[behavior] = true
-			}
-			if !matched {
-				return s.Reject("EXECUTION_EVIDENCE_REQUIRED", "未绑定验证证据")
-			}
-		}
-		for _, behavior := range kernel.SemStrings(check["acceptance_refs"]) {
-			if !covered[behavior] {
-				return s.Reject("EXECUTION_EVIDENCE_REQUIRED", "验收缺少行为证据")
-			}
-		}
-	}
-	sourceBindings := kernel.SemList(result["source_bindings"])
-	if len(sourceBindings) == 0 {
-		return s.Reject("EXECUTION_SOURCE_REQUIRED", "执行报告缺少固定输入")
-	}
-	for _, v := range sourceBindings {
-		entry := kernel.SemMap(v)
-		root := kernel.First(kernel.Text(entry["project_root"]), unitRoot)
-		ref := kernel.Text(entry["path"])
-		if !allowedRoots[root] || cross && c.Repositories[root] == nil {
-			return s.Reject("EXECUTION_SOURCE_REPOSITORY", "执行输入仓库未批准")
-		}
-		if entry["deleted"] == true {
-			if value, present := entry["digest"]; !present || value != nil {
-				return s.Reject("EXECUTION_SOURCE_STALE", "删除输入必须显式声明digest:null")
-			}
-			var exists bool
-			if root != s.Root {
-				view := s.ExternalViews[root]
-				if view == nil {
-					return s.Unavailable("CAPABILITY", "执行输入工程没有已验证登记")
-				}
-				d, e := view.Watch(ref)
-				if e != nil {
-					return e
-				}
-				exists = d.Type != "missing"
-			} else {
-				var e error
-				exists, e = s.Exists(ref)
-				if e != nil {
-					return e
-				}
-			}
-			if exists || entry["digest"] != nil {
-				return s.Reject("EXECUTION_SOURCE_STALE", "已删除源仍存在或声明摘要")
-			}
-		} else {
-			bytes, e := sourceRead(root, ref)
-			if e != nil {
-				return e
-			}
-			if "sha256:"+safefs.Digest(bytes) != kernel.Text(entry["digest"]) {
-				return s.Reject("EXECUTION_SOURCE_STALE", "执行输入已变化")
-			}
-		}
-	}
-	for _, v := range kernel.SemList(result["changed_files"]) {
-		ref, root := kernel.Text(v), unitRoot
-		if m, ok := kernel.Object(v); ok {
-			ref = kernel.Text(m["path"])
-			root = kernel.First(kernel.Text(m["project_root"]), unitRoot)
-		}
-		found := false
-		for _, v := range sourceBindings {
-			b := kernel.SemMap(v)
-			found = found || kernel.Text(b["path"]) == ref && kernel.First(kernel.Text(b["project_root"]), unitRoot) == root
-		}
-		if !found {
-			return s.Reject("EXECUTION_SOURCE_REQUIRED", "改动未绑定当前源字节")
 		}
 	}
 	return nil

@@ -13,11 +13,11 @@ import (
 
 func addProjectCommands(root *cobra.Command, inv *invocation) {
 	projectFlags := strings.Join(projectOptionNames, " ")
-	for _, name := range []string{"init", "attach", "sync", "diff", "doctor", "skills", "assets"} {
+	for _, name := range []string{"init", "attach", "sync", "migrate", "diff", "doctor", "skills", "assets"} {
 		handler := projectCommand
 		cmd := addCommand(root, inv, name, handler)
 		addFlags(cmd, inv, projectFlags)
-		if name == "attach" || name == "sync" {
+		if name == "attach" || name == "sync" || name == "migrate" {
 			addFlags(cmd, inv, "review-out base-bundle resolution-file")
 		}
 		if name == "skills" || name == "assets" {
@@ -79,11 +79,17 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		r, e := project.ApplyContext(ctx, p)
 		return r, p.Profile, e
 	}
-	id, e := project.Detect(root, profile, command == "init" || command == "attach")
+	detectProfile := profile
+	if command == "migrate" {
+		detectProfile = ""
+	}
+	id, e := project.Detect(root, detectProfile, command == "init" || command == "attach")
 	if e != nil {
 		return nil, profile, e
 	}
-	profile = id.Profile.Name
+	if command != "migrate" || profile == "" {
+		profile = id.Profile.Name
+	}
 	var selection []string
 	if o.values["full"] == "true" {
 		if command != "init" && command != "attach" {

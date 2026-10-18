@@ -657,5 +657,10 @@ func (d *dailySession) verifyAPIEvidence(api map[string]any, actor string) error
 	if !ok || kernel.Text(freeze["digest"]) != d.report.APIContractDigest {
 		return d.rejected("API Freeze 未绑定当前 OAS、refs、适用规则与工具锁")
 	}
+	if d.s.GovernanceVersion == 2 {
+		if err := d.verifyAPISequence(api); err != nil {
+			return err
+		}
+	}
 	return d.verifyTests(api["contract_tests"], false)
 }

@@ -88,7 +88,11 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 		if gate == "gate.plan-approved" {
 			// Older source policies use independently bound approvals without a bounded review cycle.
 			bounded := selected["plan_review_binding"] != nil || checkpoint["plan_review_control"] != nil
-			for _, rule := range kernel.ApRows(kernel.ApMap(kernel.ApMap(s.Roles["gate_policy"])["review_execution"])["review_bundles"]) {
+			policy := kernel.ApMap(s.Roles["gate_policy"])
+			if s.GovernanceVersion == 2 {
+				policy = kernel.ApMap(s.GovernancePolicy["gate_policy"])
+			}
+			for _, rule := range kernel.ApRows(kernel.ApMap(policy["review_execution"])["review_bundles"]) {
 				bounded = bounded || rule["aggregate_gate"] == gate && rule["aggregate_additional_review_task"] == "forbidden"
 			}
 			if bounded {
@@ -98,6 +102,12 @@ func verifyApprovalSemantic(s *kernel.SemanticSession, ref string, opts map[stri
 				if e = s.Verify("plan-aggregate", checkpointRef, map[string]string{"approval": ref, "gate": gate}); e != nil {
 					return e
 				}
+				rule, err := ApprovalRuleSemantic(s, selected)
+				if err != nil {
+					return err
+				}
+				validated, _ := s.Report.Coverage["approval_validated"].([]any)
+				s.Report.Coverage["approval_validated"] = append(validated, map[string]any{"gate_id": gate, "rule": rule, "subject_ref": selected["subject_ref"], "approval_scope": selected["approval_scope"]})
 				continue
 			}
 		}

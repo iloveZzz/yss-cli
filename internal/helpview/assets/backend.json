@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "profile": "backend",
-  "templateCommit": "05a41aa2e0038a99c47db4e3f70b6f8a01d11e12",
+  "templateCommit": "c5190cd378bace4332f0568840f8d4266bd313e8",
   "registrySHA256": "444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2",
-  "profileSHA256": "70b85eb2f57976031e86df566dd108bee6095a743922e366dbb150dfb5073364",
-  "policySHA256": "f015cf9615a5dfb61998f4fcb1f00f4c485cea4185a03e03dba25e73493802dc",
+  "profileSHA256": "c34d65247944975937d37ed600ee3e701c58530d0d9b32864eb358cb22827f85",
+  "policySHA256": "022de20978c305b13b20b8ee36cee4f8957bdf0278e73c4f7008523904d9eb70",
   "stages": [
     {
       "id": "stage.plan",
@@ -62,6 +62,6 @@
     "yss-technical-skills",
     "implementation",
     "tests",
-    "independent-review"
+    "applicable-review-evidence"
   ]
 }

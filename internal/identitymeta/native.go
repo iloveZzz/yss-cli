@@ -36,6 +36,7 @@ type Disposition struct {
 	RuleID  string            `json:"ruleId,omitempty"`
 }
 type Metadata struct {
+	GovernanceHistory   *GovernanceHistory `json:"governanceHistory,omitempty"`
 	BundleSchemaVersion int                `json:"bundleSchemaVersion,omitempty"`
 	BundleHash          string             `json:"bundleHash,omitempty"`
 	CLICommit           string             `json:"cliCommit,omitempty"`
@@ -61,7 +62,7 @@ var digestPattern = regexp.MustCompile("^[a-f0-9]{64}$")
 
 // Local candidate provenance never qualifies a package for release.
 func ValidTemplateSource(meta *Metadata) bool {
-	return meta.TemplateSourceState == "committed" || meta.SchemaVersion == 3 && meta.TemplateSourceState == "working-tree" && meta.CLISourceState == "working-tree" && regexp.MustCompile(`^worktree:[a-f0-9]{40}$`).MatchString(meta.TemplateVersion)
+	return meta.TemplateSourceState == "committed" || meta.SchemaVersion >= 3 && meta.TemplateSourceState == "working-tree" && meta.CLISourceState == "working-tree" && regexp.MustCompile(`^worktree:[a-f0-9]{40}$`).MatchString(meta.TemplateVersion)
 }
 
 func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
@@ -71,12 +72,21 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if e := decoder.Decode(&meta); e != nil {
 		return nil, e
 	}
-	if meta.SchemaVersion != 3 || meta.ProtocolVersion != domain.ProtocolVersion {
+	if (meta.SchemaVersion != 3 && meta.SchemaVersion != 4) || meta.ProtocolVersion != domain.ProtocolVersion {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "未知统一 CLI metadata 或协议版本"), "METADATA_SCHEMA_UNSUPPORTED", "当前执行器不支持该实例的元数据或协议版本。", map[string]any{"root": root, "metadataSchema": meta.SchemaVersion, "instanceProtocol": meta.ProtocolVersion, "instanceCLI": meta.CLIVersion, "templateCommit": meta.TemplateCommit})
+	}
+	if meta.GovernanceHistory != nil {
+		h := meta.GovernanceHistory
+		if meta.SchemaVersion != 4 || !digestPattern.MatchString(h.Digest) || h.Ref != ".template-spec/compatibility/governance-history/"+h.Digest+"/manifest.json" {
+			return nil, domain.Fail("IDENTITY", "历史来源绑定未知或路径不合法")
+		}
 	}
 	p, e := domain.GetProfile(meta.Profile)
 	if e != nil {
 		return nil, e
+	}
+	if meta.SchemaVersion == 4 && meta.Profile != "spec" && meta.Profile != "backend" {
+		return nil, domain.Fail("IDENTITY", "metadata4 仅支持 Spec/Backend；旧 Design 需要显式迁移")
 	}
 	if p.ID != meta.ProfileID || (found != "" && found != meta.Profile) {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "统一 metadata 与旧家族身份矛盾"), "PROFILE_IDENTITY_CONFLICT", "统一元数据与 Profile 合同或旧家族身份不一致。", map[string]any{"root": root, "profile": meta.Profile, "legacyProfile": found})
@@ -89,7 +99,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 		return nil, domain.Fail("BASELINE", "统一 metadata 版本、变量或分发合同缺失")
 	}
 	if meta.SchemaVersion >= 2 {
-		if meta.BundleSchemaVersion != 3 || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
+		if meta.BundleSchemaVersion != meta.SchemaVersion || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
 			return nil, domain.Fail("BASELINE", "native v2 Bundle/CLI provenance invalid")
 		}
 	}
@@ -104,11 +114,11 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 		if _, e := safefs.Path(root, ref); e != nil {
 			return nil, e
 		}
-		modeValid := m.Applied.Mode == 0644 || m.Applied.Mode == 0755 || meta.SchemaVersion == 3 && m.Applied.Mode <= 0777
+		modeValid := m.Applied.Mode == 0644 || m.Applied.Mode == 0755 || meta.SchemaVersion >= 3 && m.Applied.Mode <= 0777
 		if m.Applied.Type != "file" || !digestPattern.MatchString(m.Applied.Digest) || m.Baseline.Type != "file" || !digestPattern.MatchString(m.Baseline.Digest) || !modeValid {
 			return nil, domain.Fail("BASELINE", "未知文件基线: "+ref)
 		}
-		if meta.SchemaVersion == 3 {
+		if meta.SchemaVersion >= 3 {
 			if m.Source == nil || (m.Source.Kind != "bundle" && m.Source.Kind != "unavailable") {
 				return nil, domain.Fail("BASELINE", "缺少基线来源: "+ref)
 			}

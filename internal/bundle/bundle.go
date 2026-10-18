@@ -3,8 +3,10 @@ package bundle
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"strings"
 )
 
@@ -76,8 +78,11 @@ func validate(out *Bundle, profile string) error {
 }
 
 func validateWith(out *Bundle, profile string, op *validationOp) error {
-	if (out.SchemaVersion < 1 || out.SchemaVersion > 3) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
+	if (out.SchemaVersion < 1 || out.SchemaVersion > 4) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
 		return domain.Fail("BUNDLE", "快照身份或来源不合法")
+	}
+	if out.SchemaVersion == 4 && profile != "spec" && profile != "backend" {
+		return domain.Fail("BUNDLE", "Bundle4 仅支持 Spec/Backend")
 	}
 	if out.Initial == nil {
 		out.Initial = out.Files
@@ -105,12 +110,19 @@ func validateWith(out *Bundle, profile string, op *validationOp) error {
 			return domain.Fail("BUNDLE", "初始化不属于完整快照: "+ref)
 		}
 	}
+	if out.SchemaVersion == 4 {
+		for _, files := range []map[string]File{out.Files, out.Initial} {
+			if err := validateGovernance4(files, profile); err != nil {
+				return err
+			}
+		}
+	}
 	if out.SchemaVersion >= 2 {
 		if out.TemplateVersion == "" || !fullCommit.MatchString(out.TemplateCommit) || out.SourcePolicy.Digest == "" {
 			return domain.Fail("BUNDLE", "v2来源身份缺失")
 		}
 	}
-	if out.SchemaVersion == 3 && out.Upgrade == nil {
+	if out.SchemaVersion >= 3 && out.Upgrade == nil {
 		return domain.Fail("BUNDLE", "Bundle v3 缺少升级政策")
 	}
 	if out.Upgrade != nil {
@@ -134,6 +146,56 @@ func validateWith(out *Bundle, profile string, op *validationOp) error {
 				return domain.Fail("BUNDLE", "Skill快照缺文件: "+p)
 			}
 		}
+	}
+	return nil
+}
+
+func validateGovernance4(files map[string]File, profile string) error {
+	read := func(ref string) ([]byte, error) {
+		f, ok := files[ref]
+		if !ok {
+			return nil, domain.Fail("BUNDLE", "Bundle4 缺少身份或政策: "+ref)
+		}
+		return base64.StdEncoding.DecodeString(f.Data)
+	}
+	doc := func(ref string) (map[string]any, error) {
+		raw, err := read(ref)
+		if err != nil {
+			return nil, err
+		}
+		value, err := schema.Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		m, ok := value.(map[string]any)
+		if !ok {
+			return nil, domain.Fail("BUNDLE", "Bundle4 身份必须为对象")
+		}
+		return m, nil
+	}
+	identity, err := doc("yss-project.yaml")
+	if err != nil {
+		return err
+	}
+	harness, err := doc(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		return err
+	}
+	p, err := domain.GetProfile(profile)
+	if err != nil {
+		return err
+	}
+	capabilities, _ := harness["required_capabilities"].([]any)
+	if len(identity) != 2 || identity["schema_version"] != json.Number("2") || identity["repository_mode"] != "project-instance" || harness["schema_version"] != json.Number("3") || harness["profile_id"] != p.ID || harness["status"] != "active" || len(capabilities) != 1 || capabilities[0] != "role-independent-governance-v1" {
+		return domain.Fail("BUNDLE", "Bundle4 必须使用当前 identity2/Profile3 精确组合")
+	}
+	policy, _, _, err := schema.LoadOrchestration(read, schema.OrchestrationRef)
+	if err != nil {
+		return err
+	}
+	versions, _ := policy["governance_versions"].(map[string]any)
+	if policy["schema_version"] != json.Number("2") || versions["required_capability"] != "role-independent-governance-v1" {
+		return domain.Fail("BUNDLE", "Bundle4 必须提供明确的新治理政策2")
 	}
 	return nil
 }

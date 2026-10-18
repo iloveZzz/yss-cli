@@ -1,6 +1,8 @@
 package approval
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
@@ -154,7 +156,11 @@ func PlanExpected(s *kernel.SemanticSession, id string, check map[string]any, ba
 	// The registered attempt is the consumer's independent task expectation.
 	// A candidate approval/bundle cannot supply its own expected task identity.
 	if attempt := PlanLatest(control, id); attempt != nil {
-		ref, digest := kernel.Text(attempt["task_ref"]), kernel.Text(attempt["task_digest"])
+		taskBinding, err := PlanTaskAsset(s, attempt)
+		if err != nil {
+			return nil, err
+		}
+		ref, digest := kernel.Text(taskBinding["ref"]), kernel.Text(taskBinding["digest"])
 		if ref == "" || digest == "" {
 			return nil, s.Reject("PLAN_REVIEW_TASK_DRIFT", "当前审查尝试缺少任务绑定")
 		}
@@ -287,7 +293,11 @@ func PlanEntryControl(s *kernel.SemanticSession, cp, c, p map[string]any, ref st
 	if history+int64(len(attempts)) > total || history+int64(len(attempts)-exceptionCount) > regular || int64(exceptionCount) > exceptions {
 		return s.Reject("PLAN_REVIEW_BUDGET_EXHAUSTED", "审查预算超额")
 	}
-	proof := append([]any{map[string]any{"ref": last["task_ref"], "digest": last["task_digest"]}, map[string]any{"ref": last["result_ref"], "digest": last["result_digest"]}}, kernel.SemList(last["basis"])...)
+	taskBinding, err := PlanTaskAsset(s, last)
+	if err != nil {
+		return err
+	}
+	proof := append([]any{taskBinding, map[string]any{"ref": last["result_ref"], "digest": last["result_digest"]}}, kernel.SemList(last["basis"])...)
 	if err := s.Basis(proof); err != nil {
 		return err
 	}
@@ -302,7 +312,11 @@ func PlanEntryControl(s *kernel.SemanticSession, cp, c, p map[string]any, ref st
 	if err != nil {
 		return err
 	}
-	subject, err := s.Doc(kernel.Text(kernel.SemMap(task["review_context"])["candidate_ref"]))
+	candidateRef := kernel.Text(kernel.SemMap(task["review_context"])["candidate_ref"])
+	if s.GovernanceVersion == 2 {
+		candidateRef = kernel.Text(kernel.ApMap(kernel.ApMap(task["review_context"])["candidate"])["ref"])
+	}
+	subject, err := s.Doc(candidateRef)
 	if err != nil {
 		return err
 	}
@@ -327,7 +341,11 @@ func PlanEntryControl(s *kernel.SemanticSession, cp, c, p map[string]any, ref st
 		if !passed {
 			return s.Reject("PLAN_REVIEW_ENTRY_BLOCKED", "逐项结论未通过")
 		}
-		if err = s.Basis([]any{map[string]any{"ref": a["task_ref"], "digest": a["task_digest"]}, map[string]any{"ref": a["result_ref"], "digest": a["result_digest"]}}); err != nil {
+		currentTask, err := PlanTaskAsset(s, a)
+		if err != nil {
+			return err
+		}
+		if err = s.Basis([]any{currentTask, map[string]any{"ref": a["result_ref"], "digest": a["result_digest"]}}); err != nil {
 			return err
 		}
 		r, err := s.Doc(kernel.Text(a["result_ref"]))
@@ -367,7 +385,11 @@ func PlanAggregateRecord(s *kernel.SemanticSession, cp, review map[string]any, b
 	if err = s.ValidateSchema(".template-spec/process/schemas/approval-record.schema.json", record); err != nil {
 		return err
 	}
-	if _, err = assertApprovalSignerSemantic(s, record); err != nil {
+	if s.GovernanceVersion == 2 {
+		if _, err = approvalRule3(s, record); err != nil {
+			return err
+		}
+	} else if _, err = assertApprovalSignerSemantic(s, record); err != nil {
 		return err
 	}
 	bytes, err := s.Bytes(kernel.Text(cp["plan_review_ref"]))
@@ -375,7 +397,7 @@ func PlanAggregateRecord(s *kernel.SemanticSession, cp, review map[string]any, b
 		return err
 	}
 	drafter := kernel.First(kernel.Text(review["drafter_principal_ref"]), kernel.Text(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["drafter_principal_ref"]))
-	if record["subject_ref"] != cp["plan_review_ref"] || strings.TrimPrefix(kernel.Text(record["subject_digest"]), "sha256:") != safefs.Digest(bytes) || !kernel.ApSetEqual(record["approval_scope"], []any{cp["feature_id"]}) || drafter == "" || record["drafter_principal_ref"] != drafter || record["principal_ref"] == drafter {
+	if record["subject_ref"] != cp["plan_review_ref"] || strings.TrimPrefix(kernel.Text(record["subject_digest"]), "sha256:") != safefs.Digest(bytes) || !kernel.ApSetEqual(record["approval_scope"], []any{cp["feature_id"]}) || (s.GovernanceVersion != 2 && (drafter == "" || record["drafter_principal_ref"] != drafter || record["principal_ref"] == drafter)) {
 		return s.Reject("PLAN_APPROVAL_CONTEXT", "聚合批准未绑定当前主体、范围或独立作者")
 	}
 	if err = s.Basis(record["basis"]); err != nil {
@@ -403,6 +425,17 @@ func PlanAggregateRecord(s *kernel.SemanticSession, cp, review map[string]any, b
 	}
 	c := kernel.SemMap(cp["plan_review_control"])
 	attempts := kernel.SemList(c["attempts"])
+	if s.GovernanceVersion == 2 {
+		if len(attempts) == 0 {
+			for _, row := range kernel.ApMap(review["internal_checks"]) {
+				if kernel.ApMap(row)["status"] != "not-applicable" {
+					return s.Reject("PLAN_APPROVAL_REUSE", "适用技术检查不能省略实际完成任务")
+				}
+			}
+			return planSelfCheck3(s, record)
+		}
+		return planAggregateReuse3(s, record, c, bundles)
+	}
 	var reused map[string]any
 	bundleRef := ""
 	if len(attempts) > 0 {
@@ -481,4 +514,139 @@ func PlanAggregateRecord(s *kernel.SemanticSession, cp, review map[string]any, b
 		}
 	}
 	return nil
+}
+
+// Reuse the completed internal review; the aggregate cannot invent another reviewer.
+func planAggregateReuse3(s *kernel.SemanticSession, record, control map[string]any, bundles map[string]map[string]any) error {
+	attempts := kernel.ApRows(control["attempts"])
+	if len(attempts) == 0 {
+		return s.Reject("PLAN_APPROVAL_REUSE", "新Plan聚合需要当前已完成的实际技术检查，不能借用旧政策历史")
+	}
+	last := attempts[len(attempts)-1]
+	bundle := bundles[kernel.Text(record["review_bundle_ref"])]
+	if last["status"] != "completed" || last["outcome"] != "passed" || bundle == nil || !kernel.ApEqual(bundle["plan_review_binding"], PlanBinding(control, last)) || !kernel.ApEqual(record["plan_review_binding"], bundle["plan_review_binding"]) {
+		return s.Reject("PLAN_APPROVAL_REUSE", "聚合未复用最终已完成的逐项技术检查")
+	}
+	for _, key := range []string{"schema_version", "review_task_ref", "review_task_digest", "policy", "review"} {
+		if !kernel.ApEqual(record[key], bundle[key]) {
+			return s.Reject("PLAN_APPROVAL_REUSE", "聚合实际来源变化: "+key)
+		}
+	}
+	if !kernel.ApSetEqual(record["check_ids"], bundle["check_ids"]) || last["task_ref"] != record["review_task_ref"] {
+		return s.Reject("PLAN_APPROVAL_REUSE", "聚合未复用当前完成任务和检查范围")
+	}
+	return nil
+}
+
+// No applicable professional checks means no empty review task; the actual preparation still needs a real self-check.
+func planSelfCheck3(s *kernel.SemanticSession, record map[string]any) error {
+	for _, field := range []string{"review_task_ref", "review_task_digest", "review_bundle_ref", "plan_review_binding"} {
+		if record[field] != nil {
+			return s.Reject("PLAN_APPROVAL_REUSE", "不适用技术检查不得制造空审查任务或周期绑定")
+		}
+	}
+	if dependencies.TrustedTaskImplementation == nil {
+		return s.Unavailable("CAPABILITY", "缺少Plan实际准备任务来源消费者")
+	}
+	candidate := map[string]any{"ref": record["subject_ref"], "digest": record["subject_digest"]}
+	source, err := dependencies.TrustedTaskImplementation(s, map[string]any{"candidate": candidate, "basis": record["basis"]})
+	if err != nil {
+		return err
+	}
+	scope := kernel.ApStrings(source["scope"])
+	if !kernel.ApSetEqual(scope, record["approval_scope"]) {
+		return s.Reject("PLAN_APPROVAL_CONTEXT", "Plan自检未绑定实际准备范围")
+	}
+	taskRef := kernel.Text(source["task_ref"])
+	task, err := s.Doc(taskRef)
+	if err != nil {
+		return err
+	}
+	if !kernel.ApSetEqual(record["check_ids"], kernel.ApMap(task["skill_source"])["check_ids"]) {
+		return s.Reject("PLAN_APPROVAL_CONTEXT", "Plan自检范围未按实际任务选择")
+	}
+	implementation := kernel.ApMap(source["provenance"])
+	mode, err := s.RequiredReviewModeForTask(candidate, implementation, scope, kernel.ApStrings(task["allowed_write_paths"]), task["input_bindings"], record["basis"])
+	if err != nil {
+		return err
+	}
+	if err = s.ValidateReviewEvidenceDigest(kernel.ApMap(record["review"]), candidate, scope, mode, implementation, taskRef, kernel.ApMap(source["candidate"]), kernel.ApStrings(task["allowed_write_paths"])); err != nil {
+		return err
+	}
+	if !kernel.ApUnique(record["evidence_refs"]) {
+		return s.Reject("PLAN_APPROVAL_CONTEXT", "Plan缺少实际自检证据")
+	}
+	execution := kernel.ApMap(kernel.ApMap(record["review"])["provenance"])["execution_ref"]
+	for _, ref := range kernel.ApStrings(record["evidence_refs"]) {
+		if ref != execution && !kernel.ApContains(kernel.ApMap(task["result"])["evidence_refs"], ref) {
+			return s.Reject("PLAN_APPROVAL_CONTEXT", "Plan自检证据不是实际任务产出")
+		}
+		if _, err = s.Bytes(ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// The existing result keeps both issuance bytes and the actual completed task, avoiding a digest cycle.
+func PlanTaskAsset(s *kernel.SemanticSession, a map[string]any) (map[string]any, error) {
+	issued := map[string]any{"ref": a["task_ref"], "digest": a["task_digest"]}
+	if s.GovernanceVersion != 2 || a["status"] != "completed" {
+		return issued, nil
+	}
+	resultBinding := map[string]any{"ref": a["result_ref"], "digest": a["result_digest"]}
+	if _, err := s.EvidenceAsset(resultBinding); err != nil {
+		return nil, err
+	}
+	result, err := s.Doc(kernel.Text(a["result_ref"]))
+	if err != nil {
+		return nil, err
+	}
+	original, current := kernel.ApMap(result["issued_task"]), kernel.ApMap(result["completed_task"])
+	if kernel.ApNumber(result["schema_version"]) != 2 || result["kind"] != "plan-review-result" || original["digest"] != a["task_digest"] || current["ref"] != a["task_ref"] {
+		return nil, s.Reject("PLAN_REVIEW_RESULT_MISMATCH", "Plan结果缺少原始派发快照和实际完成任务绑定")
+	}
+	if _, err = s.EvidenceAsset(original); err != nil {
+		return nil, err
+	}
+	if _, err = s.EvidenceAsset(current); err != nil {
+		return nil, err
+	}
+	before, err := s.Doc(kernel.Text(original["ref"]))
+	if err != nil {
+		return nil, err
+	}
+	after, err := s.Doc(kernel.Text(current["ref"]))
+	if err != nil {
+		return nil, err
+	}
+	if kernel.ApNumber(before["schema_version"]) != 3 || before["workflow_status"] != "not-started" || after["workflow_status"] != "resolved" || kernel.ApMap(after["result"])["result"] != "completed" {
+		return nil, s.Reject("PLAN_REVIEW_TASK_DRIFT", "完成任务或原始派发状态不符")
+	}
+	frozen := func(task map[string]any) map[string]any {
+		out := kernel.ApCopy(task)
+		for _, key := range []string{"workflow_status", "verification_status", "verification_results", "result", "observation_ref"} {
+			delete(out, key)
+		}
+		provenance := kernel.ApCopy(kernel.ApMap(out["provenance"]))
+		delete(provenance, "execution_ref")
+		delete(provenance, "identity")
+		out["provenance"] = provenance
+		context := kernel.ApCopy(kernel.ApMap(out["review_context"]))
+		delete(context, "review")
+		out["review_context"] = context
+		return out
+	}
+	left, err := json.Marshal(frozen(before))
+	if err != nil {
+		return nil, err
+	}
+	right, err := json.Marshal(frozen(after))
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(left, right) {
+		return nil, s.Reject("PLAN_REVIEW_TASK_DRIFT", "任务完成改变了冻结输入、候选、范围、检查或汇合合同")
+	}
+	return current, nil
 }

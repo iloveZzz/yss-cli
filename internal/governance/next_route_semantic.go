@@ -9,7 +9,9 @@ import (
 
 func init() {
 	kernel.RegisterSemanticValidator("next-route", verifyNextRouteSemantic)
+	kernel.RegisterRoleIndependentValidator("next-route", verifyNextRouteSemantic)
 	kernel.RegisterSemanticValidator("execution-scope", verifyExecutionScopeSemantic)
+	kernel.RegisterRoleIndependentValidator("execution-scope", verifyExecutionScopeSemantic)
 }
 
 // These are the fixed-source transition contracts, selected by the observed
@@ -302,7 +304,7 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 		if err = s.Verify("business-checkpoint", cpRef, map[string]string{"required": fmt.Sprint(current == "work-unit.business-ticket-formalization")}); err != nil {
 			return err
 		}
-		if current == "work-unit.spec-synthesis" || next == "work-unit.spec-synthesis" {
+		if (current == "work-unit.spec-synthesis" || next == "work-unit.spec-synthesis") && !s.DraftPreparation(state) {
 			if err = s.Verify("plan-spec-entry", cpRef, nil); err != nil {
 				return err
 			}

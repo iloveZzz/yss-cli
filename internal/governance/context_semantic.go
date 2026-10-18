@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-func init() { kernel.RegisterSemanticValidator("context-reconciliation", verifySemanticReconciliation) }
+func init() {
+	kernel.RegisterSemanticValidator("context-reconciliation", verifySemanticReconciliation)
+	kernel.RegisterRoleIndependentValidator("context-reconciliation", verifySemanticReconciliation)
+}
 
 func verifySemanticReconciliation(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	v, err := s.Doc(ref)

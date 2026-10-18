@@ -107,9 +107,26 @@ func GateChecks(s *kernel.SemanticSession, cp map[string]any, ref, gateID string
 				}
 			}
 		}
-		required, err := semanticCountersign(s.Roles, id)
+		required, err := currentGateCountersign(s, id)
 		if err != nil {
 			return s.Unavailable("CAPABILITY", err.Error())
+		}
+		if s.GovernanceVersion == 2 && kernel.ApContains(s.GatePolicy()["contract_approval_gates"], id) {
+			subject := map[string]any{"ref": item["subject_ref"], "digest": item["subject_digest"]}
+			if _, err = s.EvidenceAsset(subject); err != nil {
+				return err
+			}
+			implementation := kernel.ApCopy(kernel.ApMap(kernel.ApMap(cp["human_review"])["implementation"]))
+			if implementation["slice_contract_ref"] != item["subject_ref"] {
+				return s.Reject("SLICE_APPROVAL_REQUIRED", "合同批准未绑定当前实施范围")
+			}
+			implementation["user_decisions"] = kernel.ApMap(cp["human_review"])["user_decisions"]
+			if dependencies.AssertImplementationDecisionSemantic == nil {
+				return s.Unavailable("CAPABILITY", "缺少实际实施范围消费者")
+			}
+			if err = dependencies.AssertImplementationDecisionSemantic(s, implementation); err != nil {
+				return err
+			}
 		}
 		if required {
 			if !refs[kernel.Text(item["approval_ref"])] || !refs[kernel.Text(item["subject_ref"])] {
@@ -196,4 +213,25 @@ func GateChecks(s *kernel.SemanticSession, cp map[string]any, ref, gateID string
 		}
 	}
 	return nil
+}
+
+func currentGateCountersign(s *kernel.SemanticSession, id string) (bool, error) {
+	if s.GovernanceVersion != 2 {
+		return semanticCountersign(s.Roles, id)
+	}
+	policy := s.GatePolicy()
+	for _, bucket := range []string{"check_reviews", "technical_reviews"} {
+		if kernel.ApFind(policy[bucket], "gate", id) != nil {
+			return true, nil
+		}
+	}
+	if kernel.ApContains(policy["user_decision_gates"], id) {
+		return true, nil
+	}
+	for _, bucket := range []string{"automatic_checks", "contract_approval_gates", "evidence_only"} {
+		if kernel.ApContains(policy[bucket], id) {
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("GATE_POLICY_REQUIRED: 当前Profile未分类门禁或检查 %s", id)
 }

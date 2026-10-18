@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
   "profile": "spec",
-  "templateCommit": "05a41aa2e0038a99c47db4e3f70b6f8a01d11e12",
+  "templateCommit": "c5190cd378bace4332f0568840f8d4266bd313e8",
   "registrySHA256": "b5dc5442a877c18f373013e20699b225e21a20506e74556641b4fb4a05d87bd4",
-  "policySHA256": "35a27068e3edba5182a7439261cfe529baf684bc030019d8e0ce4832b68be99a",
+  "profileSHA256": "bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c",
+  "policySHA256": "3ac48b2a66573885089e83f8c819f2f2e914fe18a5df4a214cbdbfce9506221f",
   "stages": [
     {
       "id": "stage.entry-triage",
@@ -61,6 +62,6 @@
     "yss-technical-skills",
     "implementation",
     "tests",
-    "independent-review"
+    "applicable-review-evidence"
   ]
 }

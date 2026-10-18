@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-const PROFILES = ['spec', 'design', 'backend'];
+const PROFILES = ['spec', 'backend'];
 const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
 const DIGEST = ARCHIVE + '.sha256'; // 入库的归档摘要；归档本身不入库，由 tools/fetch-bundle.mjs 生成
 const VIEWS = PROFILES.map(p => `internal/helpview/assets/${p}.json`);

@@ -14,8 +14,11 @@ import (
 
 func init() {
 	kernel.RegisterSemanticValidator("checkpoint", verifyCheckpointSemantic)
+	kernel.RegisterRoleIndependentValidator("checkpoint", verifyCheckpointSemantic)
 	kernel.RegisterSemanticValidator("tracking-entry", verifyTrackingEntrySemantic)
+	kernel.RegisterRoleIndependentValidator("tracking-entry", verifyTrackingEntrySemantic)
 	kernel.RegisterSemanticValidator("checkpoint-boundary", verifyCheckpointBoundarySemantic)
+	kernel.RegisterRoleIndependentValidator("checkpoint-boundary", verifyCheckpointBoundarySemantic)
 }
 
 func verifyCheckpointBoundarySemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
