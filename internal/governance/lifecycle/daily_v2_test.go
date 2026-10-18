@@ -150,3 +150,43 @@ func TestDaily2RejectsNotRunProvenance(t *testing.T) {
 		})
 	}
 }
+
+func TestDailyPrepareInputsPreservesEvidenceAndObservesFreshness(t *testing.T) {
+	d := daily2ReviewFixture(t)
+	d.record["delivery_path"] = "daily"
+	d.record["api"] = map[string]any{"mode": "none"}
+	d.record["skills"] = []any{map[string]any{"ref": "input.md"}}
+	d.report.Profile = "spec"
+	if err := os.WriteFile(filepath.Join(d.repo, "input.md"), []byte("rules\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(d.record["review"])
+	p, err := d.prepareInputBindings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Changes) != 1 || p.Changes[0].Pointer != "/skills/0/digest" || p.Changes[0].Before != "" || p.EvidenceState != "not-evaluated" || !p.ReadOnly || p.ApprovalCreated {
+		t.Fatalf("invalid preparation: %+v", p)
+	}
+	after, _ := json.Marshal(d.record["review"])
+	if string(before) != string(after) {
+		t.Fatal("completion evidence changed")
+	}
+	if err := os.WriteFile(filepath.Join(d.repo, "input.md"), []byte("new rules\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.s.Finish(); err == nil {
+		t.Fatal("input changed after preparation but Finish accepted")
+	}
+}
+
+func TestDailyPrepareInputsRejectsInvalidDigestType(t *testing.T) {
+	d := daily2ReviewFixture(t)
+	d.record["delivery_path"] = "daily"
+	d.record["api"] = map[string]any{"mode": "none"}
+	d.record["skills"] = []any{map[string]any{"ref": "task.md", "digest": 42}}
+	d.report.Profile = "spec"
+	if _, err := d.prepareInputBindings(); err == nil {
+		t.Fatal("invalid digest type accepted")
+	}
+}

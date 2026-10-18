@@ -27,18 +27,19 @@ var baseRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/~^@{}-]{0,199}$`)
 
 type DailyReport struct {
 	*kernel.SemanticReport
-	DeliveryPath      string           `json:"delivery_path"`
-	BaseRef           string           `json:"base_ref,omitempty"`
-	BaseSHA           string           `json:"base_sha,omitempty"`
-	TaskID            string           `json:"task_id,omitempty"`
-	CandidateDigest   string           `json:"candidate_digest,omitempty"`
-	DiffDigest        string           `json:"diff_digest,omitempty"`
-	ChangedFiles      []string         `json:"changed_files"`
-	APIContractDigest string           `json:"api_digest,omitempty"`
-	TestsExecuted     bool             `json:"tests_executed"`
-	Reasons           []string         `json:"reasons"`
-	RequiredChecks    []map[string]any `json:"required_checks"`
-	StandardRequired  bool             `json:"standard_required,omitempty"`
+	DeliveryPath      string                 `json:"delivery_path"`
+	BaseRef           string                 `json:"base_ref,omitempty"`
+	BaseSHA           string                 `json:"base_sha,omitempty"`
+	TaskID            string                 `json:"task_id,omitempty"`
+	CandidateDigest   string                 `json:"candidate_digest,omitempty"`
+	DiffDigest        string                 `json:"diff_digest,omitempty"`
+	ChangedFiles      []string               `json:"changed_files"`
+	APIContractDigest string                 `json:"api_digest,omitempty"`
+	TestsExecuted     bool                   `json:"tests_executed"`
+	Reasons           []string               `json:"reasons"`
+	RequiredChecks    []map[string]any       `json:"required_checks"`
+	InputPreparation  *DailyInputPreparation `json:"input_preparation,omitempty"`
+	StandardRequired  bool                   `json:"standard_required,omitempty"`
 }
 
 type dailyFailure struct {
@@ -67,6 +68,7 @@ type dailySession struct {
 	agentRules          map[string]any
 	standard            map[string]any
 	declaredPath        string
+	inputPreparation    *DailyInputPreparation
 }
 
 func Run(ctx context.Context, action, root string, args map[string]string) (any, error) {
@@ -77,10 +79,17 @@ func runDailySession(s *kernel.SemanticSession, action string, args map[string]s
 	s.Report.Kind = "lifecycle." + action
 	s.Report.Scope = "daily-record-and-current-git-only"
 	d := &dailySession{s: s, report: &DailyReport{SemanticReport: s.Report, DeliveryPath: "needs-info", ChangedFiles: []string{}}, basis: map[string]string{}}
+	prepare := args["prepare-inputs"] == "true"
+	if prepare && (action != "route" || args["view"] != "") {
+		return nil, domain.Fail("ARGUMENT", "--prepare-inputs 仅用于 route，不能与 --view 同用")
+	}
 	if args["view"] != "" && (action != "route" || args["view"] != "agent") {
 		return nil, domain.Fail("ARGUMENT", "route 阅读视图仅支持 agent")
 	}
 	err := d.run(action, args)
+	if err == nil && prepare && d.report.DeliveryPath != "daily" {
+		err = s.Unavailable("PREPARE_INPUTS_UNSUPPORTED", "当前风险需要其他路线，不能准备 daily 输入")
+	}
 	if err == nil && args["view"] == "agent" {
 		err = d.selectAgentRules()
 	}
@@ -99,6 +108,9 @@ func runDailySession(s *kernel.SemanticSession, action string, args map[string]s
 	}
 	if args["view"] == "agent" {
 		return d.agentView(), nil
+	}
+	if prepare {
+		d.report.InputPreparation = d.inputPreparation
 	}
 	return d.report, nil
 }
@@ -211,7 +223,16 @@ func (d *dailySession) run(action string, args map[string]string) error {
 	if governed, err := d.formalBinding(); err != nil {
 		return err
 	} else if governed {
+		if args["prepare-inputs"] == "true" {
+			return d.s.Unavailable("PREPARE_INPUTS_UNSUPPORTED", "已有正式任务绑定，不能准备 daily 输入或降级")
+		}
 		return d.govern(action, "当前或历史正式任务绑定不可通过 daily 标签降级")
+	}
+	if args["prepare-inputs"] == "true" {
+		d.inputPreparation, err = d.prepareInputBindings()
+		if err != nil {
+			return err
+		}
 	}
 	d.declaredPath = kernel.Text(d.record["delivery_path"])
 	if d.declaredPath != "daily" && d.declaredPath != "standard" {

@@ -141,7 +141,7 @@ func ArgumentKeys(group, action string) []string {
 	case "lifecycle.target":
 		allowed = append(allowed, "checkpoint", "input", "plan", "out", "apply", "plan-file")
 	case "lifecycle.route":
-		allowed = append(allowed, "task", "implementation-root", "base", "view")
+		allowed = append(allowed, "task", "implementation-root", "base", "view", "prepare-inputs")
 	case "lifecycle.verify-daily":
 		allowed = append(allowed, "task", "implementation-root", "base")
 	case "lifecycle.verify":
