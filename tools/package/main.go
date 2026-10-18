@@ -67,7 +67,7 @@ func main() {
 		sourceState = "working-tree"
 	}
 	sources := map[string]any{}
-	for _, profile := range []string{"spec", "design", "backend"} {
+	for _, profile := range sourceProfiles() {
 		inspection, e := bundle.Inspect(profile)
 		must(e)
 		sources[profile] = inspection
@@ -193,7 +193,7 @@ func packageNative(input, out, basisFile string, platforms []string, scope strin
 	expected := release.Expected{Identity: release.Identity{CLIVersion: domain.Version, ProtocolVersion: domain.ProtocolVersion, CLICommit: strings.TrimSpace(string(revision)), SourceState: "committed", Bundles: map[string]release.BundleIdentity{}}, Documents: map[string][]byte{}, RepositoryRoot: root}
 	expected.RequiredPlatforms = platforms
 	expected.QualificationScope = scope
-	for _, profile := range []string{"spec", "design", "backend"} {
+	for _, profile := range sourceProfiles() {
 		b, err := bundle.Inspect(profile)
 		if err != nil {
 			return err
@@ -333,4 +333,14 @@ func sortedFiles(files map[string][]byte) []string {
 	}
 	sort.Strings(refs)
 	return refs
+}
+
+func sourceProfiles() []string {
+	raw, err := os.ReadFile("docs/source-lock.json")
+	must(err)
+	var lock bundle.SourceLock
+	must(json.Unmarshal(raw, &lock))
+	profiles, err := bundle.SourceProfiles(lock)
+	must(err)
+	return profiles
 }

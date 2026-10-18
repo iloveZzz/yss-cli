@@ -1,6 +1,6 @@
 import sys,json,hashlib,stat,subprocess,time,datetime,tarfile,argparse,platform,zipfile,re
 from pathlib import Path
-from release_source import repo_version
+from release_source import repo_version,repo_profiles
 parser=argparse.ArgumentParser(description='Actual native public installation, local-scope 5 cases')
 parser.add_argument('--input',required=True);parser.add_argument('--archive',required=True);parser.add_argument('--out',required=True);parser.add_argument('--platform',required=True);parser.add_argument('--cli-root',required=True)
 parser.add_argument('--published-sha256',help='Independent expected public archive SHA256; additionally run the real online upgrade using its extracted executor')
@@ -16,7 +16,7 @@ assert subprocess.check_output(['git','-C',str(C),'status','--porcelain=v1','--u
 assert all(hashlib.sha256((C/ref).read_bytes()).hexdigest()==value['sha256'] for ref,value in inp['documents'].items())
 actual_platform=('windows' if sys.platform=='win32' else sys.platform)+'/'+{'arm64':'arm64','aarch64':'arm64','AMD64':'amd64','x86_64':'amd64'}.get(platform.machine(),platform.machine())
 assert target_platform in ['darwin/arm64','windows/amd64'] and actual_platform==target_platform,'real matching runner required'
-assert inp['cliVersion']==repo_version(C) and inp['sourceState']=='committed' and set(inp['bundles'])=={'spec','design','backend'}
+assert inp['cliVersion']==repo_version(C) and inp['sourceState']=='committed' and set(inp['bundles'])==set(repo_profiles(C))
 artifact=next(a for a in inp['artifacts'] if a['platform']==target_platform)
 binary=R/artifact['binary']['path'];binary_name='yss.exe' if sys.platform=='win32' else 'yss'
 archive=Path(options.archive).resolve();archive.relative_to(R)
@@ -83,7 +83,7 @@ try:
  assert manifest['platform']==target_platform and manifest['cliCommit']==inp['cliCommit'] and manifest['cliVersion']==inp['cliVersion'] and manifest['sourceState']=='committed'
  if options.published_sha256 is not None:
   assert manifest['stableReady'] is True and manifest['runtimeVerification']=='passed','public upgrade requires the actual stable release archive'
-  assert manifest['sourceLockSha256']==inp['sourceLockSha256'] and set(manifest['bundles'])=={'spec','design','backend'}
+  assert manifest['sourceLockSha256']==inp['sourceLockSha256'] and set(manifest['bundles'])==set(repo_profiles(C))
   assert all(all(manifest['bundles'][profile][key]==value for key,value in expected.items()) for profile,expected in inp['bundles'].items())
  for name,(body,mode) in archive_files.items():
   if name=='release-manifest.json':continue
@@ -106,7 +106,7 @@ try:
  actual={ref:descriptor(tool/ref) for ref in payload};assert actual==payload
  report['installed_raw_modes']={ref:stat.S_IMODE((tool/ref).stat().st_mode) for ref in payload}
  version=call(['version','--json'],tool/binary_name);assert version['version']==inp['cliVersion'] and version['cliCommit']==inp['cliCommit'] and version['sourceState']=='committed'
- for profile in ['spec','design','backend']:
+ for profile in repo_profiles(C):
   observed=call(['bundle','inspect','--profile',profile,'--json'],tool/binary_name);assert all(observed[k]==v for k,v in inp['bundles'][profile].items())
  passed('install-apply',installed_payload_sha256=digest(actual),transaction_id=applied['transactionId'])
  rb=call(['update','rollback','--tool-root',str(tool),'--json']);assert control(inventory(tool))==baseline
@@ -145,7 +145,7 @@ try:
   assert (online_tool/'release-manifest.json').read_bytes()==archive_files['release-manifest.json'][0]
   version=online_call(['version','--json'],online_tool/binary_name)
   assert version['version']==inp['cliVersion'] and version['cliCommit']==inp['cliCommit'] and version['sourceState']=='committed'
-  for profile in ['spec','design','backend']:
+  for profile in repo_profiles(C):
    observed=online_call(['bundle','inspect','--profile',profile,'--json'],online_tool/binary_name)
    assert all(observed[k]==v for k,v in inp['bundles'][profile].items())
   receipt_path=online_tool/'installation.json';receipt=json.loads(receipt_path.read_bytes())

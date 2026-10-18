@@ -12,11 +12,10 @@ import subprocess
 import time
 import zipfile
 
-from release_source import repo_version, template_identity
+from release_source import repo_version, template_identity, repo_profiles
 
 DOCS = ['docs/source-lock.json', 'docs/compatibility.md', 'docs/porting-status.md',
         'docs/native-governance.md', 'docs/cli-retirement.md', 'compat/README.md', 'README.md']
-PROFILES = {'spec', 'design', 'backend'}
 sha = lambda data: hashlib.sha256(data).hexdigest()
 
 
@@ -74,15 +73,15 @@ def main():
         require(source['files'][ref] == {'type': 'file', 'digest': sha(content), 'mode': 0o644},
                 'source manifest document differs from C: ' + ref)
     lock = json.loads(files['docs/source-lock.json'])
-    require(lock['schemaVersion'] in [2, 3] and set(lock['profiles']) == PROFILES and
-            set(source['bundles']) == PROFILES, 'exactly three Profile sources required')
+    require(lock['schemaVersion'] in [2, 3, 5] and set(lock['profiles']) == set(repo_profiles(C)) and
+            set(source['bundles']) == set(repo_profiles(C)), 'exact active Profile sources required')
     require(source['sourceLockSha256'] == sha(files['docs/source-lock.json']), 'source-lock SHA mismatch')
     embedded_path = C / 'internal/bundle/assets/bundles.json.gz'
     embedded = ordinary(embedded_path)
     require(len(embedded) <= 10_000_000, 'embedded archive size limit exceeded')
     packed = json.loads(gzip.decompress(embedded))
-    require(set(packed['profiles']) == PROFILES, 'embedded Profile set mismatch')
-    for profile in sorted(PROFILES):
+    require(set(packed['profiles']) == set(repo_profiles(C)), 'embedded Profile set mismatch')
+    for profile in sorted(set(repo_profiles(C))):
         row, inspection, bundled = lock['profiles'][profile], source['bundles'][profile], packed['profiles'][profile]
         require(row['profile'] == profile and row['templateCommit'] == args.template_commit and
                 row.get('templateVersion') == args.template_version, 'expected T/version differs from lock')
@@ -90,7 +89,7 @@ def main():
             require(row.get('templateTag') == 'v' + args.template_version, 'stable source requires exact version tag')
         else:
             require(not row.get('templateTag'), 'git source must not carry a different tag')
-        require(inspection['profile'] == profile and inspection['schemaVersion'] in [2, 3] and
+        require(inspection['profile'] == profile and inspection['schemaVersion'] in ([4] if lock['schemaVersion'] == 5 else [2, 3]) and
                 inspection['templateCommit'] == args.template_commit and
                 inspection['templateVersion'] == args.template_version and
                 inspection['sourceState'] == 'committed', 'Mac inspection source differs from expected T')

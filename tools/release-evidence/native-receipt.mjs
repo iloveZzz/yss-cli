@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 本机程序安装范围的原生 receipt：只实际执行 version 与三个 bundle inspect；checks 为空，不冒充 smoke/recovery/plugin。
+// 本机程序安装范围的原生 receipt：只实际执行 version 与所有现役 bundle inspect；checks 为空，不冒充 smoke/recovery/plugin。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,10 +15,12 @@ const git = (...args) => { const r = spawnSync('git', ['--no-optional-locks', '-
 const repoVersion = fs.readFileSync(path.join(cliRoot, 'internal/domain/domain.go'), 'utf8').match(/^const Version = "([^"]+)"$/m)?.[1];
 assert.ok(repoVersion, 'internal/domain/domain.go 中找不到 const Version');
 const sourceLock = JSON.parse(fs.readFileSync(path.join(cliRoot, 'docs/source-lock.json'), 'utf8'));
-assert.deepEqual(Object.keys(sourceLock.profiles).sort(), ['backend', 'design', 'spec']);
+assert.ok([2, 3, 5].includes(sourceLock.schemaVersion), 'unsupported committed source-lock schema');
+const profiles = sourceLock.schemaVersion === 5 ? ['spec', 'backend'] : ['spec', 'design', 'backend'];
+assert.deepEqual(Object.keys(sourceLock.profiles).sort(), [...profiles].sort());
 const lockCommits = new Set(Object.values(sourceLock.profiles).map(p => p.templateCommit));
 const lockVersions = new Set(Object.values(sourceLock.profiles).map(p => p.templateVersion));
-assert.equal(lockCommits.size, 1, '三个 Profile 的模板提交必须一致'); assert.equal(lockVersions.size, 1, '三个 Profile 的模板版本必须一致');
+assert.equal(lockCommits.size, 1, '所有现役 Profile 的模板提交必须一致'); assert.equal(lockVersions.size, 1, '所有现役 Profile 的模板版本必须一致');
 values.commit ??= git('rev-parse', 'HEAD');
 values['template-commit'] ??= [...lockCommits][0];
 values['template-version'] ??= [...lockVersions][0];
@@ -65,7 +67,7 @@ try {
     if (gitSource) assert.ok(!source.templateTag, 'git 来源不得携带不同的标签'); else assert.equal(source.templateTag, 'v' + values['template-version']);
   }
   receipt.bundles = {}; receipt.bundleCommands = [];
-  for (const profile of ['spec', 'design', 'backend']) {
+  for (const profile of profiles) {
     const observed = execute('native-inspect-' + profile, ['bundle', 'inspect', '--profile', profile, '--json']);
     const envelope = JSON.parse(observed.output);
     assert.equal(envelope.status, 'ok'); assert.equal(envelope.code, 'OK'); assert.equal(envelope.protocolVersion, 1);

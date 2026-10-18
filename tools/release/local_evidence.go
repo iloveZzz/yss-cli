@@ -239,7 +239,7 @@ func (r *reader) candidateArchive(raw []byte, platform, binary string) error {
 			return reject("EVIDENCE", "candidate cannot claim release proof")
 		}
 	}
-	for _, p := range profiles {
+	for _, p := range identityProfiles(r.identity) {
 		var expected any
 		_ = json.Unmarshal(r.inspections[p], &expected)
 		if !reflect.DeepEqual(object(manifest["bundles"])[p], expected) {

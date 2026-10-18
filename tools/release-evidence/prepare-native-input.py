@@ -1,7 +1,7 @@
 # 由固定 v1.3.6 证据输入准备器改写；不授予任何资格。版本与模板身份取自仓库，不硬编码。
 import argparse,json,hashlib,shutil,subprocess,re
 from pathlib import Path
-from release_source import repo_version,template_identity
+from release_source import repo_version,template_identity,repo_profiles
 parser=argparse.ArgumentParser()
 parser.add_argument('--cli-root',required=True);parser.add_argument('--evidence-root',required=True)
 for name in ['cli-commit','template-commit','template-version']:parser.add_argument('--'+name,help='缺省取自仓库 HEAD / docs/source-lock.json；显式传入时必须一致')
@@ -29,7 +29,7 @@ for platform,binary_ref,receipt_ref in options.artifact:
  assert rc['platform']==platform and rc['runtimePlatform']==platform and rc['runtimeVerification']=='native-runner'
  current={k:rc[k] for k in keys}
  assert current['cliVersion']==version and current['cliCommit']==options.cli_commit and current['sourceState']=='committed'
- assert set(current['bundles'])=={'spec','design','backend'}
+ assert set(current['bundles'])==set(repo_profiles(C))
  assert all(v['templateCommit']==options.template_commit and v['templateVersion']==options.template_version and v['sourceState']=='committed' for v in current['bundles'].values())
  if identity is None:identity=current
  else:assert identity==current,'cross-platform source identity differs'

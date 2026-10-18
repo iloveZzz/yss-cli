@@ -308,13 +308,26 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	b.BundleHash = contentHash(b)
 	return b, nil
 }
-func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
+func SourceProfiles(lock SourceLock) ([]string, error) {
 	profiles := []string{"spec", "design", "backend"}
 	if lock.SchemaVersion == 5 {
 		profiles = []string{"spec", "backend"}
 	}
 	if lock.SchemaVersion < 2 || lock.SchemaVersion > 5 || len(lock.Profiles) != len(profiles) {
 		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles; v5 requires Spec/Backend")
+	}
+	for _, profile := range profiles {
+		if source, ok := lock.Profiles[profile]; !ok || source.Profile != profile {
+			return nil, fmt.Errorf("source lock profile missing: %s", profile)
+		}
+	}
+	return profiles, nil
+}
+
+func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
+	profiles, err := SourceProfiles(lock)
+	if err != nil {
+		return nil, err
 	}
 	out := map[string]*Bundle{}
 	for _, profile := range profiles {

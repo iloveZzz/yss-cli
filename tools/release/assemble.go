@@ -116,11 +116,19 @@ func (r *reader) unchanged() error {
 	}
 	return nil
 }
+func identityProfiles(identity Identity) []string {
+	if len(identity.Bundles) == 2 {
+		return []string{"spec", "backend"}
+	}
+	return profiles
+}
+
 func validIdentity(got, expected Identity) error {
-	if !stableVersion.MatchString(got.CLIVersion) || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != len(profiles) {
+	names := identityProfiles(expected)
+	if !stableVersion.MatchString(got.CLIVersion) || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != len(names) {
 		return reject("PROVENANCE", "incomplete stable source identity")
 	}
-	for _, p := range profiles {
+	for _, p := range names {
 		b, ok := got.Bundles[p]
 		if !ok || !commitPattern.MatchString(b.TemplateCommit) || (b.TemplateVersion != "git:"+b.TemplateCommit && !stableVersion.MatchString(b.TemplateVersion)) || b.SourceState != "committed" || !shaPattern.MatchString(b.SourceSnapshotHash) || !shaPattern.MatchString(b.ManifestHash) || !shaPattern.MatchString(b.BundleHash) {
 			return reject("PROVENANCE", "invalid fixed bundle %s", p)
@@ -540,7 +548,7 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 			Tag     string `json:"templateTag"`
 		} `json:"profiles"`
 	}
-	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3) || len(lock.Profiles) != len(profiles) {
+	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3 && lock.Schema != 5) || len(lock.Profiles) != len(input.Bundles) || (lock.Schema == 5) != (len(input.Bundles) == 2) {
 		return reject("PROVENANCE", "invalid fixed source lock")
 	}
 	for p, b := range input.Bundles {
@@ -745,6 +753,12 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 }
 
 func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Identity) error {
+	var lock struct {
+		Schema int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(r.documents["docs/source-lock.json"], &lock); err != nil {
+		return reject("PROVENANCE", "invalid fixed source lock")
+	}
 	check := func(row Check) error {
 		if row.Signal != nil {
 			return reject("EVIDENCE", "native source command was interrupted")
@@ -759,8 +773,8 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 		}
 		return nil
 	}
-	if receipt.VersionCommand == nil || len(receipt.BundleCommands) != len(profiles) {
-		return reject("EVIDENCE", "actual version and %d inspect commands are required", len(profiles))
+	if receipt.VersionCommand == nil || len(receipt.BundleCommands) != len(identity.Bundles) {
+		return reject("EVIDENCE", "actual version and %d inspect commands are required", len(identity.Bundles))
 	}
 	if row := receipt.VersionCommand; row != nil {
 		if row.ID != "native-version" {
@@ -778,7 +792,7 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 		}
 	}
 	if receipt.BundleCommands != nil {
-		if len(receipt.BundleCommands) != len(profiles) {
+		if len(receipt.BundleCommands) != len(identity.Bundles) {
 			return reject("EVIDENCE", "incomplete native inspect commands")
 		}
 		seen := map[string]bool{}
@@ -809,7 +823,7 @@ func (r *reader) additionalCommands(receipt Receipt, version []byte, identity Id
 			if err = json.Unmarshal(env.Result, &bound); err != nil || !reflect.DeepEqual(bound, want) {
 				return reject("PROVENANCE", "native inspect differs from fixed bundle")
 			}
-			if err = completeInspection(env.Result, profile); err != nil {
+			if err = completeInspection(env.Result, profile, lock.Schema); err != nil {
 				return err
 			}
 			if old := r.inspections[profile]; old != nil {
