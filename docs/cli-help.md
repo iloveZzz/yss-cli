@@ -4717,7 +4717,7 @@ yss 2.5.0 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
-用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用>
+用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用> [--prepare-inputs]
 
 前置条件:
 查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
@@ -4733,6 +4733,7 @@ yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementatio
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
   --implementation-root <路径>    文件或目录路径
   --json                          执行结果输出 JSON；帮助始终输出文本
+  --prepare-inputs                布尔开关，可使用 =true 或 =false；默认 false
   --profile <Profile>             新建仅 spec/backend；design 仅历史读取与显式迁移；项目命令可从身份检测；可选值: spec|design|backend
   --root <目录>                   项目根，默认当前目录；仅项目命令
   --target-dir <目录>             项目根的兼容参数；优先使用 --root
@@ -4746,6 +4747,7 @@ yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementatio
 --task  同一任务的需求、验收及证据
 --implementation-root  已确认实现仓 Git 根
 --base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA
+--prepare-inputs  只读准备 skills、inputs 及 Backend standalone 输入摘要；仅无 API 变化的 daily，不能与 --view 同用；不更新测试、审查或批准
 
 预期结果:
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
