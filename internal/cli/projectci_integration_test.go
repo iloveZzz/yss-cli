@@ -16,11 +16,8 @@ import (
 
 func ciProject(t *testing.T) string {
 	t.Helper()
-	// 事务记录绑定实例绝对路径，不能复制共享实例；整条安装链只 init 一次。
-	dir := filepath.Join(t.TempDir(), "proj")
-	if code, env, err := runYSS("init", "--profile", "spec", "--root", dir); err != nil || code != 0 {
-		t.Fatalf("init: %d %v %v", code, env, err)
-	}
+	// 隔离副本省略绑定旧绝对根的事务历史；保留原安装链全部断言。
+	dir := commandProject(t)
 	writeCheckFile(t, dir, "vendor/yss-cli/go.mod", "module github.com/iloveZzz/yss-cli\n\ngo 1.27.1\n")
 	writeCheckFile(t, dir, "vendor/yss-cli/cmd/yss/main.go", "package main\n")
 	return dir

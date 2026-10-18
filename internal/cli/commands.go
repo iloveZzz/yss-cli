@@ -1,16 +1,13 @@
 package cli
 
 import (
-	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 
 	"golang.org/x/text/width"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/governance"
 )
 
 // Command metadata supplies help and preflight, while the existing executors
@@ -20,18 +17,12 @@ type argumentSpec struct {
 	boolean                  bool
 	choices                  []string
 }
-type commandSpec struct {
-	help    helpTopic
-	options []string
-	choices map[string][]string
-}
 
 var argumentSpecs = map[string]argumentSpec{}
-var commands = map[string]commandSpec{}
 var projectOptionNames = strings.Fields("root target-dir profile json help version project-name business-domain team-size plan out apply plan-file binding-file full issue-tracker")
 var commonOptionNames = []string{"help", "json", "version", "human", "diagnostics"}
 
-func initializeCommands() {
+func initializeArguments() {
 	// Every flag accepted by the existing dispatchers has a registered type.
 	for _, key := range strings.Fields("root target-dir asset design-root backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
@@ -109,165 +100,24 @@ func initializeCommands() {
 		spec.description = row.description
 		argumentSpecs[row.key] = spec
 	}
-	for key, topic := range helpTopics {
-		parts := strings.Fields(key)
-		opts := append([]string{}, commonOptionNames...)
-		switch parts[0] {
-		case "scaffold":
-			opts = append(opts, strings.Fields(scaffoldValues+" "+scaffoldFlags)...)
-		case "init", "attach", "sync", "doctor", "diff", "skills", "assets":
-			opts = append(opts, projectOptionNames...)
-			if key == "skills list" {
-				opts = append(opts, "details")
-			}
-			if key == "skills resolve" {
-				opts = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "agent-runtime", "when")
-			}
-			if parts[0] == "attach" || parts[0] == "sync" {
-				opts = append(opts, "review-out", "base-bundle", "resolution-file")
-			}
-		case "recover", "rollback":
-			opts = append(opts, "root", "target-dir", "profile", "apply")
-		case "explain":
-			opts = append(opts, "root")
-		case "check":
-			opts = append(opts, "root", "changed", "base", "checkpoint")
-		case "mcp":
-			opts = append(opts, "root")
-		case "trace":
-			opts = append(opts, "root", "feature", "implementation-root", "since", "until", "html", "strict")
-		case "tracker":
-			opts = append(opts, "root")
-			if len(parts) > 1 {
-				switch parts[1] {
-				case "status":
-					opts = append(opts, "fetch")
-				case "link":
-					opts = append(opts, "ticket", "issue", "apply")
-				case "sync":
-					opts = append(opts, "ticket", "plan", "out", "apply", "plan-file", "confirm-remote")
-				}
-			}
-		case "verify":
-			opts = append(opts, "root", "gate", "checkpoint")
-		case "profile":
-			opts = append(opts, "root", "design-root", "backend-root", "checkpoint", "project-name", "business-domain", "team-size", "plan", "out", "apply", "plan-file")
-		case "git":
-			opts = append(opts, "root", "target-dir", "profile")
-			if len(parts) > 1 {
-				switch parts[1] {
-				case "branch":
-					opts = append(opts, "plan", "apply", "out", "plan-file", "task", "type", "slug", "from")
-				case "commit":
-					opts = append(opts, "plan", "apply", "out", "plan-file", "task", "message", "paths")
-				case "hooks":
-					opts = append(opts, "plan", "apply", "out", "plan-file")
-				case "release":
-					opts = append(opts, "plan", "apply", "out", "plan-file", "tag-version", "evidence-file")
-				case "policy":
-					opts = append(opts, "plan", "apply", "out", "plan-file", "key", "value")
-				case "push":
-					opts = append(opts, "plan", "apply", "out", "plan-file", "remote", "tag", "confirm-remote")
-				case "verify-message":
-					opts = append(opts, "file")
-				case "status":
-					opts = append(opts, "task")
-				case "base":
-					opts = append(opts, "branch")
-				case "audit", "changelog":
-					opts = append(opts, "since", "until")
-				}
-			}
-		case "upgrade":
-			opts = append(opts, "check", "to", "tool-root")
-		case "update":
-			opts = append(opts, "tool-root")
-			if len(parts) == 1 || parts[1] == "plan" || parts[1] == "apply" {
-				opts = append(opts, "artifact", "sha256", "plan", "apply", "out", "plan-file")
-			}
-		case "bundle":
-			opts = append(opts, "profile")
-			if len(parts) == 1 || parts[1] == "export" {
-				opts = append(opts, "out")
-			}
-		case "version", "capabilities":
-		case "contract", "evidence", "handoff", "lifecycle":
-			if len(parts) > 1 && parts[1] == "verify" {
-				for _, k := range verificationOptions(parts[0], "") {
-					opts = append(opts, k)
-				}
-			} else {
-				action := "status"
-				if len(parts) > 1 {
-					action = parts[1]
-				}
-				for _, k := range governance.ArgumentKeys(parts[0], action) {
-					if k != "arg0" {
-						opts = append(opts, k)
-					}
-				}
-			}
-		default:
-			action := "status"
-			if len(parts) > 1 {
-				action = parts[1]
-			}
-			for _, k := range governance.ArgumentKeys(parts[0], action) {
-				if k != "arg0" {
-					opts = append(opts, k)
-				}
-			}
-		}
-		seen := map[string]bool{}
-		unique := []string{}
-		for _, k := range opts {
-			if !seen[k] {
-				seen[k] = true
-				unique = append(unique, k)
-			}
-		}
-		sort.Strings(unique)
-		commands[key] = commandSpec{help: topic, options: unique, choices: commandChoices(key)}
-	}
 }
 func defineArgument(key, placeholder, description string, choices ...string) {
 	argumentSpecs[key] = argumentSpec{placeholder, description, false, choices}
-}
-func booleanOptions() map[string]bool {
-	out := map[string]bool{}
-	for key, spec := range argumentSpecs {
-		out[key] = spec.boolean
-	}
-	return out
-}
-func optionNames() []string {
-	out := []string{}
-	for k := range argumentSpecs {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 func argumentError(message string) error {
 	return &domain.Error{Code: "ARGUMENT", Message: message, Exit: 2}
 }
 func helpCommand(args []string) string {
+	root := newRootCommand(nil, nil, nil)
 	if len(args) > 0 && args[0] == "help" {
 		args = args[1:]
 	}
-	if len(args) == 0 {
+	cmd, rest := lookupCommand(root, args)
+	if cmd == root {
 		return "yss --help"
 	}
-	if _, ok := commands[args[0]]; !ok {
-		return "yss --help"
-	}
-	key := args[0]
-	if len(args) > 1 {
-		if _, ok := commands[key+" "+args[1]]; ok {
-			key += " " + args[1]
-		}
-	}
-	return "yss " + key + " --help"
+	_ = rest
+	return cmd.CommandPath() + " --help"
 }
 func suggestions(input string, candidates []string) string {
 	best := 3
@@ -318,190 +168,6 @@ func unknownOption(key string, candidates []string) error {
 	return argumentError("未知或不支持的参数: --" + key + suggestions("--"+key, names))
 }
 
-// Resolve the command independently of an unknown flag's position. Known
-// option values are skipped, so a path or Profile cannot become a command.
-func optionCandidates(args []string) []string {
-	positionals := []string{}
-	kind := ""
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "-h" || a == "-V" {
-			continue
-		}
-		if strings.HasPrefix(a, "--") {
-			key, value, equals := strings.Cut(strings.TrimPrefix(a, "--"), "=")
-			if flag, ok := argumentSpecs[key]; ok && !flag.boolean && !equals && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				value = args[i]
-			}
-			if key == "kind" {
-				kind = value
-			}
-			continue
-		}
-		if !strings.HasPrefix(a, "-") {
-			positionals = append(positionals, a)
-		}
-	}
-	if len(positionals) == 0 {
-		return commonOptionNames
-	}
-	key := positionals[0]
-	spec, ok := commands[key]
-	if !ok {
-		return commonOptionNames
-	}
-	if len(positionals) > 1 {
-		if child, found := commands[key+" "+positionals[1]]; found {
-			key += " " + positionals[1]
-			spec = child
-		}
-	}
-	opts := spec.options
-	if strings.HasSuffix(key, " verify") {
-		group := strings.Fields(key)[0]
-		if group == "contract" || group == "evidence" || group == "handoff" || group == "lifecycle" {
-			opts = append(append([]string{}, commonOptionNames...), verificationOptions(group, kind)...)
-		}
-	}
-	return append([]string{}, opts...)
-}
-func validateArguments(command string, o options) error {
-	if o.values["version"] == "true" {
-		return nil
-	}
-	spec, ok := commands[command]
-	if !ok {
-		names := []string{}
-		for k := range commands {
-			if !strings.Contains(k, " ") {
-				names = append(names, k)
-			}
-		}
-		return argumentError("未知命令: " + command + suggestions(command, names) + "；在线升级 CLI 使用 yss upgrade，离线安装使用 yss update")
-	}
-	key := command
-	if len(o.args) > 1 {
-		child := command + " " + o.args[1]
-		if selected, found := commands[child]; found {
-			key, spec = child, selected
-		} else {
-			children := []string{}
-			for k := range commands {
-				if strings.HasPrefix(k, command+" ") {
-					children = append(children, strings.TrimPrefix(k, command+" "))
-				}
-			}
-			if len(children) > 0 {
-				return argumentError("未知子命令: " + child + suggestions(o.args[1], children))
-			}
-			if !spec.help.positional {
-				return argumentError("命令 " + command + " 不接受位置参数: " + o.args[1])
-			}
-		}
-	}
-	if len(o.args) > 2 && !spec.help.positional {
-		return argumentError("命令 " + key + " 不接受额外位置参数")
-	}
-	if len(o.args) > 2 && command != "skills" && command != "assets" && command != "git" && command != "check" {
-		positional := false
-		for _, k := range governance.ArgumentKeys(command, o.args[1]) {
-			if k == "arg0" {
-				positional = true
-			}
-		}
-		if !positional || len(o.args) > 3 {
-			return argumentError("命令 " + key + " 不支持这些额外位置参数")
-		}
-	}
-	allowed := map[string]bool{}
-	effectiveOptions := spec.options
-	if key == "skills list" && o.values["details"] == "true" {
-		effectiveOptions = append(append([]string{}, commonOptionNames...), "root", "target-dir", "profile", "details")
-	}
-	if strings.HasSuffix(key, " verify") {
-		group := strings.Fields(key)[0]
-		if group == "contract" || group == "evidence" || group == "handoff" || group == "lifecycle" {
-			effectiveOptions = append(append([]string{}, commonOptionNames...), verificationOptions(group, o.values["kind"])...)
-		}
-	}
-	for _, k := range effectiveOptions {
-		allowed[k] = true
-	}
-	keys := []string{}
-	for k := range o.values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if !allowed[k] {
-			candidateArgs := append([]string{}, o.args...)
-			if kind := o.values["kind"]; kind != "" {
-				candidateArgs = append(candidateArgs, "--kind="+kind)
-			}
-			return unknownOption(k, optionCandidates(candidateArgs))
-		}
-		flag := argumentSpecs[k]
-		if choices, ok := spec.choices[k]; ok {
-			flag.choices = choices
-		}
-		v := o.values[k]
-		if !flag.boolean && strings.TrimSpace(v) == "" {
-			return argumentError("参数不能为空: --" + k + " " + flag.placeholder)
-		}
-		if len(flag.choices) > 0 {
-			found := false
-			for _, c := range flag.choices {
-				if v == c {
-					found = true
-				}
-			}
-			if !found {
-				return argumentError(fmt.Sprintf("参数 --%s %s 的值无效: %s；可选值: %s", k, flag.placeholder, v, strings.Join(flag.choices, "|")))
-			}
-		}
-		if k == "exit-code" {
-			if _, err := strconv.Atoi(v); err != nil {
-				return argumentError("--exit-code <整数> 必须为实际整数退出码")
-			}
-		}
-	}
-	return nil
-}
-
-func renderOptions(spec commandSpec) string {
-	labels := []string{}
-	descriptions := []string{}
-	columnWidth := 30
-	for _, key := range spec.options {
-		flag := argumentSpecs[key]
-		if choices, ok := spec.choices[key]; ok {
-			flag.choices = choices
-		}
-		label := "--" + key
-		if key == "help" {
-			label = "-h, --help"
-		}
-		if key == "version" {
-			label = "-V, --version"
-		}
-		if flag.placeholder != "" {
-			label += " " + flag.placeholder
-		}
-		description := flag.description
-		if len(flag.choices) > 0 {
-			description += "；可选值: " + strings.Join(flag.choices, "|")
-		}
-		labels = append(labels, label)
-		descriptions = append(descriptions, description)
-		columnWidth = max(columnWidth, terminalWidth(label))
-	}
-	rows := []string{}
-	for i, label := range labels {
-		rows = append(rows, "  "+label+strings.Repeat(" ", columnWidth-terminalWidth(label)+2)+descriptions[i])
-	}
-	return strings.Join(rows, "\n")
-}
 func terminalWidth(s string) int {
 	columns := 0
 	for _, r := range s {

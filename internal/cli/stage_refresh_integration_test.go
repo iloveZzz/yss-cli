@@ -38,10 +38,7 @@ func writeJSON(t *testing.T, dir, ref string, value any) {
 }
 
 func TestStageRefreshAndFilters(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "proj")
-	if code, env, err := runYSS("init", "--profile", "spec", "--root", dir); err != nil || code != 0 {
-		t.Fatalf("init: %d %v %v", code, env, err)
-	}
+	dir := commandProject(t)
 	raw, err := os.ReadFile(filepath.Join(dir, ".template-spec/process/templates/lifecycle-checkpoint-template.json"))
 	if err != nil {
 		t.Fatal(err)

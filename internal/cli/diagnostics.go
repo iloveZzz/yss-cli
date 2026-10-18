@@ -160,8 +160,8 @@ func diagnosticFor(code string, err error, o options, profile string, result any
 	}
 	if code == "ARGUMENT" {
 		key := strings.Join(o.args, " ")
-		if spec, ok := commands[key]; ok {
-			d.Examples = strings.Split(safeExampleText(spec.help.examples), "\n")
+		if cmd, rest := lookupCommand(newRootCommand(nil, nil, nil), strings.Fields(key)); len(rest) == 0 {
+			d.Examples = strings.Split(safeExampleText(commandTopic(cmd).examples), "\n")
 		}
 	}
 	if errorFamily(code) == "transaction" {

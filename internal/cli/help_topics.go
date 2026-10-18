@@ -84,7 +84,7 @@ func init() {
 	}
 	registerScaffoldHelp()
 	registerGitHelp()
-	initializeCommands()
+	initializeArguments()
 }
 
 func registerGitHelp() {

@@ -40,7 +40,9 @@ func prerequisite(key string) string {
 	group := strings.Fields(key)[0]
 	switch group {
 	case "scaffold":
-		return "PATH 中有 Node.js 与 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份。"
+		return "PATH 中有 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份、Node.js、Python 或网络。"
+	case "completion":
+		return "生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。"
 	case "init":
 		return "选择一个 Profile 和不存在或空的新目录；需要审阅写范围时先 --plan --out，再应用保存计划。"
 	case "attach":
@@ -70,12 +72,18 @@ func prerequisite(key string) string {
 
 func exampleKind(key string) string {
 	group := strings.Fields(key)[0]
+	if group == "completion" {
+		return "无需项目；在所选 Shell 中运行生成及加载命令"
+	}
 	if group == "contract" || group == "evidence" || group == "handoff" || group == "stage" || group == "reading" || strings.Contains(key, "lifecycle verify") || key == "lifecycle status" || key == "lifecycle target" || key == "lifecycle route" || group == "compat-api" {
 		return "需要当前资产"
 	}
 	return "直接运行（替换路径；写入示例在独立演示目录执行）"
 }
 func expectedResult(key string) string {
+	if strings.Fields(key)[0] == "completion" {
+		return "选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。"
+	}
 	if strings.Fields(key)[0] == "git" {
 		return "只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。"
 	}
@@ -104,6 +112,8 @@ func nextReading(key string) string {
 		return "yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。"
 	}
 	switch strings.Fields(key)[0] {
+	case "completion":
+		return "按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。"
 	case "scaffold":
 		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
@@ -124,6 +134,9 @@ func nextReading(key string) string {
 }
 func commonErrorCodes(key string) []string {
 	group := strings.Fields(key)[0]
+	if group == "completion" {
+		return []string{"ARGUMENT"}
+	}
 	if group == "git" {
 		return []string{"ARGUMENT", "ROOT", "IDENTITY", "INPUT", "CONFLICT", "CAPABILITY", "EXECUTION"}
 	}
@@ -140,19 +153,17 @@ func commonErrorCodes(key string) []string {
 }
 func renderExamples(args []string) (string, error) {
 	if len(args) == 0 {
-		keys := make([]string, 0, len(commands))
-		for k := range commands {
-			keys = append(keys, k)
-		}
+		keys := commandPaths(newRootCommand(nil, nil, nil))
 		sort.Strings(keys)
 		return "YSS 示例索引\n使用 yss help examples <命令/子命令> 查看适用条件、完整命令、预期结果与失败恢复。\n\n" + strings.Join(keys, "\n"), nil
 	}
 	key := strings.Join(args, " ")
-	spec, ok := commands[key]
-	if !ok {
+	cmd, rest := lookupCommand(newRootCommand(nil, nil, nil), args)
+	if len(rest) > 0 {
 		return "", argumentError("未知示例命令: " + key + "；查看 yss help examples")
 	}
-	return fmt.Sprintf("%s — %s\n示例类型：%s\n\n适用条件：%s\n输入材料：%s\n\n完整命令（占位符须替换为当前真实输入）：\n%s\n\n预期结果：%s\n下一步：%s\n失败恢复：保留输入与现场；查看 %s 或 yss help errors，处理后重新核验/规划。", key, spec.help.summary, exampleKind(key), prerequisite(key), spec.help.options, safeExampleText(spec.help.examples), expectedResult(key), nextReading(key), helpCommand(args)), nil
+	topic := commandTopic(cmd)
+	return fmt.Sprintf("%s — %s\n示例类型：%s\n\n适用条件：%s\n输入材料：%s\n\n完整命令（占位符须替换为当前真实输入）：\n%s\n\n预期结果：%s\n下一步：%s\n失败恢复：保留输入与现场；查看 %s 或 yss help errors，处理后重新核验/规划。", key, topic.summary, exampleKind(key), prerequisite(key), topic.options, safeExampleText(topic.examples), expectedResult(key), nextReading(key), helpCommand(args)), nil
 }
 
 func renderTutorial(topic string) (string, error) {

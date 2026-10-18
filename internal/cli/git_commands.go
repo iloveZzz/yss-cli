@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/spf13/cobra"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -366,4 +367,35 @@ func gitChangelog(ctx context.Context, r *gitops.Runner, since, until string) (a
 		return nil, err
 	}
 	return map[string]any{"range": from + ".." + to, "commits": len(commits), "groups": gitops.Changelog(commits)}, nil
+}
+
+func addGitCommands(root *cobra.Command, inv *invocation) {
+	parent := addCommand(root, inv, "git", gitDispatch)
+	addFlags(parent, inv, "root target-dir profile")
+	for name, names := range map[string]string{
+		"status": "task", "base": "branch", "submodules": "", "doctor": "", "guard": "", "policy": "plan apply out plan-file key value",
+		"branch": "plan apply out plan-file task type slug from", "hooks": "plan apply out plan-file", "release": "plan apply out plan-file tag-version evidence-file",
+		"commit": "plan apply out plan-file task message paths", "push": "plan apply out plan-file remote tag confirm-remote", "verify-message": "file", "audit": "since until", "changelog": "since until",
+	} {
+		cmd := addCommand(parent, inv, name, gitDispatch)
+		addFlags(cmd, inv, "root target-dir profile "+names)
+		if action, ok := map[string]string{"branch": "start", "hooks": "install", "release": "tag", "policy": "set"}[name]; ok {
+			child := addCommand(cmd, inv, action, gitDispatch)
+			topic := helpTopics["git "+name]
+			child.Short = topic.summary
+			child.Example = topic.examples
+			addFlags(child, inv, "root target-dir profile "+names)
+		}
+	}
+}
+
+func gitDispatch(ctx context.Context, o options) (any, string, error) {
+	root, err := projectRoot(o)
+	if err != nil {
+		return nil, o.values["profile"], err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, o.values["profile"], domain.Wrap("CANCELLED", err)
+	}
+	return gitCommand(ctx, root, o)
 }

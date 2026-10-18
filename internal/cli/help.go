@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"github.com/spf13/cobra"
+	"io"
 	"sort"
 	"strings"
 
@@ -24,44 +26,54 @@ var helpTopics = map[string]helpTopic{
 	},
 }
 
-// Help is a read-only reading request. Execution flags and missing values do
-// not trigger a validator before help; the selected command path still must exist.
-func helpRequest(args []string) ([]string, bool) {
-	requested := len(args) == 0
-	path := []string{}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "-h" || a == "--help" || a == "--help=true" {
-			requested = true
-			continue
-		}
-		if a == "-V" {
-			continue
-		}
-		if strings.HasPrefix(a, "--") {
-			key, _, equals := strings.Cut(strings.TrimPrefix(a, "--"), "=")
-			if spec, ok := argumentSpecs[key]; ok && !spec.boolean && !equals && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		path = append(path, a)
-	}
-	if len(path) > 0 && path[0] == "help" {
-		requested = true
-	}
-	return path, requested
+func renderHelp(args []string) (string, error) {
+	return renderHelpFrom(newRootCommand(nil, io.Discard, io.Discard), args)
 }
 
-func renderHelp(args []string) (string, error) {
+func commandTopic(cmd *cobra.Command) helpTopic {
+	key := strings.TrimPrefix(cmd.CommandPath(), "yss ")
+	topic, ok := helpTopics[key]
+	if !ok && cmd.HasParent() {
+		parentKey := strings.TrimPrefix(cmd.Parent().CommandPath(), "yss ")
+		topic = helpTopics[parentKey]
+		topic.usage = strings.TrimPrefix(topic.usage, cmd.Name()+" ")
+	}
+	if strings.HasPrefix(key, "completion") {
+		topic.usage = ""
+		topic.notes = "只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。"
+		topic.options = "脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。"
+		if key == "completion" {
+			topic.usage = "<bash|zsh|fish|powershell>"
+		}
+		switch key {
+		case "completion bash":
+			topic.examples = "# 先按当前环境加载 bash-completion（需提供 _get_comp_words_by_ref 等函数）\nyss completion bash > /tmp/yss-completion.bash\nsource /tmp/yss-completion.bash"
+		case "completion zsh":
+			topic.examples = "autoload -Uz compinit\ncompinit\nyss completion zsh > /tmp/_yss\nsource /tmp/_yss"
+		case "completion fish":
+			topic.examples = "yss completion fish | source"
+		case "completion powershell":
+			topic.examples = "yss completion powershell | Out-String | Invoke-Expression"
+		default:
+			topic.examples = "yss completion bash > /tmp/yss-completion.bash\nyss completion zsh > /tmp/_yss\nyss completion fish > /tmp/yss-completion.fish\nyss completion powershell > ./yss-completion.ps1"
+		}
+	}
+	if key == "git policy set" {
+		topic.usage = "--key <字段> --value <值> --plan --out <新文件> | --apply --plan-file <文件>"
+	}
+	topic.summary = cmd.Short
+	if cmd.Example != "" {
+		topic.examples = cmd.Example
+	}
+	return topic
+}
+
+func renderHelpFrom(root *cobra.Command, args []string) (string, error) {
 	if len(args) > 0 && args[0] == "help" {
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		return rootHelp(), nil
+		return rootHelpFrom(root), nil
 	}
 	if args[0] == "tutorial" {
 		if len(args) > 2 {
@@ -87,19 +99,16 @@ func renderHelp(args []string) (string, error) {
 		return renderErrorHelp(code)
 	}
 	key := strings.Join(args, " ")
-	topic, ok := helpTopics[key]
-	if !ok && len(args) > 2 {
-		key = strings.Join(args[:2], " ")
-		topic, ok = helpTopics[key]
-		ok = ok && topic.positional
-	}
-	if !ok {
+	cmd, rest := lookupCommand(root, args)
+	topic := commandTopic(cmd)
+	if cmd == root || (len(rest) > 0 && !(len(args) > 2 && topic.positional)) {
 		return "", &domain.Error{Code: "ARGUMENT", Message: "未知帮助命令或子命令: " + key + "；运行 yss --help 查看可用命令", Exit: 2}
 	}
+	key = strings.TrimPrefix(cmd.CommandPath(), "yss ")
 	children := []string{}
-	for path, child := range helpTopics {
-		if strings.HasPrefix(path, key+" ") {
-			children = append(children, strings.TrimPrefix(path, key+" ")+"  "+child.summary)
+	for _, child := range cmd.Commands() {
+		if !child.Hidden {
+			children = append(children, child.Name()+"  "+child.Short)
 		}
 	}
 	sort.Strings(children)
@@ -107,11 +116,11 @@ func renderHelp(args []string) (string, error) {
 	if len(children) > 0 {
 		subcommands = "\n\n子命令:\n" + strings.Join(children, "\n")
 	}
-	spec := commands[key]
-	return fmt.Sprintf("yss %s — %s\n──────────────────────\n%s\n\n用法: yss %s %s%s\n\n前置条件:\n%s\n%s\n\n最小示例:\n%s\n\n参数:\n%s\n\n参数说明与条件:\n%s\n\n预期结果:\n%s\n\n下一步:\n%s\n\n常见错误:\n%s\n详细示例: yss help examples %s", domain.Version, key, topic.summary, key, topic.usage, subcommands, prerequisite(key), topic.notes, safeExampleText(topic.examples), renderOptions(spec), topic.options, expectedResult(key), nextReading(key), strings.Join(commonErrorCodes(key), "、")+"；yss help errors <错误码>", key), nil
+	return fmt.Sprintf("yss %s — %s\n──────────────────────\n%s\n\n用法: %s%s\n\n前置条件:\n%s\n%s\n\n最小示例:\n%s\n\n参数:\n%s\n\n参数说明与条件:\n%s\n\n预期结果:\n%s\n\n下一步:\n%s\n\n常见错误:\n%s\n详细示例: yss help examples %s", domain.Version, key, topic.summary, strings.TrimSpace("yss "+key+" "+topic.usage), subcommands, prerequisite(key), topic.notes, safeExampleText(topic.examples), renderCommandOptions(cmd), topic.options, expectedResult(key), nextReading(key), strings.Join(commonErrorCodes(key), "、")+"；yss help errors <错误码>", key), nil
 }
 
-func rootHelp() string {
+func rootHelp() string { return rootHelpFrom(newRootCommand(nil, io.Discard, io.Discard)) }
+func rootHelpFrom(root *cobra.Command) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "yss %s — Spec / Design / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  design 产品与业务设计；backend 承担技术设计与专职交付。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（选择一个 Profile，在独立新目录运行）:\n", domain.Version)
 	for _, p := range []string{"spec", "design", "backend"} {
@@ -138,11 +147,11 @@ func rootHelp() string {
 		{"Git", []string{"git"}},
 		{"程序", []string{"version", "capabilities", "upgrade", "update"}},
 		{"治理", []string{"explain", "check", "verify", "mcp", "tracker", "trace", "context", "lifecycle", "stage", "reading", "contract", "evidence", "handoff", "project-ci"}},
-		{"工具", []string{"runtime", "archive", "xml"}},
+		{"工具", []string{"runtime", "archive", "xml", "completion"}},
 	} {
 		fmt.Fprintf(&out, "  [%s]\n", group.label)
 		for _, name := range group.names {
-			fmt.Fprintf(&out, "    %-16s %s\n", name, commands[name].help.summary)
+			fmt.Fprintf(&out, "    %-16s %s\n", name, func() string { cmd, _ := lookupCommand(root, []string{name}); return cmd.Short }())
 		}
 	}
 	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|design|backend；init 必需，其余从身份检测\n\n")
@@ -152,6 +161,19 @@ func rootHelp() string {
   yss update status --tool-root ./tools/yss    诊断离线安装与事务
   yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
   yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
+
+参数规则:
+  长参数接受 --参数 值 或 --参数=值；含空格的值用引号包围。
+  -h、-V 独立使用；不支持 -v 或 -hV 等组合短参数。
+  布尔值只接受小写 true/false；未提供、空值和 false 含义不同。
+  治理语义命令、scaffold、upgrade 拒绝重复参数；其他命令以后值为准。
+  -- 结束选项解析；其后的 --help、--json 等都作为位置参数，原数量及路径限制仍生效。
+  示例：yss check --root ./demo-spec -- -example.yaml
+
+Shell 补全:
+  yss completion bash|zsh|fish|powershell  输出对应脚本（四选一，不输入竖线）。
+  yss completion zsh --help               查看该 Shell 的生成与加载示例。
+  Bash 先加载 bash-completion；Zsh 先初始化 compinit。CLI 不自动安装或修改配置。
 
 帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
 完整离线教程: yss help tutorial

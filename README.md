@@ -16,9 +16,15 @@ yss init --help
 yss update apply -h
 yss help lifecycle route
 yss help tutorial
+yss completion --help
+yss completion zsh --help
 ```
 
 帮助不要求项目身份，不读取项目或访问网络。每个命令和子命令提供用途、参数、必要条件和示例；未知帮助路径返回 `ARGUMENT`（退出 2）。即使传入 `--json`，帮助仍输出文本。
+
+Shell 补全支持 `bash`、`zsh`、`fish`、`powershell`，例如 `yss completion zsh > /tmp/_yss`。生成命令仅输出脚本；各 Shell 的加载步骤见 `yss completion <Shell> --help`。Bash 需要先加载 bash-completion，Zsh 需要先初始化 compinit；CLI 不自动安装或改写 Shell 配置。完整离线参考由同一帮助源生成，见 [CLI 帮助与案例](docs/cli-help.md)。
+
+长参数支持 `--参数 值` 和 `--参数=值`，布尔只接受小写 `true/false`。使用 `--` 传入以短横线开头的位置参数，如 `yss check --root ./demo-spec -- -example.yaml`；它仍须符合原命令的数量与路径限制。
 
 直接生成后端工程使用 `yss scaffold ddd` 或 `yss scaffold mvc`，无需先初始化 Harness；完整参数见 `yss scaffold ddd --help`。由程序内置的 Go 实现直接生成（见 [docs/scaffold-go.md](docs/scaffold-go.md)），不依赖 Node.js 或 Python；目录保护需要 PATH 中的 Git。模板和 Maven Wrapper 来自二进制内置的固定 Spec Bundle，不需要本地模板仓库或联网下载技能。
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"path/filepath"
+	"slices"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/mcp"
@@ -15,7 +16,14 @@ import (
 // 与命令行走同一条 RunWithTerminal 路径，因此 envelope、错误码和退出码完全一致。
 func Invoke(ctx context.Context, args []string) (json.RawMessage, int) {
 	var out bytes.Buffer
-	exit := RunWithTerminal(ctx, append(append([]string{}, args...), "--json"), &out, io.Discard, nil)
+	at := slices.Index(args, "--")
+	if at < 0 {
+		at = len(args)
+	}
+	argv := append([]string{}, args[:at]...)
+	argv = append(argv, "--json")
+	argv = append(argv, args[at:]...)
+	exit := RunWithTerminal(ctx, argv, &out, io.Discard, nil)
 	return json.RawMessage(bytes.TrimSpace(out.Bytes())), exit
 }
 

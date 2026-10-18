@@ -27,3 +27,14 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 2.1.0 的发行目标为 darwin/arm64 与 windows/amd64。macOS 归档与目标须位于同一支持原子克隆的 APFS 卷。macOS 从已校验的归档文件描述符原子克隆完整临时文件，再设置权限与同步；目标存在、来源或目标链接及摘要变化仍拒绝，安装文件与归档不共享可修改的 inode。不支持克隆或跨卷返回 UNPORTED，不退回普通复制；无法据此保证不受支持文件系统上的旧事务可恢复。旧版本已留下的未知或零字节事务临时文件仍保留并阻断。按本次明确授权，Mac ARM64 保留实际原生、安装与恢复验收；Windows x64 仅交付同源构建包及独立摘要，不执行该平台运行验收。Windows 包标记 stableReady=false、nativeRuntimeVerified=false，下载核验后解压使用；现有在线升级资格检查保持，Windows 不列入本次 requiredPlatforms。Linux 不在本版本发行目标内。
 
 本次资格范围为 local-platform-impacted-consumers；无关全仓回归及可复用重复检查按用户调整裁剪，未执行项不作完整模板通过声明。
+
+
+## Cobra 命令层
+
+命令、参数、帮助及补全从每次调用新建的 Cobra 命令树产生。版本、JSON envelope（outputVersion=1、protocolVersion=1）、退出码、中文终端与管道呈现、MCP 白名单和保存计划保护继续沿用原合同。严格布尔仅接受小写 true/false；semantic、scaffold、upgrade 拒绝重复参数，其他命令保留后值覆盖。未提供、显式空值与 false 继续分别处理。
+
+新增 `--` 结束选项解析。例如 `yss check --root <项目> -- -example.yaml`；终止符后的 `--help`、`--json`、`-V` 都是位置参数，不能成为新子命令，也不放宽数量和路径范围。Invoke 将其强制 JSON 选项插在终止符之前；MCP 输入仍拒绝以短横线开头的值。
+
+`yss completion bash|zsh|fish|powershell` 向 stdout 生成脚本，安装位置与 Shell 配置由用户选择；CLI 不自动安装。Bash 的交互补全需要 bash-completion 提供 `_get_comp_words_by_ref` 等辅助；脚本生成不自动安装这些依赖。补全提供命令、选项、静态枚举和路径类型，不读取 Ticket、项目业务资产或网络。普通值默认禁用文件回退。帮助、补全脚本与隐藏补全协议仍输出原始文本/协议，不附加业务 envelope。
+
+四种脚本可生成不等于四种 Shell 都已运行验证；实际平台与执行结果见当前候选记录。首期测试继续使用 Go 标准库，不引入 Testify。
