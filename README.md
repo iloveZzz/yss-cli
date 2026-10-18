@@ -2,7 +2,7 @@
 
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Design、Backend 的 Go CLI，当前源码版本为 2.4.0，新增只读 `yss mcp` 服务、`yss tracker`（GitHub Issues 五态镜像）、`yss trace` 追溯矩阵、运行时输入对象存储；`yss git` 命令组见 [docs/git.md](docs/git.md)。本版本在三个固定 Profile、共享模板来源和 DDD/MVC 脚手架基础上，补齐原生来源视图与依赖回执，迁移剩余 AR12b Node 生产调用并退役重复校验实现；Frontend 独立 Profile 继续退役，旧前端实例明确拒绝并保留用户文件；前端技能已从模板整线退役，改由独立的前端规格与 CLI 维护，`yss sync` 从已有实例的安装选择中移除这些退役技能并原样保留本地文件，`--stack` 按技术栈裁剪随之移除。其他架构任务继续按计划跟踪。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Backend 的 Go CLI，当前源码版本为 2.5.0，固定模板来源为 v4.6.1。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；旧 Design 保留历史读取，并通过显式 `yss migrate` 计划迁入 Spec。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -57,9 +57,9 @@ yss git base --root ./my-project --json
 
 程序版本、协议和 Profile 模板版本分别存储。以 2.3.1 为基线：不再支持旧版本实例的迁移，只含旧家族 metadata 而没有统一 CLI metadata 的目录会被 `doctor` 等命令拒绝（`LEGACY_INSTANCE_UNSUPPORTED`）。计划绑定项目根、快照、生成结果与输入摘要；修改后重新计算摘要的任意计划仍会被拒绝。
 
-三个 Profile 的 Bundle 由 Go 构建工具读取同一固定模板提交及其有序覆盖层，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
+现役 Spec/Backend 的 Bundle 由 Go 构建工具读取同一固定模板提交及其有序覆盖层，嵌入程序供原生能力离线运行。Node/Python 治理脚本按各自职责继续维护，必要消费者逐项迁移和验证。旧 CLI 仅用于明确的历史识别、迁移、恢复及拒绝测试。阶段批准仍由当前生命周期合同决定。
 
-三个 Profile 的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
+现役 Profile 的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
 
 启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
 
