@@ -339,6 +339,20 @@ func enforceHarnessTaskSemanticMode(s *kernel.SemanticSession, task map[string]a
 	return nil
 }
 
+func verifySpecTaskPlanEntry(s *kernel.SemanticSession, task map[string]any) error {
+	checkpointRef := kernel.First(kernel.ApText(task["checkpoint_ref"]), kernel.ApText(kernel.ApMap(task["contract"])["lifecycle_ref"]))
+	checkpoint, err := s.Doc(checkpointRef)
+	if err != nil {
+		return err
+	}
+	for _, key := range []string{"feature_id", "plan_review_ref", "plan_approval_ref", "plan_user_decision_ref", "plan_continuation_ref"} {
+		if !kernel.ApEqual(task[key], checkpoint[key]) {
+			return kernel.ApFail(s, "TASK_PLAN_CONTEXT", "Spec 任务的 "+key+" 与当前 checkpoint 不一致")
+		}
+	}
+	return s.Verify("plan-spec-entry", checkpointRef, nil)
+}
+
 func verifyTaskPackageSemantic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 	task, err := s.Doc(ref)
 	if err != nil {
@@ -427,7 +441,7 @@ func verifyTaskPackageSemanticMode(s *kernel.SemanticSession, ref string, opts m
 		}
 	}
 	if kernel.ApText(task["work_unit_id"]) == "work-unit.spec-synthesis" {
-		if e = s.Verify("plan-spec-entry", ref, map[string]string{"checkpoint": kernel.ApText(task["checkpoint_ref"])}); e != nil {
+		if e = verifySpecTaskPlanEntry(s, task); e != nil {
 			return e
 		}
 	}
