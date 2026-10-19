@@ -4,7 +4,6 @@ import "github.com/iloveZzz/yss-cli/internal/governance/approval"
 
 import (
 	"encoding/json"
-	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/worklayout"
@@ -348,9 +347,7 @@ func verifyPlanCheckpointSemantic(s *kernel.SemanticSession, ref string, opts ma
 	if cp["repository_mode"] != "project-instance" {
 		return nil
 	}
-	if cp["upstream_spec_baseline"] != nil && (kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" || kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved") {
-		return handoff.VerifyInheritedSpecCheckpoint(s, ref, cp)
-	}
+
 	if s.DraftPreparation(cp) {
 		return nil
 	}
@@ -513,9 +510,7 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 	if err != nil {
 		return err
 	}
-	if cp["upstream_spec_baseline"] != nil && kernel.SemMap(kernel.SemMap(cp["gates"])["gate.plan-approved"])["status"] != "approved" {
-		return handoff.VerifyInheritedSpecCheckpoint(s, ref, cp)
-	}
+
 	reviewRef := kernel.Text(cp["plan_review_ref"])
 	feature := kernel.Text(cp["feature_id"])
 	if reviewRef == "" || feature == "" {

@@ -38,21 +38,8 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 		return nil
 	}
 	if !newIdentity {
-		// Design4.5 uses multipart container2 with original role policy; it predates governance_versions.
 		_, declaresNewGovernance := policy["governance_versions"]
-		legacyContainer := false
-		if version == 2 && !declaresNewGovernance && s.Report.Profile == "design" {
-			raw, readErr := s.Bytes(schema.OrchestrationRef)
-			if readErr != nil {
-				return readErr
-			}
-			parsed, parseErr := schema.Parse(raw)
-			if parseErr != nil {
-				return parseErr
-			}
-			legacyContainer = len(ApArray(ApMap(parsed)["parts"])) > 0
-		}
-		if (version != 1 && !legacyContainer) || declaresNewGovernance || ApNumber(profile["schema_version"]) > 2 {
+		if version != 1 || declaresNewGovernance || ApNumber(profile["schema_version"]) > 2 {
 			return s.Unavailable("GOVERNANCE_POLICY", "根身份、Profile和编排政策混代；先显式迁移治理实例")
 		}
 		return nil

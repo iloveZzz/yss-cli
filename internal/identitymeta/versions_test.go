@@ -12,7 +12,7 @@ func TestNativeMetadataVersionPairs(t *testing.T) {
 		meta, bundle int
 		profile      string
 		ok           bool
-	}{{3, 3, "design", true}, {4, 4, "spec", true}, {4, 4, "backend", true}, {4, 3, "spec", false}, {3, 4, "spec", false}, {4, 4, "design", false}, {5, 4, "spec", false}} {
+	}{{3, 3, "design", false}, {4, 4, "spec", true}, {4, 4, "backend", true}, {4, 3, "spec", false}, {3, 4, "spec", false}, {4, 4, "design", false}, {5, 4, "spec", false}} {
 		t.Run(tc.profile+string(rune('0'+tc.meta))+string(rune('0'+tc.bundle)), func(t *testing.T) {
 			profiles := map[string]string{"spec": "harness.spec-template", "backend": "harness.backend-delivery", "design": "harness.business-ddd-strategy-handoff"}
 			managed := map[string]Managed{}

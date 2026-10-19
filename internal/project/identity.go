@@ -76,6 +76,9 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 	if _, err = safefs.Path(root, "yss-project.yaml"); err != nil {
 		return nil, err
 	}
+	if err := rejectRemovedDesign(root); err != nil {
+		return nil, err
+	}
 	out := &Identity{Root: root}
 	found := ""
 	legacyFile := ""
@@ -121,6 +124,9 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 			return nil, e
 		}
 		found = meta.Profile
+		if e = validateHistoryProfile(root, meta); e != nil {
+			return nil, e
+		}
 		out.Native = meta
 	}
 	if explicit != "" {
@@ -205,4 +211,33 @@ func exactVersion(value any, want int) bool {
 		return err == nil && v == int64(want)
 	}
 	return false
+}
+
+func rejectRemovedDesign(root string) error {
+	for _, ref := range []string{".yss-harness-design.json", ".yss-product-design-plugin.json"} {
+		present, err := exists(root, ref)
+		if err != nil {
+			return err
+		}
+		if present {
+			_, err = domain.GetProfile("design")
+			return err
+		}
+	}
+	return nil
+}
+func validateHistoryProfile(root string, meta *Metadata) error {
+	if meta.GovernanceHistory == nil {
+		return nil
+	}
+	ref := meta.GovernanceHistory.Ref
+	file, err := safefs.Path(root, ref)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	return identitymeta.ValidateHistoryProfile(meta.GovernanceHistory, raw)
 }

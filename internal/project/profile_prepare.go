@@ -197,18 +197,14 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 	if err != nil {
 		return nil, err
 	}
-	if _, retired := targets["design"]; retired {
-		return nil, domain.Fail("PROFILE_RETIRED", "新建 Design 已合入 Spec；在 Spec 内继续设计，无需自交接")
+
+	if id.Profile.Name != "spec" {
+		return nil, domain.Fail("IDENTITY", "Profile 准备来源只支持 Spec 原生实例")
 	}
-	if id.Profile.Name != "spec" && id.Profile.Name != "design" {
-		return nil, domain.Fail("IDENTITY", "Profile 准备来源只支持 Spec 或 Design 原生实例")
-	}
-	if len(targets) == 0 || len(targets) > 2 {
+	if len(targets) == 0 || len(targets) > 1 {
 		return nil, domain.Fail("ARGUMENT", "仅为显式外部 Backend 消费者准备独立工程")
 	}
-	if _, design := targets["design"]; design && (len(targets) != 1 || id.Profile.Name != "spec") {
-		return nil, domain.Fail("ARGUMENT", "独立 Design 只能单独承接 Spec 来源")
-	}
+
 	if validateSource != nil {
 		if err = validateSource(ctx, sourceRoot); err != nil {
 			return nil, err
@@ -235,11 +231,11 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 		previous[name] = root
 	}
 	for name := range targets {
-		if name != "design" && name != "backend" {
+		if name != "backend" {
 			return nil, domain.Fail("ARGUMENT", "未知目标 Profile: "+name)
 		}
 	}
-	for _, name := range []string{"design", "backend"} {
+	for _, name := range []string{"backend"} {
 		requested, ok := targets[name]
 		if !ok {
 			continue
@@ -344,7 +340,7 @@ func validateProfilesPlan(p *ProfilesPlan) error {
 	if err != nil {
 		return err
 	}
-	if root != p.SourceRoot || (p.SourceProfile != "spec" && p.SourceProfile != "design") || len(p.Targets) == 0 || len(p.Targets) > 2 || len(p.Changes) != len(p.Targets) {
+	if root != p.SourceRoot || p.SourceProfile != "spec" || len(p.Targets) == 0 || len(p.Targets) > 1 || len(p.Changes) != len(p.Targets) {
 		return domain.Fail("PLAN", "联合计划来源或目标不合法")
 	}
 	if err = validateProfileLinks(root, &p.Links); err != nil {
@@ -374,7 +370,7 @@ func validateProfilesPlan(p *ProfilesPlan) error {
 			return domain.Fail("PLAN", "来源引用缺少守卫")
 		}
 	}
-	order := map[string]int{"design": 1, "backend": 2}
+	order := map[string]int{"backend": 1}
 	last := 0
 	previous := ProfileLinks{SchemaVersion: 1, Links: map[string]string{}}
 	for name, root := range p.Links.Links {
@@ -394,9 +390,7 @@ func validateProfilesPlan(p *ProfilesPlan) error {
 		} else {
 			previous.Links[change.Profile] = change.PreviousRoot
 		}
-		if target.Profile == "design" && (p.SourceProfile != "spec" || len(p.Targets) != 1) {
-			return domain.Fail("PLAN", "独立 Design 只能单独承接 Spec")
-		}
+
 		switch target.Action {
 		case "init":
 			if target.Init == nil || target.Init.SchemaVersion != 2 || target.Init.ProtocolVersion != domain.ProtocolVersion || target.Init.Digest != planDigest(target.Init) || target.Init.Root != target.Root || target.Init.Profile != target.Profile || target.Init.Command != "init" || len(target.Inputs) != 0 {
@@ -525,7 +519,7 @@ func ValidateProfileLinksTransaction(root, expectedProfile string, paths []strin
 	if err != nil {
 		return err
 	}
-	if id.Native == nil || (id.Profile.Name != "spec" && id.Profile.Name != "design") {
+	if id.Native == nil || (id.Profile.Name != "spec") {
 		return domain.Fail("IDENTITY", "Profile 关联恢复要求匹配的原生来源身份")
 	}
 	return nil

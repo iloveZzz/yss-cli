@@ -67,7 +67,7 @@ func configureCompletion(root *cobra.Command, rawArgs []string) {
 				if f.NoOptDefVal != "" {
 					return []string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp
 				}
-				if containsName(strings.Fields("root target-dir design-root backend-root tool-root output-dir review-out home run-dir implementation-root template-checkout"), f.Name) || (f.Name == "out" && path == "bundle export") || (f.Name == "output" && path == "archive unpack") || (f.Name == "source" && path == "archive pack") {
+				if containsName(strings.Fields("root target-dir backend-root tool-root output-dir review-out home run-dir implementation-root template-checkout"), f.Name) || (f.Name == "out" && path == "bundle export") || (f.Name == "output" && path == "archive unpack") || (f.Name == "source" && path == "archive pack") {
 					return nil, cobra.ShellCompDirectiveFilterDirs
 				}
 				placeholder := strings.Join(f.Annotations["yss.placeholder"], "")

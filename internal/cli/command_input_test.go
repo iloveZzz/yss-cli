@@ -190,8 +190,6 @@ func TestCommandTreeCoverage(t *testing.T) {
 		"git verify-message",
 		"handoff",
 		"handoff check",
-		"handoff export",
-		"handoff import",
 		"handoff verify",
 		"init",
 		"lifecycle",

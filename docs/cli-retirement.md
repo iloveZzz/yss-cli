@@ -1,12 +1,12 @@
 # 四旧 CLI 退役合同
 
-统一入口源码版本为 `yss 2.1.0`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。现役范围为 Spec、Design、Backend；Frontend 独立 Profile 已退役，旧实例明确拒绝且保留文件，真实项目仅使用隔离副本，原地迁移另行安排。
+统一入口源码版本为 `yss 2.1.0`；稳定资产的放行由完整发行证据决定，版本号本身不表示平台验证通过。现役范围为 Spec、Backend；Frontend 独立 Profile 已退役，旧实例明确拒绝且保留文件，真实项目仅使用隔离副本，原地迁移另行安排。
 
-`tools/bundle` 独立读取同一模板仓固定 Git 对象及三个 Profile 的有序覆盖层，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定历史来源提交和策略摘要；当前 v3 使用 Spec、Design、Backend 三个 Profile 与覆盖层来源，公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
+`tools/bundle` 独立读取同一模板仓固定 Git 对象及两个 Profile 的有序覆盖层，保留 bytes、mode、ownership、渲染、initial/full 集合及阶段/Skill 闭包。来源锁 schema v2 绑定历史来源提交和策略摘要；当前 v5 使用 Spec、Backend 两个 Profile 与覆盖层来源，公共 `bundle inspect/export` 提供资产及 manifest。旧 CLI 版本和提交仅作为历史基线。
 
 Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统一 CLI 身份；来源锁保留 schema v2/v3，运行协议与 JSON envelope 保留 v1。旧 metadata v1/v2 及历史原生事务继续可识别、恢复；旧保存计划应用返回 `PLAN_VERSION`。Bundle 的兼容生成记录绑定旧固定模板字节和新的原生消费者，不能掩盖 producer 的 `working-tree` 状态。最终生态发行清单汇总源码、Bundle、平台二进制、插件及恢复包摘要，保存为仓外发行产物，不循环嵌入参与仓库的提交哈希。
 
-旧实例先 doctor/diff，再保存显式 migrate plan；apply 重建计划并核验输入。旧 metadata 原字节保留。两个固定 binding 路径、旧 receipt、身份及受管文件受同一事务保护；Backend 保持 `plan-to-backend`。未完成旧事务返回 `LEGACY_INTERRUPTED`，先由仓外固定旧执行器恢复。
+旧实例先 doctor/diff，再保存显式 migrate plan；apply 重建计划并核验输入。旧 metadata 原字节保留。固定 Backend binding 路径、旧 receipt、身份及受管文件受同一事务保护；Backend 保持 `plan-to-backend`。未完成旧事务返回 `LEGACY_INTERRUPTED`，先由仓外固定旧执行器恢复。
 
 已绑定项目的来源更新通过对应公开插件的 upgrade/migration plan/apply 提交新 binding。直接 `yss sync` 若会更换模板、Bundle 或实际二进制，返回 `BINDING_REQUIRED`；已有 identity 与 binding 来源不一致返回 `BINDING_CONFLICT`。同来源资源补装继续可用，已有 receipt 的 bytes/mode 始终绑定保存计划输入。
 
@@ -24,4 +24,4 @@ Bundle 与 native metadata schema v3、升级计划 v2 分开记录模板及统�
 
 历史 1.0 平台验收限定为本机。当前 2.1.0 的产物范围为 darwin/arm64 与 windows/amd64；用户随后明确要求仅 Mac 实际验收，其余完成产物即可。本次独立 caller 的 requiredPlatforms 因而固定为 darwin/arm64，Windows 构建包及摘要另行交付，不填造 native 收据、不并入已验收平台集合。工具仍拒绝输入自行改变 caller 范围，在线升级仍拒绝未验收平台。
 
-2.1.0 发行资格范围为 local-platform-impacted-consumers：Mac ARM64 的原生接口、插件、恢复与安装，以及固定源码、Bundle、三个 Profile 的真实旧实例恢复和受影响模板消费者。Windows 仅验证构建产物的来源、文件与摘要，保持 stableReady=false、nativeRuntimeVerified=false。模板采用完整变化集驱动的必要验证；未执行的全模板回归、Windows 运行验收、剩余架构任务和其他平台不记为通过。
+2.1.0 发行资格范围为 local-platform-impacted-consumers：Mac ARM64 的原生接口、插件、恢复与安装，以及固定源码、Bundle、两个 Profile 的真实旧实例恢复和受影响模板消费者。Windows 仅验证构建产物的来源、文件与摘要，保持 stableReady=false、nativeRuntimeVerified=false。模板采用完整变化集驱动的必要验证；未执行的全模板回归、Windows 运行验收、剩余架构任务和其他平台不记为通过。

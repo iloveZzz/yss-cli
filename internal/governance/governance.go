@@ -6,7 +6,6 @@ import (
 	_ "github.com/iloveZzz/yss-cli/internal/governance/approval"
 	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
 	_ "github.com/iloveZzz/yss-cli/internal/governance/evidence"
-	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
 	"github.com/iloveZzz/yss-cli/internal/governance/reading"
@@ -48,12 +47,7 @@ func RunContext(ctx context.Context, group, action, root string, args map[string
 	if args == nil {
 		args = map[string]string{}
 	}
-	if group == "handoff" && args["kind"] == "spec-baseline" {
-		if err := rejectUnportedArgs(args, ArgumentKeys(group, action)...); err != nil {
-			return nil, err
-		}
-		return handoff.SpecBaselineRun(ctx, action, root, args)
-	}
+
 	semantic := action == "verify" && (group == "lifecycle" || group == "contract" || group == "evidence" || group == "handoff")
 	if !semantic && (args["history"] != "" || args["require-approved"] != "") {
 		return nil, domain.Fail("UNPORTED", "历史兼容校验与批准语义尚未迁移；不能由结构校验代替")
@@ -154,10 +148,8 @@ func ArgumentKeys(group, action string) []string {
 		allowed = append(allowed, "scope", "checkpoint", "task", "file", "arg0", "current-work-unit", "next-work-unit", "provider", "branch", "additional-path", "cli-source", "apply", "plan-file", "base", "runtime-store", "recover", "home", "run-dir", "tool-root", "template-checkout")
 	case "contract.check", "evidence.check", "handoff.check":
 		allowed = append(allowed, "schema", "file", "arg0")
-	case "handoff.export", "handoff.import":
-		allowed = append(allowed, "kind", "checkpoint", "out", "package", "plan", "apply", "plan-file")
 	case "contract.verify", "evidence.verify", "handoff.verify":
-		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "task-ref", "unit", "slice", "phase", "mode", "review-ref", "no-reconciliation", "source-context-snapshot")
+		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "task-ref", "unit", "slice", "phase", "mode", "review-ref", "source-context-snapshot")
 	case "reading.render":
 		allowed = append(allowed, "checkpoint", "all", "dry-run")
 	case "reading.plan-enable":

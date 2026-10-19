@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
-	"strings"
 )
 
 func SemanticDefinition(registry map[string]any, bucket, id string) map[string]any {
@@ -46,7 +45,7 @@ func (s *SemanticSession) Orchestration() (map[string]any, string, error) {
 		return nil, ref, err
 	}
 	if !present {
-		owner := map[string]string{"spec": "yss-product-lifecycle", "backend": "harness-orchestrator", "design": "yss-strategic-design"}[profileName]
+		owner := map[string]string{"spec": "yss-product-lifecycle", "backend": "harness-orchestrator"}[profileName]
 		ref = ".agents/skills/" + owner + "/references/orchestration-contract.yaml"
 		present, err = s.Exists(ref)
 		if err != nil {
@@ -59,7 +58,7 @@ func (s *SemanticSession) Orchestration() (map[string]any, string, error) {
 	doc, err := s.Doc(ref)
 	if err == nil {
 		version, valid := Integer(doc["schema_version"])
-		if !valid || version != 1 && !(version == 2 && profileName == "design" && strings.HasSuffix(ref, "/orchestration-contract.yaml")) {
+		if !valid || version != 1 {
 			return nil, ref, s.Unavailable("CAPABILITY", "未知本地主控合同版本")
 		}
 	}

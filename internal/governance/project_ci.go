@@ -583,13 +583,6 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 	for unit, stage := range kernel.TrackedUnits {
 		units[unit] = stage
 	}
-	design, _, err := kernel.DesignProfile(v)
-	if err != nil {
-		return nil, err
-	}
-	if design {
-		units["work-unit.business-ticket-formalization"] = "stage.ticket-formalization"
-	}
 	byUnit := map[string][]kernel.WorkItem{}
 	for _, item := range t.Items {
 		byUnit[item.WorkUnit] = append(byUnit[item.WorkUnit], item)

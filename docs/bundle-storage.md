@@ -1,6 +1,6 @@
 # 模板存储与体积验证
 
-CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend 的完整离线模板。存储改造不更换 source lock 固定的模板提交、来源政策或 producer 谱系，不改变公开 Bundle v3、metadata v3、保存计划 v2、历史 source lock v2 和 envelope / protocol v1。
+CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当前装配使用 source-lock v5、Bundle v4 与 metadata v4；存储格式保持 v1，envelope / protocol 保持 v1。
 
 ## 私有归档 v1
 
@@ -9,7 +9,7 @@ CLI 1.3.1 在一个可执行文件中保留 Spec、Design、Backend、Frontend �
 ```json
 {
   "storageFormatVersion": 1,
-  "profiles": {"spec": {}, "design": {}, "backend": {}, "frontend": {}},
+  "profiles": {"spec": {}, "backend": {}},
   "objects": {"<原始文件字节的 SHA-256>": "<Base64 内容>"}
 }
 ```

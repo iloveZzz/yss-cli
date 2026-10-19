@@ -188,6 +188,12 @@ func (s *SemanticSession) Doc(ref string) (map[string]any, error) {
 	if !ok {
 		return nil, s.Unavailable("INPUT", ref+": 必须是对象")
 	}
+	if _, imported := m["upstream_spec_baseline"]; imported {
+		return nil, s.Reject("PROFILE_REMOVED", "Spec→Design 基线导入已移除")
+	}
+	if _, inherited := SemMap(m["approval_context"])["source_baseline"]; inherited || m["kind"] == "spec-baseline-import" || m["kind"] == "spec-baseline-package" {
+		return nil, s.Reject("PROFILE_REMOVED", "Spec→Design 基线导入和批准继承已移除")
+	}
 	return m, nil
 }
 
@@ -816,6 +822,16 @@ func (s *SemanticSession) HandoffSourceAuthorities(sourcePolicy func(*SemanticSe
 }
 
 func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) error) error {
+	for _, ref := range []string{".yss-harness-design.json", ".yss-product-design-plugin.json"} {
+		d, err := s.V.Watch(s.LocalRef(ref))
+		if err != nil {
+			return s.Unavailable("IDENTITY", err.Error())
+		}
+		if d.Type != "missing" {
+			_, err = domain.GetProfile("design")
+			return s.Unavailable(SemanticCode(err), err.Error())
+		}
+	}
 	for _, ref := range []string{".yss/asset-transactions/active.json", ".yss/asset-transactions/recovery.lock"} {
 		d, err := s.V.Watch(s.LocalRef(ref))
 		if err != nil {
@@ -909,6 +925,15 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 				code = "IDENTITY"
 			}
 			return s.Unavailable(code, err.Error())
+		}
+		if meta.GovernanceHistory != nil {
+			raw, err := s.Bytes(meta.GovernanceHistory.Ref)
+			if err != nil {
+				return err
+			}
+			if err = identitymeta.ValidateHistoryProfile(meta.GovernanceHistory, raw); err != nil {
+				return s.Unavailable(SemanticCode(err), err.Error())
+			}
 		}
 		family = meta.Profile
 	}

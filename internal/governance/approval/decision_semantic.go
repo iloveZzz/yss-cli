@@ -285,9 +285,7 @@ func verifyCheckpointUserDecisionsSemantic(s *kernel.SemanticSession, ref string
 			}
 		}
 		completionGate := "gate.delivery-accepted"
-		if s.Report.Profile == "design" {
-			completionGate = "gate.strategic-design-handoff-approved"
-		}
+
 		if s.GovernanceVersion == 2 && s.Report.Profile == "backend" {
 			completionGate = "gate.fresh-verification-passed"
 		}

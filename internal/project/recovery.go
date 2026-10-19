@@ -19,6 +19,9 @@ import (
 // interrupted before metadata installation. Conflicting existing identities
 // remain errors; recovery never guesses a Profile from a directory name.
 func RecoveryIdentity(root, explicit string) (*Identity, error) {
+	if err := rejectRemovedDesign(root); err != nil {
+		return nil, err
+	}
 	id, original := Detect(root, explicit, false)
 	if original == nil {
 		return id, nil
@@ -79,6 +82,15 @@ func RecoveryIdentity(root, explicit string) (*Identity, error) {
 	}
 	if _, e := identitymeta.ValidateNative(root, b, ""); e != nil {
 		return nil, domain.Wrap("STATE", e)
+	}
+	if m.GovernanceHistory != nil {
+		raw, err := transaction.ArchivedFile(root, m.GovernanceHistory.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if err = identitymeta.ValidateHistoryProfile(m.GovernanceHistory, raw); err != nil {
+			return nil, err
+		}
 	}
 	p, e := domain.GetProfile(m.Profile)
 	if e != nil {
@@ -182,7 +194,7 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 		case ProfileLinksKind:
 			return ValidateProfileLinksTransaction(id.Root, id.Profile.Name, paths)
 		case "spec-baseline-import":
-			return governance.ValidateSpecBaselineImportTransaction(id.Root, id.Profile.Name, paths)
+			return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
 		case "lifecycle-target":
 			return governance.ValidateProgressionTransaction(id.Root, id.Profile.Name, paths)
 		case "init", "attach", "sync", "migrate", "skills", "assets", "abandoned-preparation":

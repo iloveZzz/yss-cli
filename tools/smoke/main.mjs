@@ -34,7 +34,7 @@ try {
   const version = session.expectOk(['version', '--json'], {label: 'version'});
   console.log(`被测二进制 yss ${version.version}（临时目录 ${tempRoot}）`);
   const retiredRoot = `${tempRoot}/retired-design`;
-  session.expectRejected(['init','--profile','design','--root',retiredRoot,'--json'],{code:'PROFILE_RETIRED',label:'Design 新建入口已退役'});
+  session.expectRejected(['init','--profile','design','--root',retiredRoot,'--json'],{code:'ARGUMENT',label:'Design Profile 已移除'});
   if (fs.existsSync(retiredRoot)) throw new Error('退役 Profile 不得创建实例目录');
   if (options.only !== 'git') for (const profile of PROFILES) runProfile(session, profile, tempRoot);
   if (options.only !== 'profiles') runGit(session, tempRoot);

@@ -309,12 +309,9 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	return b, nil
 }
 func SourceProfiles(lock SourceLock) ([]string, error) {
-	profiles := []string{"spec", "design", "backend"}
-	if lock.SchemaVersion == 5 {
-		profiles = []string{"spec", "backend"}
-	}
-	if lock.SchemaVersion < 2 || lock.SchemaVersion > 5 || len(lock.Profiles) != len(profiles) {
-		return nil, fmt.Errorf("source lock v2/v3/v4 requires three profiles; v5 requires Spec/Backend")
+	profiles := []string{"spec", "backend"}
+	if lock.SchemaVersion != 5 || len(lock.Profiles) != len(profiles) {
+		return nil, fmt.Errorf("source lock v5 requires exactly Spec/Backend")
 	}
 	for _, profile := range profiles {
 		if source, ok := lock.Profiles[profile]; !ok || source.Profile != profile {
@@ -661,20 +658,11 @@ func ownership(profile, ref string, m map[string]any) string {
 	}
 	preserved := ref == "README.md" || ref == "CONTEXT.md" || ref == "DESIGN.md" || ref == ".template-spec/agents/issue-tracker.md"
 	user := ref == "README.md" || ref == "DESIGN.md"
-	if profile == "design" {
-		managed := false
-		for _, prefix := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", "scripts", ".template-spec/agents", ".template-spec/process", ".template-spec/templates", ".template-spec/user-guide", ".template-spec/architecture/templates"} {
-			managed = managed || beneath(ref, prefix)
-		}
-		for _, p := range []string{".gitignore", ".nvmrc", "AGENTS.md", "CLAUDE.md", ".cursorrules", "skills-lock.json", "yss-project.yaml", "CONTEXT.md"} {
-			managed = managed || ref == p
-		}
-		user = user || !managed
-	} else {
-		for _, prefix := range []string{".work", "docs/.scratch", "docs/reviews", "docs/releases", "docs/requirements", "docs/implementation", "docs/api", "docs/adr"} {
-			user = user || beneath(ref, prefix)
-		}
+
+	for _, prefix := range []string{".work", "docs/.scratch", "docs/reviews", "docs/releases", "docs/requirements", "docs/implementation", "docs/api", "docs/adr"} {
+		user = user || beneath(ref, prefix)
 	}
+
 	if user {
 		return "user-owned"
 	}

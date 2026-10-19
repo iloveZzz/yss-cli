@@ -44,7 +44,7 @@ func TestCLICompletionProtocol(t *testing.T) {
 		}
 	}
 	out, directive := completionResult(t, "__completeNoDesc", "init", "--profile", "")
-	if directive != 4 || !strings.Contains(out, "spec") || !strings.Contains(out, "design") || !strings.Contains(out, "backend") {
+	if directive != 4 || !strings.Contains(out, "spec") || strings.Contains(out, "design") || !strings.Contains(out, "backend") {
 		t.Fatalf("profile choices: %d %s", directive, out)
 	}
 	_, directive = completionResult(t, "__completeNoDesc", "init", "--root", "")

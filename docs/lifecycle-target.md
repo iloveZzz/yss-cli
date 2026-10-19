@@ -86,7 +86,6 @@ yss lifecycle status --root ./spec --checkpoint .work/example/checkpoint.json --
 
 ```json
 "consumers": [
-  {"profile": "design", "root": "/absolute/design", "checkpoint_ref": ".work/example/checkpoint.json"},
   {"profile": "backend", "root": "/absolute/backend", "checkpoint_ref": ".work/example/checkpoint.json"}
 ]
 ```

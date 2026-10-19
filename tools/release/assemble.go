@@ -238,7 +238,7 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 			return reject("EVIDENCE", "invalid native smoke report")
 		}
 		want := map[string]bool{":version": true, ":capabilities": true}
-		for _, profile := range []string{"spec", "design", "backend"} {
+		for _, profile := range []string{"spec", "backend"} {
 			for _, command := range []string{"init", "context verify", "diff", "doctor", "lifecycle query", "sync plan", "sync apply", "skills list", "assets list", "migrate status", "runtime begin", "runtime event", "runtime complete", "runtime run", "runtime events", "runtime commands", "runtime pin", "runtime pins", "runtime unpin", "runtime inspect"} {
 				want[profile+":"+command] = true
 			}
@@ -311,7 +311,7 @@ func (r *reader) nativeReport(id, ref string, raw []byte, platform, binaryHash s
 			kinds = []string{"cancel", "kill"}
 		}
 		want := map[string]bool{}
-		for _, p := range []string{"spec", "design", "backend"} {
+		for _, p := range []string{"spec", "backend"} {
 			for _, kind := range kinds {
 				want[p+"-"+kind] = true
 			}

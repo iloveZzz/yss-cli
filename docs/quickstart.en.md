@@ -20,7 +20,7 @@ yss init --profile spec --root ./demo --project-name Demo
 yss doctor --root ./demo --json
 ```
 
-Profiles: `spec` (integrated control repository), `design` (product and business design), `backend` (backend delivery). Use `yss attach` for an existing repository and `yss sync` to upgrade an instance to the bundle shipped with your CLI. Every write supports `--plan --out <file>` first, then `--apply --plan-file <file>`.
+Profiles: `spec` (requirements, product design and integrated delivery), `backend` (dedicated backend delivery). Use `yss attach` for an existing repository and `yss sync` to upgrade an instance to the bundle shipped with your CLI. Every write supports `--plan --out <file>` first, then `--apply --plan-file <file>`.
 
 ## 3. Your first task: the daily path
 

@@ -41,7 +41,7 @@ func parseProgressionTarget(raw []byte) (ProgressionTarget, error) {
 	}
 	seen := map[string]bool{}
 	for _, c := range target.Consumers {
-		if !kernel.SemHas([]string{"design", "backend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !kernel.ContractPath(c.CheckpointRef) {
+		if !kernel.SemHas([]string{"backend"}, c.Profile) || seen[c.Profile] || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || !kernel.ContractPath(c.CheckpointRef) {
 			return target, domain.Fail("PROGRESSION_TARGET", "消费者必须唯一且显式指定 Profile、绝对根和项目内 checkpoint")
 		}
 		seen[c.Profile] = true
@@ -210,11 +210,9 @@ func buildProgressionPlan(ctx context.Context, root, cpRef, inputRef string) (Wr
 }
 
 func progressionCurrentConsumers(s *kernel.SemanticSession, target ProgressionTarget) error {
-	if s.GovernanceVersion == 2 {
-		for _, consumer := range target.Consumers {
-			if consumer.Profile != "backend" {
-				return s.Reject("PROFILE_RETIRED", "新政策只承接显式 Backend 消费者；产品设计在 Spec 内继续")
-			}
+	for _, consumer := range target.Consumers {
+		if consumer.Profile != "backend" {
+			return s.Reject("PROFILE_REMOVED", "只支持显式 Backend 消费者；产品设计在 Spec 内继续")
 		}
 	}
 	return nil

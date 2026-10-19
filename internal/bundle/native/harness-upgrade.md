@@ -48,7 +48,7 @@
 
 ## 插件绑定
 
-后端交付插件绑定 `spec`，产品设计插件绑定 `design`。绑定旧实例使用对应插件 `project-migration-plan` / `project-migration-apply`；绑定原生实例更换二进制、模板或 Bundle 来源时，使用对应插件 `project-upgrade-plan` / `project-upgrade-apply`。插件通过公开原生保存计划把 `.yss.json`、受管基线和新 binding 纳入同一事务，旧 metadata 与历史插件记录原字节进入恢复材料。
+后端交付插件绑定 `spec`。绑定旧实例使用对应插件 `project-migration-plan` / `project-migration-apply`；绑定原生实例更换二进制、模板或 Bundle 来源时，使用对应插件 `project-upgrade-plan` / `project-upgrade-apply`。插件通过公开原生保存计划把 `.yss.json`、受管基线和新 binding 纳入同一事务，旧 metadata 与历史插件记录原字节进入恢复材料。
 
 直接 `yss sync` 更换来源而没有匹配的新 binding 返回 `BINDING_REQUIRED`；既有身份和 binding 已失配返回 `BINDING_CONFLICT`。不能手改绑定或 metadata 绕过拒绝。同一来源的治理资源补装仍可使用 `assets ensure` / `skills ensure`，其输入保护现有 binding 的字节和权限。
 

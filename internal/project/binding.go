@@ -56,10 +56,10 @@ func (b *Binding) validate(profile, command string) ([]byte, error) {
 	if command != "init" && command != "attach" && command != "migrate" && command != "sync" {
 		return nil, domain.Fail("BINDING", "binding supports init, attach, migrate or sync")
 	}
-	if b.LegacyBaselinePolicy != "" && (command != "migrate" || (profile != "spec" && profile != "design")) {
+	if b.LegacyBaselinePolicy != "" && (command != "migrate" || profile != "spec") {
 		return nil, domain.Fail("LEGACY_POLICY", "historical baseline policies only support explicit legacy plugin migration")
 	}
-	if !(b.Path == ".yss-backend-plugin.json" && profile == "spec") && !(b.Path == ".yss-product-design-plugin.json" && profile == "design") {
+	if b.Path != ".yss-backend-plugin.json" || profile != "spec" {
 		return nil, domain.Fail("BINDING", "binding path does not match plugin profile")
 	}
 	data, e := base64.StdEncoding.DecodeString(b.Data)
@@ -86,13 +86,7 @@ func addBinding(p *Plan, b *Binding) error {
 	if e != nil {
 		return e
 	}
-	if b.Path == ".yss-product-design-plugin.json" {
-		var payload map[string]any
-		_ = json.Unmarshal(data, &payload)
-		if number(payload["schema_version"]) != 2 || payload["plugin"] != "yss-product-design" || payload["profile"] != "design" {
-			return domain.Fail("BINDING", "design plugin binding must match the native design profile")
-		}
-	}
+
 	var payload map[string]any
 	_ = json.Unmarshal(data, &payload)
 	current, e := bundle.Load(p.Profile)
@@ -186,7 +180,7 @@ func BuildWithBinding(root, profile, command string, vars map[string]string, sel
 // Existing receipts are inputs even when this operation does not change them.
 // A source upgrade of a bound project needs its public plugin's new receipt.
 func guardPluginBindings(id *Identity, source *bundle.Bundle, p *Plan, next *Binding) error {
-	for _, ref := range []string{".yss-backend-plugin.json", ".yss-product-design-plugin.json", ".yss-plugin.json"} {
+	for _, ref := range []string{".yss-backend-plugin.json", ".yss-plugin.json"} {
 		observed, err := safefs.Describe(id.Root, ref)
 		if err != nil {
 			return err
@@ -217,10 +211,7 @@ func guardPluginBindings(id *Identity, source *bundle.Bundle, p *Plan, next *Bin
 		receipt, ok := object(data)
 		expected := ".yss-backend-plugin.json"
 		plugin := "yss-backend-delivery"
-		if id.Profile.Name == "design" {
-			expected = ".yss-product-design-plugin.json"
-			plugin = "yss-product-design"
-		}
+
 		if !ok || ref != expected || number(receipt["schema_version"]) != 2 || receipt["plugin"] != plugin || receipt["profile"] != id.Profile.Name || receipt["template_commit"] != id.Native.TemplateCommit || receipt["bundle_hash"] != id.Native.BundleHash || !digestPattern.MatchString(text(receipt["binary_sha256"])) {
 			return domain.Explain(domain.Fail("BINDING_CONFLICT", "plugin receipt and native source identity disagree; use the public plugin upgrade plan"), "PLUGIN_BINDING_SOURCE_MISMATCH", "插件收据与原生项目的 Profile、模板或 Bundle 来源不一致。", map[string]any{"root": id.Root, "path": ref, "plugin": plugin, "templateCommit": id.Native.TemplateCommit, "bindingTemplateCommit": receipt["template_commit"]})
 		}

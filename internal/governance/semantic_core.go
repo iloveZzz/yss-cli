@@ -55,7 +55,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 	}
 	err := s.Guard()
 	if err == nil {
-		allowed := map[string][]string{"contract": {"governance-policy", "architecture-evidence", "slice-draft", "slice-execution-result", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "backend-review", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-review-control", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
+		allowed := map[string][]string{"contract": {"governance-policy", "architecture-evidence", "slice-draft", "slice-execution-result", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "backend-review", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-review-control", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "evidence": {"approval", "user-decision", "verification", "context-reconciliation"}, "handoff": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
 		if kinds, ok := allowed[group]; ok && !kernel.SemHas(kinds, args["kind"]) {
 			err = s.Unavailable("ARGUMENT", "未知或不适用于该接口的领域类型: "+args["kind"])
 		}
@@ -69,7 +69,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 			"slice-execution-result": {"task"}, "slice": {"approval-ref", "unit"}, "slice-preflight": {"approval-ref", "unit"}, "verification": {"approval-ref", "task"},
 			"openapi-validation": {"allow-template"}, "scaffold-decisions": {"allow-template"},
 			"business-tickets": {"mode", "review-ref"},
-			"gate-checks":      {"gate"}, "spec-baseline-binding": {"no-reconciliation"}, "handoff-source-approval": {"gate", "source-context-snapshot"}, "handoff-delivery": {"package"},
+			"gate-checks":      {"gate"}, "handoff-source-approval": {"gate", "source-context-snapshot"}, "handoff-delivery": {"package"},
 			"task": {"history", "task-ref"}, "approval": {"require-approved", "history", "gate", "boundary", "task", "expected", "binding"},
 			"user-decision":  {"requirements", "continuation", "from-record", "task"},
 			"handoff-source": {"history"}, "handoff-package": {"package"}, "handoff-backend-delivery": {"package"}, "handoff-consumption": {"consumer", "slice"}, "checkpoint": {"history"},
@@ -84,7 +84,7 @@ func semanticRun(ctx context.Context, group, action, root string, args map[strin
 		}
 	}
 	if err == nil {
-		for flag, kinds := range map[string][]string{"mode": {"business-tickets"}, "review-ref": {"business-tickets"}, "requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "no-reconciliation": {"spec-baseline-binding"}, "gate": {"approval", "handoff-source-approval", "gate-checks"}, "source-context-snapshot": {"handoff-source-approval"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification", "slice-execution-result"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package", "handoff-backend-delivery", "handoff-delivery"}, "require-approved": {"approval"}, "expected": {"approval"}, "binding": {"approval"}, "history": {"approval", "task", "checkpoint", "handoff-source"}, "allow-template": {"openapi-validation", "scaffold-decisions"}} {
+		for flag, kinds := range map[string][]string{"mode": {"business-tickets"}, "review-ref": {"business-tickets"}, "requirements": {"user-decision"}, "continuation": {"user-decision"}, "from-record": {"user-decision"}, "gate": {"approval", "handoff-source-approval", "gate-checks"}, "source-context-snapshot": {"handoff-source-approval"}, "boundary": {"approval"}, "task": {"approval", "user-decision", "verification", "slice-execution-result"}, "consumer": {"handoff-consumption"}, "package": {"handoff-package", "handoff-backend-delivery", "handoff-delivery"}, "require-approved": {"approval"}, "expected": {"approval"}, "binding": {"approval"}, "history": {"approval", "task", "checkpoint", "handoff-source"}, "allow-template": {"openapi-validation", "scaffold-decisions"}} {
 			if _, provided := args[flag]; provided && !kernel.SemHas(kinds, kind) {
 				err = s.Unavailable("ARGUMENT", "该领域类型不接受参数: --"+flag)
 				break
@@ -202,7 +202,6 @@ func init() {
 		}
 		return contracts.ContractScaffoldUserDecision(s, decision)
 	})
-	kernel.RegisterSemanticValidator("spec-baseline-binding", handoff.VerifySpecBaselineBindingSemantic)
 }
 
 func verifyGateChecksPublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {

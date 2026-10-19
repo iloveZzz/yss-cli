@@ -40,12 +40,7 @@ func migrationIdentity(root, profile, command string, allowAbsent bool) (*Identi
 		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "迁移只接受已核验的原 policy1")
 	}
 	target := id.Profile.Name
-	if target == "design" {
-		target = "spec"
-		if profile != "spec" {
-			return nil, domain.Fail("MIGRATION_TARGET_REQUIRED", "旧 Design 须明确 --profile spec，先 --plan --out，再 --apply --plan-file")
-		}
-	}
+
 	if profile != "" && profile != target {
 		return nil, domain.Fail("IDENTITY", "迁移目标与支持的 Spec/Backend 路径不匹配")
 	}
@@ -205,8 +200,8 @@ func migrationRecoveryIdentity(root, explicit string) (*Identity, error) {
 	if err != nil {
 		return nil, err
 	}
-	if safefs.Digest(manifest) != m.GovernanceHistory.Digest {
-		return nil, domain.Fail("HISTORY_SOURCE_DRIFT", "迁移归档原清单漂移")
+	if err = identitymeta.ValidateHistoryProfile(m.GovernanceHistory, manifest); err != nil {
+		return nil, err
 	}
 	var snap identitymeta.GovernanceSnapshot
 	if err = json.Unmarshal(manifest, &snap); err != nil {

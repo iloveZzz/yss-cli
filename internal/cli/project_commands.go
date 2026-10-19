@@ -41,7 +41,7 @@ func addProjectCommands(root *cobra.Command, inv *invocation) {
 	}
 	profile := addCommand(root, inv, "profile", profileDispatch)
 	for _, cmd := range []*cobra.Command{profile, addCommand(profile, inv, "prepare", profileDispatch)} {
-		addFlags(cmd, inv, "root design-root backend-root checkpoint project-name business-domain team-size plan out apply plan-file")
+		addFlags(cmd, inv, "root backend-root checkpoint project-name business-domain team-size plan out apply plan-file")
 	}
 	scaffold := addCommand(root, inv, "scaffold", scaffoldCommand)
 	for _, cmd := range []*cobra.Command{scaffold, addCommand(scaffold, inv, "ddd", scaffoldCommand), addCommand(scaffold, inv, "mvc", scaffoldCommand)} {

@@ -12,7 +12,7 @@ func pluginLabels() map[string]int {
 	for _, label := range []string{"go-head", "go-tree", "template-head", "template-clean", "go-before-tracked", "go-before-files", "template-before-tracked", "template-before-files", "binary-version", "python-jsonschema", "go-after-tracked", "go-after-files", "template-after-tracked", "template-after-files"} {
 		out[label] = 1
 	}
-	for _, p := range []string{"spec", "design"} {
+	for _, p := range []string{"spec"} {
 		for _, name := range []string{"inspect", "build", "staged-inspect", "verify", "doctor", "preview", "apply", "binding-check", "readonly-project-recover", "readonly-project-rollback", "whole-rollback"} {
 			out[p+"-"+name] = 1
 		}
@@ -124,7 +124,7 @@ func (r *reader) pluginReport(ref string, raw []byte, platform, binaryHash strin
 	}
 	seen := map[string]bool{}
 	for _, c := range report.Cases {
-		want := map[string]string{"spec": "yss-backend-delivery", "design": "yss-product-design"}[c.Profile]
+		want := map[string]string{"spec": "yss-backend-delivery"}[c.Profile]
 		if want == "" || seen[c.Profile] || c.Plugin != want || c.Status != "passed" || c.PlanID == "" || !c.Preview || !c.Readonly || !c.Rollback || !c.Repeat || !fileDescriptor(c.Metadata, false) || !fileDescriptor(c.Binding, false) || len(c.Before) != 2 || !reflect.DeepEqual(c.Before, c.After) {
 			return reject("EVIDENCE", "incomplete public plugin case assertions")
 		}
@@ -138,10 +138,14 @@ func (r *reader) pluginReport(ref string, raw []byte, platform, binaryHash strin
 			protected[name] = true
 		}
 	}
-	if len(seen) != 2 || len(report.Commands) != 44 {
-		return reject("EVIDENCE", "full 44-command public plugin acceptance required")
-	}
 	labels := pluginLabels()
+	expectedCommands := 0
+	for _, count := range labels {
+		expectedCommands += count
+	}
+	if len(seen) != 1 || len(report.Commands) != expectedCommands {
+		return reject("EVIDENCE", "full supported public plugin acceptance required")
+	}
 	for _, row := range report.Commands {
 		if labels[row.Label] <= 0 || row.Executable == "" || len(row.Args) == 0 || !row.Observed || row.Exit == nil || *row.Exit != 0 || row.Signal != nil || row.Error != nil {
 			return reject("EVIDENCE", "failed, missing or duplicate plugin command %s", row.Label)

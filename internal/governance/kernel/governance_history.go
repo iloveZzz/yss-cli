@@ -48,7 +48,7 @@ func (s *SemanticSession) OriginalGovernanceSource() (*SemanticSession, error) {
 	if err = json.Unmarshal(raw, &snapshot); err != nil {
 		return nil, err
 	}
-	if snapshot.SchemaVersion != 1 || snapshot.Kind != "governance-original-source" || snapshot.SourceProfile != "spec" && snapshot.SourceProfile != "design" && snapshot.SourceProfile != "backend" || len(snapshot.Files) == 0 || len(snapshot.Files) > 20000 {
+	if snapshot.SchemaVersion != 1 || snapshot.Kind != "governance-original-source" || snapshot.SourceProfile != "spec" && snapshot.SourceProfile != "backend" || len(snapshot.Files) == 0 || len(snapshot.Files) > 20000 {
 		return nil, s.Reject("HISTORY_UNSUPPORTED", "不支持的原治理快照；不重解释旧记录")
 	}
 	args := map[string]string{}

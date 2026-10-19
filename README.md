@@ -2,7 +2,7 @@
 
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Backend 的 Go CLI，当前源码版本为 2.5.0，固定模板来源为 v4.6.1。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；旧 Design 保留历史读取，并通过显式 `yss migrate` 计划迁入 Spec。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Backend 的 Go CLI，当前源码版本为 2.5.1，固定模板来源为 v4.6.3。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -61,15 +61,12 @@ yss git base --root ./my-project --json
 
 现役 Profile 的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
 
-启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
+启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。Spec 在本工程完成产品设计，按明确交付责任接续独立 Backend；正式交接继续核验原来源、批准、当前 Receipt 与 Context 对账。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
 
 ```sh
-yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json
-yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
+yss profile prepare --root ./spec --backend-root ./backend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./spec --apply --plan-file /tmp/delivery-prepare.json
 yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
-yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json
-yss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json
-yss handoff verify --root ./design --kind spec-baseline --file docs/spec-baselines/spec-baseline.feature/v1/receipt.json --json
 ```
 
 初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Design 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
@@ -124,7 +121,6 @@ yss update rollback --tool-root ./tools/yss --json
 
 ```sh
 yss init --profile spec --root ./demo-spec --project-name 演示项目
-yss init --profile design --root ./demo-design --project-name 演示设计
 yss init --profile backend --root ./demo-backend --project-name 演示后端
 yss doctor --root ./demo-spec --json
 yss diff --root ./demo-spec --json

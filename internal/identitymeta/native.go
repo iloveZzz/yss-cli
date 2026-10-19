@@ -86,7 +86,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 		return nil, e
 	}
 	if meta.SchemaVersion == 4 && meta.Profile != "spec" && meta.Profile != "backend" {
-		return nil, domain.Fail("IDENTITY", "metadata4 仅支持 Spec/Backend；旧 Design 需要显式迁移")
+		return nil, domain.Fail("IDENTITY", "metadata4 仅支持 Spec/Backend")
 	}
 	if p.ID != meta.ProfileID || (found != "" && found != meta.Profile) {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "统一 metadata 与旧家族身份矛盾"), "PROFILE_IDENTITY_CONFLICT", "统一元数据与 Profile 合同或旧家族身份不一致。", map[string]any{"root": root, "profile": meta.Profile, "legacyProfile": found})

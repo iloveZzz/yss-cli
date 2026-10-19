@@ -47,12 +47,7 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 					return e
 				}
 			case "spec-baseline-import":
-				if profile != "design" {
-					return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
-				}
-				if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
-					return e
-				}
+				return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
@@ -113,12 +108,7 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 					return e
 				}
 			case "spec-baseline-import":
-				if profile != "design" {
-					return domain.Fail("IDENTITY", "Spec 基线接入仅支持 Design")
-				}
-				if e := governance.ValidateSpecBaselineImportTransaction(root, profile, paths); e != nil {
-					return e
-				}
+				return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
