@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var profiles = []string{"spec", "design", "backend"}
+var profiles = []string{"spec", "backend"}
 var legacyCases = []string{"warehouse-fixed-executor-init", "legacy-requires-explicit-migration", "migration-plan-read-only", "migration-apply", "native-doctor", "migration-rollback", "fixed-executor-maintains-restored-instance", "repeat-rollback", "legacy-pending-migration-refusal", "unfinished-fixed-executor-recovery", "modified-after-apply-rollback-refusal", "protection-bytes-and-mode"}
 var realCases = []string{"source-copy-exact", "legacy-doctor-baseline", "legacy-migration-required-refusal", "native-plan-read-only", "migration-apply", "native-doctor", "whole-migration-rollback", "restored-old-doctor", "repeat-rollback", "modified-after-apply-rollback-refusal"}
 var integrationCases = []string{"init", "doctor", "diff", "sync-dry-run", "sync-apply", "migration-plan-read-only", "migration-apply", "idempotency", "rollback", "user-file-preservation"}
@@ -23,9 +23,9 @@ func RequiredGateCoverage(id string) []string {
 	case "scoped-template-consumers":
 		return append([]string(nil), scopedConsumerCases...)
 	case "full-template-integration":
-		return []string{"template.release.complete-candidate", "template.release.committed-sources", "template.release.four-cli-integrations", "template.release.legacy-recovery48"}
+		return []string{"template.release.complete-candidate", "template.release.committed-sources", "template.release.supported-cli-integrations", "template.release.supported-legacy-recovery"}
 	case "cli-integration":
-		return []string{"cli.integration.spec", "cli.integration.design", "cli.integration.backend", "cli.integration.frontend"}
+		return []string{"cli.integration.spec", "cli.integration.backend"}
 	case "legacy-recovery":
 		out := []string{}
 		for _, p := range profiles {
@@ -340,7 +340,7 @@ func (r *reader) templateGate(s gateSources, binary string) error {
 		}
 	}
 	legacy := object(o["legacy_recovery"])
-	if legacy["binary_sha256"] != binary || legacy["cases"] != float64(48) || !sameSet(stringsOf(legacy["families"]), profiles) {
+	if legacy["binary_sha256"] != binary || legacy["cases"] != float64(len(profiles)*len(legacyCases)) || !sameSet(stringsOf(legacy["families"]), profiles) {
 		return reject("EVIDENCE", "legacy recovery descriptor incomplete")
 	}
 	legacyRaw, err := s.dependency(legacy["sha256"])

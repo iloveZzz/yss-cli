@@ -161,10 +161,6 @@ func buildStagePlan(root, action, cpRef, inputRef string, refresh bool, contexts
 	if err != nil {
 		return plan, err
 	}
-	design, _, err := kernel.DesignProfile(v)
-	if err != nil {
-		return plan, err
-	}
 	tracking, err := kernel.AsTracking(cp)
 	if err != nil {
 		return plan, err
@@ -193,9 +189,7 @@ func buildStagePlan(root, action, cpRef, inputRef string, refresh bool, contexts
 	}
 	if tracking == nil {
 		entry := kernel.TrackingEntry{"parent-ticket", featureRoot + "/parent-ticket.md"}
-		if design {
-			entry = kernel.TrackingEntry{"checkpoint", cpRef}
-		}
+
 		tracking = &kernel.StageTracking{SchemaVersion: 1, FeatureID: feature, CheckpointRef: cpRef, EntryStage: kernel.Text(cp["stage"]), Entry: entry, Items: []kernel.WorkItem{}}
 	}
 	var value any = []any{}
@@ -365,35 +359,35 @@ func buildStagePlan(root, action, cpRef, inputRef string, refresh bool, contexts
 			}
 		}
 	}
-	if !design {
-		entry := tracking.Entry.Ref
-		d, err := v.Watch(entry)
+
+	entry := tracking.Entry.Ref
+	d, err := v.Watch(entry)
+	if err != nil {
+		return plan, err
+	}
+	link := "\n阶段工作进度与证据：" + cpRef + "\n"
+	if d.Type == "missing" {
+		content := "# " + feature + "\n\nStatus: needs-triage\n" + link
+		if kernel.Text(config["platform"]) != "local-markdown" {
+			content += "\npublication: pending\npending_publication_to: " + kernel.Text(config["platform"]) + "\n"
+		}
+		if err = v.Set(entry, []byte(content)); err != nil {
+			return plan, err
+		}
+	} else {
+		b, err := v.Read(entry)
 		if err != nil {
 			return plan, err
 		}
-		link := "\n阶段工作进度与证据：" + cpRef + "\n"
-		if d.Type == "missing" {
-			content := "# " + feature + "\n\nStatus: needs-triage\n" + link
-			if kernel.Text(config["platform"]) != "local-markdown" {
-				content += "\npublication: pending\npending_publication_to: " + kernel.Text(config["platform"]) + "\n"
-			}
-			if err = v.Set(entry, []byte(content)); err != nil {
+		if !strings.Contains(string(b), cpRef) {
+			if err = v.Set(entry, append(b, []byte(link)...)); err != nil {
 				return plan, err
-			}
-		} else {
-			b, err := v.Read(entry)
-			if err != nil {
-				return plan, err
-			}
-			if !strings.Contains(string(b), cpRef) {
-				if err = v.Set(entry, append(b, []byte(link)...)); err != nil {
-					return plan, err
-				}
 			}
 		}
 	}
+
 	mapRef := featureRoot + "/map.md"
-	d, err := v.Watch(mapRef)
+	d, err = v.Watch(mapRef)
 	if err != nil {
 		return plan, err
 	}

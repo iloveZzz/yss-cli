@@ -1,6 +1,6 @@
 # 内置技能按需查询
 
-适用 spec、design、backend 的固定 Bundle 内共享技能。自然语言选技能由 Agent 完成，CLI 确定性解析 ID、已登记别名和上下文依赖；不下载外部技能。
+适用 Spec、Backend 的固定 Bundle 内共享技能。自然语言选技能由 Agent 完成，CLI 确定性解析 ID、已登记别名和上下文依赖；不下载外部技能。
 
 ```sh
 yss skills list --root /path/to/project --json

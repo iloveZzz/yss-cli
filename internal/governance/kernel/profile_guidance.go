@@ -16,7 +16,7 @@ func orchestrationReference(exists func(string) (bool, error), doc func(string) 
 		if err != nil {
 			return "", err
 		}
-		owner = map[string]string{"harness.spec-template": "yss-product-lifecycle", "harness.backend-delivery": "harness-orchestrator", "harness.business-ddd-strategy-handoff": "yss-strategic-design"}[Text(profile["profile_id"])]
+		owner = map[string]string{"harness.spec-template": "yss-product-lifecycle", "harness.backend-delivery": "harness-orchestrator"}[Text(profile["profile_id"])]
 		if owner == "" {
 			return "", domain.Fail("IDENTITY", "未知合同 Profile")
 		}

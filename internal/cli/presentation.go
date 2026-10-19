@@ -256,7 +256,7 @@ func renderProgression(out *strings.Builder, value any) {
 
 func renderCoordination(out *strings.Builder, value any) {
 	rows, _ := value.(map[string]any)
-	for _, profile := range []string{"design", "backend"} {
+	for _, profile := range []string{"backend"} {
 		row, _ := rows[profile].(map[string]any)
 		if row == nil {
 			continue
@@ -278,7 +278,7 @@ func renderProfileGuidance(out *strings.Builder, value any) {
 		fmt.Fprintf(out, "  %s\n", reason)
 	}
 	if g["default"] == "continue-current-spec" {
-		out.WriteString("  默认：在当前 Spec 继续已登记工作；独立 Design 可按适用范围选择。\n")
+		out.WriteString("  默认：在当前 Spec 继续已登记工作；按明确交付范围接续 Backend。\n")
 	}
 	defaultCommands, _ := g["default_commands"].([]any)
 	for _, command := range defaultCommands {

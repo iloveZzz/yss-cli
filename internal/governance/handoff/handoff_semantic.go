@@ -4,6 +4,7 @@ import approvaldomain "github.com/iloveZzz/yss-cli/internal/governance/approval"
 
 import (
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
@@ -335,7 +336,10 @@ func contractOpenHandoffSource(s *kernel.SemanticSession, prefix string) (*Nativ
 // Imported business references select an already authenticated v5 source view;
 // a path match alone never creates aliases or accepts a distinct baseline format.
 func ContractBusinessSource(s *kernel.SemanticSession, ref, reviewRef string) (*kernel.SemanticSession, string, string, error) {
-	if !strings.HasPrefix(ref, "docs/spec-baselines/") && !strings.HasPrefix(ref, "docs/handoffs/") {
+	if strings.HasPrefix(ref, "docs/spec-baselines/") {
+		return nil, "", "", s.Reject("PROFILE_REMOVED", "Spec→Design 基线来源已移除")
+	}
+	if !strings.HasPrefix(ref, "docs/handoffs/") {
 		return s, ref, reviewRef, nil
 	}
 	parts := strings.Split(ref, "/")
@@ -343,37 +347,7 @@ func ContractBusinessSource(s *kernel.SemanticSession, ref, reviewRef string) (*
 		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "来源路径必须为已登记导入布局")
 	}
 	base := strings.Join(parts[:4], "/")
-	if parts[1] == "spec-baselines" {
-		if parts[4] == "working-files" {
-			if _, _, e := VerifySpecBaselineReceipt(s, base+"/receipt.json", false); e != nil {
-				return nil, "", "", e
-			}
-			receipt, e := s.Doc(base + "/receipt.json")
-			if e != nil {
-				return nil, "", "", e
-			}
-			working, e := s.Doc(kernel.Text(receipt["working_set_ref"]))
-			if e != nil {
-				return nil, "", "", e
-			}
-			if working["business_ticket_set_ref"] != ref {
-				return nil, "", "", s.Reject("SPEC_BASELINE_WORKING_SET", "业务集合不属于批准接入工作集")
-			}
-			return s, ref, reviewRef, nil
-		}
-		if len(parts) < 8 || parts[4] != "package" || parts[5] != "payload" || parts[6] != "files" {
-			return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "冻结 Spec 来源需要固定 payload/files 布局")
-		}
-		_, source, e := OpenSpecBaseline(s, base+"/package")
-		if e != nil {
-			return nil, "", "", e
-		}
-		local := strings.Join(parts[7:], "/")
-		if strings.HasPrefix(reviewRef, base+"/package/payload/files/") {
-			reviewRef = strings.TrimPrefix(reviewRef, base+"/package/payload/files/")
-		}
-		return source, local, reviewRef, nil
-	}
+
 	if parts[4] != "package" {
 		return nil, "", "", s.Unavailable("BUSINESS_SOURCE_LAYOUT_UNSUPPORTED", "Handoff 来源需要已登记 package")
 	}
@@ -639,19 +613,8 @@ func ContractInspectHandoff(s *kernel.SemanticSession, ref string) (*NativeHando
 		if kernel.Text(doc["status"]) != "approved" {
 			return nil, s.Reject("HANDOFF_SOURCE_APPROVAL", "来源设计未批准")
 		}
-		contextSource := s
-		key := "domain_strategy_ref"
-		if label == "stage-decision-package" {
-			key = "stage_decision_package_ref"
-		}
-		if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(source[key])["approval_context"])["source_baseline"]); len(marker) > 0 {
-			_, inherited, err := VerifySpecBaselineReceipt(s, kernel.Text(marker["receipt_ref"]), false)
-			if err != nil {
-				return nil, err
-			}
-			contextSource = inherited
-		}
-		if _, e = contextSource.ContextSnapshot(kernel.SemMap(doc["context_snapshot"])); e != nil {
+
+		if _, e = s.ContextSnapshot(kernel.SemMap(doc["context_snapshot"])); e != nil {
 			return nil, e
 		}
 	}
@@ -660,9 +623,7 @@ func ContractInspectHandoff(s *kernel.SemanticSession, ref string) (*NativeHando
 	}
 	binding := kernel.SemMap(stage["domain_strategy_ref"])
 	strategyRef := kernel.SemMap(source["domain_strategy_ref"])["persisted_ref"]
-	if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(source["stage_decision_package_ref"])["approval_context"])["source_baseline"]); len(marker) > 0 {
-		strategyRef = kernel.SemMap(kernel.SemMap(kernel.SemMap(source["domain_strategy_ref"])["approval_context"])["source_baseline"])["source_ref"]
-	}
+
 	if binding["domain_strategy_id"] != strategy["domain_strategy_id"] || binding["domain_version"] != strategy["domain_version"] || kernel.Text(binding["status"]) != "approved" || binding["persisted_ref"] != strategyRef || kernel.Text(binding["digest"]) != dependencies.ContractDigest(strategy) {
 		return nil, s.Reject("HANDOFF_SOURCE_STALE", "阶段包战略来源变化")
 	}
@@ -930,13 +891,7 @@ func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHa
 			// Context2 descriptors below are current authority; embedded legacy approval annotations remain historical.
 			continue
 		}
-		key := "domain_strategy_ref"
-		if row.gate == "check.stage-decision-package-approved" {
-			key = "stage_decision_package_ref"
-		}
-		if len(kernel.SemMap(kernel.SemMap(kernel.SemMap(kernel.SemMap(b.Handoff["source"])[key])["approval_context"])["source_baseline"])) > 0 {
-			continue
-		}
+
 		approval := kernel.SemMap(row.doc["approval"])
 		if len(approval) > 0 {
 			if !dependencies.ContractSame(approval["current_version"], row.version) {
@@ -1119,6 +1074,35 @@ func reviewedSource(record map[string]any, ref, digest string) bool {
 }
 
 func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error {
+	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		return err
+	}
+	profileID := kernel.Text(profile["profile_id"])
+	if profileID != "harness.spec-template" && profileID != "harness.backend-delivery" {
+		return s.Reject("PROFILE_REMOVED", "不支持的 Handoff 来源 Profile: "+profileID)
+	}
+	if present, err := s.Exists(".yss.json"); err != nil {
+		return err
+	} else if present {
+		metadata, err := s.Doc(".yss.json")
+		if err != nil {
+			return err
+		}
+		p, err := domain.GetProfile(kernel.Text(metadata["profile"]))
+		if err != nil {
+			return err
+		}
+		if p.ID != profileID || metadata["profileId"] != profileID {
+			return s.Reject("IDENTITY", "Handoff 来源身份与 Profile 不一致")
+		}
+		if metadata["governanceHistory"] != nil {
+			if _, err = s.OriginalGovernanceSource(); err != nil {
+				return err
+			}
+		}
+	}
+
 	if s.GovernanceVersion == 2 {
 		if protocol != 5 || s.Report.Profile != "spec" || s.GovernancePolicy == nil {
 			return s.Reject("HANDOFF_POLICY", "新 Handoff5 必须使用源 Spec 自身的 Profile3/policy2")
@@ -1172,9 +1156,7 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 	if err := sourceApprovalContextVersion(s, kernel.SemMap(binding["approval_context"])); err != nil {
 		return err
 	}
-	if inherited, err := inheritedSourceApproval(s, gate, binding, approvalRef); inherited {
-		return err
-	}
+
 	record, e := s.Doc(approvalRef)
 	if e != nil {
 		return e
@@ -1328,6 +1310,9 @@ func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[
 
 // The source's own policy chooses a context version; a receiving policy cannot reinterpret legacy signers.
 func sourceApprovalContextVersion(s *kernel.SemanticSession, context map[string]any) error {
+	if _, inherited := context["source_baseline"]; inherited {
+		return s.Reject("PROFILE_REMOVED", "Spec→Design 批准继承已移除")
+	}
 	value, declared := context["schema_version"]
 	version, valid := kernel.Integer(value)
 	if s.GovernanceVersion == 2 && declared && valid && version == 2 || s.GovernanceVersion == 1 && !declared {
@@ -1348,50 +1333,14 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 	} else {
 		queue = append(queue, ".template-spec/agents/digital-human-roles.yaml")
 	}
-	savedRegistry := s.Registry
-	defer func() { s.Registry = savedRegistry }()
-	sealedPackages := map[string]bool{}
-	enqueueBaseline := func(receiptRef string) error {
-		if err := s.Verify("spec-baseline-receipt", receiptRef, nil); err != nil {
-			return err
-		}
-		receipt, err := s.Doc(receiptRef)
-		if err != nil {
-			return err
-		}
-		working, err := s.Doc(kernel.Text(receipt["working_set_ref"]))
-		if err != nil {
-			return err
-		}
-		packageRef := kernel.Text(receipt["package_ref"])
-		sealedPackages[packageRef] = true
-		queue = append(queue, receiptRef, packageRef, kernel.Text(receipt["working_set_ref"]))
-		for _, asset := range kernel.SemMap(working["assets"]) {
-			queue = append(queue, kernel.Text(asset))
-		}
-		return nil
-	}
 	if exists, err := s.Exists(".yss.json"); err != nil {
 		return nil, err
 	} else if exists {
 		queue = append(queue, ".yss.json")
 	}
-	for key, v := range kernel.SemMap(b.Handoff["source"]) {
+	for _, v := range kernel.SemMap(b.Handoff["source"]) {
 		queue = append(queue, kernel.Text(kernel.SemMap(v)["persisted_ref"]))
-		if marker := kernel.SemMap(kernel.SemMap(kernel.SemMap(v)["approval_context"])["source_baseline"]); len(marker) > 0 {
-			gate := "gate.plan-approved"
-			if key == "spec_ref" {
-				gate = "gate.spec-baseline-approved"
-			}
-			binding := kernel.SemMap(v)
-			if _, err := inheritedSourceApproval(s, gate, map[string]any{"ref": binding["persisted_ref"], "approval_context": binding["approval_context"]}, kernel.Text(kernel.SemMap(kernel.SemMap(b.Config["approvals"])[key])["record_ref"])); err != nil {
-				return nil, err
-			}
-			if err := enqueueBaseline(kernel.Text(marker["receipt_ref"])); err != nil {
-				return nil, err
-			}
-			queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", kernel.Text(marker["receipt_ref"]), kernel.Text(marker["context_reconciliation_ref"]))
-		}
+
 	}
 	for _, v := range kernel.SemMap(b.Config["approvals"]) {
 		queue = append(queue, kernel.Text(kernel.SemMap(v)["record_ref"]))
@@ -1411,7 +1360,7 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 		row := kernel.SemMap(value)
 		boundedPlan = boundedPlan || row["aggregate_gate"] == "gate.plan-approved" && row["aggregate_additional_review_task"] == "forbidden"
 	}
-	// Keep SpecBaseline's published closure when it reuses this walker internally.
+	// Local Spec verification also uses the full dependency closure.
 	protocol := kernel.ContractN(b.Handoff["schema_version"])
 	boundedPlan = boundedPlan && (protocol == 3 || protocol == 4 || protocol == 5)
 	seen := map[string]bool{}
@@ -1426,7 +1375,6 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 	}
 	var refs func(any, string)
 	var dependencyErr error
-	documentRef := ""
 	refs = func(v any, key string) {
 		if dependencyErr != nil {
 			return
@@ -1441,27 +1389,9 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 				}
 			}
 		case map[string]any:
-			if len(kernel.SemMap(x["upstream_spec_baseline"])) > 0 {
-				s.Registry, dependencyErr = s.Doc(".template-spec/process/lifecycle-registry.yaml")
-				if dependencyErr != nil {
-					return
-				}
-				if dependencyErr = s.Verify("inherited-spec-checkpoint", documentRef, nil); dependencyErr != nil {
-					return
-				}
-				if dependencyErr = enqueueBaseline(kernel.Text(kernel.SemMap(x["upstream_spec_baseline"])["receipt_ref"])); dependencyErr != nil {
-					return
-				}
-				queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml")
-			}
-			if marker := kernel.SemMap(x["source_baseline"]); len(marker) > 0 {
-				enqueue(kernel.Text(marker["receipt_ref"]))
-				enqueue(kernel.Text(marker["context_reconciliation_ref"]))
+			if _, inherited := x["source_baseline"]; inherited {
+				dependencyErr = s.Reject("PROFILE_REMOVED", "Spec→Design 批准继承已移除")
 				return
-			}
-			if x["kind"] == "spec-baseline-import" {
-				enqueue(kernel.Text(x["package_ref"]))
-				enqueue(kernel.Text(x["working_set_ref"]))
 			}
 			if x["plan_review_control"] != nil {
 				enqueue("yss-project.yaml")
@@ -1580,17 +1510,16 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 		if len(seen) > 20000 || total > 512<<20 {
 			return nil, s.Reject("HANDOFF_LIMIT", "闭包数量/大小超限")
 		}
-		sealedSource := false
-		for prefix := range sealedPackages {
-			sealedSource = sealedSource || strings.HasPrefix(ref, prefix+"/")
-		}
-		localBaseline := sealedSource || contractHandoffUIKind(b.Handoff) == "existing-ui-baseline" && strings.HasPrefix(ref, kernel.Text(contractHandoffUIRef(b.Handoff)["persisted_ref"])+"/")
+		localBaseline := contractHandoffUIKind(b.Handoff) == "existing-ui-baseline" && strings.HasPrefix(ref, kernel.Text(contractHandoffUIRef(b.Handoff)["persisted_ref"])+"/")
 		if !localBaseline && (strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") || strings.HasSuffix(ref, ".json")) {
 			doc, e := schema.Parse(bytes)
 			if e != nil {
 				return nil, e
 			}
 			value := kernel.SemMap(doc)
+			if _, imported := value["upstream_spec_baseline"]; imported || value["kind"] == "spec-baseline-import" || value["kind"] == "spec-baseline-package" {
+				return nil, s.Reject("PROFILE_REMOVED", "Spec→Design 基线导入已移除")
+			}
 			if boundedPlan && value["gate_id"] == "gate.plan-approved" && kernel.Text(value["decision"]) != "" && kernel.Text(value["actor_kind"]) != "" {
 				opts := map[string]string{}
 				if value["plan_review_binding"] != nil && kernel.Text(value["review_task_ref"]) != "" {
@@ -1610,7 +1539,6 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 					enqueue(".template-spec/process/harness-profile.yaml")
 				}
 			}
-			documentRef = ref
 			refs(doc, "")
 			if dependencyErr != nil {
 				return nil, dependencyErr

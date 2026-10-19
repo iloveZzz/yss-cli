@@ -1,9 +1,6 @@
 package evidence
 
-import "github.com/iloveZzz/yss-cli/internal/governance/lifecycle"
-
 import (
-	"bytes"
 	"github.com/iloveZzz/yss-cli/internal/governance/contracts"
 	handoffdomain "github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
@@ -112,12 +109,7 @@ func contractPublicVerificationBasis(s *kernel.SemanticSession, reportRef, kind 
 		if e != nil {
 			return "", e
 		}
-		if kind == "strategic-delivery-verification-v1" {
-			basis, selected, err := contractExplicitDesignVerificationBasis(s, cpRef, cp, reportRef, taskRef)
-			if selected || err != nil {
-				return basis, err
-			}
-		}
+
 		trace := kernel.SemMap(cp["stage_trace"])
 		if kind != "strategic-delivery-verification-v1" && cp["mode"] == "audit" && trace["completed_work_unit"] == "work-unit.backend-delivery" {
 			unit := kernel.ApFind(s.Registry["work_units"], "id", "work-unit.backend-delivery")
@@ -270,120 +262,6 @@ func contractPublicVerificationBasis(s *kernel.SemanticSession, reportRef, kind 
 		}
 	}
 	return contracts.ContractDigest(body), nil
-}
-
-// Intent only selects a consumer. Its current original Receipt, signing
-// authority and full delivery determine the verification subject independently
-// of the candidate report. This reader is shared by public verification and
-// milestone evaluation and never invokes the business evaluator.
-func contractExplicitDesignVerificationBasis(s *kernel.SemanticSession, cpRef string, cp map[string]any, reportRef, taskRef string) (string, bool, error) {
-	if s.Report.Profile != "spec" || !strings.HasPrefix(kernel.Text(cp["feature_id"]), "feature.") {
-		return "", false, nil
-	}
-	contractRef, err := s.OrchestrationReference()
-	if err != nil {
-		return "", false, err
-	}
-	present, err := s.Exists(contractRef)
-	if err != nil || !present {
-		return "", false, err // Legacy reports may not install this policy asset.
-	}
-	contract, err := s.Doc(contractRef)
-	if err != nil {
-		return "", false, err
-	}
-	if _, declared := contract["progression_target"]; !declared {
-		return "", false, nil // Legacy reports retain their existing ownership.
-	}
-	if _, _, err = kernel.ProgressionPolicy(s); err != nil {
-		return "", false, err
-	}
-	configRef, _, err := kernel.ProgressionLocation(s, cpRef)
-	if err != nil {
-		return "", false, err
-	}
-	present, err = s.Exists(configRef)
-	if err != nil || !present {
-		return "", false, err
-	}
-	raw, err := s.Bytes(configRef)
-	if err != nil {
-		return "", false, err
-	}
-	intent, err := dependencies.ParseProgressionTarget(raw)
-	if err != nil {
-		return "", false, err
-	}
-	if intent.FeatureID != kernel.Text(cp["feature_id"]) || intent.CheckpointRef != cpRef {
-		return "", false, s.Reject("PROGRESSION_BINDING", "验证报告的显式消费者意图未绑定当前功能 checkpoint")
-	}
-	if err = dependencies.ProgressionScope(s, intent.Target); err != nil {
-		return "", false, err
-	}
-	for _, consumer := range intent.Consumers {
-		if consumer.Profile != "design" {
-			continue
-		}
-		if taskRef != "" || dependencies.GuidanceArtifact(cp, "artifact.strategic-design-handoff", "strategic_handoff_ref", "handoff_ref") != "" {
-			return "", true, s.Reject("VERIFICATION_CONSUMER_ROUTE", "战略验证同时登记本端与外部 Design 生产来源")
-		}
-		// A backend or frontend is irrelevant to this report's source selection.
-		// Their terminal qualification remains mandatory for whole business.
-		intent.Consumers = []lifecycle.ProgressionConsumer{consumer}
-		rows, sessions := dependencies.ProgressionConsumers(s, "spec", cpRef, cp, intent)
-		row, design := kernel.SemMap(rows["design"]), sessions["design"]
-		if design == nil || row["input_status"] != "verified" || row["completion_status"] != "reached" {
-			return "", true, s.Reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 的当前来源接收或本端交付未核验："+kernel.First(kernel.Text(row["reason"]), kernel.Text(row["completion_reason"])))
-		}
-		current, err := design.Doc(consumer.CheckpointRef)
-		if err != nil {
-			return "", true, err
-		}
-		ref, present, err := dependencies.GuidanceStrategicDeliveryRef(design, current)
-		if err != nil {
-			return "", true, err
-		}
-		if !present {
-			return "", true, s.Reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 缺少当前批准 Handoff 的完整交付登记")
-		}
-		bundle, record, err := handoffdomain.ContractOpenStrategicDelivery(design, ref)
-		if err != nil {
-			return "", true, err
-		}
-		asset := kernel.SemMap(kernel.SemMap(current["artifacts"])["artifact.strategic-design-handoff"])
-		if asset["status"] != "approved" || !contracts.ContractSHA(asset["digest"]) {
-			return "", true, s.Reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 的当前 Handoff 资产缺少批准或原始字节摘要")
-		}
-		handoff, err := contracts.ContractBoundDoc(design, asset)
-		if err != nil {
-			return "", true, err
-		}
-		published := kernel.SemMap(record["handoff"])
-		if published["ref"] != asset["ref"] || published["sha256"] != asset["digest"] || !contracts.ContractSame(handoff, bundle.Handoff) {
-			return "", true, s.Reject("VERIFICATION_CURRENT_REQUIRED", "外部 Design 当前 Handoff 与完整交付包的原始批准资产不一致")
-		}
-		expectedRef := path.Join(path.Dir(ref), kernel.Text(record["verification_ref"]))
-		if err = contractVerificationOriginalCopy(s, reportRef, design, expectedRef); err != nil {
-			return "", true, err
-		}
-		return kernel.Text(bundle.Manifest["bundle_digest"]), true, nil
-	}
-	return "", false, nil
-}
-
-func contractVerificationOriginalCopy(s *kernel.SemanticSession, reportRef string, source *kernel.SemanticSession, sourceRef string) error {
-	actual, err := s.Bytes(reportRef)
-	if err != nil {
-		return err
-	}
-	original, err := source.Bytes(sourceRef)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(actual, original) {
-		return s.Reject("VERIFICATION_CURRENT_REQUIRED", "待验冻结报告原始字节与当前外部 Design 交付验证不同")
-	}
-	return nil
 }
 
 // The fixed terminal producer owns the delivery reference. A report or a task

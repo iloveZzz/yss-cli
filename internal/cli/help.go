@@ -154,7 +154,7 @@ func rootHelpFrom(root *cobra.Command) string {
 			fmt.Fprintf(&out, "    %-16s %s\n", name, func() string { cmd, _ := lookupCommand(root, []string{name}); return cmd.Short }())
 		}
 	}
-	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|backend；Design 仅历史读取与显式迁移，init 必需，其余从身份检测\n\n")
+	out.WriteString("  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程\n\n项目常用参数（程序升级不接受这些参数）:\n  --root <目录>    项目根，默认当前目录\n  --profile <Profile>  spec|backend；init 必需，其余从身份检测\n\n")
 	out.WriteString(`升级、同步与恢复:
   yss upgrade --check                         查询 CLI 稳定版本
   yss upgrade                                 升级 CLI 程序
@@ -177,7 +177,7 @@ Shell 补全:
 
 帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
 完整离线教程: yss help tutorial
-按主题阅读: yss help tutorial quickstart|daily|governed|spec|design|backend|maintenance
+按主题阅读: yss help tutorial quickstart|daily|governed|spec|backend|maintenance
 示例索引: yss help examples [命令/子命令]
 错误索引: yss help errors [错误码]
 入口区别: upgrade 升级程序；sync 同步模板；recover 恢复未完成事务；rollback 回退最近成功事务。

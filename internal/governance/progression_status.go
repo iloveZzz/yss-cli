@@ -110,7 +110,7 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 	} else if blockers, ok := cp["blockers"].([]any); !ok || len(blockers) > 0 {
 		status, reason = "blocked", "checkpoint 缺少有效无阻塞事实"
 	} else {
-		owner := map[string]string{"product-design-completed": "design", "backend-deliverable": "backend"}[target.Target]
+		owner := map[string]string{"backend-deliverable": "backend"}[target.Target]
 		declaredOwner := false
 		for _, c := range target.Consumers {
 			if c.Profile == owner {
@@ -129,13 +129,6 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 				localCP, e := participant.Doc(localRef)
 				if e != nil {
 					status, reason = "blocked", e.Error()
-				} else if owner == "design" {
-					_, localPolicy, e := kernel.ProgressionPolicy(participant)
-					if e != nil {
-						status, reason = "blocked", e.Error()
-					} else {
-						status, reason = progressionMilestone(participant, localRef, localCP, target.Target, kernel.SemMap(kernel.SemMap(localPolicy["completion_policy"])[target.Target]), target)
-					}
 				} else {
 					status, reason = progressionProfileTerminal(participant, owner, localRef, localCP)
 				}
@@ -152,10 +145,7 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 		// consumers may continue after it under their own registered contracts.
 		if (status == "reached" || status == "not-applicable") && kernel.SemMap(policyRow["conditional_required_checks"])["strategic-handoff-delivery"] == "explicit-external-implementation-consumer" && progressionExternalImplementation(target, root) {
 			source, sourceCP := s, cp
-			if design := participants["design"]; design != nil {
-				source = design
-				sourceCP, err = design.Doc(design.CheckpointRef)
-			}
+
 			if err == nil {
 				err = progressionCheck(source, source.CheckpointRef, sourceCP, "strategic-handoff-delivery")
 			}
@@ -235,7 +225,7 @@ func progressionReadSession(s *kernel.SemanticSession) (map[string]any, error) {
 }
 
 func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef string, cp map[string]any, target ProgressionTarget, consumer ProgressionConsumer, coordination map[string]any, participants map[string]*kernel.SemanticSession) bool {
-	required := map[string][]string{"product-design-completed": {"design"}, "backend-deliverable": {"design", "backend"}, "business-accepted": {"design", "backend"}}
+	required := map[string][]string{"backend-deliverable": {"backend"}, "business-accepted": {"backend"}}
 	if !kernel.SemHas(required[target.Target], consumer.Profile) {
 		return false
 	}
@@ -247,22 +237,9 @@ func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef stri
 	if row["input_status"] == "blocked" {
 		return false
 	}
-	if consumer.Profile == "design" {
-		if profile != "spec" {
-			return false
-		}
-		_, _, err := handoff.InspectSpecBaselineSource(s, cpRef)
-		row["source_ready"] = err == nil
-		return err == nil
-	}
+
 	source, sourceRef, sourceCP := s, cpRef, cp
-	if design := participants["design"]; design != nil {
-		if kernel.SemMap(coordination["design"])["input_status"] != "verified" {
-			return false
-		}
-		source, sourceRef = design, design.CheckpointRef
-		sourceCP, _ = source.Doc(sourceRef)
-	}
+
 	err := progressionCheck(source, sourceRef, sourceCP, "strategic-handoff-delivery")
 	row["source_ready"] = err == nil
 	return err == nil
@@ -408,13 +385,7 @@ func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string
 }
 
 func progressionNoUI(s *kernel.SemanticSession, cpRef string, cp map[string]any) (bool, error) {
-	if cp["upstream_spec_baseline"] != nil {
-		if err := handoff.VerifyInheritedSpecCheckpoint(s, cpRef, cp); err != nil {
-			return false, err
-		}
-		manifest, _, err := handoff.VerifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(cp["upstream_spec_baseline"])["receipt_ref"]), true)
-		return err == nil && kernel.SemMap(manifest["source"])["product_design_required"] == false, err
-	}
+
 	source, _, err := handoff.InspectSpecBaselineSource(s, cpRef)
 	return err == nil && source["product_design_required"] == false, err
 }
@@ -438,12 +409,10 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		if spec != "" && kernel.SemMap(set["spec"])["ref"] != spec {
 			return s.Reject("PROGRESSION_BINDING", "业务票没有绑定当前 Spec")
 		}
-		if check == "business-tickets-draft" && cp["upstream_spec_baseline"] == nil {
+		if check == "business-tickets-draft" {
 			_, _, err = handoff.InspectSpecBaselineSource(s, cpRef)
 		}
 		return err
-	case "inherited-spec-baseline":
-		return handoff.VerifyInheritedSpecCheckpoint(s, cpRef, cp)
 	case "backend-delivery":
 		a, err := progressionBackendAuthorization(s, cpRef, "", true)
 		if err != nil {
@@ -536,7 +505,7 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 		sessions[c.Profile] = child
 		row["completion_status"], row["completion_reason"] = progressionProfileTerminal(child, c.Profile, c.CheckpointRef, localCP)
 	}
-	for _, name := range []string{"design", "backend"} {
+	for _, name := range []string{"backend"} {
 		var c ProgressionConsumer
 		for _, candidate := range target.Consumers {
 			if candidate.Profile == name {
@@ -551,16 +520,7 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 			continue
 		}
 		source, sourceProfile, sourceRef, sourceCP := s, profile, cpRef, cp
-		if c.Profile == "backend" {
-			if design := sessions["design"]; design != nil {
-				if kernel.SemMap(rows["design"])["input_status"] != "verified" {
-					row["reason"] = "先核验独立 Design 的当前来源接收"
-					continue
-				}
-				source, sourceProfile, sourceRef = design, "design", design.CheckpointRef
-				sourceCP, _ = design.Doc(sourceRef)
-			}
-		}
+
 		engineering, _ := guidanceEngineering(c.Root, c.Profile)
 		status, reason, _ := guidanceTargetInputSession(s.Ctx, source, sourceProfile, sourceRef, sourceCP, c.Root, c.Profile, engineering, sessions[c.Profile])
 		if status == "verified" {
@@ -592,15 +552,6 @@ func progressionConsumerEvidence(s *kernel.SemanticSession, c ProgressionConsume
 				if e == nil {
 					refs["delivery"] = map[string]any{"ref": binding["ref"], "digest": binding["digest"], "terminal_ref": a.TerminalRef, "delivery_id": delivery["delivery_id"], "version": delivery["version"], "slice_id": kernel.SemMap(delivery["scope"])["slice_id"], "bundle_ref": terminal["bundle_ref"], "bundle_digest": terminal["bundle_digest"], "verification": delivery["verification"]}
 				}
-			}
-		}
-	} else if c.Profile == "design" {
-		ref, _, err := guidanceStrategicDeliveryRef(s, cp)
-		if err == nil && ref != "" {
-			record, e := s.Doc(ref)
-			raw, err := s.Bytes(ref)
-			if e == nil && err == nil {
-				refs["delivery"] = map[string]any{"ref": ref, "digest": "sha256:" + safefs.Digest(raw), "bundle_digest": record["bundle_digest"], "verification": kernel.SemMap(cp["verification"])["strategic_delivery"]}
 			}
 		}
 	}

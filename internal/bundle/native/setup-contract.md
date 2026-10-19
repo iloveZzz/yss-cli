@@ -6,7 +6,7 @@
 
 用户指定工程并要求 `setup` 时，`setup-yss-harness` 在有效授权内完成 CLI 就绪与受管模板对齐所选固定版本；用户仅要求程序安装或升级时执行程序分支。程序和项目分别取证、规划、应用及验收，不逐步重复确认已有决定。新建或接管的用途、Profile 或实质取舍缺失时先调查，再补决定。
 
-已有合法身份沿用登记 Profile；没有身份时按用途推荐 `spec/design/backend/frontend`，不能用框架或目录名猜 Profile。原生实例走 `sync`，可识别旧实例走 `migrate`，普通工程走 `attach`，空目标走 `init`；模板源、矛盾身份、既有实例缺必需身份或未知 schema 的项目分支只诊断。插件绑定始终消费对应公开接口。
+已有合法身份沿用登记 Profile；没有身份时按用途推荐 `spec/backend`，不能用框架或目录名猜 Profile。原生实例走 `sync`，可识别旧实例走 `migrate`，普通工程走 `attach`，空目标走 `init`；模板源、矛盾身份、既有实例缺必需身份或未知 schema 的项目分支只诊断。插件绑定始终消费对应公开接口。
 
 可定制资产的政策允许处置能保留本地定制且不引入新业务决定时，Agent 可形成候选及绑定决议，再重新规划和验证；干净合并也需合法决议。无法证明保留定制、存在实质取舍或新增业务决定时展示差异并询问。固定来源资产、生成锁、身份与 binding 仍遵守下文各自规则。
 
@@ -60,7 +60,7 @@
 
 ## 插件绑定
 
-后端交付插件绑定 `spec`，产品设计插件绑定 `design`。绑定旧实例使用对应插件 `project-migration-plan` / `project-migration-apply`；绑定原生实例更换二进制、模板或 Bundle 来源时，使用对应插件 `project-upgrade-plan` / `project-upgrade-apply`。插件通过公开原生保存计划把 `.yss.json`、受管基线和新 binding 纳入同一事务，旧 metadata 与历史插件记录原字节进入恢复材料。
+后端交付插件绑定 `spec`。绑定旧实例使用对应插件 `project-migration-plan` / `project-migration-apply`；绑定原生实例更换二进制、模板或 Bundle 来源时，使用对应插件 `project-upgrade-plan` / `project-upgrade-apply`。插件通过公开原生保存计划把 `.yss.json`、受管基线和新 binding 纳入同一事务，旧 metadata 与历史插件记录原字节进入恢复材料。
 
 直接 `yss sync` 更换来源而没有匹配的新 binding 返回 `BINDING_REQUIRED`；既有身份和 binding 已失配返回 `BINDING_CONFLICT`。不能手改绑定或 metadata 绕过拒绝。同一来源的治理资源补装仍可使用 `assets ensure` / `skills ensure`，其输入保护现有 binding 的字节和权限。
 

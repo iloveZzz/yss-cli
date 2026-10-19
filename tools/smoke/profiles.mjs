@@ -26,7 +26,7 @@ export function runProfile(session, profile, tempRoot) {
   session.expectOk(['context', 'verify', '--root', root, json], {label: 'context verify'});
   const skills = session.expectOk(['skills', 'list', '--root', root, json], {label: 'skills list'});
   check(Array.isArray(skills.result) && skills.result.length > 0, 'skills list 应返回非空标识列表');
-  // design / backend 没有阶段资源，result 为 null；只有 spec 返回登记表。
+  // backend 没有阶段资源，result 为 null；只有 spec 返回登记表。
   const assets = session.expectOk(['assets', 'list', '--root', root, json], {label: 'assets list'});
   if (profile === 'spec') check(assets.result && Object.keys(assets.result).length > 0, 'spec 的 assets list 应返回非空登记表');
   const recover = session.expectOk(['recover', '--root', root, json], {label: 'recover'});

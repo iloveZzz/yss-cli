@@ -46,11 +46,11 @@ func ProfileRootsOverlap(a, b string) bool {
 }
 
 func ValidateProfileLinks(root string, links *ProfileLinks) error {
-	if links == nil || links.SchemaVersion != 1 || links.Links == nil || len(links.Links) > 3 {
+	if links == nil || links.SchemaVersion != 1 || links.Links == nil || len(links.Links) > 1 {
 		return domain.Fail("PROFILE_LINKS", "Profile 关联 schema 未知或 links 缺失")
 	}
 	roots := []string{root}
-	for _, name := range []string{"design", "backend"} {
+	for _, name := range []string{"backend"} {
 		value, ok := links.Links[name]
 		if !ok {
 			continue
@@ -73,7 +73,7 @@ func ValidateProfileLinks(root string, links *ProfileLinks) error {
 		if name == "frontend" {
 			return domain.Fail("PROFILE_LINKS", "前端 Profile 已移除；请先删除该关联")
 		}
-		if name != "design" && name != "backend" {
+		if name != "backend" {
 			return domain.Fail("PROFILE_LINKS", "未知目标 Profile: "+name)
 		}
 	}

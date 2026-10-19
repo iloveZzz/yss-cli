@@ -67,14 +67,7 @@ func (s *SemanticSession) TrackingTransition(cp map[string]any, ref, current, ne
 		return nil
 	}
 	currentStage, nextStage := TrackedUnits[current], TrackedUnits[next]
-	if Text(cp["profile_id"]) == "harness.business-ddd-strategy-handoff" {
-		if current == "work-unit.business-ticket-formalization" || current == "work-unit.strategic-design-handoff" {
-			currentStage = "stage.ticket-formalization"
-		}
-		if next == "work-unit.business-ticket-formalization" || next == "work-unit.strategic-design-handoff" {
-			nextStage = "stage.ticket-formalization"
-		}
-	}
+
 	for _, item := range t.Items {
 		exiting := item.WorkUnit == current || currentStage != "" && currentStage != nextStage && item.Stage == currentStage
 		if exiting && !SemHas([]string{"completed", "cancelled", "deferred"}, item.Progress) {

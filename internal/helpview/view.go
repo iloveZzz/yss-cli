@@ -163,9 +163,7 @@ func Derive(profile string) (*View, error) {
 		if profile == "backend" {
 			owner = "harness-orchestrator"
 		}
-		if profile == "design" {
-			owner = "yss-strategic-design"
-		}
+
 		policyRef = ".agents/skills/" + owner + "/references/orchestration-contract.yaml"
 	}
 	if _, ok := b.Files[policyRef]; ok {

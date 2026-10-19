@@ -1,4 +1,4 @@
-// bundle produces deterministic embedded assets from four pinned Git sources (commits, or local worktree trees).
+// bundle produces deterministic embedded assets from the supported pinned Git sources (commits, or local worktree trees).
 package main
 
 import (
@@ -20,8 +20,8 @@ func main() {
 }
 func run(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("bundle", flag.ContinueOnError)
-	sourceRoot := f.String("source-root", "", "root containing the four Git template repositories")
-	lockPath := f.String("lock", "docs/source-lock.json", "source lock v2/v3 (committed) or v4 (local working-tree)")
+	sourceRoot := f.String("source-root", "", "root containing the Spec/Backend template source")
+	lockPath := f.String("lock", "docs/source-lock.json", "source lock v5 (Spec/Backend, committed or local working-tree)")
 	out := f.String("out", "internal/bundle/assets", "output shared embedded archive directory")
 	if e := f.Parse(args); e != nil {
 		return e

@@ -9,7 +9,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/helpview"
 )
 
-var tutorialTopics = []string{"quickstart", "governed", "daily", "spec", "design", "backend", "maintenance"}
+var tutorialTopics = []string{"quickstart", "governed", "daily", "spec", "backend", "maintenance"}
 var placeholderPattern = regexp.MustCompile(`<[^<>\n]+>`)
 
 func safeExampleText(s string) string {
@@ -186,7 +186,7 @@ func renderTutorial(topic string) (string, error) {
 		return dailyTutorial(), nil
 	case "governed":
 		return governedTutorial("spec")
-	case "spec", "design", "backend":
+	case "spec", "backend":
 		return profileTutorial(topic)
 	case "maintenance":
 		return maintenanceIntroduction + safeExampleText(maintenanceTutorial), nil
@@ -196,7 +196,7 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
-前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；新建仅 Spec/Backend，旧 Design 显式迁移到 Spec。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -254,7 +254,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 本地或独立专职：
   consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
   外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。旧 Spec→Design 只按原政策只读核验。
+  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
   主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
 
 读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
@@ -328,11 +328,7 @@ func governedTutorial(profile string) (string, error) {
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind scaffold --file docs/scaffold.json --json --diagnostics\n  yss handoff verify --root %s --kind package --package docs/handoff --json\n", root, root)
 			out.WriteString("  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。\n")
 		case "stage.ticket-formalization":
-			if profile == "design" {
-				fmt.Fprintf(&out, "  yss handoff verify --root %s --kind package --package docs/handoff --json --diagnostics\n", root)
-				out.WriteString("  Design 正式化业务级 Ticket 并交接批准且当前的业务方案；研发合同与实现由下游接收方完成。\n")
-				break
-			}
+
 			fmt.Fprintf(&out, "  yss contract verify --root %s --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics\n", root)
 			out.WriteString("  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。\n")
 			if profile == "spec" {
@@ -373,15 +369,12 @@ func registeredDigest(value string) string {
 }
 
 func profileTutorial(profile string) (string, error) {
-	if profile == "design" {
-		return "Design 是历史 Profile，新建已合入 Spec。必要产品设计仍在 Spec 内完成。\n旧统一 metadata3 Design：先 yss migrate --profile spec --root ./old-design --plan --out /tmp/design-migration.json；核对冲突与原政策快照后，再 --apply --plan-file /tmp/design-migration.json。\n原记录保持原字节，--history 按原政策只读；旧批准不授予新资格。未知格式保留原件并报告不支持。\n", nil
-	}
 
 	v, e := helpview.Load(profile)
 	if e != nil {
 		return "", e
 	}
-	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "design": "产品与业务设计；技术设计由前后端工程路线承担。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。"}[profile]
+	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。"}[profile]
 	root := "./demo-" + profile
 	intro := fmt.Sprintf("Profile %s\n职责：%s\n日常政策启用：%t\n\n前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。\n输入材料：项目名称、当前职责对应的合同/交接材料。\n\n  yss init --profile %s --root %s --project-name 演示项目\n  yss doctor --root %s --json\n  yss context verify --root %s --json\n  yss lifecycle query --root %s --id %s --json\n  yss assets list --root %s --json\n  yss skills list --root %s --json\n\n预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。\n下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。\n失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。\n\n", profile, responsibility, v.DailyEnabled, profile, root, root, root, root, v.EntryWorkUnit, root, root)
 	stages, err := governedTutorial(profile)

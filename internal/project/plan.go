@@ -121,9 +121,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	if err != nil {
 		return nil, err
 	}
-	if init && id.Profile.Name == "design" {
-		return nil, domain.Explain(domain.Fail("PROFILE_RETIRED", "Design 新建入口已合入 Spec"), "DESIGN_PROFILE_RETIRED", "使用 yss init --profile spec；已有 Design 使用显式 migrate 计划，原件保留。", nil)
-	}
+
 	if id.Profile.Name == "" {
 		return nil, domain.Fail("IDENTITY", "初始化或接管需要 --profile")
 	}

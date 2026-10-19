@@ -4,7 +4,7 @@
 
 | 能力 | 当前实现 | 切换条件 |
 |---|---|---|
-| Spec / Design / Backend 初始化、接管、差异、同步 | 独立 Go 固定来源 Bundle v3、只读计划、摘要绑定应用；拒绝混家族和未知身份 | 三个 Profile 实例矩阵及现役消费者通过后切换；Frontend 独立 Profile 已退役；停用参数明确拒绝和替代说明 |
+| Spec / Backend 初始化、接管、差异、同步 | 独立 Go 固定来源 Bundle v4、只读计划、摘要绑定应用；拒绝混家族和未知身份 | 两个 Profile 实例矩阵及现役消费者通过后切换；Frontend 独立 Profile 已退役；停用参数明确拒绝和替代说明 |
 | 迁移和恢复 | 显式旧→Go metadata 转换；原字节、mode、WAL、对象归档；最新迁移 kind 回退 | 旧事务由旧执行器恢复；历史布局、外部归档与手工冲突解决仍未迁移 |
 | 程序安装 | `update plan/apply/status/recover/rollback`；指定 `--tool-root`、发行包 SHA-256；独立安装记录和持久归档 | 只接受显式离线发行包；恢复锁内匹配 `program-update`，回退最近一次成功安装；无网络自动查询、全局 npm 更新或发布动作；平台恢复以对应发行包的原生收据为准 |
 | Skill/阶段资源补装 | 已登记的资源/Skill 闭包；Spec selected lock 更新 | Inspect 暴露闭包和 unsupportedReason，必要消费者出现 UNPORTED 即阻断 |

@@ -61,15 +61,12 @@ yss git base --root ./my-project --json
 
 现役 Profile 的重复内容在单个私有归档中按原始字节 SHA-256 共享；公开 Bundle、文件权限、ownership、初始变体和来源身份保持完整。构建门禁要求归档 ≤10,000,000 字节、六平台各二进制 ≤35,000,000 字节，格式与测量方法见 [模板存储与体积验证](docs/bundle-storage.md)。
 
-启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。批准 Spec 默认在本工程继续设计，也可接入独立 Design；Design 的后端消费者由批准交接路由决定。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
+启用新版 `profile_guidance` 政策的实例在 `lifecycle status` 返回下游建议、工程状态、输入状态和命令。Spec 在本工程完成产品设计，按明确交付责任接续独立 Backend；正式交接继续核验原来源、批准、当前 Receipt 与 Context 对账。没有新政策的实例保持原状态查询，并提示同步。独立工程只按显式目录登记到 `.yss-profile-links.json`，`sync` 保留该文件，不根据邻近目录猜测关联。
 
 ```sh
-yss profile prepare --root ./design --backend-root ./backend --plan --out /tmp/delivery-prepare.json
-yss profile prepare --root ./design --apply --plan-file /tmp/delivery-prepare.json
+yss profile prepare --root ./spec --backend-root ./backend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./spec --apply --plan-file /tmp/delivery-prepare.json
 yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
-yss handoff import --root ./design --kind spec-baseline --package /tmp/spec-baseline --plan --out /tmp/spec-import.json
-yss handoff import --root ./design --kind spec-baseline --apply --plan-file /tmp/spec-import.json
-yss handoff verify --root ./design --kind spec-baseline --file docs/spec-baselines/spec-baseline.feature/v1/receipt.json --json
 ```
 
 初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Design 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
@@ -124,7 +121,6 @@ yss update rollback --tool-root ./tools/yss --json
 
 ```sh
 yss init --profile spec --root ./demo-spec --project-name 演示项目
-yss init --profile design --root ./demo-design --project-name 演示设计
 yss init --profile backend --root ./demo-backend --project-name 演示后端
 yss doctor --root ./demo-spec --json
 yss diff --root ./demo-spec --json

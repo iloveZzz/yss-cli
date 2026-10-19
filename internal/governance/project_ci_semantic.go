@@ -57,14 +57,7 @@ func init() {
 		}
 		return nil
 	})
-	kernel.RegisterSemanticValidator("spec-baseline-package", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
-		_, _, err := handoff.OpenSpecBaseline(s, ref)
-		return err
-	})
-	kernel.RegisterSemanticValidator("spec-baseline-import-receipt", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
-		_, _, err := handoff.VerifySpecBaselineReceipt(s, ref, false)
-		return err
-	})
+
 }
 
 func ciBindings(value any) []map[string]any {

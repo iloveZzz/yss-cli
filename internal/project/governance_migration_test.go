@@ -17,12 +17,12 @@ func TestOriginalGovernanceSnapshotPreservesBytes(t *testing.T) {
 		}
 	}
 	p := &Plan{Root: root, Command: "migrate", Inputs: map[string]domain.Descriptor{}}
-	id := &Identity{Root: root, Native: &Metadata{SchemaVersion: 3, Profile: "design"}}
+	id := &Identity{Root: root, Native: &Metadata{SchemaVersion: 3, Profile: "spec"}}
 	h, err := planOriginalGovernance(p, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.GovernanceMigration.SourceProfile != "design" || h == nil {
+	if p.GovernanceMigration.SourceProfile != "spec" || h == nil {
 		t.Fatal("missing explicit original binding")
 	}
 	if err = finalizePlan(p); err != nil {
@@ -44,7 +44,7 @@ func TestOriginalGovernanceSnapshotPreservesBytes(t *testing.T) {
 			t.Fatal("snapshot must not create a second CONTEXT.md")
 		}
 	}
-	if len(manifest.Files) != 3 || manifest.SourceProfile != "design" {
+	if len(manifest.Files) != 3 || manifest.SourceProfile != "spec" {
 		t.Fatal("snapshot omitted original files")
 	}
 	for ref, want := range manifest.Files {

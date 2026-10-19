@@ -24,7 +24,7 @@ var commonOptionNames = []string{"help", "json", "version", "human", "diagnostic
 
 func initializeArguments() {
 	// Every flag accepted by the existing dispatchers has a registered type.
-	for _, key := range strings.Fields("root target-dir asset design-root backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
+	for _, key := range strings.Fields("root target-dir asset backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
 	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref task-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
@@ -33,7 +33,7 @@ func initializeArguments() {
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot prepare-inputs changed refresh") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
-	defineArgument("profile", "<Profile>", "新建仅 spec/backend；design 仅历史读取与显式迁移；项目命令可从身份检测", "spec", "design", "backend")
+	defineArgument("profile", "<Profile>", "Spec 或 Backend；项目命令可从身份检测", "spec", "backend")
 	defineArgument("root", "<目录>", "项目根，默认当前目录；仅项目命令")
 	defineArgument("target-dir", "<目录>", "项目根的兼容参数；优先使用 --root")
 	defineArgument("tool-root", "<目录>", "程序安装目录；update 必需，upgrade 默认识别运行目录")
@@ -192,13 +192,11 @@ func commandChoices(key string) map[string][]string {
 	case "context query", "lifecycle query", "lifecycle status", "lifecycle route":
 		return map[string][]string{"view": {"agent"}}
 	case "contract verify":
-		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "governance-policy", "architecture-evidence", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "backend-review", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-review-control", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "spec-baseline-binding", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
+		return map[string][]string{"kind": {"slice-draft", "slice-execution-result", "governance-policy", "architecture-evidence", "task-baseline", "task-candidate", "task-selection", "governance-write", "continuation-comparison", "work-unit-user-decision", "slice", "scaffold", "task", "openapi-validation", "backend-delivery-terminal", "backend-review", "scaffold-decisions", "slice-preflight", "business-tickets", "plan-review-task", "plan-review-control", "plan-entry", "implementation-scope", "checkpoint-user-decisions", "scaffold-user-decision", "checkpoint-approvals", "gate-checks"}, "phase": {"preflight", "design", "contract", "inputs", "implementation", "verification"}, "mode": {"draft", "formal"}}
 	case "evidence verify":
 		return map[string][]string{"kind": {"approval", "user-decision", "verification", "context-reconciliation"}}
 	case "handoff verify":
-		return map[string][]string{"kind": {"package", "consumption", "spec-baseline", "backend-delivery", "source", "delivery", "source-approval"}}
-	case "handoff export", "handoff import":
-		return map[string][]string{"kind": {"spec-baseline"}}
+		return map[string][]string{"kind": {"package", "consumption", "backend-delivery", "source", "delivery", "source-approval"}}
 	case "runtime complete":
 		return map[string][]string{"status": {"passed", "success", "completed", "ok", "failed", "failure", "cancelled", "canceled", "timed-out", "timeout", "error"}}
 	}
@@ -239,8 +237,6 @@ func verificationOptions(group, kind string) []string {
 			options = append(options, "requirements", "continuation", "from-record", "task")
 		case "evidence.verification":
 			options = append(options, "approval-ref", "task")
-		case "contract.spec-baseline-binding":
-			options = append(options, "no-reconciliation")
 		case "contract.gate-checks":
 			options = append(options, "gate")
 		case "handoff.source-approval":
@@ -248,8 +244,6 @@ func verificationOptions(group, kind string) []string {
 		case "handoff.source":
 			options = append(options, "history")
 		case "handoff.delivery", "handoff.package":
-			options = append(options, "package")
-		case "handoff.spec-baseline":
 			options = append(options, "package")
 		case "handoff.backend-delivery":
 			options = append(options, "package")

@@ -23,7 +23,7 @@ const TrackerRef = ".template-spec/agents/issue-tracker.md"
 
 const TrackingSchemaRef = ".template-spec/process/schemas/stage-tracking.schema.json"
 
-// This is the same consumer mapping as the retained stage-tracking contract, including its design override.
+// This is the same consumer mapping as the retained stage-tracking contract, for the supported profiles.
 var TrackedUnits = map[string]string{
 	"work-unit.plan-opportunity": "stage.plan", "work-unit.plan-requirements": "stage.plan",
 	"work-unit.domain-strategy-design": "stage.plan", "work-unit.stage-decision": "stage.plan",
@@ -328,7 +328,7 @@ func ProjectIdentity(v *View, sessions ...*SemanticSession) error {
 	return nil
 }
 
-func DesignProfile(v *View, sessions ...*SemanticSession) (bool, []string, error) {
+func ProfileWorkUnits(v *View, sessions ...*SemanticSession) ([]string, error) {
 	ref := ".template-spec/process/harness-profile.yaml"
 	read := v.Document
 	if len(sessions) > 0 {
@@ -337,14 +337,17 @@ func DesignProfile(v *View, sessions ...*SemanticSession) (bool, []string, error
 	}
 	d, err := v.Watch(ref)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 	if d.Type == "missing" {
-		return false, nil, nil
+		return nil, nil
 	}
 	m, err := read(".template-spec/process/harness-profile.yaml")
 	if err != nil {
-		return false, nil, err
+		return nil, err
+	}
+	if id := Text(m["profile_id"]); id != "harness.spec-template" && id != "harness.backend-delivery" {
+		return nil, domain.Fail("IDENTITY", "不支持的 Profile: "+id)
 	}
 	allowed := m["allowed_work_units"]
 	if lifecycle, ok := Object(m["lifecycle"]); ok && lifecycle["allowed_work_units"] != nil {
@@ -354,18 +357,18 @@ func DesignProfile(v *View, sessions ...*SemanticSession) (bool, []string, error
 	if allowed != nil {
 		values, ok := allowed.([]any)
 		if !ok {
-			return false, nil, domain.Fail("PROFILE", "allowed_work_units 必须是数组")
+			return nil, domain.Fail("PROFILE", "allowed_work_units 必须是数组")
 		}
 		list = []string{}
 		for _, id := range values {
 			s, ok := id.(string)
 			if !ok {
-				return false, nil, domain.Fail("PROFILE", "allowed_work_units 必须是字符串数组")
+				return nil, domain.Fail("PROFILE", "allowed_work_units 必须是字符串数组")
 			}
 			list = append(list, s)
 		}
 	}
-	return Text(m["profile_id"]) == "harness.business-ddd-strategy-handoff", list, nil
+	return list, nil
 }
 
 func ViewWorkLayout(v *View) (*worklayout.Layout, error) {
@@ -560,16 +563,12 @@ func CheckStage(v *View, cp map[string]any, ref string, sessions ...*SemanticSes
 	if t.SchemaVersion != 1 || t.FeatureID != feature || t.CheckpointRef != ref {
 		return nil, domain.Fail("TRACKING_IDENTITY", "stage_tracking 身份、版本或 checkpoint 引用不一致")
 	}
-	design, allowed, err := DesignProfile(v, s)
+	allowed, err := ProfileWorkUnits(v, s)
 	if err != nil {
 		return nil, err
 	}
 	base := featureRoot + "/"
-	if design {
-		if t.Entry.Kind != "checkpoint" || t.Entry.Ref != ref {
-			return nil, domain.Fail("TRACKING_ENTRY", "design Profile 必须使用 checkpoint 入口")
-		}
-	} else if t.Entry.Kind != "parent-ticket" || t.Entry.Ref != base+"parent-ticket.md" {
+	if t.Entry.Kind != "parent-ticket" || t.Entry.Ref != base+"parent-ticket.md" {
 		return nil, domain.Fail("TRACKING_ENTRY", "阶段追踪必须引用本功能 parent-ticket")
 	}
 	entry, err := s.Bytes(t.Entry.Ref)
@@ -598,9 +597,7 @@ func CheckStage(v *View, cp map[string]any, ref string, sessions ...*SemanticSes
 		kind, _, ok = FindRegistry(r, item.Stage)
 		unitKind, _, unitOK := FindRegistry(r, item.WorkUnit)
 		expected := TrackedUnits[item.WorkUnit]
-		if design && (item.WorkUnit == "work-unit.business-ticket-formalization" || item.WorkUnit == "work-unit.strategic-design-handoff") {
-			expected = "stage.ticket-formalization"
-		}
+
 		if !ok || kind != "stages" || !unitOK || unitKind != "work_units" || expected != item.Stage {
 			return nil, domain.Fail("TRACKING_ROUTE", "工作项阶段与工作单元不匹配: "+item.ID)
 		}

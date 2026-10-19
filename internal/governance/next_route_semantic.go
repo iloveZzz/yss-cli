@@ -3,7 +3,6 @@ package governance
 import (
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/governance/approval"
-	"github.com/iloveZzz/yss-cli/internal/governance/handoff"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
@@ -40,17 +39,7 @@ func nativeNextRoutes(profile string) map[string][]string {
 		return m
 	}
 	put("entry-triage", "plan-opportunity", "plan-requirements")
-	if profile == "harness.business-ddd-strategy-handoff" {
-		put("plan-opportunity", "plan-requirements", "domain-strategy-design", "stage-decision")
-		put("plan-requirements", "domain-strategy-design", "stage-decision")
-		put("domain-strategy-design", "stage-decision")
-		put("stage-decision", "spec-synthesis")
-		put("spec-synthesis", "prototype-design", "business-ticket-formalization")
-		put("prototype-design", "business-ticket-formalization")
-		put("business-ticket-formalization", "strategic-design-handoff")
-		put("strategic-design-handoff")
-		return m
-	}
+
 	if profile != "harness.spec-template" {
 		return nil
 	}
@@ -222,19 +211,7 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 			}
 		}
 	}
-	if current == "work-unit.entry-triage" && profile["profile_id"] == handoff.SpecBaselineProfile && state["upstream_spec_baseline"] != nil {
-		if err = handoff.VerifyInheritedSpecCheckpoint(s, cpRef, state); err != nil {
-			return err
-		}
-		manifest, _, e := handoff.VerifySpecBaselineReceipt(s, kernel.Text(kernel.SemMap(state["upstream_spec_baseline"])["receipt_ref"]), false)
-		if e != nil {
-			return e
-		}
-		allowed = []string{"work-unit.business-ticket-formalization"}
-		if kernel.SemMap(manifest["source"])["product_design_required"] == true {
-			allowed = []string{"work-unit.prototype-design"}
-		}
-	}
+
 	if (current == "work-unit.maintenance-research" || next == "work-unit.maintenance-research") && identity["repository_mode"] != "template-source" {
 		return s.Reject("ROUTE", "模板研究仅用于 template-source")
 	}
@@ -300,7 +277,7 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 	if err = s.Verify("reading-transition", cpRef, map[string]string{"current": current}); err != nil {
 		return err
 	}
-	if kernel.Text(profile["profile_id"]) == "harness.spec-template" || kernel.Text(profile["profile_id"]) == "harness.business-ddd-strategy-handoff" {
+	if kernel.Text(profile["profile_id"]) == "harness.spec-template" {
 		if err = s.Verify("business-checkpoint", cpRef, map[string]string{"required": fmt.Sprint(current == "work-unit.business-ticket-formalization")}); err != nil {
 			return err
 		}

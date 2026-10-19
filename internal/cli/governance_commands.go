@@ -19,7 +19,7 @@ func addGovernanceCommands(root *cobra.Command, inv *invocation) {
 	for group, actions := range map[string]string{
 		"context": "check query verify", "lifecycle": "query route status target verify verify-daily",
 		"stage": "apply check plan query register status update", "reading": "affected apply-enable check-views plan-enable render",
-		"contract": "check verify view publish-review", "evidence": "check verify", "handoff": "check export import verify",
+		"contract": "check verify view publish-review", "evidence": "check verify", "handoff": "check verify",
 		"project-ci": "apply check install plan transition verify", "runtime": "begin commands complete event events inspect pin pins run unpin",
 		"archive": "pack unpack verify", "xml": "inspect query",
 	} {
@@ -160,7 +160,6 @@ var nodeDelegation = []string{
 	"lifecycle.legacy-untracked-checkpoint.v1",
 	"handoff.package-identity.v1",
 	"handoff.consumption-report.v1",
-	"handoff.spec-baseline-package.v1",
 	"evidence.context-reconciliation.v1",
 	"contract.openapi-validation.v1",
 	"contract.backend-terminal.v1",
@@ -173,8 +172,6 @@ var nodeDelegation = []string{
 	"handoff.delivery-view.v1",
 	"handoff.source-approval.v1",
 	"handoff.source-context-snapshot.v1",
-	"handoff.spec-baseline-source-view.v1",
-	"contract.spec-baseline-binding.v1",
 	"contract.pending-review-publication.v1",
 	"contract.plan-entry.v1",
 	"contract.gate-checks.v1",

@@ -8,7 +8,7 @@ func TestSourceProfilesRejectsMixedGenerations(t *testing.T) {
 		names  []string
 		valid  bool
 	}{
-		{3, []string{"spec", "design", "backend"}, true},
+		{3, []string{"spec", "design", "backend"}, false},
 		{5, []string{"spec", "backend"}, true},
 		{3, []string{"spec", "backend"}, false},
 		{5, []string{"spec", "design", "backend"}, false},

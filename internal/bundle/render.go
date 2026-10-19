@@ -28,7 +28,7 @@ func renderSource(profile, ref string, data []byte, selected bool, skills []stri
 		case "yss-project.yaml":
 			text = "schema_version: 1\nrepository_mode: project-instance\n"
 		case "README.md":
-			id := map[string]string{"design": "harness.business-ddd-strategy-handoff", "backend": "harness.backend-delivery"}[profile]
+			id := map[string]string{"backend": "harness.backend-delivery"}[profile]
 			text = "# " + projectToken + "\n\n本仓是 `" + id + "` 的 `project-instance`。\n\n先读 [AGENTS.md](AGENTS.md)、[CONTEXT.md](CONTEXT.md) 与 [profile](.template-spec/process/harness-profile.yaml)。\n\n业务领域：" + domainToken + "\n团队规模：" + teamToken + "\n"
 		case "AGENTS.md":
 			text = renderLabels(text)
