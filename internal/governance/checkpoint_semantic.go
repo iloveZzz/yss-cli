@@ -214,6 +214,9 @@ func verifyCheckpointSemantic(s *kernel.SemanticSession, ref string, opts map[st
 	if err != nil {
 		return err
 	}
+	if s.StageGatesEnabled() && opts["history"] != "true" {
+		return verifyStageCheckpoint(s, ref, cp, opts)
+	}
 	if opts["history"] == "true" {
 		return verifyHistoricalCheckpointSemantic(s, cp)
 	}

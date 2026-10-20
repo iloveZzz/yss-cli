@@ -149,7 +149,7 @@ func ArgumentKeys(group, action string) []string {
 	case "contract.check", "evidence.check", "handoff.check":
 		allowed = append(allowed, "schema", "file", "arg0")
 	case "contract.verify", "evidence.verify", "handoff.verify":
-		allowed = append(allowed, "schema", "kind", "file", "arg0", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "task-ref", "unit", "slice", "phase", "mode", "review-ref", "source-context-snapshot")
+		allowed = append(allowed, "schema", "kind", "file", "arg0", "asset-ref", "checkpoint", "task", "gate", "boundary", "consumer", "package", "history", "require-approved", "home", "run-dir", "requirements", "continuation", "from-record", "expected", "binding", "allow-template", "tool-root", "template-checkout", "approval-ref", "task-ref", "unit", "slice", "phase", "mode", "review-ref", "source-context-snapshot")
 	case "reading.render":
 		allowed = append(allowed, "checkpoint", "all", "dry-run")
 	case "reading.plan-enable":

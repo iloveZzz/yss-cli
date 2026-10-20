@@ -801,6 +801,9 @@ func ValidateImplementationManifestSemantic(s *kernel.SemanticSession, ref strin
 }
 
 func implementationDecisionWithContract(s *kernel.SemanticSession, state map[string]any, contractView func(string) (map[string]any, error)) error {
+	if s.StageGatesEnabled() {
+		return VerifyStageAdmission(s, kernel.First(kernel.Text(state["checkpoint_ref"]), s.CheckpointRef), kernel.Text(state["slice_contract_ref"]))
+	}
 	requirement := kernel.ApFind(state["user_decisions"], "boundary", "implementation-scope")
 	ticket := kernel.ApText(state["vertical_slice_ticket_ref"])
 	if requirement == nil || ticket == "" || !kernel.ApContains(requirement["scope"], ticket) {

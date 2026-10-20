@@ -348,6 +348,13 @@ func verifyPlanCheckpointSemantic(s *kernel.SemanticSession, ref string, opts ma
 		return nil
 	}
 
+	if s.StageGatesEnabled() {
+		if cp["next_work_unit"] == "work-unit.spec-synthesis" || cp["stage"] == "stage.spec-architecture" {
+			return s.Verify("plan-spec-entry", ref, opts)
+		}
+		return nil
+	}
+
 	if s.DraftPreparation(cp) {
 		return nil
 	}
@@ -509,6 +516,14 @@ func verifyPlanEntrySemantic(s *kernel.SemanticSession, ref string, opts map[str
 	cp, err := s.Doc(ref)
 	if err != nil {
 		return err
+	}
+
+	if s.StageGatesEnabled() {
+		if err = approval.VerifyCheckpointStage(s, ref, "gate.plan-approved", ""); err != nil {
+			return err
+		}
+		kernel.SemanticCoverage(s, "plan_entry", map[string]any{"result": "allowed", "record_ref": kernel.ApMap(kernel.ApMap(cp["gates"])["gate.plan-approved"])["record_ref"]})
+		return nil
 	}
 
 	reviewRef := kernel.Text(cp["plan_review_ref"])

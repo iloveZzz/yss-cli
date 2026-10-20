@@ -166,6 +166,9 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 		state = cp
 		// Results may add evidence, never replace current approval expectations.
 	}
+	if s.StageGatesEnabled() {
+		return verifyStageCheckpoint(s, cpRef, state, opts)
+	}
 	state, err = s.TransitionState(cpRef, taskRef)
 	if err != nil {
 		return err

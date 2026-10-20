@@ -482,7 +482,7 @@ func sliceTaskCandidate(s *kernel.SemanticSession, task map[string]any) (map[str
 	if err = s.Verify("slice", ref, opts); err != nil {
 		return nil, nil, nil, err
 	}
-	if err = AssertImplementationDecisionSemantic(s, map[string]any{"slice_contract_ref": ref, "vertical_slice_ticket_ref": kernel.ApMap(c.Normalized["lifecycle_refs"])["ticket"], "user_decisions": task["user_decisions"]}); err != nil {
+	if err = AssertImplementationDecisionSemantic(s, map[string]any{"checkpoint_ref": kernel.First(kernel.Text(task["checkpoint_ref"]), opts["checkpoint"], opts["approval-ref"]), "slice_contract_ref": ref, "vertical_slice_ticket_ref": kernel.ApMap(c.Normalized["lifecycle_refs"])["ticket"], "user_decisions": task["user_decisions"]}); err != nil {
 		return nil, nil, nil, err
 	}
 	root := kernel.Text(baseline["repository_root"])

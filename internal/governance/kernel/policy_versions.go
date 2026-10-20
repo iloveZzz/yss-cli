@@ -48,7 +48,7 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 		return s.Unavailable("GOVERNANCE_POLICY", "新治理必须使用identity2/Profile3/policy2及明确能力；旧Design须显式迁移到Spec")
 	}
 	for _, capability := range ApStrings(profile["required_capabilities"]) {
-		if capability != RoleIndependentCapability {
+		if capability != RoleIndependentCapability && capability != StageGatesCapability {
 			return s.Unavailable("CAPABILITY", "未知Profile必需能力: "+capability)
 		}
 	}
@@ -84,6 +84,13 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 		if ApNumber(ApMap(versions[key])["current"]) != want {
 			return s.Unavailable("GOVERNANCE_POLICY", "缺失或不支持的治理版本组合: "+key)
 		}
+	}
+	if policy["stage_gates"] != nil || ApContains(profile["required_capabilities"], StageGatesCapability) {
+		if err := s.validateStageGates(profile, policy); err != nil {
+			return err
+		}
+		s.GovernanceVersion, s.GovernancePolicy, s.GovernanceDigest = 2, policy, digest
+		return nil
 	}
 	gatePolicy := ApMap(policy["gate_policy"])
 	gates := ApMap(ApMap(gatePolicy["profiles"])[s.Report.Profile])
@@ -302,6 +309,13 @@ func (s *SemanticSession) RequireGovernanceWrite() error {
 	for _, kind := range []string{"task", "task-baseline", "task-candidate", "task-selection", "slice", "slice-draft", "slice-preflight", "slice-execution-result", "approval", "user-decision", "verification", "daily-record", "standard-record", "checkpoint", "checkpoint-boundary", "tracking-entry", "business-checkpoint", "plan-checkpoint", "plan-review-task", "plan-entry", "plan-aggregate", "checkpoint-user-decisions", "checkpoint-approvals", "gate-checks", "execution-scope", "next-route", "context-reconciliation", "reading-transition", "backend-terminal", "backend-review", "backend-delivery", "handoff-package", "handoff-source-approval"} {
 		if RoleIndependentValidators[kind] == nil {
 			return s.Unavailable("CAPABILITY", "新治理写入尚未激活，缺少原生消费者: "+kind)
+		}
+	}
+	if s.StageGatesEnabled() {
+		for _, kind := range []string{"stage-result", "stage-admission-inputs", "stage-delivery-inputs"} {
+			if RoleIndependentValidators[kind] == nil {
+				return s.Unavailable("CAPABILITY", "阶段写入缺少消费者: "+kind)
+			}
 		}
 	}
 	metadata, err := s.Doc(domain.MetadataFile)
