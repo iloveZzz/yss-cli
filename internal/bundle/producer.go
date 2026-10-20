@@ -230,7 +230,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 	}
 	encoded, _ := json.Marshal(snapshot)
 	b.SnapshotHash = safefs.Digest(encoded)
-	transforms, e := nativeUpgradeSource(raw)
+	transforms, e := nativeUpgradeSource(raw, b.SchemaVersion)
 	if e != nil {
 		return nil, e
 	}
