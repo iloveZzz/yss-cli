@@ -45,7 +45,9 @@ func hasLocalImplementationInputs(s *kernel.SemanticSession) (bool, error) {
 	if policy["local_implementation_inputs"] == nil {
 		return false, nil
 	}
-	if kernel.ContractN(contract["schema_version"]) != 1 || kernel.ContractN(policy["schema_version"]) != 1 || policy["config_file"] != kernel.ProgressionFile || !kernel.SameStringSet(policy["required_capabilities"], []any{"lifecycle-target-v1"}) || !kernel.SemHas(policy["writer_profiles"], "spec") {
+	version := kernel.ContractN(contract["schema_version"])
+	supported := version == 1 || version == 2 && s.StageGatesEnabled()
+	if !supported || kernel.ContractN(policy["schema_version"]) != 1 || policy["config_file"] != kernel.ProgressionFile || !kernel.SameStringSet(policy["required_capabilities"], []any{"lifecycle-target-v1"}) || !kernel.SemHas(policy["writer_profiles"], "spec") {
 		return false, s.Unavailable("CAPABILITY", "已声明本地实现输入，但政策版本或能力不受支持")
 	}
 	if policy["local_implementation_inputs"] != "native-spec-current-feature-approved-assets" {

@@ -82,3 +82,35 @@ func TestStagePreparationSnapshotDoesNotRewriteSource(t *testing.T) {
 		t.Fatal("normalization mutated current source")
 	}
 }
+
+func TestStagePreparationRejectsAnotherProjectsCurrentDesign(t *testing.T) {
+	s := kernel.NewSemanticSession(context.Background(), t.TempDir(), nil)
+	s.GovernanceVersion = 2
+	s.Report.Profile = "spec"
+	s.GovernancePolicy = map[string]any{"stage_gates": map[string]any{"capability": kernel.StageGatesCapability}}
+	taskFile(t, s.Root, "technical.json", map[string]any{"architecture": map[string]any{"project_id": "project.other"}})
+	b, e := s.Bind("technical.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	taskFile(t, s.Root, "inputs.json", map[string]any{"project_id": "project.current", "design_prerequisites": map[string]any{"technical_design": map[string]any{"ref": "technical.json", "digest": b.Digest}}})
+	s.V = kernel.NewView(s.Root)
+	e = kernel.RoleIndependentValidators["backend-preparation-inputs"](s, "inputs.json", nil)
+	if e == nil || kernel.SemanticCode(e) != "STAGE_PREPARATION" {
+		t.Fatalf("foreign project design accepted: %v", e)
+	}
+}
+
+func TestStageAdmissionCannotBypassCurrentCheckpointBlockers(t *testing.T) {
+	for _, status := range []string{"blocked", "running"} {
+		s := kernel.NewSemanticSession(context.Background(), t.TempDir(), nil)
+		s.GovernanceVersion = 2
+		s.Report.Profile = "spec"
+		s.GovernancePolicy = map[string]any{"stage_gates": map[string]any{"capability": kernel.StageGatesCapability}}
+		taskFile(t, s.Root, ".template-spec/process/schemas/lifecycle-checkpoint-v2.schema.json", map[string]any{"type": "object"})
+		taskFile(t, s.Root, "cp.json", map[string]any{"schema_version": 2, "status": status, "blockers": []string{"known unresolved risk"}, "gates": map[string]any{"gate.implementation-admitted": map[string]any{"record_ref": "otherwise-approved.json"}}})
+		if err := VerifyStageAdmission(s, "cp.json", "slice.json"); err == nil || kernel.SemanticCode(err) != "STAGE_BLOCKED" {
+			t.Fatalf("blocker bypassed: %v", err)
+		}
+	}
+}

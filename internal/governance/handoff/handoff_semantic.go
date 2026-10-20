@@ -1453,6 +1453,12 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 					}
 				}
 			}
+			// Stage-policy preparation tasks consume their source checkpoint.
+			// Freeze those authority bytes so the offline receiver uses the same
+			// source state instead of consulting a live or receiving checkpoint.
+			if s.StageGatesEnabled() && kernel.ContractN(x["schema_version"]) == 3 && kernel.SemMap(x["contract"])["kind"] == "lifecycle-work-unit" {
+				enqueue(kernel.Text(x["checkpoint_ref"]))
+			}
 			if kernel.SemMap(x["review_context"])["plan_review_binding"] != nil {
 				enqueue(kernel.Text(x["checkpoint_ref"]))
 				for _, ref := range kernel.SemStrings(x["inputs"]) {

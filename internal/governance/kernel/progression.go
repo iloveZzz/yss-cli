@@ -51,7 +51,11 @@ func ProgressionLocation(s *SemanticSession, cpRef string) (string, map[string]a
 	if err != nil {
 		return "", nil, err
 	}
-	if ContractN(cp["schema_version"]) != 1 || cp["repository_mode"] != "project-instance" || !strings.HasPrefix(Text(cp["feature_id"]), "feature.") || len(Text(cp["feature_id"])) <= len("feature.") {
+	checkpointVersion := 1
+	if s.StageGatesEnabled() {
+		checkpointVersion = 2
+	}
+	if ContractN(cp["schema_version"]) != checkpointVersion || cp["repository_mode"] != "project-instance" || !strings.HasPrefix(Text(cp["feature_id"]), "feature.") || len(Text(cp["feature_id"])) <= len("feature.") {
 		return "", nil, s.Reject("IDENTITY", "checkpoint 缺少合法功能身份")
 	}
 	trackerBytes, err := s.Bytes(worklayout.TrackerRef)

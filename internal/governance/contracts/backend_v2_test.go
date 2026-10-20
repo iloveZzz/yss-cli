@@ -1,11 +1,44 @@
 package contracts
 
 import (
+	"context"
+	"encoding/json"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
+
+func TestBackendDeliveryDraftSliceNeedsCurrentStageAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		stage   bool
+		version int
+		id      string
+		want    string
+	}{
+		{"stage-draft-consumes-admission", true, 4, "contract.current", "STAGE_PENDING"},
+		{"legacy-draft-still-rejected", false, 4, "contract.current", "BACKEND_DELIVERY"},
+		{"old-slice-still-rejected", true, 3, "contract.current", "BACKEND_DELIVERY"},
+		{"wrong-identity-still-rejected", true, 4, "contract.other", "BACKEND_DELIVERY"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := kernel.NewSemanticSession(context.Background(), t.TempDir(), nil)
+			s.GovernanceVersion = 2
+			s.Report.Profile = "spec"
+			if tc.stage {
+				s.GovernancePolicy = map[string]any{"stage_gates": map[string]any{"capability": kernel.StageGatesCapability}}
+			}
+			taskFile(t, s.Root, "checkpoint.json", map[string]any{"gates": map[string]any{}})
+			c := &NativeSlice{Ref: "slice.json", Raw: map[string]any{"schema_version": json.Number(strconv.Itoa(tc.version))}, Normalized: map[string]any{"status": "draft", "contract_id": "contract.current", "contract_version": "v1"}}
+			err := backendSliceApprovalBinding(s, c, map[string]any{"id": tc.id, "version": "v1", "approval_ref": "checkpoint.json"}, nil)
+			if kernel.SemanticCode(err) != tc.want {
+				t.Fatalf("got %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
 
 func TestBackendProjectAcceptsVerifiedNewIdentityAndRejectsMixedGeneration(t *testing.T) {
 	s, _ := taskFixture(t)

@@ -56,7 +56,15 @@ func init() {
 		if e != nil {
 			return e
 		}
-		return contractBackendPrerequisites(s, kernel.ApMap(doc["design_prerequisites"]), nil, opts)
+		prerequisites := kernel.ApMap(doc["design_prerequisites"])
+		technical, e := ContractBoundDoc(s, prerequisites["technical_design"])
+		if e != nil {
+			return e
+		}
+		if kernel.Text(doc["project_id"]) == "" || kernel.ApMap(technical["architecture"])["project_id"] != doc["project_id"] {
+			return s.Reject("STAGE_PREPARATION", "准备输入不属于当前项目")
+		}
+		return contractBackendPrerequisites(s, prerequisites, nil, opts)
 	})
 	kernel.RegisterRoleIndependentValidator("stage-spec-inputs", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		record, e := s.Doc(ref)
@@ -114,6 +122,19 @@ func init() {
 func VerifyStageAdmission(s *kernel.SemanticSession, checkpointRef, sliceRef string) error {
 	if !s.StageGatesEnabled() {
 		return s.Reject("CAPABILITY", "实施阶段准入需要显式 Spec stage-gates-v1")
+	}
+	cp, err := s.Doc(checkpointRef)
+	if err != nil {
+		return err
+	}
+	if kernel.Text(kernel.ApMap(kernel.ApMap(cp["gates"])["gate.implementation-admitted"])["record_ref"]) == "" {
+		return s.Reject("STAGE_PENDING", "尚无实施准入阶段记录")
+	}
+	if err = s.ValidateSchema(".template-spec/process/schemas/lifecycle-checkpoint-v2.schema.json", cp); err != nil {
+		return err
+	}
+	if cp["status"] == "blocked" || len(kernel.ApArray(cp["blockers"])) > 0 {
+		return s.Reject("STAGE_BLOCKED", "当前功能仍有阻塞，不能据阶段记录执行实施")
 	}
 	return approval.VerifyCheckpointStage(s, checkpointRef, "gate.implementation-admitted", sliceRef)
 }

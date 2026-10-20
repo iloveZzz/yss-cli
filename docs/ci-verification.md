@@ -1,7 +1,7 @@
 # 测试与 CI 状态
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.5.3`。固定模板：backend `v4.6.4`、spec `v4.6.4`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.6.0-dev.1`。固定模板：backend `git:712a8c6908d7b497c064488c17a1d381a090af11`、spec `git:712a8c6908d7b497c064488c17a1d381a090af11`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 ## Go 测试

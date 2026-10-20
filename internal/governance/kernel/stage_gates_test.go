@@ -2,6 +2,8 @@ package kernel
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -50,5 +52,33 @@ func TestSpecStageGatesRequireMatchingCapability(t *testing.T) {
 	s := NewSemanticSession(context.Background(), root, nil)
 	if s.StageGatesEnabled() {
 		t.Fatal("unverified policy must not select stage gates")
+	}
+}
+
+func TestStageProgressionLocationSelectsCheckpoint2OnlyWithStagePolicy(t *testing.T) {
+	for _, row := range []struct {
+		stage   bool
+		version int
+		pass    bool
+	}{{true, 2, true}, {false, 2, false}, {true, 1, false}, {false, 1, true}} {
+		root := t.TempDir()
+		s := NewSemanticSession(context.Background(), root, nil)
+		if row.stage {
+			s.GovernanceVersion = 2
+			s.Report.Profile = "spec"
+			s.GovernancePolicy = map[string]any{"stage_gates": map[string]any{"capability": StageGatesCapability}}
+		}
+		writePolicyFixture(t, root, ".work/demo/checkpoint.json", map[string]any{"schema_version": row.version, "repository_mode": "project-instance", "feature_id": "feature.demo"})
+		writePolicyFixture(t, root, ".template-spec/agents/issue-tracker.md", map[string]any{"tracker": map[string]any{"platform": "local-markdown", "root": ".work"}})
+		if err := os.WriteFile(filepath.Join(root, ".template-spec/agents/issue-tracker.md"), []byte("---\ntracker:\n  platform: local-markdown\n  root: .work\n---\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".work/demo/map.md"), []byte("---\ncheckpoint_ref: .work/demo/checkpoint.json\n---\n# Demo\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, e := ProgressionLocation(s, ".work/demo/checkpoint.json")
+		if (e == nil) != row.pass {
+			t.Fatalf("stage=%v checkpoint=%d: %v", row.stage, row.version, e)
+		}
 	}
 }

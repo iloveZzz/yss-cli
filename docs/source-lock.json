@@ -2,31 +2,30 @@
   "schemaVersion": 5,
   "producer": {
     "version": "bundle-producer-v4",
-    "commit": "aa66afcabc9dcc012021770090d1fddf4a24c174",
+    "commit": "7b973956dbd57ea9f7f3f471775c41a307d4eb4e",
     "sourceState": "committed"
   },
   "profiles": {
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "4da810253f1cf8cfc5e1168891814fa1423d2b43",
-      "templateVersion": "4.6.4",
-      "templateTag": "v4.6.4",
+      "templateCommit": "712a8c6908d7b497c064488c17a1d381a090af11",
+      "templateVersion": "git:712a8c6908d7b497c064488c17a1d381a090af11",
       "policyPath": ".template-source/distribution/bundle-profile.json",
-      "policyHash": "be01cc9a6d547bcc5eacc3e3d4eb90b7ddd1248ba2cdbdb5c362204c10e5e14f",
+      "policyHash": "5f0136cdd2b4d7624f270a80dec9d7d2f05d6d645b48470d6fbcccde03a20afe",
       "legacy": {
         "version": "3.5.10",
         "cliCommit": "afc1b245f1957b8f6a041bdee9a75c871f37a515",
         "sourceSnapshotHash": "a2ef1c2c14fa197d069e76484148d28c01d24f242cf5b118b7ef234df2b76848",
         "manifestHash": "544e8ae01c49ef451a784237b06772137876f8e8d6b5334094827e2ca2fe0f13"
-      }
+      },
+      "sourceState": "committed"
     },
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "4da810253f1cf8cfc5e1168891814fa1423d2b43",
-      "templateVersion": "4.6.4",
-      "templateTag": "v4.6.4",
+      "templateCommit": "712a8c6908d7b497c064488c17a1d381a090af11",
+      "templateVersion": "git:712a8c6908d7b497c064488c17a1d381a090af11",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
       "policyHash": "dd597b10d14b25df638bc4f2f6b3247716668834235ec84badedc66923e6e337",
       "overlayPaths": [
@@ -38,7 +37,8 @@
         "cliCommit": "0799872b082fe7decea59db7eb6545692472d2d2",
         "sourceSnapshotHash": "e53990d44b3de929d8c3c893fdd8670ca19a0180fbd785c59a90580b32d702c7",
         "manifestHash": "188f3c2a97dd2c3a44e3be4a98d3125fbe7ae8e50426cfc7dd769af4d42f2ce6"
-      }
+      },
+      "sourceState": "committed"
     }
   }
 }

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -14,6 +15,26 @@ import (
 
 const begin = "<!-- YSS_CURRENT_STATUS_START -->"
 const end = "<!-- YSS_CURRENT_STATUS_END -->"
+
+type templateSource struct {
+	Tag     string `json:"templateTag"`
+	Commit  string `json:"templateCommit"`
+	Version string `json:"templateVersion"`
+	State   string `json:"sourceState"`
+}
+
+func templateLabel(source templateSource) (string, error) {
+	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(source.Commit) {
+		return "", fmt.Errorf("需要完整固定 commit")
+	}
+	if source.Tag != "" {
+		return source.Tag, nil
+	}
+	if source.State == "committed" && source.Version == "git:"+source.Commit {
+		return source.Version, nil
+	}
+	return "", fmt.Errorf("无 tag 来源须使用 committed 状态与匹配的 git:commit 版本")
+}
 
 func main() {
 	check := flag.Bool("check", false, "只读检查当前版本、模板与 Profile 文档")
@@ -30,10 +51,7 @@ func run(check bool) error {
 		return err
 	}
 	var lock struct {
-		Profiles map[string]struct {
-			Tag    string `json:"templateTag"`
-			Commit string `json:"templateCommit"`
-		} `json:"profiles"`
+		Profiles map[string]templateSource `json:"profiles"`
 	}
 	if err = json.Unmarshal(raw, &lock); err != nil {
 		return err
@@ -49,10 +67,11 @@ func run(check bool) error {
 	}
 	for _, name := range names {
 		source, ok := lock.Profiles[name]
-		if !ok || source.Tag == "" || len(source.Commit) != 40 {
-			return fmt.Errorf("%s 缺少固定 tag/commit", name)
+		label, labelErr := templateLabel(source)
+		if !ok || labelErr != nil {
+			return fmt.Errorf("%s 缺少有效固定模板来源: %v", name, labelErr)
 		}
-		templates = append(templates, fmt.Sprintf("%s `%s`", name, source.Tag))
+		templates = append(templates, fmt.Sprintf("%s `%s`", name, label))
 		profiles = append(profiles, "`"+name+"`")
 	}
 	block := fmt.Sprintf("%s\n当前源码版本：`%s`。固定模板：%s。现役 Profile：%s。协议版本：`%d`。\n%s", begin, domain.Version, strings.Join(templates, "、"), strings.Join(profiles, "、"), domain.ProtocolVersion, end)
