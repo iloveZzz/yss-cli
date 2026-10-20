@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 const runtimeInputLimit = 16 << 20
@@ -40,6 +41,9 @@ func storeRuntimeInput(dir string, data []byte) (*runtimeObject, error) {
 			if err = os.Mkdir(path, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 				return nil, err
 			}
+			if err = safefs.SyncDirectory(filepath.Dir(path)); err != nil {
+				return nil, err
+			}
 			if st, err = os.Lstat(path); err != nil {
 				return nil, err
 			}
@@ -60,21 +64,23 @@ func storeRuntimeInput(dir string, data []byte) (*runtimeObject, error) {
 		if err = w.Close(); err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err == nil {
-			_, werr := f.Write(buf.Bytes())
-			if cerr := f.Close(); werr == nil {
-				werr = cerr
-			}
-			if werr != nil {
-				return nil, werr
-			}
-		} else if !errors.Is(err, fs.ErrExist) {
+		if err := verifyRuntimeObject(bytes.NewReader(buf.Bytes()), digest, relative); err != nil {
+			return nil, err
+		}
+		if _, err = safefs.PublishFile(dir, relative, bytes.NewReader(buf.Bytes())); err != nil {
 			return nil, err
 		}
 	} else if err != nil {
 		return nil, err
 	} else if !st.Mode().IsRegular() {
+		return nil, domain.Fail("RUNTIME", "运行输入对象必须是普通文件")
+	}
+	file, err := safefs.Path(dir, relative)
+	if err != nil {
+		return nil, err
+	}
+	before, err := os.Lstat(file)
+	if err != nil || !before.Mode().IsRegular() {
 		return nil, domain.Fail("RUNTIME", "运行输入对象必须是普通文件")
 	}
 	f, err := os.Open(file)
@@ -86,14 +92,28 @@ func storeRuntimeInput(dir string, data []byte) (*runtimeObject, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, domain.Fail("RUNTIME_INTEGRITY", "运行输入对象损坏: "+relative)
+	if !st.Mode().IsRegular() || !os.SameFile(before, st) {
+		return nil, domain.Fail("RUNTIME", "运行输入对象读取期间身份变化")
 	}
+	if err = verifyRuntimeObject(f, digest, relative); err != nil {
+		return nil, err
+	}
+	return &runtimeObject{digest: digest, relative: relative, bytes: int64(len(data)), compressed: st.Size()}, nil
+}
+
+func verifyRuntimeObject(input io.Reader, digest, relative string) error {
+	corrupt := func() error {
+		return domain.Explain(domain.Fail("RUNTIME_INTEGRITY", "运行输入对象损坏: "+relative), "RUNTIME_OBJECT_CORRUPT", "保留现有对象与引用证据；先检查运行存储，不自动覆盖损坏对象。", map[string]any{"object": relative, "digest": digest})
+	}
+	r, err := gzip.NewReader(input)
+	if err != nil {
+		return corrupt()
+	}
+	defer r.Close()
 	h := sha256.New()
 	n, err := io.Copy(h, io.LimitReader(r, runtimeInputLimit+1))
 	if err != nil || n > runtimeInputLimit || hex.EncodeToString(h.Sum(nil)) != digest {
-		return nil, domain.Fail("RUNTIME_INTEGRITY", "运行输入对象损坏: "+relative)
+		return corrupt()
 	}
-	return &runtimeObject{digest: digest, relative: relative, bytes: int64(len(data)), compressed: st.Size()}, nil
+	return nil
 }

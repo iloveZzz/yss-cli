@@ -84,7 +84,10 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func project(t *testing.T, mirror bool) string {
 	t.Helper()
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	write := func(ref, content string) {
 		path := filepath.Join(root, ref)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -14,7 +14,10 @@ import (
 )
 
 func TestTrackerPartialFailurePreservesEnvelope(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	files := map[string]string{
 		".template-spec/agents/issue-tracker.md": "---\ntracker:\n  platform: local-markdown\n  root: .work\n  remote_mirror: true\n---\n",
 		".work/feat/issues/01.md":                "# first\nStatus: needs-info\nTracker-Link: github:acme/app#13\n",

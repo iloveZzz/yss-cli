@@ -76,6 +76,33 @@ func TestRuntimeBeginStoresInputAndProtectsReport(t *testing.T) {
 	}
 }
 
+func TestRuntimeCorruptObjectKeepsEvidenceAndDiagnostic(t *testing.T) {
+	root, home := runtimeFixture(t)
+	args := map[string]string{"home": home, "input": "keep-evidence"}
+	out, err := RunContext(context.Background(), "runtime", "begin", root, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := out.(map[string]any)
+	digest := first["input_digest"].(string)
+	relative := "objects/" + digest[:2] + "/" + digest + ".gz"
+	object := filepath.Join(first["directory"].(string), filepath.FromSlash(relative))
+	if err = os.WriteFile(object, []byte{0x1f, 0x8b}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		_, err = RunContext(context.Background(), "runtime", "begin", root, args)
+		var detail interface{ DiagnosticDetail() domain.ErrorDetail }
+		if errCode(err) != "RUNTIME_INTEGRITY" || !errors.As(err, &detail) || detail.DiagnosticDetail().Context["digest"] != digest {
+			t.Fatalf("corrupt object needs recovery context: %v", err)
+		}
+		raw, readErr := os.ReadFile(object)
+		if readErr != nil || len(raw) != 2 {
+			t.Fatal("corrupt referenced evidence must not be overwritten")
+		}
+	}
+}
+
 func TestRuntimeBeginRefusesUnsafeInputs(t *testing.T) {
 	ctx := context.Background()
 	root, home := runtimeFixture(t)

@@ -224,7 +224,7 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 func archive(path, want string) (map[string][]byte, Manifest, error) {
 	files := map[string][]byte{}
 	var m Manifest
-	f, e := os.Open(path)
+	f, e := openArchive(path)
 	if e != nil {
 		return nil, m, e
 	}
@@ -239,6 +239,9 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	b, e := io.ReadAll(io.LimitReader(f, maxArchive+1))
 	if e != nil {
 		return nil, m, e
+	}
+	if len(b) > maxArchive {
+		return nil, m, fail("ARTIFACT", "发行包读取期间超过 256 MiB")
 	}
 	if len(want) != 64 || safefs.Digest(b) != want {
 		return nil, m, fail("DIGEST", "发行包 SHA-256 不匹配")

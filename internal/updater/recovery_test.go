@@ -27,7 +27,7 @@ func (c *cancelPrepared) Err() error {
 
 func interruptedProgram(t *testing.T) (string, string) {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "tool")
+	root := filepath.Join(updaterTemp(t), "tool")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	_, err := transaction.ApplyContext(&cancelPrepared{Context: ctx, root: root, cancel: cancel}, root, "program-update", []transaction.Operation{{Path: "README.md", Data: []byte("new"), Mode: 0644, Before: &domain.Descriptor{Type: "missing"}}})
@@ -123,4 +123,13 @@ func TestRecoverProgramPreparationRefusesUnsafeState(t *testing.T) {
 			}
 		})
 	}
+}
+
+func updaterTemp(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
