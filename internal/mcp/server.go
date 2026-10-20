@@ -45,16 +45,54 @@ type Server struct {
 	Invoke        Invoke
 }
 
-// Serve 逐行读取请求并顺序处理，直到输入结束或 ctx 取消；通知（无 id）不回复。
-func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 64<<10), maxLine)
-	encoder := json.NewEncoder(out)
-	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
-			return err
+// Serve owns in and closes it on every exit. Close must unblock Read (as it
+// does for stdio pipes and io.PipeReader). Tool calls remain sequential.
+func (s *Server) Serve(ctx context.Context, in io.ReadCloser, out io.Writer) error {
+	if ctx == nil || in == nil {
+		return fmt.Errorf("MCP requires a context and owned input")
+	}
+	readCtx, stop := context.WithCancel(ctx)
+	lines := make(chan inputLine, 1)
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		defer close(lines)
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 64<<10), maxLine)
+		for scanner.Scan() {
+			select {
+			case lines <- inputLine{line: scanner.Text()}:
+			case <-readCtx.Done():
+				return
+			}
 		}
-		line := strings.TrimSpace(scanner.Text())
+		if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+			select {
+			case lines <- inputLine{err: err}:
+			case <-readCtx.Done():
+			}
+		}
+	}()
+	defer func() { stop(); _ = in.Close(); <-readDone }()
+	encoder := json.NewEncoder(out)
+	for {
+		var input inputLine
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case next, ok := <-lines:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+			input = next
+		}
+		if input.err != nil {
+			return input.err
+		}
+		line := strings.TrimSpace(input.line)
 		if line == "" {
 			continue
 		}
@@ -66,6 +104,9 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			continue
 		}
 		result, rerr := s.handle(ctx, req)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if len(req.ID) == 0 {
 			continue
 		}
@@ -73,10 +114,11 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			return err
 		}
 	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	return nil
+}
+
+type inputLine struct {
+	line string
+	err  error
 }
 
 func (s *Server) handle(ctx context.Context, req request) (any, *rpcError) {

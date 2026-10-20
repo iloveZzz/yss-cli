@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestMCPToolMatchesCommandLine(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lifecycle_query","arguments":{"id":"work-unit.entry-triage"}}}`,
 	}, "\n") + "\n"
 	var out bytes.Buffer
-	if err := ServeMCP(context.Background(), project, strings.NewReader(in), &out); err != nil {
+	if err := ServeMCP(context.Background(), project, io.NopCloser(strings.NewReader(in)), &out); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")

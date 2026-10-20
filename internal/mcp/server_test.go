@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ func serve(t *testing.T, invoke Invoke, lines ...string) []map[string]any {
 	t.Helper()
 	var out bytes.Buffer
 	s := &Server{Name: "yss", Version: "test", Invoke: invoke}
-	if err := s.Serve(context.Background(), strings.NewReader(strings.Join(lines, "\n")+"\n"), &out); err != nil {
+	if err := s.Serve(context.Background(), io.NopCloser(strings.NewReader(strings.Join(lines, "\n")+"\n")), &out); err != nil {
 		t.Fatal(err)
 	}
 	var responses []map[string]any

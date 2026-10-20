@@ -27,8 +27,8 @@ func Invoke(ctx context.Context, args []string) (json.RawMessage, int) {
 	return json.RawMessage(bytes.TrimSpace(out.Bytes())), exit
 }
 
-// ServeMCP 以固定项目根提供 MCP stdio 服务；工具参数不能改写 --root。
-func ServeMCP(ctx context.Context, root string, in io.Reader, out io.Writer) error {
+// ServeMCP owns and closes its stdio input; the project root stays fixed.
+func ServeMCP(ctx context.Context, root string, in io.ReadCloser, out io.Writer) error {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return err
