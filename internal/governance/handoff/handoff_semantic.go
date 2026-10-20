@@ -1381,6 +1381,13 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 		queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/yss-skill-registry.yaml")
 	} else {
 		queue = append(queue, ".template-spec/agents/digital-human-roles.yaml")
+		// Source validation also checks the original Profile. Freeze it for
+		// offline verification without importing the exporting host's policy.
+		if present, err := s.Exists(".template-spec/process/harness-profile.yaml"); err != nil {
+			return nil, err
+		} else if present {
+			queue = append(queue, ".template-spec/process/harness-profile.yaml")
+		}
 	}
 	if exists, err := s.Exists(".yss.json"); err != nil {
 		return nil, err

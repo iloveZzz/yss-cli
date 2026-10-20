@@ -9,8 +9,8 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "9b3101085facc9da783346d3267d5a150893cacb",
-      "templateVersion": "git:9b3101085facc9da783346d3267d5a150893cacb",
+      "templateCommit": "38952a72c4e8cbb7349e40c401d184705b3f3f4d",
+      "templateVersion": "git:38952a72c4e8cbb7349e40c401d184705b3f3f4d",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "5f0136cdd2b4d7624f270a80dec9d7d2f05d6d645b48470d6fbcccde03a20afe",
       "legacy": {
@@ -24,10 +24,10 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "9b3101085facc9da783346d3267d5a150893cacb",
-      "templateVersion": "git:9b3101085facc9da783346d3267d5a150893cacb",
+      "templateCommit": "38952a72c4e8cbb7349e40c401d184705b3f3f4d",
+      "templateVersion": "git:38952a72c4e8cbb7349e40c401d184705b3f3f4d",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
-      "policyHash": "dd597b10d14b25df638bc4f2f6b3247716668834235ec84badedc66923e6e337",
+      "policyHash": "342f2a01e39a2c1abac82c7d1a422078672d10c6cfdcfed6f31e9fb1eb0fa42a",
       "overlayPaths": [
         "profiles/_specialist",
         "profiles/backend"

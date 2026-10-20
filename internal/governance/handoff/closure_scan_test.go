@@ -55,3 +55,22 @@ func TestStageHandoffClosureFreezesTaskCheckpoint(t *testing.T) {
 		t.Fatalf("frozen task lost checkpoint authority: %v %v", refs, e)
 	}
 }
+
+func TestLegacyHandoffClosurePreservesSourceProfile(t *testing.T) {
+	root := t.TempDir()
+	profileRef := ".template-spec/process/harness-profile.yaml"
+	for ref, content := range map[string]string{"source.json": "{}", "CONTEXT.md": "# Context", ".template-spec/agents/digital-human-roles.yaml": "{}", profileRef: `{"schema_version":2,"profile_id":"harness.spec-template"}`} {
+		file := filepath.Join(root, ref)
+		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := kernel.NewSemanticSession(context.Background(), root, nil)
+	refs, err := contractHandoffClosure(s, "source.json", &NativeHandoff{Handoff: map[string]any{"schema_version": 5}, Config: map[string]any{}})
+	if err != nil || !slices.Contains(refs, profileRef) {
+		t.Fatalf("offline source lost its original Profile: %v %v", refs, err)
+	}
+}
