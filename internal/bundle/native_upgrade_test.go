@@ -1,17 +1,19 @@
 package bundle
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestProducedNativeMetadataConsumer(t *testing.T) {
 	raw := map[string]sourceFile{"scripts/lib/instance-metadata.mjs": {data: []byte("old source"), mode: 0644}}
-	transforms, err := nativeUpgradeSource(raw)
+	transforms, err := nativeUpgradeSource(raw, 4)
 	if err != nil || len(transforms) != 1 {
 		t.Fatalf("transform: %v %v", transforms, err)
 	}
@@ -49,5 +51,90 @@ assert.throws(()=>nativeInstalledSkillRefs(base,{version:4,canonicalRoot:'.agent
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("produced consumer: %v\n%s", err, out)
+	}
+}
+
+func TestNativeUpgradePreservesBundle4HarnessGuidance(t *testing.T) {
+	const guidance = "current template guidance\n"
+	raw := map[string]sourceFile{
+		".template-spec/process/harness-upgrade.md": {data: []byte(guidance), mode: 0640},
+		"scripts/lib/instance-metadata.mjs":         {data: []byte("old metadata consumer"), mode: 0600},
+	}
+	for _, root := range []string{".agents", ".codex", ".cursor", ".pi", ".claude"} {
+		for _, ref := range []string{
+			"setup-yss-harness/SKILL.md", "setup-yss-harness/references/project-operations.md", "setup-yss-harness/references/operation-contract.md",
+			"yss-harness-upgrade/SKILL.md", "yss-harness-upgrade/references/project-operations.md",
+		} {
+			raw[root+"/skills/"+ref] = sourceFile{data: []byte(guidance), mode: 0640}
+		}
+	}
+	transforms, err := nativeUpgradeSource(raw, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref, file := range raw {
+		if ref == "scripts/lib/instance-metadata.mjs" {
+			continue
+		}
+		if !bytes.Equal(file.data, []byte(guidance)) || file.mode != 0640 {
+			t.Fatalf("Bundle4 guidance changed: %s", ref)
+		}
+	}
+	if len(transforms) != 1 || transforms[0].Path != "scripts/lib/instance-metadata.mjs" {
+		t.Fatalf("only metadata consumer should be transformed: %v", transforms)
+	}
+	original, err := transforms[0].Source.Render(nil)
+	if err != nil || string(original) != "old metadata consumer" || transforms[0].Source.Mode != 0600 {
+		t.Fatalf("metadata source not preserved: %s %v", original, err)
+	}
+	if bytes.Equal(raw["scripts/lib/instance-metadata.mjs"].data, original) || raw["scripts/lib/instance-metadata.mjs"].mode != 0600 {
+		t.Fatal("metadata consumer was not transformed with its original mode")
+	}
+}
+
+func TestNativeUpgradeKeepsHistoricalHarnessCompatibility(t *testing.T) {
+	for _, version := range []int{1, 2, 3} {
+		t.Run(strconv.Itoa(version), func(t *testing.T) {
+			for _, renamed := range []bool{false, true} {
+				inputs := map[string]string{".template-spec/process/harness-upgrade.md": "harness-upgrade.md"}
+				for _, root := range []string{".agents", ".codex", ".cursor", ".pi", ".claude"} {
+					inputs[root+"/skills/yss-harness-upgrade/SKILL.md"] = "upgrade-SKILL.md"
+					inputs[root+"/skills/yss-harness-upgrade/references/project-operations.md"] = "project-operations.md"
+					if renamed {
+						inputs[root+"/skills/setup-yss-harness/SKILL.md"] = "setup-SKILL.md"
+						inputs[root+"/skills/setup-yss-harness/references/project-operations.md"] = "setup-project-operations.md"
+						inputs[root+"/skills/setup-yss-harness/references/operation-contract.md"] = "setup-operation-contract.md"
+					}
+				}
+				if renamed {
+					inputs[".template-spec/process/harness-upgrade.md"] = "setup-contract.md"
+				}
+				raw := map[string]sourceFile{}
+				for ref := range inputs {
+					raw[ref] = sourceFile{data: []byte("historical original\n"), mode: 0640}
+				}
+				transforms, err := nativeUpgradeSource(raw, version)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(transforms) != len(inputs) {
+					t.Fatalf("missing historical transforms: %d", len(transforms))
+				}
+				for _, transform := range transforms {
+					expected, err := nativeUpgradeAssets.ReadFile("native/" + inputs[transform.Path])
+					if err != nil {
+						t.Fatal(err)
+					}
+					file := raw[transform.Path]
+					if !bytes.Equal(file.data, expected) || file.mode != 0640 {
+						t.Fatalf("historical output changed: %s", transform.Path)
+					}
+					original, err := transform.Source.Render(nil)
+					if err != nil || string(original) != "historical original\n" || transform.Source.Mode != 0640 {
+						t.Fatalf("historical source lost: %s %v", transform.Path, err)
+					}
+				}
+			}
+		})
 	}
 }
