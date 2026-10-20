@@ -945,8 +945,8 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	if err != nil {
 		return Result{}, err
 	}
-	if isProjectTransaction(kind) && len(preparations) > 0 {
-		return Result{Status: "preparing", Preparations: preparations}, fail("INTERRUPTED", "存在未发布准备事务，先 recover --apply")
+	if preparationHeaderRequired(kind) && len(preparations) > 0 {
+		return Result{Status: "preparing", Preparations: preparations}, fail("INTERRUPTED", "存在未发布准备事务，先使用对应家族的恢复入口")
 	}
 	for _, l := range all {
 		if !terminal(l.journal.Phase) {
@@ -1015,7 +1015,7 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 			}
 		}
 	}
-	if isProjectTransaction(kind) {
+	if preparationHeaderRequired(kind) {
 		if err := durable(root, headerRef(id), encode(header), 0600); err != nil {
 			return Result{}, err
 		}
@@ -1083,7 +1083,7 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	if err := syncDirectory(filepath.Dir(to)); err != nil {
 		return result(l, "pending"), err
 	}
-	if isProjectTransaction(kind) {
+	if preparationHeaderRequired(kind) {
 		if p, e := safefs.Path(root, headerRef(id)); e != nil {
 			return result(l, "pending"), e
 		} else if e = os.Remove(p); e != nil {

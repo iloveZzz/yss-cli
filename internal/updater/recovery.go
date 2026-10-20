@@ -56,6 +56,9 @@ func Recover(ctx context.Context, toolRoot string) (transaction.Result, error) {
 	if err != nil {
 		return transaction.Result{}, err
 	}
+	if r, handled, err := transaction.RecoverProgramPreparations(ctx, root, true, validateProgramScope); handled || err != nil {
+		return r, err
+	}
 	return transaction.RecoverKindContextWithValidator(ctx, root, "program-update", validateProgramScope)
 }
 

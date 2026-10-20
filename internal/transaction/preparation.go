@@ -55,6 +55,12 @@ func isProjectTransaction(kind string) bool {
 		return false
 	}
 }
+
+// Program preparations have their own kind identity, never a project Profile.
+func preparationHeaderRequired(kind string) bool {
+	return isProjectTransaction(kind) || kind == "program-update"
+}
+
 func headerRef(id string) string { return stateRef + "/.preparation-" + id + ".json" }
 func sealRef(id string) string   { return stateRef + "/.sealed-preparation-" + id }
 func headerID(name string) (string, bool) {
@@ -421,7 +427,11 @@ func validateSeal(root, id string, s preparationSeal, files map[string]domain.De
 	if s.SchemaVersion != 1 || s.SealedAt == "" || s.ID != id || s.Root != root || s.Kind == "" || s.Files == nil || s.Directories == nil || !s.NoTargetWrites {
 		return fail("STATE", "封存准备身份无效")
 	}
-	if _, e := domain.GetProfile(s.Profile); e != nil {
+	if s.Kind == "program-update" {
+		if s.Profile != "" {
+			return fail("STATE", "程序封存不能声明项目 Profile")
+		}
+	} else if _, e := domain.GetProfile(s.Profile); e != nil {
 		return fail("STATE", "封存准备 Profile 未知")
 	}
 	if len(files) != len(s.Files) || len(dirs) != len(s.Directories) {
@@ -513,13 +523,23 @@ func SealedInitialization(root, profile string) (bool, error) {
 // writer lock. Preview is strictly read-only. All current Before/Guards and the
 // caller's project identity/scope are checked again under the lock before seal.
 func RecoverPreparations(ctx context.Context, root, profile string, apply bool, validate ScopeValidator) (Result, bool, error) {
+	return recoverPreparations(ctx, root, profile, "", apply, validate)
+}
+
+// RecoverProgramPreparations handles only complete, unpublished program plans.
+// It cannot infer ownership of incomplete or foreign preparation material.
+func RecoverProgramPreparations(ctx context.Context, root string, apply bool, validate ScopeValidator) (Result, bool, error) {
+	return recoverPreparations(ctx, root, "", "program-update", apply, validate)
+}
+
+func recoverPreparations(ctx context.Context, root, profile, wantKind string, apply bool, validate ScopeValidator) (Result, bool, error) {
 	if ctx == nil || strings.TrimSpace(root) == "" {
 		return Result{}, false, fail("ARGUMENT", "准备恢复必须显式提供 context/root")
 	}
 	if e := ctx.Err(); e != nil {
 		return Result{Status: "cancelled"}, false, domain.Wrap("CANCELLED", e)
 	}
-	if _, e := domain.GetProfile(profile); e != nil {
+	if _, e := domain.GetProfile(profile); wantKind == "" && e != nil {
 		return Result{}, false, e
 	}
 	root, e := safeRoot(root, false)
@@ -533,6 +553,9 @@ func RecoverPreparations(ctx context.Context, root, profile string, apply bool, 
 		}
 		for _, l := range all {
 			if !terminal(l.journal.Phase) {
+				if wantKind != "" && len(refs) > 0 {
+					return Result{}, nil, fail("STATE", "已发布事务与未发布准备并存，保留材料并检查范围")
+				}
 				return Result{}, nil, nil
 			}
 		}
@@ -542,6 +565,9 @@ func RecoverPreparations(ctx context.Context, root, profile string, apply bool, 
 		}
 		out := Result{Status: "unchanged"}
 		for _, s := range seals {
+			if wantKind != "" && s.Kind != wantKind {
+				return Result{}, nil, fail("STATE", "程序目录含其他家族封存")
+			}
 			if len(all) == 0 && s.Profile != profile {
 				return Result{}, nil, fail("IDENTITY", "封存历史与请求 Profile 冲突")
 			}
@@ -557,7 +583,13 @@ func RecoverPreparations(ctx context.Context, root, profile string, apply bool, 
 			if e != nil {
 				return out, nil, e
 			}
+			if wantKind != "" && (c.plan == nil || c.plan.Kind != wantKind) {
+				return out, nil, fail("STATE", "程序准备缺少完整 program-update 计划；保留现场，不自动清除")
+			}
 			if e := validatePreparation(root, profile, &c, validate); e != nil {
+				if wantKind != "" {
+					return out, nil, domain.Wrap("STATE", e)
+				}
 				return out, nil, e
 			}
 			candidates = append(candidates, c)
