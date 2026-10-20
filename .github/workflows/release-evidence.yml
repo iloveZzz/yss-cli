@@ -74,6 +74,8 @@ jobs:
         run: |
           [[ "$EVIDENCE_RUN_ID" =~ ^[0-9]+$ ]]
           gh run download "$EVIDENCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name yss-release-evidence --dir "$RUNNER_TEMP/yss-release-evidence"
+          # Artifact downloads restore files as 0644; restore the original executable mode.
+          chmod 755 "$RUNNER_TEMP/yss-release-evidence/build-darwin/yss"
           python3 - "$RUNNER_TEMP/yss-release-evidence/native-input.json" <<'PY'
           import json, subprocess, sys
           source=json.load(open(sys.argv[1]))
