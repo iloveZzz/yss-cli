@@ -23,7 +23,7 @@ type NativeTransform struct {
 	SourceAbsent bool   `json:"sourceAbsent,omitempty"`
 }
 
-func nativeUpgradeSource(raw map[string]sourceFile) ([]NativeTransform, error) {
+func nativeUpgradeSource(raw map[string]sourceFile, bundleVersion int) ([]NativeTransform, error) {
 	inputs := map[string]string{
 		"scripts/lib/instance-metadata.mjs":                                   "instance-metadata.mjs",
 		".agents/skills/yss-harness-upgrade/SKILL.md":                         "upgrade-SKILL.md",
@@ -42,6 +42,14 @@ func nativeUpgradeSource(raw map[string]sourceFile) ([]NativeTransform, error) {
 	}
 	if _, exists := raw[".agents/skills/setup-yss-harness/SKILL.md"]; exists {
 		inputs[".template-spec/process/harness-upgrade.md"] = "setup-contract.md"
+	}
+	if bundleVersion == 4 {
+		// Current guidance belongs to the pinned template; only its metadata adapter needs compatibility rewriting.
+		for ref := range inputs {
+			if ref != "scripts/lib/instance-metadata.mjs" {
+				delete(inputs, ref)
+			}
+		}
 	}
 	transforms := []NativeTransform{}
 	for _, ref := range sortedKeys(inputs) {
