@@ -130,3 +130,9 @@ python3 tools/release-evidence/run-release-evidence.py verify-public --evidence-
 * 证据只对生成时的源码、工具、参数和环境成立；任何输入变化都使受影响证据失效，须在全新证据目录重新执行。
 * 本目录脚本在 2.3.x 实际脚本的基础上只做了参数化（版本、模板版本与提交取自仓库）和路径解耦，校验逻辑未放宽。
 * 运行机限定 darwin/arm64；其他平台的运行验收不在当前资格范围内，交叉编译不作为平台运行验收。
+
+## GitHub Actions 原生执行
+
+`.github/workflows/release-evidence.yml` 仅手动触发，使用真实 `macos-15` ARM64 runner 执行上述 prepare 流程，另在 Windows x64 runner 运行 safefs、updater、MCP 和运行对象相关回归；测试与证据作为工作流 artifact 保留。工作流不创建 Release。
+
+发布人员核对 prepare 成功、源码提交与资产摘要后，按上文发布。再以 `phase=verify-public`、`evidence_run_id=<prepare 的运行 ID>` 触发同一提交，下载原始证据，使用发布前的独立摘要验证公开包在线升级。Windows 定向回归通过不等于 Windows 完整安装资格，构建包仍保持 `stableReady=false`。

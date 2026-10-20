@@ -1,0 +1,134 @@
+name: Release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Generate release evidence or verify the published package
+        type: choice
+        options: [prepare, verify-public]
+        default: prepare
+      evidence_run_id:
+        description: Successful prepare run ID (required for verify-public)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: cli-source
+        shell: bash
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: cli-source
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: cli-source/go.mod
+          cache-dependency-path: cli-source/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify native host and resolve template source
+        id: source
+        run: |
+          test "$(uname -s)/$(uname -m)" = Darwin/arm64
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const commit=JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
+          if(!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed source required');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`commit=${commit}\n`);
+          JS
+      - uses: actions/checkout@v5
+        with:
+          repository: iloveZzz/yss-spec-project-template
+          ref: ${{ steps.source.outputs.commit }}
+          path: template-source
+          fetch-depth: 0
+      - name: Fetch fixed Bundle
+        run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
+      - name: Native reliability regressions
+        if: inputs.phase == 'prepare'
+        timeout-minutes: 5
+        run: |
+          go test -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance > "$RUNNER_TEMP/native-targeted-tests.jsonl"
+      - name: Generate and validate release evidence
+        if: inputs.phase == 'prepare'
+        run: |
+          python3 tools/release-evidence/run-release-evidence.py prepare --cli-root "$PWD" --evidence-dir "$RUNNER_TEMP/yss-release-evidence" --template-source-root "$GITHUB_WORKSPACE/template-source"
+      - name: Download original evidence
+        if: inputs.phase == 'verify-public'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+        run: |
+          [[ "$EVIDENCE_RUN_ID" =~ ^[0-9]+$ ]]
+          gh run download "$EVIDENCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name yss-release-evidence --dir "$RUNNER_TEMP/yss-release-evidence"
+          python3 - "$RUNNER_TEMP/yss-release-evidence/native-input.json" <<'PY'
+          import json, subprocess, sys
+          source=json.load(open(sys.argv[1]))
+          assert source['cliCommit']==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(), 'evidence source differs from current checkout'
+          PY
+      - name: Verify public upgrade with independent digest
+        if: inputs.phase == 'verify-public'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/domain/domain.go)"
+          mkdir "$RUNNER_TEMP/yss-release-evidence/public-download"
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern "yss_${VERSION}_darwin_arm64.tar.gz" --dir "$RUNNER_TEMP/yss-release-evidence/public-download"
+          PUBLISHED_SHA256="$(awk -v name="yss_${VERSION}_darwin_arm64.tar.gz" '$2 == name {print $1}' "$RUNNER_TEMP/yss-release-evidence/upload/SHA256SUMS")"
+          python3 tools/release-evidence/run-release-evidence.py verify-public --cli-root "$PWD" --evidence-dir "$RUNNER_TEMP/yss-release-evidence" --public-archive "$RUNNER_TEMP/yss-release-evidence/public-download/yss_${VERSION}_darwin_arm64.tar.gz" --published-sha256 "$PUBLISHED_SHA256"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.phase == 'prepare' && 'yss-release-evidence' || 'yss-release-public-verification' }}
+          path: ${{ runner.temp }}/yss-release-evidence/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.phase == 'prepare'
+        with:
+          name: native-darwin-arm64-reliability
+          path: ${{ runner.temp }}/native-targeted-tests.jsonl
+
+  windows:
+    if: inputs.phase == 'prepare'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Fetch fixed Bundle
+        run: node tools/fetch-bundle.mjs
+      - name: Native reliability regressions
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          if ((go env GOOS) -ne 'windows' -or (go env GOARCH) -ne 'amd64') { throw 'actual windows/amd64 required' }
+          go test -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance > "$env:RUNNER_TEMP/native-targeted-tests.jsonl"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-windows-amd64-reliability
+          path: ${{ runner.temp }}/native-targeted-tests.jsonl
