@@ -1,6 +1,22 @@
 package tracker
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"github.com/iloveZzz/yss-cli/internal/domain"
+)
+
+func failureCode(err error) string {
+	var de *domain.Error
+	if errors.As(err, &de) {
+		return de.Code
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "CANCELLED"
+	}
+	return "INTERNAL"
+}
 
 // syncFailure retains side effects at the CLI ErrorResult boundary.
 type syncFailure struct {

@@ -175,8 +175,12 @@ func syncApply(ctx context.Context, root string, args map[string]string, client 
 		tx, err := writeTickets(ctx, root, "tracker-sync", files)
 		if err != nil {
 			result["local_error"] = err.Error()
+			result["local_error_code"] = failureCode(err)
+			if tx.Status != "" {
+				result["transaction"] = tx
+			}
 			if failure == nil {
-				failure = domain.Fail("TRACKER", "远端同步已处理，但本地同步记录写入失败: "+err.Error())
+				failure = domain.WithMessage(err, "远端同步已处理，但本地同步记录写入失败: "+err.Error())
 			}
 		} else {
 			result["local_recorded"], result["transaction"] = true, tx

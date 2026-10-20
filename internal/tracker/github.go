@@ -82,7 +82,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		if ctx.Err() != nil {
 			cause = domain.Wrap("CANCELLED", ctx.Err())
 		} else {
-			cause = domain.Fail("NETWORK", "GitHub 请求失败: "+method+" "+path)
+			cause = domain.WithMessage(domain.Wrap("NETWORK", err), "GitHub 请求失败: "+method+" "+path)
 		}
 		if method != http.MethodGet {
 			cause = &uncertainWrite{cause}
@@ -92,7 +92,10 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		cause := error(domain.Fail("NETWORK", "GitHub 响应读取失败"))
+		cause := domain.WithMessage(domain.Wrap("NETWORK", err), "GitHub 响应读取失败")
+		if ctx.Err() != nil {
+			cause = domain.Wrap("CANCELLED", ctx.Err())
+		}
 		if method != http.MethodGet {
 			cause = &uncertainWrite{cause}
 		}
