@@ -27,6 +27,7 @@ jobs:
         shell: bash
     env:
       CGO_ENABLED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v5
         with:
