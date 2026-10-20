@@ -8,7 +8,7 @@
 ## 入口导航
 
 ```text
-yss 2.5.1 — Spec / Backend 统一入口
+yss 2.5.2 — Spec / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
@@ -27,7 +27,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：eb74bc7864825c3838794587d470ef9069e4508d；来源摘要：4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800
+  固定模板：4da810253f1cf8cfc5e1168891814fa1423d2b43；来源摘要：4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -145,7 +145,7 @@ Shell 补全:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -289,7 +289,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 ```text
 日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c；日常能力=true
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -330,7 +330,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -492,7 +492,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=ce0338ef375932723921be0926fd576a20ac84ee1e4b2252da76c8f34939a601
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=7043e5981c308f1cdd70d240974a6382ff6b8553f084212e0e33023fb1a253a6
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -803,7 +803,7 @@ YSS 离线入门教程
 ### archive
 
 ```text
-yss 2.5.1 — archive
+yss 2.5.2 — archive
 ──────────────────────
 安全打包、读取或核验 ZIP 资产。
 
@@ -849,7 +849,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive pack
 
 ```text
-yss 2.5.1 — archive pack
+yss 2.5.2 — archive pack
 ──────────────────────
 打包指定项目目录。
 
@@ -895,7 +895,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive unpack
 
 ```text
-yss 2.5.1 — archive unpack
+yss 2.5.2 — archive unpack
 ──────────────────────
 安全解包到新位置。
 
@@ -941,7 +941,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive verify
 
 ```text
-yss 2.5.1 — archive verify
+yss 2.5.2 — archive verify
 ──────────────────────
 只读核验归档结构。
 
@@ -985,7 +985,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets
 
 ```text
-yss 2.5.1 — assets
+yss 2.5.2 — assets
 ──────────────────────
 查询或补装 阶段资源和 Skill 闭包。
 
@@ -1040,7 +1040,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets ensure
 
 ```text
-yss 2.5.1 — assets ensure
+yss 2.5.2 — assets ensure
 ──────────────────────
 补装指定 阶段资源和 Skill 闭包。
 
@@ -1095,7 +1095,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets list
 
 ```text
-yss 2.5.1 — assets list
+yss 2.5.2 — assets list
 ──────────────────────
 列出当前 Profile 支持的标识。
 
@@ -1147,7 +1147,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### attach
 
 ```text
-yss 2.5.1 — attach
+yss 2.5.2 — attach
 ──────────────────────
 首次接管已有工程的模板受管资产；使用 sync 同步模板。
 
@@ -1209,7 +1209,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle
 
 ```text
-yss 2.5.1 — bundle
+yss 2.5.2 — bundle
 ──────────────────────
 读取或导出完整固定 Bundle 与 manifest。
 
@@ -1252,7 +1252,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle export
 
 ```text
-yss 2.5.1 — bundle export
+yss 2.5.2 — bundle export
 ──────────────────────
 导出 Bundle 全部 bytes、mode 和 manifest。
 
@@ -1292,7 +1292,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle inspect
 
 ```text
-yss 2.5.1 — bundle inspect
+yss 2.5.2 — bundle inspect
 ──────────────────────
 检查 Bundle 身份、来源及摘要。
 
@@ -1331,7 +1331,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### capabilities
 
 ```text
-yss 2.5.1 — capabilities
+yss 2.5.2 — capabilities
 ──────────────────────
 查看原生能力、治理接口与发行证据边界。
 
@@ -1368,7 +1368,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### check
 
 ```text
-yss 2.5.1 — check
+yss 2.5.2 — check
 ──────────────────────
 识别实例资产并调用对应 verify 做结构与当前校验。
 
@@ -1413,7 +1413,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### completion
 
 ```text
-yss 2.5.1 — completion
+yss 2.5.2 — completion
 ──────────────────────
 生成 Bash、Zsh、Fish 或 PowerShell 补全脚本。
 
@@ -1459,7 +1459,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion bash
 
 ```text
-yss 2.5.1 — completion bash
+yss 2.5.2 — completion bash
 ──────────────────────
 将 bash 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1498,7 +1498,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion fish
 
 ```text
-yss 2.5.1 — completion fish
+yss 2.5.2 — completion fish
 ──────────────────────
 将 fish 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1535,7 +1535,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion powershell
 
 ```text
-yss 2.5.1 — completion powershell
+yss 2.5.2 — completion powershell
 ──────────────────────
 将 powershell 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1572,7 +1572,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion zsh
 
 ```text
-yss 2.5.1 — completion zsh
+yss 2.5.2 — completion zsh
 ──────────────────────
 将 zsh 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1612,7 +1612,7 @@ ARGUMENT；yss help errors <错误码>
 ### context
 
 ```text
-yss 2.5.1 — context
+yss 2.5.2 — context
 ──────────────────────
 查询或校验唯一 CONTEXT.md 及词汇快照。
 
@@ -1659,7 +1659,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context check
 
 ```text
-yss 2.5.1 — context check
+yss 2.5.2 — context check
 ──────────────────────
 校验词汇结构。
 
@@ -1706,7 +1706,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context query
 
 ```text
-yss 2.5.1 — context query
+yss 2.5.2 — context query
 ──────────────────────
 查询稳定词汇。
 
@@ -1754,7 +1754,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context verify
 
 ```text
-yss 2.5.1 — context verify
+yss 2.5.2 — context verify
 ──────────────────────
 校验当前词汇和可选快照。
 
@@ -1802,7 +1802,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### contract
 
 ```text
-yss 2.5.1 — contract
+yss 2.5.2 — contract
 ──────────────────────
 校验 contract 的结构或原生领域语义。
 
@@ -1849,7 +1849,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract check
 
 ```text
-yss 2.5.1 — contract check
+yss 2.5.2 — contract check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -1894,7 +1894,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract publish-review
 
 ```text
-yss 2.5.1 — contract publish-review
+yss 2.5.2 — contract publish-review
 ──────────────────────
 事务发布 pending task3/bundle3 审阅草案。
 
@@ -1935,7 +1935,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract verify
 
 ```text
-yss 2.5.1 — contract verify
+yss 2.5.2 — contract verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2005,7 +2005,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract view
 
 ```text
-yss 2.5.1 — contract view
+yss 2.5.2 — contract view
 ──────────────────────
 按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
 
@@ -2050,7 +2050,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### diff
 
 ```text
-yss 2.5.1 — diff
+yss 2.5.2 — diff
 ──────────────────────
 查看当前文件相对固定模板的差异和同步计划。
 
@@ -2101,7 +2101,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### doctor
 
 ```text
-yss 2.5.1 — doctor
+yss 2.5.2 — doctor
 ──────────────────────
 检查项目身份、受管基线和冲突。
 
@@ -2152,7 +2152,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### evidence
 
 ```text
-yss 2.5.1 — evidence
+yss 2.5.2 — evidence
 ──────────────────────
 校验 evidence 的结构或原生领域语义。
 
@@ -2197,7 +2197,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence check
 
 ```text
-yss 2.5.1 — evidence check
+yss 2.5.2 — evidence check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -2242,7 +2242,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence verify
 
 ```text
-yss 2.5.1 — evidence verify
+yss 2.5.2 — evidence verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -2307,7 +2307,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### explain
 
 ```text
-yss 2.5.1 — explain
+yss 2.5.2 — explain
 ──────────────────────
 解释流程术语或生命周期稳定 ID。
 
@@ -2347,7 +2347,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### git
 
 ```text
-yss 2.5.1 — git
+yss 2.5.2 — git
 ──────────────────────
 查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
 
@@ -2404,7 +2404,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git audit
 
 ```text
-yss 2.5.1 — git audit
+yss 2.5.2 — git audit
 ──────────────────────
 按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
 
@@ -2449,7 +2449,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git base
 
 ```text
-yss 2.5.1 — git base
+yss 2.5.2 — git base
 ──────────────────────
 解析 HEAD 与默认分支的合并基线，输出完整 SHA。
 
@@ -2492,7 +2492,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git branch
 
 ```text
-yss 2.5.1 — git branch
+yss 2.5.2 — git branch
 ──────────────────────
 branch start：按 Ticket 生成符合策略的分支名并切换。
 
@@ -2551,7 +2551,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git branch start
 
 ```text
-yss 2.5.1 — git branch start
+yss 2.5.2 — git branch start
 ──────────────────────
 branch start：按 Ticket 生成符合策略的分支名并切换。
 
@@ -2607,7 +2607,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git changelog
 
 ```text
-yss 2.5.1 — git changelog
+yss 2.5.2 — git changelog
 ──────────────────────
 按 Ticket 汇总提交范围内的变更。
 
@@ -2652,7 +2652,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git commit
 
 ```text
-yss 2.5.1 — git commit
+yss 2.5.2 — git commit
 ──────────────────────
 只提交明确列出的路径，并追加 Ticket trailer。
 
@@ -2706,7 +2706,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git doctor
 
 ```text
-yss 2.5.1 — git doctor
+yss 2.5.2 — git doctor
 ──────────────────────
 检查 Git 版本、提交身份、远端、历史深度与策略文件。
 
@@ -2748,7 +2748,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git guard
 
 ```text
-yss 2.5.1 — git guard
+yss 2.5.2 — git guard
 ──────────────────────
 事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
 
@@ -2790,7 +2790,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git hooks
 
 ```text
-yss 2.5.1 — git hooks
+yss 2.5.2 — git hooks
 ──────────────────────
 hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
 
@@ -2841,7 +2841,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git hooks install
 
 ```text
-yss 2.5.1 — git hooks install
+yss 2.5.2 — git hooks install
 ──────────────────────
 hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
 
@@ -2889,7 +2889,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git policy
 
 ```text
-yss 2.5.1 — git policy
+yss 2.5.2 — git policy
 ──────────────────────
 显示生效的 Git 策略；policy set 经计划修改一个字段。
 
@@ -2945,7 +2945,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git policy set
 
 ```text
-yss 2.5.1 — git policy set
+yss 2.5.2 — git policy set
 ──────────────────────
 显示生效的 Git 策略；policy set 经计划修改一个字段。
 
@@ -2998,7 +2998,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git push
 
 ```text
-yss 2.5.1 — git push
+yss 2.5.2 — git push
 ──────────────────────
 推送当前分支或一个本地标签；需保存计划并由用户确认远端。
 
@@ -3052,7 +3052,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git release
 
 ```text
-yss 2.5.1 — git release
+yss 2.5.2 — git release
 ──────────────────────
 release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
 
@@ -3107,7 +3107,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git release tag
 
 ```text
-yss 2.5.1 — git release tag
+yss 2.5.2 — git release tag
 ──────────────────────
 release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
 
@@ -3159,7 +3159,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git status
 
 ```text
-yss 2.5.1 — git status
+yss 2.5.2 — git status
 ──────────────────────
 分支、上游差异、改动路径及进行中的合并/变基。
 
@@ -3202,7 +3202,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git submodules
 
 ```text
-yss 2.5.1 — git submodules
+yss 2.5.2 — git submodules
 ──────────────────────
 列出子模块状态及其本地入口文件。
 
@@ -3244,7 +3244,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git verify-message
 
 ```text
-yss 2.5.1 — git verify-message
+yss 2.5.2 — git verify-message
 ──────────────────────
 校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
 
@@ -3287,7 +3287,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### handoff
 
 ```text
-yss 2.5.1 — handoff
+yss 2.5.2 — handoff
 ──────────────────────
 校验 handoff 的结构或原生领域语义。
 
@@ -3332,7 +3332,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff check
 
 ```text
-yss 2.5.1 — handoff check
+yss 2.5.2 — handoff check
 ──────────────────────
 执行显式 Schema 结构校验。
 
@@ -3377,7 +3377,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff verify
 
 ```text
-yss 2.5.1 — handoff verify
+yss 2.5.2 — handoff verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
@@ -3438,7 +3438,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### help
 
 ```text
-yss 2.5.1 — Spec / Backend 统一入口
+yss 2.5.2 — Spec / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
@@ -3457,7 +3457,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：eb74bc7864825c3838794587d470ef9069e4508d；来源摘要：4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800
+  固定模板：4da810253f1cf8cfc5e1168891814fa1423d2b43；来源摘要：4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -3924,7 +3924,7 @@ YSS 完整离线教程
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。
 
 正式生命周期（spec）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4064,7 +4064,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 
 日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c；日常能力=true
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -4101,7 +4101,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=cb97bb2c516b210e59f5a80f8d82f04fa44d5e9b322d28be8a0c5c33222a8f9c
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=4b0c9e87bcef873758c8f5eb88783ff0a198cb072b45e1c60e95fe7bb8dab800；profile=bbd19adeabb62050c91e9f881915c3b39fa9e8a4f5803292299d2068b1f1734c；policy=636454403ae7a6d72d4236822feb9f946c3131afcbec2362be302cdbb4c7c307
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4259,7 +4259,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=eb74bc7864825c3838794587d470ef9069e4508d；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=ce0338ef375932723921be0926fd576a20ac84ee1e4b2252da76c8f34939a601
+来源摘要：template=4da810253f1cf8cfc5e1168891814fa1423d2b43；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=7043e5981c308f1cdd70d240974a6382ff6b8553f084212e0e33023fb1a253a6
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4427,7 +4427,7 @@ YSS 离线入门教程
 ### init
 
 ```text
-yss 2.5.1 — init
+yss 2.5.2 — init
 ──────────────────────
 创建固定模板来源的项目实例。
 
@@ -4485,7 +4485,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### lifecycle
 
 ```text
-yss 2.5.1 — lifecycle
+yss 2.5.2 — lifecycle
 ──────────────────────
 查询当前生命周期、配置本次推进目标并核验门禁。
 
@@ -4538,7 +4538,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle query
 
 ```text
-yss 2.5.1 — lifecycle query
+yss 2.5.2 — lifecycle query
 ──────────────────────
 查询注册表中的稳定 ID。
 
@@ -4585,7 +4585,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle route
 
 ```text
-yss 2.5.1 — lifecycle route
+yss 2.5.2 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
@@ -4635,7 +4635,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle status
 
 ```text
-yss 2.5.1 — lifecycle status
+yss 2.5.2 — lifecycle status
 ──────────────────────
 只读核验 checkpoint、本次目标与显式消费者的当前证据。
 
@@ -4683,7 +4683,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle target
 
 ```text
-yss 2.5.1 — lifecycle target
+yss 2.5.2 — lifecycle target
 ──────────────────────
 读取或事务设置 Spec 单功能的本次推进目标。
 
@@ -4740,7 +4740,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify
 
 ```text
-yss 2.5.1 — lifecycle verify
+yss 2.5.2 — lifecycle verify
 ──────────────────────
 核验当前 checkpoint 的领域门禁。
 
@@ -4792,7 +4792,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify-daily
 
 ```text
-yss 2.5.1 — lifecycle verify-daily
+yss 2.5.2 — lifecycle verify-daily
 ──────────────────────
 核验同一日常任务的当前差异、测试和适用复核。
 
@@ -4839,7 +4839,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### mcp
 
 ```text
-yss 2.5.1 — mcp
+yss 2.5.2 — mcp
 ──────────────────────
 以 MCP stdio 服务提供只读治理工具。
 
@@ -4877,7 +4877,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate
 
 ```text
-yss 2.5.1 — migrate
+yss 2.5.2 — migrate
 ──────────────────────
 显式迁移 Spec 或 Backend 的 metadata3 治理实例。
 
@@ -4933,7 +4933,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### profile
 
 ```text
-yss 2.5.1 — profile
+yss 2.5.2 — profile
 ──────────────────────
 准备独立的下游 Profile 工程并登记显式关联。
 
@@ -4984,7 +4984,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### profile prepare
 
 ```text
-yss 2.5.1 — profile prepare
+yss 2.5.2 — profile prepare
 ──────────────────────
 为显式外部 Backend 生成或执行初始化保存计划。
 
@@ -5036,7 +5036,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project-ci
 
 ```text
-yss 2.5.1 — project-ci
+yss 2.5.2 — project-ci
 ──────────────────────
 核验或配置项目 CI。
 
@@ -5085,7 +5085,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci apply
 
 ```text
-yss 2.5.1 — project-ci apply
+yss 2.5.2 — project-ci apply
 ──────────────────────
 应用保存的 CI 安装计划。
 
@@ -5147,7 +5147,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci check
 
 ```text
-yss 2.5.1 — project-ci check
+yss 2.5.2 — project-ci check
 ──────────────────────
 核验完整治理或显式有限 CI。
 
@@ -5210,7 +5210,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci install
 
 ```text
-yss 2.5.1 — project-ci install
+yss 2.5.2 — project-ci install
 ──────────────────────
 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
@@ -5277,7 +5277,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci plan
 
 ```text
-yss 2.5.1 — project-ci plan
+yss 2.5.2 — project-ci plan
 ──────────────────────
 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
@@ -5344,7 +5344,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci transition
 
 ```text
-yss 2.5.1 — project-ci transition
+yss 2.5.2 — project-ci transition
 ──────────────────────
 核验工作单元流转条件。
 
@@ -5407,7 +5407,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci verify
 
 ```text
-yss 2.5.1 — project-ci verify
+yss 2.5.2 — project-ci verify
 ──────────────────────
 按完整 Git 基线核验 CI。
 
@@ -5470,7 +5470,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### reading
 
 ```text
-yss 2.5.1 — reading
+yss 2.5.2 — reading
 ──────────────────────
 只读核验或查询 managed 阅读视图。
 
@@ -5519,7 +5519,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading affected
 
 ```text
-yss 2.5.1 — reading affected
+yss 2.5.2 — reading affected
 ──────────────────────
 列出受某个资产变化影响的 managed checkpoint。
 
@@ -5564,7 +5564,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading apply-enable
 
 ```text
-yss 2.5.1 — reading apply-enable
+yss 2.5.2 — reading apply-enable
 ──────────────────────
 应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
 
@@ -5606,7 +5606,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading check-views
 
 ```text
-yss 2.5.1 — reading check-views
+yss 2.5.2 — reading check-views
 ──────────────────────
 只读核验 checkpoint 的阅读视图是否与当前来源一致。
 
@@ -5651,7 +5651,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading plan-enable
 
 ```text
-yss 2.5.1 — reading plan-enable
+yss 2.5.2 — reading plan-enable
 ──────────────────────
 规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
 
@@ -5696,7 +5696,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading render
 
 ```text
-yss 2.5.1 — reading render
+yss 2.5.2 — reading render
 ──────────────────────
 渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
 
@@ -5743,7 +5743,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### recover
 
 ```text
-yss 2.5.1 — recover
+yss 2.5.2 — recover
 ──────────────────────
 查询或恢复未完成的项目事务。
 
@@ -5787,7 +5787,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### rollback
 
 ```text
-yss 2.5.1 — rollback
+yss 2.5.2 — rollback
 ──────────────────────
 查询或整体回退最近一次成功项目事务。
 
@@ -5831,7 +5831,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime
 
 ```text
-yss 2.5.1 — runtime
+yss 2.5.2 — runtime
 ──────────────────────
 管理独立运行记录与保护标记。
 
@@ -5884,7 +5884,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime begin
 
 ```text
-yss 2.5.1 — runtime begin
+yss 2.5.2 — runtime begin
 ──────────────────────
 创建运行记录并返回所有权 token。
 
@@ -5933,7 +5933,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime commands
 
 ```text
-yss 2.5.1 — runtime commands
+yss 2.5.2 — runtime commands
 ──────────────────────
 只读查询运行记录。
 
@@ -5978,7 +5978,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime complete
 
 ```text
-yss 2.5.1 — runtime complete
+yss 2.5.2 — runtime complete
 ──────────────────────
 以实际退出码结束运行记录。
 
@@ -6027,7 +6027,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime event
 
 ```text
-yss 2.5.1 — runtime event
+yss 2.5.2 — runtime event
 ──────────────────────
 追加运行事件。
 
@@ -6076,7 +6076,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime events
 
 ```text
-yss 2.5.1 — runtime events
+yss 2.5.2 — runtime events
 ──────────────────────
 只读查询运行记录。
 
@@ -6121,7 +6121,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime inspect
 
 ```text
-yss 2.5.1 — runtime inspect
+yss 2.5.2 — runtime inspect
 ──────────────────────
 只读查询运行记录。
 
@@ -6165,7 +6165,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pin
 
 ```text
-yss 2.5.1 — runtime pin
+yss 2.5.2 — runtime pin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -6212,7 +6212,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pins
 
 ```text
-yss 2.5.1 — runtime pins
+yss 2.5.2 — runtime pins
 ──────────────────────
 只读查询运行记录。
 
@@ -6257,7 +6257,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime run
 
 ```text
-yss 2.5.1 — runtime run
+yss 2.5.2 — runtime run
 ──────────────────────
 只读查询运行记录。
 
@@ -6302,7 +6302,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime unpin
 
 ```text
-yss 2.5.1 — runtime unpin
+yss 2.5.2 — runtime unpin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -6349,7 +6349,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold
 
 ```text
-yss 2.5.1 — scaffold
+yss 2.5.2 — scaffold
 ──────────────────────
 直接生成 DDD 或分层 MVC 后端工程。
 
@@ -6411,7 +6411,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold ddd
 
 ```text
-yss 2.5.1 — scaffold ddd
+yss 2.5.2 — scaffold ddd
 ──────────────────────
 生成 ddd 后端业务空骨架。
 
@@ -6468,7 +6468,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold mvc
 
 ```text
-yss 2.5.1 — scaffold mvc
+yss 2.5.2 — scaffold mvc
 ──────────────────────
 生成 mvc 后端业务空骨架。
 
@@ -6525,7 +6525,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills
 
 ```text
-yss 2.5.1 — skills
+yss 2.5.2 — skills
 ──────────────────────
 查询或补装 Skill 及其依赖闭包。
 
@@ -6581,7 +6581,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills ensure
 
 ```text
-yss 2.5.1 — skills ensure
+yss 2.5.2 — skills ensure
 ──────────────────────
 补装指定 Skill 及其依赖闭包。
 
@@ -6636,7 +6636,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills list
 
 ```text
-yss 2.5.1 — skills list
+yss 2.5.2 — skills list
 ──────────────────────
 列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。
 
@@ -6688,7 +6688,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills resolve
 
 ```text
-yss 2.5.1 — skills resolve
+yss 2.5.2 — skills resolve
 ──────────────────────
 只读核验所选内置技能及命中的上下文依赖。
 
@@ -6733,7 +6733,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### stage
 
 ```text
-yss 2.5.1 — stage
+yss 2.5.2 — stage
 ──────────────────────
 查询、登记或更新既有阶段工作项。
 
@@ -6788,7 +6788,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage apply
 
 ```text
-yss 2.5.1 — stage apply
+yss 2.5.2 — stage apply
 ──────────────────────
 事务应用已保存的阶段工作项计划。
 
@@ -6838,7 +6838,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage check
 
 ```text
-yss 2.5.1 — stage check
+yss 2.5.2 — stage check
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -6885,7 +6885,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage plan
 
 ```text
-yss 2.5.1 — stage plan
+yss 2.5.2 — stage plan
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -6939,7 +6939,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage query
 
 ```text
-yss 2.5.1 — stage query
+yss 2.5.2 — stage query
 ──────────────────────
 查询阶段或 checkpoint 中的工作项。
 
@@ -6987,7 +6987,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage register
 
 ```text
-yss 2.5.1 — stage register
+yss 2.5.2 — stage register
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -7041,7 +7041,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage status
 
 ```text
-yss 2.5.1 — stage status
+yss 2.5.2 — stage status
 ──────────────────────
 读取并校验当前阶段工作项。
 
@@ -7088,7 +7088,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage update
 
 ```text
-yss 2.5.1 — stage update
+yss 2.5.2 — stage update
 ──────────────────────
 生成阶段工作项写入计划。
 
@@ -7142,7 +7142,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### sync
 
 ```text
-yss 2.5.1 — sync
+yss 2.5.2 — sync
 ──────────────────────
 将项目模板升级到本 CLI 内置固定 Bundle。
 
@@ -7202,7 +7202,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### trace
 
 ```text
-yss 2.5.1 — trace
+yss 2.5.2 — trace
 ──────────────────────
 汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
 
@@ -7250,7 +7250,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker
 
 ```text
-yss 2.5.1 — tracker
+yss 2.5.2 — tracker
 ──────────────────────
 把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
 
@@ -7293,7 +7293,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker link
 
 ```text
-yss 2.5.1 — tracker link
+yss 2.5.2 — tracker link
 ──────────────────────
 在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
 
@@ -7337,7 +7337,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker status
 
 ```text
-yss 2.5.1 — tracker status
+yss 2.5.2 — tracker status
 ──────────────────────
 列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
 
@@ -7377,7 +7377,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker sync
 
 ```text
-yss 2.5.1 — tracker sync
+yss 2.5.2 — tracker sync
 ──────────────────────
 把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
 
@@ -7426,7 +7426,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### update
 
 ```text
-yss 2.5.1 — update
+yss 2.5.2 — update
 ──────────────────────
 安装、恢复或回退指定本地发行包。
 
@@ -7477,7 +7477,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update apply
 
 ```text
-yss 2.5.1 — update apply
+yss 2.5.2 — update apply
 ──────────────────────
 应用保存的程序安装计划。
 
@@ -7522,7 +7522,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update plan
 
 ```text
-yss 2.5.1 — update plan
+yss 2.5.2 — update plan
 ──────────────────────
 生成离线程序安装计划（默认动作）。
 
@@ -7569,7 +7569,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update recover
 
 ```text
-yss 2.5.1 — update recover
+yss 2.5.2 — update recover
 ──────────────────────
 恢复唯一未完成的程序事务。
 
@@ -7608,7 +7608,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update rollback
 
 ```text
-yss 2.5.1 — update rollback
+yss 2.5.2 — update rollback
 ──────────────────────
 回退最近一次成功程序安装。
 
@@ -7647,7 +7647,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update status
 
 ```text
-yss 2.5.1 — update status
+yss 2.5.2 — update status
 ──────────────────────
 只读诊断安装一致性及程序事务状态。
 
@@ -7687,7 +7687,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### upgrade
 
 ```text
-yss 2.5.1 — upgrade
+yss 2.5.2 — upgrade
 ──────────────────────
 从 GitHub 下载并事务安装稳定版 CLI。
 
@@ -7731,7 +7731,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### verify
 
 ```text
-yss 2.5.1 — verify
+yss 2.5.2 — verify
 ──────────────────────
 核验一个门禁所需的当前 checkpoint 与检查依赖。
 
@@ -7772,7 +7772,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### version
 
 ```text
-yss 2.5.1 — version
+yss 2.5.2 — version
 ──────────────────────
 查看 CLI、协议和固定来源身份。
 
@@ -7809,7 +7809,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml
 
 ```text
-yss 2.5.1 — xml
+yss 2.5.2 — xml
 ──────────────────────
 读取 Maven project XML。
 
@@ -7854,7 +7854,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml inspect
 
 ```text
-yss 2.5.1 — xml inspect
+yss 2.5.2 — xml inspect
 ──────────────────────
 读取 Maven project 结构。
 
@@ -7897,7 +7897,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml query
 
 ```text
-yss 2.5.1 — xml query
+yss 2.5.2 — xml query
 ──────────────────────
 查询 Maven project 读取结果。
 
