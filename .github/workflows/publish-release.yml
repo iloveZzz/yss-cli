@@ -1,0 +1,74 @@
+name: Publish verified release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing verified release tag
+        required: true
+        default: v2.5.3
+        type: string
+      evidence_run_id:
+        description: Successful Release evidence prepare run
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Download and verify fixed release assets
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EVIDENCE_RUN_ID" =~ ^[0-9]+$ ]]
+          gh run download "$EVIDENCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name yss-release-evidence --dir "$RUNNER_TEMP/evidence"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'evidence'
+          tag=os.environ['RELEASE_TAG']
+          expected=subprocess.check_output(['git','rev-parse',tag+'^{commit}'],text=True).strip()
+          run=json.loads(subprocess.check_output(['gh','run','view',os.environ['EVIDENCE_RUN_ID'],'--repo',os.environ['GITHUB_REPOSITORY'],'--json','headSha,conclusion'],text=True))
+          assert run['headSha']==expected and run['conclusion']=='success'
+          checks=json.loads((root/'release-final/checksums.json').read_text())
+          assert checks['cliCommit']==expected and checks['version']==tag[1:] and checks['stableReady'] is True and checks['pending']==[]
+          assert checks['requiredPlatforms']==['darwin/arm64'] and checks['qualificationScope']=='local-platform-program-install'
+          log=json.loads((root/'orchestrator/run-log.json').read_text())
+          assert log['status']=='passed' and all(s['status']=='passed' for s in log['steps'])
+          upload=root/'upload'
+          names={f'yss_{tag[1:]}_darwin_arm64.tar.gz',f'yss_{tag[1:]}_windows_amd64.zip','checksums.json','build-only-checksums.json','native-receipt.json','release-gate.json','release-input.json'}
+          seen=set()
+          for line in (upload/'SHA256SUMS').read_text().splitlines():
+              digest,name=line.split()
+              assert name in names and name not in seen
+              assert hashlib.sha256((upload/name).read_bytes()).hexdigest()==digest
+              seen.add(name)
+          assert seen==names and {p.name for p in upload.iterdir()}==names|{'SHA256SUMS'}
+          assert json.loads((upload/'checksums.json').read_text())==checks
+          win=json.loads((upload/'build-only-checksums.json').read_text())
+          assert win['cliCommit']==expected and win['stableReady'] is False
+          notes=pathlib.Path('docs/releases')/(tag+'.md')
+          assert notes.is_file() and expected in notes.read_text()
+          PY
+      - name: Publish the verified tag and assets
+        shell: bash
+        run: |
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/evidence/upload/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "yss-cli ${RELEASE_TAG#v}" --notes-file "docs/releases/$RELEASE_TAG.md" --latest
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,isDraft,isPrerelease,assets > "$RUNNER_TEMP/published-release.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-release
+          path: ${{ runner.temp }}/published-release.json
