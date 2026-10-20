@@ -54,7 +54,7 @@ func NewClient(env func(string) string) (*Client, error) {
 	u.Scheme, u.Host = strings.ToLower(u.Scheme), strings.ToLower(u.Host)
 	u.Path = strings.TrimRight(u.Path, "/")
 	base = u.String()
-	return &Client{Base: base, Token: token, HTTP: &http.Client{Timeout: 20 * time.Second}}, nil
+	return &Client{Base: base, Token: token, HTTP: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {

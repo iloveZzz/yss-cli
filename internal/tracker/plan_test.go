@@ -45,7 +45,7 @@ func TestSyncPlanBindsV2SourceAndSelection(t *testing.T) {
 }
 
 func TestSyncRejectsRehashedIllegalPlan(t *testing.T) {
-	for _, name := range []string{"labels", "issue", "duplicate", "v1", "unknown"} {
+	for _, name := range []string{"labels", "issue", "duplicate", "v1", "unknown", "duplicate-key"} {
 		t.Run(name, func(t *testing.T) {
 			root, file, e, gh := syncFixture(t)
 			raw, _ := os.ReadFile(file)
@@ -70,6 +70,9 @@ func TestSyncRejectsRehashedIllegalPlan(t *testing.T) {
 			if name == "unknown" {
 				raw = append([]byte(`{"unrecognized":true,`), raw[1:]...)
 			}
+			if name == "duplicate-key" {
+				raw = append([]byte(`{"root":"/ignored",`), raw[1:]...)
+			}
 			if err := os.WriteFile(file, raw, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -78,6 +81,34 @@ func TestSyncRejectsRehashedIllegalPlan(t *testing.T) {
 				t.Fatalf("illegal plan must fail before writes: %v writes=%d", err, gh.patches)
 			}
 		})
+	}
+}
+
+func TestSyncRefusesRedirectToUnboundSource(t *testing.T) {
+	root := project(t, true)
+	gh := &fakeGitHub{labels: map[string][]string{"acme/app/issues/12": {"needs-triage"}}, updated: map[string]string{"acme/app/issues/12": "a"}}
+	unbound := 0
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { unbound++; gh.ServeHTTP(w, r) }))
+	defer sink.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Redirect(w, r, sink.URL+r.URL.Path, http.StatusFound)
+			return
+		}
+		gh.ServeHTTP(w, r)
+	}))
+	defer source.Close()
+	e := env(source)
+	if _, err := Run(context.Background(), "link", root, map[string]string{"ticket": ".work/feat/parent-ticket.md", "issue": "acme/app#12", "apply": "true"}, Env{}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "plan.json")
+	if _, err := Run(context.Background(), "sync", root, map[string]string{"plan": "true", "out": file}, e); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(context.Background(), "sync", root, map[string]string{"apply": "true", "plan-file": file, "confirm-remote": "github"}, e)
+	if err == nil || unbound != 0 {
+		t.Fatalf("must not follow a redirect outside the plan binding: %v requests=%d", err, unbound)
 	}
 }
 

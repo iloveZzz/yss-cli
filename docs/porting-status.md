@@ -1,12 +1,16 @@
 # 迁移覆盖与切换清单
 
-本工程当前源码版本为 `2.1.0`。本表记录当前能力及实际限制，不授予稳定发布资格。四旧 CLI 的退役范围、现役消费者、历史恢复和发行条件见 [退役合同](cli-retirement.md)；必要 Node/Python 治理工具继续维护。
+<!-- YSS_CURRENT_STATUS_START -->
+当前源码版本：`2.5.2`。固定模板：backend `v4.6.4`、spec `v4.6.4`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+<!-- YSS_CURRENT_STATUS_END -->
+
+本工程当前版本与固定模板见上方生成信息。本表记录当前能力及实际限制，不授予稳定发布资格。四旧 CLI 的退役范围、现役消费者、历史恢复和发行条件见 [退役合同](cli-retirement.md)；必要 Node/Python 治理工具继续维护。
 
 | 能力 | 当前实现 | 切换条件 |
 |---|---|---|
 | Spec / Backend 初始化、接管、差异、同步 | 独立 Go 固定来源 Bundle v4、只读计划、摘要绑定应用；拒绝混家族和未知身份 | 两个 Profile 实例矩阵及现役消费者通过后切换；Frontend 独立 Profile 已退役；停用参数明确拒绝和替代说明 |
 | 迁移和恢复 | 显式旧→Go metadata 转换；原字节、mode、WAL、对象归档；最新迁移 kind 回退 | 旧事务由旧执行器恢复；历史布局、外部归档与手工冲突解决仍未迁移 |
-| 程序安装 | `update plan/apply/status/recover/rollback`；指定 `--tool-root`、发行包 SHA-256；独立安装记录和持久归档 | 只接受显式离线发行包；恢复锁内匹配 `program-update`，回退最近一次成功安装；无网络自动查询、全局 npm 更新或发布动作；平台恢复以对应发行包的原生收据为准 |
+| 程序安装 | `update plan/apply/status/recover/rollback`；指定 `--tool-root`、发行包 SHA-256；独立安装记录和持久归档 | 支持显式离线发行包和固定 GitHub 来源的在线 `upgrade`；恢复锁内匹配 `program-update`，未发布完整准备验证后封存，回退最近一次成功安装；不执行 npm 全局更新或发布；平台资格以对应发行包原生收据为准 |
 | Skill/阶段资源补装 | 已登记的资源/Skill 闭包；Spec selected lock 更新 | Inspect 暴露闭包和 unsupportedReason，必要消费者出现 UNPORTED 即阻断 |
 | Context、生命周期 | 唯一根合同、词汇、摘要、快照核验；当前登记状态查询；已接入当前 checkpoint、阶段、批准、决定与下一路由原生校验 | 本地预发布验收以冻结报告为准；校验不创建批准或授予实现资格 |
 | Stage work | JSON checkpoint 的 register/update/apply、语义校验、依赖/stale/证据检查；`plan --refresh`（漂移项沿依赖传递重置为 pending 并标记 recheck_required，与模板 Node refreshTracking 对拍一致）；checkpoint 查询的 `--stage/--work-unit` 筛选 | 自动创建 checkpoint、YAML 写入及外部 Schema 引用仍未迁移 |
@@ -26,4 +30,10 @@ Windows 文件模式按 readonly/write 能力解释，不声称支持 POSIX exec
 
 SQLite 原生记录采用短 busy 等待：数据库持续被其他连接占用时明确返回 `RUNTIME_BUSY`，调用者可重试幂等动作；已取消的上下文返回 `CANCELLED`。当前不模拟旧执行器的 5 秒锁等待。已有 WAL 数据库不隐式转换 journal mode，查询及记录保护动作在打开前明确拒绝；旧 WAL 能力继续使用旧执行器。
 
-稳定切换前需完成本次已确认的必要能力与消费者、固定二进制/Skills/投影/CI/Bundle、真实旧实例恢复、所选发行平台原生验证，以及固定提交来源和本次关联消费者与安装契约。发行资格由对应固定提交的生态发行清单、实际门禁和所选验收平台原生收据记录。本次 2.1.0 仅验收 Mac ARM64；Windows x64 交付构建包与独立摘要，未取得原生运行或安装资格，下载解压使用，在线升级仍拒绝未验收平台。
+稳定切换前需完成本次已确认的必要能力与消费者、固定二进制/Skills/投影/CI/Bundle、真实旧实例恢复、所选发行平台原生验证，以及固定提交来源和本次关联消费者与安装契约。发行资格由对应固定提交的生态发行清单、实际门禁和所选验收平台原生收据记录。历史 2.1.0 仅验收 Mac ARM64；Windows x64 交付构建包与独立摘要，未取得原生运行或安装资格，下载解压使用，在线升级仍拒绝未验收平台。
+
+## 可靠性补强
+
+Tracker 仅应用来源绑定并经语义重建的 v2 计划；旧计划需重新生成。标签逐项操作并在写后读取对账，失败保留实际副作用。程序准备恢复严格区分 Profile 与 program-update，不以封存授权写入目标。运行输入对象完整写入、校验与文件同步后以不覆盖方式原子发布，Unix 同步发布目录；损坏的既存证据保留。归档输入在打开前及句柄打开后验型，Unix 使用非阻塞且拒绝最终符号链接的打开方式。MCP 取消关闭所拥有的输入并结束读取线程。
+
+这些修复不表示跨 SQLite、对象和 owner 文件的断电保证已经验收；macOS/Windows 原生运行仍需各平台真实记录。

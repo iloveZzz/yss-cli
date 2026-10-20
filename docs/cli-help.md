@@ -5892,7 +5892,7 @@ yss 2.5.2 — runtime begin
 
 前置条件:
 准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
-保存返回的 id/token；之后 event、complete 和 pin 操作都须提供 token。
+保存返回的 id/token；之后 event、complete 和 pin 操作都须提供 token。输入对象完整写入、校验与文件同步后原子发布，损坏的已有对象保留并报 RUNTIME_INTEGRITY。
 
 最小示例:
 yss runtime begin --root ./demo-spec --kind command --json
@@ -7385,7 +7385,7 @@ yss 2.5.2 — tracker sync
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-需要 issue-tracker.md 的 remote_mirror: true（或主 tracker 为 github）。非五态标签保留；成功后在 Ticket 写入 Tracker-Synced 行。
+需要 issue-tracker.md 的 remote_mirror: true（或主 tracker 为 github）。计划 v2 绑定 API 来源与 Ticket 范围，旧计划须重新生成；应用重建合法改动，只逐项操作五态并写后对账。失败保留部分完成项与 remote_state；unknown 时先查询对账，不自动重放。成功后在未漂移的 Ticket 写入 Tracker-Synced 行。
 
 最小示例:
 yss tracker sync --root ./demo-spec --plan --out /tmp/tracker-plan.json
@@ -7577,7 +7577,7 @@ yss 2.5.2 — update recover
 
 前置条件:
 无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
-保护性恢复开始后完成还原，可重复执行；用户改动时停止覆盖。
+已发布事务开始恢复后完成还原；未发布的完整程序准备验证空 WAL、范围和当前基线后封存为 sealed。旧完整计划可恢复，缺计划或冲突材料返回 STATE 并保留，不能靠重复执行清除。
 
 最小示例:
 yss update recover --tool-root ./tools/yss --json

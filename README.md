@@ -1,8 +1,12 @@
 # yss
 
+<!-- YSS_CURRENT_STATUS_START -->
+当前源码版本：`2.5.2`。固定模板：backend `v4.6.4`、spec `v4.6.4`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+<!-- YSS_CURRENT_STATUS_END -->
+
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Backend 的 Go CLI，当前源码版本为 2.5.1，固定模板来源为 v4.6.3。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Backend 的 Go CLI。当前身份见上方生成信息。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -69,7 +73,7 @@ yss profile prepare --root ./spec --apply --plan-file /tmp/delivery-prepare.json
 yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature/checkpoint.yaml --out /tmp/spec-baseline
 ```
 
-初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Design 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
+初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Backend 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
 
 ```sh
 # 归档不存在时必须带 -tags yss_nobundle 自举编译；日常请用 node tools/fetch-bundle.mjs（含摘要校验）
@@ -87,7 +91,7 @@ node tools/refresh-source-lock.mjs --source-root /absolute/template-source --pro
 
 **发布流程里的一步**：模板发布 tag（`vX.Y.Z`）之后，发布 CLI 时用 `--tag` 把所选模板钉到该 tag。锁里记录 `templateTag`、tag 指向的 `templateCommit`、不带 `v` 的 `templateVersion`；打包时校验三者一致，tag 指向别的提交、tag 不存在、预发布 tag、`templateVersion` 与 tag 不符都拒绝。实例因此记录语义化的模板版本。Bundle 只在这一步重新生成：模板的普通提交不需要重钉，也不需要刷新 CLI。已经钉在 tag 上的来源不再接受按 HEAD 刷新。
 
-还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend / Frontend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
+还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
 
 来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
@@ -101,7 +105,7 @@ yss update recover --tool-root ./tools/yss --json
 yss update rollback --tool-root ./tools/yss --json
 ```
 
-程序恢复仅消费 `program-update` 事务；回退只针对最近一次成功程序安装，不跨过后来的成功事务。恢复开始还原后会完成保护性还原，避免取消把工具目录留在混合状态；进程被强制结束时可再次执行恢复。用户后来修改的文件会使整体回退停止。
+程序恢复仅消费 `program-update` 事务；回退只针对最近一次成功程序安装，不跨过后来的成功事务。恢复开始还原后会完成保护性还原，避免取消把工具目录留在混合状态；进程被强制结束时可再次执行恢复。用户后来修改的文件会使整体回退停止。程序未发布准备在完整计划、空 WAL、路径范围及当前基线通过校验后封存为 `sealed`；旧版完整计划也可处理。缺计划、写入意图或冲突材料保留并返回 `STATE`，状态查询的 `preparationRecovery` 提供只读诊断。
 
 运行记录使用独立 SQLite 目录。`runtime run/events/commands/pins --id <运行 ID>` 为只读查询；`runtime pin/unpin --id <运行 ID> --token <begin 返回的 token> --reason <原因>` 只变更该运行的保护记录，完成后仍可操作。记录查询和保护标记不表示生命周期批准，也不删除证据文件。
 
@@ -111,9 +115,9 @@ yss update rollback --tool-root ./tools/yss --json
 
 通用交叉打包入口（会构建全部平台）：`go run ./tools/package <工程外新目录>`。包中分别记录“交叉编译”和“原生运行验证”；未提交源码和缺少平台运行证据的包只能用于预发布试用。
 
-2.1.0 交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.1.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
+**历史发行记录（2.1.0）：** 当时交付 `darwin/arm64` 与 `windows/amd64` 两种产物。本次仅 Mac ARM64 执行原生、安装与恢复验收，合格包由现有装配器生成；Windows x64 仅构建、打包并核验来源与摘要，保持 `stableReady=false`、`nativeRuntimeVerified=false`，不宣称运行验收通过。Windows 可核对独立 `build-only-checksums.json` 后解压运行；本次 `upgrade --to 2.1.0` 的稳定平台范围仅含 Mac，Windows 在线升级仍明确拒绝。Windows 只读文件操作的 `UNPORTED` 限制保持。
 
-本次发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
+上述 2.1.0 历史发行资格为 `local-platform-impacted-consumers`，包括本机原生接口、插件、恢复与安装契约；不包含无关全模板回归。已有失败及未执行项如实保留。
 
 ## 入门教程与 CLI 在线升级
 
@@ -197,9 +201,9 @@ yss -V --json
 
 治理资产的统一入口是 `yss check` 与 `yss verify --gate`：`yss check --changed` 按字段识别改动的批准记录、checkpoint、上下文对账、OpenAPI 草稿验证与脚手架决策，逐个调用对应的现有 `verify`，汇总成一份报告；每条发现都带 `code`、`file`、`pointer`、`message`、`fix` 与可复现的 `command`。`yss verify --gate <门禁> --checkpoint <文件>` 依次运行 `lifecycle verify` 与 `contract verify --kind gate-checks`。两者只聚合、不新增校验语义：模板目录与未识别文件列为 skipped，缺当前上下文（如用户决定）列为 not-evaluated，整体为 incomplete 而非通过，均不授予批准或执行。
 
-`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。能力清单以 `mcp-stdio-read-only-v1` 声明。
+`yss mcp --root <项目>` 以 MCP stdio 服务提供只读工具（lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate），结果与命令行同一 JSON envelope；工具参数不能改写 `--root`，不暴露写入、提交或推送。服务拥有标准输入，取消时关闭输入并结束读取，空闲 stdio 也可正常终止。能力清单以 `mcp-stdio-read-only-v1` 声明。
 
-`yss tracker status|link|sync` 把本地 Ticket 五态镜像到已链接 GitHub Issue 的同名标签：本地 Markdown 始终权威；`link` 写入 `Tracker-Link: github:owner/repo#N`；`sync` 先 `--plan --out` 读取远端保存计划（项目外），再 `--apply --plan-file --confirm-remote github` 复核本地字节与远端标签/更新时间未变后写入，成功后记录 `Tracker-Synced`。只改五态标签，保留其他标签，不创建、关闭或评论 Issue；需 `GH_TOKEN`，`GITHUB_API_URL` 可指向 GitHub Enterprise。git 策略 `ticket_pattern: github` 接受 `#123` / `owner/repo#123`，分支名使用 `gh-123`。
+`yss tracker status|link|sync` 把本地 Ticket 五态镜像到已链接 GitHub Issue 的同名标签：本地 Markdown 始终权威；`link` 写入 `Tracker-Link: github:owner/repo#N`；`sync` 先 `--plan --out` 读取远端保存计划（项目外），再 `--apply --plan-file --confirm-remote github` 复核本地字节与远端标签/更新时间未变后写入，成功后记录 `Tracker-Synced`。计划 v2 绑定规范化 API 来源和 Ticket 选择范围，应用时重建合法改动；旧 v1 计划返回 `PLAN`，须重新规划。只按标签接口逐项添加或移除五态，保留其他标签，不创建、关闭或评论 Issue；需 `GH_TOKEN`，`GITHUB_API_URL` 可指向 GitHub Enterprise。失败 envelope 保留部分完成项、`remote_changed`、`remote_state=unchanged|changed|unknown` 与本地记录状态；结果未知时先对账再重新规划，不自动重放。git 策略 `ticket_pattern: github` 接受 `#123` / `owner/repo#123`，分支名使用 `gh-123`。
 
 `yss trace --feature <功能包>` 只读汇总业务票（FR/AC）、垂直切片 Ticket 与 Slice 合同的验证映射，给出每个验收的切片、验证与提交；加 `--implementation-root --since [--until]` 时按 Ticket trailer 把实现仓提交关联到 `slice_id`。缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要在冻结后变化；`--html` 另写静态矩阵页（项目外新文件），`--strict` 有缺口时以 `TRACE_GAPS` 失败。MCP 同名工具 `trace` 只读、不写 HTML。
 

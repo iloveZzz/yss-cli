@@ -51,6 +51,12 @@ func (s *Server) Serve(ctx context.Context, in io.ReadCloser, out io.Writer) err
 	if ctx == nil || in == nil {
 		return fmt.Errorf("MCP requires a context and owned input")
 	}
+	owned, err := prepareOwnedInput(in)
+	if err != nil {
+		_ = in.Close()
+		return err
+	}
+	in = owned
 	readCtx, stop := context.WithCancel(ctx)
 	lines := make(chan inputLine, 1)
 	readDone := make(chan struct{})

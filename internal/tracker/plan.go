@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 // Selection records the original scope so application can rebuild every item.
@@ -21,6 +22,12 @@ func planError() error {
 
 func readSyncPlan(raw []byte) (SyncPlan, error) {
 	var p SyncPlan
+	if !json.Valid(raw) {
+		return p, planError()
+	}
+	if _, err := schema.Parse(raw); err != nil {
+		return p, planError()
+	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&p); err != nil {
