@@ -80,6 +80,9 @@ func gateStateApproval(s *kernel.SemanticSession, item map[string]any, ref, id s
 }
 
 func GateChecks(s *kernel.SemanticSession, cp map[string]any, ref, gateID string) error {
+	if s.StageGatesEnabled() {
+		return VerifyCheckpointStage(s, ref, gateID, "")
+	}
 	gate := kernel.SemanticDefinition(s.Registry, "gates", gateID)
 	if gate == nil {
 		return s.Reject("GATE_UNKNOWN", "未知门禁: "+gateID)

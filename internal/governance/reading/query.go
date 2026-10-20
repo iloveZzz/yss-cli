@@ -325,7 +325,7 @@ func (r *readingSession) lifecycle(action string, args map[string]string) (map[s
 		return nil, nil, err
 	}
 	n, ok := kernel.Integer(cp["schema_version"])
-	if !ok || n != 1 || kernel.Text(cp["repository_mode"]) != "project-instance" {
+	if !ok || (n != 1 && n != 2) || kernel.Text(cp["repository_mode"]) != "project-instance" {
 		return nil, nil, domain.Fail("LIFECYCLE", "checkpoint 身份或 schema 不支持")
 	}
 	content, err := r.sources.LifecycleState(m, cp)

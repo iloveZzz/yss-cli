@@ -20,6 +20,46 @@ import (
 )
 
 func init() {
+	kernel.RegisterRoleIndependentValidator("stage-prototype-inputs", func(s *kernel.SemanticSession, ref string, _ map[string]string) error {
+		record, e := s.Doc(ref)
+		if e != nil {
+			return e
+		}
+		applicable := false
+		for _, c := range kernel.ApRows(record["checks"]) {
+			if (c["id"] == "check.prototype-reviewed" || c["id"] == "check.prototype-verified") && c["result"] == "passed" {
+				applicable = true
+			}
+		}
+		if !applicable {
+			return nil
+		}
+		for _, a := range kernel.ApRows(record["assets"]) {
+			doc, e := s.Doc(kernel.Text(a["ref"]))
+			if e != nil {
+				continue
+			}
+			if doc["kind"] == "prototype-verification-inputs" {
+				cases := kernel.ApStrings(doc["case_ids"])
+				if !kernel.ApUnique(doc["case_ids"]) {
+					return s.Reject("STAGE_PROTOTYPE", "适用原型缺少真实用例范围")
+				}
+				for _, check := range kernel.ApRows(record["checks"]) {
+					if (check["id"] == "check.prototype-reviewed" || check["id"] == "check.prototype-verified") && check["result"] == "passed" {
+						found := false
+						for _, input := range kernel.ApRows(check["inputs"]) {
+							found = found || input["ref"] == a["ref"] && strings.TrimPrefix(kernel.Text(input["digest"]), "sha256:") == strings.TrimPrefix(kernel.Text(a["digest"]), "sha256:")
+						}
+						if !found {
+							return s.Reject("STAGE_CHECK_SCOPE", "原型检查未绑定当前预览输入")
+						}
+					}
+				}
+				return contractPreview(s, kernel.ApMap(doc["preview"]), cases)
+			}
+		}
+		return s.Reject("STAGE_PROTOTYPE", "适用原型检查需要绑定当前离线预览与实际浏览回执")
+	})
 	kernel.RegisterSemanticValidator("handoff-package", verifyHandoffPackageSemantic)
 	kernel.RegisterSemanticValidator("handoff-source", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
 		h, err := ContractInspectHandoff(s, ref)
@@ -606,11 +646,14 @@ func ContractInspectHandoff(s *kernel.SemanticSession, ref string) (*NativeHando
 	if n >= 4 {
 		suffix = "-v3"
 	}
+	if s.StageGatesEnabled() {
+		suffix = "-v4"
+	}
 	for label, doc := range map[string]map[string]any{"domain-strategy": strategy, "stage-decision-package": stage} {
 		if e = s.ValidateSchema(".template-spec/process/schemas/strategic-handoff-"+label+suffix+".schema.json", doc); e != nil {
 			return nil, e
 		}
-		if kernel.Text(doc["status"]) != "approved" {
+		if kernel.Text(doc["status"]) != kernel.First(map[bool]string{true: "ready"}[s.StageGatesEnabled()], "approved") {
 			return nil, s.Reject("HANDOFF_SOURCE_APPROVAL", "来源设计未批准")
 		}
 
@@ -624,7 +667,7 @@ func ContractInspectHandoff(s *kernel.SemanticSession, ref string) (*NativeHando
 	binding := kernel.SemMap(stage["domain_strategy_ref"])
 	strategyRef := kernel.SemMap(source["domain_strategy_ref"])["persisted_ref"]
 
-	if binding["domain_strategy_id"] != strategy["domain_strategy_id"] || binding["domain_version"] != strategy["domain_version"] || kernel.Text(binding["status"]) != "approved" || binding["persisted_ref"] != strategyRef || kernel.Text(binding["digest"]) != dependencies.ContractDigest(strategy) {
+	if binding["domain_strategy_id"] != strategy["domain_strategy_id"] || binding["domain_version"] != strategy["domain_version"] || kernel.Text(binding["status"]) != kernel.First(map[bool]string{true: "ready"}[s.StageGatesEnabled()], "approved") || binding["persisted_ref"] != strategyRef || kernel.Text(binding["digest"]) != dependencies.ContractDigest(strategy) {
 		return nil, s.Reject("HANDOFF_SOURCE_STALE", "阶段包战略来源变化")
 	}
 	for _, v := range kernel.SemList(stage["unresolved_items"]) {
@@ -861,6 +904,9 @@ func contractHandoffIndexes(s *kernel.SemanticSession, strategy map[string]any) 
 }
 
 func contractHandoffApprovals(s *kernel.SemanticSession, ref string, b *NativeHandoff) error {
+	if s.StageGatesEnabled() {
+		return contractStageHandoffApprovals(s, ref, b)
+	}
 	if e := contractHandoffSourcePolicy(s, kernel.ContractN(b.Handoff["schema_version"])); e != nil {
 		return e
 	}
@@ -1152,6 +1198,9 @@ func contractHandoffSourcePolicy(s *kernel.SemanticSession, protocol int) error 
 }
 
 func contractSourceApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string) error {
+	if s.StageGatesEnabled() {
+		return contractStageSourceApproval(s, gate, binding, approvalRef)
+	}
 	artifactDigest := kernel.Text(binding["digest"])
 	if err := sourceApprovalContextVersion(s, kernel.SemMap(binding["approval_context"])); err != nil {
 		return err
@@ -1332,6 +1381,13 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 		queue = append(queue, "yss-project.yaml", ".template-spec/process/harness-profile.yaml", ".template-spec/process/lifecycle-registry.yaml", ".template-spec/agents/yss-skill-registry.yaml")
 	} else {
 		queue = append(queue, ".template-spec/agents/digital-human-roles.yaml")
+		// Source validation also checks the original Profile. Freeze it for
+		// offline verification without importing the exporting host's policy.
+		if present, err := s.Exists(".template-spec/process/harness-profile.yaml"); err != nil {
+			return nil, err
+		} else if present {
+			queue = append(queue, ".template-spec/process/harness-profile.yaml")
+		}
 	}
 	if exists, err := s.Exists(".yss.json"); err != nil {
 		return nil, err
@@ -1404,6 +1460,12 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 					}
 				}
 			}
+			// Stage-policy preparation tasks consume their source checkpoint.
+			// Freeze those authority bytes so the offline receiver uses the same
+			// source state instead of consulting a live or receiving checkpoint.
+			if s.StageGatesEnabled() && kernel.ContractN(x["schema_version"]) == 3 && kernel.SemMap(x["contract"])["kind"] == "lifecycle-work-unit" {
+				enqueue(kernel.Text(x["checkpoint_ref"]))
+			}
 			if kernel.SemMap(x["review_context"])["plan_review_binding"] != nil {
 				enqueue(kernel.Text(x["checkpoint_ref"]))
 				for _, ref := range kernel.SemStrings(x["inputs"]) {
@@ -1418,7 +1480,7 @@ func contractHandoffClosure(s *kernel.SemanticSession, ref string, b *NativeHand
 				str, ok := v.(string)
 				if k == "policy_ref" && ok {
 					enqueue(strings.Split(str, "#")[0])
-				} else if ok && kernel.SemHas([]string{"review_task_ref", "candidate_ref", "registry_ref", "approval_ref", "persisted_ref", "receipt_ref", "package_ref", "working_set_ref", "context_reconciliation_ref", "user_decision_ref", "decision_reuse_ref", "continuation_ref", "plan_continuation_ref", "scope_ref", "subject_ref", "delivery_ref", "review_ref", "ref"}, k) && !regexp.MustCompile(`^[a-z]+://`).MatchString(str) {
+				} else if ok && kernel.SemHas([]string{"execution_ref", "record_ref", "review_requirement_ref", "task_ref", "review_task_ref", "candidate_ref", "registry_ref", "approval_ref", "persisted_ref", "receipt_ref", "package_ref", "working_set_ref", "context_reconciliation_ref", "user_decision_ref", "decision_reuse_ref", "continuation_ref", "plan_continuation_ref", "scope_ref", "subject_ref", "delivery_ref", "review_ref", "ref"}, k) && !regexp.MustCompile(`^[a-z]+://`).MatchString(str) {
 					enqueue(str)
 				} else {
 					refs(v, k)

@@ -94,6 +94,9 @@ func verifySlice4Preflight(s *kernel.SemanticSession, ref string, opts map[strin
 // The contract gate consumes the existing checkpoint and actual user scope decision;
 // technical review is delegated to the current approval consumer, never legacy role rules.
 func slice4Approval(s *kernel.SemanticSession, c *NativeSlice, opts map[string]string) error {
+	if s.StageGatesEnabled() {
+		return VerifyStageAdmission(s, kernel.First(opts["checkpoint"], opts["approval-ref"], opts["approval_ref"]), c.Ref)
+	}
 	ref := kernel.First(opts["approval-ref"], opts["approval_ref"])
 	if ref == "" || c.Raw["status"] != "approved" {
 		return s.Reject("SLICE_APPROVAL_REQUIRED", "需要当前已批准Slice及checkpoint")

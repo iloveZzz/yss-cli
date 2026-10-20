@@ -14,6 +14,7 @@ import (
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/gitops"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 )
@@ -51,6 +52,14 @@ func checkKind(kind string) func(map[string]any) bool {
 
 // 顺序即优先级；字段签名取自对应 Schema 的必填字段或 kind 常量。
 var checkDetectors = []checkDetector{
+	{"stage-result", checkKind("stage-result"), func(ref, cp string) []string {
+		return []string{"contract", "verify", "--kind", "stage-result", "--file", ref, "--checkpoint", cp}
+	}, true, "current"},
+	{"lifecycle-checkpoint", func(d map[string]any) bool {
+		return checkHas(d, "repository_mode", "mode", "stage", "artifacts") && kernel.ContractN(d["schema_version"]) == 2
+	}, func(ref, _ string) []string {
+		return []string{"contract", "check", "--schema", ".template-spec/process/schemas/lifecycle-checkpoint-v2.schema.json", "--file", ref}
+	}, false, "structure"},
 	{"user-decision", checkKind("user-decision"), func(ref, cp string) []string {
 		return []string{"evidence", "verify", "--kind", "user-decision", "--file", ref, "--checkpoint", cp}
 	}, true, "current"},

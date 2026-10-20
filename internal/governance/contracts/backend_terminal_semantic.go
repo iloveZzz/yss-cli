@@ -298,17 +298,22 @@ func backendSliceApproved(s *kernel.SemanticSession, binding map[string]any, opt
 	if e != nil {
 		return nil, e
 	}
-	if c.Normalized["status"] != "approved" || c.Normalized["contract_id"] != binding["id"] || c.Normalized["contract_version"] != binding["version"] {
-		return nil, BackendReject(s, "Slice 身份/版本/批准状态不匹配")
-	}
-	o := apCopyStrings(opts)
-	o["approval-ref"] = kernel.ApText(binding["approval_ref"])
-	// The shared source-approval kernel validates signing policy, genuine scope
-	// decisions and v3 independent professional review, without current Git/build.
-	if e = ContractSliceApprovalBinding(s, c, o, binding); e != nil {
+	if e = backendSliceApprovalBinding(s, c, binding, opts); e != nil {
 		return nil, e
 	}
 	return c, nil
+}
+
+func backendSliceApprovalBinding(s *kernel.SemanticSession, c *NativeSlice, binding map[string]any, opts map[string]string) error {
+	stage := s.StageGatesEnabled() && kernel.ContractN(c.Raw["schema_version"]) == 4
+	if (!stage && c.Normalized["status"] != "approved") || c.Normalized["contract_id"] != binding["id"] || c.Normalized["contract_version"] != binding["version"] {
+		return BackendReject(s, "Slice 身份/版本/批准状态不匹配")
+	}
+	o := apCopyStrings(opts)
+	o["approval-ref"] = kernel.ApText(binding["approval_ref"])
+	// The shared consumer checks current stage admission for stage-policy Slice4;
+	// historical policies retain their original approval semantics.
+	return ContractSliceApprovalBinding(s, c, o, binding)
 }
 
 func apCopyStrings(m map[string]string) map[string]string {

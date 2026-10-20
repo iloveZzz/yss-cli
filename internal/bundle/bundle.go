@@ -186,12 +186,30 @@ func validateGovernance4(files map[string]File, profile string) error {
 		return err
 	}
 	capabilities, _ := harness["required_capabilities"].([]any)
-	if len(identity) != 2 || identity["schema_version"] != json.Number("2") || identity["repository_mode"] != "project-instance" || harness["schema_version"] != json.Number("3") || harness["profile_id"] != p.ID || harness["status"] != "active" || len(capabilities) != 1 || capabilities[0] != "role-independent-governance-v1" {
+	if len(identity) != 2 || identity["schema_version"] != json.Number("2") || identity["repository_mode"] != "project-instance" || harness["schema_version"] != json.Number("3") || harness["profile_id"] != p.ID || harness["status"] != "active" {
 		return domain.Fail("BUNDLE", "Bundle4 必须使用当前 identity2/Profile3 精确组合")
 	}
 	policy, _, _, err := schema.LoadOrchestration(read, schema.OrchestrationRef)
 	if err != nil {
 		return err
+	}
+	stage, stageEnabled := policy["stage_gates"].(map[string]any)
+	expected := map[string]bool{"role-independent-governance-v1": true}
+	if stageEnabled {
+		if profile != "spec" || stage["capability"] != "stage-gates-v1" || stage["schema_version"] != json.Number("1") {
+			return domain.Fail("BUNDLE", "四阶段政策只能显式用于 Spec")
+		}
+		expected["stage-gates-v1"] = true
+	}
+	if len(capabilities) != len(expected) {
+		return domain.Fail("BUNDLE", "Bundle4 Profile 能力与当前政策不匹配")
+	}
+	for _, value := range capabilities {
+		cap, ok := value.(string)
+		if !ok || !expected[cap] {
+			return domain.Fail("BUNDLE", "Bundle4 包含未知或重复能力")
+		}
+		delete(expected, cap)
 	}
 	versions, _ := policy["governance_versions"].(map[string]any)
 	if policy["schema_version"] != json.Number("2") || versions["required_capability"] != "role-independent-governance-v1" {

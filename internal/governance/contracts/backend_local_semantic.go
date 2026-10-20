@@ -106,7 +106,11 @@ func backendVerifyLocalTerminalMode(s *kernel.SemanticSession, ref string, recor
 		if err != nil {
 			return err
 		}
-		if err = approval.GateChecks(s, cp, a.CheckpointRef, "gate.slice-contract-approved"); err != nil {
+		gate := "gate.slice-contract-approved"
+		if s.StageGatesEnabled() {
+			gate = "gate.implementation-admitted"
+		}
+		if err = approval.GateChecks(s, cp, a.CheckpointRef, gate); err != nil {
 			return err
 		}
 	}
@@ -187,6 +191,9 @@ func backendCurrentCheckpointSlice(s *kernel.SemanticSession, cpRef string, reco
 	}
 	if registered := kernel.Text(record["checkpoint_ref"]); registered != "" && registered != cpRef {
 		return BackendReject(s, "终点记录绑定不同功能checkpoint")
+	}
+	if s.StageGatesEnabled() {
+		return VerifyStageAdmission(s, cpRef, kernel.Text(kernel.ApMap(delivery["slice_contract"])["ref"]))
 	}
 	current := kernel.First(kernel.Text(kernel.SemMap(kernel.SemMap(cp["human_review"])["implementation"])["slice_contract_ref"]), kernel.Text(kernel.SemMap(cp["review_input"])["slice_contract_ref"]), handoff.CheckpointAsset(cp, "slice_contract_ref", "artifact.slice-implementation-contract"), kernel.Text(kernel.SemMap(cp["slice_contract"])["ref"]), kernel.Text(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.slice-contract-approved"])["subject_ref"]))
 	if current == "" || current != kernel.SemMap(delivery["slice_contract"])["ref"] {

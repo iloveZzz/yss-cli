@@ -44,6 +44,9 @@ func InspectSpecBaselineSource(s *kernel.SemanticSession, cpRef string, local ..
 	if err != nil {
 		return nil, nil, err
 	}
+	if s.StageGatesEnabled() {
+		return inspectStageSpecBaselineSource(s, cpRef, cp)
+	}
 	if kernel.SemMap(kernel.SemMap(cp["gates"])["gate.spec-baseline-approved"])["status"] != "approved" {
 		return nil, nil, s.Reject("SPEC_BASELINE", "当前 Spec 基线尚未批准")
 	}
@@ -282,4 +285,79 @@ func specBaselineDesignAssets(s *kernel.SemanticSession, strategyRef, stageRef s
 		}
 	}
 	return nil
+}
+
+func inspectStageSpecBaselineSource(s *kernel.SemanticSession, cpRef string, cp map[string]any) (map[string]any, []string, error) {
+	if err := s.ValidateSchema(".template-spec/process/schemas/lifecycle-checkpoint-v2.schema.json", cp); err != nil {
+		return nil, nil, err
+	}
+	specRef := CheckpointAsset(cp, "spec_ref", "artifact.spec")
+	for _, gate := range []string{"gate.plan-approved", "gate.spec-baseline-approved"} {
+		asset := ""
+		if gate == "gate.spec-baseline-approved" {
+			asset = specRef
+		}
+		if err := approval.VerifyCheckpointStage(s, cpRef, gate, asset); err != nil {
+			return nil, nil, err
+		}
+	}
+	if specRef == "" {
+		return nil, nil, s.Reject("SPEC_BASELINE_CURRENT", "缺少当前 Spec 资产引用")
+	}
+	reconciliation := kernel.ApMap(cp["context_reconciliation"])
+	if reconciliation["status"] != "reconciled" || kernel.Text(reconciliation["ref"]) == "" {
+		return nil, nil, s.Reject("SPEC_BASELINE_CURRENT", "阶段退出需要当前 Context 对账")
+	}
+	if err := s.Verify("context-reconciliation", kernel.Text(reconciliation["ref"]), nil); err != nil {
+		return nil, nil, err
+	}
+	refs := []string{cpRef}
+	planRef := CheckpointAsset(cp, "plan_ref", "artifact.plan")
+	strategyRef := CheckpointAsset(cp, "domain_strategy_ref", "artifact.domain-strategy")
+	stageRef := CheckpointAsset(cp, "stage_decision_package_ref", "artifact.stage-decision-package")
+	ticketsRef := CheckpointAsset(cp, "business_ticket_set_ref", "artifact.business-ticket-set")
+	for _, ref := range []string{planRef, strategyRef, stageRef} {
+		if ref != "" {
+			if err := approval.VerifyCheckpointStage(s, cpRef, "gate.plan-approved", ref); err != nil {
+				return nil, nil, err
+			}
+			refs = append(refs, ref)
+		}
+	}
+	if ticketsRef == "" {
+		return nil, nil, s.Reject("SPEC_BASELINE", "缺少当前业务票草案")
+	}
+	business, err := dependencies.ContractBusinessTicketsMode(s, ticketsRef, "draft")
+	if err != nil {
+		return nil, nil, err
+	}
+	if kernel.ApMap(business["spec"])["ref"] != specRef {
+		return nil, nil, s.Reject("SPEC_BASELINE_SCOPE", "业务票未绑定当前 Spec")
+	}
+	if err = approval.VerifyCheckpointStage(s, cpRef, "gate.spec-baseline-approved", ticketsRef); err != nil {
+		return nil, nil, err
+	}
+	productDesign := cp["delivery_impacts"] != nil && kernel.ApMap(cp["delivery_impacts"])["ui"] == true
+	if stageRef != "" {
+		stage, e := s.Doc(stageRef)
+		if e != nil {
+			return nil, nil, e
+		}
+		productDesign = kernel.ApMap(stage["impact_assessment"])["ui"] == true
+	}
+	raw, err := s.Bytes(specRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	cpRaw, err := s.Bytes(cpRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata, err := s.Doc(domain.MetadataFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	source := map[string]any{"profile_id": "harness.spec-template", "feature_id": cp["feature_id"], "checkpoint_ref": cpRef, "checkpoint_digest": "sha256:" + safefs.Digest(cpRaw), "template_commit": metadata["templateCommit"], "spec_ref": specRef, "spec_digest": "sha256:" + safefs.Digest(raw), "plan_ref": planRef, "domain_strategy_ref": strategyRef, "stage_decision_package_ref": stageRef, "business_ticket_set_ref": ticketsRef, "product_design_required": productDesign}
+	refs = append(refs, specRef, ticketsRef)
+	return source, refs, nil
 }

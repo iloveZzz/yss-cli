@@ -24,6 +24,19 @@ func addGovernanceCommands(root *cobra.Command, inv *invocation) {
 		"archive": "pack unpack verify", "xml": "inspect query",
 	} {
 		parent := addCommand(root, inv, group, governanceCommand)
+		if group == "lifecycle" {
+			decision := addCommand(parent, inv, "decision", stageDecisionCommand)
+			for _, action := range []string{"plan", "apply", "migrate-plan"} {
+				cmd := addCommand(decision, inv, action, stageDecisionCommand)
+				addFlags(cmd, inv, "root target-dir profile json")
+				if action == "apply" {
+					addStringFlag(cmd, inv, "plan", "<文件>", "已保存的阶段登记计划")
+				} else {
+					addFlags(cmd, inv, "checkpoint input out")
+				}
+			}
+		}
+
 		addFlags(parent, inv, strings.Join(governance.ArgumentKeys(group, "status"), " "))
 		for _, action := range strings.Fields(actions) {
 			handler := governanceCommand
@@ -150,6 +163,7 @@ func contextTemplateSource(root, profile string) (bool, error) {
 
 // 供 Node 工作流判断能否把校验委托给本程序：每个令牌对应一组已发布的命令行行为，缺令牌就不委托。
 var nodeDelegation = []string{
+	"stage-gates-v1",
 	"user-decision.from-record.v1",
 	"user-decision.requirements-object.v1",
 	"user-decision.validated-rows.v1",
@@ -186,4 +200,19 @@ var nodeDelegation = []string{
 	"reading.enable.v1",
 
 	"template-source.verify-root.v1",
+}
+
+func stageDecisionCommand(ctx context.Context, o options) (any, string, error) {
+	if len(o.args) != 3 {
+		return nil, "", domain.Fail("ARGUMENT", "使用 lifecycle decision plan/apply/migrate-plan")
+	}
+	if len(o.duplicates) > 0 {
+		return nil, "", domain.Fail("ARGUMENT", "阶段登记不接受重复参数")
+	}
+	root, err := projectRoot(o)
+	if err != nil {
+		return nil, "", err
+	}
+	result, err := governance.RunStageDecision(ctx, o.args[2], root, o.values)
+	return result, "spec", err
 }

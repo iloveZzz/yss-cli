@@ -265,6 +265,18 @@ func ContractScaffoldUserDecision(s *kernel.SemanticSession, decision map[string
 		return s.Reject("SCAFFOLD_DECISION", "架构决定平台未知")
 	}
 	confirmation := kernel.SemMap(decision["user_confirmation"])
+	if s.StageGatesEnabled() {
+		snapshot, err := s.Doc(kernel.Text(confirmation["decision_subject_ref"]))
+		if err != nil {
+			return err
+		}
+		expected := ContractWithout(decision, "user_confirmation", "status", "decision_inputs_digest")
+		expected["platform_selection"] = map[string]any{"profile_id": profile["id"], "spring_boot_version": profile["spring_boot_version"], "java_version": profile["java_version"]}
+		if !ContractSame(snapshot, expected) {
+			return s.Reject("user-decision-stale", "准备授权所见技术选择与实际输入不一致")
+		}
+		return verifyStagePreparationAuthorization(s, kernel.First(kernel.Text(confirmation["continuation_ref"]), kernel.Text(confirmation["stage_record_ref"])), kernel.Text(confirmation["decision_subject_ref"]), kernel.Text(confirmation["checkpoint_ref"]))
+	}
 	requirement := map[string]any{"boundary": "gate.backend-architecture-platform-approved", "subject_ref": confirmation["decision_subject_ref"], "scope": []any{decision["project_id"], decision["confirmed_architecture"], fmt.Sprintf("%s@%s/java%d", kernel.Text(profile["id"]), kernel.Text(profile["spring_boot_version"]), kernel.ContractN(profile["java_version"])), decision["decision_inputs_digest"]}, "user_decision_ref": confirmation["user_decision_ref"]}
 	if _, e = approvaldomain.AssertUserDecisionRequirementSemantic(s, requirement); e != nil {
 		return e
@@ -1591,6 +1603,13 @@ func verifySliceSemantic(s *kernel.SemanticSession, ref string, opts map[string]
 	for key, value := range opts {
 		bound[key] = value
 	}
+	if s.StageGatesEnabled() {
+		cpRef := kernel.First(opts["checkpoint"], opts["approval-ref"], opts["approval_ref"])
+		if err := VerifyStageAdmission(s, cpRef, ref); err != nil {
+			return err
+		}
+		return contractSliceFreshInputs(s, c, opts)
+	}
 	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
 	if approval == "" && opts["checkpoint"] != "" {
 		cp, err := s.Doc(opts["checkpoint"])
@@ -1630,6 +1649,13 @@ func verifySliceSemantic(s *kernel.SemanticSession, ref string, opts map[string]
 // A consumer selects the expected subject from its current asset or checkpoint.
 // Approval contents may never supply their own expected subject, scope or author.
 func ContractApproval(s *kernel.SemanticSession, gate string, binding map[string]any, approvalRef string, opts map[string]string) error {
+	if s.StageGatesEnabled() {
+		if s.StageGate(gate) != nil {
+			return s.Verify("stage-result", approvalRef, map[string]string{"gate": gate, "asset-ref": kernel.Text(binding["ref"])})
+		}
+		return s.Reject("STAGE_LEGACY_APPROVAL", "当前四阶段政策不接受独立子批准: "+gate)
+	}
+
 	assetRef := kernel.Text(binding["ref"])
 	raw, e := s.Bytes(assetRef)
 	if e != nil {
@@ -1911,7 +1937,7 @@ func verifySlicePreflightSemantic(s *kernel.SemanticSession, ref string, opts ma
 			checks["structure"] = "failed"
 		}
 	}
-	approval := kernel.First(opts["approval-ref"], opts["approval_ref"])
+	approval := kernel.First(opts["approval-ref"], opts["approval_ref"], opts["checkpoint"])
 	if approval != "" && len(blockers) == 0 {
 		bound := map[string]string{}
 		for key, value := range opts {
@@ -2097,6 +2123,10 @@ func ContractSliceFresh(s *kernel.SemanticSession, c *NativeSlice, opts map[stri
 	if e := contractSliceApproval(s, c, opts); e != nil {
 		return e
 	}
+	return contractSliceFreshInputs(s, c, opts)
+}
+
+func contractSliceFreshInputs(s *kernel.SemanticSession, c *NativeSlice, opts map[string]string) error {
 	n := c.Normalized
 	registry, e := s.Doc(".template-spec/agents/yss-skill-registry.yaml")
 	if e != nil {
@@ -3508,38 +3538,52 @@ func contractExistingArchitecture(s *kernel.SemanticSession, identity map[string
 	if e != nil {
 		return e
 	}
-	gate := kernel.Text(review["gate_id"])
-	validGate := kernel.SemHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate)
-	if s.GovernanceVersion == 2 {
-		rule := kernel.ApFind(s.GatePolicy()["check_reviews"], "gate", gate)
-		validGate = kernel.ApContains(rule["capability_ids"], "capability.technical-design") || kernel.ApContains(rule["capability_ids"], "capability.engineering-baseline")
-	}
-	if !validGate {
-		return s.Reject("ARCH_REVIEW_MISSING", "边界审查门禁无效")
-	}
-	if e = ContractApproval(s, gate, c.Basis["manifest"], kernel.Text(kernel.SemMap(base["boundary_review"])["ref"]), opts); e != nil {
-		return e
-	}
-	if s.GovernanceVersion == 2 {
-		subject, err := s.Doc(kernel.Text(review["subject_ref"]))
+	if s.StageGatesEnabled() {
+		subjectRef := kernel.Text(review["subject_ref"])
+		subject, err := s.Doc(subjectRef)
 		if err != nil {
 			return err
 		}
 		if !kernel.ApEqual(subject, ContractWithout(base, "boundary_review")) {
-			return s.Reject("ARCH_REVIEW_STALE", "边界复核主体未绑定完整当前基线")
+			return s.Reject("ARCH_REVIEW_STALE", "边界质量结果未绑定完整当前基线")
+		}
+		if e = approvaldomain.VerifyStageQuality(s, kernel.Text(kernel.ApMap(base["boundary_review"])["ref"]), "check.architecture-reviewed", subjectRef); e != nil {
+			return e
 		}
 	} else {
-		found := false
-		for _, v := range kernel.SemList(review["artifact_bindings"]) {
-			b := kernel.SemMap(v)
-			found = found || b["id"] == base["id"] && b["version"] == base["version"] && kernel.Text(b["digest"]) == ContractDigest(ContractWithout(base, "boundary_review"))
+		gate := kernel.Text(review["gate_id"])
+		validGate := kernel.SemHas([]string{"check.architecture-reviewed", "gate.technical-design-approved"}, gate)
+		if s.GovernanceVersion == 2 {
+			rule := kernel.ApFind(s.GatePolicy()["check_reviews"], "gate", gate)
+			validGate = kernel.ApContains(rule["capability_ids"], "capability.technical-design") || kernel.ApContains(rule["capability_ids"], "capability.engineering-baseline")
 		}
-		if !found || kernel.Text(base["author"]) == "" || kernel.Text(review["principal_ref"]) == kernel.Text(base["author"]) {
-			return s.Reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
+		if !validGate {
+			return s.Reject("ARCH_REVIEW_MISSING", "边界审查门禁无效")
 		}
-	}
-	if e = ContractEvidence(s, review["evidence_refs"]); e != nil {
-		return e
+		if e = ContractApproval(s, gate, c.Basis["manifest"], kernel.Text(kernel.SemMap(base["boundary_review"])["ref"]), opts); e != nil {
+			return e
+		}
+		if s.GovernanceVersion == 2 {
+			subject, err := s.Doc(kernel.Text(review["subject_ref"]))
+			if err != nil {
+				return err
+			}
+			if !kernel.ApEqual(subject, ContractWithout(base, "boundary_review")) {
+				return s.Reject("ARCH_REVIEW_STALE", "边界复核主体未绑定完整当前基线")
+			}
+		} else {
+			found := false
+			for _, v := range kernel.SemList(review["artifact_bindings"]) {
+				b := kernel.SemMap(v)
+				found = found || b["id"] == base["id"] && b["version"] == base["version"] && kernel.Text(b["digest"]) == ContractDigest(ContractWithout(base, "boundary_review"))
+			}
+			if !found || kernel.Text(base["author"]) == "" || kernel.Text(review["principal_ref"]) == kernel.Text(base["author"]) {
+				return s.Reject("ARCH_REVIEW_STALE", "边界审查未独立绑定基线")
+			}
+		}
+		if e = ContractEvidence(s, review["evidence_refs"]); e != nil {
+			return e
+		}
 	}
 	databases := kernel.SemMap(base["databases"])
 	if databases["verification"] == nil || databases["production"] == nil {
@@ -4409,6 +4453,55 @@ func scaffoldBackendInputs(s *kernel.SemanticSession, ref string, doc map[string
 	if e = ContractScaffoldUserDecision(s, decision); e != nil {
 		return nil, e
 	}
+	if s.StageGatesEnabled() {
+		confirmation := kernel.SemMap(decision["user_confirmation"])
+		snapshotRef := kernel.Text(confirmation["generation_inputs_ref"])
+		snapshot, err := s.Doc(snapshotRef)
+		if err != nil {
+			return nil, err
+		}
+		// The snapshot contains the complete concrete generation scope and
+		// content bindings, excluding pointers to its own authorization.
+		expected := ContractWithout(doc, "approval", "lifecycle_approval_ref", "status", "decision_digest", "design_prerequisites")
+		normalizedRecord, err := stageSnapshotCopy(record)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range kernel.ApRows(normalizedRecord["decisions"]) {
+			delete(row, "user_confirmation")
+		}
+		expected["decision_digest"] = kernel.ApDigest(normalizedRecord)
+		prerequisites := ContractCopy(kernel.SemMap(doc["design_prerequisites"]))
+		delete(prerequisites, "engineering_contract_approval_ref")
+		technical, err := ContractBoundDoc(s, prerequisites["technical_design"])
+		if err != nil {
+			return nil, err
+		}
+		normalizedTechnical, err := stageSnapshotCopy(technical)
+		if err != nil {
+			return nil, err
+		}
+		delete(normalizedTechnical, "digest")
+		architecture := kernel.SemMap(normalizedTechnical["architecture"])
+		if len(architecture) == 0 {
+			return nil, s.Reject("SCAFFOLD_TECHNICAL", "技术设计缺少具体架构输入")
+		}
+		architecture["decision_digest"] = kernel.ApDigest(normalizedRecord)
+		for _, input := range kernel.ApRows(normalizedTechnical["inputs"]) {
+			if input["ref"] == decisionRef {
+				input["digest"] = kernel.ApDigest(normalizedRecord)
+			}
+		}
+		prerequisites["technical_design"] = normalizedTechnical
+		expected["design_prerequisites"] = prerequisites
+		if !ContractSame(snapshot, expected) {
+			return nil, s.Reject("STAGE_PREPARATION", "生成输入快照与实际合同的项目、架构、依据或写范围不一致")
+		}
+		if e = verifyStagePreparationAuthorization(s, kernel.Text(doc["lifecycle_approval_ref"]), snapshotRef, kernel.Text(confirmation["checkpoint_ref"])); e != nil {
+			return nil, e
+		}
+	}
+
 	if kernel.Text(doc["architecture_profile"]) == "mvc-data-analysis-v1" {
 		return nil, s.Reject("SCAFFOLD_RETIRED", "数据分析合同仅允许历史只读审计")
 	}
@@ -4507,6 +4600,9 @@ func contractBackendPrerequisites(s *kernel.SemanticSession, p, scaffold map[str
 	if e != nil {
 		return e
 	}
+	if s.StageGatesEnabled() {
+		return nil
+	} // Content above is checked; implementation separately requires current stage admission.
 	approvalRef := kernel.Text(p["engineering_contract_approval_ref"])
 	if scaffold != nil && (approvalRef != kernel.Text(scaffold["lifecycle_approval_ref"]) || approvalRef != kernel.Text(kernel.SemMap(scaffold["approval"])["approval_ref"])) {
 		return s.Reject("SCAFFOLD_APPROVAL", "工程批准指针冲突")

@@ -48,6 +48,10 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				}
 			case "spec-baseline-import":
 				return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
+			case "stage-decision":
+				if e := governance.ValidateStageDecisionTransaction(root, profile, paths); e != nil {
+					return e
+				}
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e
@@ -109,6 +113,10 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				}
 			case "spec-baseline-import":
 				return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
+			case "stage-decision":
+				if e := governance.ValidateStageDecisionTransaction(root, profile, paths); e != nil {
+					return e
+				}
 			case "lifecycle-target":
 				if e := governance.ValidateProgressionTransaction(root, profile, paths); e != nil {
 					return e

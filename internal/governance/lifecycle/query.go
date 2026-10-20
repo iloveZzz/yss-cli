@@ -122,7 +122,7 @@ func Query(ctx context.Context, group, action, root string, args map[string]stri
 		return nil, err
 	}
 	version, ok := kernel.Integer(identity["schema_version"])
-	if !ok || version != 1 || kernel.Text(identity["repository_mode"]) != "project-instance" {
+	if !ok || (version != 1 && version != 2) || kernel.Text(identity["repository_mode"]) != "project-instance" {
 		return nil, domain.Fail("IDENTITY", "生命周期状态仅适用于 schema v1 project-instance")
 	}
 	ref := args["checkpoint"]
@@ -140,7 +140,7 @@ func Query(ctx context.Context, group, action, root string, args map[string]stri
 		return nil, err
 	}
 	version, ok = kernel.Integer(cp["schema_version"])
-	if !ok || version != 1 || kernel.Text(cp["repository_mode"]) != "project-instance" {
+	if !ok || (version != 1 && version != 2) || kernel.Text(cp["repository_mode"]) != "project-instance" {
 		return nil, domain.Fail("LIFECYCLE", "checkpoint 身份或 schema 不支持")
 	}
 	state, err := State(m, cp)

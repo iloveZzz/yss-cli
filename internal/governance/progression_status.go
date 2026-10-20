@@ -316,6 +316,25 @@ func progressionExternalImplementation(t ProgressionTarget, root string) bool {
 }
 
 func progressionMilestone(s *kernel.SemanticSession, cpRef string, cp map[string]any, target string, policy map[string]any, intent ProgressionTarget) (string, string) {
+	if err := s.Authorities(); err != nil {
+		return "blocked", err.Error()
+	}
+	if s.StageGatesEnabled() {
+		gate := kernel.Text(kernel.ApMap(kernel.ApMap(s.GovernancePolicy["stage_gates"])["targets"])[target])
+		if gate == "" {
+			return "blocked", "当前四阶段政策未登记目标"
+		}
+		if err := approval.VerifyCheckpointStage(s, cpRef, gate, ""); err != nil {
+			return "pending", err.Error()
+		}
+		for _, check := range kernel.SemStrings(policy["required_checks"]) {
+			if err := progressionCheck(s, cpRef, cp, check); err != nil {
+				return "pending", err.Error()
+			}
+		}
+		return "reached", "当前阶段记录及适用交付证据已核验"
+	}
+
 	if len(kernel.SemStrings(policy["required_gates"])) == 0 || len(kernel.SemStrings(policy["required_checks"])) == 0 {
 		return "blocked", "目标政策缺少可复算的门禁或交付检查"
 	}
@@ -420,6 +439,9 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		}
 		return s.Verify("backend-terminal", a.TerminalRef, map[string]string{"checkpoint": cpRef})
 	case "business-acceptance":
+		if s.StageGatesEnabled() {
+			return approval.VerifyCheckpointStage(s, cpRef, "gate.delivery-accepted", "")
+		}
 		refs := kernel.SemStrings(kernel.SemMap(kernel.SemMap(kernel.SemMap(cp["gates"])["gate.delivery-accepted"])["evidence"])["evidence.fresh-verification"])
 		if len(refs) == 0 {
 			return s.Reject("VERIFICATION_REQUIRED", "业务完成缺少当前实际验证记录")
@@ -573,6 +595,17 @@ func progressionStage(s *kernel.SemanticSession, cpRef string, cp map[string]any
 	}
 	if err := s.Authorities(); err != nil {
 		return "blocked", err.Error()
+	}
+	if s.StageGatesEnabled() {
+		for _, gate := range kernel.ApRows(kernel.ApMap(s.GovernancePolicy["stage_gates"])["gates"]) {
+			if kernel.ApContains(gate["work_stages"], kernel.Text(cp["stage"])) {
+				if err := approval.VerifyCheckpointStage(s, cpRef, kernel.Text(gate["id"]), ""); err != nil {
+					return "pending", err.Error()
+				}
+				return "reached", "当前阶段记录已核验"
+			}
+		}
+		return "not-evaluated", "当前工作属于阶段内部准备"
 	}
 	found := false
 	for _, row := range kernel.SemList(s.Registry["gates"]) {

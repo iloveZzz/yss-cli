@@ -243,6 +243,13 @@ func buildReading(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingBui
 			return nil, err
 		}
 		schemaRef := map[string]string{"checkpoint": ".template-spec/process/schemas/lifecycle-checkpoint.schema.json", "domain-strategy": ".template-spec/process/schemas/domain-strategy-reading.schema.json", "stage-decision-package": ".template-spec/process/schemas/stage-decision-package-reading.schema.json"}[asset.kind]
+		value := kernel.SemMap(node.Value)
+		if asset.kind == "checkpoint" && kernel.ContractN(value["schema_version"]) == 2 {
+			schemaRef = ".template-spec/process/schemas/lifecycle-checkpoint-v2.schema.json"
+		}
+		if (asset.kind == "domain-strategy" || asset.kind == "stage-decision-package") && kernel.ContractN(value["schema_version"]) == 4 {
+			schemaRef = ".template-spec/process/schemas/strategic-handoff-" + asset.kind + "-v4.schema.json"
+		}
 		if err = s.ValidateSchema(schemaRef, node.Value); err != nil {
 			return nil, err
 		}
