@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +17,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 )
 
-// fakeGitHub 只实现 GET / PATCH /repos/{o}/{r}/issues/{n}，记录写入次数。
+// fakeGitHub models Issue reads and state-label addition/removal. PATCH is rejected.
 type fakeGitHub struct {
 	mu      sync.Mutex
 	labels  map[string][]string
@@ -32,12 +33,16 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	key := strings.TrimPrefix(r.URL.Path, "/repos/")
+	key := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/"), "/labels")[0]
 	if _, ok := f.labels[key]; !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	if r.Method == http.MethodPatch {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Method != http.MethodGet {
 		if key == f.fail {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
@@ -46,7 +51,26 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Labels []string `json:"labels"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		f.labels[key] = body.Labels
+		switch r.Method {
+		case http.MethodPost:
+			for _, label := range body.Labels {
+				if !contains(f.labels[key], label) {
+					f.labels[key] = append(f.labels[key], label)
+				}
+			}
+		case http.MethodDelete:
+			label := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			kept := []string{}
+			for _, current := range f.labels[key] {
+				if current != label {
+					kept = append(kept, current)
+				}
+			}
+			f.labels[key] = kept
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		f.updated[key] = "2026-10-17T10:00:0" + string(rune('0'+f.patches)) + "Z"
 		f.patches++
 	}
@@ -153,7 +177,7 @@ func TestSyncPlanConfirmApplyAndRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(gh.labels["acme/app/issues/12"], ","); got != "bug,ready-for-human" || gh.patches != 1 {
+	if got := strings.Join(sortedLabels(gh.labels["acme/app/issues/12"]), ","); got != "bug,ready-for-human" || gh.patches != 2 {
 		t.Fatalf("远端标签: %s patches=%d", got, gh.patches)
 	}
 	raw, _ := os.ReadFile(filepath.Join(root, ".work/feat/parent-ticket.md"))
@@ -268,4 +292,10 @@ func TestSyncPartialFailureRecordsOnlySucceeded(t *testing.T) {
 	if !strings.Contains(string(sliceRaw), "Tracker-Synced:") || strings.Contains(string(parentRaw), "Tracker-Synced:") {
 		t.Fatalf("只记录成功项: slice=%s parent=%s", sliceRaw, parentRaw)
 	}
+}
+
+func sortedLabels(labels []string) []string {
+	out := append([]string{}, labels...)
+	sort.Strings(out)
+	return out
 }

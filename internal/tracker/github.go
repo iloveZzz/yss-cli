@@ -27,7 +27,7 @@ type Issue struct {
 	URL        string   `json:"url"`
 }
 
-// Client 只做两件事：读取 Issue、整体设置 Issue 标签。不创建、不关闭、不评论。
+// Client 读取 Issue 并逐项添加/移除五态标签。不创建、不关闭、不评论。
 type Client struct {
 	Base, Token string
 	HTTP        *http.Client
@@ -121,17 +121,20 @@ func (c *Client) GetIssue(ctx context.Context, repository string, number int) (I
 	return parseIssue(repository, data)
 }
 
-// SetLabels 用 PATCH 一次性设置完整标签集，返回更新后的 Issue。
-func (c *Client) SetLabels(ctx context.Context, repository string, number int, labels []string) (Issue, error) {
-	data, err := c.do(ctx, http.MethodPatch, issuePath(repository, number), map[string]any{"labels": labels})
-	if err != nil {
-		return Issue{}, err
+// AddLabel and RemoveLabel mutate only one known workflow state.
+func (c *Client) AddLabel(ctx context.Context, repository string, number int, label string) error {
+	if !contains(States, label) {
+		return domain.Fail("PLAN", "只允许写入五态标签")
 	}
-	issue, err := parseIssue(repository, data)
-	if err != nil {
-		return issue, &uncertainWrite{err}
+	_, err := c.do(ctx, http.MethodPost, issuePath(repository, number)+"/labels", map[string]any{"labels": []string{label}})
+	return err
+}
+func (c *Client) RemoveLabel(ctx context.Context, repository string, number int, label string) error {
+	if !contains(States, label) {
+		return domain.Fail("PLAN", "只允许移除五态标签")
 	}
-	return issue, nil
+	_, err := c.do(ctx, http.MethodDelete, issuePath(repository, number)+"/labels/"+url.PathEscape(label), nil)
+	return err
 }
 
 func issuePath(repository string, number int) string {

@@ -47,6 +47,7 @@ type Ticket struct {
 	Synced     string `json:"synced,omitempty"`
 	Digest     string `json:"digest"`
 	raw        []byte
+	before     domain.Descriptor
 }
 
 // Env 便于测试注入环境变量与时钟。
@@ -128,11 +129,21 @@ func readTicket(root, ref string) (Ticket, error) {
 	if err != nil {
 		return Ticket{}, err
 	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return Ticket{}, domain.Fail("TRACKER", "Ticket 必须是普通文件: "+ref)
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Ticket{}, domain.Fail("TRACKER", "无法读取 Ticket: "+ref)
 	}
-	return parseTicket(ref, raw), nil
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, after) || info.Mode() != after.Mode() {
+		return Ticket{}, domain.Fail("INPUT_DRIFT", "读取期间 Ticket 身份或权限已变化: "+ref)
+	}
+	t := parseTicket(ref, raw)
+	t.before = domain.Descriptor{Type: "file", Digest: safefs.Digest(raw), Mode: domain.FileMode(uint32(info.Mode().Perm()))}
+	return t, nil
 }
 
 // tickets 列出 tracker 根下每个功能包的父 Ticket 与 issues/*.md，按路径排序。
@@ -276,7 +287,7 @@ func link(ctx context.Context, root string, args map[string]string) (any, error)
 		result["status"] = "planned"
 		return result, nil
 	}
-	tx, err := writeTickets(ctx, root, "tracker-link", map[string][]byte{ref: data})
+	tx, err := writeTickets(ctx, root, "tracker-link", map[string]ticketWrite{ref: {Data: data, Before: t.before}})
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +318,12 @@ func setSynced(raw []byte, value string) []byte {
 }
 
 // writeTickets 以读取时的字节为守卫，在一个本地事务里写入。
-func writeTickets(ctx context.Context, root, kind string, files map[string][]byte) (transaction.Result, error) {
+type ticketWrite struct {
+	Data   []byte
+	Before domain.Descriptor
+}
+
+func writeTickets(ctx context.Context, root, kind string, files map[string]ticketWrite) (transaction.Result, error) {
 	refs := make([]string, 0, len(files))
 	for ref := range files {
 		refs = append(refs, ref)
@@ -316,13 +332,10 @@ func writeTickets(ctx context.Context, root, kind string, files map[string][]byt
 	ops := []transaction.Operation{}
 	guards := map[string]domain.Descriptor{}
 	for _, ref := range refs {
-		d, err := safefs.Describe(root, ref)
-		if err != nil {
-			return transaction.Result{}, err
-		}
-		before := d
-		guards[ref] = d
-		ops = append(ops, transaction.Operation{Path: ref, Data: files[ref], Mode: d.Mode, Before: &before})
+		file := files[ref]
+		before := file.Before
+		guards[ref] = before
+		ops = append(ops, transaction.Operation{Path: ref, Data: file.Data, Mode: before.Mode, Before: &before})
 	}
 	return transaction.ApplyContextWithGuards(ctx, root, kind, ops, guards)
 }
@@ -342,6 +355,7 @@ type SyncPlan struct {
 type SyncItem struct {
 	Ticket        string   `json:"ticket"`
 	TicketDigest  string   `json:"ticket_digest"`
+	TicketMode    uint32   `json:"ticket_mode"`
 	Status        string   `json:"status"`
 	Repository    string   `json:"repository"`
 	Number        int      `json:"number"`
@@ -396,73 +410,6 @@ func syncRun(ctx context.Context, root string, args map[string]string, env Env) 
 		}
 	}
 	return map[string]any{"status": "planned", "plan": plan, "remote_changed": false}, nil
-}
-
-func syncApply(ctx context.Context, root string, args map[string]string, client *Client, env Env) (any, error) {
-	if args["confirm-remote"] != "github" {
-		return nil, domain.Fail("CAPABILITY", "写入 GitHub 需要用户确认：--confirm-remote github；未触达远端")
-	}
-	raw, err := os.ReadFile(args["plan-file"])
-	if err != nil {
-		return nil, domain.Fail("PLAN", "无法读取计划文件: "+args["plan-file"])
-	}
-	plan, err := readSyncPlan(raw)
-	if err != nil {
-		return nil, err
-	}
-	if err = validateSyncPlan(ctx, root, plan, client); err != nil {
-		return nil, err
-	}
-	applied := []map[string]any{}
-	synced := map[string][]byte{}
-	stamp := env.now().Format(time.RFC3339)
-	updated := 0
-	for index, item := range plan.Items {
-		row := map[string]any{"ticket": item.Ticket, "issue": item.Repository + "#" + strconv.Itoa(item.Number), "add": item.Add, "remove": item.Remove}
-		if len(item.Add) > 0 || len(item.Remove) > 0 {
-			issue, err := client.SetLabels(ctx, item.Repository, item.Number, item.Desired)
-			if err != nil {
-				// 已成功的 Issue 仍补记本地同步行；失败项与其后项保持原样，重新规划后再同步。
-				row["status"], row["error"] = "failed", err.Error()
-				state := remoteState(updated > 0)
-				if writeUnknown(err) {
-					row["status"], state = "unknown", "unknown"
-				}
-				applied = append(applied, row)
-				partial := map[string]any{"status": "partial", "remote_changed": updated > 0, "remote_state": state, "items": applied, "local_recorded": false}
-				if len(synced) > 0 {
-					if tx, werr := writeTickets(ctx, root, "tracker-sync", synced); werr == nil {
-						partial["local_recorded"], partial["transaction"] = true, tx
-					}
-				}
-				for _, pending := range plan.Items[index+1:] {
-					applied = append(applied, map[string]any{"ticket": pending.Ticket, "issue": pending.Repository + "#" + strconv.Itoa(pending.Number), "status": "not-attempted"})
-				}
-				partial["items"] = applied
-				return failedSync(partial, err)
-			}
-			row["labels"] = issue.Labels
-			row["status"] = "updated"
-			updated++
-		} else {
-			row["status"] = "unchanged"
-		}
-		t, _ := readTicket(root, item.Ticket)
-		synced[item.Ticket] = setSynced(t.raw, stamp+" labels="+strings.Join(item.Desired, ","))
-		applied = append(applied, row)
-	}
-	result := map[string]any{"status": "applied", "remote_changed": updated > 0, "remote_state": remoteState(updated > 0), "items": applied, "authority": "local-markdown"}
-	if len(synced) == 0 {
-		return result, nil
-	}
-	tx, err := writeTickets(ctx, root, "tracker-sync", synced)
-	if err != nil {
-		result["local_recorded"] = false
-		result["status"] = "partial"
-		return failedSync(result, domain.Fail("TRACKER", "远端同步已处理，但本地同步记录写入失败: "+err.Error()))
-	}
-	result["local_recorded"], result["transaction"] = true, tx
-	return result, nil
 }
 
 // savePlan 把计划保存在仓库之外且不覆盖已有文件，避免计划改变自己绑定的状态。

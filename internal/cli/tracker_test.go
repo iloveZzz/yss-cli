@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -28,18 +29,23 @@ func TestTrackerPartialFailurePreservesEnvelope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	labelsByIssue := map[int][]string{12: {"needs-triage"}, 13: {"needs-triage"}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && strings.HasSuffix(r.URL.Path, "/12") {
+		segment := strings.Split(strings.Split(r.URL.Path, "/issues/")[1], "/")[0]
+		number, _ := strconv.Atoi(segment)
+		if r.Method != http.MethodGet && number == 12 {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
-		number := 13
-		if strings.HasSuffix(r.URL.Path, "/12") {
-			number = 12
+		if r.Method == http.MethodPost {
+			labelsByIssue[number] = []string{"needs-info", "needs-triage"}
 		}
-		labels := []map[string]string{{"name": "needs-triage"}}
-		if r.Method != http.MethodGet {
-			labels = []map[string]string{{"name": "needs-info"}}
+		if r.Method == http.MethodDelete {
+			labelsByIssue[number] = []string{"needs-info"}
+		}
+		labels := []map[string]string{}
+		for _, label := range labelsByIssue[number] {
+			labels = append(labels, map[string]string{"name": label})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"number": number, "state": "open", "updated_at": "a", "labels": labels})
 	}))

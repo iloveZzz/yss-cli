@@ -66,7 +66,7 @@ func localSyncPlan(root string, selection Selection, api string) (SyncPlan, []Ti
 func syncItem(t Ticket, issue Issue) SyncItem {
 	desired := desiredLabels(issue.Labels, t.Status)
 	add, remove := diff(issue.Labels, desired)
-	return SyncItem{Ticket: t.Ref, TicketDigest: t.Digest, Status: t.Status, Repository: t.Repository, Number: t.Number, ObservedLabel: issue.Labels, ObservedAt: issue.UpdatedAt, Desired: desired, Add: add, Remove: remove}
+	return SyncItem{Ticket: t.Ref, TicketDigest: t.Digest, TicketMode: t.before.Mode, Status: t.Status, Repository: t.Repository, Number: t.Number, ObservedLabel: issue.Labels, ObservedAt: issue.UpdatedAt, Desired: desired, Add: add, Remove: remove}
 }
 
 func buildSyncPlan(ctx context.Context, root string, selection Selection, client *Client) (SyncPlan, error) {
@@ -102,11 +102,14 @@ func validateSyncPlan(ctx context.Context, root string, saved SyncPlan, client *
 	seenIssues := map[string]map[int]bool{}
 	for i, t := range selected {
 		item := saved.Items[i]
-		if item.Ticket != t.Ref || item.Repository != t.Repository || item.Number != t.Number || item.Status != t.Status || !repoPattern.MatchString(t.Repository) || t.Number <= 0 {
+		if item.Ticket != t.Ref {
 			return planError()
 		}
-		if t.Digest != item.TicketDigest {
+		if t.Digest != item.TicketDigest || t.before.Mode != item.TicketMode {
 			return domain.Fail("INPUT_DRIFT", "Ticket 已变化，重新规划: "+t.Ref)
+		}
+		if item.Repository != t.Repository || item.Number != t.Number || item.Status != t.Status || !repoPattern.MatchString(t.Repository) || t.Number <= 0 {
+			return planError()
 		}
 		if seenIssues[t.Repository] == nil {
 			seenIssues[t.Repository] = map[int]bool{}
