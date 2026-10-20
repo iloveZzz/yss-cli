@@ -253,6 +253,7 @@ func VerifyStageResult(s *kernel.SemanticSession, ref string, opts map[string]st
 		normalizedReviewBindings = append(normalizedReviewBindings, rows)
 	}
 	var implementation map[string]any
+	var trustedStageReview map[string]any
 	reviewCandidate := map[string]any{"ref": assets[0]["ref"], "digest": candidateBinding.Digest}
 	reviewScope := reviewPaths
 	if kernel.Text(provenance["task_ref"]) != "" {
@@ -260,6 +261,7 @@ func VerifyStageResult(s *kernel.SemanticSession, ref string, opts map[string]st
 			return err
 		}
 		trusted := kernel.ApMap(s.Report.Coverage["stage_review_provenance"])
+		trustedStageReview = trusted
 		implementation = kernel.ApMap(trusted["implementation"])
 		reviewCandidate = kernel.ApMap(trusted["candidate"])
 		reviewScope = kernel.ApStrings(trusted["scope"])
@@ -282,7 +284,7 @@ func VerifyStageResult(s *kernel.SemanticSession, ref string, opts map[string]st
 			return e
 		}
 		context := kernel.ApMap(task["review_context"])
-		if task["workflow_status"] != "resolved" || !kernel.SemHas([]string{"Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) || !kernel.SemHas([]string{"independent-review", "external-required-review"}, kernel.Text(kernel.ApMap(context["review"])["mode"])) || !kernel.ApSetEqual(context["approval_scope"], r["scope"]) {
+		if task["workflow_status"] != "resolved" || !kernel.SemHas([]string{"Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) || !kernel.SemHas([]string{"independent-review", "external-required-review"}, kernel.Text(kernel.ApMap(context["review"])["mode"])) || task["feature_id"] != r["feature_id"] || !kernel.ApEqual(context["candidate"], trustedStageReview["implementation_candidate"]) {
 			return s.Reject("STAGE_REVIEW", "实际任务未完成当前范围要求的独立复核")
 		}
 		// A validated review task has a native candidate; every stage asset must

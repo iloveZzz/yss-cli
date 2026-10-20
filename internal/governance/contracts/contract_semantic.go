@@ -4482,7 +4482,11 @@ func scaffoldBackendInputs(s *kernel.SemanticSession, ref string, doc map[string
 			return nil, err
 		}
 		delete(normalizedTechnical, "digest")
-		kernel.SemMap(normalizedTechnical["architecture"])["decision_digest"] = kernel.ApDigest(normalizedRecord)
+		architecture := kernel.SemMap(normalizedTechnical["architecture"])
+		if len(architecture) == 0 {
+			return nil, s.Reject("SCAFFOLD_TECHNICAL", "技术设计缺少具体架构输入")
+		}
+		architecture["decision_digest"] = kernel.ApDigest(normalizedRecord)
 		for _, input := range kernel.ApRows(normalizedTechnical["inputs"]) {
 			if input["ref"] == decisionRef {
 				input["digest"] = kernel.ApDigest(normalizedRecord)

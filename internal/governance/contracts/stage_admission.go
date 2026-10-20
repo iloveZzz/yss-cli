@@ -29,12 +29,14 @@ func init() {
 		candidate := kernel.ApMap(source["candidate"])
 		scope := source["scope"]
 		requiredBindings := append([]any{}, kernel.ApArray(task["input_bindings"])...)
+		implementationCandidate := source["candidate"]
 		if kernel.SemHas([]string{"Reviewer", "Verifier"}, kernel.Text(task["execution_state"])) {
 			source, e := TrustedTaskImplementation(s, kernel.ApMap(task["review_context"]))
 			if e != nil {
 				return e
 			}
 			implementation = kernel.ApMap(source["provenance"])
+			implementationCandidate = source["candidate"]
 			candidate = kernel.ApMap(kernel.ApMap(task["review_context"])["candidate"])
 			scope = kernel.ApMap(task["review_context"])["approval_scope"]
 			implementationTask, e := s.Doc(kernel.Text(source["task_ref"]))
@@ -43,7 +45,7 @@ func init() {
 			}
 			requiredBindings = append(requiredBindings, kernel.ApArray(implementationTask["input_bindings"])...)
 		}
-		kernel.SemanticCoverage(s, "stage_review_provenance", map[string]any{"implementation": implementation, "candidate": candidate, "scope": scope, "required_bindings": requiredBindings})
+		kernel.SemanticCoverage(s, "stage_review_provenance", map[string]any{"implementation": implementation, "candidate": candidate, "scope": scope, "required_bindings": requiredBindings, "implementation_candidate": implementationCandidate})
 		return nil
 	})
 	kernel.RegisterRoleIndependentValidator("backend-preparation-inputs", func(s *kernel.SemanticSession, ref string, opts map[string]string) error {
