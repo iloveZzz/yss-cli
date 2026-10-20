@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -46,9 +47,13 @@ func NewClient(env func(string) string) (*Client, error) {
 	if base == "" {
 		base = "https://api.github.com"
 	}
-	if !strings.HasPrefix(base, "https://") && !strings.HasPrefix(base, "http://127.0.0.1") && !strings.HasPrefix(base, "http://localhost") {
+	u, err := url.Parse(base)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"))) {
 		return nil, domain.Fail("TRACKER_REMOTE", "GITHUB_API_URL 必须是 https 地址")
 	}
+	u.Scheme, u.Host = strings.ToLower(u.Scheme), strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	base = u.String()
 	return &Client{Base: base, Token: token, HTTP: &http.Client{Timeout: 20 * time.Second}}, nil
 }
 
@@ -73,15 +78,25 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		var cause error
 		if ctx.Err() != nil {
-			return nil, domain.Wrap("CANCELLED", ctx.Err())
+			cause = domain.Wrap("CANCELLED", ctx.Err())
+		} else {
+			cause = domain.Fail("NETWORK", "GitHub 请求失败: "+method+" "+path)
 		}
-		return nil, domain.Fail("NETWORK", "GitHub 请求失败: "+method+" "+path)
+		if method != http.MethodGet {
+			cause = &uncertainWrite{cause}
+		}
+		return nil, cause
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, domain.Fail("NETWORK", "GitHub 响应读取失败")
+		cause := error(domain.Fail("NETWORK", "GitHub 响应读取失败"))
+		if method != http.MethodGet {
+			cause = &uncertainWrite{cause}
+		}
+		return nil, cause
 	}
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
@@ -89,7 +104,11 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, domain.Fail("TRACKER_REMOTE", "GitHub Issue 不存在或无权读取: "+path)
 	case resp.StatusCode >= 300:
-		return nil, domain.Fail("TRACKER_REMOTE", fmt.Sprintf("GitHub 返回 HTTP %d: %s %s", resp.StatusCode, method, path))
+		cause := error(domain.Fail("TRACKER_REMOTE", fmt.Sprintf("GitHub 返回 HTTP %d: %s %s", resp.StatusCode, method, path)))
+		if method != http.MethodGet && resp.StatusCode >= 500 {
+			cause = &uncertainWrite{cause}
+		}
+		return nil, cause
 	}
 	return data, nil
 }
@@ -108,7 +127,11 @@ func (c *Client) SetLabels(ctx context.Context, repository string, number int, l
 	if err != nil {
 		return Issue{}, err
 	}
-	return parseIssue(repository, data)
+	issue, err := parseIssue(repository, data)
+	if err != nil {
+		return issue, &uncertainWrite{err}
+	}
+	return issue, nil
 }
 
 func issuePath(repository string, number int) string {

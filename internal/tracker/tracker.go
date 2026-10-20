@@ -330,6 +330,8 @@ func writeTickets(ctx context.Context, root, kind string, files map[string][]byt
 // SyncPlan 绑定每个 Ticket 的本地字节与规划时的远端标签和更新时间。
 type SyncPlan struct {
 	SchemaVersion int        `json:"schema_version"`
+	APIBase       string     `json:"api_base"`
+	Selection     Selection  `json:"selection"`
 	Kind          string     `json:"kind"`
 	Root          string     `json:"root"`
 	Items         []SyncItem `json:"items"`
@@ -384,32 +386,10 @@ func syncRun(ctx context.Context, root string, args map[string]string, env Env) 
 	if applying {
 		return syncApply(ctx, root, args, client, env)
 	}
-	plan := SyncPlan{SchemaVersion: 1, Kind: "tracker-sync-plan", Root: root, Items: []SyncItem{}, Skipped: []Skip{}}
-	list, err := tickets(root)
+	plan, err := buildSyncPlan(ctx, root, Selection{Ticket: args["ticket"]}, client)
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range list {
-		if args["ticket"] != "" && t.Ref != args["ticket"] {
-			continue
-		}
-		switch {
-		case t.Repository == "":
-			plan.Skipped = append(plan.Skipped, Skip{t.Ref, "未链接 Issue"})
-			continue
-		case !contains(States, t.Status):
-			plan.Skipped = append(plan.Skipped, Skip{t.Ref, "Status 不是五态之一: " + t.Status})
-			continue
-		}
-		issue, err := client.GetIssue(ctx, t.Repository, t.Number)
-		if err != nil {
-			return nil, err
-		}
-		desired := desiredLabels(issue.Labels, t.Status)
-		add, remove := diff(issue.Labels, desired)
-		plan.Items = append(plan.Items, SyncItem{Ticket: t.Ref, TicketDigest: t.Digest, Status: t.Status, Repository: t.Repository, Number: t.Number, ObservedLabel: issue.Labels, ObservedAt: issue.UpdatedAt, Desired: desired, Add: add, Remove: remove})
-	}
-	plan.PlanDigest = plan.digest()
 	if out := args["out"]; out != "" {
 		if err := savePlan(root, out, plan); err != nil {
 			return nil, err
@@ -426,49 +406,40 @@ func syncApply(ctx context.Context, root string, args map[string]string, client 
 	if err != nil {
 		return nil, domain.Fail("PLAN", "无法读取计划文件: "+args["plan-file"])
 	}
-	var plan SyncPlan
-	if err = json.Unmarshal(raw, &plan); err != nil || plan.SchemaVersion != 1 || plan.Kind != "tracker-sync-plan" || plan.PlanDigest == "" || plan.PlanDigest != plan.digest() {
-		return nil, domain.Fail("PLAN", "计划版本或摘要无效；重新生成计划")
+	plan, err := readSyncPlan(raw)
+	if err != nil {
+		return nil, err
 	}
-	if plan.Root != root {
-		return nil, domain.Fail("PLAN", "计划属于另一个项目根")
-	}
-	// 先全部复核再写：本地字节或远端标签/更新时间任一变化都拒绝，避免覆盖他人改动。
-	for _, item := range plan.Items {
-		t, err := readTicket(root, item.Ticket)
-		if err != nil {
-			return nil, err
-		}
-		if t.Digest != item.TicketDigest {
-			return nil, domain.Fail("INPUT_DRIFT", "Ticket 已变化，重新规划: "+item.Ticket)
-		}
-		issue, err := client.GetIssue(ctx, item.Repository, item.Number)
-		if err != nil {
-			return nil, err
-		}
-		if issue.UpdatedAt != item.ObservedAt || strings.Join(issue.Labels, ",") != strings.Join(item.ObservedLabel, ",") {
-			return nil, domain.Fail("TRACKER_DRIFT", "远端 Issue 自规划后已变化，重新规划: "+item.Repository+"#"+strconv.Itoa(item.Number))
-		}
+	if err = validateSyncPlan(ctx, root, plan, client); err != nil {
+		return nil, err
 	}
 	applied := []map[string]any{}
 	synced := map[string][]byte{}
 	stamp := env.now().Format(time.RFC3339)
 	updated := 0
-	for _, item := range plan.Items {
+	for index, item := range plan.Items {
 		row := map[string]any{"ticket": item.Ticket, "issue": item.Repository + "#" + strconv.Itoa(item.Number), "add": item.Add, "remove": item.Remove}
 		if len(item.Add) > 0 || len(item.Remove) > 0 {
 			issue, err := client.SetLabels(ctx, item.Repository, item.Number, item.Desired)
 			if err != nil {
 				// 已成功的 Issue 仍补记本地同步行；失败项与其后项保持原样，重新规划后再同步。
 				row["status"], row["error"] = "failed", err.Error()
+				state := remoteState(updated > 0)
+				if writeUnknown(err) {
+					row["status"], state = "unknown", "unknown"
+				}
 				applied = append(applied, row)
-				partial := map[string]any{"status": "partial", "remote_changed": updated > 0, "items": applied, "local_recorded": false}
+				partial := map[string]any{"status": "partial", "remote_changed": updated > 0, "remote_state": state, "items": applied, "local_recorded": false}
 				if len(synced) > 0 {
 					if tx, werr := writeTickets(ctx, root, "tracker-sync", synced); werr == nil {
 						partial["local_recorded"], partial["transaction"] = true, tx
 					}
 				}
-				return partial, err
+				for _, pending := range plan.Items[index+1:] {
+					applied = append(applied, map[string]any{"ticket": pending.Ticket, "issue": pending.Repository + "#" + strconv.Itoa(pending.Number), "status": "not-attempted"})
+				}
+				partial["items"] = applied
+				return failedSync(partial, err)
 			}
 			row["labels"] = issue.Labels
 			row["status"] = "updated"
@@ -480,14 +451,15 @@ func syncApply(ctx context.Context, root string, args map[string]string, client 
 		synced[item.Ticket] = setSynced(t.raw, stamp+" labels="+strings.Join(item.Desired, ","))
 		applied = append(applied, row)
 	}
-	result := map[string]any{"status": "applied", "remote_changed": updated > 0, "items": applied, "authority": "local-markdown"}
+	result := map[string]any{"status": "applied", "remote_changed": updated > 0, "remote_state": remoteState(updated > 0), "items": applied, "authority": "local-markdown"}
 	if len(synced) == 0 {
 		return result, nil
 	}
 	tx, err := writeTickets(ctx, root, "tracker-sync", synced)
 	if err != nil {
 		result["local_recorded"] = false
-		return result, domain.Fail("TRACKER", "远端已更新，但本地同步记录写入失败: "+err.Error())
+		result["status"] = "partial"
+		return failedSync(result, domain.Fail("TRACKER", "远端同步已处理，但本地同步记录写入失败: "+err.Error()))
 	}
 	result["local_recorded"], result["transaction"] = true, tx
 	return result, nil
