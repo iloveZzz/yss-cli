@@ -62,7 +62,7 @@ jobs:
         if: inputs.phase == 'prepare'
         timeout-minutes: 5
         run: |
-          go test -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance > "$RUNNER_TEMP/native-targeted-tests.jsonl"
+          go test -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance ./internal/governance/kernel > "$RUNNER_TEMP/native-targeted-tests.jsonl"
       - name: Generate and validate release evidence
         if: inputs.phase == 'prepare'
         run: |
@@ -123,7 +123,7 @@ jobs:
         shell: pwsh
         run: |
           if ((go env GOOS) -ne 'windows' -or (go env GOARCH) -ne 'amd64') { throw 'actual windows/amd64 required' }
-          go test -tags yss_nobundle -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance > "$env:RUNNER_TEMP/native-targeted-tests.jsonl"
+          go test -tags yss_nobundle -count=1 -json -timeout 5m ./internal/safefs ./internal/updater ./internal/mcp ./internal/governance ./internal/governance/kernel > "$env:RUNNER_TEMP/native-targeted-tests.jsonl"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()

@@ -18,7 +18,11 @@ func TestLocalImplementationInputsSelectExplicitStagePolicy(t *testing.T) {
 		{"legacy", 1, false, true}, {"stage", 2, true, true}, {"unselected-v2", 2, false, false}, {"unknown", 3, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := kernel.NewSemanticSession(context.Background(), t.TempDir(), nil)
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := kernel.NewSemanticSession(context.Background(), root, nil)
 			s.Report.Profile = "spec"
 			if tc.stage {
 				s.GovernanceVersion = 2
