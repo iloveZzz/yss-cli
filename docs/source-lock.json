@@ -19,7 +19,6 @@
         "sourceSnapshotHash": "a2ef1c2c14fa197d069e76484148d28c01d24f242cf5b118b7ef234df2b76848",
         "manifestHash": "544e8ae01c49ef451a784237b06772137876f8e8d6b5334094827e2ca2fe0f13"
       },
-      "sourceState": "committed",
       "templateTag": "v4.6.5"
     },
     "backend": {
@@ -39,7 +38,6 @@
         "sourceSnapshotHash": "e53990d44b3de929d8c3c893fdd8670ca19a0180fbd785c59a90580b32d702c7",
         "manifestHash": "188f3c2a97dd2c3a44e3be4a98d3125fbe7ae8e50426cfc7dd769af4d42f2ce6"
       },
-      "sourceState": "committed",
       "templateTag": "v4.6.5"
     }
   }
