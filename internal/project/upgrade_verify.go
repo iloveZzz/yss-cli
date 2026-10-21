@@ -104,7 +104,7 @@ func verifySkillTrees(root string, m *Metadata) error {
 		}
 	}
 	for ref := range m.Managed {
-		if strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".codebuddy/skills/") {
+		if strings.HasPrefix(ref, ".codex/skills/") || strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".workbuddy/skills/") {
 			parts := strings.Split(ref, "/")
 			if len(parts) > 3 && !strings.HasPrefix(parts[2], ".") {
 				roots[strings.Join(parts[:3], "/")] = true

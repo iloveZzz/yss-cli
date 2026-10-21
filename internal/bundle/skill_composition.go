@@ -373,8 +373,8 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 				}
 				if json.Unmarshal(lockFile.data, &projectionLock) == nil {
 					for _, root := range projectionLock.Roots {
-						if root == ".codebuddy/skills" {
-							projectionRuntimes = append(projectionRuntimes, ".codebuddy")
+						if root == ".workbuddy/skills" {
+							projectionRuntimes = append(projectionRuntimes, ".workbuddy")
 						}
 					}
 				}

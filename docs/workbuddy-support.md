@@ -1,12 +1,12 @@
 # WorkBuddy 项目级 Skills
 
-运行时标识为 `workbuddy`，项目技能目录为 `.codebuddy/skills`。普通文件资源树由 `.agents/skills` 生成，技能正文只维护 canonical 来源。
+运行时标识为 `workbuddy`，唯一项目技能目录为 `.workbuddy/skills`。普通文件资源树由 `.agents/skills` 生成，技能正文只维护 canonical 来源。`.codebuddy/skills` 已移除，不作为运行时目录或发现别名。
 
-CLI 2.7.0 的[来源锁](source-lock.json)固定模板 `v4.7.0`，为 Spec、Backend 提供 WorkBuddy 文件分发和就绪查询支持。本版本的平台资格与实际验证范围以对应发行说明及其证据为准。WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。
+历史 CLI 2.7.0 固定模板 `v4.7.0`，分发的是旧目录。本次目录修正需新的固定模板来源；当前[来源锁](source-lock.json)尚待后续模板版本确定后更新，不代表旧版已支持新目录。平台资格与实际验证范围以对应发行说明及其证据为准。WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。
 
 ## 安装与更新
 
-使用同一固定来源的 CLI 与内嵌 Bundle；CLI 2.7.0 对应模板 `v4.7.0`。安装或升级前核对该平台的实际发行资格；旧二进制和旧 Bundle 不会因为安装 WorkBuddy 自动获得适配。
+使用声明 `.workbuddy/skills` 的固定模板来源及其配套 CLI、内嵌 Bundle。旧二进制和旧 Bundle 不会因为安装 WorkBuddy 自动获得新目录支持；安装或升级前核对来源锁和该平台的实际发行资格。
 
 Spec 按需安装技能及其依赖，并分发 Claude、WorkBuddy 两个声明投影。Backend 保持 `profile-full`，分发该 Profile 的完整技能集合；不恢复退役的 Codex、Cursor、Pi 副本。
 
@@ -18,6 +18,8 @@ yss sync --root /path/to/project --apply --plan-file /outside/project/new-sync-p
 ```
 
 计划文件须不存在，应用时消费实际保存计划。冲突按现有范围授权处理，路径占用、投影修改、来源不匹配和受管文件丢失不能强制覆盖。实例端不直接运行模板源 `scripts/sync-skills` 写入 WorkBuddy 投影。
+
+旧目录迁移只由显式 `sync` 计划处理：同一事务写入新投影、来源锁和 metadata，并逐文件退役旧锁登记且旧基线字节、权限可核验的 `.codebuddy/skills` 受管资产。`skills ensure`、`assets ensure` 不能代替这次同步。修改过的旧文件进入冲突，可明确 `keep-local` 保留为退役例外；它们不会继续作为 WorkBuddy 技能来源。未登记的个人技能、settings、MCP 和其他用户配置保持原字节，不递归清空 `.codebuddy`。
 
 ## 调用
 

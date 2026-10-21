@@ -165,6 +165,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	if options.target != nil {
 		b = options.target
 	}
+	if err := requireWorkBuddyRootSync(id, b, command); err != nil {
+		return nil, err
+	}
 	if b.SchemaVersion == 4 && id.Native != nil && id.Native.SchemaVersion == 3 && command != "migrate" && command != "diff" && command != "doctor" {
 		return nil, domain.Fail("GOVERNANCE_MIGRATION_REQUIRED", "旧实例须先显式 migrate；sync 不隐式改变治理身份")
 	}

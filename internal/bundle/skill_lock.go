@@ -53,7 +53,7 @@ func indexSkillTrees(files map[string]File) skillTreeIndex {
 			continue
 		}
 		switch parts[0] {
-		case ".agents", ".codex", ".cursor", ".pi", ".claude", ".codebuddy":
+		case ".agents", ".codex", ".cursor", ".pi", ".claude", ".workbuddy":
 			prefix := strings.Join(parts[:3], "/")
 			index[prefix] = append(index[prefix], ref)
 		}
@@ -159,7 +159,7 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 					continue
 				}
 				projection := ref + "/" + name
-				if ref == ".codebuddy/skills" {
+				if ref == ".workbuddy/skills" {
 					if err := verifyWorkBuddyProjection(files, prefix, projection, vars); err != nil {
 						return nil, err
 					}

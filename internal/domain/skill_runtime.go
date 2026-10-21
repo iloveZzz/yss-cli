@@ -4,7 +4,7 @@ package domain
 func SkillRuntimeRoot(runtime string) (string, bool) {
 	roots := map[string]string{
 		"claude": ".claude/skills", "codex": ".codex/skills",
-		"cursor": ".cursor/skills", "pi": ".pi/skills", "workbuddy": ".codebuddy/skills",
+		"cursor": ".cursor/skills", "pi": ".pi/skills", "workbuddy": ".workbuddy/skills",
 	}
 	root, ok := roots[runtime]
 	return root, ok

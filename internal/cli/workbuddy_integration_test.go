@@ -15,7 +15,7 @@ func TestWorkBuddyCLIInstallationClosures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, available := b.Files[".codebuddy/skills/code-review/SKILL.md"]; !available {
+	if _, available := b.Files[".workbuddy/skills/code-review/SKILL.md"]; !available {
 		t.Skip("fixed Bundle has not advanced to the WorkBuddy template; run with the new local candidate Bundle")
 	}
 	check := func(t *testing.T, result map[string]any) {
@@ -28,7 +28,7 @@ func TestWorkBuddyCLIInstallationClosures(t *testing.T) {
 		for ref := range paths {
 			if strings.HasPrefix(ref, ".agents/skills/") {
 				canonical++
-				projection := ".codebuddy/skills/" + strings.TrimPrefix(ref, ".agents/skills/")
+				projection := ".workbuddy/skills/" + strings.TrimPrefix(ref, ".agents/skills/")
 				if !paths[projection] {
 					t.Fatalf("CLI plan omitted WorkBuddy resource %s", projection)
 				}

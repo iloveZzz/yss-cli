@@ -100,7 +100,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, e
 		}
 		for ref := range b.Files {
-			if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".codebuddy/skills/")) {
+			if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".workbuddy/skills/")) {
 				continue
 			}
 			selection = append(selection, ref)
