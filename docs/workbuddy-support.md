@@ -2,11 +2,11 @@
 
 运行时标识为 `workbuddy`，项目技能目录为 `.codebuddy/skills`。普通文件资源树由 `.agents/skills` 生成，技能正文只维护 canonical 来源。
 
-本次为本地工作树实验版本。Spec、Backend 的文件分发和 CLI 行为已在云端验证；WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。正式来源锁未更新，没有推送或发布。
+CLI 2.7.0 的[来源锁](source-lock.json)固定模板 `v4.7.0`，为 Spec、Backend 提供 WorkBuddy 文件分发和就绪查询支持。本版本的平台资格与实际验证范围以对应发行说明及其证据为准。WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。
 
 ## 安装与更新
 
-使用包含本次模板及 CLI 改动的同一构建；旧二进制和旧 Bundle 不会因为安装 WorkBuddy 自动获得适配。
+使用同一固定来源的 CLI 与内嵌 Bundle；CLI 2.7.0 对应模板 `v4.7.0`。安装或升级前核对该平台的实际发行资格；旧二进制和旧 Bundle 不会因为安装 WorkBuddy 自动获得适配。
 
 Spec 按需安装技能及其依赖，并分发 Claude、WorkBuddy 两个声明投影。Backend 保持 `profile-full`，分发该 Profile 的完整技能集合；不恢复退役的 Codex、Cursor、Pi 副本。
 
@@ -47,7 +47,7 @@ node scripts/inspect-skill-discovery --runtime workbuddy --cwd /path/to/project
 
 | 能力 | 当前边界 |
 |---|---|
-| 普通文件分发、来源锁、资源、权限、冲突和恢复 | 自动化及 CLI 实验覆盖 |
+| 普通文件分发、来源锁、资源、权限、冲突和恢复 | CLI 实现和自动化检查覆盖；实际验证范围见本版本发行说明及检查记录 |
 | 桌面显式调用、资源相对路径、刷新与同名优先级 | 待实机验证 |
 | `AGENTS.md` 自动加载 | 待验证，首次显式引导读取 |
 | `disable-model-invocation`、`user-invocable` | 保留元数据，桌面执行语义待验证 |
@@ -58,11 +58,11 @@ node scripts/inspect-skill-discovery --runtime workbuddy --cwd /path/to/project
 
 ## 验收记录
 
-当前桌面支持矩阵没有已验收组合。云端环境为 Linux/amd64、Go 1.27.1、Node 24.19.0；它验证 CLI 和分发，不代表 Linux WorkBuddy 桌面可用。
+当前桌面支持矩阵没有已验收组合。CLI 和分发检查的环境与结果见本版本发行说明及检查记录；这些检查不代表对应平台的 WorkBuddy 桌面可用。
 
 后续实机每个组合记录：WorkBuddy desktop 版本、可取得的执行核心版本、系统与架构、cwd、CLI/Bundle 来源、技能摘要、有效配置、入口与刷新方式，以及实际调用证据。Spec、Backend 分别验证入口、显式调用、references/脚本、只读 CLI、更新、同名与关闭技能、权限不足和取消。未执行用例标记 `not-run`。
 
-本轮仓外 `work/workbuddy/` 保存实验二进制、工作树锁和原始验证日志。它们不是发行回执；正式装配仍遵循既有固定来源与发行资格。
+既有仓外 `work/workbuddy/` 的实验二进制、工作树锁和原始验证日志保留为历史材料。本版本固定来源见[来源锁](source-lock.json)，验证要求见[测试与 CI 状态](ci-verification.md)，原生资格与公开包验证按[发行证据流程](../tools/release-evidence/README.md)取得；实际结果和证据引用在本版本发行说明中登记。
 
 ## 官方依据
 
