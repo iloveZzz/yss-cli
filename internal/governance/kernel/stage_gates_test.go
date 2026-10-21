@@ -61,7 +61,10 @@ func TestStageProgressionLocationSelectsCheckpoint2OnlyWithStagePolicy(t *testin
 		version int
 		pass    bool
 	}{{true, 2, true}, {false, 2, false}, {true, 1, false}, {false, 1, true}} {
-		root := t.TempDir()
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
 		s := NewSemanticSession(context.Background(), root, nil)
 		if row.stage {
 			s.GovernanceVersion = 2

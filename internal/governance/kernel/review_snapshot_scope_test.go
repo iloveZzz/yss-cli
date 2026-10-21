@@ -10,7 +10,11 @@ import (
 func TestReviewRequirementScopeUsesSealedLogicalRoot(t *testing.T) {
 	for _, root := range []string{"/missing-original-source", `C:\work\missing-source`} {
 		t.Run(root, func(t *testing.T) {
-			s := NewSemanticSession(context.Background(), t.TempDir(), nil)
+			physicalRoot, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := NewSemanticSession(context.Background(), physicalRoot, nil)
 			s.taskSnapshot = &taskSourceSnapshot{root: root}
 			s.Aliases["drafts/spec.md"] = "sealed/flat-spec.md"
 			if err := os.MkdirAll(filepath.Join(s.Root, "sealed"), 0755); err != nil {
