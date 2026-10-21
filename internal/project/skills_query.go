@@ -130,7 +130,7 @@ func skillDeclared(id *Identity, name string, locked bool) bool {
 		}
 	}
 	for ref := range baseline(id) {
-		for _, root := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", ".codebuddy/skills"} {
+		for _, root := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", ".workbuddy/skills"} {
 			if strings.HasPrefix(ref, root+"/"+name+"/") {
 				return true
 			}
@@ -548,8 +548,8 @@ func observedSkillTree(root, prefix string, b *bundle.Bundle, vars map[string]st
 		if !bytes.Equal(raw, want) || uint32(actual.Mode) != expected.Mode {
 			return fmt.Errorf("文件与固定来源不匹配: %s", ref)
 		}
-		if strings.HasPrefix(ref, ".codebuddy/skills/") {
-			canonicalRef := ".agents/skills/" + strings.TrimPrefix(ref, ".codebuddy/skills/")
+		if strings.HasPrefix(ref, ".workbuddy/skills/") {
+			canonicalRef := ".agents/skills/" + strings.TrimPrefix(ref, ".workbuddy/skills/")
 			canonical, known := b.Files[canonicalRef]
 			canonicalRaw, e := canonical.Render(vars)
 			if !known || e != nil || !bytes.Equal(raw, canonicalRaw) || uint32(actual.Mode) != canonical.Mode {

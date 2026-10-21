@@ -332,6 +332,9 @@ func newUpgradePlanner(id *Identity, b *bundle.Bundle, p *Plan, old map[string]M
 			u.maintenanceRules[ref] = rule
 		}
 	}
+	for ref, rule := range u.workBuddyRootRetirements() {
+		u.maintenanceRules[ref] = rule
+	}
 	p.materialData = map[string][]byte{}
 	if o.BaseBundlePath != "" {
 		var abs, hash string
@@ -812,7 +815,7 @@ func (u *upgradePlanner) classifyForeignSkillFiles(refs map[string]bundle.File) 
 	roots := map[string]bool{}
 	for ref := range refs {
 		parts := strings.Split(ref, "/")
-		if len(parts) > 3 && parts[1] == "skills" && (parts[0] == ".agents" || parts[0] == ".codex" || parts[0] == ".cursor" || parts[0] == ".pi" || parts[0] == ".codebuddy") && !strings.HasPrefix(parts[2], ".") {
+		if len(parts) > 3 && parts[1] == "skills" && (parts[0] == ".agents" || parts[0] == ".codex" || parts[0] == ".cursor" || parts[0] == ".pi" || parts[0] == ".workbuddy") && !strings.HasPrefix(parts[2], ".") {
 			roots[strings.Join(parts[:3], "/")] = true
 		}
 	}
@@ -876,7 +879,7 @@ func (u *upgradePlanner) classifyForeignSkillFiles(refs map[string]bundle.File) 
 
 func withinSelectedSkillTree(ref string, refs map[string]bundle.File) bool {
 	parts := strings.Split(ref, "/")
-	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") || (parts[0] != ".agents" && parts[0] != ".codex" && parts[0] != ".cursor" && parts[0] != ".pi" && parts[0] != ".codebuddy") {
+	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") || (parts[0] != ".agents" && parts[0] != ".codex" && parts[0] != ".cursor" && parts[0] != ".pi" && parts[0] != ".workbuddy") {
 		return false
 	}
 	prefix := strings.Join(parts[:3], "/") + "/"

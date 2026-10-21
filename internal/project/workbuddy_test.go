@@ -27,11 +27,11 @@ func workBuddyProject(t *testing.T) (*Identity, *bundle.Bundle) {
 	}
 	b.Files[skillRegistryRef] = file("schema_version: 3\nstatus: active\ncanonical_content_root: .agents/skills\ninvocation_contract:\n  schema_version: 2\nskills:\n  - {id: probe, layer: core, maturity: supported}\n")
 	b.Files["scripts/lib/skill-supply-chain.mjs"] = file("export const OBSOLETE = new Set([]);\n")
-	for _, root := range []string{".agents/skills", ".codebuddy/skills"} {
+	for _, root := range []string{".agents/skills", ".workbuddy/skills"} {
 		b.Files[root+"/probe/SKILL.md"] = file("---\nname: probe\ndescription: Probe\n---\n")
 		b.Files[root+"/probe/payload.txt"] = file("resource\n")
 	}
-	lock := []byte(`{"version":3,"canonicalRoot":".agents/skills","projectionRoots":[".codebuddy/skills"],"skills":{"shared":{"probe":{"skillPath":".agents/skills/probe/SKILL.md","targets":[".agents/skills",".codebuddy/skills"]}},"platform":{}}}`)
+	lock := []byte(`{"version":3,"canonicalRoot":".agents/skills","projectionRoots":[".workbuddy/skills"],"skills":{"shared":{"probe":{"skillPath":".agents/skills/probe/SKILL.md","targets":[".agents/skills",".workbuddy/skills"]}},"platform":{}}}`)
 	raw, err := bundle.RenderedSkillLock(lock, b.Files, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -62,14 +62,14 @@ func TestWorkBuddyResolveStates(t *testing.T) {
 	for _, kind := range []string{"ready", "missing", "lost-resource", "mode", "extra-file", "unregistered-runtime", "snapshot", "dangling"} {
 		t.Run(kind, func(t *testing.T) {
 			id, b := workBuddyProject(t)
-			target := filepath.Join(id.Root, ".codebuddy/skills/probe/payload.txt")
+			target := filepath.Join(id.Root, ".workbuddy/skills/probe/payload.txt")
 			want := "blocked"
 			switch kind {
 			case "ready":
 				want = "ready"
 			case "missing":
 				want = "missing"
-				for _, root := range []string{".agents/skills/probe", ".codebuddy/skills/probe"} {
+				for _, root := range []string{".agents/skills/probe", ".workbuddy/skills/probe"} {
 					os.RemoveAll(filepath.Join(id.Root, root))
 				}
 				for ref := range id.Native.Managed {
@@ -136,7 +136,7 @@ func TestWorkBuddyEnsureAndSyncPlan(t *testing.T) {
 	if err := completeTargets(id, b, d, refs, id.Native.Managed, "skills"); err != nil {
 		t.Fatal(err)
 	}
-	for _, ref := range []string{".agents/skills/probe/payload.txt", ".codebuddy/skills/probe/payload.txt", "skills-lock.json"} {
+	for _, ref := range []string{".agents/skills/probe/payload.txt", ".workbuddy/skills/probe/payload.txt", "skills-lock.json"} {
 		if _, ok := refs[ref]; !ok {
 			t.Fatalf("incomplete closure: %s", ref)
 		}
@@ -149,7 +149,7 @@ func TestWorkBuddyEnsureAndSyncPlan(t *testing.T) {
 func TestBackendSyncRefreshesFullRuntimeMetadata(t *testing.T) {
 	profile, _ := domain.GetProfile("backend")
 	id := &Identity{Profile: profile, Native: &Metadata{Distribution: map[string]any{"mode": "profile-full", "custom": "preserve"}}}
-	b := &bundle.Bundle{Distribution: map[string]any{"mode": "profile-full", "runtimes": []string{"workbuddy"}, "installedSkills": []string{"a", "b"}}, Files: map[string]bundle.File{"unrelated.txt": {}, ".codebuddy/skills/a/SKILL.md": {}}}
+	b := &bundle.Bundle{Distribution: map[string]any{"mode": "profile-full", "runtimes": []string{"workbuddy"}, "installedSkills": []string{"a", "b"}}, Files: map[string]bundle.File{"unrelated.txt": {}, ".workbuddy/skills/a/SKILL.md": {}}}
 	d, err := distributionFor(id, b, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestBackendSyncRefreshesFullRuntimeMetadata(t *testing.T) {
 
 func TestWorkBuddyConflictAndRollback(t *testing.T) {
 	id, b := workBuddyProject(t)
-	extra := ".codebuddy/skills/probe/personal.txt"
+	extra := ".workbuddy/skills/probe/personal.txt"
 	os.WriteFile(filepath.Join(id.Root, extra), []byte("keep"), 0644)
 	p := &Plan{Inputs: map[string]domain.Descriptor{}}
 	u := &upgradePlanner{id: id, bundle: b, plan: p, old: id.Native.Managed, maintenanceRules: map[string]bundle.MigrationRule{}}
@@ -181,7 +181,7 @@ func TestWorkBuddyConflictAndRollback(t *testing.T) {
 	if !withinSelectedSkillTree(extra, b.Files) {
 		t.Fatal("WorkBuddy scope unrecognized")
 	}
-	file := ".codebuddy/skills/probe/payload.txt"
+	file := ".workbuddy/skills/probe/payload.txt"
 	before, _ := os.ReadFile(filepath.Join(id.Root, file))
 	_, err := transaction.ApplyContextWithValidation(context.Background(), id.Root, "sync", []transaction.Operation{{Path: file, Data: []byte("replacement"), Mode: 0644}}, nil, nil, func() error { return errors.New("validation failed") })
 	if err == nil {
@@ -201,7 +201,7 @@ func TestWorkBuddyPostApplyVerification(t *testing.T) {
 	if err := verifySkillTrees(id.Root, id.Native); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(id.Root, ".codebuddy/skills/probe/payload.txt"), []byte("changed projection"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(id.Root, ".workbuddy/skills/probe/payload.txt"), []byte("changed projection"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := verifySkillTrees(id.Root, id.Native); err == nil {
@@ -213,7 +213,7 @@ func TestWorkBuddyRejectsDivergentFixedProjection(t *testing.T) {
 	for _, kind := range []string{"mode", "crlf"} {
 		t.Run(kind, func(t *testing.T) {
 			id, b := workBuddyProject(t)
-			ref := ".codebuddy/skills/probe/payload.txt"
+			ref := ".workbuddy/skills/probe/payload.txt"
 			if kind == "mode" {
 				ref = ".agents/skills/probe/payload.txt"
 				file := b.Files[ref]

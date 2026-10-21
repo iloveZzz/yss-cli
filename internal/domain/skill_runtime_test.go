@@ -4,7 +4,7 @@ import "testing"
 
 func TestWorkBuddyRuntimeRoot(t *testing.T) {
 	for runtime, want := range map[string]string{
-		"workbuddy": ".codebuddy/skills", "claude": ".claude/skills",
+		"workbuddy": ".workbuddy/skills", "claude": ".claude/skills",
 		"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills",
 	} {
 		got, ok := SkillRuntimeRoot(runtime)
@@ -21,7 +21,7 @@ func TestWorkBuddyRuntimeRoot(t *testing.T) {
 			t.Errorf("accepted invalid runtime %q", invalid)
 		}
 	}
-	for _, invalid := range []string{"", ".agents/skills", "../.codebuddy/skills", ".codebuddy/skills/", ".workbuddy/skills"} {
+	for _, invalid := range []string{"", ".agents/skills", "../.workbuddy/skills", ".workbuddy/skills/", ".codebuddy/skills"} {
 		if runtime, ok := SkillRuntimeForRoot(invalid); ok || runtime != "" {
 			t.Errorf("accepted invalid root %q", invalid)
 		}
