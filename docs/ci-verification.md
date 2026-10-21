@@ -1,7 +1,7 @@
 # 测试与 CI 状态
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.7.0`。固定模板：backend `v4.7.0`、spec `v4.7.0`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.7.1`。固定模板：backend `v4.7.1`、spec `v4.7.1`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 ## Go 测试

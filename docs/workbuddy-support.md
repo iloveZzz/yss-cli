@@ -2,7 +2,7 @@
 
 运行时标识为 `workbuddy`，唯一项目技能目录为 `.workbuddy/skills`。普通文件资源树由 `.agents/skills` 生成，技能正文只维护 canonical 来源。`.codebuddy/skills` 已移除，不作为运行时目录或发现别名。
 
-历史 CLI 2.7.0 固定模板 `v4.7.0`，分发的是旧目录。本次目录修正需新的固定模板来源；当前[来源锁](source-lock.json)尚待后续模板版本确定后更新，不代表旧版已支持新目录。平台资格与实际验证范围以对应发行说明及其证据为准。WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。
+CLI 2.7.1 固定模板 `v4.7.1`，当前[来源锁](source-lock.json)绑定新目录。历史 CLI 2.7.0 / 模板 `v4.7.0` 分发的是旧目录，升级程序后仍需显式同步项目。平台资格与实际验证范围以对应发行说明及其证据为准。WorkBuddy 桌面端尚未实机验收，没有已确认的桌面版本支持组合。
 
 ## 安装与更新
 
@@ -10,14 +10,20 @@
 
 Spec 按需安装技能及其依赖，并分发 Claude、WorkBuddy 两个声明投影。Backend 保持 `profile-full`，分发该 Profile 的完整技能集合；不恢复退役的 Codex、Cursor、Pi 副本。
 
-已有项目先升级 CLI，再核对并应用显式同步计划：
+已有项目先保留与实例登记来源一致的旧 CLI，并将旧 Bundle 导出到项目外的新目录，再升级 CLI。旧受管文件退役需要核验精确旧字节和权限；本地事务材料不足时，使用该完整导出作为 `--base-bundle`，不能用当前项目文件或新 Bundle 冒充旧来源。以下示例针对 CLI 2.7.0 / 模板 v4.7.0 的 Spec 实例；Backend 使用 `--profile backend` 并导出到独立目录：
 
 ```sh
-yss sync --root /path/to/project --plan --out /outside/project/new-sync-plan.json --json
+/path/to/yss-2.7.0/yss bundle export --profile spec --out /outside/project/base-spec-4.7.0 --json
+```
+
+升级后核对并应用显式同步计划：
+
+```sh
+yss sync --root /path/to/project --base-bundle /outside/project/base-spec-4.7.0 --plan --out /outside/project/new-sync-plan.json --json
 yss sync --root /path/to/project --apply --plan-file /outside/project/new-sync-plan.json --json
 ```
 
-计划文件须不存在，应用时消费实际保存计划。冲突按现有范围授权处理，路径占用、投影修改、来源不匹配和受管文件丢失不能强制覆盖。实例端不直接运行模板源 `scripts/sync-skills` 写入 WorkBuddy 投影。
+导出目录和计划文件须不存在，导出材料保留到应用完成；应用时消费实际保存计划及其中绑定的旧材料。旧来源不匹配会返回 `BASE_BUNDLE`，材料不足或文件修改产生冲突时先恢复可信材料或按现有决议处理，不能强制覆盖。路径占用、投影修改和受管文件丢失也须处理后重新规划。实例端不直接运行模板源 `scripts/sync-skills` 写入 WorkBuddy 投影。
 
 旧目录迁移只由显式 `sync` 计划处理：同一事务写入新投影、来源锁和 metadata，并逐文件退役旧锁登记且旧基线字节、权限可核验的 `.codebuddy/skills` 受管资产。`skills ensure`、`assets ensure` 不能代替这次同步。修改过的旧文件进入冲突，可明确 `keep-local` 保留为退役例外；它们不会继续作为 WorkBuddy 技能来源。未登记的个人技能、settings、MCP 和其他用户配置保持原字节，不递归清空 `.codebuddy`。
 
