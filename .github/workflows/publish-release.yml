@@ -1,4 +1,4 @@
-name: Publish verified release
+name: Upload verified CLI 2.7.0 draft assets
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       tag:
         description: Existing verified release tag
         required: true
-        default: v2.5.3
+        default: v2.7.0
         type: string
       evidence_run_id:
         description: Successful Release evidence prepare run
@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
   actions: read
+
+concurrency:
+  group: cli270-draft-upload
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -62,13 +66,15 @@ jobs:
           notes=pathlib.Path('docs/releases')/(tag+'.md')
           assert notes.is_file() and expected in notes.read_text()
           PY
-      - name: Publish the verified tag and assets
+      - name: Upload verified assets to the fixed existing draft
         shell: bash
         run: |
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/evidence/upload/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "yss-cli ${RELEASE_TAG#v}" --notes-file "docs/releases/$RELEASE_TAG.md" --latest
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,isDraft,isPrerelease,assets > "$RUNNER_TEMP/published-release.json"
+          python3 .release-recovery/upload.py --bindings .release-recovery/bindings.json --evidence-dir "$RUNNER_TEMP/evidence" --record-dir "$RUNNER_TEMP/cli270-draft-upload"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: published-release
-          path: ${{ runner.temp }}/published-release.json
+          name: cli270-draft-upload
+          path: |
+            ${{ runner.temp }}/cli270-draft-upload/
+            ${{ runner.temp }}/evidence/orchestrator/run-log.json
+            ${{ runner.temp }}/evidence/release-final/checksums.json
