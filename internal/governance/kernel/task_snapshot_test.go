@@ -32,7 +32,11 @@ func TestTaskSnapshotObjectsAreContentAddressed(t *testing.T) {
 }
 
 func TestTaskSnapshotDoesNotTreatArrayDataAsATask(t *testing.T) {
-	s := NewSemanticSession(context.Background(), t.TempDir(), nil)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewSemanticSession(context.Background(), root, nil)
 	s.GovernanceVersion = 2
 	if err := os.WriteFile(filepath.Join(s.Root, "data.json"), []byte("[]"), 0644); err != nil {
 		t.Fatal(err)

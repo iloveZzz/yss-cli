@@ -507,7 +507,10 @@ func (s *SemanticSession) ScanFresh(ref string, observe bool) ([]string, error) 
 			return s.Unavailable("PATH", "扫描包含不支持的文件类型: "+local)
 		}
 		entries = append(entries, "file:"+local)
-		if observe {
+		// The transaction owns this mutex during validation. Windows denies
+		// reading its locked byte through a second handle; keep the entry and
+		// regular-file checks, but leave its contents to the lock owner.
+		if observe && !(s.InsideTransaction && local == ".yss/transactions/.lock") {
 			_, e = s.V.Watch(local)
 		}
 		return e

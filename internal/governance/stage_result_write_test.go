@@ -29,7 +29,10 @@ func stageWriteFile(t *testing.T, root, ref string, value any) {
 }
 func stageWriteFixture(t *testing.T) (string, string) {
 	t.Helper()
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	cpRef := ".work/demo/checkpoint.json"
 	write := func(ref string, v any) { stageWriteFile(t, root, ref, v) }
 	write("yss-project.yaml", map[string]any{"schema_version": 2, "repository_mode": "project-instance"})
