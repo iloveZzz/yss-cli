@@ -2,6 +2,8 @@
 
 日期：2026-10-21。用户已批准本轮实现并执行。使用 Superpowers 的 executing-plans、using-git-worktrees 与 TDD 流程，顺序实现，最后独立复核。
 
+下文主体保留首次离线交付时的历史状态；后续用户已授权检查并合入本地 main，提交与合入前检查结果见文末补充记录。
+
 **结果：文件与分发实现完成，最终实验构建及本地回归通过；WorkBuddy 桌面支持尚未验收。** 无提交、推送、合并或发布。任务 0、8 的桌面步骤以及正式固定来源刷新仍为未执行。
 
 ## 交付位置与范围
@@ -102,3 +104,36 @@ go test -ldflags '-X github.com/iloveZzz/yss-cli/internal/domain.BuildCommit=7e8
 接下来需在可用的 WorkBuddy 桌面环境按计划任务 0、8 对 Spec、Backend 分别验收；若目录或入口假设不成立，应修订实现再完成对应测试。当前没有已验收的 WorkBuddy 版本/系统组合。旧 CLI 实际兼容、其他系统原生运行和正式发行资格均未知。
 
 没有执行正式来源提交、固定来源刷新、正式 artifacts generate/check、推送或发布。获得后续相应授权并满足来源资格后，仍须遵循仓库既有正式装配流程，不能将本报告或本地构建替代发行证据。
+
+## 后续授权：检查并合入本地 main
+
+用户随后明确要求「检查完成并入主分支」，本轮据此执行本地提交与合并，不更新远端或发布。原工作区及其未跟踪文档保留；本地 main 使用上述两个隔离工作区。
+
+模板远端 main 已推进至 `71922dcf293351c0b2b40caeed4873d99f310139`，包含四个维护提交。已合入功能分支，唯一冲突为检查路由的并行新增，保留双方规则。最终模板候选为 `8ef10742db8ff5f2685adab56e56067bd81f1481`。CLI 功能提交为 `37f02c831c7cdcb03c80707f067ba499685b6b6f`，固定归档摘要修复提交为 `8a65e1046a14e11a4f2c9ee69766d6852f83052a`。
+
+本轮独立审查发现并关闭了一个 Important：当前生产器重建旧固定模板来源时，已跟踪归档摘要不再匹配。通过现有 `artifacts generate --scope all` 重建并用另一新目录执行 `check --scope all` 验证；跟踪摘要更新为 `a7f83f3221c495bdc689d32f057052029bb6c89d1a731874b88e1b1fe1e42078`。正式来源锁仍保持原模板 `38952a72…`，默认固定 Bundle 尚不包含 WorkBuddy 投影；本地 WorkBuddy 候选单独保存，未将实验来源混入固定制品。
+
+合入检查还实际发现并修复了以下问题：
+
+- 新增投影继承 canonical 的既有空白。保留 canonical 原字节，仅对两棵生成副本设置 Git whitespace 属性；完整资源身份检查继续执行。初步空白清理已撤销，最终 canonical 相对上游无改动。
+- `node --check` 的目标文件名被误当作执行 Vue 构建工具。预检输入排除 syntax 任务，任务本身与 Node 版本检查仍保留；真实 Vue 执行仍要求工具链。真实子进程回归先失败后通过，相关 51 项通过。
+- 为四个已知历史说明/拒绝夹具登记精确投影文件例外，为一个布局拒绝夹具登记精确文件、原文及次数；不豁免目录，私有和未知文件继续扫描。
+- 清理已有实际测试覆盖的过期台账，将新增 WorkBuddy 检查后的数量基线上调为 148；没有减少 required checks、Gate 或 CI 守卫。
+- Backend 的退役技能物理目录检查扩展到声明投影根。新增拒绝用例先失败后通过，相关八项回归及工作布局检查通过。
+
+上述增量均由独立只读 reviewer 复核，无未关闭的 Critical/Important。新增延期 Minor：非默认 umask 下，完整权限比较与 Git 0644/0755 基线可能安全拒绝未编辑副本更新；无数据丢失风险，后续单独处理。此前的检查选择冗余 Minor 继续延期。
+
+本轮最终证据均保存于 `/workspace/work/workbuddy/`：
+
+| 检查 | 实际结果 | 证据 |
+|---|---|---|
+| 模板 `ci-gate --mode pr --base 71922dcf…` | 外层全部步骤通过；fast 398 个任务通过；8 个 slow 按现行策略延后 | `premerge-template-gate-pass/report.json`、`verification/report.json` |
+| 当前固定来源全量 Go 测试 | 通过 | `premerge-go-fixed-tests.log` |
+| 最终已提交 WorkBuddy 模板候选全量 Go 测试 | 通过，使用仓外归档 overlay，正式来源锁不变 | `merged-workbuddy-go-tests.log` |
+| 固定来源二进制完整黑盒冒烟 | SMOKE PASS，含 Profile 和 Git 主路径 | `premerge-cli-smoke.log` |
+| 文档事实、禁止钉死摘要与格式检查 | 通过 | 执行工具结果及既有日志 |
+| 本地 WorkBuddy 候选实际 sync/resolve | Spec、Backend 均 applied/ready | `merged-local-workbuddy-summary.json` |
+
+模板合入检查使用仓库固定的 CLI 提交 `cc408fd0…` 和匹配的平台摘要，未使用二进制 override。仅执行当前普通合入合同，没有自动升级为 release 验证；fast 的通过不代表桌面或发行验收。
+
+最新本地 WorkBuddy 候选来源锁为 `source-lock.merged-local.json`，生产器绑定 CLI `8a65e104…`，模板绑定 `8ef10742…`；构建时两者均为已提交来源。候选 Bundle SHA-256 为 `5bda5c30a37b0b06edf80e398d151bc499645845fbbb4a81ea6bc42b8a83f430`，二进制为 `yss-workbuddy-local`。这些提交与制品仍仅在本地；桌面验收、正式固定模板来源切换和发布继续未完成。
