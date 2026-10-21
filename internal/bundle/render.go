@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"io"
 	"regexp"
 	"strings"
@@ -271,11 +272,10 @@ func selectedSourceLock(data []byte, skills []string) ([]byte, error) {
 // metadata. Object field order and source identity survive the selected Skill
 // and runtime projection; runtime order determines roots and shared targets.
 func SelectedSourceLock(data []byte, skills, runtimes []string) ([]byte, error) {
-	runtimeRoots := map[string]string{"claude": ".claude/skills", "codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
 	roots := []string{}
 	seen := map[string]bool{}
 	for _, runtime := range runtimes {
-		ref, ok := runtimeRoots[runtime]
+		ref, ok := domain.SkillRuntimeRoot(runtime)
 		if !ok || seen[runtime] {
 			return nil, fmt.Errorf("invalid or duplicate Skill runtime: %s", runtime)
 		}

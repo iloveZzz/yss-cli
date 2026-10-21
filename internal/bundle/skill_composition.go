@@ -366,7 +366,20 @@ func composeCommittedSkills(ctx context.Context, s Source, raw map[string]source
 		raw[ref] = f
 		if strings.HasPrefix(ref, ".agents/skills/") {
 			suffix := strings.TrimPrefix(ref, ".agents/")
-			for _, runtime := range []string{".codex", ".cursor", ".pi", ".claude"} {
+			projectionRuntimes := []string{".codex", ".cursor", ".pi", ".claude"}
+			if lockFile, ok := raw["skills-lock.json"]; ok {
+				var projectionLock struct {
+					Roots []string `json:"projectionRoots"`
+				}
+				if json.Unmarshal(lockFile.data, &projectionLock) == nil {
+					for _, root := range projectionLock.Roots {
+						if root == ".codebuddy/skills" {
+							projectionRuntimes = append(projectionRuntimes, ".codebuddy")
+						}
+					}
+				}
+			}
+			for _, runtime := range projectionRuntimes {
 				projection := path.Join(runtime, suffix)
 				if old, ok := raw[projection]; ok && (!bytes.Equal(old.data, f.data) || old.mode != f.mode) {
 					return nil, fmt.Errorf("tracked skill projection differs: %s", projection)

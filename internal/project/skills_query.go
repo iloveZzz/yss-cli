@@ -130,7 +130,7 @@ func skillDeclared(id *Identity, name string, locked bool) bool {
 		}
 	}
 	for ref := range baseline(id) {
-		for _, root := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills"} {
+		for _, root := range []string{".agents/skills", ".claude/skills", ".codex/skills", ".cursor/skills", ".pi/skills", ".codebuddy/skills"} {
 			if strings.HasPrefix(ref, root+"/"+name+"/") {
 				return true
 			}
@@ -249,15 +249,23 @@ func retiredSkillIDs(b *bundle.Bundle) (map[string]bool, error) {
 	return out, nil
 }
 
-// legacyRuntimeRoot 只服务升级前的旧实例；新实例没有运行时投影，调用方不传运行时。
+// legacyRuntimeRoot preserves the old explicit projection checks.
 func legacyRuntimeRoot(runtime string) string {
 	return map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}[runtime]
 }
 
+func runtimeSkillRoot(runtime string) (string, bool) {
+	if runtime == "workbuddy" {
+		return domain.SkillRuntimeRoot(runtime)
+	}
+	root := legacyRuntimeRoot(runtime)
+	return root, root != ""
+}
+
 func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, when string) (*SkillResolution, error) {
-	runtimeRoot := legacyRuntimeRoot(runtime)
+	runtimeRoot, _ := runtimeSkillRoot(runtime)
 	if len(requested) == 0 || (runtime != "" && runtimeRoot == "") {
-		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...>；旧实例可加 --agent-runtime codex|cursor|pi")
+		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...>；投影校验可加 --agent-runtime codex|cursor|pi|workbuddy")
 	}
 	r, source, err := querySkillRegistry(b)
 	if err != nil {
@@ -373,6 +381,25 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 	if err != nil {
 		issue("", "skill-lock-invalid", err.Error())
 	}
+	if runtime == "workbuddy" {
+		if id.Native == nil || !containsString(stringsOf(id.Native.Distribution["runtimes"]), runtime) {
+			issue("", "runtime-unavailable", "所选 WorkBuddy 运行时未安装；请先核对 sync 计划")
+		}
+		if id.Native != nil {
+			declared := stringsOf(id.Native.Distribution["runtimes"])
+			roots := []string{}
+			for _, r := range declared {
+				root, ok := domain.SkillRuntimeRoot(r)
+				if !ok {
+					issue("", "runtime-unavailable", "实例声明未知运行时")
+				}
+				roots = append(roots, root)
+			}
+			if len(union(declared)) != len(declared) || len(union(installed.ProjectionRoots)) != len(installed.ProjectionRoots) || !reflect.DeepEqual(union(roots), union(installed.ProjectionRoots)) {
+				issue("", "runtime-unavailable", "运行时声明与来源锁投影范围不一致")
+			}
+		}
+	}
 	commonBlocked := out.Status == "blocked"
 	for _, name := range out.CanonicalIDs {
 		_, locked := installed.Skills.Shared[name]
@@ -425,7 +452,7 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 					issue(name, "skill-source-mismatch", "技能来源锁字段不匹配: "+key)
 				}
 			}
-			if runtimeRoot != "" && (!containsString(installed.ProjectionRoots, runtimeRoot) || !containsString(stringsOf(entry["targets"]), runtimeRoot)) {
+			if runtimeRoot != "" && (!containsString(installed.ProjectionRoots, runtimeRoot) || (!containsString(stringsOf(entry["targets"]), runtimeRoot) || !containsString(stringsOf(entry["targets"]), ".agents/skills"))) {
 				issue(name, "runtime-unavailable", "所选运行时投影未登记")
 			}
 			expected, err := bundle.SkillTreeHash(b.Files, prefixes[0], vars)
@@ -520,6 +547,14 @@ func observedSkillTree(root, prefix string, b *bundle.Bundle, vars map[string]st
 		}
 		if !bytes.Equal(raw, want) || uint32(actual.Mode) != expected.Mode {
 			return fmt.Errorf("文件与固定来源不匹配: %s", ref)
+		}
+		if strings.HasPrefix(ref, ".codebuddy/skills/") {
+			canonicalRef := ".agents/skills/" + strings.TrimPrefix(ref, ".codebuddy/skills/")
+			canonical, known := b.Files[canonicalRef]
+			canonicalRaw, e := canonical.Render(vars)
+			if !known || e != nil || !bytes.Equal(raw, canonicalRaw) || uint32(actual.Mode) != canonical.Mode {
+				return fmt.Errorf("WorkBuddy 投影原字节或权限与 canonical 不一致: %s", ref)
+			}
 		}
 		files[ref] = bundle.File{Data: base64.StdEncoding.EncodeToString(raw), Digest: safefs.Digest(raw), Mode: uint32(actual.Mode)}
 		return nil

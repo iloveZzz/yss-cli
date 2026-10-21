@@ -6871,7 +6871,7 @@ yss 2.6.0 — skills resolve
 ──────────────────────
 只读核验所选内置技能及命中的上下文依赖。
 
-用法: yss skills resolve <标识...> --agent-runtime codex [--when <条件列表>] [--json]
+用法: yss skills resolve <标识...> [--agent-runtime <运行时>] [--when <条件列表>] [--json]
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
@@ -6882,7 +6882,7 @@ yss skills resolve code-review codebase-design --agent-runtime codex --root ./de
 yss skills resolve code-review --agent-runtime codex --when lifecycle-document-output --root ./demo-spec --json
 
 参数:
-  --agent-runtime <运行时>        仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传；可选值: codex|cursor|pi
+  --agent-runtime <运行时>        显式核验所选宿主投影；省略时仅核验 canonical，文件就绪不代表宿主已发现；可选值: codex|cursor|pi|workbuddy
   --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
   -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
   --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
@@ -6895,7 +6895,7 @@ yss skills resolve code-review --agent-runtime codex --when lifecycle-document-o
 
 参数说明与条件:
 位置参数: 已登记技能 ID 或别名；支持多个并去重
---agent-runtime codex  必需
+--agent-runtime codex|cursor|pi|workbuddy  显式核验投影；省略时仅核验 canonical
 --when <条件列表>  逗号分隔；只接受已登记条件
 
 预期结果:
