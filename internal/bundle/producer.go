@@ -270,7 +270,10 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 		return nil, e
 	}
 	if s.Profile != "spec" {
-		b.Distribution = map[string]any{"mode": "profile-full"}
+		b.Distribution, e = FullSkillDistribution(b.Files)
+		if e != nil {
+			return nil, e
+		}
 		for ref, f := range b.Files {
 			b.Initial[ref] = f
 		}

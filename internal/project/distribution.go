@@ -46,6 +46,14 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 	data, _ := json.Marshal(source)
 	var d map[string]any
 	_ = json.Unmarshal(data, &d)
+	if text(b.Distribution["mode"]) == "profile-full" && text(d["mode"]) == "profile-full" {
+		for _, key := range []string{"runtimes", "installedSkills"} {
+			if value, ok := b.Distribution[key]; ok {
+				d[key] = value
+			}
+		}
+		return d, nil
+	}
 	if id.Profile.Name != "spec" || text(d["mode"]) != "selected" {
 		return d, nil
 	}
@@ -89,7 +97,7 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 }
 
 func selectedPlatformSkills(id *Identity, b *bundle.Bundle, d map[string]any, selected map[string]bool) ([]string, error) {
-	roots := map[string]string{"claude": ".claude/skills", "codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}
+	roots := skillRuntimeRoots()
 	projectionSelection := false
 	for _, runtime := range stringsOf(d["runtimes"]) {
 		root, known := roots[runtime]
@@ -176,7 +184,7 @@ func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 }
 
 func shippedRuntimes(b *bundle.Bundle, runtimes []string) []string {
-	roots := map[string]string{"codex": ".codex/skills/", "cursor": ".cursor/skills/", "pi": ".pi/skills/", "claude": ".claude/skills/"}
+	roots := skillRuntimeRoots()
 	kept := []string{}
 	for _, runtime := range runtimes {
 		root, known := roots[runtime]
@@ -185,11 +193,20 @@ func shippedRuntimes(b *bundle.Bundle, runtimes []string) []string {
 			continue
 		}
 		for ref := range b.Files {
-			if strings.HasPrefix(ref, root) {
+			if strings.HasPrefix(ref, root+"/") {
 				kept = append(kept, runtime)
 				break
 			}
 		}
 	}
 	return kept
+}
+
+func skillRuntimeRoots() map[string]string {
+	roots := map[string]string{}
+	for _, runtime := range []string{"claude", "codex", "cursor", "pi", "workbuddy"} {
+		root, _ := domain.SkillRuntimeRoot(runtime)
+		roots[runtime] = root
+	}
+	return roots
 }

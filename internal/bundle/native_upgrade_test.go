@@ -36,6 +36,11 @@ check({bundleSchemaVersion:3},false);
 check({schemaVersion:5,bundleSchemaVersion:5},false);
 check({profile:'design',profileId:'harness.business-ddd-strategy-handoff'},false);
 check({baselineDigest:'c'.repeat(64)},false);
+const wbRecord={baseline:{type:'file',digest:hash,mode:420},lastApplied:{type:'file',digest:hash,mode:420},ownership:'managed'};
+const wbMetadata={distribution:{runtimes:['workbuddy'],installedSkills:['a']},managedFiles:{'.agents/skills/a/SKILL.md':wbRecord,'.codebuddy/skills/a/SKILL.md':wbRecord}};
+const wbLock={version:3,canonicalRoot:'.agents/skills',projectionRoots:['.codebuddy/skills'],skills:{shared:{a:{targets:['.agents/skills','.codebuddy/skills']}},platform:{}}};
+assert.equal(nativeInstalledSkillRefs(wbMetadata,wbLock).length,2);
+assert.throws(()=>nativeInstalledSkillRefs({...wbMetadata,distribution:{runtimes:[],installedSkills:['a']}},wbLock),/INSTANCE_DISTRIBUTION/);
 for(const version of [3,4])assert.deepEqual(nativeInstalledSkillRefs(base,{version,canonicalRoot:'.agents/skills',skills:{shared:{},platform:{}},projectionRoots:[]}),[]);
 assert.throws(()=>nativeInstalledSkillRefs(base,{version:4,canonicalRoot:'.agents/skills',skills:{shared:{},platform:{}},projectionRoots:['.codex/skills']}),/INSTANCE_DISTRIBUTION/);
 `),

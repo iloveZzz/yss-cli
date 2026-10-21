@@ -70,7 +70,7 @@ func initializeArguments() {
 	defineArgument("business-domain", "<领域>", "项目业务领域，作为模板变量")
 	defineArgument("team-size", "<规模>", "团队规模，作为模板变量")
 	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
-	defineArgument("agent-runtime", "<运行时>", "仅旧实例使用：codex、cursor 或 pi；新实例没有运行时投影，不需要传", "codex", "cursor", "pi")
+	defineArgument("agent-runtime", "<运行时>", "显式核验所选宿主投影；省略时仅核验 canonical，文件就绪不代表宿主已发现", "codex", "cursor", "pi", "workbuddy")
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 	defineArgument("since", "<Git引用>", "git audit/changelog 的起始引用（不含）")
 	defineArgument("until", "<Git引用>", "git audit/changelog 的结束引用，默认 HEAD")

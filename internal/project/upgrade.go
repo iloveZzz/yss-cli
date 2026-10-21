@@ -244,7 +244,10 @@ func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[
 		}
 	}
 	runtimes := stringsOf(d["runtimes"])
-	roots := map[string]string{"claude": ".claude/skills/", "codex": ".codex/skills/", "cursor": ".cursor/skills/", "pi": ".pi/skills/"}
+	roots := skillRuntimeRoots()
+	for runtime, root := range roots {
+		roots[runtime] = root + "/"
+	}
 	for _, runtime := range runtimes {
 		if roots[runtime] == "" {
 			return domain.Fail("BUNDLE", "未知运行时: "+runtime)
@@ -809,7 +812,7 @@ func (u *upgradePlanner) classifyForeignSkillFiles(refs map[string]bundle.File) 
 	roots := map[string]bool{}
 	for ref := range refs {
 		parts := strings.Split(ref, "/")
-		if len(parts) > 3 && parts[1] == "skills" && (parts[0] == ".agents" || parts[0] == ".codex" || parts[0] == ".cursor" || parts[0] == ".pi") && !strings.HasPrefix(parts[2], ".") {
+		if len(parts) > 3 && parts[1] == "skills" && (parts[0] == ".agents" || parts[0] == ".codex" || parts[0] == ".cursor" || parts[0] == ".pi" || parts[0] == ".codebuddy") && !strings.HasPrefix(parts[2], ".") {
 			roots[strings.Join(parts[:3], "/")] = true
 		}
 	}
@@ -873,7 +876,7 @@ func (u *upgradePlanner) classifyForeignSkillFiles(refs map[string]bundle.File) 
 
 func withinSelectedSkillTree(ref string, refs map[string]bundle.File) bool {
 	parts := strings.Split(ref, "/")
-	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") || (parts[0] != ".agents" && parts[0] != ".codex" && parts[0] != ".cursor" && parts[0] != ".pi") {
+	if len(parts) < 4 || parts[1] != "skills" || strings.HasPrefix(parts[2], ".") || (parts[0] != ".agents" && parts[0] != ".codex" && parts[0] != ".cursor" && parts[0] != ".pi" && parts[0] != ".codebuddy") {
 		return false
 	}
 	prefix := strings.Join(parts[:3], "/") + "/"

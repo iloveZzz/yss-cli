@@ -3,6 +3,7 @@ package bundle
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"go.yaml.in/yaml/v3"
 	"path"
@@ -568,14 +569,15 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 	if len(skills) == 0 {
 		return fmt.Errorf("Skill 注册表缺少 initial_skills")
 	}
-	// 实例运行时只接受 claude：Claude Code 只从 .claude/skills 发现项目技能，其他运行时直接读 .agents/skills。
+	// Only declared, shipped platform projections enter the selected closure.
 	runtimes := []string{}
-	claude := false
+	selectedRoots := map[string]bool{}
 	for _, runtime := range registry.InstanceDistribution.Runtimes {
-		if runtime != "claude" || claude {
-			return fmt.Errorf("Skill 注册表 instance_distribution.runtimes 只支持一次 claude: %s", runtime)
+		root, ok := domain.SkillRuntimeRoot(runtime)
+		if !ok || (runtime != "claude" && runtime != "workbuddy") || selectedRoots[root] {
+			return fmt.Errorf("invalid or duplicate instance Skill runtime: %s", runtime)
 		}
-		claude = true
+		selectedRoots[root] = true
 		runtimes = append(runtimes, runtime)
 	}
 	// A stage policy change must explicitly account for every authoritative stage.
@@ -612,12 +614,17 @@ func buildSelective(b *Bundle, raw map[string]sourceFile, p Policy, renderSet ma
 				continue
 			}
 		}
-		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") || (!claude && strings.HasPrefix(ref, ".claude/skills/")) {
+		if strings.HasPrefix(ref, ".cursor/") || strings.HasPrefix(ref, ".pi/") {
 			continue
 		}
-		if strings.HasPrefix(ref, ".agents/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".codex/skills/") {
-			name := strings.Split(ref, "/")[2]
-			if !strings.HasPrefix(name, ".") && !selected[name] {
+		parts := strings.SplitN(ref, "/", 4)
+		if len(parts) == 4 && parts[1] == "skills" {
+			root := parts[0] + "/skills"
+			_, platform := domain.SkillRuntimeForRoot(root)
+			if platform && !selectedRoots[root] {
+				continue
+			}
+			if (root == ".agents/skills" || platform) && !strings.HasPrefix(parts[2], ".") && !selected[parts[2]] {
 				continue
 			}
 		}

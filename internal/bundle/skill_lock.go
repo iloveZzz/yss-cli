@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
@@ -52,7 +53,7 @@ func indexSkillTrees(files map[string]File) skillTreeIndex {
 			continue
 		}
 		switch parts[0] {
-		case ".agents", ".codex", ".cursor", ".pi", ".claude":
+		case ".agents", ".codex", ".cursor", ".pi", ".claude", ".codebuddy":
 			prefix := strings.Join(parts[:3], "/")
 			index[prefix] = append(index[prefix], ref)
 		}
@@ -150,13 +151,19 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 			}
 			for _, target := range targets.array {
 				ref, ok := target.scalar.(string)
-				if !ok || target.kind != 0 || (ref != ".agents/skills" && ref != ".claude/skills" && ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills") {
+				_, knownRoot := domain.SkillRuntimeForRoot(ref)
+				if !ok || target.kind != 0 || (ref != ".agents/skills" && !knownRoot) {
 					return nil, fmt.Errorf("invalid Skill target root: %s", name)
 				}
 				if ref == ".agents/skills" {
 					continue
 				}
 				projection := ref + "/" + name
+				if ref == ".codebuddy/skills" {
+					if err := verifyWorkBuddyProjection(files, prefix, projection, vars); err != nil {
+						return nil, err
+					}
+				}
 				if _, present := index[projection]; !present {
 					continue // Source policy may omit an entire runtime projection.
 				}
@@ -174,7 +181,8 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 		}
 		for _, ref := range platform.keys {
 			entries := platform.values[ref]
-			if entries.kind != 'o' || (ref != ".codex/skills" && ref != ".cursor/skills" && ref != ".pi/skills" && ref != ".claude/skills") {
+			_, knownRoot := domain.SkillRuntimeForRoot(ref)
+			if entries.kind != 'o' || !knownRoot {
 				return nil, fmt.Errorf("invalid platform Skill root: %s", ref)
 			}
 			for _, name := range entries.keys {
@@ -192,6 +200,33 @@ func RenderedSkillLock(data []byte, files map[string]File, vars map[string]strin
 		}
 	}
 	return orderedBytes(root)
+}
+
+// A platform copy must preserve executable bits and raw rendered bytes even
+// when the published normalized tree hash treats line endings as equivalent.
+func verifyWorkBuddyProjection(files map[string]File, canonical, projection string, vars map[string]string) error {
+	for ref, source := range files {
+		if !strings.HasPrefix(ref, canonical+"/") {
+			continue
+		}
+		targetRef := projection + strings.TrimPrefix(ref, canonical)
+		target, exists := files[targetRef]
+		if !exists || target.Mode != source.Mode {
+			return fmt.Errorf("WorkBuddy projection missing or mode differs: %s", targetRef)
+		}
+		want, err := source.Render(vars)
+		if err != nil {
+			return err
+		}
+		actual, err := target.Render(vars)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(want, actual) {
+			return fmt.Errorf("WorkBuddy projection raw bytes differ: %s", targetRef)
+		}
+	}
+	return nil
 }
 
 func bindBuiltSkillLock(files map[string]File) error {
