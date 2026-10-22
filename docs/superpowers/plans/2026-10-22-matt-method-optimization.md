@@ -1,6 +1,6 @@
 # Matt 思想增强后续优化 Implementation Plan（CLI）
 
-> **For agentic workers:** 实施时逐项使用 `superpowers:executing-plans` 或可用的 `superpowers:subagent-driven-development`；每批完成独立 review、修复、复验后推进。本文件当前仅为候选计划，不授权开始实施。
+> **For agentic workers:** 实施时逐项使用 `superpowers:executing-plans` 或可用的 `superpowers:subagent-driven-development`；每批完成独立 review、修复、复验后推进。用户已批准执行本计划；C3/C4 仍按后续设计条件推进。
 
 **Goal:** 恢复通用发布入口、接通已有失败诊断，并由真实观察驱动后续准备和集合预检设计。
 
@@ -10,13 +10,13 @@
 
 **Spec:** [CLI 设计](../specs/2026-10-22-matt-method-optimization-design.md)。
 
-日期：2026-10-22。状态：**proposed**。基线 `75ef66aff6c38481f06b233fdefc8958b37f83f4`；正式源码 v2.7.1 / `5cc28f9c43788fdc618197f3ad2689336a5e425a`。所有任务未执行。
+日期：2026-10-22。状态：**approved-in-conversation**。基线 `75ef66aff6c38481f06b233fdefc8958b37f83f4`；正式源码 v2.7.1 / `5cc28f9c43788fdc618197f3ad2689336a5e425a`。下列清单保留批准时目标；实际进度与证据由方案 PR 执行表及关联实现 PR 记录，预期命令不代表已执行。
 
 配套：[模板执行计划](https://github.com/iloveZzz/yss-spec-project-template/pull/112)。
 
 ## 全局约束
 
-- 本次授权为两个关联的文档方案 PR，不批准设计、不实施产品、不合入、不发布，不修改固定来源或正式版本。
+- 用户已批准实施本计划，使用独立工作树与实现 PR；固定来源、正式版本、合入及发布继续按实际工作包和有效具体授权执行。C3/C4 的未来接口先完成专项设计，不提前扩大。
 - 普通 Go 源码仓遵循根 AGENTS，不补建产品实例、checkpoint 或 Slice。
 - Mac 资格保持 `local-platform-program-install` 与 `requiredPlatforms=['darwin/arm64']`；Windows x64 保持 build-only、`stableReady=false`。
 - `CGO_ENABLED=0`；Git 2.44+；测试使用临时小数据和可控 transport，不访问网络。单例约 1 秒、包约 30 秒、全量 Go 5 分钟硬上限。
@@ -38,7 +38,7 @@
 
 每批单独形成可审阅变更，review 同时检查“符合设计”和“遵循仓库约定”。阻断问题修复后复验受影响项；新增改动引入的新风险决定是否扩大测试，不无理由重复全量。
 
-本次文档提交的差异、链接、来源与独立 review 核验结果记录在方案 PR 说明；不计入下面尚未实施的产品任务，不运行发行 workflow 或业务测试。
+原方案文档核验与当前实际实施分别记录在方案 PR；运行非发布 CI 和定向测试按批准计划执行，不把原文档核验冒充产品验证。
 
 ## C1：恢复通用 publisher，退役固定恢复器
 
