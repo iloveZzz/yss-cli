@@ -95,7 +95,7 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 | `collect-upload.py` | 把已验证产物复制进新的 `upload/` 并生成 `SHA256SUMS` |
 | `release_source.py` | 读取程序版本与模板身份的共用辅助模块 |
 | `publish_contract.py` | 正常 publisher 的只读合同检查、精确 artifact 下载校验与发布后完整回读；不调用写 API |
-| `publish-release.sh` | workflow 薄包装：下载、两次检查、一次 `gh release create --latest` 与只读回读；不重试写入 |
+| `publish-release.sh` | workflow 薄包装：下载、两次检查、一次显式 API 创建 draft、逐资产上传、核验后正式发布与只读回读；不清理或重试写入 |
 
 ## 正常发布入口
 
@@ -109,7 +109,11 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 
 正常入口从精确 prepare run 的唯一未过期 artifact 数字 ID 下载到全新仓外目录，核验 archive 摘要，保留 7 个 payload / 精确 8 个上传资产、来源/输入/平台/总控摘要绑定、`pending=[]`、Mac `local-platform-program-install` 与 Windows build-only 限制。同仓同 tag 共用并发组且不取消正在执行的任务。任何同 tag release（包括 draft）已存在时停止；成功且有 draft 可见权限的完整 release 列表才能证明不存在，404、权限或网络失败均停止。
 
-写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。仅通过后，以冻结说明和精确资产列表执行一次 `gh release create --verify-tag --latest`。之后只读核验正式/non-prerelease、tag→S、原说明字节、精确 8 资产与各自 size/SHA-256，以及 latest 数字 ID。远端摘要缺失、漂移、部分写失败、超时或未知结果都记录失败待核实，保留真实 stdout/stderr/退出码与读到的远端身份；不再写入、覆盖、删除或补设 latest，不自动调用恢复器。不同 tag 并发发布仍可能竞争 latest，本入口不保证跨版本原子性。
+写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。仅通过后，以冻结说明执行一次显式 `gh api --method POST .../releases` 创建新 draft，保留返回的数字 ID；仅向本次新建 draft 逐一上传精确 8 个资产，每次核验远端 tag、draft 身份、原说明与本地摘要，并验证上传响应。全部资产到齐后，只读核验 draft 与全部输入，再执行一次 `PATCH .../releases/<id>`，设置 `draft=false`、`prerelease=false`、`make_latest="true"`，保留原 `--latest` 语义。这里不使用高层 `gh release create`，因为它可能在上传或发布失败后隐式 DELETE 清理 release。
+
+任何写请求失败、超时或结果未知，都停止后续写入；不清理 draft、不删除 release/资产、不重试、不自动恢复。后续只读按已知数字 ID 保存可取得的 release/资产事实；创建响应丢失而 ID 未知时，分页列出包含 draft 的 release 并保留同 tag 候选事实，不从候选继续写入。按 tag 的 REST 查询只返回已发布 release，不能用其 404 判断 draft 不存在。
+
+写入序列完成后只读核验正式/non-prerelease、tag→S、原说明字节、精确 8 资产与各自 size/SHA-256，以及 latest 数字 ID。远端摘要缺失、漂移或读取未知均记录失败待核实，保留真实请求、stdout/stderr、退出码与远端事实；不再写入或补设 latest，不调用恢复器。即使发布请求的响应丢失后读到了正式 release，本次仍记录写入失败。不同 tag 并发发布仍可能竞争 latest，本入口不保证跨版本原子性。
 
 workflow 总是尝试上传 `cli-release-publish-<run>-<attempt>` artifact，含原始 API 响应、创建命令/响应/退出码、冻结说明、前后观察与下载证据。失败后应先核实真实远端状态，再另行审阅绑定此次状态的恢复方案；不要重跑正常创建来修补部分结果。此包装也可用本地假 `gh` 离线测试：`python3 -m unittest discover -s tools/release-evidence -p 'test_publish_contract.py'`。fixture 通过不构成正式发行验收。
 
