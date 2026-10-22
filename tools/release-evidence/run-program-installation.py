@@ -134,7 +134,7 @@ try:
    result=call(args,exe,channel='online_commands',timeout=960 if args[0]=='upgrade' else 180)
    assert descriptor(online_user)==online_business and descriptor(public_exe)==public_before
    return result
-  installed=online_call(['upgrade','--to',inp['cliVersion'],'--tool-root',str(online_tool),'--json'])
+  installed=online_call(['upgrade','--to',inp['cliVersion'],'--tool-root',str(online_tool),'--json','--diagnostics'])
   assert installed['status']=='installed' and installed['currentVersion']=='' and installed['targetVersion']==inp['cliVersion'] and installed['updateAvailable'] is False
   assert installed['platform']==target_platform and Path(installed['toolRoot']).resolve()==online_tool
   assert installed['releaseUrl']=='https://github.com/iloveZzz/yss-cli/releases/tag/v'+inp['cliVersion']
