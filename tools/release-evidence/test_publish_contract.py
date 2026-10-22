@@ -328,48 +328,96 @@ class PublishContractTest(unittest.TestCase):
 
 
 FAKE_GH = r'''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import hashlib, json, os, pathlib, sys
+from urllib.parse import parse_qs, urlparse
 state_path = pathlib.Path(os.environ['FAKE_GH_STATE'])
 state = json.loads(state_path.read_text())
 args = sys.argv[1:]
 state['calls'].append(args)
-scenario = state['scenario']
+scenario, data = state['scenario'], state['data']
 def done(value=None, code=0):
     state_path.write_text(json.dumps(state))
     if value is not None:
         print(json.dumps(value))
     sys.exit(code)
+def write(method, endpoint):
+    state['httpWrites'].append([method, endpoint])
+    if method == 'DELETE': state['deletes'] += 1
+def release(draft, assets):
+    return dict(id=456, tag_name=state['tag'], body=state['notes'], draft=draft, prerelease=False, assets=assets)
+def mutate_after_publish():
+    r = data['release']
+    if scenario == 'draft': r['draft'] = True
+    if scenario == 'prerelease': r['prerelease'] = True
+    if scenario == 'notes-after': r['body'] = r['body'].rstrip('\n')
+    if scenario == 'missing-asset': r['assets'].pop()
+    if scenario == 'extra-asset': r['assets'].append(dict(r['assets'][0], name='extra'))
+    if scenario == 'digest-after': r['assets'][0]['digest'] = None
+    if scenario == 'latest-after': data['latest']['id'] = 999
 if args[:2] == ['release', 'create']:
+    # Model the official gh high-level command's hidden HTTP cleanup, rather
+    # than pretending one command is one safe write.
     state['writes'] += 1
-    state['createArgv'] = args
-    assert '--latest' in args and '--verify-tag' in args
-    assert args[2] == state['tag']
-    notes = pathlib.Path(args[args.index('--notes-file') + 1]).read_text()
-    assert notes == state['notes']
-    assets = []
-    for name, metadata in state['expected'].items():
-        assert any(pathlib.Path(a).name == name and pathlib.Path(a).is_file() for a in args[3:] if not a.startswith('--'))
-        assets.append(dict(id=len(assets)+10, name=name, state='uploaded', **metadata))
-    release = dict(id=456, tag_name=state['tag'], body=notes, draft=False, prerelease=False, assets=assets)
-    state['data']['release'] = release
-    state['data']['latest'] = dict(id=456, tag_name=state['tag'])
+    write('POST', '/releases')
+    assets = [dict(id=i+10, name=n, state='uploaded', **m) for i,(n,m) in enumerate(state['expected'].items())]
+    for a in assets: write('POST', '/releases/456/assets?name='+a['name'])
+    data['release'] = release(False, assets)
+    data['latest'] = dict(id=456, tag_name=state['tag'])
     if scenario == 'partial-write':
-        release['assets'].pop()
+        data['release']['assets'].pop()
+    else:
+        write('PATCH', '/releases/456')
     if scenario in ('partial-write', 'unknown-write'):
-        print('actual create response was interrupted', file=sys.stderr)
+        write('DELETE', '/releases/456')
+        data.pop('release')
+        print('actual write response was interrupted; gh cleanup DELETE', file=sys.stderr)
         done(code=7)
-    if scenario == 'draft': release['draft'] = True
-    if scenario == 'prerelease': release['prerelease'] = True
-    if scenario == 'notes-after': release['body'] = notes.rstrip('\n')
-    if scenario == 'missing-asset': release['assets'].pop()
-    if scenario == 'extra-asset': release['assets'].append(dict(assets[0], name='extra'))
-    if scenario == 'digest-after': release['assets'][0]['digest'] = None
-    if scenario == 'latest-after': state['data']['latest']['id'] = 999
-    print('https://example.invalid/releases/456')
+    mutate_after_publish()
     done()
-assert args[:3] == ['api', '--method', 'GET'], args
-endpoint = args[3]
-data = state['data']
+assert args[:2] == ['api', '--method'], args
+method, endpoint = args[2:4]
+if method != 'GET':
+    assert method in ('POST', 'PATCH'), method
+    write(method, endpoint)
+    content = pathlib.Path(args[args.index('--input')+1]).read_bytes()
+    if method == 'POST' and endpoint.endswith('/releases'):
+        payload = json.loads(content)
+        assert payload['tag_name'] == state['tag'] and payload['body'] == state['notes']
+        assert payload['draft'] is True and payload['prerelease'] is False
+        assert payload['make_latest'] == 'false'
+        state['writes'] += 1
+        data['release'] = release(True, [])
+        if scenario == 'unknown-create':
+            print('actual write create response lost', file=sys.stderr)
+            done(code=7)
+        done(data['release'])
+    if method == 'POST' and '/assets?' in endpoint:
+        assert endpoint.startswith('https://uploads.github.com/repos/iloveZzz/yss-cli/releases/456/assets?')
+        name = parse_qs(urlparse(endpoint).query)['name'][0]
+        meta = state['expected'][name]
+        assert meta == dict(size=len(content), digest='sha256:'+hashlib.sha256(content).hexdigest())
+        assert not any(a['name'] == name for a in data['release']['assets'])
+        if scenario == 'partial-write' and len(data['release']['assets']) == 7:
+            print('actual write upload response failed', file=sys.stderr)
+            done(code=7)
+        item = dict(id=len(data['release']['assets'])+10, name=name, state='uploaded', **meta)
+        data['release']['assets'].append(item)
+        if scenario == 'unknown-upload' and len(data['release']['assets']) == 8:
+            print('actual write upload response lost', file=sys.stderr)
+            done(code=7)
+        done(item)
+    if method == 'PATCH' and endpoint.endswith('/releases/456'):
+        payload = json.loads(content)
+        assert payload == dict(draft=False, prerelease=False, make_latest='true')
+        assert len(data['release']['assets']) == 8 and data['release']['draft'] is True
+        data['release']['draft'] = False
+        data['latest'] = dict(id=456, tag_name=state['tag'])
+        mutate_after_publish()
+        if scenario == 'unknown-write':
+            print('actual write publish response lost', file=sys.stderr)
+            done(code=7)
+        done(data['release'])
+    raise AssertionError((method, endpoint))
 if endpoint.endswith('/zip'):
     state_path.write_text(json.dumps(state))
     sys.stdout.buffer.write(pathlib.Path(state['archive']).read_bytes())
@@ -392,17 +440,18 @@ if '/jobs?' in endpoint: done(data['jobs'])
 if '/actions/runs/' in endpoint: done(data['run'])
 if '/releases?' in endpoint:
     if scenario in ('404', '403', 'network'):
-        print('real query failure: ' + scenario, file=sys.stderr)
+        print('real query failure: '+scenario, file=sys.stderr)
         done(code=1)
     if scenario == 'exists': done([dict(tag_name=state['tag'], draft=True)])
     if scenario in ('notes-before', 'payload-before'):
         target = pathlib.Path(state['records']) / ('notes.md' if scenario == 'notes-before' else 'evidence/upload/native-receipt.json')
         if target.exists(): target.write_bytes(target.read_bytes()+b'changed')
-    done(data['releases'])
-if '/releases/latest' in endpoint: done(data['latest'])
-if '/releases/tags/' in endpoint:
-    if scenario == 'readback-error':
-        print('actual readback failure', file=sys.stderr)
+    done([data['release']] if 'release' in data else [])
+if '/releases/latest' in endpoint:
+    done(data.get('latest', dict(id=999, tag_name='v1.0.0')))
+if '/releases/tags/' in endpoint or endpoint.endswith('/releases/456'):
+    if scenario == 'readback-error' or 'release' not in data or ('/tags/' in endpoint and data['release']['draft']):
+        print('actual readback failure: release tag lookup excludes drafts', file=sys.stderr)
         done(code=1)
     done(data['release'])
 done(data['repository'])
@@ -424,7 +473,7 @@ class PublisherBoundaryTest(unittest.TestCase):
             executable = put(base, 'bin/gh', FAKE_GH.encode())
             executable.chmod(0o755)
             state_path = put(base, 'state.json', dict(data=f.data, expected=contract.expected_assets(f.evidence, f.tag),
-                calls=[], writes=0, tagReads=0, scenario=scenario, archive=str(archive_path),
+                calls=[], writes=0, deletes=0, httpWrites=[], tagReads=0, scenario=scenario, archive=str(archive_path),
                 tag=f.tag, notes=f.notes.decode(), records=str(records)))
             env = dict(f.env, PATH=str(executable.parent) + os.pathsep + os.environ['PATH'], FAKE_GH_STATE=str(state_path))
             result = subprocess.run(['bash', str(HERE / 'publish-release.sh'), f.tag, '123', f.notes_commit, str(records)],
@@ -433,16 +482,35 @@ class PublisherBoundaryTest(unittest.TestCase):
             before = scenario in ('exists', '404', '403', 'network', 'tag-before', 'artifact-before', 'notes-before', 'payload-before')
             self.assertEqual(state['writes'], 0 if before else 1, result.stderr.decode())
             self.assertEqual(result.returncode == 0, scenario == 'success', result.stderr.decode())
+            self.assertEqual(state['deletes'], 0, 'no implicit or explicit DELETE after any write failure')
+            self.assertEqual(sum(m == 'POST' and e.endswith('/releases') for m,e in state['httpWrites']), 0 if before else 1)
             if not before:
                 self.assertEqual(json.loads((records / 'create.result.json').read_text())['exitCode'],
-                                 7 if scenario in ('partial-write', 'unknown-write') else 0)
+                                 7 if scenario == 'unknown-create' else 0)
+                raw = []
+                for path in records.glob('api-*.stdout.log'):
+                    try:
+                        raw.append(json.loads(path.read_bytes()))
+                    except (ValueError, UnicodeError):
+                        pass
+                observed = [r for v in raw for r in (v if isinstance(v, list) else [v])
+                            if isinstance(r, dict) and r.get('id') == 456 and 'assets' in r]
+                if scenario != 'readback-error':
+                    self.assertTrue(observed, 'preserve known-ID or candidate draft/asset facts')
                 self.assertTrue((records / 'create.stdout.log').exists())
-                self.assertTrue((records / 'create.stderr.log').exists())
-                self.assertTrue(any('/releases/tags/' in a[-1] for a in state['calls'] if a[0] == 'api'),
-                                'preserve obtainable remote release facts even if another readback check fails')
-            if scenario in ('partial-write', 'unknown-write'):
-                self.assertIn('actual create response', (records / 'create.stderr.log').read_text())
-                self.assertTrue(any('/releases/tags/' in a[-1] for a in state['calls'] if a[0] == 'api'))
+                if scenario in ('partial-write', 'unknown-write', 'unknown-create', 'unknown-upload'):
+                    failures = [json.loads(p.read_text()) for p in records.glob('*.result.json')]
+                    self.assertTrue(any(r['exitCode'] == 7 for r in failures))
+                    self.assertTrue(any('actual write' in p.read_text() for p in records.glob('*.stderr.log')))
+                if scenario == 'partial-write':
+                    self.assertTrue(any(r['draft'] is True and len(r['assets']) == 7 for r in observed))
+                    self.assertFalse(any(m == 'PATCH' for m,e in state['httpWrites']))
+                if scenario == 'unknown-create':
+                    self.assertTrue(any(r['draft'] is True and not r['assets'] for r in observed))
+                    self.assertEqual(len(state['httpWrites']), 1)
+                if scenario in ('success', 'unknown-write'):
+                    self.assertEqual(len(state['httpWrites']), 10)
+                    self.assertEqual(sum(m == 'PATCH' for m,e in state['httpWrites']), 1)
 
     def test_artifact_extraction_rejects_unsafe_paths(self):
         for name in ('../escape', '/escape', 'dir/../../escape'):
@@ -457,7 +525,8 @@ class PublisherBoundaryTest(unittest.TestCase):
 # Separate cases keep each test small and show the exact failed contract.
 for _scenario in ('success', 'exists', '404', '403', 'network', 'tag-before', 'artifact-before',
                   'notes-before', 'payload-before', 'partial-write', 'unknown-write', 'draft', 'prerelease',
-                  'tag-after', 'notes-after', 'missing-asset', 'extra-asset', 'digest-after', 'latest-after', 'readback-error'):
+                  'tag-after', 'notes-after', 'missing-asset', 'extra-asset', 'digest-after', 'latest-after', 'readback-error',
+                  'unknown-create', 'unknown-upload'):
     setattr(PublisherBoundaryTest, 'test_boundary_' + _scenario.replace('-', '_'),
             lambda self, scenario=_scenario: self.run_scenario(scenario))
 

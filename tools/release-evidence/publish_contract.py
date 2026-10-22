@@ -94,16 +94,21 @@ def remote_evidence(api, prefix, run_id, source):
     return {k: artifact[k] for k in ('id', 'name', 'digest', 'size_in_bytes')}
 
 
-def no_release(api, prefix, tag):
+def release_candidates(api, prefix, tag):
     # A successful authenticated listing sees drafts too. A 404 or any other API
     # failure is never interpreted as absence.
+    candidates = []
     for page in range(1, 101):
         releases = api(prefix + f'/releases?per_page=100&page={page}')
         require(isinstance(releases, list), 'release listing is unknown')
-        require(not any(r['tag_name'] == tag for r in releases), 'release already exists (draft or published)')
+        candidates.extend(r for r in releases if r['tag_name'] == tag)
         if len(releases) < 100:
-            return
+            return candidates
     raise ValueError('release listing exceeds bound')
+
+
+def no_release(api, prefix, tag):
+    require(not release_candidates(api, prefix, tag), 'release already exists (draft or published)')
 
 
 def expected_assets(evidence, tag):
@@ -262,16 +267,31 @@ def check(root, evidence, tag, run_id, notes_commit, env, api, *, published=Fals
                 expectedAssets=assets, evidenceDigests=evidence_digests)
 
 
+def verify_asset(item, name, meta):
+    require(item['name'] == name and type(item['id']) is int and item['id'] > 0 and item['state'] == 'uploaded' and
+            all(item.get(k) == value for k, value in meta.items()), 'remote asset size or digest differs: ' + name)
+
+
+def verify_assets(release, expected, *, complete=True):
+    assets = {a['name']: a for a in release['assets']}
+    require(len(assets) == len(release['assets']) and set(assets) <= set(expected), 'remote asset set differs')
+    require(not complete or set(assets) == set(expected), 'remote asset set is incomplete')
+    for name, item in assets.items():
+        verify_asset(item, name, expected[name])
+
+
+def verify_draft(release, release_id, tag, notes, expected, *, complete):
+    require(release['id'] == release_id and release['tag_name'] == tag and release['draft'] is True and
+            release['prerelease'] is False, 'new release must remain the exact non-prerelease draft')
+    require(isinstance(release.get('body'), str) and release['body'].encode('utf-8') == notes, 'draft notes bytes differ')
+    verify_assets(release, expected, complete=complete)
+
+
 def verify_release(release, latest, tag, notes, expected):
     require(type(release['id']) is int and release['id'] > 0 and release['tag_name'] == tag and
             release['draft'] is False and release['prerelease'] is False, 'release must be formal and non-prerelease')
     require(isinstance(release.get('body'), str) and release['body'].encode('utf-8') == notes, 'remote notes bytes differ')
-    assets = {a['name']: a for a in release['assets']}
-    require(len(assets) == len(release['assets']) and set(assets) == set(expected), 'remote asset set differs')
-    for name, meta in expected.items():
-        item = assets[name]
-        require(type(item['id']) is int and item['id'] > 0 and item['state'] == 'uploaded' and
-                all(item.get(k) == value for k, value in meta.items()), 'remote asset size or digest differs: ' + name)
+    verify_assets(release, expected)
     require(latest['id'] == release['id'] and latest['tag_name'] == tag, 'latest points to another release')
 
 
@@ -312,19 +332,46 @@ def extract_archive(data, destination):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('download', 'check', 'readback'))
+    parser.add_argument('mode', choices=('download', 'check', 'draft', 'asset', 'readback'))
     for name in ('tag', 'run-id', 'notes-commit', 'record-dir'):
         parser.add_argument('--' + name, required=True)
+    parser.add_argument('--release-id')
+    parser.add_argument('--asset-name')
+    parser.add_argument('--complete', action='store_true')
     options = parser.parse_args()
     root, records = Path.cwd().resolve(), Path(options.record_dir).resolve()
     require(records != root and root not in records.parents, 'records must be outside checkout')
     api = GitHub(records)
     evidence = records / 'evidence'
+    prefix = 'repos/' + REPOSITORY
+    if options.release_id is not None:
+        require(re.fullmatch('[1-9][0-9]*', options.release_id), 'release ID must be numeric')
+    if options.mode == 'asset':
+        before = json.loads((records / 'before.json').read_bytes())
+        require(options.asset_name in before['expectedAssets'], 'unexpected asset response')
+        item = load(records, 'upload-' + options.asset_name + '.stdout.log')
+        verify_asset(item, options.asset_name, before['expectedAssets'][options.asset_name])
+        return
+    if options.mode == 'draft':
+        require(options.release_id, 'known newly created release ID required')
+        before = json.loads((records / 'before.json').read_bytes())
+        notes = ordinary(records, 'notes.md')
+        require(sha(notes) == before['notesSha256'] and expected_assets(evidence, options.tag) == before['expectedAssets'], 'frozen upload inputs changed')
+        require(git(root, 'rev-parse', 'HEAD').decode().strip() == before['operationsCommit'] and
+                not git(root, 'status', '--porcelain=v1', '--untracked-files=all'), 'operations checkout changed')
+        require(remote_source(api, prefix, options.tag) == before['sourceCommit'], 'remote tag changed during upload')
+        current = api(prefix + '/releases/' + options.release_id)
+        verify_draft(current, int(options.release_id), options.tag, notes, before['expectedAssets'], complete=options.complete)
+        if options.complete:
+            facts = check(root, evidence, options.tag, options.run_id, options.notes_commit, os.environ, api, published=True)
+            require(facts == before and 'sha256:' + sha((records / 'artifact.zip').read_bytes()) == facts['evidenceArtifact']['digest'],
+                    'publish inputs or remote identity changed')
+        print(json.dumps(current, sort_keys=True))
+        return
     if options.mode == 'download':
         # Obtain remote identity before downloading by numeric artifact ID.
         require(re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', options.tag or '') and
                 re.fullmatch('[1-9][0-9]*', options.run_id or ''), 'explicit tag/run required')
-        prefix = 'repos/' + REPOSITORY
         source = remote_source(api, prefix, options.tag)
         artifact = remote_evidence(api, prefix, options.run_id, source)
         data = api.raw(prefix + f'/actions/artifacts/{artifact["id"]}/zip')
@@ -337,9 +384,19 @@ def main():
     if published:
         # Preserve obtainable release/asset identities even if tag/local checks
         # fail later, or one of these independent GET requests is unavailable.
-        prefix = 'repos/' + REPOSITORY
-        for key, endpoint in [('release', prefix + '/releases/tags/' + options.tag),
-                              ('latest', prefix + '/releases/latest')]:
+        try:
+            if options.release_id:
+                observed['release'] = api(prefix + '/releases/' + options.release_id)
+            else:
+                # Create may have succeeded without returning its ID. A tag
+                # lookup excludes drafts; the authenticated list preserves all
+                # obtainable candidates without selecting a new write target.
+                candidates = release_candidates(api, prefix, options.tag)
+                require(len(candidates) == 1, 'unknown create result: unique observed release required')
+                observed['release'] = candidates[0]
+        except Exception as error:
+            read_errors.append(str(error))
+        for key, endpoint in [('latest', prefix + '/releases/latest')]:
             try:
                 observed[key] = api(endpoint)
             except Exception as error:
@@ -349,12 +406,16 @@ def main():
     notes = git(root, 'show', options.notes_commit + ':docs/releases/' + options.tag + '.md')
     if options.mode == 'download':
         (records / 'notes.md').write_bytes(notes)
+        (records / 'create.payload.json').write_text(json.dumps(dict(tag_name=options.tag, target_commitish=facts['sourceCommit'],
+            name='yss-cli ' + options.tag[1:], body=notes.decode('utf-8'), draft=True, prerelease=False, make_latest='false')) + '\n')
+        (records / 'publish.payload.json').write_text(json.dumps(dict(draft=False, prerelease=False, make_latest='true')) + '\n')
     else:
         require((records / 'notes.md').read_bytes() == notes, 'frozen notes changed')
     if published:
         require(not read_errors, 'release readback is unknown: ' + '; '.join(read_errors))
         before = json.loads((records / 'before.json').read_bytes())
         require(facts == before, 'local inputs or remote identity changed after creation')
+        require(not options.release_id or observed['release']['id'] == int(options.release_id), 'created release ID differs')
         verify_release(observed['release'], observed['latest'], options.tag, notes, facts['expectedAssets'])
     print(json.dumps(facts, sort_keys=True))
 
