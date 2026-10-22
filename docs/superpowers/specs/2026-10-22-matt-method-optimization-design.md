@@ -2,6 +2,8 @@
 
 日期：2026-10-22。状态：**approved-in-conversation**。用户已批准本设计及执行计划，当前按工作包实施、独立 review、修复和复验；实际结果与范围见关联实现 PR。计划批准不表示合并、发布或实例验证完成。
 
+用户追加指令（2026-10-22）：关联模板 T1 的本地与远端公共 slow 验证硬上限由 300 秒调整为 1000 秒，工作流 job 总上限由 20 分钟调整为 30 分钟，作为本轮后续实施约束；原 300 秒预算下的真实失败、取消及未执行记录继续保留，不改判为通过。
+
 CLI 工作基线：`75ef66aff6c38481f06b233fdefc8958b37f83f4`；正式 v2.7.1 源码：`5cc28f9c43788fdc618197f3ad2689336a5e425a`。固定模板仍为 v4.7.1 / `a435d0693b374e58f803b61817c9d8f9402c72e9`。
 
 配套：[本仓候选执行计划](../plans/2026-10-22-matt-method-optimization.md)；[模板方案 PR #112（设计与执行计划）](https://github.com/iloveZzz/yss-spec-project-template/pull/112)。
@@ -67,7 +69,7 @@ C3/C4 先做设计的原因是合同与使用场景尚未收敛。尤其自然�
 
 ## 4. C2：发行 runner 消费现有诊断
 
-修改 `tools/release-evidence/run-program-installation.py` 的真实在线 `upgrade` 调用，增加已有 `--diagnostics`。继续由现有 `call` 保存 stdout/stderr、摘要、数值退出码、耗时及超时状态，失败即停。runner 现有在线命令 960 秒超时与 Go 全量测试 5 分钟上限分别保持；用户此前针对模板发布 prepare 的 1000 秒预算不扩展到这些独立超时。
+修改 `tools/release-evidence/run-program-installation.py` 的真实在线 `upgrade` 调用，增加已有 `--diagnostics`。继续由现有 `call` 保存 stdout/stderr、摘要、数值退出码、耗时及超时状态，失败即停。模板公共 `ci-gate --mode slow` 按追加指令采用 1000 秒验证上限、30 分钟 job 总上限，准备不计入验证预算；模板普通检查单项 300 秒、发布 prepare 1000 秒、runner 在线命令 960 秒和 Go 全量测试 5 分钟上限各自保持。
 
 复用 `UpgradeClient.HTTPClient` 的可注入 transport，在 Go 测试中返回本地构造的 403 响应，不访问网络。应观察 `RELEASE_HTTP_STATUS`、`phase=request`、`httpStatus=403` 和固定发行来源；保留 `NETWORK` 错误类别与退出码 1，不记录鉴权凭据。
 

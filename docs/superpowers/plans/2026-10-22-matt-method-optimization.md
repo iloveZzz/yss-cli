@@ -12,6 +12,8 @@
 
 日期：2026-10-22。状态：**approved-in-conversation**。基线 `75ef66aff6c38481f06b233fdefc8958b37f83f4`；正式源码 v2.7.1 / `5cc28f9c43788fdc618197f3ad2689336a5e425a`。下列清单保留批准时目标；实际进度与证据由方案 PR 执行表及关联实现 PR 记录，预期命令不代表已执行。
 
+用户追加指令（2026-10-22）：关联模板 T1 的本地与远端公共 slow 验证硬上限由 300 秒调整为 1000 秒，工作流 job 总上限由 20 分钟调整为 30 分钟，作为本轮后续实施约束；原 300 秒预算下的真实失败、取消及未执行记录继续保留，不改判为通过。
+
 配套：[模板执行计划](https://github.com/iloveZzz/yss-spec-project-template/pull/112)。
 
 ## 全局约束
@@ -20,7 +22,7 @@
 - 普通 Go 源码仓遵循根 AGENTS，不补建产品实例、checkpoint 或 Slice。
 - Mac 资格保持 `local-platform-program-install` 与 `requiredPlatforms=['darwin/arm64']`；Windows x64 保持 build-only、`stableReady=false`。
 - `CGO_ENABLED=0`；Git 2.44+；测试使用临时小数据和可控 transport，不访问网络。单例约 1 秒、包约 30 秒、全量 Go 5 分钟硬上限。
-- runner 当前在线命令 960 秒超时保持，Go 全量测试 5 分钟上限保持；用户此前模板发布 prepare 的 1000 秒预算不延伸到这些独立超时。
+- 模板公共 `ci-gate --mode slow` 按追加指令采用 1000 秒验证上限、30 分钟 job 总上限，准备不计入验证预算，为准备和报告保留 800 秒余量。模板普通检查单项 300 秒、发布 prepare 1000 秒、runner 在线命令 960 秒和 Go 全量测试 5 分钟上限各自保持。
 - 既有 JSON envelope、退出码、来源/摘要检查、真实用户授权和最后输入复核不放宽；`.codebuddy` 不恢复为受支持目录。
 - 失败、取消、未执行和未知结果如实记录，不补造回执，不覆盖旧失败，不以新说明改变旧证据结论。
 
