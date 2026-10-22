@@ -109,7 +109,7 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 
 正常入口从精确 prepare run 的唯一未过期 artifact 数字 ID 下载到全新仓外目录，核验 archive 摘要，保留 7 个 payload / 精确 8 个上传资产、来源/输入/平台/总控摘要绑定、`pending=[]`、Mac `local-platform-program-install` 与 Windows build-only 限制。同仓同 tag 共用并发组且不取消正在执行的任务。任何同 tag release（包括 draft）已存在时停止；成功且有 draft 可见权限的完整 release 列表才能证明不存在，404、权限或网络失败均停止。
 
-写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。仅通过后，以冻结说明执行一次显式 `gh api --method POST .../releases` 创建新 draft，保留返回的数字 ID；仅向本次新建 draft 逐一上传精确 8 个资产，每次核验远端 tag、draft 身份、原说明与本地摘要，并验证上传响应。全部资产到齐后，只读核验 draft 与全部输入，再执行一次 `PATCH .../releases/<id>`，设置 `draft=false`、`prerelease=false`、`make_latest="true"`，保留原 `--latest` 语义。这里不使用高层 `gh release create`，因为它可能在上传或发布失败后隐式 DELETE 清理 release。
+写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。实际 create/publish 请求体必须是普通文件，其字节与已核验 tag/S/说明及固定参数生成的预期内容一致；每次检查与 draft 写前守卫（含最终完整核验）都重新比较，漂移或符号链接立即拒绝。仅通过后，以冻结说明执行一次显式 `gh api --method POST .../releases` 创建新 draft，保留返回的数字 ID；仅向本次新建 draft 逐一上传精确 8 个资产，每次核验远端 tag、draft 身份、原说明与本地摘要，并验证上传响应。全部资产到齐后，只读核验 draft 与全部输入，再执行一次 `PATCH .../releases/<id>`，设置 `draft=false`、`prerelease=false`、`make_latest="true"`，保留原 `--latest` 语义。这里不使用高层 `gh release create`，因为它可能在上传或发布失败后隐式 DELETE 清理 release。
 
 任何写请求失败、超时或结果未知，都停止后续写入；不清理 draft、不删除 release/资产、不重试、不自动恢复。后续只读按已知数字 ID 保存可取得的 release/资产事实；创建响应丢失而 ID 未知时，分页列出包含 draft 的 release 并保留同 tag 候选事实，不从候选继续写入。按 tag 的 REST 查询只返回已发布 release，不能用其 404 判断 draft 不存在。
 

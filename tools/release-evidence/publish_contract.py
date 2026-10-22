@@ -111,6 +111,20 @@ def no_release(api, prefix, tag):
     require(not release_candidates(api, prefix, tag), 'release already exists (draft or published)')
 
 
+def write_payloads(tag, source, notes):
+    values = {
+        'create.payload.json': dict(tag_name=tag, target_commitish=source, name='yss-cli ' + tag[1:],
+                                    body=notes.decode('utf-8'), draft=True, prerelease=False, make_latest='false'),
+        'publish.payload.json': dict(draft=False, prerelease=False, make_latest='true'),
+    }
+    return {name: (json.dumps(value) + '\n').encode('utf-8') for name, value in values.items()}
+
+
+def verify_write_payloads(records, tag, source, notes):
+    for name, expected in write_payloads(tag, source, notes).items():
+        require(ordinary(records, name) == expected, 'write payload bytes differ: ' + name)
+
+
 def expected_assets(evidence, tag):
     names = {f'yss_{tag[1:]}_darwin_arm64.tar.gz', f'yss_{tag[1:]}_windows_amd64.zip',
              'checksums.json', 'build-only-checksums.json', 'native-receipt.json',
@@ -366,6 +380,7 @@ def main():
             facts = check(root, evidence, options.tag, options.run_id, options.notes_commit, os.environ, api, published=True)
             require(facts == before and 'sha256:' + sha((records / 'artifact.zip').read_bytes()) == facts['evidenceArtifact']['digest'],
                     'publish inputs or remote identity changed')
+        verify_write_payloads(records, options.tag, before['sourceCommit'], notes)
         print(json.dumps(current, sort_keys=True))
         return
     if options.mode == 'download':
@@ -406,9 +421,9 @@ def main():
     notes = git(root, 'show', options.notes_commit + ':docs/releases/' + options.tag + '.md')
     if options.mode == 'download':
         (records / 'notes.md').write_bytes(notes)
-        (records / 'create.payload.json').write_text(json.dumps(dict(tag_name=options.tag, target_commitish=facts['sourceCommit'],
-            name='yss-cli ' + options.tag[1:], body=notes.decode('utf-8'), draft=True, prerelease=False, make_latest='false')) + '\n')
-        (records / 'publish.payload.json').write_text(json.dumps(dict(draft=False, prerelease=False, make_latest='true')) + '\n')
+        for name, data in write_payloads(options.tag, facts['sourceCommit'], notes).items():
+            with (records / name).open('xb') as output:
+                output.write(data)
     else:
         require((records / 'notes.md').read_bytes() == notes, 'frozen notes changed')
     if published:
@@ -417,6 +432,7 @@ def main():
         require(facts == before, 'local inputs or remote identity changed after creation')
         require(not options.release_id or observed['release']['id'] == int(options.release_id), 'created release ID differs')
         verify_release(observed['release'], observed['latest'], options.tag, notes, facts['expectedAssets'])
+    verify_write_payloads(records, options.tag, facts['sourceCommit'], notes)
     print(json.dumps(facts, sort_keys=True))
 
 

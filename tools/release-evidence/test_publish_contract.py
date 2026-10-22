@@ -343,6 +343,7 @@ def done(value=None, code=0):
 def write(method, endpoint):
     state['httpWrites'].append([method, endpoint])
     if method == 'DELETE': state['deletes'] += 1
+    state_path.write_text(json.dumps(state))
 def release(draft, assets):
     return dict(id=456, tag_name=state['tag'], body=state['notes'], draft=draft, prerelease=False, assets=assets)
 def mutate_after_publish():
@@ -382,11 +383,10 @@ if method != 'GET':
     content = pathlib.Path(args[args.index('--input')+1]).read_bytes()
     if method == 'POST' and endpoint.endswith('/releases'):
         payload = json.loads(content)
-        assert payload['tag_name'] == state['tag'] and payload['body'] == state['notes']
         assert payload['draft'] is True and payload['prerelease'] is False
         assert payload['make_latest'] == 'false'
         state['writes'] += 1
-        data['release'] = release(True, [])
+        data['release'] = dict(release(True, []), tag_name=payload['tag_name'], body=payload['body'])
         if scenario == 'unknown-create':
             print('actual write create response lost', file=sys.stderr)
             done(code=7)
@@ -402,16 +402,22 @@ if method != 'GET':
             done(code=7)
         item = dict(id=len(data['release']['assets'])+10, name=name, state='uploaded', **meta)
         data['release']['assets'].append(item)
+        if scenario == 'publish-request-before' and len(data['release']['assets']) == 8:
+            target = pathlib.Path(state['records']) / 'publish.payload.json'
+            payload = json.loads(target.read_bytes())
+            payload.update(prerelease=True, make_latest='false')
+            target.write_text(json.dumps(payload)+'\n')
         if scenario == 'unknown-upload' and len(data['release']['assets']) == 8:
             print('actual write upload response lost', file=sys.stderr)
             done(code=7)
         done(item)
     if method == 'PATCH' and endpoint.endswith('/releases/456'):
         payload = json.loads(content)
-        assert payload == dict(draft=False, prerelease=False, make_latest='true')
+        assert set(payload) == {'draft', 'prerelease', 'make_latest'}
         assert len(data['release']['assets']) == 8 and data['release']['draft'] is True
-        data['release']['draft'] = False
-        data['latest'] = dict(id=456, tag_name=state['tag'])
+        data['release'].update(draft=payload['draft'], prerelease=payload['prerelease'])
+        if payload['make_latest'] == 'true':
+            data['latest'] = dict(id=456, tag_name=state['tag'])
         mutate_after_publish()
         if scenario == 'unknown-write':
             print('actual write publish response lost', file=sys.stderr)
@@ -443,6 +449,12 @@ if '/releases?' in endpoint:
         print('real query failure: '+scenario, file=sys.stderr)
         done(code=1)
     if scenario == 'exists': done([dict(tag_name=state['tag'], draft=True)])
+    if scenario == 'create-request-before':
+        target = pathlib.Path(state['records']) / 'create.payload.json'
+        if target.exists():
+            payload = json.loads(target.read_bytes())
+            payload.update(tag_name='v0.0.1', body='unexpected notes')
+            target.write_text(json.dumps(payload)+'\n')
     if scenario in ('notes-before', 'payload-before'):
         target = pathlib.Path(state['records']) / ('notes.md' if scenario == 'notes-before' else 'evidence/upload/native-receipt.json')
         if target.exists(): target.write_bytes(target.read_bytes()+b'changed')
@@ -479,7 +491,7 @@ class PublisherBoundaryTest(unittest.TestCase):
             result = subprocess.run(['bash', str(HERE / 'publish-release.sh'), f.tag, '123', f.notes_commit, str(records)],
                                     cwd=f.root, env=env, capture_output=True)
             state = json.loads(state_path.read_text())
-            before = scenario in ('exists', '404', '403', 'network', 'tag-before', 'artifact-before', 'notes-before', 'payload-before')
+            before = scenario in ('exists', '404', '403', 'network', 'tag-before', 'artifact-before', 'notes-before', 'payload-before', 'create-request-before')
             self.assertEqual(state['writes'], 0 if before else 1, result.stderr.decode())
             self.assertEqual(result.returncode == 0, scenario == 'success', result.stderr.decode())
             self.assertEqual(state['deletes'], 0, 'no implicit or explicit DELETE after any write failure')
@@ -505,6 +517,8 @@ class PublisherBoundaryTest(unittest.TestCase):
                 if scenario == 'partial-write':
                     self.assertTrue(any(r['draft'] is True and len(r['assets']) == 7 for r in observed))
                     self.assertFalse(any(m == 'PATCH' for m,e in state['httpWrites']))
+                if scenario == 'publish-request-before':
+                    self.assertFalse(any(m == 'PATCH' for m,e in state['httpWrites']), 'changed publish request must not reach the API')
                 if scenario == 'unknown-create':
                     self.assertTrue(any(r['draft'] is True and not r['assets'] for r in observed))
                     self.assertEqual(len(state['httpWrites']), 1)
@@ -521,12 +535,31 @@ class PublisherBoundaryTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     contract.extract_archive(buffer.getvalue(), Path(temporary) / 'out')
 
+    def test_write_payload_symlink_is_rejected_without_modifying_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            records = base / 'records'
+            records.mkdir()
+            payloads = contract.write_payloads('v8.9.10', 'a'*40, b'notes\n')
+            for name, data in payloads.items():
+                put(records, name, data)
+            for name, data in payloads.items():
+                target = put(base, name, data)
+                path = records / name
+                path.unlink()
+                path.symlink_to(target)
+                with self.assertRaises(ValueError):
+                    contract.verify_write_payloads(records, 'v8.9.10', 'a'*40, b'notes\n')
+                self.assertEqual(target.read_bytes(), data)
+                path.unlink()
+                put(records, name, data)
+
 
 # Separate cases keep each test small and show the exact failed contract.
 for _scenario in ('success', 'exists', '404', '403', 'network', 'tag-before', 'artifact-before',
                   'notes-before', 'payload-before', 'partial-write', 'unknown-write', 'draft', 'prerelease',
                   'tag-after', 'notes-after', 'missing-asset', 'extra-asset', 'digest-after', 'latest-after', 'readback-error',
-                  'unknown-create', 'unknown-upload'):
+                  'unknown-create', 'unknown-upload', 'create-request-before', 'publish-request-before'):
     setattr(PublisherBoundaryTest, 'test_boundary_' + _scenario.replace('-', '_'),
             lambda self, scenario=_scenario: self.run_scenario(scenario))
 
