@@ -3,7 +3,7 @@
 本目录把 2.3.0/2.3.1 实际使用过的发版证据脚本版本化，使下一次发版可在任意干净的 darwin/arm64 机器上重复执行。它们只**生成并核对**证据，交给 `tools/release` 装配器消费：
 
 * 不授予资格，不放宽任何校验，不伪造回执。未执行、取消、失败如实记录；任一步失败立即停止。
-* 不打 tag，不创建 GitHub Release，不 push。这些对外动作由人确认后手动执行（见[人工发布](#人工发布)）。
+* prepare 脚本不打 tag、不创建 GitHub Release、不 push。实际发布须有届时有效授权，由[正常发布入口](#正常发布入口)执行。
 * 只依赖本仓库文件和命令行参数，不读取 `~/.yss-harness` 等旧路径。程序版本取自 `internal/domain/domain.go`，模板版本与提交取自 `docs/source-lock.json`，均无硬编码。
 * 当前资格范围为 `local-platform-program-install`：darwin/arm64 在固定来源上实际执行 version、来源锁声明的全部现役 bundle inspect 和离线程序安装五项（plan 只读、apply、rollback、recover、用户文件保护）。Windows x64 只构建与打包，`stableReady=false`，不具备在线升级资格。
 
@@ -94,23 +94,41 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 | `check-outputs.py` | 只读核对：稳定包 `stableReady=true`、资格范围、`pending` 为空、绑定摘要一致；候选包与 Windows 包 `stableReady=false` 且未声称原生运行 |
 | `collect-upload.py` | 把已验证产物复制进新的 `upload/` 并生成 `SHA256SUMS` |
 | `release_source.py` | 读取程序版本与模板身份的共用辅助模块 |
+| `publish_contract.py` | 正常 publisher 的只读合同检查、精确 artifact 下载校验与发布后完整回读；不调用写 API |
+| `publish-release.sh` | workflow 薄包装：下载、两次检查、一次显式 API 创建 draft、逐资产上传、核验后正式发布与只读回读；不清理或重试写入 |
 
-## 人工发布
+## 正常发布入口
 
-以下动作对外可见，**由人确认后手动执行**，脚本不会代劳。先确认 `git rev-parse HEAD` 与证据中的提交一致，且 `check-outputs.py` 通过：
+`.github/workflows/publish-release.yml` 仅由有实际发布授权的人手动触发；方案批准、fixture 测试或 prepare 成功本身不授予发布授权。输入均必填且无默认 tag：
 
-```bash
-python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["cliCommit"])' "$EVIDENCE/native-input.json"
-git rev-parse HEAD
-```
+- `tag`：已存在的稳定版本 tag，远端与本地都解析到源码提交 S；S 的程序版本须与 tag 一致。
+- `evidence_run_id`：本仓 `.github/workflows/release-evidence.yml` 在 S 上成功完成的 prepare run；通过 workflow、job/step、artifact 数字身份与总控 `command=prepare` 核对阶段。
+- `notes_commit`：完整 40 位提交 N。S 必须为 N 的祖先，N 必须为本次 workflow 实际执行提交 O 的祖先；在 O 上 checkout 干净且 HEAD 等于 `GITHUB_SHA`。
 
-两条输出必须相同。发布说明按实际证据如实撰写（Mac ARM64 实际通过的项目；Windows 仅构建与打包、无在线升级资格；固定来源提交），不得写没有执行过的验证。
+`docs/releases/<tag>.md` 在 N、O 与 checkout 中必须逐字节一致并含完整 S。版本与固定来源读取 S，不能因说明或 publisher 后续提交而错误要求 O=S。说明按实际证据记录 Mac ARM64 项目、Windows 仅构建打包与固定来源；不得声称未执行的验收。
 
-```bash
-git tag -a "v$VERSION" -m "yss-cli $VERSION"
-git push origin "v$VERSION"
-gh release create "v$VERSION" "$EVIDENCE"/upload/* --verify-tag --title "yss-cli $VERSION" --notes-file /absolute/path/release-notes.md
-```
+正常入口从精确 prepare run 的唯一未过期 artifact 数字 ID 下载到全新仓外目录，核验 archive 摘要，保留 7 个 payload / 精确 8 个上传资产、来源/输入/平台/总控摘要绑定、`pending=[]`、Mac `local-platform-program-install` 与 Windows build-only 限制。同仓同 tag 共用并发组且不取消正在执行的任务。任何同 tag release（包括 draft）已存在时停止；成功且有 draft 可见权限的完整 release 列表才能证明不存在，404、权限或网络失败均停止。
+
+写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。实际 create/publish 请求体必须是普通文件，其字节与已核验 tag/S/说明及固定参数生成的预期内容一致；每次检查与 draft 写前守卫（含最终完整核验）都重新比较，漂移或符号链接立即拒绝。仅通过后，以冻结说明执行一次显式 `gh api --method POST .../releases` 创建新 draft，保留返回的数字 ID；仅向本次新建 draft 逐一上传精确 8 个资产，每次核验远端 tag、draft 身份、原说明与本地摘要，并验证上传响应。全部资产到齐后，只读核验 draft 与全部输入，再执行一次 `PATCH .../releases/<id>`，设置 `draft=false`、`prerelease=false`、`make_latest="true"`，保留原 `--latest` 语义。这里不使用高层 `gh release create`，因为它可能在上传或发布失败后隐式 DELETE 清理 release。
+
+任何写请求失败、超时或结果未知，都停止后续写入；不清理 draft、不删除 release/资产、不重试、不自动恢复。后续只读按已知数字 ID 保存可取得的 release/资产事实；创建响应丢失而 ID 未知时，分页列出包含 draft 的 release 并保留同 tag 候选事实，不从候选继续写入。按 tag 的 REST 查询只返回已发布 release，不能用其 404 判断 draft 不存在。
+
+写入序列完成后只读核验正式/non-prerelease、tag→S、原说明字节、精确 8 资产与各自 size/SHA-256，以及 latest 数字 ID。远端摘要缺失、漂移或读取未知均记录失败待核实，保留真实请求、stdout/stderr、退出码与远端事实；不再写入或补设 latest，不调用恢复器。即使发布请求的响应丢失后读到了正式 release，本次仍记录写入失败。不同 tag 并发发布仍可能竞争 latest，本入口不保证跨版本原子性。
+
+workflow 总是尝试上传 `cli-release-publish-<run>-<attempt>` artifact，含原始 API 响应、创建命令/响应/退出码、冻结说明、前后观察与下载证据。失败后应先核实真实远端状态，再另行审阅绑定此次状态的恢复方案；不要重跑正常创建来修补部分结果。此包装也可用本地假 `gh` 离线测试：`python3 -m unittest discover -s tools/release-evidence -p 'test_publish_contract.py'`。fixture 通过不构成正式发行验收。
+
+### 固定恢复器已退役
+
+原 `.release-recovery/upload.py` 与 `bindings.json` 已从现役树移除；不新增固定恢复 workflow，不修改原绑定，不清理 Git 历史或远端资产。审计基线为 [`75ef66aff6c38481f06b233fdefc8958b37f83f4`](https://github.com/iloveZzz/yss-cli/commit/75ef66aff6c38481f06b233fdefc8958b37f83f4)，原字节可核对：
+
+| 历史文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| [upload.py](https://github.com/iloveZzz/yss-cli/blob/75ef66aff6c38481f06b233fdefc8958b37f83f4/.release-recovery/upload.py) | 13694 | `0d9fef6f3e0ffe0bd1017779e9feef79f39e851f37322e893fae7c7e70fa02e1` |
+| [bindings.json](https://github.com/iloveZzz/yss-cli/blob/75ef66aff6c38481f06b233fdefc8958b37f83f4/.release-recovery/bindings.json) | 266 | `e6e544c7271694cfe3ecc6ca7df0a31b1e804d0447c7ba6439e4c8817784c646` |
+
+2026-10-22 只读核验确认原绑定仍可追溯：仓库 `iloveZzz/yss-cli`；tag `v2.7.1`；S=`5cc28f9c43788fdc618197f3ad2689336a5e425a`；N=`2ad0a7589802ecf646f856745c259f3fe850ed87`；[prepare run 39646266778](https://github.com/iloveZzz/yss-cli/actions/runs/39646266778) 成功且 HEAD=S、workflow ID=`390117561`；唯一未过期 artifact ID=`12366978394`、SHA-256=`3cac036b2c331c9ea552783db7d7e556c9a7a06fb989c6dbe8de4738a5067538`。
+
+[Release v2.7.1](https://github.com/iloveZzz/yss-cli/releases/tag/v2.7.1) 数字 ID 仍为原 draft ID=`419873387`，现为正式 non-prerelease，8 项资产均 uploaded 且 API 摘要齐全。N 的[原说明](https://github.com/iloveZzz/yss-cli/blob/2ad0a7589802ecf646f856745c259f3fe850ed87/docs/releases/v2.7.1.md) 共 5137 字节、SHA-256=`90d8fa4cdcd604164c2f6df1f6d63ddf15018ffe7231ea2f4eb48243ef5bdb79`，与远端 body UTF-8 字节完全一致；`SHA256SUMS`（asset ID `663335442`，618 字节，SHA-256=`c8c752d43e15f11179f380f386bddf6865dfd5f1cf58dc648f113aefda850205`）7 个 payload 摘要与 API 一致。原恢复器要求未发布 draft，原合同会拒绝当前状态。此审计未重新下载 125 MB prepare artifact 或发行包、未重做原生验收；只证明历史与远端身份可追溯。
 
 ## 发布后的公开在线升级验证
 
@@ -135,4 +153,4 @@ python3 tools/release-evidence/run-release-evidence.py verify-public --evidence-
 
 `.github/workflows/release-evidence.yml` 仅手动触发，使用真实 `macos-15` ARM64 runner 执行上述 prepare 流程，另在 Windows x64 runner 运行 safefs、updater、MCP 和运行对象相关回归；测试与证据作为工作流 artifact 保留。工作流不创建 Release。
 
-发布人员核对 prepare 成功、源码提交与资产摘要后，按上文发布。再以 `phase=verify-public`、`evidence_run_id=<prepare 的运行 ID>` 触发同一提交，下载原始证据，使用发布前的独立摘要验证公开包在线升级。Windows 定向回归通过不等于 Windows 完整安装资格，构建包仍保持 `stableReady=false`。
+发布人员核对 prepare 成功、源码提交与资产摘要后，按上文正常入口发布。再以 `phase=verify-public`、`evidence_run_id=<prepare 的运行 ID>` 触发源码 S，下载原始证据，使用发布前的独立摘要验证公开包在线升级。Windows 定向回归通过不等于 Windows 完整安装资格，构建包仍保持 `stableReady=false`。

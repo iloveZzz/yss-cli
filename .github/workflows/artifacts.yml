@@ -16,6 +16,14 @@ jobs:
         with:
           path: cli-source
           fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Offline release tooling tests (5 minute cap)
+        timeout-minutes: 5
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s tools/release-evidence -p 'test_*.py'
       - uses: actions/setup-go@v6
         with:
           go-version-file: cli-source/go.mod

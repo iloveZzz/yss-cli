@@ -26,7 +26,7 @@ node tools/fetch-bundle.mjs && go test -timeout 5m ./...  # 含用内嵌 Bundle 
 
 ## CI
 
-`Build and generated artifacts` workflow 执行生产包构建、候选来源记录、格式／静态检查、Go 测试、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
+`Build and generated artifacts` workflow 先以 Python 3.12 运行发行工具离线回归（`python3 -m unittest discover -s tools/release-evidence -p 'test_*.py'`，步骤上限 5 分钟），再执行生产包构建、候选来源记录、格式／静态检查、Go 测试、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。发行工具测试使用临时 fixture 与受控假 transport，不访问外部 API、不发布；不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
 
 ## 格式与静态检查
 
