@@ -143,6 +143,10 @@ python3 tools/release-evidence/run-release-evidence.py verify-public --evidence-
 
 输出为 `$EVIDENCE/public-installation/`、`public-program-runner.json` 和 `orchestrator/verify-public-log.json`。公开包摘要与本地构建不一致、升级失败或任何断言失败时，脚本以非 0 退出并如实记录，不得改写为通过。
 
+真实在线 `upgrade` 调用启用既有 `--diagnostics`，失败日志可包含固定发行来源、请求阶段与 HTTP 状态；原 envelope、退出码和失败即停语义不变，在线升级仍使用 960 秒超时。逐命令 stdout/stderr 原始文件及其 SHA-256 保存在本次报告中，未运行的后续在线检查不会记为通过。
+
+此前 HTTP 403 的具体原因仍未知；首次失败与后续重跑分别保留。runner 字节变化会改变工具摘要，历史发行记录仍绑定旧 runner，不能移作本次工具的验收证据。重新验收须使用全新证据目录，并记录各次源码、工具、输入、环境与运行 ID；本修复不要求立即重发 v2.7.1。
+
 ## 复核与已知边界
 
 * 证据只对生成时的源码、工具、参数和环境成立；任何输入变化都使受影响证据失效，须在全新证据目录重新执行。
