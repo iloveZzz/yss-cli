@@ -1,7 +1,7 @@
 # yss
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.7.1`。固定模板：backend `v4.7.1`、spec `v4.7.1`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.7.1`。固定模板：backend `git:f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d`、spec `git:f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 English: [quickstart](docs/quickstart.en.md).

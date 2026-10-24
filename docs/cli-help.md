@@ -27,7 +27,7 @@ Profile 职责:
 
 生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：a435d0693b374e58f803b61817c9d8f9402c72e9；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
+  固定模板：f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -145,7 +145,7 @@ Shell 补全:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=a435d0693b374e58f803b61817c9d8f9402c72e9；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -289,7 +289,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 ```text
 日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=a435d0693b374e58f803b61817c9d8f9402c72e9；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -330,7 +330,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=a435d0693b374e58f803b61817c9d8f9402c72e9；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -492,7 +492,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=a435d0693b374e58f803b61817c9d8f9402c72e9；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -804,7 +804,2759 @@ YSS 离线入门教程
 | `xml inspect` | 读取 Maven project 结构。 | `yss help examples xml inspect` |
 | `xml query` | 查询 Maven project 读取结果。 | `yss help examples xml query` |
 
-## 错误索引
+### archive
+
+```text
+yss 2.7.1 — archive
+──────────────────────
+安全打包、读取或核验 ZIP 资产。
+
+用法: yss archive <子命令> --root <目录>
+
+子命令:
+pack  打包指定项目目录。
+unpack  安全解包到新位置。
+verify  只读核验归档结构。
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+拒绝路径逃逸、链接、碰撞和超限资产。
+
+最小示例:
+yss archive verify --root ./demo-spec --file docs/package.zip --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples archive
+```
+
+### archive pack
+
+```text
+yss 2.7.1 — archive pack
+──────────────────────
+打包指定项目目录。
+
+用法: yss archive pack --root <目录> --source <目录> --output <文件>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+拒绝路径逃逸、链接、碰撞和超限资产。
+
+最小示例:
+yss archive pack --root ./demo-spec --source docs/handoff --output /tmp/yss-handoff.zip --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output <路径>                 文件或目录路径
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --source <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--source  输入目录
+--output  仓外绝对路径，输出 ZIP
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples archive pack
+```
+
+### archive unpack
+
+```text
+yss 2.7.1 — archive unpack
+──────────────────────
+安全解包到新位置。
+
+用法: yss archive unpack --root <目录> --file <ZIP> --output <目录>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+拒绝路径逃逸、链接、碰撞和超限资产。
+
+最小示例:
+yss archive unpack --root ./demo-spec --file docs/handoff.zip --output /tmp/yss-unpacked --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output <路径>                 文件或目录路径
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --source <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  输入 ZIP
+--output  仓外绝对路径，目标须不存在
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples archive unpack
+```
+
+### archive verify
+
+```text
+yss 2.7.1 — archive verify
+──────────────────────
+只读核验归档结构。
+
+用法: yss archive verify --root <目录> --file <ZIP>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+拒绝路径逃逸、链接、碰撞和超限资产。
+
+最小示例:
+yss archive verify --root ./demo-spec --file docs/handoff.zip --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --source <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file / --source  待验 ZIP
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples archive verify
+```
+
+### assets
+
+```text
+yss 2.7.1 — assets
+──────────────────────
+查询或补装 阶段资源和 Skill 闭包。
+
+用法: yss assets <子命令> --root <目录>
+
+子命令:
+ensure  补装指定 阶段资源和 Skill 闭包。
+list  列出当前 Profile 支持的标识。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+可用标识来自当前 Profile 的内置 Bundle；不猜测能力闭包。
+
+最小示例:
+yss assets list --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples assets
+```
+
+### assets ensure
+
+```text
+yss 2.7.1 — assets ensure
+──────────────────────
+补装指定 阶段资源和 Skill 闭包。
+
+用法: yss assets ensure --root <目录> <标识...> --plan --out <新文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+须先 list 确认该 Profile 支持相应标识。
+
+最小示例:
+yss assets ensure stage.spec-architecture --root ./demo-spec --plan --out /tmp/yss-resource-plan.json
+yss assets --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+位置参数: 阶段 ID；支持多个
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples assets ensure
+```
+
+### assets list
+
+```text
+yss 2.7.1 — assets list
+──────────────────────
+列出当前 Profile 支持的标识。
+
+用法: yss assets list --root <目录> [--json]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+可用标识来自当前 Profile 的内置 Bundle；不猜测能力闭包。
+
+最小示例:
+yss assets list --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+只读查询
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples assets list
+```
+
+### attach
+
+```text
+yss 2.7.1 — attach
+──────────────────────
+首次接管已有工程的模板受管资产；使用 sync 同步模板。
+
+用法: yss attach --root <目录> --profile <Profile> --plan --out <新文件>
+
+前置条件:
+已有普通工程；先检查定制与受管范围，再保存接管计划。
+保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。
+
+最小示例:
+yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json
+yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --installation <方式>           新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
+  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+--review-out <新目录>  项目外审查材料与决议模板
+--base-bundle <路径>  离线历史 Bundle 完整材料
+--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划
+--full  选择完整资源集合
+--binding-file <文件>  将插件 binding 纳入同一计划
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss doctor --help；核对身份后用 lifecycle 查询当前入口。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples attach
+```
+
+### bundle
+
+```text
+yss 2.7.1 — bundle
+──────────────────────
+读取或导出完整固定 Bundle 与 manifest。
+
+用法: yss bundle <子命令> --profile <Profile>
+
+子命令:
+export  导出 Bundle 全部 bytes、mode 和 manifest。
+inspect  检查 Bundle 身份、来源及摘要。
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+无需项目或网络；公开资产接口供插件及构建消费者使用。
+
+最小示例:
+yss bundle inspect --profile spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--profile <spec|backend>  当前分发
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples bundle
+```
+
+### bundle export
+
+```text
+yss 2.7.1 — bundle export
+──────────────────────
+导出 Bundle 全部 bytes、mode 和 manifest。
+
+用法: yss bundle export --profile <Profile> --out <新目录>
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+无需项目或网络；公开资产接口供插件及构建消费者使用。
+
+最小示例:
+yss bundle export --profile spec --out /tmp/yss-spec-bundle --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--profile <spec|backend>  当前分发
+--out <新目录>  必需且不能已存在
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples bundle export
+```
+
+### bundle inspect
+
+```text
+yss 2.7.1 — bundle inspect
+──────────────────────
+检查 Bundle 身份、来源及摘要。
+
+用法: yss bundle inspect --profile <Profile> [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+无需项目或网络；公开资产接口供插件及构建消费者使用。
+
+最小示例:
+yss bundle inspect --profile spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--profile <spec|backend>  当前分发
+不支持 --out；只读
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples bundle inspect
+```
+
+### capabilities
+
+```text
+yss 2.7.1 — capabilities
+──────────────────────
+查看原生能力、治理接口与发行证据边界。
+
+用法: yss capabilities [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+支持清单不等于某个平台已通过原生发行验收。
+
+最小示例:
+yss capabilities --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--json  输出机器可读能力清单
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples capabilities
+```
+
+### check
+
+```text
+yss 2.7.1 — check
+──────────────────────
+识别实例资产并调用对应 verify 做结构与当前校验。
+
+用法: yss check <文件>... | --changed [--base <Git引用>] [--checkpoint <文件>] [--root <目录>]
+
+前置条件:
+在 YSS 项目根运行；--changed 需要 Git 仓库。用户决定等需当前上下文的资产另给 --checkpoint。
+只聚合现有 verify，不新增校验语义；批准与 checkpoint 使用本地 Schema 做结构检查，execution_authorization=not-evaluated；历史读取须另行显式选择原快照。模板目录与未识别文件列为 skipped，缺上下文列为 not-evaluated，均不算通过。
+
+最小示例:
+yss check --changed --root ./demo-spec
+yss check .work/feature/approval.yaml --json
+
+参数:
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --changed                       yss check 选择工作树相对 HEAD 的改动与未跟踪文件
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+<文件>  一个或多个项目内 YAML/JSON 资产
+--changed  工作树相对 HEAD 的改动与未跟踪文件
+--base <Git引用>  与 --changed 同用，并入 base..HEAD 的已提交改动
+--checkpoint <文件>  需要当前上下文的资产（如用户决定）使用它
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples check
+```
+
+### completion
+
+```text
+yss 2.7.1 — completion
+──────────────────────
+生成 Bash、Zsh、Fish 或 PowerShell 补全脚本。
+
+用法: yss completion <bash|zsh|fish|powershell>
+
+子命令:
+bash  将 bash 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+fish  将 fish 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+powershell  将 powershell 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+zsh  将 zsh 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+
+前置条件:
+生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。
+只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。
+
+最小示例:
+yss completion bash > /tmp/yss-completion.bash
+yss completion zsh > /tmp/_yss
+yss completion fish > /tmp/yss-completion.fish
+yss completion powershell > ./yss-completion.ps1
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。
+
+预期结果:
+选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。
+
+下一步:
+按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。
+
+常见错误:
+ARGUMENT；yss help errors <错误码>
+详细示例: yss help examples completion
+```
+
+### completion bash
+
+```text
+yss 2.7.1 — completion bash
+──────────────────────
+将 bash 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+
+用法: yss completion bash
+
+前置条件:
+生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。
+只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。
+
+最小示例:
+# 先按当前环境加载 bash-completion（需提供 _get_comp_words_by_ref 等函数）
+yss completion bash > /tmp/yss-completion.bash
+source /tmp/yss-completion.bash
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。
+
+预期结果:
+选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。
+
+下一步:
+按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。
+
+常见错误:
+ARGUMENT；yss help errors <错误码>
+详细示例: yss help examples completion bash
+```
+
+### completion fish
+
+```text
+yss 2.7.1 — completion fish
+──────────────────────
+将 fish 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+
+用法: yss completion fish
+
+前置条件:
+生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。
+只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。
+
+最小示例:
+yss completion fish | source
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。
+
+预期结果:
+选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。
+
+下一步:
+按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。
+
+常见错误:
+ARGUMENT；yss help errors <错误码>
+详细示例: yss help examples completion fish
+```
+
+### completion powershell
+
+```text
+yss 2.7.1 — completion powershell
+──────────────────────
+将 powershell 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+
+用法: yss completion powershell
+
+前置条件:
+生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。
+只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。
+
+最小示例:
+yss completion powershell | Out-String | Invoke-Expression
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。
+
+预期结果:
+选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。
+
+下一步:
+按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。
+
+常见错误:
+ARGUMENT；yss help errors <错误码>
+详细示例: yss help examples completion powershell
+```
+
+### completion zsh
+
+```text
+yss 2.7.1 — completion zsh
+──────────────────────
+将 zsh 补全脚本写到 stdout；不安装、不修改 Shell 配置。
+
+用法: yss completion zsh
+
+前置条件:
+生成脚本无需项目身份或网络；启用补全时，对应 Shell 须可用，且 PATH 能找到 yss。Bash 先加载 bash-completion，Zsh 先初始化 compinit。
+只向 stdout 输出脚本，不读取项目或访问网络，也不自动安装或修改 Shell 配置。命令、选项和静态枚举由 CLI 提供；路径候选由 Shell 枚举，不查询项目 ID、Ticket 或业务资产。即使指定 --json，仍输出脚本文本。
+
+最小示例:
+autoload -Uz compinit
+compinit
+yss completion zsh > /tmp/_yss
+source /tmp/_yss
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+脚本类型由必选子命令 bash、zsh、fish 或 powershell 指定。以下加载命令在对应 Shell 中执行，仅对当前会话生效；长期启用请按自己的 Shell 配置加载保存的脚本，升级 yss 后重新生成。
+
+预期结果:
+选择 Shell 子命令后，stdout 输出对应补全脚本，不附加 JSON envelope。Shell 可重定向保存脚本；加载后按 Tab 获取命令、选项、枚举或路径候选。
+
+下一步:
+按对应 Shell 的最小示例加载脚本，再输入 yss 后按 Tab。需要长期启用时，将加载方式加入自己的 Shell 配置；CLI 不执行此步骤。
+
+常见错误:
+ARGUMENT；yss help errors <错误码>
+详细示例: yss help examples completion zsh
+```
+
+### context
+
+```text
+yss 2.7.1 — context
+──────────────────────
+查询或校验唯一 CONTEXT.md 及词汇快照。
+
+用法: yss context <子命令> --root <目录>
+
+子命令:
+check  校验词汇结构。
+query  查询稳定词汇。
+verify  校验当前词汇和可选快照。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+合法 schema v1 模板源可只读校验；check/verify 返回 context_snapshot，不创建批准。
+
+最小示例:
+yss context verify --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples context
+```
+
+### context check
+
+```text
+yss 2.7.1 — context check
+──────────────────────
+校验词汇结构。
+
+用法: yss context check --root <目录> [--file <文件>]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+合法 schema v1 模板源可只读校验；check/verify 返回 context_snapshot，不创建批准。
+
+最小示例:
+yss context check --root ./demo-spec --json
+
+参数:
+  --allowed-context-ids <值>      按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --snapshot <路径>               文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --term-refs <值>                按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file / --snapshot  可选快照
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples context check
+```
+
+### context query
+
+```text
+yss 2.7.1 — context query
+──────────────────────
+查询稳定词汇。
+
+用法: yss context query --root <目录> [--id <术语ID>]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+合法 schema v1 模板源可只读校验；check/verify 返回 context_snapshot，不创建批准。
+
+最小示例:
+yss context query --root ./demo-spec --json
+
+参数:
+  --allowed-context-ids <值>      按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --term-refs <值>                按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --term-refs  选择术语
+--allowed-context-ids  限定责任区
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples context query
+```
+
+### context verify
+
+```text
+yss 2.7.1 — context verify
+──────────────────────
+校验当前词汇和可选快照。
+
+用法: yss context verify --root <目录> [--snapshot <文件>]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+合法 schema v1 模板源可只读校验；check/verify 返回 context_snapshot，不创建批准。
+
+最小示例:
+yss context verify --root ./demo-spec --json
+
+参数:
+  --allowed-context-ids <值>      按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --snapshot <路径>               文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --term-refs <值>                按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--snapshot / --file  待验快照
+--term-refs / --allowed-context-ids  独立消费范围
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples context verify
+```
+
+### contract
+
+```text
+yss 2.7.1 — contract
+──────────────────────
+校验 contract 的结构或原生领域语义。
+
+用法: yss contract <子命令> --root <目录>
+
+子命令:
+check  执行显式 Schema 结构校验。
+publish-review  事务发布 pending task3/bundle3 审阅草案。
+verify  执行当前领域规则和独立消费者绑定校验。
+view  按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract
+```
+
+### contract check
+
+```text
+yss 2.7.1 — contract check
+──────────────────────
+执行显式 Schema 结构校验。
+
+用法: yss contract check --root <目录> --file <文件> --schema <Schema>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
+
+最小示例:
+yss contract check --root ./demo-spec --file .template-spec/process/lifecycle-registry.yaml --schema .template-spec/process/schemas/lifecycle-registry.schema.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --schema <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  待验资产
+--schema  项目本地 Schema
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract check
+```
+
+### contract publish-review
+
+```text
+yss 2.7.1 — contract publish-review
+──────────────────────
+事务发布 pending task3/bundle3 审阅草案。
+
+用法: yss contract publish-review --root <目录> --file <准备输入>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+仅新治理实例。输出目录须不存在；不创建批准。实际任务校验失败时由原生事务恢复，不能绕过未完成事务。
+
+最小示例:
+yss contract publish-review --root ./demo-spec --file pending-review.json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--file  真实当前 checkpoint 字节、四个 pending 草案文件及可选 Plan 控制登记
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract publish-review
+```
+
+### contract verify
+
+```text
+yss 2.7.1 — contract verify
+──────────────────────
+执行当前领域规则和独立消费者绑定校验。
+
+用法: yss contract verify --root <目录> --kind <类型> [--file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json
+
+参数:
+  --allow-template                布尔开关，可使用 =true 或 =false；默认 false
+  --approval-ref <值>             按当前命令说明指定
+  --asset-ref <路径>              文件或目录路径
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  --gate <值>                     按当前命令说明指定
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --history                       布尔开关，可使用 =true 或 =false；默认 false
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: backend-preparation-inputs|scaffold-inputs|stage-result|slice-draft|slice-execution-result|governance-policy|architecture-evidence|task-baseline|task-candidate|task-selection|governance-write|continuation-comparison|work-unit-user-decision|slice|scaffold|task|openapi-validation|backend-delivery-terminal|backend-review|scaffold-decisions|slice-preflight|business-tickets|plan-review-task|plan-review-control|plan-entry|implementation-scope|checkpoint-user-decisions|scaffold-user-decision|checkpoint-approvals|gate-checks
+  --mode <模式>                   业务票报告模式；默认 draft；可选值: draft|formal
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --review-ref <路径>             业务票 formal 报告的实际审查来源
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --task-ref <值>                 按当前命令说明指定
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  --unit <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--kind <backend-preparation-inputs|scaffold-inputs|stage-result|slice|slice-draft|slice-execution-result|task-baseline|task-candidate|task-selection|architecture-evidence|governance-write|continuation-comparison|work-unit-user-decision|scaffold|task|openapi-validation|backend-delivery-terminal|backend-review|scaffold-decisions|slice-preflight|business-tickets|plan-review-task|plan-review-control|plan-entry|implementation-scope|checkpoint-user-decisions|checkpoint-approvals|gate-checks|scaffold-user-decision>
+--file / --checkpoint  资产与独立消费期待
+--approval-ref / --unit  slice、slice-preflight
+task-baseline  只读计算已登记工程的实际Git基线摘要，不授予写入资格
+task-candidate  只读计算实际当前候选，不执行命令、不授予批准或执行资格
+--task-ref <相对路径>  仅 task3 not-started/no-result 文档运输；执行和完成禁止覆盖身份
+--task <完成task3>  仅 slice-execution-result；真实结果须登记于同一完成任务
+--history  仅 task；历史结构不授予当前放行
+--mode <draft|formal> / --review-ref <路径>  仅 business-tickets；默认 draft，报告不授予批准
+--gate  仅 gate-checks；当前 state 以 --file 提供
+--allow-template  仅 openapi-validation、scaffold-decisions；允许模板记录
+--checkpoint  backend-delivery-terminal 的当前功能 checkpoint；终点引用由它推出
+--home / --run-dir / --tool-root / --template-checkout  固定依赖来源
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract verify
+```
+
+### contract view
+
+```text
+yss 2.7.1 — contract view
+──────────────────────
+按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
+
+用法: yss contract view --root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。
+
+最小示例:
+yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view task --unit work-unit.slice-backend
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: slice
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --unit <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: review|task|full
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples contract view
+```
+
+### diff
+
+```text
+yss 2.7.1 — diff
+──────────────────────
+查看当前文件相对固定模板的差异和同步计划。
+
+用法: yss diff --root <目录> [--profile <Profile>] [--json]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+只读。遇到业务定制先查看诊断。
+
+最小示例:
+yss diff --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples diff
+```
+
+### doctor
+
+```text
+yss 2.7.1 — doctor
+──────────────────────
+检查项目身份、受管基线和冲突。
+
+用法: yss doctor --root <目录> [--profile <Profile>] [--json]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+只读。遇到业务定制先查看诊断。
+
+最小示例:
+yss doctor --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples doctor
+```
+
+### evidence
+
+```text
+yss 2.7.1 — evidence
+──────────────────────
+校验 evidence 的结构或原生领域语义。
+
+用法: yss evidence <子命令> --root <目录>
+
+子命令:
+check  执行显式 Schema 结构校验。
+verify  执行当前领域规则和独立消费者绑定校验。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples evidence
+```
+
+### evidence check
+
+```text
+yss 2.7.1 — evidence check
+──────────────────────
+执行显式 Schema 结构校验。
+
+用法: yss evidence check --root <目录> --file <文件> --schema <Schema>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
+
+最小示例:
+yss evidence check --root ./demo-spec --file .template-spec/process/lifecycle-registry.yaml --schema .template-spec/process/schemas/lifecycle-registry.schema.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --schema <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  待验资产
+--schema  项目本地 Schema
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples evidence check
+```
+
+### evidence verify
+
+```text
+yss 2.7.1 — evidence verify
+──────────────────────
+执行当前领域规则和独立消费者绑定校验。
+
+用法: yss evidence verify --root <目录> --kind <类型> [--file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --binding <路径>                文件或目录路径
+  --boundary <值>                 按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --continuation                  布尔开关，可使用 =true 或 =false；默认 false
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --expected <路径>               文件或目录路径
+  --file <路径>                   文件或目录路径
+  --from-record                   布尔开关，可使用 =true 或 =false；默认 false
+  --gate <值>                     按当前命令说明指定
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --history                       布尔开关，可使用 =true 或 =false；默认 false
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: approval|user-decision|verification|context-reconciliation
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --require-approved              布尔开关，可使用 =true 或 =false；默认 false
+  --requirements <路径>           文件或目录路径
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--kind <approval|user-decision|verification|context-reconciliation>
+--file / --checkpoint / --task  资产与独立消费期待
+--gate / --boundary / --require-approved / --history  仅 approval
+--requirements / --continuation  仅 user-decision
+--approval-ref  仅 verification
+--home / --run-dir / --tool-root / --template-checkout  固定依赖来源
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples evidence verify
+```
+
+### explain
+
+```text
+yss 2.7.1 — explain
+──────────────────────
+解释流程术语或生命周期稳定 ID。
+
+用法: yss explain <术语或稳定ID> [--root <目录>]
+
+前置条件:
+在 YSS 项目根运行，读取其流程术语表与生命周期注册表；无需 checkpoint。
+只读当前项目的流程术语表与生命周期注册表；业务术语见根 CONTEXT.md。最多返回 10 条。
+
+最小示例:
+yss explain gate.plan-approved
+yss explain 工作单元 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+<术语或稳定ID>  例如 Slice Implementation Contract、gate.plan-approved 或 plan-approved
+--root  项目根，默认当前目录
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples explain
+```
+
+### git
+
+```text
+yss 2.7.1 — git
+──────────────────────
+查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
+
+用法: yss git <子命令> --root <仓库顶层>
+
+子命令:
+audit  按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
+base  解析 HEAD 与默认分支的合并基线，输出完整 SHA。
+branch  branch start：按 Ticket 生成符合策略的分支名并切换。
+changelog  按 Ticket 汇总提交范围内的变更。
+commit  只提交明确列出的路径，并追加 Ticket trailer。
+doctor  检查 Git 版本、提交身份、远端、历史深度与策略文件。
+guard  事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
+hooks  hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+policy  显示生效的 Git 策略；policy set 经计划修改一个字段。
+push  推送当前分支或一个本地标签；需保存计划并由用户确认远端。
+release  release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+status  分支、上游差异、改动路径及进行中的合并/变基。
+submodules  列出子模块状态及其本地入口文件。
+verify-message  校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git status --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git
+```
+
+### git audit
+
+```text
+yss 2.7.1 — git audit
+──────────────────────
+按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
+
+用法: yss git audit --root <仓库顶层> --since <引用> [--until <引用>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+有发现时 status=attention，退出码仍为 0。require_signed 为 true 时才调用 gpg 读取签名。
+
+最小示例:
+yss git audit --root ./demo-spec --since v2.1.0 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--since <引用>  必需，起始（不含）
+--until <引用>  默认 HEAD
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git audit
+```
+
+### git base
+
+```text
+yss 2.7.1 — git base
+──────────────────────
+解析 HEAD 与默认分支的合并基线，输出完整 SHA。
+
+用法: yss git base --root <仓库顶层> [--branch <分支>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+输出的 base 可直接用于 yss lifecycle route --base。
+
+最小示例:
+yss git base --root ./impl --json
+
+参数:
+  --branch <值>                   按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--branch <分支>  默认取策略 default_branch；先本地分支，再 origin/<分支>
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git base
+```
+
+### git branch
+
+```text
+yss 2.7.1 — git branch
+──────────────────────
+branch start：按 Ticket 生成符合策略的分支名并切换。
+
+用法: yss git branch start --root <仓库顶层> --task <Ticket> --slug <短名> [--type <类型>] [--from <引用>] --plan --out <新文件>
+
+子命令:
+start  branch start：按 Ticket 生成符合策略的分支名并切换。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+分支名为 <类型>/<Ticket>-<短名>。结果的 base 可用于 yss lifecycle route --base；未提交改动随工作区保留。
+
+最小示例:
+yss git branch start --root ./demo-spec --task FEAT-142 --slug order-refund --plan --out /tmp/branch-plan.json
+yss git branch start --root ./demo-spec --apply --plan-file /tmp/branch-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --from <Git引用>                git branch start 的起点；默认策略默认分支
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --slug <短名>                   git branch start 的分支短名，小写字母、数字、连字符
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --type <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  须符合 ticket_pattern
+--slug <短名>  小写字母、数字、连字符
+--type <类型>  默认 feat
+--from <引用>  起点，默认策略默认分支
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git branch
+```
+
+### git branch start
+
+```text
+yss 2.7.1 — git branch start
+──────────────────────
+branch start：按 Ticket 生成符合策略的分支名并切换。
+
+用法: yss git branch start --root <仓库顶层> --task <Ticket> --slug <短名> [--type <类型>] [--from <引用>] --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+分支名为 <类型>/<Ticket>-<短名>。结果的 base 可用于 yss lifecycle route --base；未提交改动随工作区保留。
+
+最小示例:
+yss git branch start --root ./demo-spec --task FEAT-142 --slug order-refund --plan --out /tmp/branch-plan.json
+yss git branch start --root ./demo-spec --apply --plan-file /tmp/branch-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --from <Git引用>                git branch start 的起点；默认策略默认分支
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --slug <短名>                   git branch start 的分支短名，小写字母、数字、连字符
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --type <值>                     按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  须符合 ticket_pattern
+--slug <短名>  小写字母、数字、连字符
+--type <类型>  默认 feat
+--from <引用>  起点，默认策略默认分支
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git branch start
+```
+
+### git changelog
+
+```text
+yss 2.7.1 — git changelog
+──────────────────────
+按 Ticket 汇总提交范围内的变更。
+
+用法: yss git changelog --root <仓库顶层> --since <引用> [--until <引用>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+无 Ticket 的提交归入 unlinked。
+
+最小示例:
+yss git changelog --root ./demo-spec --since v2.1.0 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--since <引用>  必需，起始（不含）
+--until <引用>  默认 HEAD
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git changelog
+```
+
+### git commit
+
+```text
+yss 2.7.1 — git commit
+──────────────────────
+只提交明确列出的路径，并追加 Ticket trailer。
+
+用法: yss git commit --root <仓库顶层> --task <Ticket> --message <主题> --paths <路径,路径…> --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+范围外改动列入计划的 excluded，不暂存、不提交。拒绝：受保护分支、分离 HEAD、进行中的合并/变基、未解决冲突。计划文件须保存在仓库之外。
+
+最小示例:
+yss git commit --root ./demo-spec --task FEAT-142 --message "支持部分退款" --paths src/refund,docs/refund.md --plan --out /tmp/commit-plan.json
+yss git commit --root ./demo-spec --apply --plan-file /tmp/commit-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --message <主题>                git commit 的单行提交主题；Ticket trailer 由策略追加
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --paths <路径,路径…>            git commit 要提交的仓库相对路径，逗号分隔；范围外改动不会暂存
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  须符合 ticket_pattern
+--message <主题>  单行，1–200 字
+--paths <路径,…>  仓库相对路径，逗号分隔
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git commit
+```
+
+### git doctor
+
+```text
+yss 2.7.1 — git doctor
+──────────────────────
+检查 Git 版本、提交身份、远端、历史深度与策略文件。
+
+用法: yss git doctor --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git doctor --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+status 为 ok/warn/fail；只读
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git doctor
+```
+
+### git guard
+
+```text
+yss 2.7.1 — git guard
+──────────────────────
+事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
+
+用法: yss git guard --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+只报告，不暂存、不还原、不清理任何文件。
+
+最小示例:
+yss git guard --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+就绪返回 status=clear；否则以 CONFLICT 失败并附明细
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git guard
+```
+
+### git hooks
+
+```text
+yss 2.7.1 — git hooks
+──────────────────────
+hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+
+用法: yss git hooks install --root <仓库顶层> --plan --out <新文件>
+
+子命令:
+install  hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+脚本写入 .githooks/（纳入版本控制）；原 core.hooksPath 或 .git/hooks/commit-msg 先被链式调用；已有非 yss 的 .githooks/commit-msg 不覆盖。找不到 yss 时钩子跳过检查。其他克隆需各自安装。
+
+最小示例:
+yss git hooks install --root ./demo-spec --plan --out /tmp/hooks-plan.json
+yss git hooks install --root ./demo-spec --apply --plan-file /tmp/hooks-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git hooks
+```
+
+### git hooks install
+
+```text
+yss 2.7.1 — git hooks install
+──────────────────────
+hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
+
+用法: yss git hooks install --root <仓库顶层> --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+脚本写入 .githooks/（纳入版本控制）；原 core.hooksPath 或 .git/hooks/commit-msg 先被链式调用；已有非 yss 的 .githooks/commit-msg 不覆盖。找不到 yss 时钩子跳过检查。其他克隆需各自安装。
+
+最小示例:
+yss git hooks install --root ./demo-spec --plan --out /tmp/hooks-plan.json
+yss git hooks install --root ./demo-spec --apply --plan-file /tmp/hooks-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git hooks install
+```
+
+### git policy
+
+```text
+yss 2.7.1 — git policy
+──────────────────────
+显示生效的 Git 策略；policy set 经计划修改一个字段。
+
+用法: yss git policy --root <仓库顶层> [set --key <字段> --value <值> --plan --out <新文件>] [--json]
+
+子命令:
+set  显示生效的 Git 策略；policy set 经计划修改一个字段。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+未知字段或非法正则会被拒绝，不回退默认值。set 整文件按固定格式重写，原注释不保留。
+
+最小示例:
+yss git policy --root ./demo-spec --json
+yss git policy set --root ./demo-spec --key protected_branches --value '["main","release"]' --plan --out /tmp/policy-plan.json
+yss git policy set --root ./demo-spec --apply --plan-file /tmp/policy-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --key <字段>                    git policy set 的策略字段
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --value <JSON>                  单个 JSON 值，默认 null
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+无子命令时只读。字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed
+--key / --value  set：字符串可直接写，列表用 JSON 数组，布尔写 true/false
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git policy
+```
+
+### git policy set
+
+```text
+yss 2.7.1 — git policy set
+──────────────────────
+显示生效的 Git 策略；policy set 经计划修改一个字段。
+
+用法: yss git policy set --key <字段> --value <值> --plan --out <新文件> | --apply --plan-file <文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+未知字段或非法正则会被拒绝，不回退默认值。set 整文件按固定格式重写，原注释不保留。
+
+最小示例:
+yss git policy --root ./demo-spec --json
+yss git policy set --root ./demo-spec --key protected_branches --value '["main","release"]' --plan --out /tmp/policy-plan.json
+yss git policy set --root ./demo-spec --apply --plan-file /tmp/policy-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --key <字段>                    git policy set 的策略字段
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --value <JSON>                  单个 JSON 值，默认 null
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+无子命令时只读。字段：default_branch、protected_branches、branch_pattern、ticket_trailer、ticket_pattern、review_trailer、require_signed
+--key / --value  set：字符串可直接写，列表用 JSON 数组，布尔写 true/false
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git policy set
+```
+
+### git push
+
+```text
+yss 2.7.1 — git push
+──────────────────────
+推送当前分支或一个本地标签；需保存计划并由用户确认远端。
+
+用法: yss git push --root <仓库顶层> --remote <远端名> [--tag <标签>] --plan --out <新文件>；应用： --apply --plan-file <文件> --confirm-remote <远端名>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+计划阶段不联网：按本地远端跟踪引用审计待推送提交（ticket、自审、签名），受保护分支、分离 HEAD、已分叉或落后一律拒绝。不使用 --force，远端拒绝时原样报告。没有 --confirm-remote 时不触达远端。
+
+最小示例:
+yss git push --root ./demo-spec --remote origin --plan --out /tmp/push-plan.json
+yss git push --root ./demo-spec --apply --plan-file /tmp/push-plan.json --confirm-remote origin
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --confirm-remote <远端名>       git push --apply 的用户确认；必须与计划中的远端同名
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --remote <远端名>               git push 的远端，如 origin
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --tag <标签>                    git push 改为推送该本地带注释标签，如 v1.2.3
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--remote <远端名>  必需
+--tag <标签>  改推本地带注释标签 vX.Y.Z，而不是当前分支
+--confirm-remote <远端名>  仅 --apply，须与计划中的远端同名
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git push
+```
+
+### git release
+
+```text
+yss 2.7.1 — git release
+──────────────────────
+release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+
+用法: yss git release tag --root <仓库顶层> --tag-version <版本> [--evidence-file <路径>] --plan --out <新文件>
+
+子命令:
+tag  release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+只创建本地标签，不推送。要求当前在 default_branch、工作区干净；require_signed 时使用签名标签。
+
+最小示例:
+yss git release tag --root ./demo-spec --tag-version 2.2.0 --plan --out /tmp/tag-plan.json
+yss git release tag --root ./demo-spec --apply --plan-file /tmp/tag-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --evidence-file <路径>          git release tag 记录摘要的仓库内证据文件，须已纳入版本控制
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --tag-version <版本>            git release tag 的版本，如 2.2.0，标签为 v2.2.0
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--tag-version <版本>  如 2.2.0，标签为 v2.2.0
+--evidence-file <路径>  可选，已纳入版本控制的文件，摘要写入标签信息
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git release
+```
+
+### git release tag
+
+```text
+yss 2.7.1 — git release tag
+──────────────────────
+release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
+
+用法: yss git release tag --root <仓库顶层> --tag-version <版本> [--evidence-file <路径>] --plan --out <新文件>
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+只创建本地标签，不推送。要求当前在 default_branch、工作区干净；require_signed 时使用签名标签。
+
+最小示例:
+yss git release tag --root ./demo-spec --tag-version 2.2.0 --plan --out /tmp/tag-plan.json
+yss git release tag --root ./demo-spec --apply --plan-file /tmp/tag-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --evidence-file <路径>          git release tag 记录摘要的仓库内证据文件，须已纳入版本控制
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --tag-version <版本>            git release tag 的版本，如 2.2.0，标签为 v2.2.0
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--tag-version <版本>  如 2.2.0，标签为 v2.2.0
+--evidence-file <路径>  可选，已纳入版本控制的文件，摘要写入标签信息
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git release tag
+```
+
+### git status
+
+```text
+yss 2.7.1 — git status
+──────────────────────
+分支、上游差异、改动路径及进行中的合并/变基。
+
+用法: yss git status --root <仓库顶层> [--task <Ticket>] [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+查询子命令只读。写入子命令（branch start、commit、hooks install、policy set、release tag）只在保存计划后执行：--plan --out 生成，--apply --plan-file 应用；计划绑定 HEAD、状态摘要和涉及文件的摘要，任一变化即拒绝。不访问远端、不推送。策略读取 .template-spec/process/git-policy.yaml，缺失时使用默认值。结果不代表可合并、可发布或阶段批准。
+
+最小示例:
+yss git status --root ./demo-spec --task FEAT-142 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--task <Ticket>  报告当前分支名是否包含该 Ticket
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git status
+```
+
+### git submodules
+
+```text
+yss 2.7.1 — git submodules
+──────────────────────
+列出子模块状态及其本地入口文件。
+
+用法: yss git submodules --root <仓库顶层> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+子模块是独立实现仓，进入前先读其 AGENTS.md。
+
+最小示例:
+yss git submodules --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+只读；不初始化、不拉取子模块
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git submodules
+```
+
+### git verify-message
+
+```text
+yss 2.7.1 — git verify-message
+──────────────────────
+校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
+
+用法: yss git verify-message --root <仓库顶层> --file <提交信息文件> [--json]
+
+前置条件:
+--root 为 Git 仓库顶层，PATH 中有 git ≥ 2.31；不要求项目身份，存在 yss-project.yaml 时先核验。
+合并、Revert、fixup!/squash! 提交跳过检查。
+
+最小示例:
+yss git verify-message --root ./demo-spec --file .git/COMMIT_EDITMSG
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  Git 仓库顶层，默认当前目录
+--profile <Profile>  可选；存在 yss-project.yaml 时先核验身份
+--file <文件>  Git 传给钩子的提交信息文件
+
+预期结果:
+只读返回仓库状态或报告；不写工作区、索引、引用或配置，不访问远端。报告不代表可合并、可发布或阶段批准。
+
+下一步:
+yss git doctor 检查环境；yss git base 输出的完整 SHA 用于 yss lifecycle route --base。
+
+常见错误:
+ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss help errors <错误码>
+详细示例: yss help examples git verify-message
+```
+
+### handoff
+
+```text
+yss 2.7.1 — handoff
+──────────────────────
+校验 handoff 的结构或原生领域语义。
+
+用法: yss handoff <子命令> --root <目录>
+
+子命令:
+check  执行显式 Schema 结构校验。
+verify  执行当前领域规则和独立消费者绑定校验。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples handoff
+```
+
+### handoff check
+
+```text
+yss 2.7.1 — handoff check
+──────────────────────
+执行显式 Schema 结构校验。
+
+用法: yss handoff check --root <目录> --file <文件> --schema <Schema>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
+
+最小示例:
+yss handoff check --root ./demo-spec --file .template-spec/process/lifecycle-registry.yaml --schema .template-spec/process/schemas/lifecycle-registry.schema.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --schema <路径>                 文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  待验资产
+--schema  项目本地 Schema
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples handoff check
+```
+
+### handoff verify
+
+```text
+yss 2.7.1 — handoff verify
+──────────────────────
+执行当前领域规则和独立消费者绑定校验。
+
+用法: yss handoff verify --root <目录> --kind <类型> [--file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --consumer <值>                 按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  --gate <值>                     按当前命令说明指定
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --history                       布尔开关，可使用 =true 或 =false；默认 false
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command；可选值: package|consumption|backend-delivery|source|delivery|source-approval
+  --package <路径>                文件或目录路径
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --slice <值>                    按当前命令说明指定
+  --source-context-snapshot       布尔开关，可使用 =true 或 =false；默认 false
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--kind <package|consumption|backend-delivery|source|delivery|source-approval>
+--file / --checkpoint  资产与独立消费期待
+--package  package/backend-delivery 支持目录或 ZIP；delivery 使用目录
+--file  source 的 Handoff 文件或 source-approval 的绑定文件；source-approval 另需 --gate
+--source-context-snapshot  仅 source-approval；显式读取固定 source-context.snapshot.md，不按缺失文件推断
+--consumer  仅 consumption
+--home / --run-dir / --tool-root / --template-checkout  固定依赖来源
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples handoff verify
+```
+
+### help
+
+```text
+yss 2.7.1 — Spec / Backend 统一入口
+──────────────────────
+
+用法: yss [选项] <命令> [参数]
+
+Profile 职责:
+  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。
+  Spec 包含必要产品设计；backend 承担技术设计与专职交付。
+  旧 Design 保留原记录，使用显式 migrate 计划转为 Spec。
+  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
+
+快速上手（选择一个 Profile，在独立新目录运行）:
+  yss init --profile spec --root ./demo-spec --project-name 演示项目
+  yss init --profile backend --root ./demo-backend --project-name 演示项目
+  yss doctor --root ./demo-spec --human
+  yss context verify --root ./demo-spec --json
+
+生命周期导航:
+  正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
+  固定模板：f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
+  日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
+  教程：yss help tutorial governed | yss help tutorial daily
+  先 Spec、再设计、再交付：yss help tutorial spec
+  目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target
+
+通用选项:
+  -h, --help       显示离线帮助
+  -V, --version    显示程序及来源
+  --human          强制中文摘要；终端默认中文，管道保持原格式
+  --json           输出机器协议 1；与 --human 互斥
+  --diagnostics    与 --json 同用，失败时附加诊断
+
+命令:
+  [项目]
+    init             创建固定模板来源的项目实例。
+    scaffold         直接生成 DDD 或分层 MVC 后端工程。
+    profile          准备独立的下游 Profile 工程并登记显式关联。
+    attach           首次接管已有工程的模板受管资产；使用 sync 同步模板。
+    doctor           检查项目身份、受管基线和冲突。
+    diff             查看当前文件相对固定模板的差异和同步计划。
+    sync             将项目模板升级到本 CLI 内置固定 Bundle。
+    migrate          显式迁移 Spec 或 Backend 的 metadata3 治理实例。
+    recover          查询或恢复未完成的项目事务。
+    rollback         查询或整体回退最近一次成功项目事务。
+  [资源]
+    skills           查询或补装 Skill 及其依赖闭包。
+    assets           查询或补装 阶段资源和 Skill 闭包。
+    bundle           读取或导出完整固定 Bundle 与 manifest。
+  [Git]
+    git              查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
+  [程序]
+    version          查看 CLI、协议和固定来源身份。
+    capabilities     查看原生能力、治理接口与发行证据边界。
+    upgrade          从 GitHub 下载并事务安装稳定版 CLI。
+    update           安装、恢复或回退指定本地发行包。
+  [治理]
+    explain          解释流程术语或生命周期稳定 ID。
+    check            识别实例资产并调用对应 verify 做结构与当前校验。
+    verify           核验一个门禁所需的当前 checkpoint 与检查依赖。
+    mcp              以 MCP stdio 服务提供只读治理工具。
+    tracker          把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
+    trace            汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
+    context          查询或校验唯一 CONTEXT.md 及词汇快照。
+    lifecycle        查询当前生命周期、配置本次推进目标并核验门禁。
+    stage            查询、登记或更新既有阶段工作项。
+    reading          只读核验或查询 managed 阅读视图。
+    contract         校验 contract 的结构或原生领域语义。
+    evidence         校验 evidence 的结构或原生领域语义。
+    handoff          校验 handoff 的结构或原生领域语义。
+    project-ci       核验或配置项目 CI。
+  [工具]
+    runtime          管理独立运行记录与保护标记。
+    archive          安全打包、读取或核验 ZIP 资产。
+    xml              读取 Maven project XML。
+    completion       生成 Bash、Zsh、Fish 或 PowerShell 补全脚本。
+  help [命令/子命令]  显示对应帮助；help tutorial 查看完整离线教程
+
+项目常用参数（程序升级不接受这些参数）:
+  --root <目录>    项目根，默认当前目录
+  --profile <Profile>  spec|backend；init 必需，其余从身份检测
+
+升级、同步与恢复:
+  yss upgrade --check                         查询 CLI 稳定版本
+  yss upgrade                                 升级 CLI 程序
+  yss update status --tool-root ./tools/yss    诊断离线安装与事务
+  yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
+  yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
+
+参数规则:
+  长参数接受 --参数 值 或 --参数=值；含空格的值用引号包围。
+  -h、-V 独立使用；不支持 -v 或 -hV 等组合短参数。
+  布尔值只接受小写 true/false；未提供、空值和 false 含义不同。
+  治理语义命令、scaffold、upgrade 拒绝重复参数；其他命令以后值为准。
+  -- 结束选项解析；其后的 --help、--json 等都作为位置参数，原数量及路径限制仍生效。
+  示例：yss check --root ./demo-spec -- -example.yaml
+
+Shell 补全:
+  yss completion bash|zsh|fish|powershell  输出对应脚本（四选一，不输入竖线）。
+  yss completion zsh --help               查看该 Shell 的生成与加载示例。
+  Bash 先加载 bash-completion；Zsh 先初始化 compinit。CLI 不自动安装或修改配置。
+
+帮助: yss -h | yss <命令/子命令> --help | yss help <命令/子命令>
+完整离线教程: yss help tutorial
+按主题阅读: yss help tutorial quickstart|daily|governed|spec|backend|maintenance
+示例索引: yss help examples [命令/子命令]
+错误索引: yss help errors [错误码]
+入口区别: upgrade 升级程序；sync 同步模板；recover 恢复未完成事务；rollback 回退最近成功事务。
+能力与限制: yss capabilities --json；未迁移行为返回 UNPORTED。
+帮助不读取项目、不访问网络、不创建资产。
+
+```
+
+### help errors
 
 ```text
 YSS 错误索引（查看详情：yss help errors <错误码>）
@@ -1013,4 +3765,7038 @@ YSS 错误索引（查看详情：yss help errors <错误码>）
   ZIP                            归档或 XML 输入无法读取
   ZIP_LIMIT                      归档或 XML 输入无法读取
 
+```
+
+### help examples
+
+```text
+YSS 示例索引
+使用 yss help examples <命令/子命令> 查看适用条件、完整命令、预期结果与失败恢复。
+
+archive
+archive pack
+archive unpack
+archive verify
+assets
+assets ensure
+assets list
+attach
+bundle
+bundle export
+bundle inspect
+capabilities
+check
+completion
+completion bash
+completion fish
+completion powershell
+completion zsh
+context
+context check
+context query
+context verify
+contract
+contract check
+contract publish-review
+contract verify
+contract view
+diff
+doctor
+evidence
+evidence check
+evidence verify
+explain
+git
+git audit
+git base
+git branch
+git branch start
+git changelog
+git commit
+git doctor
+git guard
+git hooks
+git hooks install
+git policy
+git policy set
+git push
+git release
+git release tag
+git status
+git submodules
+git verify-message
+handoff
+handoff check
+handoff verify
+help
+help errors
+help examples
+help tutorial
+init
+lifecycle
+lifecycle decision
+lifecycle decision apply
+lifecycle decision migrate-plan
+lifecycle decision plan
+lifecycle query
+lifecycle route
+lifecycle status
+lifecycle target
+lifecycle verify
+lifecycle verify-daily
+mcp
+migrate
+profile
+profile prepare
+project-ci
+project-ci apply
+project-ci check
+project-ci install
+project-ci plan
+project-ci transition
+project-ci verify
+reading
+reading affected
+reading apply-enable
+reading check-views
+reading plan-enable
+reading render
+recover
+rollback
+runtime
+runtime begin
+runtime commands
+runtime complete
+runtime event
+runtime events
+runtime inspect
+runtime pin
+runtime pins
+runtime run
+runtime unpin
+scaffold
+scaffold ddd
+scaffold mvc
+skills
+skills ensure
+skills list
+skills resolve
+stage
+stage apply
+stage check
+stage plan
+stage query
+stage register
+stage status
+stage update
+sync
+trace
+tracker
+tracker link
+tracker status
+tracker sync
+update
+update apply
+update plan
+update recover
+update rollback
+update status
+upgrade
+verify
+version
+xml
+xml inspect
+xml query
+```
+
+### help tutorial
+
+```text
+YSS 完整离线教程
+阅读主题：quickstart、governed、daily、spec、backend、maintenance
+所有帮助仅输出文本；命令由使用者在适当目录执行。内部测试案例不是生产批准或真实交付证据。
+
+快速上手
+前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
+
+  yss version --json
+  yss capabilities --json
+  yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
+  yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
+  yss doctor --root ./demo-spec --human
+  yss context verify --root ./demo-spec --json
+  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+
+预期结果：计划保存、初始化形成身份与基线；后续查询返回当前输入状态。
+下一步：yss help tutorial governed；符合日常政策时另读 daily。
+失败恢复：目录错误查看 yss help errors IDENTITY；未完成原生事务先 yss recover --root ./demo-spec --json，再在已确认恢复范围内增加 --apply。
+计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。
+
+正式生命周期（spec）
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
+输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
+
+本次目标、停止与续推（Spec 主控）
+当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
+
+三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
+五个可写目标：
+  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
+  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
+  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
+  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
+专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
+
+示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
+{
+  "schema_version": 1,
+  "kind": "lifecycle-progression-target",
+  "feature_id": "feature.example",
+  "checkpoint_ref": ".work/feature/checkpoint.json",
+  "target": "spec-approved",
+  "intent_source": "用户要求先完成 Spec",
+  "consumers": []
+}
+草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
+
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+
+plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
+达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
+
+用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
+设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
+每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
+
+本地或独立专职：
+  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
+  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
+  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
+
+读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
+失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
+详细输入和独立消费者示例见 docs/lifecycle-target.md。
+
+1. 入口分诊（stage.entry-triage）
+目标：确认仓库身份、问题范围和影响面。
+  yss stage query --root ./demo-spec --id stage.entry-triage --json
+  yss doctor --root ./demo-spec --json
+  yss context verify --root ./demo-spec --json
+  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+2. Plan（战略规划）（stage.plan）
+目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
+  yss stage query --root ./demo-spec --id stage.plan --json
+  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
+  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+3. Spec / 功能架构（stage.spec-architecture）
+目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
+  yss stage query --root ./demo-spec --id stage.spec-architecture --json
+  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
+  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
+  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
+  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+4. 产品设计与业务 Ticket 正式化（stage.product-design）
+目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
+  yss stage query --root ./demo-spec --id stage.product-design --json
+  yss assets list --root ./demo-spec --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
+  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
+目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
+  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
+  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
+  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
+  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
+  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+6. 实现切片拆分与合同准入（stage.ticket-formalization）
+目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
+  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
+  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
+  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
+  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+7. 垂直切片实现（stage.vertical-slice-implementation）
+目标：以批准合同驱动 TDD 实现和跨仓库协作。
+  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
+  yss skills list --root ./demo-spec --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
+目标：完成 fresh verification、发布和回顾。
+  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
+  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
+  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
+  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+
+
+日常交付（Spec / Backend，依实例当前政策）
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
+输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
+默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
+顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 适用复核 → verify-daily。
+
+  yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+
+预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
+  daily：满足政策，按同一记录实现、实际测试及适用复核，再 verify-daily。
+  standard：需求需一页确认；补 Spec-lite 与一次生物人决定（standard_required 为 true 时先补齐并把 delivery_path 改为 standard），其余同 daily。
+  governed：已有正式绑定或命中排除风险，从最近可信正式阶段继续。
+  needs-info：缺事实先调查，补齐同一任务记录后再次 route。
+下一步：verify-daily 通过后按当前范围交付；它核验已有记录，不执行业务测试或创建批准。
+失败恢复：缺适用复核、过期测试或差异变化时补当前证据；已有正式任务不降级。其他 Profile 以实际政策与能力为准。
+内部测试中的模拟日志和审查记录仅验证协议；公开项目的实际命令、适用复核和批准由对应负责人取得。
+
+Profile spec
+职责：综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。
+日常政策启用：true
+
+前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
+输入材料：项目名称、当前职责对应的合同/交接材料。
+
+  yss init --profile spec --root ./demo-spec --project-name 演示项目
+  yss doctor --root ./demo-spec --json
+  yss context verify --root ./demo-spec --json
+  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+  yss assets list --root ./demo-spec --json
+  yss skills list --root ./demo-spec --json
+
+预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。
+下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。
+失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
+
+正式生命周期（spec）
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
+输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
+
+本次目标、停止与续推（Spec 主控）
+当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
+
+三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
+五个可写目标：
+  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
+  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
+  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
+  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
+专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
+
+示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
+{
+  "schema_version": 1,
+  "kind": "lifecycle-progression-target",
+  "feature_id": "feature.example",
+  "checkpoint_ref": ".work/feature/checkpoint.json",
+  "target": "spec-approved",
+  "intent_source": "用户要求先完成 Spec",
+  "consumers": []
+}
+草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
+
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
+
+plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
+达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
+
+用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
+设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
+  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
+  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
+每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
+
+本地或独立专职：
+  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
+  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
+  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
+  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
+
+读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
+失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
+详细输入和独立消费者示例见 docs/lifecycle-target.md。
+
+1. 入口分诊（stage.entry-triage）
+目标：确认仓库身份、问题范围和影响面。
+  yss stage query --root ./demo-spec --id stage.entry-triage --json
+  yss doctor --root ./demo-spec --json
+  yss context verify --root ./demo-spec --json
+  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+2. Plan（战略规划）（stage.plan）
+目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
+  yss stage query --root ./demo-spec --id stage.plan --json
+  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
+  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+3. Spec / 功能架构（stage.spec-architecture）
+目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
+  yss stage query --root ./demo-spec --id stage.spec-architecture --json
+  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
+  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
+  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
+  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+4. 产品设计与业务 Ticket 正式化（stage.product-design）
+目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
+  yss stage query --root ./demo-spec --id stage.product-design --json
+  yss assets list --root ./demo-spec --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
+  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
+目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
+  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
+  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
+  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
+  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
+  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+6. 实现切片拆分与合同准入（stage.ticket-formalization）
+目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
+  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
+  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
+  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
+  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+7. 垂直切片实现（stage.vertical-slice-implementation）
+目标：以批准合同驱动 TDD 实现和跨仓库协作。
+  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
+  yss skills list --root ./demo-spec --json
+  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
+目标：完成 fresh verification、发布和回顾。
+  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
+  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
+  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
+  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+
+
+Profile backend
+职责：消费战略交接及批准工程合同，完成后端专职交付。
+日常政策启用：true
+
+前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
+输入材料：项目名称、当前职责对应的合同/交接材料。
+
+  yss init --profile backend --root ./demo-backend --project-name 演示项目
+  yss doctor --root ./demo-backend --json
+  yss context verify --root ./demo-backend --json
+  yss lifecycle query --root ./demo-backend --id work-unit.harness-entry --json
+  yss assets list --root ./demo-backend --json
+  yss skills list --root ./demo-backend --json
+
+预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。
+下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。
+失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
+
+正式生命周期（backend）
+来源摘要：template=f6160dcb330a09cf20f261d6fbb8ffcaf59e0f4d；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
+输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
+
+1. Plan（战略规划）（stage.plan）
+目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
+  yss stage query --root ./demo-backend --id stage.plan --json
+  yss stage register --root ./demo-backend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-backend/docs/stage-plan.json
+  yss stage apply --root ./demo-backend --plan-file docs/stage-plan.json --json
+  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+2. Spec / 功能架构（stage.spec-architecture）
+目标：固化解决方案和功能边界。
+  yss stage query --root ./demo-backend --id stage.spec-architecture --json
+  yss stage update --root ./demo-backend --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-backend/docs/stage-plan-next.json
+  yss lifecycle verify --root ./demo-backend --checkpoint .work/feature/checkpoint.json --json --diagnostics
+  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Spec 基线和功能边界可审查。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+3. Harness 入口（stage.harness-entry）
+目标：校验仓库身份、上游输入、影响面和实现仓库上下文。
+  yss stage query --root ./demo-backend --id stage.harness-entry --json
+  yss doctor --root ./demo-backend --json
+  yss context verify --root ./demo-backend --json
+  yss lifecycle query --root ./demo-backend --id work-unit.harness-entry --json
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：上游输入版本当前，影响面、项目根、分支、写入范围和验证命令可解释。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+4. 技术设计（stage.technical-design）
+目标：按已确认的 DDD 或 MVC 架构把批准需求细化为可实现、可验证的设计。
+  yss stage query --root ./demo-backend --id stage.technical-design --json
+  yss handoff verify --root ./demo-backend --kind package --package docs/handoff --json --diagnostics
+  yss lifecycle status --root ./demo-backend --checkpoint .work/feature/checkpoint.yaml --json
+  消费当前上游接收与工程约束；适用的技术设计 Skill 及负责人完成设计、适用复核和批准。输入通过不授予实现资格。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：新建后端的架构与精确 Spring Boot 版本已由用户确认，既有工程已核验并复用登记架构与实际版本；后端 Technical Design Contract 已批准且当前；数据影响为真时数据架构已批准，否则有可核验的不适用记录；gate.engineering-contract-approved 已通过。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+5. 实现仓库准备（stage.implementation-repository-preparation）
+目标：在已批准的技术/数据设计之后接入既有仓库或生成纯机械后端骨架。
+  yss stage query --root ./demo-backend --id stage.implementation-repository-preparation --json
+  yss contract verify --root ./demo-backend --kind scaffold --file docs/scaffold.json --json --diagnostics
+  由工程接入或脚手架 Skill 在批准且当前的工程合同下接入真实实现仓；先核对 Scaffold/Preparation 证据。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：Implementation Repository Preparation Result v2 当前且通过；新生成仅使用 Scaffold Contract/Manifest v4，历史 v3 已完成恢复对账。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+6. Slice Contract（stage.slice-contract）
+目标：将战术设计和冻结契约编译为一个跨前后端测试的实现合同。
+  yss stage query --root ./demo-backend --id stage.slice-contract --json
+  yss contract verify --root ./demo-backend --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
+  消费批准且当前的 Slice 合同、条件化交接与工程输入；编译器不创建批准。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：合同版本当前、四个角色分区完整、写路径和验证命令明确，且就绪公式满足。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+7. 垂直切片实现（stage.slice-implementation）
+目标：由前端、后端和测试 Agent 按同一合同并行实现和验证。
+  yss stage query --root ./demo-backend --id stage.slice-implementation --json
+  yss skills list --root ./demo-backend --json
+  yss lifecycle status --root ./demo-backend --checkpoint .work/feature/checkpoint.yaml --json
+  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：行为实现、测试证据、契约一致性和写入边界均满足合同。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+8. 独立验证（stage.verification）
+目标：由测试 Agent 以独立执行态完成 Fresh Verification 和合并前复核。
+  yss stage query --root ./demo-backend --id stage.verification --json
+  yss evidence verify --root ./demo-backend --kind verification --file docs/verification.json --json --diagnostics
+  yss project-ci verify --root ./demo-backend --base "<已确认40位SHA>" --runtime-store off --json
+  yss lifecycle verify --root ./demo-backend --checkpoint .work/feature/checkpoint.yaml --json
+  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
+预期结果：查询/核验当前输入与适用条件。
+下一步条件：所有命中门禁通过，阻塞信号清空，证据可读且 checkpoint 可追溯。
+失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+
+
+
+维护与恢复
+前置条件：分别确认程序、项目模板及插件绑定的来源与事务范围。
+程序升级：upgrade；模板同步：sync。
+普通 recover/rollback 默认只读，增加 --apply 执行；update recover/rollback 本身写入。
+先核对状态及归档，在已确认范围内恢复。已绑定插件使用对应插件 project-upgrade-plan/apply 或 project-migration-plan/apply。
+预期结果：计划、应用与恢复均绑定实际输入；后续用户修改阻止覆盖。
+下一步：核对 doctor/diff 或 update status，保留本次真实验证与恢复材料。
+失败恢复：冲突与输入漂移先保留现场，再检查诊断并重新规划。
+
+YSS 离线入门教程
+
+1. 查看程序与选择模板
+   yss version --json
+   yss capabilities --json
+   yss init --profile spec --root ./demo-spec --project-name 演示项目
+   也可选择 backend；在各自的新目录初始化。
+
+2. 检查实例（只读）
+   yss doctor --root ./demo-spec --json
+   yss diff --root ./demo-spec --json
+
+3. 升级项目模板（先检查计划，再应用）
+   yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
+   yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
+   计划文件须不存在；输入或定制冲突变化时重新生成计划。
+
+4. 查询和补装资源
+   yss skills list --root ./demo-spec --json
+   yss skills ensure yss-research --root ./demo-spec --plan --out /tmp/yss-skill-plan.json
+   yss skills --root ./demo-spec --apply --plan-file /tmp/yss-skill-plan.json
+   yss assets list --root ./demo-spec --json
+   使用 list 的实际标识；阶段资源以当前 Profile 登记为准。
+
+5. 升级 CLI 程序
+   yss upgrade --check
+   yss upgrade
+   yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
+   自动识别实际运行的受管工具目录；未受管裸二进制须显式选择新工具目录。
+
+   1.0.0 没有 upgrade 命令：首次进入新版从
+   https://github.com/iloveZzz/yss-cli/releases 下载本机包和 checksums.json，
+   读取其中对应归档 SHA-256，再执行现有离线入口：
+   yss update plan --tool-root ./tools/yss --artifact /path/yss_1.3.0_darwin_arm64.tar.gz --sha256 "<SHA-256>" --out /tmp/yss-install-plan.json --json
+   yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
+   ./tools/yss/yss version --json
+   将该受管目录的 yss 链接到 PATH 后即可使用 upgrade。
+
+7. 程序恢复和回退
+   yss update status --tool-root ./tools/yss --json
+   yss update recover --tool-root ./tools/yss --json
+   yss update rollback --tool-root ./tools/yss --json
+   自动安装用户应使用 upgrade 输出的 toolRoot，示例目录只是显式安装案例。
+   后续用户修改会阻止覆盖；程序事务与项目 sync 事务分别恢复。
+
+   出现“受管程序文件与安装清单不一致”时：
+   先对错误中实际 toolRoot 执行 update status，查看 diagnostic.files 的
+   expected/actual 摘要、权限以及 recordedVersion/runningVersion。
+   运行版本仅在查询当前执行程序所在目录时比较；其他目录不会混用版本。
+   有未完成程序事务先检查状态与归档，再执行 update recover。
+   没有未完成事务但文件或版本不一致时，保留旧目录，选择不存在的新目录：
+   yss upgrade --tool-root ./tools/yss-clean
+   ./tools/yss-clean/yss version --json
+   ./tools/yss-clean/yss update status --tool-root ./tools/yss-clean --json
+   确认一致后再将 PATH 入口指向新目录的完整受管安装。
+   离线安装使用第 6 步的 update plan/apply，tool-root 改为新目录。
+   不要只替换 yss 文件、改写安装收据或删除旧归档；回退仍可能因后续修改而拒绝。
+
+8. 治理入口
+   yss context verify --root ./demo-spec --json
+   yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+   yss lifecycle route --help
+   日常路由需已确认任务、实现仓和完整基线；机器校验不创建批准。
+
+每个命令都有 -h / --help，例如 yss update apply -h。
+本教程只输出文本；示例需由用户在适当目录显式执行。
+
+
+
+```
+
+### init
+
+```text
+yss 2.7.1 — init
+──────────────────────
+创建固定模板来源的项目实例。
+
+用法: yss init --profile <spec|backend> --root <目录> [--project-name <名称>]
+
+前置条件:
+选择一个 Profile 和不存在或空的新目录；需要审阅写范围时先 --plan --out，再应用保存计划。
+拒绝覆盖用户文件；初始化使用程序内置 Bundle，无需 Node/Python 或网络。已有工程请先查看 yss attach --help。
+
+最小示例:
+yss init --profile spec --root ./demo-spec --project-name 演示项目
+yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --installation <方式>           新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--profile       必需，选择 Spec 或 Backend
+--root          项目目录；默认当前目录，推荐显式指定新目录
+--project-name  项目名称
+--business-domain / --team-size  模板变量
+--full          安装该 Profile 的完整资源，默认初始分发集合
+--plan --out <新文件>  只生成计划；默认直接初始化
+--apply --plan-file <文件>  应用已保存计划
+--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置
+
+预期结果:
+形成所选 Profile 的项目身份与受管基线；--plan 模式只生成计划。
+
+下一步:
+yss doctor --help；核对身份后用 lifecycle 查询当前入口。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples init
+```
+
+### lifecycle
+
+```text
+yss 2.7.1 — lifecycle
+──────────────────────
+查询当前生命周期、配置本次推进目标并核验门禁。
+
+用法: yss lifecycle <子命令> --root <目录>
+
+子命令:
+decision  规划、应用或显式迁移四阶段记录。
+query  查询注册表中的稳定 ID。
+route  只读判定日常或正式交付路径。
+status  只读核验 checkpoint、本次目标与显式消费者的当前证据。
+target  读取或事务设置 Spec 单功能的本次推进目标。
+verify  核验当前 checkpoint 的领域门禁。
+verify-daily  核验同一日常任务的当前差异、测试和适用复核。
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
+
+最小示例:
+yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle
+```
+
+### lifecycle decision
+
+```text
+yss 2.7.1 — lifecycle decision
+──────────────────────
+规划、应用或显式迁移四阶段记录。
+
+用法: yss lifecycle decision
+
+子命令:
+apply  复算输入后原子登记阶段记录与 checkpoint。
+migrate-plan  保留原件并规划显式四阶段迁移；证据不足保持未批准。
+plan  只读核验阶段输入并生成登记计划。
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+
+
+最小示例:
+
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle decision
+```
+
+### lifecycle decision apply
+
+```text
+yss 2.7.1 — lifecycle decision apply
+──────────────────────
+复算输入后原子登记阶段记录与 checkpoint。
+
+用法: yss lifecycle decision apply --plan <已保存计划> --root <目录>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+
+
+最小示例:
+
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --plan <文件>                   已保存的阶段登记计划
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle decision apply
+```
+
+### lifecycle decision migrate-plan
+
+```text
+yss 2.7.1 — lifecycle decision migrate-plan
+──────────────────────
+保留原件并规划显式四阶段迁移；证据不足保持未批准。
+
+用法: yss lifecycle decision migrate-plan --checkpoint <旧文件> --input <映射> --out <新文件> --root <目录>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+
+
+最小示例:
+
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --input <值>                    按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle decision migrate-plan
+```
+
+### lifecycle decision plan
+
+```text
+yss 2.7.1 — lifecycle decision plan
+──────────────────────
+只读核验阶段输入并生成登记计划。
+
+用法: yss lifecycle decision plan --checkpoint <文件> --input <阶段记录> --out <新文件> --root <目录>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+
+
+最小示例:
+
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --input <值>                    按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle decision plan
+```
+
+### lifecycle query
+
+```text
+yss 2.7.1 — lifecycle query
+──────────────────────
+查询注册表中的稳定 ID。
+
+用法: yss lifecycle query --root <目录> [--id <ID>]
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
+
+最小示例:
+yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stage <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
+  --work-unit <值>                按当前命令说明指定
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --work-unit / --stage  选择注册对象
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle query
+```
+
+### lifecycle route
+
+```text
+yss 2.7.1 — lifecycle route
+──────────────────────
+只读判定日常或正式交付路径。
+
+用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用> [--prepare-inputs]
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
+
+最小示例:
+yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
+
+参数:
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --implementation-root <路径>    文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --prepare-inputs                布尔开关，可使用 =true 或 =false；默认 false
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--task  同一任务的需求、验收及证据
+--implementation-root  已确认实现仓 Git 根
+--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA
+--prepare-inputs  只读准备 skills、inputs 及 Backend standalone 输入摘要；仅无 API 变化的 daily，不能与 --view 同用；不更新测试、审查或批准
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle route
+```
+
+### lifecycle status
+
+```text
+yss 2.7.1 — lifecycle status
+──────────────────────
+只读核验 checkpoint、本次目标与显式消费者的当前证据。
+
+用法: yss lifecycle status --root <目录> --checkpoint <文件>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+查询不写入、不启动实现或业务测试。达到短目标仍保留 checkpoint.next_work_unit；next_action 不是执行授权。旧实例未启用目标政策时保留旧行为，须显式 sync 后核验能力。
+
+最小示例:
+yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --view <视图>                   显式阅读模式；未指定时保持原查询输出；可选值: agent
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  当前 checkpoint
+progression  本次目标及本端职责/整体业务完成结论
+coordination  显式同功能消费者的当前来源、接收及交付
+next_action  承接者、工程、工作单元和等待原因
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle status
+```
+
+### lifecycle target
+
+```text
+yss 2.7.1 — lifecycle target
+──────────────────────
+读取或事务设置 Spec 单功能的本次推进目标。
+
+用法: yss lifecycle target --root <目录> --checkpoint <文件> [--plan --input <JSON> --out <新计划>] 或 --apply --plan-file <原计划>
+
+前置条件:
+当前实例具备 lifecycle-target-v1 政策；Tracker/map 唯一登记当前功能 checkpoint。写目标仅限 Spec，输入 JSON 必须绑定同一 feature/checkpoint。
+新正式 Spec 默认 business-accepted；plan-to-backend 的职责上限只允许前三目标。仅支持 lifecycle-target-v1 政策的 Spec 主控可写；专职只读 profile-terminal 不是可写枚举。写入仅限 progression-target.json 及必要事务记录，不改 checkpoint、批准、冻结包或 Receipt，不授 ready-for-agent。达到目标后停止本次下游写入，保留真实 next_work_unit；续推修改 JSON target/intent_source，再 plan/apply 并重验，从首个合法未完成工作单元继续。能力缺失的旧原生实例先显式 sync；帮助教程见 yss help tutorial spec。草稿使用已有忽略规则覆盖的功能 tmp 目录，不自动添加 ignore。
+
+最小示例:
+yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --input .work/feature/tmp/target-input.json --plan --out /tmp/target-plan.json --json
+yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/target-plan.json --json
+yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --input <值>                    按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+无 plan/apply：只读核验目标、显式交接与完成依据
+--checkpoint  Tracker/map 唯一登记的当前功能 checkpoint
+--input  项目内 JSON：schema_version、kind、feature_id、checkpoint_ref、target、intent_source、consumers
+JSON target 四选一：spec-approved / product-design-completed / backend-deliverable / business-accepted
+consumers  本地推进用 []；独立专职端显式给 profile、绝对 root、同功能 checkpoint_ref，每种 Profile 最多一个
+--plan --out  保存新计划；输入草稿保留到 apply 完成，计划建议放工程外
+--apply --plan-file  仅消费原保存计划；不要同时传 checkpoint/input/plan/out
+
+预期结果:
+查询只读返回本次目标、显式消费者及当前证据；plan 保存意图配置计划，apply 重验原计划后仅写目标和必要事务记录，不创建批准或执行实现。
+
+下一步:
+yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle target
+```
+
+### lifecycle verify
+
+```text
+yss 2.7.1 — lifecycle verify
+──────────────────────
+核验当前 checkpoint 的领域门禁。
+
+用法: yss lifecycle verify --root <目录> --checkpoint <文件>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
+
+最小示例:
+yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --history                       布尔开关，可使用 =true 或 =false；默认 false
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  当前 checkpoint
+--history  仅历史结构，不授予当前放行
+--home / --run-dir / --tool-root / --template-checkout  独立依赖来源
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle verify
+```
+
+### lifecycle verify-daily
+
+```text
+yss 2.7.1 — lifecycle verify-daily
+──────────────────────
+核验同一日常任务的当前差异、测试和适用复核。
+
+用法: yss lifecycle verify-daily --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用>
+
+前置条件:
+查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
+
+最小示例:
+yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root /path/implementation --base HEAD --json
+
+参数:
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --implementation-root <路径>    文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--task  同一任务的需求、验收及证据
+--implementation-root  已确认实现仓 Git 根
+--base  完整40位 SHA，或实现仓内可解析的引用（如 HEAD、main）；结果回显 base_ref 与解析后的 base_sha，记录里的 baseline_sha 仍写完整 SHA
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples lifecycle verify-daily
+```
+
+### mcp
+
+```text
+yss 2.7.1 — mcp
+──────────────────────
+以 MCP stdio 服务提供只读治理工具。
+
+用法: yss mcp [--root <目录>]
+
+前置条件:
+由 MCP 客户端以子进程启动；--root 指向 YSS 项目根。stdout 只承载 JSON-RPC，诊断写 stderr。
+工具：lifecycle_route、verify_daily、lifecycle_status、lifecycle_query、context_query、contract_view、explain、check、trace、verify_gate。全部只读，结果是与命令行相同的 JSON envelope；不暴露写入、提交或推送。客户端配置示例：{"mcpServers":{"yss":{"command":"yss","args":["mcp","--root","."]}}}
+
+最小示例:
+yss mcp --root ./demo-spec
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  固定的项目根，默认当前目录；工具参数不能改写
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples mcp
+```
+
+### migrate
+
+```text
+yss 2.7.1 — migrate
+──────────────────────
+显式迁移 Spec 或 Backend 的 metadata3 治理实例。
+
+用法: yss migrate --root <目录> [--profile spec] --plan --out <新文件>；应用：--apply --plan-file <文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+只支持统一 metadata3 / identity1 / policy1；未知格式原件保留。封存原身份、政策和记录。旧批准通过 --history 按原语义只读；不授予新资格。未完成迁移可 recover，已完成后不支持降级。
+
+最小示例:
+yss migrate --root ./old-spec --profile spec --plan --out /tmp/governance-migration.json
+yss migrate --root ./old-spec --profile spec --apply --plan-file /tmp/governance-migration.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --installation <方式>           新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
+  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--review-out / --base-bundle / --resolution-file  复用同步冲突审阅与决议
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples migrate
+```
+
+### profile
+
+```text
+yss 2.7.1 — profile
+──────────────────────
+准备独立的下游 Profile 工程并登记显式关联。
+
+用法: yss profile <子命令> --root <源工程>
+
+子命令:
+prepare  为显式外部 Backend 生成或执行初始化保存计划。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+已有普通工程使用 attach；关联回退不回退下游工程。
+
+最小示例:
+yss profile prepare --root ./spec --backend-root ./backend --plan --out /tmp/delivery-prepare.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --backend-root <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples profile
+```
+
+### profile prepare
+
+```text
+yss 2.7.1 — profile prepare
+──────────────────────
+为显式外部 Backend 生成或执行初始化保存计划。
+
+用法: yss profile prepare --root <源工程> --backend-root <目录> --plan --out <新文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+全部目标预检后登记关联，再依次初始化；失败保留已成功工程，按原计划重试剩余步骤。初始化不授予阶段实施资格。
+
+最小示例:
+yss profile prepare --root ./spec --backend-root ./backend --plan --out /tmp/delivery-prepare.json
+yss profile prepare --root ./spec --apply --plan-file /tmp/delivery-prepare.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --backend-root <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+--checkpoint <文件>  可选，绑定当前工作及来源证据
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples profile prepare
+```
+
+### project-ci
+
+```text
+yss 2.7.1 — project-ci
+──────────────────────
+核验或配置项目 CI。
+
+用法: yss project-ci <子命令> --root <目录>
+
+子命令:
+apply  应用保存的 CI 安装计划。
+check  核验完整治理或显式有限 CI。
+install  生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
+plan  生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
+transition  核验工作单元流转条件。
+verify  按完整 Git 基线核验 CI。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss project-ci check --root ./demo-spec --runtime-store off --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci
+```
+
+### project-ci apply
+
+```text
+yss 2.7.1 — project-ci apply
+──────────────────────
+应用保存的 CI 安装计划。
+
+用法: yss project-ci apply --root <目录> --plan-file <文件> [--scope native-go]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--plan-file  项目内原始写入计划
+--scope native-go  计划为有限检查时必需；须与计划范围一致
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci apply
+```
+
+### project-ci check
+
+```text
+yss 2.7.1 — project-ci check
+──────────────────────
+核验完整治理或显式有限 CI。
+
+用法: yss project-ci check --root <目录> [--scope native-go]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+有限通过不代表完整治理通过。
+
+最小示例:
+yss project-ci check --root ./demo-spec --runtime-store off --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--scope native-go  有限原生检查；默认完整治理
+--runtime-store off  当前完整治理支持的存储模式
+--checkpoint / --task  追加当前消费入口
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci check
+```
+
+### project-ci install
+
+```text
+yss 2.7.1 — project-ci install
+──────────────────────
+生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
+
+用法: yss project-ci install --root <目录> --cli-source <路径> [--scope native-go] [--provider github]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI（--scope native-go）不替代完整治理；应用时 --scope 须与计划一致；保存原始计划时不加 --json。
+
+最小示例:
+yss project-ci install --root ./demo-spec --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--scope native-go  只装有限检查；省略时安装与默认 project-ci check 相同的完整治理检查
+--provider github  当前唯一支持的 provider，默认 github
+--branch  默认项目配置分支或 main
+--cli-source  必需；项目内已存在的固定 Go CLI 源码目录
+--additional-path  CI 补充路径
+默认只输出计划；--apply --plan-file 应用保存计划
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci install
+```
+
+### project-ci plan
+
+```text
+yss 2.7.1 — project-ci plan
+──────────────────────
+生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
+
+用法: yss project-ci plan --root <目录> --cli-source <路径> [--scope native-go] [--provider github]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+先准备项目内 vendor/yss-cli 固定源码；路径示例不会自动取得源码。有限 CI（--scope native-go）不替代完整治理；应用时 --scope 须与计划一致；保存原始计划时不加 --json。
+
+最小示例:
+yss project-ci plan --root ./demo-spec --cli-source vendor/yss-cli > ./demo-spec/docs/ci-plan.json
+yss project-ci apply --root ./demo-spec --plan-file docs/ci-plan.json --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--scope native-go  只装有限检查；省略时安装与默认 project-ci check 相同的完整治理检查
+--provider github  当前唯一支持的 provider，默认 github
+--branch  默认项目配置分支或 main
+--cli-source  必需；项目内已存在的固定 Go CLI 源码目录
+--additional-path  CI 补充路径
+默认只输出计划；--apply --plan-file 应用保存计划
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci plan
+```
+
+### project-ci transition
+
+```text
+yss 2.7.1 — project-ci transition
+──────────────────────
+核验工作单元流转条件。
+
+用法: yss project-ci transition --root <目录> --scope native-go --checkpoint <文件> [--next-work-unit <ID>]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+仅核验已存在的当前门禁，不创建批准、不自动推进工作单元。
+
+最小示例:
+yss project-ci transition --root ./demo-spec --scope native-go --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--scope native-go  必需
+--checkpoint / --file  当前 checkpoint
+--current-work-unit / --next-work-unit  默认读取 checkpoint
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci transition
+```
+
+### project-ci verify
+
+```text
+yss 2.7.1 — project-ci verify
+──────────────────────
+按完整 Git 基线核验 CI。
+
+用法: yss project-ci verify --root <目录> --base <完整SHA>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss project-ci verify --root ./demo-spec --base "<完整40位SHA>" --runtime-store off --json
+
+参数:
+  --additional-path <值>          按当前命令说明指定
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base <完整SHA>                已确认实现仓的完整 Git 基线
+  --branch <值>                   按当前命令说明指定
+  --checkpoint <路径>             文件或目录路径
+  --cli-source <路径>             文件或目录路径
+  --current-work-unit <值>        按当前命令说明指定
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --next-work-unit <值>           按当前命令说明指定
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --provider <提供方>             CI 提供方，默认 github；可选值: github
+  --recover                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --run-dir <路径>                文件或目录路径
+  --runtime-store <值>            按当前命令说明指定
+  --scope <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --task <路径>                   文件或目录路径
+  --template-checkout <路径>      文件或目录路径
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--base  实现仓完整基线 SHA
+--runtime-store off
+--checkpoint / --task  追加当前消费入口
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples project-ci verify
+```
+
+### reading
+
+```text
+yss 2.7.1 — reading
+──────────────────────
+只读核验或查询 managed 阅读视图。
+
+用法: yss reading <子命令> --root <目录>
+
+子命令:
+affected  列出受某个资产变化影响的 managed checkpoint。
+apply-enable  应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
+check-views  只读核验 checkpoint 的阅读视图是否与当前来源一致。
+plan-enable  规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
+render  渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+阅读视图是来源快照，不授予执行权限；check-views / affected / plan-enable 只读；render / apply-enable 经事务写入阅读目录、清单与 map.md 的受管区。
+
+最小示例:
+yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading
+```
+
+### reading affected
+
+```text
+yss 2.7.1 — reading affected
+──────────────────────
+列出受某个资产变化影响的 managed checkpoint。
+
+用法: yss reading affected --root <目录> --asset <路径> --kind <domain-strategy|stage-decision-package|checkpoint|tracking-migration>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+未启用 managed 策略时返回空集。
+
+最小示例:
+yss reading affected --root ./demo-spec --asset .work/feature/plan/domain-strategy.yaml --kind domain-strategy --json
+
+参数:
+  --asset <路径>                  发生变化的项目内资产路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--asset  变化的资产路径
+--kind  资产类型；其他类型返回空集
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading affected
+```
+
+### reading apply-enable
+
+```text
+yss 2.7.1 — reading apply-enable
+──────────────────────
+应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
+
+用法: yss reading apply-enable --root <目录> <计划文件>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+写入前重新规划并要求计划摘要一致（READING_ENABLE_PLAN_STALE 时重新 plan-enable）；策略与渲染文件同一事务，提交后重新核验，失败整体回滚。已应用且视图当前一致时返回 unchanged。
+
+最小示例:
+yss reading apply-enable --root ./demo-spec .work/feature/tmp/reading-enable.json --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+计划文件  项目内由 plan-enable 保存的 JSON
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading apply-enable
+```
+
+### reading check-views
+
+```text
+yss 2.7.1 — reading check-views
+──────────────────────
+只读核验 checkpoint 的阅读视图是否与当前来源一致。
+
+用法: yss reading check-views --root <目录> --checkpoint <文件> [--required]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+status 为 manual（未启用）、current 或 stale；stale 以退出码 1 返回，结果含 blockers 与恢复提示。
+
+最小示例:
+yss reading check-views --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --required                      即使 managed 策略未启用也按阅读视图要求核验
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint  已登记的 checkpoint
+--required  即使策略未启用也按 managed 要求核验
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading check-views
+```
+
+### reading plan-enable
+
+```text
+yss 2.7.1 — reading plan-enable
+──────────────────────
+规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
+
+用法: yss reading plan-enable --root <目录> --checkpoint <文件> [--output <新文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+只读。计划含 policy_after、将写的全部文件（operations）与 preview，并绑定当前输入摘要；不写任何文件。旧版 Node 计划不能由 apply-enable 应用，须重新生成。
+
+最小示例:
+yss reading plan-enable --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --output .work/feature/tmp/reading-enable.json --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output <路径>                 文件或目录路径
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint  待启用的 checkpoint
+--output  把计划保存为项目内新文件；不保存则只输出到结果
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading plan-enable
+```
+
+### reading render
+
+```text
+yss 2.7.1 — reading render
+──────────────────────
+渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
+
+用法: yss reading render --root <目录> --checkpoint <文件> [--dry-run] 或 --all [--dry-run]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+写入经事务层完成并在提交后重新核验，失败整体回滚，可用 yss recover/rollback 处理中断。来源有阻断诊断、输出或导航被人手改、清单无效或旧版日志残留时拒绝且不写任何文件。清单版本由实例的清单 schema 决定：接受 v2 时写 v2（renderer 为 yss-reading 规则版本，不含 Node 渲染器闭包），否则写与 Node 逐字节相同的 v1；已有 v2 清单不会降级。
+
+最小示例:
+yss reading render --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --dry-run --json
+
+参数:
+  --all                           对策略登记的全部对象逐个执行；与指定单个对象互斥
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --dry-run                       只返回将写的文件与摘要，不写任何文件
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint  已登记的 checkpoint
+--all  渲染策略登记的全部 checkpoint，每个一个事务
+--dry-run  只返回将写的文件与摘要，不写任何文件
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples reading render
+```
+
+### recover
+
+```text
+yss 2.7.1 — recover
+──────────────────────
+查询或恢复未完成的项目事务。
+
+用法: yss recover --root <目录> [--apply]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+程序安装事务使用 yss update recover --tool-root <目录>。
+
+最小示例:
+yss recover --root ./demo-spec --json
+yss recover --root ./demo-spec --apply --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--apply  执行保护性恢复；默认只查询
+
+预期结果:
+显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
+
+下一步:
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples recover
+```
+
+### rollback
+
+```text
+yss 2.7.1 — rollback
+──────────────────────
+查询或整体回退最近一次成功项目事务。
+
+用法: yss rollback --root <目录> [--apply]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+后续用户修改会阻止覆盖。程序版本回退使用 yss update rollback。
+
+最小示例:
+yss rollback --root ./demo-spec --json
+yss rollback --root ./demo-spec --apply --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--apply  执行回退；默认只查询
+
+预期结果:
+显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
+
+下一步:
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples rollback
+```
+
+### runtime
+
+```text
+yss 2.7.1 — runtime
+──────────────────────
+管理独立运行记录与保护标记。
+
+用法: yss runtime <子命令> --root <目录>
+
+子命令:
+begin  创建运行记录并返回所有权 token。
+commands  只读查询运行记录。
+complete  以实际退出码结束运行记录。
+event  追加运行事件。
+events  只读查询运行记录。
+inspect  只读查询运行记录。
+pin  维护运行记录保护标记。
+pins  只读查询运行记录。
+run  只读查询运行记录。
+unpin  维护运行记录保护标记。
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss runtime inspect --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime
+```
+
+### runtime begin
+
+```text
+yss 2.7.1 — runtime begin
+──────────────────────
+创建运行记录并返回所有权 token。
+
+用法: yss runtime begin --root <目录> [--kind <类型>] [--input <值>] [--report-dir <仓外绝对目录>]
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+保存返回的 id/token；之后 event、complete 和 pin 操作都须提供 token。输入对象完整写入、校验与文件同步后原子发布，损坏的已有对象保留并报 RUNTIME_INTEGRITY。
+
+最小示例:
+yss runtime begin --root ./demo-spec --kind command --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --input <值>                    按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --kind <类型>                   当前命令的领域类型；runtime begin 默认 command
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --report-dir <路径>             文件或目录路径
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储
+--kind  默认 command
+--input  原字节存为共享 gzip 对象并登记引用（≤16 MiB），结果回显 input_digest
+--report-dir  正式报告目录，须为仓外绝对路径且无符号链接，以 report-dir:<路径> 保护
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime begin
+```
+
+### runtime commands
+
+```text
+yss 2.7.1 — runtime commands
+──────────────────────
+只读查询运行记录。
+
+用法: yss runtime commands --root <目录> --id <运行ID>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+运行记录不授予生命周期批准或执行授权。
+
+最小示例:
+yss runtime commands --root ./demo-spec --id "<运行ID>" --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储；默认用户运行存储
+--id  已登记运行 ID
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime commands
+```
+
+### runtime complete
+
+```text
+yss 2.7.1 — runtime complete
+──────────────────────
+以实际退出码结束运行记录。
+
+用法: yss runtime complete --root <目录> --id <ID> --token <token> --status <终态> --exit-code <整数>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss runtime complete --root ./demo-spec --id "<ID>" --token "<token>" --status passed --exit-code 0 --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --exit-code <整数>              实际退出码；成功状态必须为 0
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --status <终态>                 运行记录的终态；成功状态必须匹配退出码 0；可选值: passed|success|completed|ok|failed|failure|cancelled|canceled|timed-out|timeout|error
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --token <值>                    按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --token  begin 返回的所有权凭证
+--status  已知终态
+--exit-code  实际整数退出码，passed 必须为 0
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime complete
+```
+
+### runtime event
+
+```text
+yss 2.7.1 — runtime event
+──────────────────────
+追加运行事件。
+
+用法: yss runtime event --root <目录> --id <ID> --token <token> --type <类型> [--value <JSON>]
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss runtime event --root ./demo-spec --id "<ID>" --token "<token>" --type progress --value '{"message":"checked"}' --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --token <值>                    按当前命令说明指定
+  --type <值>                     按当前命令说明指定
+  --value <JSON>                  单个 JSON 值，默认 null
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --token  begin 返回的所有权凭证
+--type  必需
+--value  单个 JSON 值，默认 null
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime event
+```
+
+### runtime events
+
+```text
+yss 2.7.1 — runtime events
+──────────────────────
+只读查询运行记录。
+
+用法: yss runtime events --root <目录> --id <运行ID>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+运行记录不授予生命周期批准或执行授权。
+
+最小示例:
+yss runtime events --root ./demo-spec --id "<运行ID>" --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储；默认用户运行存储
+--id  已登记运行 ID
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime events
+```
+
+### runtime inspect
+
+```text
+yss 2.7.1 — runtime inspect
+──────────────────────
+只读查询运行记录。
+
+用法: yss runtime inspect --root <目录> [--json]
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+运行记录不授予生命周期批准或执行授权。
+
+最小示例:
+yss runtime inspect --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储；默认用户运行存储
+--id  已登记运行 ID
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime inspect
+```
+
+### runtime pin
+
+```text
+yss 2.7.1 — runtime pin
+──────────────────────
+维护运行记录保护标记。
+
+用法: yss runtime pin --root <目录> --id <ID> --token <token> --reason <理由>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss runtime pin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审查材料' --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --reason <值>                   按当前命令说明指定
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --token <值>                    按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --token  begin 返回的所有权凭证
+--reason  必需，记录保护标记变更理由
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime pin
+```
+
+### runtime pins
+
+```text
+yss 2.7.1 — runtime pins
+──────────────────────
+只读查询运行记录。
+
+用法: yss runtime pins --root <目录> --id <运行ID>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+运行记录不授予生命周期批准或执行授权。
+
+最小示例:
+yss runtime pins --root ./demo-spec --id "<运行ID>" --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储；默认用户运行存储
+--id  已登记运行 ID
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime pins
+```
+
+### runtime run
+
+```text
+yss 2.7.1 — runtime run
+──────────────────────
+只读查询运行记录。
+
+用法: yss runtime run --root <目录> --id <运行ID>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+运行记录不授予生命周期批准或执行授权。
+
+最小示例:
+yss runtime run --root ./demo-spec --id "<运行ID>" --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--home  独立 SQLite 运行存储；默认用户运行存储
+--id  已登记运行 ID
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime run
+```
+
+### runtime unpin
+
+```text
+yss 2.7.1 — runtime unpin
+──────────────────────
+维护运行记录保护标记。
+
+用法: yss runtime unpin --root <目录> --id <ID> --token <token> --reason <理由>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss runtime unpin --root ./demo-spec --id "<ID>" --token "<token>" --reason '审查材料' --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --home <路径>                   文件或目录路径
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --reason <值>                   按当前命令说明指定
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --token <值>                    按当前命令说明指定
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--id / --token  begin 返回的所有权凭证
+--reason  必需，记录保护标记变更理由
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples runtime unpin
+```
+
+### scaffold
+
+```text
+yss 2.7.1 — scaffold
+──────────────────────
+直接生成 DDD 或分层 MVC 后端工程。
+
+用法: yss scaffold <ddd|mvc> --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+子命令:
+ddd  生成 ddd 后端业务空骨架。
+mvc  生成 mvc 后端业务空骨架。
+
+前置条件:
+PATH 中有 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份、Node.js、Python 或网络。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
+
+最小示例:
+yss scaffold ddd --help
+yss scaffold mvc --help
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold
+```
+
+### scaffold ddd
+
+```text
+yss 2.7.1 — scaffold ddd
+──────────────────────
+生成 ddd 后端业务空骨架。
+
+用法: yss scaffold ddd --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+前置条件:
+PATH 中有 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份、Node.js、Python 或网络。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
+
+最小示例:
+yss scaffold ddd --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+独立生成必填上述平台和 Maven 坐标。--standalone 可省略；不能和合同参数混用。独立模式固定禁用参考工程；正式模式按批准合同决定。--force 不支持。
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold ddd
+```
+
+### scaffold mvc
+
+```text
+yss 2.7.1 — scaffold mvc
+──────────────────────
+生成 mvc 后端业务空骨架。
+
+用法: yss scaffold mvc --project-name <名称> --base-package <Java包名> --output-dir <父目录> <精确平台及Maven坐标>
+
+前置条件:
+PATH 中有 Git；显式提供工程名、包名、输出父目录、精确平台和 Maven 坐标；无需项目身份、Node.js、Python 或网络。
+无需 Harness 项目、需求合同或阶段批准。生成器与模板来自程序内置 Bundle，由程序直接生成，不依赖 Node.js 或 Python，不联网；目录保护需要 PATH 中的 Git。直接生成业务空骨架，不附带参考示例；不运行 Maven。目标存在、符号链接或 --force 均拒绝。显式合同参数保持技能的正式校验（与 contract verify --kind scaffold 同一治理核心），不回退到直接生成。
+
+最小示例:
+yss scaffold mvc --project-name order-service --base-package com.yss.orders --output-dir ./backend --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.yss --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
+
+参数:
+  --approval-ref <值>             按当前命令说明指定
+  --base-package <Java包名>       Java 根包名，例如 com.yss.orders
+  --compiler-draft-ref <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --contract-file <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --contract-id <值>              与内置脚手架技能同名的工程输入；不推测版本
+  --contract-version <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --force                         布尔开关，可使用 =true 或 =false；默认 false
+  --group-id <值>                 与内置脚手架技能同名的工程输入；不推测版本
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --java-version <值>             与内置脚手架技能同名的工程输入；不推测版本
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --output-dir <父目录>           输出为此目录下的 project-name 子目录；项目目录必须不存在
+  --parent-artifact-id <值>       与内置脚手架技能同名的工程输入；不推测版本
+  --parent-group-id <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --parent-version <值>           与内置脚手架技能同名的工程输入；不推测版本
+  --persisted-ref <值>            与内置脚手架技能同名的工程输入；不推测版本
+  --platform-profile <值>         与内置脚手架技能同名的工程输入；不推测版本
+  --project-name <名称>           项目名称，作为模板变量
+  --project-version <值>          与内置脚手架技能同名的工程输入；不推测版本
+  --spring-boot-version <值>      与内置脚手架技能同名的工程输入；不推测版本
+  --standalone                    与内置生成器同名的开关
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --yss-components-version <值>   与内置脚手架技能同名的工程输入；不推测版本
+
+参数说明与条件:
+独立生成必填上述平台和 Maven 坐标。--standalone 可省略；不能和合同参数混用。独立模式固定禁用参考工程；正式模式按批准合同决定。--force 不支持。
+
+预期结果:
+在输出父目录创建新的工程子目录、Maven Wrapper 和生成清单；verification 为 not-executed，未执行 Maven 构建或业务验收。
+
+下一步:
+进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples scaffold mvc
+```
+
+### skills
+
+```text
+yss 2.7.1 — skills
+──────────────────────
+查询或补装 Skill 及其依赖闭包。
+
+用法: yss skills <子命令> --root <目录>
+
+子命令:
+ensure  补装指定 Skill 及其依赖闭包。
+list  列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。
+resolve  只读核验所选内置技能及命中的上下文依赖。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+可用标识来自当前 Profile 的内置 Bundle；不猜测能力闭包。
+
+最小示例:
+yss skills list --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples skills
+```
+
+### skills ensure
+
+```text
+yss 2.7.1 — skills ensure
+──────────────────────
+补装指定 Skill 及其依赖闭包。
+
+用法: yss skills ensure --root <目录> <标识...> --plan --out <新文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+须先 list 确认该 Profile 支持相应标识。
+
+最小示例:
+yss skills ensure yss-research --root ./demo-spec --plan --out /tmp/yss-resource-plan.json
+yss skills --root ./demo-spec --apply --plan-file /tmp/yss-resource-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+位置参数: Skill 名称；支持多个
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples skills ensure
+```
+
+### skills list
+
+```text
+yss 2.7.1 — skills list
+──────────────────────
+列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。
+
+用法: yss skills list [--details] [--json]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+普通 list 输出保持兼容。详情不是技能就绪证明。
+
+最小示例:
+yss skills list --root ./demo-spec --json
+yss skills list --details --root ./demo-spec --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --details                       返回注册信息和安装声明；不核验整个技能库
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--details  不核验整个技能库；调用前使用 resolve
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples skills list
+```
+
+### skills resolve
+
+```text
+yss 2.7.1 — skills resolve
+──────────────────────
+只读核验所选内置技能及命中的上下文依赖。
+
+用法: yss skills resolve <标识...> [--agent-runtime <运行时>] [--when <条件列表>] [--json]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+消费 result.status：ready 才读取 entryPath；missing 在已有授权内 ensure plan/apply 后重新 resolve；blocked 停止受影响调用。查询退出 0 不授予调用、实施或批准权限。
+
+最小示例:
+yss skills resolve code-review codebase-design --agent-runtime codex --root ./demo-spec --json
+yss skills resolve code-review --agent-runtime codex --when lifecycle-document-output --root ./demo-spec --json
+
+参数:
+  --agent-runtime <运行时>        显式核验所选宿主投影；省略时仅核验 canonical，文件就绪不代表宿主已发现；可选值: codex|cursor|pi|workbuddy
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --when <条件列表>               逗号分隔的已登记条件；只展开命中的条件依赖
+
+参数说明与条件:
+位置参数: 已登记技能 ID 或别名；支持多个并去重
+--agent-runtime codex|cursor|pi|workbuddy  显式核验投影；省略时仅核验 canonical
+--when <条件列表>  逗号分隔；只接受已登记条件
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+先 list 核对当前 Profile 支持的标识，再按保存计划补装。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples skills resolve
+```
+
+### stage
+
+```text
+yss 2.7.1 — stage
+──────────────────────
+查询、登记或更新既有阶段工作项。
+
+用法: yss stage <子命令> --root <目录>
+
+子命令:
+apply  事务应用已保存的阶段工作项计划。
+check  读取并校验当前阶段工作项。
+plan  生成阶段工作项写入计划。
+query  查询阶段或 checkpoint 中的工作项。
+register  生成阶段工作项写入计划。
+status  读取并校验当前阶段工作项。
+update  生成阶段工作项写入计划。
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss stage query --root ./demo-spec --id stage.spec-architecture --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stage <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --work-unit <值>                按当前命令说明指定
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage
+```
+
+### stage apply
+
+```text
+yss 2.7.1 — stage apply
+──────────────────────
+事务应用已保存的阶段工作项计划。
+
+用法: yss stage apply --root <目录> --plan-file <文件>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+提交后若该 checkpoint 已启用 managed 阅读视图，会立即渲染并在结果 reading_update 中报告（unchanged/rendered/failed；未启用为 manual）；渲染失败不回滚已提交的阶段写入，按 recovery 提示运行 yss reading render。
+
+最小示例:
+yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --item <路径>                   文件或目录路径
+  --items <路径>                  文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--plan-file  项目内保存的原始写入计划
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage apply
+```
+
+### stage check
+
+```text
+yss 2.7.1 — stage check
+──────────────────────
+读取并校验当前阶段工作项。
+
+用法: yss stage check --root <目录> --checkpoint <文件>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss stage check --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stage <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --work-unit <值>                按当前命令说明指定
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  已存在的 checkpoint
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage check
+```
+
+### stage plan
+
+```text
+yss 2.7.1 — stage plan
+──────────────────────
+生成阶段工作项写入计划。
+
+用法: yss stage plan --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
+
+最小示例:
+yss stage plan --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
+yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --item <路径>                   文件或目录路径
+  --items <路径>                  文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
+--items / --item  合同规定的工作项 JSON
+默认只输出计划；保存计划必须位于项目内
+--apply --plan-file  应用已保存计划
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage plan
+```
+
+### stage query
+
+```text
+yss 2.7.1 — stage query
+──────────────────────
+查询阶段或 checkpoint 中的工作项。
+
+用法: yss stage query --root <目录> [--checkpoint <文件>] [--id <ID>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss stage query --root ./demo-spec --id stage.spec-architecture --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stage <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --work-unit <值>                按当前命令说明指定
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+无 checkpoint: --id / --stage  阶段 ID
+有 checkpoint: --id  工作项 ID；--stage / --work-unit 筛选工作项（结果 items）
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage query
+```
+
+### stage register
+
+```text
+yss 2.7.1 — stage register
+──────────────────────
+生成阶段工作项写入计划。
+
+用法: yss stage register --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
+
+最小示例:
+yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
+yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --item <路径>                   文件或目录路径
+  --items <路径>                  文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
+--items / --item  合同规定的工作项 JSON
+默认只输出计划；保存计划必须位于项目内
+--apply --plan-file  应用已保存计划
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage register
+```
+
+### stage status
+
+```text
+yss 2.7.1 — stage status
+──────────────────────
+读取并校验当前阶段工作项。
+
+用法: yss stage status --root <目录> --checkpoint <文件>
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
+
+最小示例:
+yss stage status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --id <值>                       按当前命令说明指定
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --stage <值>                    按当前命令说明指定
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --work-unit <值>                按当前命令说明指定
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  已存在的 checkpoint
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage status
+```
+
+### stage update
+
+```text
+yss 2.7.1 — stage update
+──────────────────────
+生成阶段工作项写入计划。
+
+用法: yss stage update --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
+
+前置条件:
+合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
+
+最小示例:
+yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
+yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --item <路径>                   文件或目录路径
+  --items <路径>                  文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --refresh                       布尔开关，可使用 =true 或 =false；默认 false
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--checkpoint / --file  已存在的 JSON checkpoint；YAML 仅支持只读
+--items / --item  合同规定的工作项 JSON
+默认只输出计划；保存计划必须位于项目内
+--apply --plan-file  应用已保存计划
+--refresh  漂移项（沿依赖传递）除 cancelled 外重置为 pending 并标记 recheck_required，旧绑定保留为历史；可不带 --items
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss lifecycle status --help；消费当前证据和权威退出条件后，由对应负责人继续。
+
+常见错误:
+ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples stage update
+```
+
+### sync
+
+```text
+yss 2.7.1 — sync
+──────────────────────
+将项目模板升级到本 CLI 内置固定 Bundle。
+
+用法: yss sync --root <目录> --plan --out <新文件>
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。
+
+最小示例:
+yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
+yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
+  --binding-file <路径>           文件或目录路径
+  --business-domain <领域>        项目业务领域，作为模板变量
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --full                          init/attach 安装完整资源；默认初始分发集合
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>           项目名称，作为模板变量
+  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
+  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  --team-size <规模>              团队规模，作为模板变量
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+--review-out <新目录>  项目外审查材料与决议模板
+--base-bundle <路径>  离线历史 Bundle 完整材料
+--resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples sync
+```
+
+### trace
+
+```text
+yss 2.7.1 — trace
+──────────────────────
+汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
+
+用法: yss trace --feature <功能包> [--implementation-root <Git根> --since <引用> [--until <引用>]] [--html <新文件>] [--strict]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+只读：识别业务票、垂直切片 Ticket 与 Slice 合同，缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要已变化。结论不代表批准、完成或可发布。
+
+最小示例:
+yss trace --root ./demo-spec --feature apply-flow --json
+yss trace --root ./demo-spec --feature apply-flow --implementation-root /repo/app --since main~20 --html /tmp/trace.html
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --feature <功能包>              tracker 根下的功能包名
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --html <新文件>                 trace 另写的静态矩阵页；须在项目外且不存在
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --implementation-root <路径>    文件或目录路径
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --since <Git引用>               git audit/changelog 的起始引用（不含）
+  --strict                        trace 存在缺口时以 TRACE_GAPS 失败
+  --until <Git引用>               git audit/changelog 的结束引用，默认 HEAD
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--feature  tracker 根下的功能包名
+--implementation-root / --since / --until  读取实现仓提交，按 Ticket trailer 关联 slice_id
+--html  另写静态矩阵页（项目外的新文件）
+--strict  存在缺口时以 TRACE_GAPS 失败（退出码 1）
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples trace
+```
+
+### tracker
+
+```text
+yss 2.7.1 — tracker
+──────────────────────
+把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
+
+用法: yss tracker <子命令> --root <目录>
+
+子命令:
+link  在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
+status  列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
+sync  把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker status --root ./demo-spec --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker
+```
+
+### tracker link
+
+```text
+yss 2.7.1 — tracker link
+──────────────────────
+在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
+
+用法: yss tracker link --root <目录> --ticket <文件> --issue <owner/repo#编号> [--apply]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker link --root ./demo-spec --ticket .work/feat/parent-ticket.md --issue acme/app#12 --apply --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --issue <owner/repo#编号>       要链接的 GitHub Issue
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --ticket <文件>                 tracker 根下的 parent-ticket.md 或 issues/*.md
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--ticket  tracker 根下的 parent-ticket.md 或 issues/*.md
+--issue  owner/repo#编号
+--apply  以当前字节为守卫事务写入；不覆盖已有不同链接
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker link
+```
+
+### tracker status
+
+```text
+yss 2.7.1 — tracker status
+──────────────────────
+列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
+
+用法: yss tracker status --root <目录> [--fetch]
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+本地 Markdown 始终是权威；只改链接 Issue 的五态标签，不创建、关闭或评论 Issue。远端读写需要 GH_TOKEN；GITHUB_API_URL 可指向 GitHub Enterprise。
+
+最小示例:
+yss tracker status --root ./demo-spec --fetch --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --fetch                         tracker status 读取链接 Issue 的远端标签；只读
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--fetch  读取链接 Issue 的标签（需 GH_TOKEN）；只读
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker status
+```
+
+### tracker sync
+
+```text
+yss 2.7.1 — tracker sync
+──────────────────────
+把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
+
+用法: yss tracker sync --root <目录> --plan [--out <新文件>] [--ticket <文件>]；应用：--apply --plan-file <文件> --confirm-remote github
+
+前置条件:
+合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
+需要 issue-tracker.md 的 remote_mirror: true（或主 tracker 为 github）。计划 v2 绑定 API 来源与 Ticket 范围，旧计划须重新生成；应用重建合法改动，只逐项操作五态并写后对账。失败保留部分完成项与 remote_state；unknown 时先查询对账，不自动重放。成功后在未漂移的 Ticket 写入 Tracker-Synced 行。
+
+最小示例:
+yss tracker sync --root ./demo-spec --plan --out /tmp/tracker-plan.json
+yss tracker sync --root ./demo-spec --apply --plan-file /tmp/tracker-plan.json --confirm-remote github
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --confirm-remote <远端名>       git push --apply 的用户确认；必须与计划中的远端同名
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --ticket <文件>                 tracker 根下的 parent-ticket.md 或 issues/*.md
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root  项目根，默认当前目录
+--plan / --out  读取远端并保存计划（文件须在项目外）
+--ticket  只同步一个 Ticket
+--apply --plan-file  复核本地字节与远端标签/更新时间未变后写入
+--confirm-remote github  用户确认写入 GitHub；缺少时不触达远端
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples tracker sync
+```
+
+### update
+
+```text
+yss 2.7.1 — update
+──────────────────────
+安装、恢复或回退指定本地发行包。
+
+用法: yss update <子命令> --tool-root <目录>
+
+子命令:
+apply  应用保存的程序安装计划。
+plan  生成离线程序安装计划（默认动作）。
+recover  恢复唯一未完成的程序事务。
+rollback  回退最近一次成功程序安装。
+status  只读诊断安装一致性及程序事务状态。
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+保留离线安装接口；每次写入绑定摘要和程序事务。
+
+最小示例:
+yss update status --tool-root ./tools/yss --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --artifact <归档>               本机平台 .tar.gz 或 .zip 发行包
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --sha256 <SHA-256>              发行包的 64 位十六进制 SHA-256
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update
+```
+
+### update apply
+
+```text
+yss 2.7.1 — update apply
+──────────────────────
+应用保存的程序安装计划。
+
+用法: yss update apply --tool-root <目录> --plan-file <文件>
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+保持文件权限；用户改动及输入漂移会阻止安装。
+
+最小示例:
+yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --artifact <归档>               本机平台 .tar.gz 或 .zip 发行包
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --sha256 <SHA-256>              发行包的 64 位十六进制 SHA-256
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+--plan-file <文件>  必需；读取 update plan 生成的计划
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update apply
+```
+
+### update plan
+
+```text
+yss 2.7.1 — update plan
+──────────────────────
+生成离线程序安装计划（默认动作）。
+
+用法: yss update plan --tool-root <目录> --artifact <归档> --sha256 <摘要> [--out <新文件>]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+归档必须来自可信固定来源。
+
+最小示例:
+yss update plan --tool-root ./tools/yss --artifact /path/yss.tar.gz --sha256 "<SHA-256>" --out /tmp/yss-install-plan.json --json
+
+参数:
+  --apply                         应用已保存计划或显式恢复；写入前检查冲突
+  --artifact <归档>               本机平台 .tar.gz 或 .zip 发行包
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
+  --plan                          只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>              消费已有计划；写入前核验输入摘要
+  --sha256 <SHA-256>              发行包的 64 位十六进制 SHA-256
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+--artifact <文件>  本机平台的 .tar.gz 或 .zip
+--sha256 <摘要>  归档 SHA-256
+--out <新文件>  保存计划到工具目录外；默认只输出计划
+
+预期结果:
+输出可审阅计划；应用保存计划时重新核验当前输入。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update plan
+```
+
+### update recover
+
+```text
+yss 2.7.1 — update recover
+──────────────────────
+恢复唯一未完成的程序事务。
+
+用法: yss update recover --tool-root <目录> [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+已发布事务开始恢复后完成还原；未发布的完整程序准备验证空 WAL、范围和当前基线后封存为 sealed。旧完整计划可恢复，缺计划或冲突材料返回 STATE 并保留，不能靠重复执行清除。
+
+最小示例:
+yss update recover --tool-root ./tools/yss --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+仅处理 program-update；恢复前核验受管范围
+
+预期结果:
+显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update recover
+```
+
+### update rollback
+
+```text
+yss 2.7.1 — update rollback
+──────────────────────
+回退最近一次成功程序安装。
+
+用法: yss update rollback --tool-root <目录> [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+后续用户改动会阻止整体回退。
+
+最小示例:
+yss update rollback --tool-root ./tools/yss --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+仅回退最近成功 program-update
+
+预期结果:
+显示所属事务及实际恢复结果；按子命令标明的只读/写入语义执行。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update rollback
+```
+
+### update status
+
+```text
+yss 2.7.1 — update status
+──────────────────────
+只读诊断安装一致性及程序事务状态。
+
+用法: yss update status --tool-root <目录> [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+保留离线安装接口；每次写入绑定摘要和程序事务。
+
+最小示例:
+yss update status --tool-root ./tools/yss --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根
+仅查询，不写入；展示安装记录、逐文件摘要和权限差异。
+installationConsistent 只表示安装检查结果，不授予发行资格。
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples update status
+```
+
+### upgrade
+
+```text
+yss 2.7.1 — upgrade
+──────────────────────
+从 GitHub 下载并事务安装稳定版 CLI。
+
+用法: yss upgrade [--check] [--to <稳定版本>] [--tool-root <目录>] [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝。恢复: yss update recover --tool-root <目录>；回退: yss update rollback --tool-root <目录>。1.0.0 首次安装新版使用离线 update，见 yss help tutorial。
+
+最小示例:
+yss upgrade --check
+yss upgrade
+yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
+
+参数:
+  --check                         仅查询在线版本；不下载发行包、不写入
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --to <稳定版本>                 在线升级目标，如 1.3.0 或 v1.3.0；默认最新稳定版
+  --tool-root <目录>              程序安装目录；update 必需，upgrade 默认识别运行目录
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--check  只检查版本，不下载、不写入
+--to <版本>  指定稳定版，如 1.3.0 或 v1.3.0；默认最新稳定版
+--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+yss update status --help；程序来源一致后，独立规划项目模板同步。
+
+常见错误:
+ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSION；yss help errors <错误码>
+详细示例: yss help examples upgrade
+```
+
+### verify
+
+```text
+yss 2.7.1 — verify
+──────────────────────
+核验一个门禁所需的当前 checkpoint 与检查依赖。
+
+用法: yss verify --gate <门禁ID> --checkpoint <文件> [--root <目录>]
+
+前置条件:
+合法项目身份与当前 checkpoint；门禁 ID 来自生命周期注册表。
+依次运行 lifecycle verify 与 contract verify --kind gate-checks；只核验不批准，不授予执行。
+
+最小示例:
+yss verify --gate plan-approved --checkpoint .work/feature/checkpoint.yaml --root ./demo-spec
+
+参数:
+  --checkpoint <路径>             文件或目录路径
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --gate <值>                     按当前命令说明指定
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--gate <门禁ID>  如 gate.plan-approved 或 plan-approved
+--checkpoint <文件>  当前 checkpoint
+
+预期结果:
+返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples verify
+```
+
+### version
+
+```text
+yss 2.7.1 — version
+──────────────────────
+查看 CLI、协议和固定来源身份。
+
+用法: yss version [--json]
+
+前置条件:
+无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。
+不需要项目目录。
+
+最小示例:
+yss version --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+也可使用 yss -V 或 yss --version
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples version
+```
+
+### xml
+
+```text
+yss 2.7.1 — xml
+──────────────────────
+读取 Maven project XML。
+
+用法: yss xml <子命令> --root <目录>
+
+子命令:
+inspect  读取 Maven project 结构。
+query  查询 Maven project 读取结果。
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+仅支持 Maven project XML；禁止 DTD 和外部实体，不执行外部代码。
+
+最小示例:
+yss xml inspect --root ./demo-backend --file pom.xml --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples xml
+```
+
+### xml inspect
+
+```text
+yss 2.7.1 — xml inspect
+──────────────────────
+读取 Maven project 结构。
+
+用法: yss xml inspect --root <目录> --file <文件>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+仅支持 Maven project XML；禁止 DTD 和外部实体，不执行外部代码。
+
+最小示例:
+yss xml inspect --root ./demo-backend --file pom.xml --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  项目本地 Maven XML，大小上限 16 MiB
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples xml inspect
+```
+
+### xml query
+
+```text
+yss 2.7.1 — xml query
+──────────────────────
+查询 Maven project 读取结果。
+
+用法: yss xml query --root <目录> --file <文件>
+
+前置条件:
+准备对应运行标识、存储、归档或 XML 文件；查看本子命令的范围与限制。
+仅支持 Maven project XML；禁止 DTD 和外部实体，不执行外部代码。
+
+最小示例:
+yss xml query --root ./demo-backend --file pom.xml --json
+
+参数:
+  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
+  --file <路径>                   文件或目录路径
+  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
+  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --json                          执行结果输出 JSON；帮助始终输出文本
+  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --root <目录>                   项目根，默认当前目录；仅项目命令
+  --target-dir <目录>             项目根的兼容参数；优先使用 --root
+  -V, --version                   显示 CLI 版本及来源；不需要项目
+
+参数说明与条件:
+--root <目录>  项目根，默认当前目录；推荐显式指定
+--profile <spec|backend>  实例类型
+--file  项目本地 Maven XML，大小上限 16 MiB
+
+预期结果:
+返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
+
+下一步:
+查看同组命令帮助和当前查询结果，选择需要的下一项操作。
+
+常见错误:
+ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
+详细示例: yss help examples xml query
+```
+
+### 错误 AMBIGUOUS
+
+```text
+AMBIGUOUS — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ARCHIVE
+
+```text
+ARCHIVE — 归档或 XML 输入无法读取
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查源文件、类型、大小限制及可移植路径，修复后重新只读检查。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss archive --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ARGUMENT
+
+```text
+ARGUMENT — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ARTIFACT
+
+```text
+ARTIFACT — 发行包或安装材料核验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对本机平台、固定来源、归档摘要、manifest 和安装收据。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss update status --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET
+
+```text
+ASSET — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_ALIAS
+
+```text
+ASSET_ALIAS — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_DEPTH
+
+```text
+ASSET_DEPTH — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_DUPLICATE_KEY
+
+```text
+ASSET_DUPLICATE_KEY — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_EMPTY
+
+```text
+ASSET_EMPTY — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_KEY
+
+```text
+ASSET_KEY — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_MULTIPLE_DOCUMENTS
+
+```text
+ASSET_MULTIPLE_DOCUMENTS — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_NUMBER
+
+```text
+ASSET_NUMBER — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_PARSE
+
+```text
+ASSET_PARSE — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_TAG
+
+```text
+ASSET_TAG — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_UNICODE
+
+```text
+ASSET_UNICODE — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_UTF8
+
+```text
+ASSET_UTF8 — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BASELINE
+
+```text
+BASELINE — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BASE_BUNDLE
+
+```text
+BASE_BUNDLE — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BINDING
+
+```text
+BINDING — 插件 binding 与固定来源不一致
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：PLUGIN_BINDING_SOURCE_MISMATCH、PLUGIN_BINDING_UPGRADE_REQUIRED。通过实际绑定插件的公开升级/迁移计划更新，身份与 binding 同一事务应用。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：通过对应插件的 project-upgrade-plan/apply 或 project-migration-plan/apply 更新身份和 binding。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BINDING_CONFLICT
+
+```text
+BINDING_CONFLICT — 插件 binding 与固定来源不一致
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：PLUGIN_BINDING_SOURCE_MISMATCH、PLUGIN_BINDING_UPGRADE_REQUIRED。通过实际绑定插件的公开升级/迁移计划更新，身份与 binding 同一事务应用。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：通过对应插件的 project-upgrade-plan/apply 或 project-migration-plan/apply 更新身份和 binding。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BINDING_REQUIRED
+
+```text
+BINDING_REQUIRED — 插件 binding 与固定来源不一致
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：PLUGIN_BINDING_SOURCE_MISMATCH、PLUGIN_BINDING_UPGRADE_REQUIRED。通过实际绑定插件的公开升级/迁移计划更新，身份与 binding 同一事务应用。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：通过对应插件的 project-upgrade-plan/apply 或 project-migration-plan/apply 更新身份和 binding。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BUNDLE
+
+```text
+BUNDLE — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 BUNDLE_RULE
+
+```text
+BUNDLE_RULE — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CANCELLED
+
+```text
+CANCELLED — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CANDIDATE_DRIFT
+
+```text
+CANDIDATE_DRIFT — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_CONFIG
+
+```text
+CI_CONFIG — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_CONFLICT
+
+```text
+CI_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_EVIDENCE_DRIFT
+
+```text
+CI_EVIDENCE_DRIFT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_IDENTITY
+
+```text
+CI_IDENTITY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_INPUT
+
+```text
+CI_INPUT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_RECEIPT
+
+```text
+CI_RECEIPT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_REFERENCE
+
+```text
+CI_REFERENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_SCOPE
+
+```text
+CI_SCOPE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CI_SOURCE
+
+```text
+CI_SOURCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONCURRENT
+
+```text
+CONCURRENT — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONFLICT
+
+```text
+CONFLICT — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTEXT
+
+```text
+CONTEXT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTEXT_REFERENCE
+
+```text
+CONTEXT_REFERENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTEXT_SNAPSHOT
+
+```text
+CONTEXT_SNAPSHOT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTEXT_SNAPSHOT_STALE
+
+```text
+CONTEXT_SNAPSHOT_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 DIGEST
+
+```text
+DIGEST — 发行包或安装材料核验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对本机平台、固定来源、归档摘要、manifest 和安装收据。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss update status --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 EXISTS
+
+```text
+EXISTS — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 GOVERNED_REQUIRED
+
+```text
+GOVERNED_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 IDENTITY
+
+```text
+IDENTITY — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：PROJECT_ROOT_NOT_FOUND、PROJECT_METADATA_MISSING、PROFILE_IDENTITY_CONFLICT、METADATA_SCHEMA_UNSUPPORTED。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 INPUT
+
+```text
+INPUT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 INPUT_DRIFT
+
+```text
+INPUT_DRIFT — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：SAVED_PLAN_INPUT_CHANGED、SAVED_STAGE_PLAN_CHANGED。先核对 affectedInputs/path；原计划失效后重新生成与审阅。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 INSTALLATION
+
+```text
+INSTALLATION — 发行包或安装材料核验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对本机平台、固定来源、归档摘要、manifest 和安装收据。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss update status --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 INTERRUPTED
+
+```text
+INTERRUPTED — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 KIND
+
+```text
+KIND — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LEGACY
+
+```text
+LEGACY — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LEGACY_INTERRUPTED
+
+```text
+LEGACY_INTERRUPTED — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LEGACY_POLICY
+
+```text
+LEGACY_POLICY — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LIFECYCLE
+
+```text
+LIFECYCLE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LIFECYCLE_ID
+
+```text
+LIFECYCLE_ID — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LOCKED
+
+```text
+LOCKED — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 MERGE
+
+```text
+MERGE — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 MIGRATION_REQUIRED
+
+```text
+MIGRATION_REQUIRED — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 NETWORK
+
+```text
+NETWORK — 固定来源网络请求失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查连接、HTTP 状态和限流；确认固定官方来源后重新查询。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss upgrade --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PATH
+
+```text
+PATH — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：UNSAFE_ROOT_COMPONENT；核对错误中的实际路径组件，使用已确认的普通目录。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLAN
+
+```text
+PLAN — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLAN_REQUIRED
+
+```text
+PLAN_REQUIRED — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLAN_VERSION
+
+```text
+PLAN_VERSION — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLATFORM
+
+```text
+PLATFORM — 发行包或安装材料核验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对本机平台、固定来源、归档摘要、manifest 和安装收据。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss update status --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROFILE
+
+```text
+PROFILE — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROJECT_CI_REJECTED
+
+```text
+PROJECT_CI_REJECTED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROTECTED
+
+```text
+PROTECTED — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READ_ONLY
+
+```text
+READ_ONLY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RECOVERY_FAILED
+
+```text
+RECOVERY_FAILED — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+常见类型：RECOVERY_USER_MODIFICATION。保留用户当前内容和归档，确认内容与恢复范围后再检查，不能覆盖后续修改。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RESOLUTION
+
+```text
+RESOLUTION — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RESOLUTION_POLICY
+
+```text
+RESOLUTION_POLICY — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RESOLUTION_STALE
+
+```text
+RESOLUTION_STALE — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ROOT
+
+```text
+ROOT — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME
+
+```text
+RUNTIME — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_BUSY
+
+```text
+RUNTIME_BUSY — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_DATA
+
+```text
+RUNTIME_DATA — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_INTEGRITY
+
+```text
+RUNTIME_INTEGRITY — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_OWNER
+
+```text
+RUNTIME_OWNER — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_SCHEMA
+
+```text
+RUNTIME_SCHEMA — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 RUNTIME_STATE
+
+```text
+RUNTIME_STATE — 运行记录或运行存储状态异常
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对运行标识、所有者、存储目录及当前记录，保留证据后按对应入口恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss runtime --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA
+
+```text
+SCHEMA — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_DRAFT_UNSUPPORTED
+
+```text
+SCHEMA_DRAFT_UNSUPPORTED — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_ID
+
+```text
+SCHEMA_ID — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_ID_CONFLICT
+
+```text
+SCHEMA_ID_CONFLICT — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_OFFLINE
+
+```text
+SCHEMA_OFFLINE — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_REF
+
+```text
+SCHEMA_REF — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_REGEX_INCOMPATIBLE
+
+```text
+SCHEMA_REGEX_INCOMPATIBLE — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCHEMA_VALIDATION
+
+```text
+SCHEMA_VALIDATION — 输入资产格式或 Schema 校验失败
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查报告中的文件、字段及本地引用；按照当前锁定 Schema 修复输入。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss contract check --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SCOPE
+
+```text
+SCOPE — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SKILL
+
+```text
+SKILL — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 STATE
+
+```text
+STATE — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 SYNC_REQUIRED
+
+```text
+SYNC_REQUIRED — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER
+
+```text
+TRACKER — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_CANCEL
+
+```text
+TRACKING_CANCEL — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_COMPLETION
+
+```text
+TRACKING_COMPLETION — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_CONFLICT
+
+```text
+TRACKING_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_DEFERRAL
+
+```text
+TRACKING_DEFERRAL — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_DEFINITION
+
+```text
+TRACKING_DEFINITION — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_DEPENDENCY
+
+```text
+TRACKING_DEPENDENCY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_ENTRY
+
+```text
+TRACKING_ENTRY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_FEATURE
+
+```text
+TRACKING_FEATURE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_ID
+
+```text
+TRACKING_ID — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_IDENTITY
+
+```text
+TRACKING_IDENTITY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_PATH
+
+```text
+TRACKING_PATH — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_PROFILE
+
+```text
+TRACKING_PROFILE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_PROGRESS
+
+```text
+TRACKING_PROGRESS — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_REQUIRED
+
+```text
+TRACKING_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_ROUTE
+
+```text
+TRACKING_ROUTE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_SCHEMA
+
+```text
+TRACKING_SCHEMA — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_STAGE
+
+```text
+TRACKING_STAGE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_STALE
+
+```text
+TRACKING_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKING_TRANSITION
+
+```text
+TRACKING_TRANSITION — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 UNPORTED
+
+```text
+UNPORTED — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+能力边界：核对 yss capabilities --json。只有当前帮助及能力表明确支持的入口可用；结构 check 只验证格式，不能替代领域 verify。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 VERIFY
+
+```text
+VERIFY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 VERSION
+
+```text
+VERSION — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_CHECKPOINT
+
+```text
+WORK_LAYOUT_CHECKPOINT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_CONFIG
+
+```text
+WORK_LAYOUT_CONFIG — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_FEATURE
+
+```text
+WORK_LAYOUT_FEATURE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_MIGRATION_REQUIRED
+
+```text
+WORK_LAYOUT_MIGRATION_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_RESERVED
+
+```text
+WORK_LAYOUT_RESERVED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 XML
+
+```text
+XML — 归档或 XML 输入无法读取
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查源文件、类型、大小限制及可移植路径，修复后重新只读检查。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss archive --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 XML_LIMIT
+
+```text
+XML_LIMIT — 归档或 XML 输入无法读取
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查源文件、类型、大小限制及可移植路径，修复后重新只读检查。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss archive --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ZIP
+
+```text
+ZIP — 归档或 XML 输入无法读取
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查源文件、类型、大小限制及可移植路径，修复后重新只读检查。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss archive --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ZIP_LIMIT
+
+```text
+ZIP_LIMIT — 归档或 XML 输入无法读取
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查源文件、类型、大小限制及可移植路径，修复后重新只读检查。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss archive --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CAPABILITY
+
+```text
+CAPABILITY — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 EXECUTION
+
+```text
+EXECUTION — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 INTERNAL
+
+```text
+INTERNAL — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 EVIDENCE
+
+```text
+EVIDENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROVENANCE
+
+```text
+PROVENANCE — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PERMISSION
+
+```text
+PERMISSION — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 NOT_FOUND
+
+```text
+NOT_FOUND — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_IDENTITY
+
+```text
+READING_IDENTITY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_ASSET
+
+```text
+READING_ASSET — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_CYCLE
+
+```text
+READING_CYCLE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_SOURCE_DRIFT
+
+```text
+READING_SOURCE_DRIFT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_SOURCE_BLOCKED
+
+```text
+READING_SOURCE_BLOCKED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_INCOMPLETE
+
+```text
+READING_INCOMPLETE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_STALE
+
+```text
+READING_MANIFEST_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_OUTPUT_STALE
+
+```text
+READING_OUTPUT_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_NAVIGATION_STALE
+
+```text
+READING_NAVIGATION_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_STALE
+
+```text
+READING_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_OUTPUT_CONFLICT
+
+```text
+READING_OUTPUT_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_RETIRED_OUTPUT
+
+```text
+READING_RETIRED_OUTPUT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_INVALID
+
+```text
+READING_MANIFEST_INVALID — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_NAVIGATION_CONFLICT
+
+```text
+READING_NAVIGATION_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_LEGACY_JOURNAL
+
+```text
+READING_LEGACY_JOURNAL — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_ENABLE_PLAN_STALE
+
+```text
+READING_ENABLE_PLAN_STALE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_MANIFEST_MIGRATION_REQUIRED
+
+```text
+READING_MANIFEST_MIGRATION_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READING_TEMPLATE_UPGRADE_REQUIRED
+
+```text
+READING_TEMPLATE_UPGRADE_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTRACT_INVALID
+
+```text
+CONTRACT_INVALID — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTRACT_SCHEMA
+
+```text
+CONTRACT_SCHEMA — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 LOCATOR_INVALID
+
+```text
+LOCATOR_INVALID — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 STALE
+
+```text
+STALE — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CHECK_FAILED
+
+```text
+CHECK_FAILED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 STANDARD_REQUIRED
+
+```text
+STANDARD_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_AUTH
+
+```text
+TRACKER_AUTH — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_REMOTE
+
+```text
+TRACKER_REMOTE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_DRIFT
+
+```text
+TRACKER_DRIFT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACKER_CONFLICT
+
+```text
+TRACKER_CONFLICT — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRACE_GAPS
+
+```text
+TRACE_GAPS — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CHECKPOINT_REQUIRED
+
+```text
+CHECKPOINT_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROFILE_LINKS
+
+```text
+PROFILE_LINKS — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROFILE_ROUTE
+
+```text
+PROFILE_ROUTE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRANSACTION_PROFILE
+
+```text
+TRANSACTION_PROFILE — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 TRANSACTION_SCOPE
+
+```text
+TRANSACTION_SCOPE — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROGRESSION_TARGET
+
+```text
+PROGRESSION_TARGET — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROGRESSION_BINDING
+
+```text
+PROGRESSION_BINDING — 插件 binding 与固定来源不一致
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：通过对应插件的 project-upgrade-plan/apply 或 project-migration-plan/apply 更新身份和 binding。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROGRESSION_TARGET_BLOCKED
+
+```text
+PROGRESSION_TARGET_BLOCKED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PROGRESSION_EVIDENCE
+
+```text
+PROGRESSION_EVIDENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ASSET_TRANSACTION_PENDING
+
+```text
+ASSET_TRANSACTION_PENDING — 事务或恢复状态需要处理
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：先查询所属事务及恢复材料；项目和程序事务各自恢复。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss recover --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 CONTEXT_MISSING
+
+```text
+CONTEXT_MISSING — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 FRONTEND_PROBE_AUTHORIZATION
+
+```text
+FRONTEND_PROBE_AUTHORIZATION — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 FRONTEND_PROBE_UNAVAILABLE
+
+```text
+FRONTEND_PROBE_UNAVAILABLE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 GIT_BASELINE
+
+```text
+GIT_BASELINE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 HANDOFF_POLICY_CAPABILITY
+
+```text
+HANDOFF_POLICY_CAPABILITY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 NEEDS_INFO
+
+```text
+NEEDS_INFO — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLAN_REVIEW_POLICY_INVALID
+
+```text
+PLAN_REVIEW_POLICY_INVALID — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 PLAN_REVIEW_PROTOCOL_REQUIRED
+
+```text
+PLAN_REVIEW_PROTOCOL_REQUIRED — 保存计划或当前输入未通过核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：检查计划类型、根目录和输入；处理变化后保存新计划，重新审阅再应用。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss sync --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 READONLY_SOURCE_LAYOUT_REQUIRED
+
+```text
+READONLY_SOURCE_LAYOUT_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_PATH
+
+```text
+WORK_LAYOUT_PATH — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_REFERENCE
+
+```text
+WORK_LAYOUT_REFERENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_SOURCE
+
+```text
+WORK_LAYOUT_SOURCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_VERIFY
+
+```text
+WORK_LAYOUT_VERIFY — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 APPROVAL_REBIND_REQUIRED
+
+```text
+APPROVAL_REBIND_REQUIRED — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 IMMUTABLE
+
+```text
+IMMUTABLE — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_SCHEMA
+
+```text
+WORK_LAYOUT_SCHEMA — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 ARGS
+
+```text
+ARGS — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors ARGS 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 INVALID
+
+```text
+INVALID — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 UNKNOWN_ALIAS
+
+```text
+UNKNOWN_ALIAS — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors UNKNOWN_ALIAS 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 GIT_IGNORE
+
+```text
+GIT_IGNORE — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 WORK_LAYOUT_PERMISSION
+
+```text
+WORK_LAYOUT_PERMISSION — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 MISSING_REFERENCE
+
+```text
+MISSING_REFERENCE — 当前治理条件或证据未满足
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：消费逐项诊断与恢复条件，补齐当前资产、实际验证及独立审查证据，再核验当前边界。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss lifecycle verify --help
+详细运行诊断：在统一原生命令上增加 --human，或 --json --diagnostics。
+```
+
+### 错误 YSS_ARGUMENT_INVALID
+
+```text
+YSS_ARGUMENT_INVALID — 命令或参数不符合当前接口
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对当前子命令、必需参数、可选值和互斥条件。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_ARGUMENT_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_COMMAND_FAILED
+
+```text
+YSS_COMMAND_FAILED — 操作未完成
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：保留原始错误、命令和版本信息；先查看命令帮助，仍无法恢复时提交最小复现。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_COMMAND_FAILED 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_FAMILY_IDENTITY_INVALID
+
+```text
+YSS_FAMILY_IDENTITY_INVALID — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_FAMILY_IDENTITY_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_GIT_PROTECTED
+
+```text
+YSS_GIT_PROTECTED — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_GIT_PROTECTED 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_IDENTITY_INVALID
+
+```text
+YSS_IDENTITY_INVALID — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_IDENTITY_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_METADATA_INVALID
+
+```text
+YSS_METADATA_INVALID — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_METADATA_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_MIGRATION_CONFLICT
+
+```text
+YSS_MIGRATION_CONFLICT — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_MIGRATION_CONFLICT 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_OWNERSHIP_PROTECTED
+
+```text
+YSS_OWNERSHIP_PROTECTED — 文件冲突或用户后续修改阻止操作
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：查看冲突路径、基线与当前字节，保留现场；处理差异后重新规划。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss diff --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_OWNERSHIP_PROTECTED 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_PATH_SAFETY
+
+```text
+YSS_PATH_SAFETY — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_PATH_SAFETY 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_SNAPSHOT_INVALID
+
+```text
+YSS_SNAPSHOT_INVALID — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_SNAPSHOT_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_TARGET_INVALID
+
+```text
+YSS_TARGET_INVALID — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_TARGET_INVALID 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_UNPORTED
+
+```text
+YSS_UNPORTED — 当前来源、格式或能力不兼容
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+版本：最低支持版本与修复版本尚未登记时按实际输出标注；远程版本用 yss upgrade --check --json 查询。
+
+处理：核对 CLI、协议、模板来源及实例格式，选择对应程序升级或实例同步入口。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss capabilities --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_UNPORTED 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
+```
+
+### 错误 YSS_UNSAFE_PATH
+
+```text
+YSS_UNSAFE_PATH — 项目身份或路径无法核验
+
+原因：以当前执行错误和逐项诊断为依据；可能原因与已确认事实分别显示。
+
+处理：核对实际项目根与 Profile；新项目使用 init，已有工程使用 attach。
+复验：修复当前输入后重复原只读核验；写入前重新保存并审阅计划。
+帮助：yss doctor --help
+历史兼容入口：保持其冻结输出和参数合同。使用 yss help errors YSS_UNSAFE_PATH 查阅诊断；不要向历史入口追加 --human 或 --diagnostics。
 ```
