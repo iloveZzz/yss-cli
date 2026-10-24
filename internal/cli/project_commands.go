@@ -17,6 +17,9 @@ func addProjectCommands(root *cobra.Command, inv *invocation) {
 		handler := projectCommand
 		cmd := addCommand(root, inv, name, handler)
 		addFlags(cmd, inv, projectFlags)
+		if name == "init" || name == "attach" || name == "migrate" {
+			addFlags(cmd, inv, "installation")
+		}
 		if name == "attach" || name == "sync" || name == "migrate" {
 			addFlags(cmd, inv, "review-out base-bundle resolution-file")
 		}
@@ -66,7 +69,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	}
 
 	if o.values["apply"] == "true" && o.values["plan-file"] != "" {
-		if o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
+		if o.values["installation"] != "" || o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
 			return nil, profile, domain.Fail("ARGUMENT", "apply consumes binding and resource selection from the saved plan")
 		}
 		p, e := project.ReadPlan(o.values["plan-file"])
@@ -87,6 +90,9 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	if e != nil {
 		return nil, profile, e
 	}
+	if command == "migrate" && o.values["installation"] != "" && profile != "" && profile != id.Profile.Name {
+		return nil, profile, domain.Fail("IDENTITY", "迁移目标 Profile 与当前工程不一致")
+	}
 	if command != "migrate" || profile == "" {
 		profile = id.Profile.Name
 	}
@@ -99,7 +105,14 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if e != nil {
 			return nil, profile, e
 		}
+		kind, err := project.ResolveInstallation(id, command, project.InstallationKind(o.values["installation"]))
+		if err != nil {
+			return nil, profile, err
+		}
 		for ref := range b.Files {
+			if b.SchemaVersion >= 5 && kind == project.InstallationSkills && !strings.HasPrefix(ref, ".agents/skills/") {
+				continue
+			}
 			if profile == "spec" && (strings.HasPrefix(ref, ".cursor/skills/") || strings.HasPrefix(ref, ".pi/skills/") || strings.HasPrefix(ref, ".claude/skills/") || strings.HasPrefix(ref, ".workbuddy/skills/")) {
 				continue
 			}
@@ -207,12 +220,12 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, e
 		}
 	}
-	planning := project.PlanningOptions{BaseBundlePath: o.values["base-bundle"], ResolutionFile: o.values["resolution-file"]}
+	planning := project.PlanningOptions{Installation: project.InstallationKind(o.values["installation"]), BaseBundlePath: o.values["base-bundle"], ResolutionFile: o.values["resolution-file"]}
 	if o.values["plan-file"] != "" {
 		if o.values["resolution-file"] == "" || o.values["plan"] != "true" {
 			return nil, profile, domain.Fail("ARGUMENT", "重新规划须同时提供 --plan --plan-file 和 --resolution-file")
 		}
-		for _, key := range []string{"project-name", "business-domain", "team-size", "issue-tracker", "full", "binding-file"} {
+		for _, key := range []string{"project-name", "business-domain", "team-size", "issue-tracker", "installation", "full", "binding-file"} {
 			if _, supplied := o.values[key]; supplied {
 				return nil, profile, domain.Fail("ARGUMENT", "决议重规划使用原保存计划，不能同时改写参数: "+key)
 			}
@@ -222,6 +235,9 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, e
 		}
 		planning.Original = original
+		if original.InstallationMigration != nil {
+			planning.Installation = original.Installation
+		}
 		vars = original.Variables
 		selection = original.Selection
 		binding = original.Binding
@@ -233,7 +249,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	if e != nil {
 		return nil, profile, e
 	}
-	if command == "doctor" {
+	if command == "doctor" && p.Installation != project.InstallationSkills {
 		checks, e := governance.Run("context", "verify", root, nil)
 		if e != nil {
 			return nil, profile, e

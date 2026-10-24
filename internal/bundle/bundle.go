@@ -17,28 +17,29 @@ type File struct {
 	Ownership string `json:"ownership"`
 }
 type Bundle struct {
-	NativeTransforms  []NativeTransform      `json:"nativeTransforms,omitempty"`
-	Upgrade           *UpgradePolicy         `json:"upgradePolicy,omitempty"`
-	Legacy            LegacyLineage          `json:"legacy,omitempty"`
-	SchemaVersion     int                    `json:"schemaVersion"`
-	TemplateVersion   string                 `json:"templateVersion,omitempty"`
-	LegacyCLICommit   string                 `json:"legacyCLICommit,omitempty"`
-	BundleHash        string                 `json:"bundleHash,omitempty"`
-	Producer          Provenance             `json:"producer,omitempty"`
-	SourcePolicy      PolicyProvenance       `json:"sourcePolicy,omitempty"`
-	Profile           string                 `json:"profile"`
-	LegacyVersion     string                 `json:"legacyVersion"`
-	CLICommit         string                 `json:"cliCommit,omitempty"`
-	TemplateCommit    string                 `json:"templateCommit"`
-	SourceState       string                 `json:"sourceState"`
-	SnapshotHash      string                 `json:"sourceSnapshotHash"`
-	ManifestHash      string                 `json:"manifestHash"`
-	Distribution      map[string]any         `json:"distribution"`
-	Manifest          map[string]any         `json:"manifest"`
-	Initial           map[string]File        `json:"initial"`
-	Files             map[string]File        `json:"files"`
-	StageRequirements map[string]Requirement `json:"stageRequirements"`
-	SkillRequirements map[string]Requirement `json:"skillRequirements"`
+	Installations     map[string]Installation `json:"installations,omitempty"`
+	NativeTransforms  []NativeTransform       `json:"nativeTransforms,omitempty"`
+	Upgrade           *UpgradePolicy          `json:"upgradePolicy,omitempty"`
+	Legacy            LegacyLineage           `json:"legacy,omitempty"`
+	SchemaVersion     int                     `json:"schemaVersion"`
+	TemplateVersion   string                  `json:"templateVersion,omitempty"`
+	LegacyCLICommit   string                  `json:"legacyCLICommit,omitempty"`
+	BundleHash        string                  `json:"bundleHash,omitempty"`
+	Producer          Provenance              `json:"producer,omitempty"`
+	SourcePolicy      PolicyProvenance        `json:"sourcePolicy,omitempty"`
+	Profile           string                  `json:"profile"`
+	LegacyVersion     string                  `json:"legacyVersion"`
+	CLICommit         string                  `json:"cliCommit,omitempty"`
+	TemplateCommit    string                  `json:"templateCommit"`
+	SourceState       string                  `json:"sourceState"`
+	SnapshotHash      string                  `json:"sourceSnapshotHash"`
+	ManifestHash      string                  `json:"manifestHash"`
+	Distribution      map[string]any          `json:"distribution"`
+	Manifest          map[string]any          `json:"manifest"`
+	Initial           map[string]File         `json:"initial"`
+	Files             map[string]File         `json:"files"`
+	StageRequirements map[string]Requirement  `json:"stageRequirements"`
+	SkillRequirements map[string]Requirement  `json:"skillRequirements"`
 }
 
 func Load(profile string) (*Bundle, error) {
@@ -78,10 +79,10 @@ func validate(out *Bundle, profile string) error {
 }
 
 func validateWith(out *Bundle, profile string, op *validationOp) error {
-	if (out.SchemaVersion < 1 || out.SchemaVersion > 4) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
+	if (out.SchemaVersion < 1 || out.SchemaVersion > 5) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
 		return domain.Fail("BUNDLE", "快照身份或来源不合法")
 	}
-	if out.SchemaVersion == 4 && profile != "spec" && profile != "backend" {
+	if out.SchemaVersion >= 4 && profile != "spec" && profile != "backend" {
 		return domain.Fail("BUNDLE", "Bundle4 仅支持 Spec/Backend")
 	}
 	if out.Initial == nil {
@@ -110,10 +111,32 @@ func validateWith(out *Bundle, profile string, op *validationOp) error {
 			return domain.Fail("BUNDLE", "初始化不属于完整快照: "+ref)
 		}
 	}
-	if out.SchemaVersion == 4 {
+	if out.SchemaVersion >= 4 {
 		for _, files := range []map[string]File{out.Files, out.Initial} {
 			if err := validateGovernance4(files, profile); err != nil {
 				return err
+			}
+		}
+	}
+	if out.SchemaVersion == 5 {
+		if len(out.Installations) != 2 {
+			return domain.Fail("BUNDLE", "Bundle5 requires two installation sets")
+		}
+		for _, kind := range []string{"skills", "governed"} {
+			view, err := out.ForInstallation(kind)
+			if err != nil {
+				return err
+			}
+			if view.Distribution["installation"] != kind {
+				return domain.Fail("BUNDLE", "installation identity mismatch")
+			}
+			for ref, f := range view.Initial {
+				if err := safefs.ValidateRef(ref); err != nil {
+					return err
+				}
+				if f.Mode != 0644 && f.Mode != 0755 {
+					return domain.Fail("BUNDLE", "installation mode invalid")
+				}
 			}
 		}
 	}

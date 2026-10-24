@@ -78,7 +78,7 @@ func setupFixture() (routeFixture, error) {
 		return routeFixture{}, err
 	}
 	f := routeFixture{project: filepath.Join(dir, "proj"), impl: filepath.Join(dir, "impl")}
-	if code, env, err := runYSS("init", "--profile", "spec", "--root", f.project, "--project-name", "Demo"); err != nil || code != 0 {
+	if code, env, err := runYSS("init", "--installation", "governed", "--profile", "spec", "--root", f.project, "--project-name", "Demo"); err != nil || code != 0 {
 		return f, fmt.Errorf("init 失败: code=%d env=%v err=%v", code, env, err)
 	}
 	if err := os.MkdirAll(f.impl, 0o755); err != nil {

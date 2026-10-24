@@ -24,14 +24,16 @@ func (s *SemanticSession) OriginalGovernanceSource() (*SemanticSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	if m.SchemaVersion != 4 {
+	if m.SchemaVersion < 4 {
 		return nil, nil
 	}
 	if m.GovernanceHistory == nil {
 		return nil, s.Reject("HISTORY_SOURCE_MISSING", "新实例没有绑定的原政策快照；--history不能回退到当前资格")
 	}
-	if err = s.Authorities(); err != nil {
-		return nil, err
+	if m.Distribution["installation"] != "skills" {
+		if err = s.Authorities(); err != nil {
+			return nil, err
+		}
 	}
 	h := m.GovernanceHistory
 	raw, err = s.Bytes(h.Ref)

@@ -260,7 +260,7 @@ func PrepareProfiles(ctx context.Context, sourceRoot string, targets ProfileTarg
 			target.Action = "reuse"
 			target.Inputs, err = profileIdentityInputs(root, profileIdentityRefs(name))
 		} else {
-			target.Init, err = Build(root, name, "init", p.Variables, nil)
+			target.Init, err = BuildWithOptions(root, name, "init", p.Variables, nil, nil, PlanningOptions{Installation: InstallationGoverned})
 			if err == nil {
 				err = PreflightApplyContext(ctx, target.Init)
 			}

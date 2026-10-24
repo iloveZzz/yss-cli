@@ -27,12 +27,13 @@ func initializeArguments() {
 	for _, key := range strings.Fields("root target-dir asset asset-ref backend-root tool-root out output source artifact plan-file binding-file checkpoint file schema snapshot package items item task requirements expected binding implementation-root template-checkout cli-source report-dir home run-dir") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<路径>", description: "文件或目录路径"}
 	}
-	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref task-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
+	for _, key := range strings.Fields("profile project-name business-domain team-size issue-tracker installation sha256 to id term-refs allowed-context-ids work-unit stage kind gate boundary consumer approval-ref task-ref unit slice phase scope current-work-unit next-work-unit provider branch additional-path base runtime-store input token reason type value status exit-code native view") {
 		argumentSpecs[key] = argumentSpec{placeholder: "<值>", description: "按当前命令说明指定"}
 	}
 	for _, key := range strings.Fields("json human diagnostics plan apply help version check required all dry-run include-example-docs force history require-approved continuation from-record allow-template recover full no-reconciliation source-context-snapshot prepare-inputs changed refresh") {
 		argumentSpecs[key] = argumentSpec{description: "布尔开关，可使用 =true 或 =false；默认 false", boolean: true}
 	}
+	defineArgument("installation", "<方式>", "新建或显式迁移的安装方式，已有项目同步保持原方式", "skills", "governed")
 	defineArgument("profile", "<Profile>", "Spec 或 Backend；项目命令可从身份检测", "spec", "backend")
 	defineArgument("root", "<目录>", "项目根，默认当前目录；仅项目命令")
 	defineArgument("target-dir", "<目录>", "项目根的兼容参数；优先使用 --root")

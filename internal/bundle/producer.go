@@ -76,13 +76,14 @@ type Entries struct {
 	Skills   []string `json:"skills,omitempty"`
 }
 type Policy struct {
-	Upgrade       *UpgradePolicy     `json:"upgradePolicy,omitempty"`
-	SchemaVersion int                `json:"schemaVersion"`
-	Profile       string             `json:"profile"`
-	Manifest      map[string]any     `json:"manifest"`
-	Common        Entries            `json:"common,omitempty"`
-	Stages        map[string]Entries `json:"stages,omitempty"`
-	OmitPaths     []string           `json:"omitPaths,omitempty"`
+	Installations map[string]InstallationPolicy `json:"installations,omitempty"`
+	Upgrade       *UpgradePolicy                `json:"upgradePolicy,omitempty"`
+	SchemaVersion int                           `json:"schemaVersion"`
+	Profile       string                        `json:"profile"`
+	Manifest      map[string]any                `json:"manifest"`
+	Common        Entries                       `json:"common,omitempty"`
+	Stages        map[string]Entries            `json:"stages,omitempty"`
+	OmitPaths     []string                      `json:"omitPaths,omitempty"`
 }
 type sourceFile struct {
 	data []byte
@@ -296,7 +297,7 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 			return nil, e
 		}
 	}
-	if version == 4 {
+	if version >= 4 {
 		for _, files := range []map[string]File{b.Files, b.Initial} {
 			f, ok := files["yss-project.yaml"]
 			if !ok {
@@ -304,6 +305,9 @@ func Build(ctx context.Context, s Source) (*Bundle, error) {
 			}
 			files["yss-project.yaml"] = encodedFile([]byte("schema_version: 2\nrepository_mode: project-instance\n"), f.Mode, f.Ownership)
 		}
+	}
+	if e = buildInstallations(ctx, b, policy, s, root, object); e != nil {
+		return nil, e
 	}
 	if e = validate(b, s.Profile); e != nil {
 		return nil, e

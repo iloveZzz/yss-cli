@@ -55,3 +55,18 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 | 旧 CLI + 新身份 | 拒绝不支持的 schema/字段；以实际退出和文件未变作为错配证据 |
 
 新实例不分发岗位/数字人注册表；真实用户决定、当前合同范围、原始摘要、实际执行和未知外部规则边界继续生效。旧 SourceLock、原始政策和审批字节只作为原协议输入，不用于新资格。程序升级、项目迁移及发布分别授权；此候选尚未更新公开 CLI pin。
+
+## 独立技能安装（新安装合同）
+
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+
+```sh
+yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json
+yss init --root /path/to/new-project --apply --plan-file /outside/project/init-plan.json --json
+```
+
+`init`、`attach` 可选择安装方式，`migrate --installation skills|governed` 显式转换已有 metadata4/5 实例；未给选择的 migrate 保留旧治理迁移语义。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
+
+普通技能由宿主按 SKILL.md 名称与描述发现，不要求先 route、resolve-ready、tracker setup 或创建 checkpoint。`skills resolve` 仍是原受管就绪验证，不是通用本地技能发现器。正式操作在 skills 工程返回未启用治理；真实工程测试、授权范围、分发完整性与写入冲突检查保留。
+
+迁移计划保留原任务、批准、checkpoint 及用户文件；活动或无法核验的正式绑定拒绝转换。规划后输入变化需要重新规划。以上是新合同的开发能力说明，不表示固定发行 Bundle 或用户项目已升级。

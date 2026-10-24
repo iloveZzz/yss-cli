@@ -57,6 +57,7 @@ type Material struct {
 	Descriptor domain.Descriptor `json:"descriptor"`
 }
 type PlanningOptions struct {
+	Installation   InstallationKind
 	BaseBundlePath string
 	Original       *Plan
 	ResolutionFile string
@@ -169,6 +170,21 @@ func addSystemAsset(p *Plan, ref string, before, after domain.Descriptor, kind s
 // closure of recorded selections. It never discovers stages by scanning files.
 func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[string]bundle.File, old map[string]Managed, command string) error {
 	mode := text(d["mode"])
+	if mode == "skills" {
+		for _, skill := range stringsOf(d["installedSkills"]) {
+			for ref, f := range b.Files {
+				if strings.HasPrefix(ref, ".agents/skills/"+skill+"/") {
+					refs[ref] = f
+				}
+				for _, runtime := range stringsOf(d["runtimes"]) {
+					if strings.HasPrefix(ref, "."+runtime+"/skills/"+skill+"/") {
+						refs[ref] = f
+					}
+				}
+			}
+		}
+		return nil
+	}
 	if id.Profile.Name != "spec" || mode != "selected" {
 		if mode == "legacy-all" || mode == "profile-full" {
 			for ref, f := range b.Files {
@@ -421,7 +437,13 @@ func (u *upgradePlanner) baseMaterial(ref string, m Managed) ([]byte, string, bo
 		return data, source, ok, e
 	}
 	if u.base != nil {
-		for _, files := range []map[string]bundle.File{u.base.Initial, u.base.Files} {
+		candidateFiles := []map[string]bundle.File{u.base.Initial, u.base.Files}
+		for _, kind := range []string{"skills", "governed"} {
+			if item, ok := u.base.Installations[kind]; ok {
+				candidateFiles = append(candidateFiles, item.Initial)
+			}
+		}
+		for _, files := range candidateFiles {
 			if f, exists := files[ref]; exists {
 				data, e := f.Render(u.plan.Variables)
 				if e != nil {
@@ -554,7 +576,7 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		desired := domain.Descriptor{Type: "file", Digest: safefs.Digest(data), Mode: domain.FileMode(f.Mode)}
 		previous, wasManaged := u.old[ref]
 		kind := u.bundle.AssetKind(ref, f)
-		if u.plan.Command == "migrate" && u.bundle.SchemaVersion == 4 && ref == "yss-project.yaml" {
+		if u.plan.Command == "migrate" && u.bundle.SchemaVersion >= 4 && ref == "yss-project.yaml" {
 			kind = "generated"
 		}
 		a := AssetResult{Path: ref, Policy: kind, Before: before, Target: desired, Baseline: previous.Baseline, BaselineSource: "unavailable"}
@@ -901,6 +923,9 @@ func sortedManaged(m map[string]Managed) []string {
 func mustDecode(data string) []byte { b, _ := base64.StdEncoding.DecodeString(data); return b }
 
 func BuildWithOptions(root, profile, command string, vars map[string]string, selection []string, binding *Binding, o PlanningOptions) (*Plan, error) {
+	if o.Original != nil && o.Original.InstallationMigration != nil && o.Installation == "" {
+		o.Installation = o.Original.Installation
+	}
 	baseOptions := o
 	baseOptions.Resolutions = nil
 	baseOptions.ResolvedFrom = ""

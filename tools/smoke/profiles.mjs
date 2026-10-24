@@ -13,7 +13,7 @@ export function runProfile(session, profile, tempRoot) {
   const name = ['--project-name', 'Smoke'];
 
   const initPlan = path.join(plans, 'init.json');
-  session.expectOk(['init', '--profile', profile, '--root', root, ...name, '--plan', '--out', initPlan, '--json'], {label: 'init --plan'});
+  session.expectOk(['init', '--installation', 'governed', '--profile', profile, '--root', root, ...name, '--plan', '--out', initPlan, '--json'], {label: 'init --plan'});
   check(fs.existsSync(initPlan), `init --plan 未写出计划文件: ${initPlan}`);
   check(!fs.existsSync(root), 'init --plan 不应创建项目目录');
   const applied = session.expectOk(['init', '--profile', profile, '--root', root, '--apply', '--plan-file', initPlan, '--json'], {label: 'init --apply'});
@@ -42,4 +42,21 @@ export function runProfile(session, profile, tempRoot) {
   const rolledBack = session.expectOk(['rollback', '--root', root, '--apply', json], {label: 'rollback --apply'});
   check(rolledBack.result?.status === 'rolled-back', `rollback --apply 结果应为 rolled-back，实际 ${rolledBack.result?.status}`);
   session.expectRejected(['doctor', '--root', root, json], {code: 'IDENTITY', label: '回退后 doctor 找不到项目身份'});
+}
+
+export function runSkillsProfile(session, profile, tempRoot) {
+ const root=path.join(tempRoot,`skills-${profile}`),plans=path.join(tempRoot,`skills-plans-${profile}`);
+ fs.mkdirSync(plans,{recursive:true});
+ const plan=path.join(plans,'init.json');
+ session.expectOk(['init','--root',root,'--profile',profile,'--plan','--out',plan,'--json'],{label:'skills default init plan'});
+ session.expectOk(['init','--root',root,'--apply','--plan-file',plan,'--json'],{label:'skills init apply'});
+ const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
+ check(metadata.distribution.installation==='skills','default installation must be skills');
+ for(const ref of ['yss-project.yaml','CONTEXT.md','.template-spec'])check(!fs.existsSync(path.join(root,ref)),`ordinary installation unexpectedly requires ${ref}`);
+ session.expectOk(['doctor','--root',root,'--json'],{label:'skills doctor without governance'});
+ const sync=path.join(plans,'sync.json');
+ session.expectOk(['sync','--root',root,'--plan','--out',sync,'--json']);
+ const result=session.expectOk(['sync','--root',root,'--apply','--plan-file',sync,'--json']);
+ check(result.result.status==='unchanged','fresh ordinary sync must be unchanged');
+ session.expectRejected(['lifecycle','query','--root',root,'--json'],{label:'ordinary project cannot run formal governance'});
 }

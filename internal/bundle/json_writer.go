@@ -17,6 +17,9 @@ func writeBundleJSON(w io.Writer, b *Bundle) error {
 		s.raw("null")
 	} else {
 		s.raw("{")
+		if len(b.Installations) > 0 {
+			s.member("installations", b.Installations)
+		}
 		if len(b.NativeTransforms) > 0 {
 			s.field("nativeTransforms")
 			s.raw("[")
