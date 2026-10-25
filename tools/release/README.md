@@ -18,7 +18,7 @@ go run ./tools/package --native-manifest INPUT.json --required-platforms darwin/
 
 该范围**不覆盖**旧包恢复（legacy-recovery）、模板消费者检查、原生命令面 smoke、进程中断恢复矩阵与插件 smoke。装配只校验这些证据的真实性与一致性，不因范围收窄放宽单项校验；发行说明必须列出未覆盖项。其余平台、固定文档、来源锁与二进制身份校验不变。
 
-固定来源锁接受 schema 2/3/5（2/3 为三个 Profile；5 为 Spec/Backend 与 Bundle4），逐 Profile 绑定 `templateCommit` 与归一后的 `templateVersion`：无 tag 时为精确的 `git:<templateCommit>`；有 tag 时须为正式 `vX.Y.Z`，版本为不带 `v` 的 `X.Y.Z`。锁中空版本沿用 Producer 的这两种默认值，显式版本必须与之相同；Bundle 必须记录该归一版本。tag 指向提交的真实性仍由 Producer 校验，装配继续核验独立 `Expected`、冻结文档原字节与摘要、实际 native inspect 和输入漂移，格式兼容不产生发行资格。
+固定来源锁接受 schema 2/3/5（2/3 为三个 Profile；5 为 Spec/Backend 与 Bundle4/Bundle5），逐 Profile 绑定 `templateCommit` 与归一后的 `templateVersion`：无 tag 时为精确的 `git:<templateCommit>`；有 tag 时须为正式 `vX.Y.Z`，版本为不带 `v` 的 `X.Y.Z`。锁中空版本沿用 Producer 的这两种默认值，显式版本必须与之相同；Bundle 必须记录该归一版本。tag 指向提交的真实性仍由 Producer 校验，装配继续核验独立 `Expected`、冻结文档原字节与摘要、实际 native inspect 和输入漂移，格式兼容不产生发行资格。
 
 每个平台必须保留同 binary 的实际 version envelope、`versionCommand`、spec/backend 两个 `bundleCommands` 原始 inspect envelope、开始/结束 SHA、`platform == runtimePlatform`、native-runner 身份、退出 0、无中断、无漂移及空 `unexecuted`。三项 native 检查完整消费现役 `native-smoke` 命令集合、当前平台的 `native-recovery` 矩阵和 `plugin-native-smoke` 的当前 label multiset。后端插件 case 的 identity/binding、只读业务 bytes/mode、预览、整体回退、重复恢复及物理日志摘要必须完整。原插件跨范围 deferred 项保持原样，不冒充已执行。
 

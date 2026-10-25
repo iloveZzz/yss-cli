@@ -10,7 +10,7 @@ import (
 )
 
 func TestV5ArchiveProvenanceKeepsStrictProfileBinding(t *testing.T) {
-	for _, scenario := range []string{"current", "extra-design", "missing-backend", "old-lock", "old-inspection", "working-tree", "missing-backend-source"} {
+	for _, scenario := range []string{"current", "bundle5", "future-inspection", "extra-design", "missing-backend", "old-lock", "old-inspection", "working-tree", "missing-backend-source"} {
 		hash, commit := strings.Repeat("a", 64), strings.Repeat("b", 40)
 		producer := bundle.Provenance{Version: "bundle-producer-v4", Commit: commit, SourceState: "committed"}
 		lock := bundle.SourceLock{SchemaVersion: 5, Producer: producer, Profiles: map[string]bundle.Source{}}
@@ -24,6 +24,12 @@ func TestV5ArchiveProvenanceKeepsStrictProfileBinding(t *testing.T) {
 			m.Bundles[profile] = &bundle.Inspection{SchemaVersion: 4, Profile: profile, TemplateVersion: "4.6.1", TemplateCommit: commit, SourceState: "committed", Producer: producer, SourcePolicy: bundle.PolicyProvenance{Kind: "committed", Path: s.PolicyPath, Digest: hash}, SnapshotHash: hash, ManifestHash: hash, BundleHash: hash}
 		}
 		switch scenario {
+		case "bundle5":
+			for _, inspection := range m.Bundles {
+				inspection.SchemaVersion = 5
+			}
+		case "future-inspection":
+			m.Bundles["spec"].SchemaVersion = 6
 		case "extra-design":
 			lock.Profiles["design"] = bundle.Source{Profile: "design"}
 		case "missing-backend":
@@ -41,7 +47,7 @@ func TestV5ArchiveProvenanceKeepsStrictProfileBinding(t *testing.T) {
 		}
 		raw, _ := json.Marshal(lock)
 		err := validateProvenance(m, raw)
-		if (err == nil) != (scenario == "current") {
+		if (err == nil) != (scenario == "current" || scenario == "bundle5") {
 			t.Errorf("%s: %v", scenario, err)
 		}
 	}

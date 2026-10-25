@@ -200,6 +200,24 @@ class PublishContractTest(unittest.TestCase):
         self.assertEqual(facts['notesSha256'], sha(self.f.notes))
         self.assertEqual(len(facts['expectedAssets']), 8)
 
+    def test_bundle5_windows_inspection_and_future_schema_rejection(self):
+        for schema in (5, 6):
+            value = json.loads((self.f.evidence / 'windows-artifact/build-only-checksums.json').read_bytes())
+            for inspection in value['bundles'].values():
+                inspection['schemaVersion'] = schema
+            for ref in ('windows-artifact/build-only-checksums.json', 'upload/build-only-checksums.json'):
+                put(self.f.evidence, ref, value)
+            self.f.sums()
+            if schema == 5:
+                try:
+                    facts = self.f.check()
+                except ValueError as error:
+                    self.fail(f'current Bundle5 Windows inspection rejected: {error}')
+                self.assertEqual(facts['sourceCommit'], self.f.source)
+            else:
+                with self.assertRaises(ValueError):
+                    self.f.check()
+
     def test_explicit_inputs_and_commit_relationships(self):
         for field, value in [('tag', ''), ('tag', 'v2.7.1-rc1'), ('notes_commit', ''),
                              ('notes_commit', 'HEAD'), ('notes_commit', self.f.source)]:

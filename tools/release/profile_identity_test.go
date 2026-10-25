@@ -24,7 +24,7 @@ func TestInspectionSchemaMatchesFixedLock(t *testing.T) {
 	for _, tc := range []struct {
 		lock, schema int
 		valid        bool
-	}{{5, 4, true}, {5, 3, false}, {3, 3, true}, {3, 4, false}, {2, 2, true}, {2, 4, false}} {
+	}{{5, 4, true}, {5, 5, true}, {5, 6, false}, {5, 3, false}, {3, 3, true}, {3, 4, false}, {3, 5, false}, {2, 2, true}, {2, 4, false}, {2, 5, false}} {
 		value := map[string]any{"schemaVersion": tc.schema, "profile": "spec", "manifest": map[string]any{"name": "spec"}, "distribution": map[string]any{}, "files": map[string]any{"README.md": map[string]any{"digest": hash, "mode": 420, "size": 1, "ownership": "managed"}}, "initialPaths": []string{"README.md"}, "producer": map[string]any{"sourceState": "committed", "commit": commit, "version": "bundle-producer-v4"}, "sourcePolicy": map[string]any{"kind": "committed", "digest": hash, "path": ".template-source/distribution/bundle-profile.json"}}
 		raw, _ := json.Marshal(value)
 		err := completeInspection(raw, "spec", tc.lock)
