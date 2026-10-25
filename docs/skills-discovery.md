@@ -38,3 +38,18 @@ yss skills ensure code-review codebase-design --root /path/to/project --apply --
 既有任务授权覆盖范围且计划无冲突才应用；安装后重新 resolve。整体 ready 后，在当前会话读取 `entryPath` 并记录 `contentDigest`，不依赖原生技能目录刷新。`invocation.invocation_mode=user` 仍需用户明确调用；就绪不授予业务批准、阶段资格或实施权限。文件变化后重验。
 
 受管文件丢失、内容/权限/投影漂移、路径占用、来源不匹配均为 blocked，不强制覆盖或隐式 sync。1.3.4 将新指引绑定到已提交的固定 Bundle；新建实例直接消费。既有实例需显式核验并通过 sync 更新受管指引，不在查询时隐式升级。历史发行及原生验收范围为 darwin/arm64；本轮增加 WorkBuddy 项目文件适配及离线校验，不增加桌面原生验收资格。宿主 catalog 无可靠接口时返回 unknown，详见 [WorkBuddy 接入与边界](workbuddy-support.md)。
+
+## 独立技能安装（新安装合同）
+
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+
+```sh
+yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json
+yss init --root /path/to/new-project --apply --plan-file /outside/project/init-plan.json --json
+```
+
+`init`、`attach` 可选择安装方式，`migrate --installation skills|governed` 显式转换已有 metadata4/5 实例；未给选择的 migrate 保留旧治理迁移语义。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
+
+普通技能由宿主按 SKILL.md 名称与描述发现，不要求先 route、resolve-ready、tracker setup 或创建 checkpoint。`skills resolve` 仍是原受管就绪验证，不是通用本地技能发现器。正式操作在 skills 工程返回未启用治理；真实工程测试、授权范围、分发完整性与写入冲突检查保留。
+
+迁移计划保留原任务、批准、checkpoint 及用户文件；活动或无法核验的正式绑定拒绝转换。规划后输入变化需要重新规划。以上是新合同的开发能力说明，不表示固定发行 Bundle 或用户项目已升级。

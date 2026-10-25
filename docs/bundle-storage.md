@@ -1,6 +1,6 @@
 # 模板存储与体积验证
 
-CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当前装配使用 source-lock v5、Bundle v4 与 metadata v4；存储格式保持 v1，envelope / protocol 保持 v1。
+CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当前装配使用 source-lock v5、Bundle v5 与 metadata v5；存储格式保持 v1，envelope / protocol 保持 v1。
 
 ## 私有归档 v1
 
@@ -14,7 +14,7 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 }
 ```
 
-`profiles` 保存原 Bundle 的全部结构，只有文件记录的 `data` 置为空字符串。路径、`digest`、`mode`、`ownership`、初始变体和转换来源分别保留；`files`、`initial`、`NativeTransforms.Source` 均通过 `digest` 引用对象。空文件也必须引用合法的空内容摘要。对象相同不要求路径、权限或归属相同；同路径的不同变体可以引用不同对象。
+`profiles` 保存原 Bundle 的全部结构，只有文件记录的 `data` 置为空字符串。路径、`digest`、`mode`、`ownership`、初始变体和转换来源分别保留；`files`、`initial`、`installations.*.initial`、`NativeTransforms.Source` 均通过 `digest` 引用对象。空文件也必须引用合法的空内容摘要。对象相同不要求路径、权限或归属相同；同路径的不同变体可以引用不同对象。
 
 生产入口先验证完整 Bundle 和逻辑摘要，复制内容容器后提取对象，拒绝同摘要的不同编码内容。按标准库 JSON 的确定性键序编码，用 `gzip.BestCompression` 和固定头压缩；生成结果经真实加载器验证后才以临时文件和重命名替换归档。输入 Bundle 不被改写。同一固定输入重复生成，归档字节与摘要必须一致。
 
@@ -64,3 +64,7 @@ go run ./tools/package /absolute/new-package-directory
 工具固定子进程 umask 为 0022，先在证据目录生成候选，再通过 Go overlay 重新编译下一层工具，使 `go:embed` 读取候选。帮助固定包含 `--reference`。检查归档 10,000,000 B 预算和公开快照 128 MiB 上限（包括最后一个换行）。普通文件的非执行权限差异不构成内容漂移；发布前仍核对完整目标身份，以发现并发编辑。
 
 生成使用 Git 工作区中的 `yss-artifacts.lock` 防止同时发布；替换前重新核对输入和目标。文件逐项原子替换，不承诺跨文件崩溃原子性。中断后保留收据，确认没有生成进程运行再移除该运行的残留锁，运行 `check --scope all` 确认真实状态。不要自动删除未知锁或覆盖检查期间的人工修改。
+
+## 安装集合
+
+Bundle5 的 `installations` 声明 `skills` 与 `governed` 两种分发视图。新初始化默认选择 skills；旧 Bundle3/4 维持 governed。每个视图保存独立分发清单及初始变体，并参与逻辑摘要。`governed.initial` 为 null 时复用根 `initial`，避免重复存储；读取器必须按此约定选择视图。存储格式仍为 v1，公开 Bundle5 快照与私有 gzip 归档不可混用。

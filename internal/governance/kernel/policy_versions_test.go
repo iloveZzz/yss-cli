@@ -215,3 +215,22 @@ func TestPolicyAggregateHandoffRequiresExplicitSourceApprovalRelation(t *testing
 		})
 	}
 }
+
+func TestGovernedMetadata5PolicyBinding(t *testing.T) {
+	root, _ := policyFixture(t)
+	s := NewSemanticSession(context.Background(), root, nil)
+	if err := s.Authorities(); err != nil {
+		t.Fatal(err)
+	}
+	writePolicyFixture(t, root, ".yss.json", map[string]any{"schemaVersion": 5, "bundleSchemaVersion": 5, "distribution": map[string]any{"installation": "governed"}})
+	s = NewSemanticSession(context.Background(), root, nil)
+	s.Report.Profile = "backend"
+	s.Registry, _ = s.Doc(".template-spec/process/lifecycle-registry.yaml")
+	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.loadGovernancePolicy(map[string]any{"schema_version": 2, "repository_mode": "project-instance"}, profile); err != nil {
+		t.Fatal(err)
+	}
+}

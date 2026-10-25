@@ -4,7 +4,7 @@
 // 失败时以非 0 退出；环境（git 配置、HOME、PATH）全部隔离在临时目录，不触碰用户全局配置。
 import fs from 'node:fs';
 import {makeTempRoot, Session, SmokeFailure} from './lib.mjs';
-import {PROFILES, runProfile} from './profiles.mjs';
+import {PROFILES, runProfile, runSkillsProfile} from './profiles.mjs';
 import {runGit} from './git.mjs';
 
 function parseArgs(argv) {
@@ -36,7 +36,7 @@ try {
   const retiredRoot = `${tempRoot}/retired-design`;
   session.expectRejected(['init','--profile','design','--root',retiredRoot,'--json'],{code:'ARGUMENT',label:'Design Profile 已移除'});
   if (fs.existsSync(retiredRoot)) throw new Error('退役 Profile 不得创建实例目录');
-  if (options.only !== 'git') for (const profile of PROFILES) runProfile(session, profile, tempRoot);
+  if (options.only !== 'git') for (const profile of PROFILES) {runProfile(session, profile, tempRoot);runSkillsProfile(session,profile,tempRoot);}
   if (options.only !== 'profiles') runGit(session, tempRoot);
   console.log('SMOKE PASS');
 } catch (error) {

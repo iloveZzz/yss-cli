@@ -35,8 +35,13 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 	if id.Native == nil || id.Native.SchemaVersion != b.SchemaVersion || id.Native.TemplateCommit != p.TemplateCommit || id.Native.Profile != p.Profile {
 		return domain.Fail("VERIFY", "应用后身份或来源不匹配")
 	}
-	if _, e = governance.RunContext(ctx, "context", "verify", p.Root, nil); e != nil {
-		return domain.Wrap("VERIFY", e)
+	if !skillsIdentity(id) {
+		if _, e = governance.RunContext(ctx, "context", "verify", p.Root, nil); e != nil {
+			return domain.Wrap("VERIFY", e)
+		}
+	}
+	if e = verifyInstallationWork(ctx, p); e != nil {
+		return e
 	}
 	for _, a := range p.Assets {
 		want := a.Target
@@ -159,7 +164,7 @@ func verifySkillTrees(root string, m *Metadata) error {
 	if !bytes.Equal(rendered, raw) {
 		return domain.Fail("VERIFY", "Skill 来源锁与实际树或投影不匹配")
 	}
-	if text(m.Distribution["mode"]) == "selected" {
+	if text(m.Distribution["mode"]) == "selected" || text(m.Distribution["mode"]) == "skills" {
 		names := []string{}
 		for name := range lock.Skills.Shared {
 			names = append(names, name)

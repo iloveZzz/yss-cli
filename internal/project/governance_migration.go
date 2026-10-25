@@ -162,7 +162,7 @@ func ValidateMigrationRollback(root string) error {
 	if err = json.Unmarshal(raw, &m); err != nil {
 		return err
 	}
-	if m.SchemaVersion == 4 && m.GovernanceHistory != nil && strings.HasPrefix(m.GovernanceHistory.Ref, ".template-spec/compatibility/governance-history/") {
+	if m.SchemaVersion >= 4 && m.GovernanceHistory != nil && strings.HasPrefix(m.GovernanceHistory.Ref, ".template-spec/compatibility/governance-history/") {
 		return domain.Fail("DOWNGRADE_UNSUPPORTED", "已完成的治理迁移不支持降级；保留原快照和所有新记录。未完成事务使用 recover。")
 	}
 	return nil
@@ -190,7 +190,7 @@ func migrationRecoveryIdentity(root, explicit string) (*Identity, error) {
 	if err != nil {
 		return nil, err
 	}
-	if m.SchemaVersion != 4 || m.GovernanceHistory == nil {
+	if m.SchemaVersion < 4 || m.GovernanceHistory == nil {
 		return nil, domain.Fail("IDENTITY", "迁移归档缺少明确新身份及原快照")
 	}
 	if explicit != "" && explicit != m.Profile {

@@ -46,12 +46,28 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 	data, _ := json.Marshal(source)
 	var d map[string]any
 	_ = json.Unmarshal(data, &d)
+	if b.SchemaVersion == 5 {
+		d["installation"] = b.Distribution["installation"]
+	}
 	if text(b.Distribution["mode"]) == "profile-full" && text(d["mode"]) == "profile-full" {
 		for _, key := range []string{"runtimes", "installedSkills"} {
 			if value, ok := b.Distribution[key]; ok {
 				d[key] = value
 			}
 		}
+		return d, nil
+	}
+	if text(d["mode"]) == "skills" {
+		added := []string{}
+		for _, ref := range selection {
+			if strings.HasPrefix(ref, ".agents/skills/") {
+				parts := strings.Split(ref, "/")
+				if len(parts) > 3 {
+					added = append(added, parts[2])
+				}
+			}
+		}
+		d["installedSkills"] = union(stringsOf(d["installedSkills"]), added)
 		return d, nil
 	}
 	if id.Profile.Name != "spec" || text(d["mode"]) != "selected" {
@@ -167,7 +183,7 @@ func selectedPlatformSkills(id *Identity, b *bundle.Bundle, d map[string]any, se
 }
 func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 	f := b.Files["skills-lock.json"]
-	if text(d["mode"]) != "selected" {
+	if text(d["mode"]) != "selected" && text(d["mode"]) != "skills" {
 		return f, nil
 	}
 	raw, e := base64.StdEncoding.DecodeString(f.Data)
@@ -180,6 +196,7 @@ func selectedLock(b *bundle.Bundle, d map[string]any) (bundle.File, error) {
 	}
 	f.Data = base64.StdEncoding.EncodeToString(raw)
 	f.Digest = safefs.Digest(raw)
+	f.Ownership = "generated"
 	return f, nil
 }
 

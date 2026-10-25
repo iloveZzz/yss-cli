@@ -72,12 +72,18 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if e := decoder.Decode(&meta); e != nil {
 		return nil, e
 	}
-	if (meta.SchemaVersion != 3 && meta.SchemaVersion != 4) || meta.ProtocolVersion != domain.ProtocolVersion {
+	if (meta.SchemaVersion != 3 && meta.SchemaVersion != 4 && meta.SchemaVersion != 5) || meta.ProtocolVersion != domain.ProtocolVersion {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "未知统一 CLI metadata 或协议版本"), "METADATA_SCHEMA_UNSUPPORTED", "当前执行器不支持该实例的元数据或协议版本。", map[string]any{"root": root, "metadataSchema": meta.SchemaVersion, "instanceProtocol": meta.ProtocolVersion, "instanceCLI": meta.CLIVersion, "templateCommit": meta.TemplateCommit})
+	}
+	if meta.SchemaVersion == 5 && meta.Distribution["installation"] != "skills" && meta.Distribution["installation"] != "governed" {
+		return nil, domain.Fail("IDENTITY", "metadata5 requires an explicit installation")
+	}
+	if meta.SchemaVersion < 5 && meta.Distribution["installation"] != nil && meta.Distribution["installation"] != "governed" {
+		return nil, domain.Fail("IDENTITY", "legacy metadata cannot select skills installation")
 	}
 	if meta.GovernanceHistory != nil {
 		h := meta.GovernanceHistory
-		if meta.SchemaVersion != 4 || !digestPattern.MatchString(h.Digest) || h.Ref != ".template-spec/compatibility/governance-history/"+h.Digest+"/manifest.json" {
+		if meta.SchemaVersion < 4 || !digestPattern.MatchString(h.Digest) || h.Ref != ".template-spec/compatibility/governance-history/"+h.Digest+"/manifest.json" {
 			return nil, domain.Fail("IDENTITY", "历史来源绑定未知或路径不合法")
 		}
 	}
@@ -85,7 +91,7 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 	if e != nil {
 		return nil, e
 	}
-	if meta.SchemaVersion == 4 && meta.Profile != "spec" && meta.Profile != "backend" {
+	if meta.SchemaVersion >= 4 && meta.Profile != "spec" && meta.Profile != "backend" {
 		return nil, domain.Fail("IDENTITY", "metadata4 仅支持 Spec/Backend")
 	}
 	if p.ID != meta.ProfileID || (found != "" && found != meta.Profile) {

@@ -149,6 +149,10 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, domain.Explain(domain.Fail("IDENTITY", "缺少可识别的 Profile metadata"), id, cause, map[string]any{"root": root})
 	}
 	out.Profile = domain.Profiles[found]
+	if skillsIdentity(out) {
+		out.Mode = "project-instance"
+		return out, nil
+	}
 	identityVersion := 0
 	hasIdentity, err := exists(root, "yss-project.yaml")
 	if err != nil {
@@ -164,7 +168,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		if !ok || (identityVersion != 1 && identityVersion != 2) || !exactVersion(m["schema_version"], identityVersion) || text(m["repository_mode"]) != "project-instance" {
 			return nil, domain.Fail("IDENTITY", "根身份缺失、未知 schema 或不是 project-instance")
 		}
-		if out.Native != nil && ((identityVersion == 2 && out.Native.SchemaVersion != 4) || (identityVersion == 1 && out.Native.SchemaVersion > 3)) {
+		if out.Native != nil && ((identityVersion == 2 && out.Native.SchemaVersion < 4) || (identityVersion == 1 && out.Native.SchemaVersion > 3)) {
 			return nil, domain.Fail("IDENTITY", "根身份与统一metadata混代；需要显式治理迁移")
 		}
 		out.Mode = "project-instance"

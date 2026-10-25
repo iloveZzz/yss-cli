@@ -34,6 +34,8 @@ check({schemaVersion:3,bundleSchemaVersion:3},true);
 check({profile:'backend',profileId:'harness.backend-delivery'},true);
 check({bundleSchemaVersion:3},false);
 check({schemaVersion:5,bundleSchemaVersion:5},false);
+check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"skills"}},true);
+check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"governed"}},true);
 check({profile:'design',profileId:'harness.business-ddd-strategy-handoff'},false);
 check({baselineDigest:'c'.repeat(64)},false);
 const wbRecord={baseline:{type:'file',digest:hash,mode:420},lastApplied:{type:'file',digest:hash,mode:420},ownership:'managed'};

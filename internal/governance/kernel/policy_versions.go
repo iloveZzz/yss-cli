@@ -59,7 +59,7 @@ func (s *SemanticSession) loadGovernancePolicy(identity, profile map[string]any)
 		if err != nil {
 			return err
 		}
-		if ApNumber(metadata["schemaVersion"]) != 4 || ApNumber(metadata["bundleSchemaVersion"]) != 4 {
+		if (ApNumber(metadata["schemaVersion"]) != 4 && ApNumber(metadata["schemaVersion"]) != 5) || ApNumber(metadata["bundleSchemaVersion"]) != ApNumber(metadata["schemaVersion"]) {
 			return s.Unavailable("GOVERNANCE_POLICY", "新身份不能混用旧metadata/Bundle")
 		}
 	}
@@ -320,10 +320,10 @@ func (s *SemanticSession) RequireGovernanceWrite() error {
 	}
 	metadata, err := s.Doc(domain.MetadataFile)
 	if err != nil {
-		return s.Unavailable("CAPABILITY", "新治理写入需要已验证的metadata4/Bundle4装配闭包")
+		return s.Unavailable("CAPABILITY", "新治理写入需要已验证的正式metadata4/5及对应Bundle装配闭包")
 	}
-	if ApNumber(metadata["schemaVersion"]) != 4 || ApNumber(metadata["bundleSchemaVersion"]) != 4 {
-		return s.Unavailable("CAPABILITY", "新治理写入需要已验证的metadata4/Bundle4装配闭包")
+	if (ApNumber(metadata["schemaVersion"]) != 4 && ApNumber(metadata["schemaVersion"]) != 5) || ApNumber(metadata["bundleSchemaVersion"]) != ApNumber(metadata["schemaVersion"]) {
+		return s.Unavailable("CAPABILITY", "新治理写入需要已验证的正式metadata4/5及对应Bundle装配闭包")
 	}
 	return nil
 }

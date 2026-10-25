@@ -7,6 +7,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance"
+	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
@@ -23,35 +24,37 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
-	GovernanceMigration *GovernanceMigration `json:"governanceMigration,omitempty"`
-	materialData        map[string][]byte
-	AssetScope          []string                     `json:"assetScope,omitempty"`
-	ReadyToApply        bool                         `json:"readyToApply,omitempty"`
-	Assets              []AssetResult                `json:"assets,omitempty"`
-	Blockers            []Blocker                    `json:"blockers,omitempty"`
-	Coverage            *Coverage                    `json:"coverage,omitempty"`
-	Materials           []Material                   `json:"baselineMaterials,omitempty"`
-	BaseBundlePath      string                       `json:"baseBundlePath,omitempty"`
-	BaseBundleDigest    string                       `json:"baseBundleDigest,omitempty"`
-	ResolvedFrom        string                       `json:"resolvedFrom,omitempty"`
-	Resolutions         []Resolution                 `json:"resolutions,omitempty"`
-	Binding             *Binding                     `json:"binding,omitempty"`
-	SchemaVersion       int                          `json:"schemaVersion"`
-	ProtocolVersion     int                          `json:"protocolVersion"`
-	Command             string                       `json:"command"`
-	Root                string                       `json:"root"`
-	Profile             string                       `json:"profile"`
-	TemplateCommit      string                       `json:"templateCommit"`
-	SnapshotHash        string                       `json:"snapshotHash"`
-	SourceVersion       string                       `json:"sourceVersion,omitempty"`
-	Notices             []string                     `json:"notices,omitempty"`
-	Changes             []Change                     `json:"changes"`
-	Conflicts           []string                     `json:"conflicts"`
-	Preserved           []string                     `json:"preserved"`
-	Inputs              map[string]domain.Descriptor `json:"inputs"`
-	Digest              string                       `json:"digest"`
-	Variables           map[string]string            `json:"variables"`
-	Selection           []string                     `json:"selection"`
+	InstallationMigration *InstallationMigration `json:"installationMigration,omitempty"`
+	Installation          InstallationKind       `json:"installation,omitempty"`
+	GovernanceMigration   *GovernanceMigration   `json:"governanceMigration,omitempty"`
+	materialData          map[string][]byte
+	AssetScope            []string                     `json:"assetScope,omitempty"`
+	ReadyToApply          bool                         `json:"readyToApply,omitempty"`
+	Assets                []AssetResult                `json:"assets,omitempty"`
+	Blockers              []Blocker                    `json:"blockers,omitempty"`
+	Coverage              *Coverage                    `json:"coverage,omitempty"`
+	Materials             []Material                   `json:"baselineMaterials,omitempty"`
+	BaseBundlePath        string                       `json:"baseBundlePath,omitempty"`
+	BaseBundleDigest      string                       `json:"baseBundleDigest,omitempty"`
+	ResolvedFrom          string                       `json:"resolvedFrom,omitempty"`
+	Resolutions           []Resolution                 `json:"resolutions,omitempty"`
+	Binding               *Binding                     `json:"binding,omitempty"`
+	SchemaVersion         int                          `json:"schemaVersion"`
+	ProtocolVersion       int                          `json:"protocolVersion"`
+	Command               string                       `json:"command"`
+	Root                  string                       `json:"root"`
+	Profile               string                       `json:"profile"`
+	TemplateCommit        string                       `json:"templateCommit"`
+	SnapshotHash          string                       `json:"snapshotHash"`
+	SourceVersion         string                       `json:"sourceVersion,omitempty"`
+	Notices               []string                     `json:"notices,omitempty"`
+	Changes               []Change                     `json:"changes"`
+	Conflicts             []string                     `json:"conflicts"`
+	Preserved             []string                     `json:"preserved"`
+	Inputs                map[string]domain.Descriptor `json:"inputs"`
+	Digest                string                       `json:"digest"`
+	Variables             map[string]string            `json:"variables"`
+	Selection             []string                     `json:"selection"`
 }
 
 func (p *Plan) Public() map[string]any {
@@ -61,6 +64,12 @@ func (p *Plan) Public() map[string]any {
 	}
 	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
 	// 只在目标 Bundle 含版本区间规则时才出现，其余计划的输出保持不变。
+	if p.InstallationMigration != nil {
+		public["installationMigration"] = p.InstallationMigration
+	}
+	if p.Installation != "" {
+		public["installation"] = p.Installation
+	}
 	if p.SourceVersion != "" {
 		public["sourceVersion"] = p.SourceVersion
 	}
@@ -117,11 +126,24 @@ func build(root, profile, command string, vars map[string]string, selection []st
 func buildCore(root, profile, command string, vars map[string]string, selection []string, binding *Binding, options PlanningOptions) (*Plan, error) {
 	init := command == "init"
 	attach := command == "attach"
-	id, err := migrationIdentity(root, profile, command, init || attach)
+	var id *Identity
+	var err error
+	if command == "migrate" && options.Installation != "" {
+		id, err = Detect(root, profile, false)
+	} else {
+		id, err = migrationIdentity(root, profile, command, init || attach)
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	var installationMigration *InstallationMigration
+	if command == "migrate" && options.Installation != "" {
+		installationMigration, err = planInstallationMigration(context.Background(), id, options.Installation)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if id.Profile.Name == "" {
 		return nil, domain.Fail("IDENTITY", "初始化或接管需要 --profile")
 	}
@@ -144,7 +166,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, e
 		}
 	}
-	if !init {
+	if !init && !skillsIdentity(id) {
 		if ok, e := exists(id.Root, "CONTEXT.md"); e != nil {
 			return nil, e
 		} else if ok {
@@ -158,20 +180,31 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	if !init && !attach && id.Native == nil && command != "diff" && command != "doctor" {
 		return nil, domain.Fail("IDENTITY", "缺少统一 CLI metadata；本 CLI 仅支持 2.3.1 基线实例")
 	}
-	b, err := bundle.Load(id.Profile.Name)
-	if err != nil {
-		return nil, err
+	b := options.target
+	if b == nil {
+		b, err = bundle.Load(id.Profile.Name)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if options.target != nil {
-		b = options.target
+	installation := InstallationGoverned
+	if b.SchemaVersion >= 5 || options.Installation != "" {
+		installation, err = ResolveInstallation(id, command, options.Installation)
+		if err != nil {
+			return nil, err
+		}
+		b, err = b.ForInstallation(string(installation))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := requireWorkBuddyRootSync(id, b, command); err != nil {
 		return nil, err
 	}
-	if b.SchemaVersion == 4 && id.Native != nil && id.Native.SchemaVersion == 3 && command != "migrate" && command != "diff" && command != "doctor" {
+	if b.SchemaVersion >= 4 && id.Native != nil && id.Native.SchemaVersion == 3 && command != "migrate" && command != "diff" && command != "doctor" {
 		return nil, domain.Fail("GOVERNANCE_MIGRATION_REQUIRED", "旧实例须先显式 migrate；sync 不隐式改变治理身份")
 	}
-	if command == "migrate" && b.SchemaVersion != 4 {
+	if command == "migrate" && b.SchemaVersion < 4 {
 		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "迁移目标必须为 Bundle4")
 	}
 	vars = Variables(id, vars)
@@ -183,12 +216,19 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 	}
 	distribution, err := distributionFor(id, b, selection)
+	if installationMigration != nil {
+		distribution = cloneInstallationDistribution(b.Distribution)
+	}
 	if err != nil {
 		return nil, err
 	}
-	p := &Plan{SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
-	if b.SchemaVersion == 4 {
+	p := &Plan{InstallationMigration: installationMigration, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
+	if b.SchemaVersion >= 4 {
 		p.SchemaVersion = 3
+	}
+	if b.SchemaVersion == 5 {
+		p.SchemaVersion = 4
+		p.Installation = installation
 	}
 	// Bind identity and vocabulary inputs even when preserved custom files do not
 	// appear in managedFiles. Transaction guards recheck them under the write lock.
@@ -220,7 +260,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		for ref := range old {
 			if f, ok := b.Initial[ref]; ok {
 				refs[ref] = f
-			} else if f, ok := b.Files[ref]; ok {
+			} else if f, ok := b.Files[ref]; ok && installationMigration == nil {
 				refs[ref] = f
 			}
 		}
@@ -240,14 +280,14 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	// A complete asset selection still uses the selected-runtime variants of
 	// entry files. Synchronization must render the same bytes as initialization.
-	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" {
+	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" || text(distribution["mode"]) == "skills" {
 		for ref, initial := range b.Initial {
 			if _, selected := refs[ref]; selected {
 				refs[ref] = initial
 			}
 		}
 	}
-	if init || attach || id.Native != nil {
+	if installation != InstallationSkills && (init || attach || id.Native != nil) {
 		if _, ok := refs[".template-spec/process/harness-profile.yaml"]; !ok {
 			data := "schema_version: 2\nprofile_id: " + id.Profile.ID + "\ninstantiation:\n  cli_package: " + id.Profile.LegacyCommand + "\n  metadata_file: " + id.Profile.Metadata + "\n  template_source: " + id.Profile.TemplateSource + "\n"
 			refs[".template-spec/process/harness-profile.yaml"] = bundle.File{Data: base64.StdEncoding.EncodeToString([]byte(data)), Digest: safefs.Digest([]byte(data)), Mode: 0644, Ownership: "managed"}
@@ -261,7 +301,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		refs[".template-spec/process/harness-profile.yaml"] = native
 	}
 	selectedLockProduced := false
-	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" {
+	if id.Profile.Name == "spec" && text(distribution["mode"]) == "selected" || text(distribution["mode"]) == "skills" {
 		f, e := selectedLock(b, distribution)
 		if e != nil {
 			return nil, e
@@ -303,13 +343,18 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 		return p, nil
 	}
-	history, err := planOriginalGovernance(p, id)
+	var history *identitymeta.GovernanceHistory
+	if installationMigration != nil {
+		history = id.Native.GovernanceHistory
+	} else {
+		history, err = planOriginalGovernance(p, id)
+	}
 	if err != nil {
 		return nil, err
 	}
 	meta := Metadata{GovernanceHistory: history, SchemaVersion: 3, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
-	if b.SchemaVersion == 4 {
-		meta.SchemaVersion = 4
+	if b.SchemaVersion >= 4 {
+		meta.SchemaVersion = b.SchemaVersion
 	}
 	if b.SchemaVersion >= 2 {
 		meta.TemplateVersion = b.TemplateVersion
@@ -431,7 +476,7 @@ func ReadPlan(file string) (*Plan, error) {
 	if e = d.Decode(&p); e != nil {
 		return nil, e
 	}
-	if (p.SchemaVersion != 1 && p.SchemaVersion != 2 && p.SchemaVersion != 3) || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
+	if (p.SchemaVersion != 1 && p.SchemaVersion != 2 && p.SchemaVersion != 3 && p.SchemaVersion != 4) || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
 		return nil, domain.Fail("PLAN", "计划版本或摘要不合法")
 	}
 	return &p, nil
@@ -473,7 +518,7 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	if p.Command == "doctor" || p.Command == "diff" {
 		return nil, domain.Fail("PLAN", "只读检查计划不能应用；请生成显式同步或迁移计划")
 	}
-	if p.SchemaVersion != 2 && p.SchemaVersion != 3 {
+	if p.SchemaVersion != 2 && p.SchemaVersion != 3 && p.SchemaVersion != 4 {
 		return nil, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")
 	}
 	if p.Digest != planDigest(p) {
@@ -489,7 +534,15 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	if b.TemplateCommit != p.TemplateCommit || b.SnapshotHash != p.SnapshotHash {
 		return nil, domain.Fail("BUNDLE", "计划绑定快照已改变")
 	}
-	if _, e = migrationIdentity(p.Root, p.Profile, p.Command, p.Command == "init" || p.Command == "attach"); e != nil {
+	if p.InstallationMigration != nil {
+		_, e = Detect(p.Root, p.Profile, false)
+	} else {
+		_, e = migrationIdentity(p.Root, p.Profile, p.Command, p.Command == "init" || p.Command == "attach")
+	}
+	if e != nil {
+		return nil, e
+	}
+	if e = verifyInstallationWork(ctx, p); e != nil {
 		return nil, e
 	}
 	for ref, before := range p.Inputs {
@@ -501,7 +554,7 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 			return nil, domain.Explain(domain.Fail("INPUT_DRIFT", "计划输入发生变化: "+ref), "SAVED_PLAN_INPUT_CHANGED", "当前输入与保存计划绑定的字节或权限不同，必须重新生成计划。", map[string]any{"root": p.Root, "path": ref, "expected": before, "observed": now})
 		}
 	}
-	rebuilt, e := BuildWithOptions(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding, PlanningOptions{BaseBundlePath: p.BaseBundlePath, ResolvedFrom: p.ResolvedFrom, Resolutions: p.Resolutions})
+	rebuilt, e := BuildWithOptions(p.Root, p.Profile, p.Command, p.Variables, p.Selection, p.Binding, planningOptionsForReplay(p))
 	if e != nil {
 		return nil, e
 	}

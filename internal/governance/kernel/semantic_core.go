@@ -938,6 +938,9 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 				return s.Unavailable(SemanticCode(err), err.Error())
 			}
 		}
+		if meta.SchemaVersion == 5 && meta.Distribution["installation"] == "skills" {
+			return s.Unavailable("GOVERNANCE_NOT_ENABLED", "此工程未启用正式治理")
+		}
 		family = meta.Profile
 	}
 	identity, err := s.Doc("yss-project.yaml")

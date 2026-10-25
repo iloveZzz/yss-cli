@@ -43,7 +43,7 @@ func nativeUpgradeSource(raw map[string]sourceFile, bundleVersion int) ([]Native
 	if _, exists := raw[".agents/skills/setup-yss-harness/SKILL.md"]; exists {
 		inputs[".template-spec/process/harness-upgrade.md"] = "setup-contract.md"
 	}
-	if bundleVersion == 4 {
+	if bundleVersion >= 4 {
 		// Current guidance belongs to the pinned template; only its metadata adapter needs compatibility rewriting.
 		for ref := range inputs {
 			if ref != "scripts/lib/instance-metadata.mjs" {

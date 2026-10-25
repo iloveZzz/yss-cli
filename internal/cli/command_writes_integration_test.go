@@ -44,7 +44,10 @@ func commandProject(t *testing.T) string {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(target, raw, info.Mode().Perm())
+		if err = os.WriteFile(target, raw, info.Mode().Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(target, info.Mode().Perm())
 	}); err != nil {
 		t.Fatal(err)
 	}
