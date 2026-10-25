@@ -9,7 +9,7 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "a84425f253893a5a17f09eee3d4338e5639478d7",
+      "templateCommit": "d901939341cf175727ccaf16c4ef475614d94da4",
       "templateVersion": "4.7.2",
       "templateTag": "v4.7.2",
       "policyPath": ".template-source/distribution/bundle-profile.json",
@@ -25,7 +25,7 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "a84425f253893a5a17f09eee3d4338e5639478d7",
+      "templateCommit": "d901939341cf175727ccaf16c4ef475614d94da4",
       "templateVersion": "4.7.2",
       "templateTag": "v4.7.2",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
