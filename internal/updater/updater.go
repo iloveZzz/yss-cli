@@ -184,7 +184,7 @@ func validateProvenance(m Manifest, sourceLock []byte) error {
 		if s.TemplateVersion != "" && s.TemplateVersion != version {
 			return fail("ARTIFACT", "发行包模板版本与来源 tag/commit 不一致: "+profile)
 		}
-		if s.State != "" || s.Tree != "" || (s.SourcePath != "." && safefs.ValidateRef(s.SourcePath) != nil) {
+		if (s.State != "" && !(lock.SchemaVersion == 5 && s.State == "committed")) || s.Tree != "" || (s.SourcePath != "." && safefs.ValidateRef(s.SourcePath) != nil) {
 			return fail("ARTIFACT", "发行包固定来源路径或状态不合法: "+profile)
 		}
 		policyKind := "committed"
