@@ -9,9 +9,9 @@
     "spec": {
       "profile": "spec",
       "sourcePath": ".",
-      "templateCommit": "d901939341cf175727ccaf16c4ef475614d94da4",
-      "templateVersion": "4.7.2",
-      "templateTag": "v4.7.2",
+      "templateCommit": "dbc2ea5d2372693848514e5eed7825bac725c2da",
+      "templateVersion": "4.7.3",
+      "templateTag": "v4.7.3",
       "policyPath": ".template-source/distribution/bundle-profile.json",
       "policyHash": "45fd93edba28c047ea55777a97a4e2fcf14d83aa81d64f00e0e0ec41defbadd7",
       "legacy": {
@@ -25,9 +25,9 @@
     "backend": {
       "profile": "backend",
       "sourcePath": ".",
-      "templateCommit": "d901939341cf175727ccaf16c4ef475614d94da4",
-      "templateVersion": "4.7.2",
-      "templateTag": "v4.7.2",
+      "templateCommit": "dbc2ea5d2372693848514e5eed7825bac725c2da",
+      "templateVersion": "4.7.3",
+      "templateTag": "v4.7.3",
       "policyPath": "profiles/backend/.template-source/distribution/bundle-profile.json",
       "policyHash": "379d409f2802c390da80649e421f049d77ed264e345ffa7c148bacbef7446430",
       "overlayPaths": [

@@ -2,7 +2,7 @@ package domain
 
 import "fmt"
 
-const Version = "2.7.2"
+const Version = "2.7.3"
 const ProtocolVersion = 1
 const MetadataFile = ".yss.json"
 
