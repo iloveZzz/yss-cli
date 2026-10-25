@@ -30,6 +30,14 @@ def ordinary(path):
     return path.read_bytes()
 
 
+def validate_inspection_source(inspection, profile, lock_schema, commit, version):
+    require(inspection['profile'] == profile and
+            inspection['schemaVersion'] in ([4, 5] if lock_schema == 5 else [2, 3]) and
+            inspection['templateCommit'] == commit and
+            inspection['templateVersion'] == version and
+            inspection['sourceState'] == 'committed', 'Mac inspection source differs from expected T')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['cli-root', 'source-manifest', 'source-manifest-sha256', 'out']:
@@ -89,10 +97,8 @@ def main():
             require(row.get('templateTag') == 'v' + args.template_version, 'stable source requires exact version tag')
         else:
             require(not row.get('templateTag'), 'git source must not carry a different tag')
-        require(inspection['profile'] == profile and inspection['schemaVersion'] in ([4] if lock['schemaVersion'] == 5 else [2, 3]) and
-                inspection['templateCommit'] == args.template_commit and
-                inspection['templateVersion'] == args.template_version and
-                inspection['sourceState'] == 'committed', 'Mac inspection source differs from expected T')
+        validate_inspection_source(inspection, profile, lock['schemaVersion'],
+                                   args.template_commit, args.template_version)
         for key in ['schemaVersion', 'profile', 'templateVersion', 'templateCommit', 'sourceState',
                     'sourceSnapshotHash', 'manifestHash', 'bundleHash', 'producer', 'sourcePolicy']:
             require(inspection[key] == bundled[key], 'Mac inspection differs from committed Bundle: ' + key)

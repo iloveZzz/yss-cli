@@ -190,7 +190,7 @@ def local_evidence(root, evidence, tag, source):
     for profile, identity in bundles.items():
         inspection, pin = windows['bundles'][profile], lock['profiles'][profile]
         require({k: inspection[k] for k in identity} == identity and inspection['profile'] == profile and
-                inspection['schemaVersion'] in ((4,) if lock['schemaVersion'] == 5 else (2, 3)) and
+                inspection['schemaVersion'] in ((4, 5) if lock['schemaVersion'] == 5 else (2, 3)) and
                 inspection['producer'] == lock['producer'] and inspection['sourcePolicy']['path'] == pin['policyPath'] and
                 inspection['sourcePolicy']['digest'] == pin['policyHash'], 'Windows manifest template inspection differs')
     for value in (inp, native, gate):

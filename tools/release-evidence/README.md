@@ -7,7 +7,7 @@
 * 只依赖本仓库文件和命令行参数，不读取 `~/.yss-harness` 等旧路径。程序版本取自 `internal/domain/domain.go`，模板版本与提交取自 `docs/source-lock.json`，均无硬编码。
 * 当前资格范围为 `local-platform-program-install`：darwin/arm64 在固定来源上实际执行 version、来源锁声明的全部现役 bundle inspect 和离线程序安装五项（plan 只读、apply、rollback、recover、用户文件保护）。Windows x64 只构建与打包，`stableReady=false`，不具备在线升级资格。
 
-SourceLock v2/v3 继续要求 Spec/Design/Backend 三个 Profile；v5 要求 Spec/Backend 两个 Profile 与 Bundle4，集合缺失、额外或混用均拒绝。安装器和装配器按同一固定锁核验，真实安装 case、源码/摘要与平台资格要求不变。旧 CLI 不支持 v5 来源锁时，需下载并核验新包内执行器后引导隔离安装；不声称所有旧版本都可直接自升级。
+SourceLock v2/v3 继续要求 Spec/Design/Backend 三个 Profile；v5 要求 Spec/Backend 两个 Profile 与 Bundle4/Bundle5，集合缺失、额外或混用均拒绝。安装器和装配器按同一固定锁核验，真实安装 case、源码/摘要与平台资格要求不变。旧 CLI 不支持 v5 来源锁时，需下载并核验新包内执行器后引导隔离安装；不声称所有旧版本都可直接自升级。
 
 ## 前置条件
 
