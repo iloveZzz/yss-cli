@@ -107,6 +107,8 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 
 `docs/releases/<tag>.md` 在 N、O 与 checkout 中必须逐字节一致并含完整 S。版本与固定来源读取 S，不能因说明或 publisher 后续提交而错误要求 O=S。说明按实际证据记录 Mac ARM64 项目、Windows 仅构建打包与固定来源；不得声称未执行的验收。
 
+下载 prepare 证据前及每次完整检查都会通过 GitHub API 核对当前 publisher run：同仓数字 ID、实际 workflow ID/path、`workflow_dispatch`、运行中的当前 attempt，以及 `head_sha` 等于干净 checkout 的 O。O 中的 `publish-release.yml` 必须与受审权限合同 SHA-256 `ce44380729a9291d018d0e9a92294c9cc0b26c454ea00328ef775c38a47121b7` 逐字节一致，该文件固定 `contents: write`、`actions: read` 和 `GH_TOKEN: ${{ github.token }}`。任何 workflow 字节变更都须重新审查权限与令牌绑定，再同步 `PUBLISH_WORKFLOW_SHA256`；不接受自填权限标志或未知上下文。GitHub Actions 使用安装令牌，仓库响应中的用户角色 `permissions.push` 可能为 false，不能据此推断其 token scope。草稿可见性依赖上述受审执行合同及成功的完整认证列表查询；API 错误、列表不完整或已有同 tag 草稿仍拒绝，不把查询失败视作不存在。
+
 正常入口从精确 prepare run 的唯一未过期 artifact 数字 ID 下载到全新仓外目录，核验 archive 摘要，保留 7 个 payload / 精确 8 个上传资产、来源/输入/平台/总控摘要绑定、`pending=[]`、Mac `local-platform-program-install` 与 Windows build-only 限制。同仓同 tag 共用并发组且不取消正在执行的任务。任何同 tag release（包括 draft）已存在时停止；成功且有 draft 可见权限的完整 release 列表才能证明不存在，404、权限或网络失败均停止。
 
 写入前重新观察 tag、run/artifact、release 不存在、说明与全部本地证据摘要。实际 create/publish 请求体必须是普通文件，其字节与已核验 tag/S/说明及固定参数生成的预期内容一致；每次检查与 draft 写前守卫（含最终完整核验）都重新比较，漂移或符号链接立即拒绝。仅通过后，以冻结说明执行一次显式 `gh api --method POST .../releases` 创建新 draft，保留返回的数字 ID；仅向本次新建 draft 逐一上传精确 8 个资产，每次核验远端 tag、draft 身份、原说明与本地摘要，并验证上传响应。全部资产到齐后，只读核验 draft 与全部输入，再执行一次 `PATCH .../releases/<id>`，设置 `draft=false`、`prerelease=false`、`make_latest="true"`，保留原 `--latest` 语义。这里不使用高层 `gh release create`，因为它可能在上传或发布失败后隐式 DELETE 清理 release。

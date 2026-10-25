@@ -11,6 +11,9 @@ import zipfile
 
 REPOSITORY = 'iloveZzz/yss-cli'
 WORKFLOW = '.github/workflows/release-evidence.yml'
+PUBLISH_WORKFLOW = '.github/workflows/publish-release.yml'
+# Review permission and token bindings again before accepting changed workflow bytes.
+PUBLISH_WORKFLOW_SHA256 = 'ce44380729a9291d018d0e9a92294c9cc0b26c454ea00328ef775c38a47121b7'
 SCOPE = 'local-platform-program-install'
 DOCUMENTS = ('docs/source-lock.json', 'docs/compatibility.md', 'docs/porting-status.md',
              'docs/native-governance.md', 'docs/cli-retirement.md', 'compat/README.md', 'README.md')
@@ -57,10 +60,36 @@ def remote_source(api, prefix, tag):
     raise ValueError('tag nesting exceeds bound')
 
 
+def publisher_context(root, env, api):
+    require(env.get('GITHUB_ACTIONS') == 'true' and env.get('GITHUB_REPOSITORY') == REPOSITORY and
+            env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'same-repository workflow_dispatch required')
+    for key in ('GITHUB_REPOSITORY_ID', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'):
+        require(re.fullmatch('[1-9][0-9]*', env.get(key, '')), 'explicit publisher context required: ' + key)
+    operations = git(root, 'rev-parse', 'HEAD').decode().strip()
+    require(operations == env.get('GITHUB_SHA') and not git(root, 'status', '--porcelain=v1', '--untracked-files=all'),
+            'clean dispatched checkout required')
+    workflow_bytes = git(root, 'show', operations + ':' + PUBLISH_WORKFLOW)
+    require(sha(workflow_bytes) == PUBLISH_WORKFLOW_SHA256 and ordinary(root, PUBLISH_WORKFLOW) == workflow_bytes,
+            'reviewed publisher workflow permission and token contract required')
+    prefix = 'repos/' + REPOSITORY
+    repo = api(prefix)
+    require(repo['full_name'] == REPOSITORY and repo['id'] == int(env['GITHUB_REPOSITORY_ID']), 'publisher repository differs')
+    run = api(prefix + '/actions/runs/' + env['GITHUB_RUN_ID'])
+    workflow = api(prefix + '/actions/workflows/publish-release.yml')
+    require(run['id'] == int(env['GITHUB_RUN_ID']) and run['run_attempt'] == int(env['GITHUB_RUN_ATTEMPT']) and
+            run['head_sha'] == operations and run['status'] == 'in_progress' and run['conclusion'] is None,
+            'actual active publisher run at operations commit required')
+    require(workflow['path'] == PUBLISH_WORKFLOW and run['workflow_id'] == workflow['id'] and
+            run['path'].split('@', 1)[0] == PUBLISH_WORKFLOW and run['event'] == 'workflow_dispatch',
+            'publisher workflow identity differs')
+    require(all(run[k]['full_name'] == REPOSITORY and run[k]['id'] == repo['id']
+                for k in ('repository', 'head_repository')), 'publisher run repository differs')
+    return operations
+
+
 def remote_evidence(api, prefix, run_id, source):
     repo = api(prefix)
-    require(repo['full_name'] == REPOSITORY and repo.get('permissions', {}).get('push') is True,
-            'same repository and visibility of draft releases required')
+    require(repo['full_name'] == REPOSITORY, 'same evidence repository required')
     run = api(prefix + '/actions/runs/' + run_id)
     workflow = api(prefix + '/actions/workflows/release-evidence.yml')
     require(run['id'] == int(run_id) and run['head_sha'] == source and run['status'] == 'completed' and
@@ -256,10 +285,7 @@ def check(root, evidence, tag, run_id, notes_commit, env, api, *, published=Fals
     require(re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag or ''), 'explicit stable tag required')
     require(re.fullmatch('[1-9][0-9]*', run_id or ''), 'explicit prepare run required')
     require(re.fullmatch('[0-9a-f]{40}', notes_commit or ''), 'explicit full notes_commit required')
-    require(env.get('GITHUB_ACTIONS') == 'true' and env.get('GITHUB_REPOSITORY') == REPOSITORY and
-            env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'same-repository workflow_dispatch required')
-    operations = git(root, 'rev-parse', 'HEAD').decode().strip()
-    require(operations == env.get('GITHUB_SHA') and not git(root, 'status', '--porcelain=v1', '--untracked-files=all'), 'clean dispatched checkout required')
+    operations = publisher_context(root, env, api)
     source = git(root, 'rev-parse', 'refs/tags/' + tag + '^{commit}').decode().strip()
     prefix = 'repos/' + REPOSITORY
     require(remote_source(api, prefix, tag) == source, 'remote tag source differs')
@@ -387,6 +413,7 @@ def main():
         # Obtain remote identity before downloading by numeric artifact ID.
         require(re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', options.tag or '') and
                 re.fullmatch('[1-9][0-9]*', options.run_id or ''), 'explicit tag/run required')
+        publisher_context(root, os.environ, api)
         source = remote_source(api, prefix, options.tag)
         artifact = remote_evidence(api, prefix, options.run_id, source)
         data = api.raw(prefix + f'/actions/artifacts/{artifact["id"]}/zip')

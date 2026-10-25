@@ -48,6 +48,8 @@ class Fixture:
             if name != 'docs/source-lock.json':
                 put(self.root, name, b'fixture document\n')
         put(self.root, 'internal/domain/domain.go', b'const Version = "8.9.10"\n')
+        put(self.root, '.github/workflows/publish-release.yml',
+            (HERE.parent.parent / '.github/workflows/publish-release.yml').read_bytes())
         self.source = self.commit('source')
         self.git('tag', self.tag)
         self.notes = ('# Future release\nSource: ' + self.source + '\n').encode()
@@ -57,6 +59,7 @@ class Fixture:
         self.operations = self.commit('operations')
         self.env = dict(os.environ, GITHUB_ACTIONS='true', GITHUB_REPOSITORY=self.repo,
                         GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_SHA=self.operations,
+                        GITHUB_REPOSITORY_ID='12', GITHUB_RUN_ID='777', GITHUB_RUN_ATTEMPT='1',
                         PYTHONDONTWRITEBYTECODE='1')
         bundles = {p: dict(templateCommit='a'*40, templateVersion='7.8.9', sourceState='committed',
                           sourceSnapshotHash='b' * 64, manifestHash='c' * 64, bundleHash='d' * 64)
@@ -119,7 +122,14 @@ class Fixture:
             put(self.evidence, 'upload/' + name, (self.evidence / source).read_bytes())
         self.sums()
         self.data = {
-            'repository': dict(id=12, full_name=self.repo, permissions=dict(push=True)),
+            'repository': dict(id=12, full_name=self.repo,
+                               permissions=dict(admin=False, maintain=False, push=False, triage=False, pull=False)),
+            'publisher_run': dict(id=777, run_attempt=1, head_sha=self.operations, status='in_progress',
+                                  conclusion=None, workflow_id=21, event='workflow_dispatch',
+                                  path='.github/workflows/publish-release.yml',
+                                  repository=dict(id=12, full_name=self.repo),
+                                  head_repository=dict(id=12, full_name=self.repo)),
+            'publisher_workflow': dict(id=21, path='.github/workflows/publish-release.yml'),
             'tag': dict(object=dict(type='commit', sha=self.source)),
             'run': dict(id=123, head_sha=self.source, status='completed', conclusion='success', workflow_id=20,
                         event='workflow_dispatch', path='.github/workflows/release-evidence.yml',
@@ -168,6 +178,10 @@ class Fixture:
             return copy.deepcopy(self.data['repository'])
         if '/git/ref/' in endpoint or '/git/tags/' in endpoint:
             return copy.deepcopy(self.data['tag'])
+        if endpoint.endswith('/actions/runs/777'):
+            return copy.deepcopy(self.data['publisher_run'])
+        if endpoint.endswith('/actions/workflows/publish-release.yml'):
+            return copy.deepcopy(self.data['publisher_workflow'])
         if '/actions/workflows/' in endpoint:
             return copy.deepcopy(self.data['workflow'])
         if '/artifacts?' in endpoint:
@@ -199,6 +213,54 @@ class PublishContractTest(unittest.TestCase):
         self.assertEqual(facts['sourceCommit'], self.f.source)
         self.assertEqual(facts['notesSha256'], sha(self.f.notes))
         self.assertEqual(len(facts['expectedAssets']), 8)
+
+    def test_actions_installation_token_with_false_user_roles_can_publish(self):
+        try:
+            facts = self.f.check()
+        except ValueError as error:
+            self.fail(f'verified Actions publisher rejected installation token user roles: {error}')
+        self.assertEqual(facts['operationsCommit'], self.f.operations)
+        self.assertEqual(len(facts['expectedAssets']), 8)
+
+    def test_actual_publisher_identity_is_required_even_with_user_push_access(self):
+        self.f.data['repository']['permissions']['push'] = True
+        changes = [('publisher_run', 'id', 778), ('publisher_run', 'run_attempt', 2),
+                   ('publisher_run', 'head_sha', 'f'*40), ('publisher_run', 'status', 'completed'),
+                   ('publisher_run', 'conclusion', 'failure'), ('publisher_run', 'event', 'push'),
+                   ('publisher_run', 'workflow_id', 999), ('publisher_run', 'path', '.github/workflows/other.yml'),
+                   ('publisher_workflow', 'path', '.github/workflows/other.yml'),
+                   ('publisher_run', 'repository', dict(id=13, full_name=self.f.repo)),
+                   ('publisher_run', 'head_repository', dict(id=12, full_name='wrong/repo'))]
+        for obj, key, value in changes:
+            original = self.f.data[obj][key]
+            self.f.data[obj][key] = value
+            with self.subTest(obj=obj, key=key), self.assertRaises(ValueError):
+                self.f.check()
+            self.f.data[obj][key] = original
+        for key, value in [('GITHUB_ACTIONS', 'false'), ('GITHUB_REPOSITORY', 'wrong/repo'),
+                           ('GITHUB_REPOSITORY_ID', '13'), ('GITHUB_RUN_ID', ''),
+                           ('GITHUB_RUN_ATTEMPT', '2'), ('GITHUB_SHA', 'f'*40),
+                           ('GITHUB_EVENT_NAME', 'push')]:
+            original = self.f.env[key]
+            self.f.env[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.f.check()
+            self.f.env[key] = original
+
+    def test_committed_publisher_permission_or_token_changes_require_review(self):
+        path = self.f.root / '.github/workflows/publish-release.yml'
+        original = path.read_bytes()
+        variants = [original.replace(b'contents: write', b'contents: read'),
+                    original.replace(b'${{ github.token }}', b'${{ secrets.OTHER_TOKEN }}'),
+                    original.replace(b'    env:\n', b'    permissions: {}\n    env:\n'),
+                    original + b'\n# changed workflow\n']
+        for changed in variants:
+            path.write_bytes(changed)
+            self.f.operations = self.f.commit('changed publisher workflow')
+            self.f.env['GITHUB_SHA'] = self.f.operations
+            self.f.data['publisher_run']['head_sha'] = self.f.operations
+            with self.subTest(workflow=changed), self.assertRaisesRegex(ValueError, 'reviewed publisher workflow'):
+                self.f.check()
 
     def test_bundle5_windows_inspection_and_future_schema_rejection(self):
         for schema in (5, 6):
@@ -234,7 +296,7 @@ class PublishContractTest(unittest.TestCase):
             self.f.check()
 
     def test_remote_identity_and_unknown_queries_fail_closed(self):
-        changes = [('repository', 'full_name', 'wrong/repo'), ('repository', 'permissions', dict(push=False)),
+        changes = [('repository', 'full_name', 'wrong/repo'), ('repository', 'id', 13),
                    ('run', 'head_sha', 'f'*40), ('run', 'status', 'in_progress'), ('run', 'conclusion', 'failure'),
                    ('run', 'event', 'push'), ('run', 'workflow_id', 999), ('workflow', 'path', '.github/workflows/other.yml'),
                    ('run', 'head_repository', dict(id=12, full_name='wrong/repo'))]
@@ -454,6 +516,14 @@ if '/git/ref/' in endpoint:
     if scenario == 'tag-after' and state['writes']:
         value = dict(object=dict(type='commit', sha='f'*40))
     done(value)
+if endpoint.endswith('/actions/runs/777'):
+    if scenario == 'publisher-api':
+        print('publisher run API unavailable', file=sys.stderr)
+        done(code=1)
+    value = data['publisher_run']
+    if scenario == 'publisher-context': value = dict(value, head_sha='f'*40)
+    done(value)
+if endpoint.endswith('/actions/workflows/publish-release.yml'): done(data['publisher_workflow'])
 if '/actions/workflows/' in endpoint: done(data['workflow'])
 if '/artifacts?' in endpoint:
     value = data['artifacts']
@@ -506,14 +576,19 @@ class PublisherBoundaryTest(unittest.TestCase):
                 calls=[], writes=0, deletes=0, httpWrites=[], tagReads=0, scenario=scenario, archive=str(archive_path),
                 tag=f.tag, notes=f.notes.decode(), records=str(records)))
             env = dict(f.env, PATH=str(executable.parent) + os.pathsep + os.environ['PATH'], FAKE_GH_STATE=str(state_path))
+            if scenario == 'user-context': env['GITHUB_ACTIONS'] = 'false'
             result = subprocess.run(['bash', str(HERE / 'publish-release.sh'), f.tag, '123', f.notes_commit, str(records)],
                                     cwd=f.root, env=env, capture_output=True)
             state = json.loads(state_path.read_text())
-            before = scenario in ('exists', '404', '403', 'network', 'tag-before', 'artifact-before', 'notes-before', 'payload-before', 'create-request-before')
+            before = scenario in ('exists', '404', '403', 'network', 'tag-before', 'artifact-before', 'notes-before', 'payload-before', 'create-request-before',
+                                  'publisher-context', 'publisher-api', 'user-context')
             self.assertEqual(state['writes'], 0 if before else 1, result.stderr.decode())
             self.assertEqual(result.returncode == 0, scenario == 'success', result.stderr.decode())
             self.assertEqual(state['deletes'], 0, 'no implicit or explicit DELETE after any write failure')
             self.assertEqual(sum(m == 'POST' and e.endswith('/releases') for m,e in state['httpWrites']), 0 if before else 1)
+            if scenario in ('publisher-context', 'publisher-api', 'user-context'):
+                self.assertFalse(any('/actions/runs/123' in arg or arg.endswith('/zip')
+                                     for call in state['calls'] for arg in call), 'reject context before reading prepare evidence')
             if not before:
                 self.assertEqual(json.loads((records / 'create.result.json').read_text())['exitCode'],
                                  7 if scenario == 'unknown-create' else 0)
@@ -577,7 +652,8 @@ class PublisherBoundaryTest(unittest.TestCase):
 for _scenario in ('success', 'exists', '404', '403', 'network', 'tag-before', 'artifact-before',
                   'notes-before', 'payload-before', 'partial-write', 'unknown-write', 'draft', 'prerelease',
                   'tag-after', 'notes-after', 'missing-asset', 'extra-asset', 'digest-after', 'latest-after', 'readback-error',
-                  'unknown-create', 'unknown-upload', 'create-request-before', 'publish-request-before'):
+                  'unknown-create', 'unknown-upload', 'create-request-before', 'publish-request-before',
+                  'publisher-context', 'publisher-api', 'user-context'):
     setattr(PublisherBoundaryTest, 'test_boundary_' + _scenario.replace('-', '_'),
             lambda self, scenario=_scenario: self.run_scenario(scenario))
 
