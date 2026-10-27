@@ -2,9 +2,11 @@ package project
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,6 +58,186 @@ func workBuddyProject(t *testing.T) (*Identity, *bundle.Bundle) {
 		id.Native.Managed[ref] = Managed{Applied: d, Baseline: d, Ownership: f.Ownership}
 	}
 	return id, b
+}
+
+func skillsOnlyProject(t *testing.T) (*Identity, *bundle.Bundle) {
+	t.Helper()
+	id, b := workBuddyProject(t)
+	id.Native.SchemaVersion = 5
+	id.Native.Distribution["installation"] = "skills"
+	id.Native.Distribution["mode"] = "skills"
+	if err := os.Remove(filepath.Join(id.Root, skillRegistryRef)); err != nil {
+		t.Fatal(err)
+	}
+	delete(id.Native.Managed, skillRegistryRef)
+	return id, b
+}
+
+func TestResolveSkillsInstallationModes(t *testing.T) {
+	for _, profile := range []string{"spec", "backend"} {
+		for _, installation := range []string{"skills", "governed", "legacy"} {
+			for _, runtime := range []string{"", "workbuddy"} {
+				t.Run(profile+"/"+installation+"/"+runtime, func(t *testing.T) {
+					id, b := skillsOnlyProject(t)
+					id.Profile = domain.Profiles[profile]
+					b.Profile = profile
+					if installation == "governed" {
+						id.Native.Distribution["installation"] = "governed"
+						id.Native.Distribution["mode"] = "selected"
+					}
+					if installation == "legacy" {
+						id.Native.SchemaVersion = 4
+						delete(id.Native.Distribution, "installation")
+						id.Native.Distribution["mode"] = "selected"
+					}
+					before := recoveryTree(t, id.Root)
+					got, err := ResolveSkills(id, b, []string{"probe"}, runtime, "")
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := "blocked"
+					if installation == "skills" {
+						want = "ready"
+					}
+					if got.Status != want {
+						t.Fatalf("got %s want %s: %+v", got.Status, want, got.Issues)
+					}
+					if want == "ready" {
+						entry := filepath.Join(id.Root, ".agents/skills/probe/SKILL.md")
+						raw, err := os.ReadFile(entry)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if len(got.Issues) != 0 || len(got.Missing) != 0 || len(got.Skills) != 1 || got.Skills[0].Status != "ready" || got.Skills[0].EntryPath != entry || got.Skills[0].ContentDigest != fmt.Sprintf("%x", sha256.Sum256(raw)) {
+							t.Fatalf("incomplete readiness: %+v", got)
+						}
+					}
+					if !reflect.DeepEqual(before, recoveryTree(t, id.Root)) {
+						t.Fatal("resolve modified the project")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSkillsResolveKeepsIntegrityChecks(t *testing.T) {
+	for _, kind := range []string{"missing-lock", "lock-bytes", "lock-source", "resource", "permission", "projection", "runtime", "snapshot", "governed-registry", "bundle-registry"} {
+		t.Run(kind, func(t *testing.T) {
+			id, b := skillsOnlyProject(t)
+			ref, raw, want := "", []byte(nil), "skill-drift"
+			refresh := false
+			var err error
+			switch kind {
+			case "missing-lock":
+				err = os.Remove(filepath.Join(id.Root, "skills-lock.json"))
+				want = "managed-state-drift"
+			case "lock-bytes", "lock-source":
+				ref = "skills-lock.json"
+				raw, err = os.ReadFile(filepath.Join(id.Root, ref))
+				want = "managed-state-drift"
+				if kind == "lock-bytes" {
+					raw = append(raw, '\n')
+				} else {
+					var lock map[string]any
+					if err = json.Unmarshal(raw, &lock); err == nil {
+						lock["skills"].(map[string]any)["shared"].(map[string]any)["probe"].(map[string]any)["skillPath"] = "wrong-source"
+						raw, err = json.Marshal(lock)
+					}
+					refresh, want = true, "skill-source-mismatch"
+				}
+			case "resource":
+				err = os.Remove(filepath.Join(id.Root, ".agents/skills/probe/payload.txt"))
+			case "permission":
+				err = os.Chmod(filepath.Join(id.Root, ".agents/skills/probe/payload.txt"), 0600)
+			case "projection":
+				ref, raw = ".workbuddy/skills/probe/payload.txt", []byte("changed")
+			case "runtime":
+				id.Native.Distribution["runtimes"] = []string{}
+				want = "runtime-unavailable"
+			case "snapshot":
+				id.Native.SnapshotHash = "different"
+				want = "cli-snapshot-mismatch"
+			case "governed-registry":
+				id.Native.Distribution["installation"] = "governed"
+				id.Native.Distribution["mode"] = "selected"
+				ref = skillRegistryRef
+				raw, err = b.Files[ref].Render(nil)
+				raw = append(raw, []byte("# local change\n")...)
+				id.Native.Managed[ref] = Managed{Ownership: "managed"}
+				refresh, want = true, "registry-source-mismatch"
+			case "bundle-registry":
+				delete(b.Files, skillRegistryRef)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ref != "" {
+				if err = os.MkdirAll(filepath.Dir(filepath.Join(id.Root, ref)), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err = os.WriteFile(filepath.Join(id.Root, ref), raw, 0644); err != nil {
+					t.Fatal(err)
+				}
+				if refresh {
+					d, err := safefs.Describe(id.Root, ref)
+					if err != nil {
+						t.Fatal(err)
+					}
+					m := id.Native.Managed[ref]
+					m.Applied = d
+					id.Native.Managed[ref] = m
+				}
+			}
+			before := recoveryTree(t, id.Root)
+			got, err := ResolveSkills(id, b, []string{"probe"}, "workbuddy", "")
+			if kind == "bundle-registry" {
+				var failure *domain.Error
+				if !errors.As(err, &failure) || failure.Code != "SKILL" {
+					t.Fatalf("invalid fixed registry accepted: %v", err)
+				}
+			} else {
+				if err != nil || got.Status != "blocked" {
+					t.Fatalf("integrity violation accepted: %+v %v", got, err)
+				}
+				found := false
+				for _, issue := range got.Issues {
+					found = found || issue.Code == want
+				}
+				if !found {
+					t.Fatalf("missing %s: %+v", want, got.Issues)
+				}
+			}
+			if !reflect.DeepEqual(before, recoveryTree(t, id.Root)) {
+				t.Fatal("blocked query modified the project")
+			}
+		})
+	}
+}
+
+func TestSkillsResolveConditionalDependencyMissing(t *testing.T) {
+	id, b := skillsOnlyProject(t)
+	registry := []byte("schema_version: 3\nstatus: active\ncanonical_content_root: .agents/skills\ninvocation_contract:\n  schema_version: 2\nskills:\n  - {id: probe, layer: core, maturity: supported}\n  - {id: dependency, layer: core, maturity: supported}\nskill_dependencies:\n  probe:\n    - {skill: dependency, type: context-conditional, when: docs}\n")
+	b.Files[skillRegistryRef] = bundle.File{Data: base64.StdEncoding.EncodeToString(registry), Digest: safefs.Digest(registry), Mode: 0644, Ownership: "managed"}
+	dependency := []byte("---\nname: dependency\ndescription: Dependency\n---\n")
+	b.Files[".agents/skills/dependency/SKILL.md"] = bundle.File{Data: base64.StdEncoding.EncodeToString(dependency), Digest: safefs.Digest(dependency), Mode: 0644, Ownership: "managed"}
+	before := recoveryTree(t, id.Root)
+	for _, when := range []string{"", "docs"} {
+		got, err := ResolveSkills(id, b, []string{"probe"}, "", when)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, missing := "ready", []string{}
+		if when != "" {
+			want, missing = "missing", []string{"dependency"}
+		}
+		if got.Status != want || len(got.Issues) != 0 || !reflect.DeepEqual(got.Missing, missing) {
+			t.Fatalf("condition %q: %+v", when, got)
+		}
+	}
+	if !reflect.DeepEqual(before, recoveryTree(t, id.Root)) {
+		t.Fatal("conditional query installed a dependency")
+	}
 }
 
 func TestWorkBuddyResolveStates(t *testing.T) {

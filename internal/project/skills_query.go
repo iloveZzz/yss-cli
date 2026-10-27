@@ -365,6 +365,9 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 		issue("", "cli-snapshot-mismatch", "当前实例与固定 Bundle 来源不匹配")
 	}
 	for _, ref := range []string{skillRegistryRef, "skills-lock.json"} {
+		if ref == skillRegistryRef && skillsIdentity(id) {
+			continue
+		}
 		d, err := safefs.Describe(id.Root, ref)
 		m, ok := managed[ref]
 		if err != nil || !ok || d != m.Applied {
