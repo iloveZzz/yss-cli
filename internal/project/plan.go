@@ -222,6 +222,11 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	if err != nil {
 		return nil, err
 	}
+	if installation == InstallationSkills {
+		if err := validateSkillsSelection(b, selection, stringsOf(distribution["runtimes"])); err != nil {
+			return nil, err
+		}
+	}
 	p := &Plan{InstallationMigration: installationMigration, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
 	if b.SchemaVersion >= 4 {
 		p.SchemaVersion = 3

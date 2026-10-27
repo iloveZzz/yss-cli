@@ -350,89 +350,15 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 	if err != nil {
 		return nil, err
 	}
-	retired, err := retiredSkillIDs(b)
+	selected, err := resolveSkillSelection(b, requested, when)
 	if err != nil {
 		return nil, err
 	}
-	registered, aliases := map[string]skillRegistration{}, map[string]string{}
-	for _, s := range r.Skills {
-		registered[s.ID] = s
-		aliases[s.ID] = s.ID
-		for _, alias := range s.Aliases {
-			aliases[alias] = s.ID
-		}
+	registered := map[string]skillRegistration{}
+	for _, item := range r.Skills {
+		registered[item.ID] = item
 	}
-	canonical := func(name string) (string, error) {
-		if retired[name] {
-			return "", domain.Fail("SKILL", "skill-retired: "+name)
-		}
-		resolved, ok := aliases[name]
-		if !ok {
-			return "", domain.Fail("SKILL", "未知或非内置共享技能: "+name)
-		}
-		if registered[resolved].Maturity == "deprecated" {
-			return "", domain.Fail("SKILL", "skill-deprecated: "+resolved)
-		}
-		if _, ok := b.Files[".agents/skills/"+resolved+"/SKILL.md"]; !ok {
-			return "", domain.Fail("SKILL", "当前 Profile 无内置技能: "+resolved)
-		}
-		return resolved, nil
-	}
-	out := &SkillResolution{ReadOnly: true, Status: "ready", AgentRuntime: runtime, Requested: append([]string{}, requested...), CanonicalIDs: []string{}, When: []string{}, Dependencies: []SkillDependency{}, Missing: []string{}, Issues: []SkillIssue{}, Skills: []ResolvedSkill{}}
-	conditions, allowed := map[string]bool{}, map[string]bool{}
-	for _, deps := range r.Dependencies {
-		for _, d := range deps {
-			if d.Type == "context-conditional" {
-				allowed[d.When] = true
-			}
-		}
-	}
-	if when != "" {
-		for _, v := range strings.Split(when, ",") {
-			v = strings.TrimSpace(v)
-			if v == "" || !allowed[v] {
-				return nil, domain.Fail("ARGUMENT", "未知条件: "+v)
-			}
-			conditions[v] = true
-		}
-		for v := range conditions {
-			out.When = append(out.When, v)
-		}
-		sort.Strings(out.When)
-	}
-	seen := map[string]bool{}
-	var visit func(string) error
-	visit = func(name string) error {
-		name, err := canonical(name)
-		if err != nil {
-			return err
-		}
-		if seen[name] {
-			return nil
-		}
-		seen[name] = true
-		for _, d := range r.Dependencies[name] {
-			if d.Type != "context-required" && !(d.Type == "context-conditional" && conditions[d.When]) {
-				continue
-			}
-			d.Skill, err = canonical(d.Skill)
-			if err != nil {
-				return err
-			}
-			d.From = name
-			out.Dependencies = append(out.Dependencies, d)
-			if err = visit(d.Skill); err != nil {
-				return err
-			}
-		}
-		out.CanonicalIDs = append(out.CanonicalIDs, name)
-		return nil
-	}
-	for _, name := range requested {
-		if err = visit(name); err != nil {
-			return nil, err
-		}
-	}
+	out := &SkillResolution{ReadOnly: true, Status: "ready", AgentRuntime: runtime, Requested: append([]string{}, requested...), CanonicalIDs: selected.CanonicalIDs, When: selected.When, Dependencies: selected.Dependencies, Missing: []string{}, Issues: []SkillIssue{}, Skills: []ResolvedSkill{}}
 	issue := func(skill, code, reason string) {
 		out.Issues = append(out.Issues, SkillIssue{Skill: skill, Code: code, Reason: reason})
 		out.Status = "blocked"
