@@ -46,8 +46,12 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		return trace.Summary(m)
 	}
 	title := "查询完成"
-	if command == "scaffold" {
+	if command == "scaffold" && len(o.args) > 1 && (o.args[1] == "ddd" || o.args[1] == "mvc") {
 		title = "脚手架已生成（未执行 Maven 验证）"
+	}
+	if (command == "scaffold" || command == "project") && len(o.args) > 1 && o.args[1] == "verify" {
+		label := map[string]string{"complete": "输出完整", "not-applied": "尚未应用", "incomplete": "输出不完整", "unknown": "状态待确认"}[stringValue(m["outcome"], "unknown")]
+		title = "输出核查：" + label
 	}
 	if command == "lifecycle" && len(o.args) > 1 && o.args[1] == "route" {
 		title = "路由判定完成"
@@ -347,6 +351,9 @@ func savedPlanApplyCommand(o options, profile string, result map[string]any) []s
 	if command == "update" || command == "upgrade" {
 		return []string{"yss", "update", "apply", "--tool-root", stringValue(result["toolRoot"], o.values["tool-root"]), "--plan-file", o.values["out"], "--json"}
 	}
+	if command == "scaffold" {
+		return append(argv, "--apply", "--plan-file", o.values["out"], "--expected-digest", stringValue(result["digest"], ""), "--json")
+	}
 	if command == "stage" {
 		argv = []string{"yss", command, "apply", "--root", root, "--plan-file", o.values["out"], "--json"}
 	} else {
@@ -357,6 +364,9 @@ func savedPlanApplyCommand(o options, profile string, result map[string]any) []s
 	}
 	if command == "handoff" && o.values["kind"] != "" {
 		argv = append(argv, "--kind", o.values["kind"])
+	}
+	if result["kind"] == "installation-plan" {
+		argv = append(argv, "--expected-digest", stringValue(result["digest"], ""))
 	}
 	return argv
 }

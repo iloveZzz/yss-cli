@@ -33,7 +33,7 @@ func (g *mvcGen) manifest(t *Tree) (*OMap, error) {
 			"bootstrap_main_source", mainSource,
 			"generator", generator,
 			"ownership", ownership,
-		)), nil
+		), g.o.renderContext), nil
 	}
 	return g.formalManifest(t, fingerprint, generator, ownership, mainSource)
 }

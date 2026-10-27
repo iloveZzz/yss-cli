@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 const standaloneMode = "standalone-generation"
@@ -158,7 +157,7 @@ func sameNumber(text string, value int) bool {
 }
 
 // standaloneManifest mirrors standaloneManifest(configuration, generated).
-func standaloneManifest(configuration, generated *OMap) *OMap {
+func standaloneManifest(configuration, generated *OMap, render *RenderContext) *OMap {
 	manifest := NewOMap()
 	for _, source := range []*OMap{configuration, generated} {
 		for _, key := range source.Keys() {
@@ -182,8 +181,6 @@ func standaloneManifest(configuration, generated *OMap) *OMap {
 	manifest.Set("verification_commands", commandList())
 	manifest.Set("verification", newMap("status", "not-executed", "commands", []any{}))
 	manifest.Set("readiness", newMap("lifecycle_approved", false, "ready_for_agent", false))
-	manifest.Set("generated_at", isoNow())
+	manifest.Set("generated_at", render.GeneratedAt)
 	return manifest
 }
-
-func isoNow() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }

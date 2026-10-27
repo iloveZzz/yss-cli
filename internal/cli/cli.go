@@ -208,6 +208,14 @@ func capabilities() map[string]any {
 	m := capabilitiesBase()
 	m["nodeDelegation"] = nodeDelegation
 	m["scaffold"] = map[string]any{"architectures": []string{"ddd", "mvc"}, "runtime": "go", "source": "embedded-spec-bundle", "initializeOnly": true, "buildExecuted": false}
+	m["ideaIntegration"] = map[string]any{"schemaVersion": 1, "profiles": []string{"spec", "backend"}, "installations": []string{"skills", "governed"}, "operations": map[string]any{
+		"init":     map[string]any{"plan": true, "boundApply": true, "safeCancel": false},
+		"attach":   map[string]any{"plan": true, "boundApply": true, "safeCancel": false},
+		"scaffold": map[string]any{"plan": true, "boundApply": true, "safeCancel": false},
+		"catalog":  map[string]any{"readOnly": true, "safeCancel": true},
+		"inspect":  map[string]any{"readOnly": true, "safeCancel": true},
+		"verify":   map[string]any{"readOnly": true, "safeCancel": true},
+	}}
 	return m
 }
 func capabilitiesBase() map[string]any {
