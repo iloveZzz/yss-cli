@@ -3,11 +3,14 @@
 package cli
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/project"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -37,6 +40,35 @@ func TestSkillsDefaultCLI(t *testing.T) {
 	if meta["schemaVersion"] != float64(5) || meta["distribution"].(map[string]any)["installation"] != "skills" {
 		t.Fatal("ordinary installation not recorded")
 	}
+	before := installationInventory(t, root)
+	for _, runtime := range []string{"", "workbuddy"} {
+		args := []string{"skills", "resolve", "implement", "code-review"}
+		if runtime != "" {
+			args = append(args, "--agent-runtime", runtime)
+		}
+		resolved := commandOK(t, root, args...)
+		if resolved["status"] != "ready" || len(resolved["issues"].([]any)) != 0 || len(resolved["missing"].([]any)) != 0 {
+			t.Fatalf("default skills not ready: %v", resolved)
+		}
+		for _, item := range resolved["skills"].([]any) {
+			skill := item.(map[string]any)
+			entry := filepath.Join(root, ".agents", "skills", skill["id"].(string), "SKILL.md")
+			raw, err := os.ReadFile(entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if skill["status"] != "ready" || skill["entryPath"] != entry || skill["contentDigest"] != fmt.Sprintf("%x", sha256.Sum256(raw)) {
+				t.Fatalf("unverified skill entry: %v", skill)
+			}
+		}
+	}
+	conditional := commandOK(t, root, "skills", "resolve", "implement", "code-review", "--when", "lifecycle-document-output")
+	if conditional["status"] != "missing" || len(conditional["issues"].([]any)) != 0 || !reflect.DeepEqual(conditional["missing"], []any{"i-have-adhd"}) {
+		t.Fatalf("conditional dependency not reported: %v", conditional)
+	}
+	if !reflect.DeepEqual(before, installationInventory(t, root)) {
+		t.Fatal("readiness query wrote project files")
+	}
 	plan := filepath.Join(t.TempDir(), "sync.json")
 	commandOK(t, root, "sync", "--plan", "--out", plan)
 	result := commandOK(t, root, "sync", "--apply", "--plan-file", plan)
@@ -48,6 +80,28 @@ func TestSkillsDefaultCLI(t *testing.T) {
 		commandOK(t, root, "migrate", "--installation", kind, "--plan", "--out", plan)
 		commandOK(t, root, "migrate", "--apply", "--plan-file", plan)
 	}
+}
+
+func installationInventory(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		var raw []byte
+		if !info.IsDir() {
+			raw, err = os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+		}
+		files[path] = fmt.Sprintf("%o:%s", info.Mode(), raw)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
 func TestInstallationMigrationResolutionCLI(t *testing.T) {
