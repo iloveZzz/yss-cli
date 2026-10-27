@@ -61,7 +61,7 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 
 ## 独立技能安装（新安装合同）
 
-Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；Spec 默认包含 life 路由、澄清、研究、领域、规格草稿、中文写作、审查与显式实现入口，Backend 默认开发与审查入口。具体集合由固定 Bundle 政策决定，to-spec 和 implement 保持用户显式调用。独立 ensure 仅选择技能内闭包；条件依赖继续先 resolve --when，再显式 ensure missing 集合，不新增 ensure --when。已有独立项目仅在显式 sync 保存/应用计划时采纳目标默认，程序升级本身不写项目；文件、元数据、锁和有效投影同时更新，旧锁或运行时异常仍拒绝。旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
 
 ```sh
 yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json

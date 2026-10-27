@@ -97,7 +97,7 @@ func expectedResult(key string) string {
 		return "返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。"
 	}
 	if key == "init" {
-		return "默认 skills 形成独立技能安装；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。"
+		return "默认 skills 形成独立技能安装；Spec 普通需求从 yss-product-lifecycle（life）开始；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。"
 	}
 	if strings.Contains(key, "plan") || key == "sync" || key == "attach" || strings.HasPrefix(key, "stage register") || strings.HasPrefix(key, "stage update") {
 		return "输出可审阅计划；应用保存计划时重新核验当前输入。"
@@ -117,7 +117,7 @@ func nextReading(key string) string {
 	case "scaffold":
 		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
-		return "yss doctor --help；skills 查看技能入口，governed 再用 lifecycle 查询当前入口。"
+		return "yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。"
 	case "doctor", "diff", "sync", "recover", "rollback":
 		return "根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。"
 	case "contract", "stage", "reading", "evidence", "handoff", "lifecycle", "project-ci":

@@ -73,7 +73,9 @@ export function runSkillsProfile(session, profile, tempRoot) {
  check(metadata.distribution.installation==='skills','default installation must be skills');
  for(const ref of ['yss-project.yaml','CONTEXT.md','.template-spec'])check(!fs.existsSync(path.join(root,ref)),`ordinary installation unexpectedly requires ${ref}`);
  session.expectOk(['doctor','--root',root,'--json'],{label:'skills doctor without governance'});
- if(profile==='spec')specReadiness(session,root,['implement','code-review']);
+ const roots=profile==='spec'?['yss-product-lifecycle','grilling','yss-research','domain-modeling','to-spec','i-have-adhd','code-review','implement']:['implement','code-review'];
+ check(metadata.distribution.installedSkills.length===roots.length&&roots.every(id=>metadata.distribution.installedSkills.includes(id)),'default skills must match Profile starter roots');
+ if(profile==='spec')specReadiness(session,root,roots);
  const sync=path.join(plans,'sync.json');
  session.expectOk(['sync','--root',root,'--plan','--out',sync,'--json']);
  const result=session.expectOk(['sync','--root',root,'--apply','--plan-file',sync,'--json']);

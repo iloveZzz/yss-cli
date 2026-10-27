@@ -126,7 +126,7 @@ func rootHelpFrom(root *cobra.Command) string {
 	for _, p := range []string{"spec", "backend"} {
 		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
 	}
-	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。\n\n治理安装的生命周期导航:\n")
+	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。\n  完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。\n\n治理安装的生命周期导航:\n")
 	if v, e := helpview.Load("spec"); e == nil {
 		names := []string{}
 		for _, s := range v.Stages {

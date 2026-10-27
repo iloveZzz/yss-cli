@@ -40,6 +40,11 @@ func TestSkillsDefaultCLI(t *testing.T) {
 	if meta["schemaVersion"] != float64(5) || meta["distribution"].(map[string]any)["installation"] != "skills" {
 		t.Fatal("ordinary installation not recorded")
 	}
+	roots := []string{"yss-product-lifecycle", "grilling", "yss-research", "domain-modeling", "to-spec", "i-have-adhd", "code-review", "implement"}
+	installed := meta["distribution"].(map[string]any)["installedSkills"].([]any)
+	if len(installed) != len(roots) {
+		t.Fatalf("default skills: %v", installed)
+	}
 	before := installationInventory(t, root)
 	doctor := commandOK(t, root, "doctor")
 	readiness := doctor["readiness"].(map[string]any)
@@ -47,7 +52,7 @@ func TestSkillsDefaultCLI(t *testing.T) {
 		t.Fatalf("wrong skills doctor contract: %v", doctor)
 	}
 	for _, runtime := range []string{"", "claude", "workbuddy"} {
-		args := []string{"skills", "resolve", "implement", "code-review"}
+		args := append([]string{"skills", "resolve"}, roots...)
 		if runtime != "" {
 			args = append(args, "--agent-runtime", runtime)
 		}
@@ -67,10 +72,6 @@ func TestSkillsDefaultCLI(t *testing.T) {
 			}
 		}
 	}
-	conditional := commandOK(t, root, "skills", "resolve", "implement", "code-review", "--when", "lifecycle-document-output")
-	if conditional["status"] != "missing" || len(conditional["issues"].([]any)) != 0 || !reflect.DeepEqual(conditional["missing"], []any{"i-have-adhd"}) {
-		t.Fatalf("conditional dependency not reported: %v", conditional)
-	}
 	if !reflect.DeepEqual(before, installationInventory(t, root)) {
 		t.Fatal("readiness query wrote project files")
 	}
@@ -79,6 +80,33 @@ func TestSkillsDefaultCLI(t *testing.T) {
 	result := commandOK(t, root, "sync", "--apply", "--plan-file", plan)
 	if result["status"] != "unchanged" {
 		t.Fatalf("fresh sync changed installation: %v", result)
+	}
+	plan = filepath.Join(t.TempDir(), "ensure.json")
+	commandOK(t, root, "skills", "ensure", "setup-yss-harness", "--plan", "--out", plan)
+	commandOK(t, root, "skills", "--apply", "--plan-file", plan)
+	raw, err = os.ReadFile(filepath.Join(root, ".yss.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if len(meta["distribution"].(map[string]any)["installedSkills"].([]any)) != 9 {
+		t.Fatal("ensure roots inconsistent")
+	}
+	for _, runtime := range []string{"", "claude", "workbuddy"} {
+		args := append([]string{"skills", "resolve"}, append(roots, "setup-yss-harness")...)
+		if runtime != "" {
+			args = append(args, "--agent-runtime", runtime)
+		}
+		if got := commandOK(t, root, args...); got["status"] != "ready" {
+			t.Fatalf("ensured skills: %v", got)
+		}
+	}
+	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md", ".template-spec", "scripts"} {
+		if _, err = os.Stat(filepath.Join(root, ref)); !os.IsNotExist(err) {
+			t.Fatalf("ensure introduced governance: %s", ref)
+		}
 	}
 	for _, kind := range []string{"governed", "skills"} {
 		plan = filepath.Join(t.TempDir(), "migration.json")

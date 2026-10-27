@@ -37,7 +37,7 @@ func TestInstallationHumanNextStep(t *testing.T) {
 			if !strings.Contains(text, "doctor") {
 				t.Fatalf("no installation check: %s", text)
 			}
-			if kind == project.InstallationSkills && (strings.Contains(text, "lifecycle query") || !strings.Contains(text, "独立技能")) {
+			if kind == project.InstallationSkills && (strings.Contains(text, "lifecycle query") || !strings.Contains(text, "独立技能") || !strings.Contains(text, "yss-product-lifecycle")) {
 				t.Fatalf("skills routed to governance: %s", text)
 			}
 			if kind == project.InstallationGoverned && !strings.Contains(text, "lifecycle query") {

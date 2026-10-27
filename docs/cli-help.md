@@ -24,11 +24,12 @@ Profile 职责:
   yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-spec --human
   yss skills list --root ./demo-spec --details --json
+  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
   完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。
 
 治理安装的生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：6e782dc8724ff3b7c94fa964540f44bc3b266938；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
+  固定模板：88100ca26d84bc9b18480fd9c08c2038564e7798；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -147,7 +148,7 @@ Shell 补全:
 
 ```text
 正式生命周期（spec）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -291,7 +292,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 ```text
 日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -332,7 +333,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -494,7 +495,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -1206,7 +1207,7 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
 输出可审阅计划；应用保存计划时重新核验当前输入。
 
 下一步:
-yss doctor --help；skills 查看技能入口，governed 再用 lifecycle 查询当前入口。
+yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -3462,11 +3463,12 @@ Profile 职责:
   yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-spec --human
   yss skills list --root ./demo-spec --details --json
+  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
   完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。
 
 治理安装的生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：6e782dc8724ff3b7c94fa964540f44bc3b266938；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
+  固定模板：88100ca26d84bc9b18480fd9c08c2038564e7798；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
   日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   先 Spec、再设计、再交付：yss help tutorial spec
@@ -3938,7 +3940,7 @@ YSS 完整离线教程
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。
 
 正式生命周期（spec）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4078,7 +4080,7 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 
 
 日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -4115,7 +4117,7 @@ Profile spec
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（spec）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4273,7 +4275,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=6e782dc8724ff3b7c94fa964540f44bc3b266938；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=88100ca26d84bc9b18480fd9c08c2038564e7798；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4488,10 +4490,10 @@ yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan
 --issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置
 
 预期结果:
-默认 skills 形成独立技能安装；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。
+默认 skills 形成独立技能安装；Spec 普通需求从 yss-product-lifecycle（life）开始；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。
 
 下一步:
-yss doctor --help；skills 查看技能入口，governed 再用 lifecycle 查询当前入口。
+yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>

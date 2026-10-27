@@ -264,3 +264,34 @@ func TestSkillsSyncPlanDrift(t *testing.T) {
 		t.Fatal("partial state update")
 	}
 }
+
+func TestTwoRootSkillsConditionalMissing(t *testing.T) {
+	b := standaloneFixture(t)
+	item := b.Installations["skills"]
+	item.Distribution["installedSkills"] = []string{"implement", "probe"}
+	for ref, f := range b.Files {
+		if strings.Contains(ref, "/probe/") {
+			item.Initial[ref] = f
+		}
+	}
+	b.Installations["skills"] = item
+	raw, _ := b.Files[skillRegistryRef].Render(nil)
+	raw = append(raw, []byte("    - {skill: extra, type: context-conditional, when: lifecycle-document-output}\n")...)
+	f := b.Files[skillRegistryRef]
+	f.Data = base64.StdEncoding.EncodeToString(raw)
+	f.Digest = safefs.Digest(raw)
+	b.Files[skillRegistryRef] = f
+	root, _ := writeInstallationBundleFixture(t, b)
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := recoveryTree(t, root)
+	got, err := ResolveSkills(id, b, []string{"implement", "probe"}, "", "lifecycle-document-output")
+	if err != nil || got.Status != "missing" || !reflect.DeepEqual(got.Missing, []string{"extra"}) || len(got.Issues) > 0 {
+		t.Fatalf("conditional: %+v %v", got, err)
+	}
+	if !reflect.DeepEqual(before, recoveryTree(t, root)) {
+		t.Fatal("conditional query wrote project")
+	}
+}
