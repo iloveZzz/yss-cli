@@ -171,17 +171,12 @@ func addSystemAsset(p *Plan, ref string, before, after domain.Descriptor, kind s
 func completeTargets(id *Identity, b *bundle.Bundle, d map[string]any, refs map[string]bundle.File, old map[string]Managed, command string) error {
 	mode := text(d["mode"])
 	if mode == "skills" {
-		for _, skill := range stringsOf(d["installedSkills"]) {
-			for ref, f := range b.Files {
-				if strings.HasPrefix(ref, ".agents/skills/"+skill+"/") {
-					refs[ref] = f
-				}
-				for _, runtime := range stringsOf(d["runtimes"]) {
-					if strings.HasPrefix(ref, "."+runtime+"/skills/"+skill+"/") {
-						refs[ref] = f
-					}
-				}
-			}
+		selected, err := SelectSkillResources(b, InstallationSkills, stringsOf(d["installedSkills"]), stringsOf(d["runtimes"]))
+		if err != nil {
+			return err
+		}
+		for _, ref := range selected {
+			refs[ref] = b.Files[ref]
 		}
 		return nil
 	}
