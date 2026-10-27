@@ -6,7 +6,7 @@
 
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Backend 的 Go CLI。当前身份见上方生成信息。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新实例采用治理版本 2，Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Backend 的 Go CLI。当前身份见上方生成信息。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新建默认安装独立技能（`skills`）；需要完整生命周期时显式选择 `--installation governed`，其治理版本为 2。Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -49,8 +49,10 @@ JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅
 
 编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -tags yss_nobundle -timeout 5m ./...`（纯逻辑），生成内嵌 Bundle 后 `go test -timeout 5m ./...`（含真实实例集成用例）。编译或测试成功都不代表发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
+以下示例选择完整治理安装，后续才能使用 Context 与生命周期命令。只需独立技能时省略 `--installation` 或选择 `skills`，无需先建立 Ticket、checkpoint 或治理批准。
+
 ```sh
-yss init --profile spec --root ./my-project --project-name 项目名称
+yss init --profile spec --installation governed --root ./my-project --project-name 项目名称
 yss doctor --root ./my-project --json
 yss sync --root ./my-project --plan --out /tmp/yss-sync-plan.json
 yss sync --root ./my-project --apply --plan-file /tmp/yss-sync-plan.json
@@ -93,7 +95,7 @@ node tools/refresh-source-lock.mjs --source-root /absolute/template-source --pro
 
 还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
 
-来源锁 v2、Bundle v3、原生 metadata v3 与升级计划 v2 分别记录模板提交、统一 CLI 身份、资产摘要、受管基线和决议；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
+当前 SourceLock5 固定两个 Profile 的模板来源；新建使用 Bundle5、metadata5 与项目保存计划 v4。历史来源和 metadata 按各自兼容边界读取，旧项目保存计划须重新生成；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
 离线程序安装与项目迁移分开，先生成计划，再显式应用：
 
@@ -121,16 +123,16 @@ yss update rollback --tool-root ./tools/yss --json
 
 ## 入门教程与 CLI 在线升级
 
-在新目录选择一个 Profile，然后检查当前实例：
+在新目录选择一个 Profile 和安装方式。以下完整治理示例显式选择 `governed`；独立技能安装使用默认 `skills`：
 
 ```sh
-yss init --profile spec --root ./demo-spec --project-name 演示项目
-yss init --profile backend --root ./demo-backend --project-name 演示后端
+yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目
+yss init --profile backend --installation governed --root ./demo-backend --project-name 演示后端
 yss doctor --root ./demo-spec --json
 yss diff --root ./demo-spec --json
 ```
 
-项目模板同步使用 `sync` 的保存计划；资源补装先列出当前 Profile 实际支持的标识：
+项目模板同步使用 `sync` 的保存计划并保持已有安装方式；转换安装方式须显式使用 `migrate --installation skills|governed`，适用版本及活动任务限制见[兼容边界](docs/compatibility.md#独立技能安装新安装合同)。升级 CLI 程序不会自动同步或转换项目。资源补装先列出当前 Profile 实际支持的标识：
 
 ```sh
 yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
