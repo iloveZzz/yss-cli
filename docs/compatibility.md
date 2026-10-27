@@ -2,9 +2,9 @@
 
 呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
 
-程序版本与协议见实际二进制来源；本地候选不代表正式发行。CLI 2.7.3 的固定模板 4.7.3 使用 Bundle5 / metadata5，项目保存计划为 v4，仅支持 Spec/Backend。新建默认 `skills`，完整治理显式选择 `governed`；治理安装采用 identity2 / Profile3 / governance2。旧项目保存计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 仅描述原版本来源，不作为当前生产输入。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design、Frontend、旧 dev 及退役产品设计插件输入明确拒绝，不提供转为 Spec 的迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
+程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前 CLI 的固定模板使用 Bundle5 / metadata5，项目保存计划为 v4，仅支持 Spec/Backend。新建默认 `skills`，完整治理显式选择 `governed`；治理安装采用 identity2 / Profile3 / governance2。旧项目保存计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 仅描述原版本来源，不作为当前生产输入。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design、Frontend、旧 dev 及退役产品设计插件输入明确拒绝，不提供转为 Spec 的迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
 
-CLI 2.7.3 的部分离线帮助及生成参考仍有旧 Design 转 Spec、默认初始化后直接进入治理的提示。当前 Design 输入不受支持；治理命令示例应先选择 `governed`。这些旧提示不能扩大本页声明的迁移范围。
+当前 CLI 的部分离线帮助及生成参考仍有旧 Design 转 Spec、默认初始化后直接进入治理的提示。当前 Design 输入不受支持；治理命令示例应先选择 `governed`。这些旧提示不能扩大本页声明的迁移范围。
 
 `attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate --plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 
