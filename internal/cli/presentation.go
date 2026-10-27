@@ -169,8 +169,12 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		}
 	} else if command == "init" && !plan {
 		root := stringValue(m["root"], o.values["root"])
-		if view, err := helpview.Load(profile); err == nil {
-			fmt.Fprintf(&out, "下一步：进入本 Profile 的已登记入口\n  %s", formatArgv([]string{"yss", "lifecycle", "query", "--root", root, "--id", view.EntryWorkUnit, "--json"}))
+		fmt.Fprintf(&out, "下一步：核对安装文件与已安装技能\n  %s\n", formatArgv([]string{"yss", "doctor", "--root", root, "--json"}))
+		if m["installation"] == "skills" {
+			out.WriteString("独立技能安装；按需查询并使用技能，工作流与宿主发现另行验证。\n")
+			fmt.Fprintf(&out, "  %s", formatArgv([]string{"yss", "skills", "list", "--root", root, "--details", "--json"}))
+		} else if view, err := helpview.Load(profile); err == nil {
+			fmt.Fprintf(&out, "治理安装；查询当前登记入口：\n  %s", formatArgv([]string{"yss", "lifecycle", "query", "--root", root, "--id", view.EntryWorkUnit, "--json"}))
 		} else {
 			fmt.Fprintf(&out, "下一步：%s", helpCommand([]string{"lifecycle", "query"}))
 		}

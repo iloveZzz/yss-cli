@@ -71,7 +71,7 @@ func initializeArguments() {
 	defineArgument("business-domain", "<领域>", "项目业务领域，作为模板变量")
 	defineArgument("team-size", "<规模>", "团队规模，作为模板变量")
 	argumentSpecs["details"] = argumentSpec{description: "返回注册信息和安装声明；不核验整个技能库", boolean: true}
-	defineArgument("agent-runtime", "<运行时>", "显式核验所选宿主投影；省略时仅核验 canonical，文件就绪不代表宿主已发现", "codex", "cursor", "pi", "workbuddy")
+	defineArgument("agent-runtime", "<运行时>", "显式核验所选宿主投影；省略时仅核验 canonical，文件就绪不代表宿主已发现", "claude", "codex", "cursor", "pi", "workbuddy")
 	defineArgument("when", "<条件列表>", "逗号分隔的已登记条件；只展开命中的条件依赖")
 	defineArgument("since", "<Git引用>", "git audit/changelog 的起始引用（不含）")
 	defineArgument("until", "<Git引用>", "git audit/changelog 的结束引用，默认 HEAD")
@@ -95,7 +95,7 @@ func initializeArguments() {
 		{"plan", "只生成计划，使用 --out 保存；不应用项目修改"},
 		{"apply", "应用已保存计划或显式恢复；写入前检查冲突"},
 		{"check", "仅查询在线版本；不下载发行包、不写入"},
-		{"full", "init/attach 安装完整资源；默认初始分发集合"},
+		{"full", "init/attach 扩大所选安装方式的资源集合；不切换安装方式"},
 	} {
 		spec := argumentSpecs[row.key]
 		spec.description = row.description

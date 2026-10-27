@@ -52,3 +52,38 @@ func TestUpgradeHTTP403Diagnostics(t *testing.T) {
 		t.Fatalf("HTTP failure retried: %d requests", requests)
 	}
 }
+
+func TestUpgradeHTTPRateLimitHeaders(t *testing.T) {
+	for _, safe := range []bool{true, false} {
+		headers := http.Header{"Authorization": {"secret"}, "Set-Cookie": {"secret"}}
+		if safe {
+			headers.Set("X-RateLimit-Limit", "60")
+			headers.Set("X-RateLimit-Remaining", "0")
+			headers.Set("X-RateLimit-Reset", "1793099999")
+			headers.Set("Retry-After", "30")
+			headers.Set("X-GitHub-Request-Id", "ABC1:002F")
+		} else {
+			headers.Set("X-RateLimit-Remaining", "secret")
+			headers.Set("X-GitHub-Request-Id", "response-secret")
+		}
+		client := UpgradeClient{HTTPClient: &http.Client{Transport: releaseRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusForbidden, Header: headers, Body: io.NopCloser(strings.NewReader("response-secret"))}, nil
+		})}}
+		_, err := client.get(context.Background(), githubAPI+"tags/v2.7.1")
+		var diagnostic interface{ DiagnosticDetail() domain.ErrorDetail }
+		if !errors.As(err, &diagnostic) {
+			t.Fatal(err)
+		}
+		ctx := diagnostic.DiagnosticDetail().Context
+		if safe && (ctx["githubRateLimit"] != "60" || ctx["githubRateRemaining"] != "0" || ctx["githubRateReset"] != "1793099999" || ctx["retryAfter"] != "30" || ctx["githubRequestId"] != "ABC1:002F") {
+			t.Fatalf("missing bounded headers: %+v", ctx)
+		}
+		if !safe && len(ctx) != 3 {
+			t.Fatalf("untrusted headers retained: %+v", ctx)
+		}
+		raw, _ := json.Marshal(ctx)
+		if strings.Contains(string(raw), "secret") {
+			t.Fatalf("response credentials leaked: %s", raw)
+		}
+	}
+}

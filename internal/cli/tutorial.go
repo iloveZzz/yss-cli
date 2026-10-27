@@ -97,7 +97,7 @@ func expectedResult(key string) string {
 		return "返回当前范围的逐项检查与诊断；仅在当前检查通过时得到通过结论。核验不执行业务测试或创建批准。"
 	}
 	if key == "init" {
-		return "形成所选 Profile 的项目身份与受管基线；--plan 模式只生成计划。"
+		return "默认 skills 形成独立技能安装；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。"
 	}
 	if strings.Contains(key, "plan") || key == "sync" || key == "attach" || strings.HasPrefix(key, "stage register") || strings.HasPrefix(key, "stage update") {
 		return "输出可审阅计划；应用保存计划时重新核验当前输入。"
@@ -117,7 +117,7 @@ func nextReading(key string) string {
 	case "scaffold":
 		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
-		return "yss doctor --help；核对身份后用 lifecycle 查询当前入口。"
+		return "yss doctor --help；skills 查看技能入口，governed 再用 lifecycle 查询当前入口。"
 	case "doctor", "diff", "sync", "recover", "rollback":
 		return "根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。"
 	case "contract", "stage", "reading", "evidence", "handoff", "lifecycle", "project-ci":
@@ -196,12 +196,13 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
+默认 skills 只安装独立技能；本教程显式选择 governed，--full 不切换安装方式。
 前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
   yss capabilities --json
-  yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
+  yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
   yss context verify --root ./demo-spec --json
@@ -376,7 +377,7 @@ func profileTutorial(profile string) (string, error) {
 	}
 	responsibility := map[string]string{"spec": "综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。", "backend": "消费战略交接及批准工程合同，完成后端专职交付。"}[profile]
 	root := "./demo-" + profile
-	intro := fmt.Sprintf("Profile %s\n职责：%s\n日常政策启用：%t\n\n前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。\n输入材料：项目名称、当前职责对应的合同/交接材料。\n\n  yss init --profile %s --root %s --project-name 演示项目\n  yss doctor --root %s --json\n  yss context verify --root %s --json\n  yss lifecycle query --root %s --id %s --json\n  yss assets list --root %s --json\n  yss skills list --root %s --json\n\n预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。\n下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。\n失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。\n\n", profile, responsibility, v.DailyEnabled, profile, root, root, root, root, v.EntryWorkUnit, root, root)
+	intro := fmt.Sprintf("Profile %s\n职责：%s\n日常政策启用：%t\n\n前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。\n输入材料：项目名称、当前职责对应的合同/交接材料。\n\n  yss init --profile %s --installation governed --root %s --project-name 演示项目\n  yss doctor --root %s --json\n  yss context verify --root %s --json\n  yss lifecycle query --root %s --id %s --json\n  yss assets list --root %s --json\n  yss skills list --root %s --json\n\n预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。\n下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。\n失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。\n\n", profile, responsibility, v.DailyEnabled, profile, root, root, root, root, v.EntryWorkUnit, root, root)
 	stages, err := governedTutorial(profile)
 	return intro + stages, err
 }

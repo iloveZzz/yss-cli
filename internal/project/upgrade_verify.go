@@ -78,6 +78,15 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 			return domain.Fail("VERIFY", "插件 binding 来源不匹配")
 		}
 	}
+	if id.Profile.Name == "spec" && id.Native.SchemaVersion == 5 {
+		readiness, err := CheckInstalledSkills(id, b)
+		if err != nil {
+			return domain.Wrap("VERIFY", err)
+		}
+		if readiness.Status != "ready" {
+			return domain.Fail("VERIFY", "已安装技能未就绪: "+readiness.Status)
+		}
+	}
 	return ctx.Err()
 }
 

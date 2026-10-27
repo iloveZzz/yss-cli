@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/base64"
+	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"os"
 	"path/filepath"
@@ -12,8 +13,12 @@ import (
 
 func writeInstallationFixture(t *testing.T) (string, *Plan) {
 	t.Helper()
+	return writeInstallationBundleFixture(t, installationFixture())
+}
+func writeInstallationBundleFixture(t *testing.T, b *bundle.Bundle) (string, *Plan) {
+	t.Helper()
 	root := t.TempDir()
-	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: installationFixture()})
+	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
 	}
