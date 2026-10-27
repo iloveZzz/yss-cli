@@ -65,6 +65,7 @@ func skillsOnlyProject(t *testing.T) (*Identity, *bundle.Bundle) {
 	id, b := workBuddyProject(t)
 	id.Native.SchemaVersion = 5
 	id.Native.Distribution["installation"] = "skills"
+	id.Native.Distribution["mode"] = "skills"
 	if err := os.Remove(filepath.Join(id.Root, skillRegistryRef)); err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +83,12 @@ func TestResolveSkillsInstallationModes(t *testing.T) {
 					b.Profile = profile
 					if installation == "governed" {
 						id.Native.Distribution["installation"] = "governed"
+						id.Native.Distribution["mode"] = "selected"
 					}
 					if installation == "legacy" {
 						id.Native.SchemaVersion = 4
-						id.Native.Distribution["mode"] = "skills"
+						delete(id.Native.Distribution, "installation")
+						id.Native.Distribution["mode"] = "selected"
 					}
 					before := recoveryTree(t, id.Root)
 					got, err := ResolveSkills(id, b, []string{"probe"}, runtime, "")
@@ -157,6 +160,7 @@ func TestSkillsResolveKeepsIntegrityChecks(t *testing.T) {
 				want = "cli-snapshot-mismatch"
 			case "governed-registry":
 				id.Native.Distribution["installation"] = "governed"
+				id.Native.Distribution["mode"] = "selected"
 				ref = skillRegistryRef
 				raw, err = b.Files[ref].Render(nil)
 				raw = append(raw, []byte("# local change\n")...)
