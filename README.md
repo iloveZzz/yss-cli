@@ -1,7 +1,7 @@
 # yss
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.7.5`。固定模板：backend `v4.7.4`、spec `v4.7.4`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.7.6`。固定模板：backend `v4.7.6`、spec `v4.7.6`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 English: [quickstart](docs/quickstart.en.md).
@@ -48,6 +48,8 @@ JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅
 内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
 
 编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -tags yss_nobundle -timeout 5m ./...`（纯逻辑），生成内嵌 Bundle 后 `go test -timeout 5m ./...`（含真实实例集成用例）。编译或测试成功都不代表发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
+
+安装诊断分别呈现文件对齐、已安装技能完整性和工作流验收。`doctor.readiness.skills` 只核验当前 Spec metadata5 已声明的技能及运行时，`workflow` 保持 `not-evaluated`；其他 Profile / 历史代际不新增技能核验义务。`skills resolve` 按 `result.status` 判断 ready / missing / blocked，退出 0 只表示查询完成；Claude 与 WorkBuddy 的投影检查不证明宿主已发现技能。
 
 以下示例选择完整治理安装，后续才能使用 Context 与生命周期命令。只需独立技能时省略 `--installation` 或选择 `skills`，无需先建立 Ticket、checkpoint 或治理批准。
 

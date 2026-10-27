@@ -6,6 +6,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance"
 	"github.com/iloveZzz/yss-cli/internal/project"
+	"github.com/iloveZzz/yss-cli/internal/transaction"
 	"github.com/spf13/cobra"
 	"sort"
 	"strings"
@@ -80,7 +81,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, domain.Fail("PLAN", "计划与命令、项目根或 Profile 不匹配")
 		}
 		r, e := project.ApplyContext(ctx, p)
-		return r, p.Profile, e
+		return installationReceipt(r, p.Installation), p.Profile, e
 	}
 	detectProfile := profile
 	if command == "migrate" {
@@ -249,6 +250,24 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	if e != nil {
 		return nil, profile, e
 	}
+	var readiness map[string]any
+	if command == "doctor" {
+		b, err := bundle.Load(profile)
+		if err != nil {
+			return nil, profile, err
+		}
+		skills, err := project.CheckInstalledSkills(id, b)
+		if err != nil {
+			return nil, profile, err
+		}
+		files := "aligned"
+		if len(p.Conflicts) != 0 || len(p.Blockers) != 0 {
+			files = "blocked"
+		} else if len(p.Changes) != 0 {
+			files = "changes-required"
+		}
+		readiness = map[string]any{"files": files, "skills": skills, "workflow": "not-evaluated"}
+	}
 	if command == "doctor" && p.Installation != project.InstallationSkills {
 		checks, e := governance.Run("context", "verify", root, nil)
 		if e != nil {
@@ -258,7 +277,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if id.Native != nil {
 			identity["native"] = map[string]any{"schemaVersion": id.Native.SchemaVersion, "protocolVersion": id.Native.ProtocolVersion, "cliVersion": id.Native.CLIVersion, "templateVersion": id.Native.TemplateVersion, "legacyCliVersion": id.Native.LegacyCLIVersion, "templateCommit": id.Native.TemplateCommit, "snapshotHash": id.Native.SnapshotHash, "manifestHash": id.Native.ManifestHash, "templateSourceState": id.Native.TemplateSourceState, "baselineDigest": id.Native.BaselineDigest, "managedFileCount": len(id.Native.Managed)}
 		}
-		return map[string]any{"identity": identity, "context": checks, "plan": p.Public(), "executionCore": "go-native", "stableReady": false}, profile, nil
+		return map[string]any{"identity": identity, "context": checks, "plan": p.Public(), "executionCore": "go-native", "stableReady": false, "readiness": readiness}, profile, nil
 	}
 	if path := o.values["out"]; path != "" {
 		if e = project.SavePlan(p, path); e != nil {
@@ -272,13 +291,24 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	}
 	if command == "init" && o.values["plan"] != "true" {
 		r, e := project.ApplyContext(ctx, p)
-		return r, profile, e
+		return installationReceipt(r, p.Installation), profile, e
 	}
 	if o.values["apply"] == "true" {
 		return nil, profile, domain.Fail("PLAN_REQUIRED", "非初始化写入需要 --apply --plan-file <已保存的计划>")
 	}
+	if readiness != nil {
+		result := resultObject(p.Public())
+		result["readiness"] = readiness
+		return result, profile, nil
+	}
 	return p.Public(), profile, nil
 
+}
+
+func installationReceipt(result transaction.Result, installation project.InstallationKind) map[string]any {
+	out := resultObject(result)
+	out["installation"] = installation
+	return out
 }
 
 func profileDispatch(ctx context.Context, o options) (any, string, error) {

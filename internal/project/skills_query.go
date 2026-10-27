@@ -249,23 +249,102 @@ func retiredSkillIDs(b *bundle.Bundle) (map[string]bool, error) {
 	return out, nil
 }
 
-// legacyRuntimeRoot preserves the old explicit projection checks.
-func legacyRuntimeRoot(runtime string) string {
-	return map[string]string{"codex": ".codex/skills", "cursor": ".cursor/skills", "pi": ".pi/skills"}[runtime]
+func runtimeSkillRoot(runtime string) (string, bool) {
+	return domain.SkillRuntimeRoot(runtime)
 }
 
-func runtimeSkillRoot(runtime string) (string, bool) {
-	if runtime == "workbuddy" {
-		return domain.SkillRuntimeRoot(runtime)
+func runtimeDeclarationIssue(id *Identity, installed skillLock) string {
+	declared := stringsOf(id.Native.Distribution["runtimes"])
+	roots := []string{}
+	for _, runtime := range declared {
+		root, ok := domain.SkillRuntimeRoot(runtime)
+		if !ok {
+			return "实例声明未知运行时"
+		}
+		roots = append(roots, root)
 	}
-	root := legacyRuntimeRoot(runtime)
-	return root, root != ""
+	if len(union(declared)) != len(declared) || len(union(installed.ProjectionRoots)) != len(installed.ProjectionRoots) || !reflect.DeepEqual(union(roots), union(installed.ProjectionRoots)) {
+		return "运行时声明与来源锁投影范围不一致"
+	}
+	return ""
+}
+
+type SkillReadiness struct {
+	Status   string       `json:"status"`
+	Scope    string       `json:"scope"`
+	Checked  []string     `json:"checked"`
+	Missing  []string     `json:"missing"`
+	Issues   []SkillIssue `json:"issues"`
+	Runtimes []string     `json:"runtimes"`
+}
+
+func CheckInstalledSkills(id *Identity, b *bundle.Bundle) (*SkillReadiness, error) {
+	out := &SkillReadiness{Status: "not-evaluated", Scope: "installed-skills", Checked: []string{}, Missing: []string{}, Issues: []SkillIssue{}, Runtimes: []string{}}
+	if id.Native == nil || id.Profile.Name != "spec" || id.Native.SchemaVersion != 5 {
+		return out, nil
+	}
+	for _, field := range []string{"installedSkills", "runtimes"} {
+		switch value := id.Native.Distribution[field].(type) {
+		case nil, []string:
+		case []any:
+			if len(stringsOf(value)) != len(value) {
+				return nil, domain.Fail("SKILL", "安装声明必须为字符串数组: "+field)
+			}
+		default:
+			return nil, domain.Fail("SKILL", "安装声明必须为字符串数组: "+field)
+		}
+	}
+	out.Checked = union(stringsOf(id.Native.Distribution["installedSkills"]))
+	if len(out.Checked) == 0 {
+		return out, nil
+	}
+	out.Runtimes = union(stringsOf(id.Native.Distribution["runtimes"]))
+	out.Status = "ready"
+	seen := map[SkillIssue]bool{}
+	if installed, err := installedSkillLock(id); err == nil {
+		if reason := runtimeDeclarationIssue(id, installed); reason != "" {
+			issue := SkillIssue{Code: "runtime-unavailable", Reason: reason}
+			out.Status = "blocked"
+			out.Issues = append(out.Issues, issue)
+			seen[issue] = true
+		}
+	}
+	for _, runtime := range append([]string{""}, out.Runtimes...) {
+		if _, known := domain.SkillRuntimeRoot(runtime); runtime != "" && !known {
+			continue
+		}
+		result, err := ResolveSkills(id, b, out.Checked, runtime, "")
+		if err != nil {
+			return nil, err
+		}
+		if result.Status == "blocked" || result.Status == "missing" && out.Status == "ready" {
+			out.Status = result.Status
+		}
+		out.Missing = union(out.Missing, result.Missing)
+		for _, issue := range result.Issues {
+			if !seen[issue] {
+				seen[issue] = true
+				out.Issues = append(out.Issues, issue)
+			}
+		}
+	}
+	sort.Slice(out.Issues, func(i, j int) bool {
+		a, b := out.Issues[i], out.Issues[j]
+		if a.Skill != b.Skill {
+			return a.Skill < b.Skill
+		}
+		if a.Code != b.Code {
+			return a.Code < b.Code
+		}
+		return a.Reason < b.Reason
+	})
+	return out, nil
 }
 
 func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, when string) (*SkillResolution, error) {
 	runtimeRoot, _ := runtimeSkillRoot(runtime)
 	if len(requested) == 0 || (runtime != "" && runtimeRoot == "") {
-		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...>；投影校验可加 --agent-runtime codex|cursor|pi|workbuddy")
+		return nil, domain.Fail("ARGUMENT", "需要 skills resolve <标识...>；投影校验可加 --agent-runtime claude|codex|cursor|pi|workbuddy")
 	}
 	r, source, err := querySkillRegistry(b)
 	if err != nil {
@@ -384,22 +463,13 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 	if err != nil {
 		issue("", "skill-lock-invalid", err.Error())
 	}
-	if runtime == "workbuddy" {
+	if runtime == "claude" || runtime == "workbuddy" {
 		if id.Native == nil || !containsString(stringsOf(id.Native.Distribution["runtimes"]), runtime) {
-			issue("", "runtime-unavailable", "所选 WorkBuddy 运行时未安装；请先核对 sync 计划")
+			issue("", "runtime-unavailable", "所选运行时未安装；请先核对 sync 计划")
 		}
 		if id.Native != nil {
-			declared := stringsOf(id.Native.Distribution["runtimes"])
-			roots := []string{}
-			for _, r := range declared {
-				root, ok := domain.SkillRuntimeRoot(r)
-				if !ok {
-					issue("", "runtime-unavailable", "实例声明未知运行时")
-				}
-				roots = append(roots, root)
-			}
-			if len(union(declared)) != len(declared) || len(union(installed.ProjectionRoots)) != len(installed.ProjectionRoots) || !reflect.DeepEqual(union(roots), union(installed.ProjectionRoots)) {
-				issue("", "runtime-unavailable", "运行时声明与来源锁投影范围不一致")
+			if reason := runtimeDeclarationIssue(id, installed); reason != "" {
+				issue("", "runtime-unavailable", reason)
 			}
 		}
 	}

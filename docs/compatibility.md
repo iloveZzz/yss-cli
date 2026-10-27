@@ -70,6 +70,8 @@ yss init --root /path/to/new-project --apply --plan-file /outside/project/init-p
 
 `init`、`attach` 可选择安装方式，`migrate --installation skills|governed` 显式转换已有 metadata4/5 实例；未给选择的 migrate 保留旧治理迁移语义。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
 
+安装诊断分别呈现文件对齐、已安装技能完整性和工作流验收。`doctor.readiness.skills` 只核验当前 Spec metadata5 已声明的技能及运行时，`workflow` 保持 `not-evaluated`；其他 Profile / 历史代际不新增技能核验义务。`skills resolve` 按 `result.status` 判断 ready / missing / blocked，退出 0 只表示查询完成；Claude 与 WorkBuddy 的投影检查不证明宿主已发现技能。
+
 普通技能由宿主按 SKILL.md 名称与描述发现，不要求先 route、resolve-ready、tracker setup 或创建 checkpoint。`skills resolve` 仍是原受管就绪验证，不是通用本地技能发现器。正式操作在 skills 工程返回未启用治理；真实工程测试、授权范围、分发完整性与写入冲突检查保留。
 
 迁移计划保留原任务、批准、checkpoint 及用户文件；活动或无法核验的正式绑定拒绝转换。规划后输入变化需要重新规划。该安装合同已进入 CLI 2.7.3 的固定发行 Bundle；已有项目仍以自身 metadata、安装方式和已应用计划为准，升级程序不会自动转换项目。

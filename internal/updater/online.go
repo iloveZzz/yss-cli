@@ -144,7 +144,18 @@ func (c UpgradeClient) get(ctx context.Context, address string) (*http.Response,
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, domain.Explain(fail("NETWORK", fmt.Sprintf("GitHub 返回 HTTP %d；检查网络、版本是否发布或稍后重试", resp.StatusCode)), "RELEASE_HTTP_STATUS", "固定发行来源返回了非成功 HTTP 状态。", map[string]any{"source": address, "phase": "request", "httpStatus": resp.StatusCode})
+		detail := map[string]any{"source": address, "phase": "request", "httpStatus": resp.StatusCode}
+		// Only bounded numeric limits and a GitHub request ID are safe to retain; never copy bodies or arbitrary headers.
+		for header, key := range map[string]string{"X-RateLimit-Limit": "githubRateLimit", "X-RateLimit-Remaining": "githubRateRemaining", "X-RateLimit-Reset": "githubRateReset", "Retry-After": "retryAfter"} {
+			value := resp.Header.Get(header)
+			if value != "" && len(value) <= 20 && strings.Trim(value, "0123456789") == "" {
+				detail[key] = value
+			}
+		}
+		if value := resp.Header.Get("X-GitHub-Request-Id"); value != "" && len(value) <= 128 && strings.Trim(value, "0123456789abcdefABCDEF:") == "" {
+			detail["githubRequestId"] = value
+		}
+		return nil, domain.Explain(fail("NETWORK", fmt.Sprintf("GitHub 返回 HTTP %d；检查网络、版本是否发布或稍后重试", resp.StatusCode)), "RELEASE_HTTP_STATUS", "固定发行来源返回了非成功 HTTP 状态。", detail)
 	}
 	return resp, nil
 }

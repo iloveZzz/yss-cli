@@ -41,7 +41,12 @@ func TestSkillsDefaultCLI(t *testing.T) {
 		t.Fatal("ordinary installation not recorded")
 	}
 	before := installationInventory(t, root)
-	for _, runtime := range []string{"", "workbuddy"} {
+	doctor := commandOK(t, root, "doctor")
+	readiness := doctor["readiness"].(map[string]any)
+	if readiness["skills"].(map[string]any)["status"] != "ready" || readiness["workflow"] != "not-evaluated" || readiness["files"] != "aligned" || doctor["readyToApply"] != true {
+		t.Fatalf("wrong skills doctor contract: %v", doctor)
+	}
+	for _, runtime := range []string{"", "claude", "workbuddy"} {
 		args := []string{"skills", "resolve", "implement", "code-review"}
 		if runtime != "" {
 			args = append(args, "--agent-runtime", runtime)
@@ -79,6 +84,40 @@ func TestSkillsDefaultCLI(t *testing.T) {
 		plan = filepath.Join(t.TempDir(), "migration.json")
 		commandOK(t, root, "migrate", "--installation", kind, "--plan", "--out", plan)
 		commandOK(t, root, "migrate", "--apply", "--plan-file", plan)
+		if kind == "governed" {
+			roots := []string{"yss-product-lifecycle", "setup-yss-harness", "yss-research", "grilling", "domain-modeling", "yss-stage-decision", "i-have-adhd", "code-review"}
+			raw, err := os.ReadFile(filepath.Join(root, ".yss.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &meta); err != nil {
+				t.Fatal(err)
+			}
+			installed := meta["distribution"].(map[string]any)["installedSkills"].([]any)
+			for _, skill := range roots {
+				found := false
+				for _, value := range installed {
+					found = found || value == skill
+				}
+				if !found {
+					t.Fatalf("governed core missing %s: %v", skill, installed)
+				}
+			}
+			for _, runtime := range []string{"", "claude", "workbuddy"} {
+				args := append([]string{"skills", "resolve"}, roots...)
+				if runtime != "" {
+					args = append(args, "--agent-runtime", runtime)
+				}
+				if got := commandOK(t, root, args...); got["status"] != "ready" {
+					t.Fatalf("governed skills not ready: %v", got)
+				}
+			}
+			doctor := commandOK(t, root, "doctor")
+			if doctor["identity"] == nil || doctor["context"] == nil || doctor["plan"] == nil || doctor["stableReady"] != false || doctor["readiness"].(map[string]any)["workflow"] != "not-evaluated" {
+				t.Fatalf("governed doctor structure lost: %v", doctor)
+			}
+
+		}
 	}
 }
 
