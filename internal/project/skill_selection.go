@@ -153,6 +153,25 @@ func SelectSkillResources(b *bundle.Bundle, installation InstallationKind, reque
 			}
 		}
 	case InstallationGoverned:
+		if b.SchemaVersion == 5 {
+			pending, seen := requested, map[string]bool{}
+			requested = nil
+			for len(pending) > 0 {
+				selected, err := resolveSkillSelection(b, pending, "")
+				if err != nil {
+					return nil, err
+				}
+				pending = nil
+				for _, name := range selected.CanonicalIDs {
+					if seen[name] {
+						continue
+					}
+					seen[name] = true
+					requested = append(requested, name)
+					pending = append(pending, b.SkillRequirements[name].Skills...)
+				}
+			}
+		}
 		for _, name := range requested {
 			if r, ok := b.SkillRequirements[name]; ok {
 				if r.UnsupportedReason != "" {

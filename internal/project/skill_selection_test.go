@@ -248,3 +248,190 @@ func TestSkillsEnsureStandaloneClosure(t *testing.T) {
 		}
 	}
 }
+
+func TestGovernedSkillSelectionTypedClosure(t *testing.T) {
+	b := selectionFixture(t)
+	b.SkillRequirements["root"] = bundle.Requirement{Paths: []string{".template-spec/Common.yaml", "scripts/step.sh"}}
+	b.SkillRequirements["required"] = bundle.Requirement{Skills: []string{"component"}}
+	f := b.Files[skillRegistryRef]
+	raw, _ := f.Render(nil)
+	raw = append(raw, []byte("  required:\n    - {skill: conditional, type: context-required}\n  component:\n    - {skill: coordination, type: context-required}\n")...)
+	f.Data, f.Digest = base64.StdEncoding.EncodeToString(raw), safefs.Digest(raw)
+	b.Files[skillRegistryRef] = f
+	refs, err := SelectSkillResources(b, InstallationGoverned, []string{"root"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := strings.Join(refs, "\n")
+	for _, skill := range []string{"root", "required", "conditional", "component", "coordination"} {
+		if !strings.Contains(selected, ".agents/skills/"+skill+"/SKILL.md") {
+			t.Fatalf("governed closure omitted required skill %s: %v", skill, refs)
+		}
+	}
+	if strings.Contains(selected, "/review/") || !strings.Contains(selected, "scripts/step.sh") {
+		t.Fatalf("optional or governance resource selection changed: %v", refs)
+	}
+	for _, invalid := range []string{"missing-registry", "unsupported-required"} {
+		b = selectionFixture(t)
+		if invalid == "missing-registry" {
+			delete(b.Files, skillRegistryRef)
+		} else {
+			b.SkillRequirements["required"] = bundle.Requirement{UnsupportedReason: "required fixture unavailable"}
+		}
+		if _, err := SelectSkillResources(b, InstallationGoverned, []string{"root"}, nil); err == nil {
+			t.Fatalf("governed selection accepted %s", invalid)
+		}
+	}
+	for _, version := range []int{2, 3, 4} {
+		b = selectionFixture(t)
+		b.SchemaVersion = version
+		delete(b.Files, skillRegistryRef)
+		if _, err := SelectSkillResources(b, InstallationGoverned, []string{"root"}, nil); err != nil {
+			t.Fatalf("legacy bundle %d: %v", version, err)
+		}
+	}
+}
+
+func governedScaffoldFixture(t *testing.T, skill string) *bundle.Bundle {
+	t.Helper()
+	b := standaloneFixture(t)
+	files := map[string]bundle.File{}
+	for ref, f := range b.Files {
+		raw, _ := f.Render(nil)
+		for _, change := range [][2]string{{"probe", skill}, {"extra", "alibaba-java-code-style"}} {
+			ref = strings.ReplaceAll(ref, change[0], change[1])
+			raw = []byte(strings.ReplaceAll(string(raw), change[0], change[1]))
+		}
+		if ref == skillRegistryRef {
+			raw = []byte(strings.ReplaceAll(string(raw), "skill: implement, type: context-required", "skill: alibaba-java-code-style, type: context-required"))
+		}
+		f.Data, f.Digest = base64.StdEncoding.EncodeToString(raw), safefs.Digest(raw)
+		files[ref] = f
+	}
+	put := func(ref, raw string) {
+		files[ref] = bundle.File{Data: base64.StdEncoding.EncodeToString([]byte(raw)), Digest: safefs.Digest([]byte(raw)), Mode: 0644, Ownership: "managed"}
+	}
+	put("yss-project.yaml", "schema_version: 2\nrepository_mode: project-instance\n")
+	put(".template-spec/process/harness-profile.yaml", "schema_version: 3\nprofile_id: harness.spec-template\n")
+	put("CONTEXT.md", "---\ncontext_schema_version: 1\n---\n## 流程术语\n|术语|含义|英文标识|避免 / 备注|\n|---|---|---|---|\n## 业务术语\n|术语|含义|英文标识|适用业务责任区|避免 / 备注|\n|---|---|---|---|---|\n")
+	b.Files = files
+	b.SkillRequirements = map[string]bundle.Requirement{skill: {Paths: []string{skillRegistryRef}, Skills: []string{"implement"}}}
+	initial := map[string]bundle.File{}
+	for _, ref := range []string{"AGENTS.md", "yss-project.yaml", "CONTEXT.md", ".template-spec/process/harness-profile.yaml", skillRegistryRef, "skills-lock.json", "scripts/lib/skill-supply-chain.mjs"} {
+		initial[ref] = files[ref]
+	}
+	for ref, f := range files {
+		if strings.Contains(ref, "/implement/") {
+			initial[ref] = f
+		}
+	}
+	b.Installations["governed"] = bundle.Installation{Initial: initial, Distribution: map[string]any{"installation": "governed", "mode": "selected", "installedSkills": []string{"implement"}, "runtimes": []string{"claude", "workbuddy"}}}
+	return b
+}
+
+func TestGovernedSkillEnsureScaffoldClosure(t *testing.T) {
+	for _, skill := range []string{"yss-ddd-scaffold-generator", "yss-layered-mvc-scaffold-generator"} {
+		t.Run(skill, func(t *testing.T) {
+			b := governedScaffoldFixture(t, skill)
+			root := t.TempDir()
+			init, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := applyStandaloneFixture(t, init, b); err != nil {
+				t.Fatal(err)
+			}
+			refs, err := SelectSkillResources(b, InstallationGoverned, []string{skill}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := buildCore(root, "spec", "skills", nil, refs, nil, PlanningOptions{target: b})
+			if err != nil || !p.ReadyToApply {
+				t.Fatalf("plan: %+v %v", p, err)
+			}
+			if err := applyStandaloneFixture(t, p, b); err != nil {
+				t.Fatal(err)
+			}
+			id, err := Detect(root, "spec", false)
+			if err != nil || skillsIdentity(id) {
+				t.Fatalf("governed identity changed: %+v %v", id, err)
+			}
+			for _, runtime := range []string{"", "claude", "workbuddy"} {
+				got, err := ResolveSkills(id, b, []string{skill}, runtime, "")
+				if err != nil || got.Status != "ready" || len(got.Missing) != 0 || len(got.Issues) != 0 {
+					t.Fatalf("%s: %+v %v", runtime, got, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGovernedSkillEnsureOmittedDependencyRollsBack(t *testing.T) {
+	const skill = "yss-ddd-scaffold-generator"
+	b := governedScaffoldFixture(t, skill)
+	root := t.TempDir()
+	init, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyStandaloneFixture(t, init, b); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "user-note.txt"), []byte("preserve user work"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := SelectSkillResources(b, InstallationGoverned, []string{skill}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	omitted := []string{}
+	for _, ref := range refs {
+		if !strings.Contains(ref, "/alibaba-java-code-style/") {
+			omitted = append(omitted, ref)
+		}
+	}
+	p, err := buildCore(root, "spec", "skills", nil, omitted, nil, PlanningOptions{target: b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := func() map[string]domain.Descriptor {
+		files := recoveryTree(t, root)
+		for ref := range files {
+			if strings.HasPrefix(filepath.ToSlash(ref), ".yss/") {
+				delete(files, ref)
+			}
+		}
+		return files
+	}
+	before := observed()
+	err = applyStandaloneFixture(t, p, b)
+	var failure *domain.Error
+	if !errors.As(err, &failure) || failure.Code != "VERIFY" {
+		t.Fatalf("omitted dependency did not fail VERIFY: %v", err)
+	}
+	if !reflect.DeepEqual(before, observed()) {
+		t.Fatal("failed application did not restore files, metadata, user bytes and modes")
+	}
+	status, err := transaction.Status(root)
+	if err != nil || len(status.Pending) != 0 || len(status.Preparations) != 0 {
+		t.Fatalf("failed application left pending work: %+v %v", status, err)
+	}
+	recovered := false
+	for _, item := range status.Transactions {
+		recovered = recovered || item.Kind == "skills" && item.Phase == "recovered"
+	}
+	if !recovered {
+		t.Fatalf("missing recovered transaction: %+v", status)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := ResolveSkills(id, b, []string{skill}, "", "")
+	if err != nil || missing.Status != "missing" || len(missing.Missing) == 0 {
+		t.Fatalf("failed installation was falsely ready: %+v %v", missing, err)
+	}
+	if !reflect.DeepEqual(before, observed()) {
+		t.Fatal("missing dependency query wrote files")
+	}
+}
