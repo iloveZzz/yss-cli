@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {ParityFailure, REGISTRY, compareSnapshots, git, run, sha256, snapshot} from './lib.mjs';
 import {flags, standaloneScenarios} from './scenarios.mjs';
 import {formalScenarios} from './formal.mjs';
