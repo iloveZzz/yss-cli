@@ -90,6 +90,9 @@ func init() {
 		helpTopics[key] = topic
 	}
 	registerScaffoldHelp()
+	attach := helpTopics["attach"]
+	attach.options += "\n--bind-cli  与 --plan --out 同用，绑定当前 CLI 与 Bundle；应用时必须提供 --expected-digest <原摘要>"
+	helpTopics["attach"] = attach
 	registerGitHelp()
 	initializeArguments()
 }

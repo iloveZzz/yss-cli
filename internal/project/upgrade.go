@@ -58,6 +58,7 @@ type Material struct {
 }
 type PlanningOptions struct {
 	Installation   InstallationKind
+	BindCLI        bool
 	BaseBundlePath string
 	Original       *Plan
 	ResolutionFile string

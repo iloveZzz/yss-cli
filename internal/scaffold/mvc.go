@@ -2,8 +2,6 @@ package scaffold
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -62,7 +60,7 @@ func put(t *Tree, path, content string) {
 	t.Put(path, []byte(content))
 }
 
-func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
+func renderMVC(ctx context.Context, src Source, o *Options) (*renderedProject, error) {
 	if err := validateMVCOptions(o); err != nil {
 		return nil, err
 	}
@@ -70,37 +68,19 @@ func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
 	if err := g.preflight(); err != nil {
 		return nil, err
 	}
-	final := filepath.Join(o.OutputDir, o.ProjectName)
-	gitRoot := findGitRoot(final)
-	if gitRoot == "" {
-		gitRoot = findGitRoot(o.OutputDir)
-	}
-	if message := gitSubmoduleScaffoldViolation(gitRoot, o.OutputDir, o.ProjectName); message != "" {
-		return nil, fail(message)
-	}
-	if message := overlayMountViolation(gitRoot, final, true); message != "" {
-		return nil, fail(message)
-	}
-	if _, err := os.Lstat(final); err == nil {
-		return nil, failf("unsupported: 目标已存在 %s", final)
-	} else if !os.IsNotExist(err) {
+	if err := guardTarget(o); err != nil {
 		return nil, err
 	}
 	if err := g.validateContract(ctx); err != nil {
 		return nil, err
 	}
-	staging, err := stage(o.OutputDir, o.ProjectName)
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(staging)
 	tree := newTree()
 	name := fieldString(g.contract, "project_name")
 	base := fieldString(g.contract, "base_package")
-	if err = g.renderMechanical(tree, "", g.contract); err != nil {
+	if err := g.renderMechanical(tree, "", g.contract); err != nil {
 		return nil, err
 	}
-	if err = renderReferenceExample(g.src, tree, exampleSpec{
+	if err := renderReferenceExample(g.src, tree, exampleSpec{
 		enabled:     g.referenceEnabled(),
 		family:      "layered-mvc",
 		projectName: name,
@@ -121,7 +101,7 @@ func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
 	}); err != nil {
 		return nil, err
 	}
-	if err = ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	manifest, err := g.manifest(tree)
@@ -129,11 +109,10 @@ func runMVC(ctx context.Context, src Source, o *Options) (*Result, error) {
 		return nil, err
 	}
 	put(tree, manifestRef, JSON(manifest, "  "))
-	root, err := publish(tree, staging, o.OutputDir, o.ProjectName)
-	if err != nil {
+	if err := checkPlaceholders(tree); err != nil {
 		return nil, err
 	}
-	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: manifest, Modules: g.modules}, nil
+	return &renderedProject{tree: tree, manifest: manifest, modules: g.modules}, nil
 }
 
 func (g *mvcGen) referenceEnabled() bool {

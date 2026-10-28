@@ -5,6 +5,19 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 )
 
+type InstallationCLI struct {
+	domain.Provenance
+	ExecutableSHA256 string `json:"executableSha256"`
+}
+
+func installationCLI() (*InstallationCLI, error) {
+	digest, err := domain.ExecutableDigest()
+	if err != nil {
+		return nil, err
+	}
+	return &InstallationCLI{Provenance: domain.BuildProvenance(), ExecutableSHA256: digest}, nil
+}
+
 type InstallationKind string
 
 const (
@@ -53,5 +66,5 @@ func planningOptionsForReplay(p *Plan) PlanningOptions {
 	if p.Command == "init" || p.Command == "attach" || p.InstallationMigration != nil {
 		option = p.Installation
 	}
-	return PlanningOptions{Installation: option, BaseBundlePath: p.BaseBundlePath, ResolvedFrom: p.ResolvedFrom, Resolutions: p.Resolutions}
+	return PlanningOptions{Installation: option, BindCLI: p.SchemaVersion == 5, BaseBundlePath: p.BaseBundlePath, ResolvedFrom: p.ResolvedFrom, Resolutions: p.Resolutions}
 }

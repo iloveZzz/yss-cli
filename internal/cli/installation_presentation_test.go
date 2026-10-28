@@ -70,3 +70,38 @@ func TestInstallationHelpContract(t *testing.T) {
 		t.Fatalf("governance tutorial uses skills installation: %s", text)
 	}
 }
+
+func TestBoundPlanHumanApplyCommands(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		kind string
+		want []string
+	}{
+		{[]string{"scaffold", "ddd"}, "scaffold-plan", []string{"yss", "scaffold", "ddd", "--apply", "--plan-file", "plan.json", "--expected-digest", "confirmed", "--json"}},
+		{[]string{"init"}, "installation-plan", []string{"yss", "init", "--root", "中文 & root", "--apply", "--plan-file", "plan.json", "--json", "--profile", "spec", "--expected-digest", "confirmed"}},
+		{[]string{"attach"}, "installation-plan", []string{"yss", "attach", "--root", "中文 & root", "--apply", "--plan-file", "plan.json", "--json", "--profile", "spec", "--expected-digest", "confirmed"}},
+	} {
+		o := options{args: tc.args, values: map[string]string{"root": "中文 & root", "profile": "spec", "plan": "true", "out": "plan.json"}}
+		result := map[string]any{"kind": tc.kind, "digest": "confirmed"}
+		if got := savedPlanApplyCommand(o, "spec", result); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%v: got %v want %v", tc.args, got, tc.want)
+		}
+		text := renderHumanSuccess(tc.args[0], o, "spec", result)
+		if !strings.Contains(text, formatArgv(tc.want)) {
+			t.Fatalf("presenter lost executable command: %s", text)
+		}
+	}
+}
+
+func TestScaffoldQueriesReportObservedOutcome(t *testing.T) {
+	for _, tc := range []struct{ command, outcome, title string }{
+		{"catalog", "", "查询完成"}, {"verify", "complete", "输出完整"},
+		{"verify", "not-applied", "尚未应用"}, {"verify", "incomplete", "输出不完整"}, {"verify", "unknown", "状态待确认"},
+	} {
+		o := options{args: []string{"scaffold", tc.command}, values: map[string]string{}}
+		text := renderHumanSuccess("scaffold", o, "", map[string]any{"outcome": tc.outcome})
+		if !strings.Contains(strings.SplitN(text, "\n", 2)[0], tc.title) || strings.Contains(text, "脚手架已生成") {
+			t.Fatalf("%s/%s misreported: %s", tc.command, tc.outcome, text)
+		}
+	}
+}

@@ -126,7 +126,7 @@ func (g *dddGen) formalManifest(t *Tree, fingerprint, generator, ownership *OMap
 	))
 	manifest.Set("generation_policy", newMap("mode", "initialize-only", "existing_target", "unsupported", "old_project_migration", "unsupported", "template_upgrade", "unsupported"))
 	manifest.Set("verification_commands", commandList())
-	manifest.Set("generated_at", isoNow())
+	manifest.Set("generated_at", o.renderContext.GeneratedAt)
 	return manifest, nil
 }
 
@@ -238,7 +238,7 @@ func (g *mvcGen) formalManifest(t *Tree, fingerprint, generator, ownership *OMap
 		"contracts", newMap("architecture_profiles", profiles, "compiler_contract", compiler),
 		"architecture_ruleset", ruleset,
 	))
-	manifest.Set("generated_at", isoNow())
+	manifest.Set("generated_at", o.renderContext.GeneratedAt)
 	return manifest, nil
 }
 

@@ -20,7 +20,7 @@ var helpTopics = map[string]helpTopic{
 	"init": {
 		summary:  "创建固定模板来源的项目实例。",
 		usage:    "--profile <spec|backend> --root <目录> [--project-name <名称>]",
-		options:  "--profile       必需，选择 Spec 或 Backend\n--root          项目目录；默认当前目录，推荐显式指定新目录\n--project-name  项目名称\n--business-domain / --team-size  模板变量\n--installation skills|governed  默认 skills；完整治理显式选择 --installation governed\n--full          仅扩大所选安装方式的资源集合，不切换安装方式\n--plan --out <新文件>  只生成计划；默认直接初始化\n--apply --plan-file <文件>  应用已保存计划\n--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置",
+		options:  "--profile       必需，选择 Spec 或 Backend\n--root          项目目录；默认当前目录，推荐显式指定新目录\n--project-name  项目名称\n--business-domain / --team-size  模板变量\n--installation skills|governed  默认 skills；完整治理显式选择 --installation governed\n--full          仅扩大所选安装方式的资源集合，不切换安装方式\n--plan --out <新文件>  只生成计划；默认直接初始化\n--bind-cli      与 --plan --out 同用，绑定当前 CLI 与 Bundle\n--apply --plan-file <文件> [--expected-digest <原摘要>]  应用保存计划；绑定 CLI 的计划必须提供原摘要\n--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置",
 		examples: "yss init --profile spec --root ./demo-spec --project-name 演示项目\nyss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan.json",
 		notes:    "拒绝覆盖用户文件；初始化使用程序内置 Bundle，无需 Node/Python 或网络。已有工程请先查看 yss attach --help。",
 	},

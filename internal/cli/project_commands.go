@@ -21,6 +21,9 @@ func addProjectCommands(root *cobra.Command, inv *invocation) {
 		if name == "init" || name == "attach" || name == "migrate" {
 			addFlags(cmd, inv, "installation")
 		}
+		if name == "init" || name == "attach" {
+			addFlags(cmd, inv, "expected-digest bind-cli")
+		}
 		if name == "attach" || name == "sync" || name == "migrate" {
 			addFlags(cmd, inv, "review-out base-bundle resolution-file")
 		}
@@ -49,8 +52,13 @@ func addProjectCommands(root *cobra.Command, inv *invocation) {
 	}
 	scaffold := addCommand(root, inv, "scaffold", scaffoldCommand)
 	for _, cmd := range []*cobra.Command{scaffold, addCommand(scaffold, inv, "ddd", scaffoldCommand), addCommand(scaffold, inv, "mvc", scaffoldCommand)} {
-		addFlags(cmd, inv, scaffoldValues+" "+scaffoldFlags)
+		addFlags(cmd, inv, scaffoldValues+" "+scaffoldFlags+" "+scaffoldPlanOptions)
 	}
+	addCommand(scaffold, inv, "catalog", scaffoldCommand)
+	addFlags(addCommand(scaffold, inv, "verify", scaffoldCommand), inv, "plan-file")
+	inspection := addCommand(root, inv, "project", projectInspectionCommand)
+	addFlags(addCommand(inspection, inv, "inspect", projectInspectionCommand), inv, "root")
+	addFlags(addCommand(inspection, inv, "verify", projectInspectionCommand), inv, "plan-file")
 	bundle := addCommand(root, inv, "bundle", bundleCommand)
 	addFlags(bundle, inv, "profile out")
 	addFlags(addCommand(bundle, inv, "inspect", bundleCommand), inv, "profile")
@@ -68,6 +76,15 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	if err = ctx.Err(); err != nil {
 		return nil, profile, domain.Wrap("CANCELLED", err)
 	}
+	if o.values["expected-digest"] != "" && (o.values["apply"] != "true" || o.values["plan-file"] == "") {
+		return nil, profile, domain.Fail("ARGUMENT", "--expected-digest 须与 --apply --plan-file 一起使用")
+	}
+	if o.values["bind-cli"] == "true" && (o.values["plan"] != "true" || o.values["out"] == "" || o.values["apply"] == "true") {
+		return nil, profile, domain.Fail("ARGUMENT", "--bind-cli 须与 --plan --out 一起使用")
+	}
+	if o.values["plan"] == "true" && o.values["apply"] == "true" {
+		return nil, profile, domain.Fail("ARGUMENT", "--plan 与 --apply 不能同时使用")
+	}
 
 	if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 		if o.values["installation"] != "" || o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {
@@ -80,7 +97,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if p.Root != root || (profile != "" && profile != p.Profile) || p.Command != command {
 			return nil, profile, domain.Fail("PLAN", "计划与命令、项目根或 Profile 不匹配")
 		}
-		r, e := project.ApplyContext(ctx, p)
+		r, e := project.ApplyConfirmedContext(ctx, p, o.values["expected-digest"])
 		return installationReceipt(r, p.Installation), p.Profile, e
 	}
 	detectProfile := profile
@@ -219,7 +236,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, e
 		}
 	}
-	planning := project.PlanningOptions{Installation: project.InstallationKind(o.values["installation"]), BaseBundlePath: o.values["base-bundle"], ResolutionFile: o.values["resolution-file"]}
+	planning := project.PlanningOptions{BindCLI: o.values["bind-cli"] == "true", Installation: project.InstallationKind(o.values["installation"]), BaseBundlePath: o.values["base-bundle"], ResolutionFile: o.values["resolution-file"]}
 	if o.values["plan-file"] != "" {
 		if o.values["resolution-file"] == "" || o.values["plan"] != "true" {
 			return nil, profile, domain.Fail("ARGUMENT", "重新规划须同时提供 --plan --plan-file 和 --resolution-file")

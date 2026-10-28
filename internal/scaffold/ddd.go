@@ -2,8 +2,6 @@ package scaffold
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -34,11 +32,8 @@ type dddGen struct {
 
 func newDDDGen(src Source, o *Options) *dddGen {
 	g := &dddGen{src: src, o: o, name: o.ProjectName, basePackage: o.BasePackage, standalone: !o.hasContract()}
-	g.author = os.Getenv("USER")
-	if g.author == "" {
-		g.author = "yss-team"
-	}
-	g.date = isoNow()[:10]
+	g.author = o.renderContext.Author
+	g.date = o.renderContext.Date
 	g.setNames()
 	return g
 }
@@ -58,46 +53,25 @@ func upperCamel(value string) string {
 	return strings.Join(parts, "")
 }
 
-func runDDD(ctx context.Context, src Source, o *Options) (*Result, error) {
+func renderDDD(ctx context.Context, src Source, o *Options) (*renderedProject, error) {
 	if err := validateDDDOptions(o); err != nil {
 		return nil, err
 	}
 	g := newDDDGen(src, o)
-	final := filepath.Join(o.OutputDir, g.name)
-	gitRoot := findGitRoot(final)
-	if gitRoot == "" {
-		gitRoot = findGitRoot(o.OutputDir)
-	}
-	if message := gitSubmoduleScaffoldViolation(gitRoot, o.OutputDir, g.name); message != "" {
-		return nil, fail(message)
-	}
-	if message := overlayMountViolation(gitRoot, final, true); message != "" {
-		return nil, fail(message)
+	if err := guardTarget(o); err != nil {
+		return nil, err
 	}
 	if err := g.validateContractMetadata(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(final); err == nil {
-		if message := overlayMountViolation(gitRoot, final, true); message != "" {
-			return nil, fail(message)
-		}
-		return nil, failf("unsupported: initialize-only 脚手架只创建全新项目，拒绝已存在目标: %s", final)
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	staging, err := stage(o.OutputDir, g.name)
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(staging)
 	tree := newTree()
-	if err = g.renderMechanical(tree, ""); err != nil {
+	if err := g.renderMechanical(tree, ""); err != nil {
 		return nil, err
 	}
-	if err = g.renderExample(tree); err != nil {
+	if err := g.renderExample(tree); err != nil {
 		return nil, err
 	}
-	if err = ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	manifest, err := g.manifest(tree)
@@ -108,11 +82,7 @@ func runDDD(ctx context.Context, src Source, o *Options) (*Result, error) {
 	if err = g.validateGenerated(tree); err != nil {
 		return nil, err
 	}
-	root, err := publish(tree, staging, o.OutputDir, g.name)
-	if err != nil {
-		return nil, err
-	}
-	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: manifest, Modules: standaloneModules("domain-driven")}, nil
+	return &renderedProject{tree: tree, manifest: manifest, modules: standaloneModules("domain-driven")}, nil
 }
 
 // validateDDDOptions mirrors the argument checks of parseArgs in the DDD generator.

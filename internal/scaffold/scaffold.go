@@ -8,54 +8,59 @@ package scaffold
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 const manifestRef = ".yss/scaffold-generation.json"
 
 // Options are the generator inputs. Empty strings mean "not supplied".
 type Options struct {
-	Architecture string // "ddd" or "mvc"
+	Architecture string `json:"architecture"` // "ddd" or "mvc"
 
-	ProjectName string
-	BasePackage string
-	OutputDir   string
+	ProjectName string `json:"projectName"`
+	BasePackage string `json:"basePackage"`
+	OutputDir   string `json:"outputDir"`
 
-	PlatformProfile   string
-	SpringBootVersion string
-	JavaVersion       string
+	PlatformProfile   string `json:"platformProfile,omitempty"`
+	SpringBootVersion string `json:"springBootVersion,omitempty"`
+	JavaVersion       string `json:"javaVersion,omitempty"`
 
-	GroupID              string
-	ProjectVersion       string
-	ParentGroupID        string
-	ParentArtifactID     string
-	ParentVersion        string
-	YssComponentsVersion string
+	GroupID              string `json:"groupId,omitempty"`
+	ProjectVersion       string `json:"projectVersion,omitempty"`
+	ParentGroupID        string `json:"parentGroupId,omitempty"`
+	ParentArtifactID     string `json:"parentArtifactId,omitempty"`
+	ParentVersion        string `json:"parentVersion,omitempty"`
+	YssComponentsVersion string `json:"yssComponentsVersion,omitempty"`
 
-	ContractFile     string
-	ContractID       string
-	ContractVersion  string
-	ApprovalRef      string
-	CompilerDraftRef string
-	PersistedRef     string
+	ContractFile     string `json:"contractFile,omitempty"`
+	ContractID       string `json:"contractId,omitempty"`
+	ContractVersion  string `json:"contractVersion,omitempty"`
+	ApprovalRef      string `json:"approvalRef,omitempty"`
+	CompilerDraftRef string `json:"compilerDraftRef,omitempty"`
+	PersistedRef     string `json:"persistedRef,omitempty"`
 
 	// Standalone is the explicit --standalone switch; it conflicts with contract input.
-	Standalone bool
+	Standalone bool `json:"standalone"`
 	// WithExample selects the reference example; nil keeps the generator default
 	// (on for standalone input, taken from the contract in the formal path).
-	WithExample *bool
-	Force       bool
+	WithExample *bool `json:"withExample"`
+	Force       bool  `json:"force,omitempty"`
 
 	// Source overrides the embedded Spec Bundle (nil uses BundleSource).
-	Source Source
+	Source Source `json:"-"`
 
 	// PlatformCatalog replaces the Bundle's platform catalog and AllowCandidate
 	// accepts platform combinations that are not qualified (the manifest then
 	// records platform_verification=candidate). They exist for maintenance
 	// parity runs; the CLI never sets them.
-	PlatformCatalog []byte
-	AllowCandidate  bool
+	PlatformCatalog []byte `json:"-"`
+	AllowCandidate  bool   `json:"-"`
+	renderContext   *RenderContext
 }
 
 // Result describes a generated project.
@@ -83,6 +88,13 @@ func (o *Options) example() bool { return o.WithExample == nil || *o.WithExample
 
 // Run generates the project described by o.
 func Run(ctx context.Context, o Options) (*Result, error) {
+	if ctx == nil {
+		return nil, fail("取消上下文不可为空")
+	}
+	if err := normalizeOptions(&o); err != nil {
+		return nil, err
+	}
+	o.renderContext = captureRenderContext()
 	src := o.Source
 	if src == nil {
 		var err error
@@ -90,27 +102,102 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 			return nil, err
 		}
 	}
+	rendered, err := renderProject(ctx, src, &o)
+	if err != nil {
+		return nil, err
+	}
+	return publishRendered(ctx, &o, rendered)
+}
+
+func normalizeOptions(o *Options) error {
 	if o.OutputDir != "" {
 		abs, err := filepath.Abs(o.OutputDir)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		o.OutputDir = abs
 	}
 	if o.ContractFile != "" {
 		abs, err := filepath.Abs(o.ContractFile)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		o.ContractFile = abs
 	}
+	return nil
+}
+
+type renderedProject struct {
+	tree     *Tree
+	manifest *OMap
+	modules  []string
+}
+
+func renderProject(ctx context.Context, src Source, o *Options) (*renderedProject, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	switch o.Architecture {
 	case "ddd":
-		return runDDD(ctx, src, &o)
+		return renderDDD(ctx, src, o)
 	case "mvc":
-		return runMVC(ctx, src, &o)
+		return renderMVC(ctx, src, o)
 	}
 	return nil, fail("unsupported architecture: " + o.Architecture)
+}
+
+func guardTarget(o *Options) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return domain.Fail("CAPABILITY", "脚手架目录保护需要 PATH 中的 Git")
+	}
+	for _, part := range strings.Split(filepath.ToSlash(o.OutputDir), "/") {
+		if strings.EqualFold(part, ".git") {
+			return domain.Fail("ARGUMENT", "脚手架输出不得位于 Git 内部目录")
+		}
+	}
+	final, err := safefs.Path(o.OutputDir, o.ProjectName)
+	if err != nil {
+		return err
+	}
+	gitRoot := findGitRoot(final)
+	if gitRoot == "" {
+		gitRoot = findGitRoot(o.OutputDir)
+	}
+	if message := gitSubmoduleScaffoldViolation(gitRoot, o.OutputDir, o.ProjectName); message != "" {
+		return fail(message)
+	}
+	if message := overlayMountViolation(gitRoot, final, true); message != "" {
+		return fail(message)
+	}
+	if _, err = os.Lstat(final); err == nil {
+		return failf("unsupported: initialize-only 脚手架只创建全新项目，拒绝已存在目标: %s", final)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func publishRendered(ctx context.Context, o *Options, rendered *renderedProject) (*Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := guardTarget(o); err != nil {
+		return nil, err
+	}
+	staging, err := stage(o.OutputDir, o.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(staging)
+	// Recheck after staging: a concurrently occupied target must stay untouched.
+	if err := guardTarget(o); err != nil {
+		return nil, err
+	}
+	root, err := publish(rendered.tree, staging, o.OutputDir, o.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: rendered.manifest, Modules: rendered.modules}, nil
 }
 
 // stage creates the output directory and an owner-only staging directory next to
@@ -131,8 +218,11 @@ func publish(tree *Tree, staging, outputDir, projectName string) (string, error)
 	if err := tree.Commit(projectRoot); err != nil {
 		return "", err
 	}
+	if err := guardTarget(&Options{OutputDir: outputDir, ProjectName: projectName}); err != nil {
+		return "", err
+	}
 	final := filepath.Join(outputDir, projectName)
-	if err := os.Rename(projectRoot, final); err != nil {
+	if err := publishNoReplace(projectRoot, final); err != nil {
 		return "", err
 	}
 	return final, nil
