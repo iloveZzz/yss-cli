@@ -76,6 +76,20 @@ export function runSkillsProfile(session, profile, tempRoot) {
  const roots=profile==='spec'?['yss-product-lifecycle','grilling','yss-research','domain-modeling','to-spec','i-have-adhd','code-review','implement']:['implement','code-review'];
  check(metadata.distribution.installedSkills.length===roots.length&&roots.every(id=>metadata.distribution.installedSkills.includes(id)),'default skills must match Profile starter roots');
  if(profile==='spec')specReadiness(session,root,roots);
+ if(profile==='backend') {
+  const ensure=path.join(plans,'to-spec.json');
+  session.expectOk(['skills','ensure','to-spec','--root',root,'--plan','--out',ensure,'--json']);
+  session.expectOk(['skills','--root',root,'--apply','--plan-file',ensure,'--json']);
+  const resolved=session.expectOk(['skills','resolve','to-spec','--root',root,'--json']).result;
+  check(resolved.status==='ready'&&!resolved.issues.length&&!resolved.missing.length,'Backend explicit Spec dependencies must be ready');
+  check(resolved.canonicalIds.includes('i-have-adhd'),'Backend writing reference dependency must be selected');
+  const entry=path.join(root,'.agents/skills/to-spec/SKILL.md');
+  for(const match of fs.readFileSync(entry,'utf8').matchAll(/\]\(([^)]+)\)/g)) {
+   const ref=match[1].split('#')[0];if(!ref||ref.includes('://'))continue;
+   check(fs.statSync(path.resolve(path.dirname(entry),ref)).isFile(),`Backend explicit Spec reference must exist: ${ref}`);
+  }
+ }
+
  const sync=path.join(plans,'sync.json');
  session.expectOk(['sync','--root',root,'--plan','--out',sync,'--json']);
  const result=session.expectOk(['sync','--root',root,'--apply','--plan-file',sync,'--json']);

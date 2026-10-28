@@ -93,7 +93,11 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 				}
 			}
 		}
-		d["installedSkills"] = union(stringsOf(d["installedSkills"]), stringsOf(b.Distribution["installedSkills"]), added)
+		selected, err := resolveSkillSelection(b, union(stringsOf(d["installedSkills"]), stringsOf(b.Distribution["installedSkills"]), added), "")
+		if err != nil {
+			return nil, err
+		}
+		d["installedSkills"] = union(selected.CanonicalIDs)
 		return d, nil
 	}
 	if id.Profile.Name != "spec" || text(d["mode"]) != "selected" {

@@ -295,3 +295,39 @@ func TestTwoRootSkillsConditionalMissing(t *testing.T) {
 		t.Fatal("conditional query wrote project")
 	}
 }
+
+func TestSkillsSyncAdoptsNewRequiredDependency(t *testing.T) {
+	old := standaloneFixture(t)
+	root, _ := writeInstallationBundleFixture(t, old)
+	target := standaloneFixture(t)
+	f := target.Files[skillRegistryRef]
+	raw, _ := f.Render(nil)
+	raw = append(raw, []byte("  implement:\n    - {skill: extra, type: context-required}\n")...)
+	f.Data = base64.StdEncoding.EncodeToString(raw)
+	f.Digest = safefs.Digest(raw)
+	target.Files[skillRegistryRef] = f
+	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = applyStandaloneFixture(t, p, target); err != nil {
+		t.Fatalf("new required dependency: %v", err)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(stringsOf(id.Native.Distribution["installedSkills"]), []string{"extra", "implement"}) {
+		t.Fatal("dependency missing from metadata")
+	}
+	for _, runtime := range []string{"", "claude", "workbuddy"} {
+		got, e := ResolveSkills(id, target, []string{"implement"}, runtime, "")
+		if e != nil || got.Status != "ready" || len(got.Missing) > 0 || len(got.Issues) > 0 {
+			t.Fatalf("%s: %+v %v", runtime, got, e)
+		}
+	}
+	repeat, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
+	if err != nil || len(repeat.Changes) > 0 {
+		t.Fatalf("repeat: %+v %v", repeat, err)
+	}
+}
