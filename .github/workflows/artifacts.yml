@@ -73,6 +73,7 @@ jobs:
         env:
           CGO_ENABLED: 0
           YSS_TEST_REQUIRE_GIT: 1
+          YSS_TEST_REQUIRE_SKILL_REFERENCES: 1
         run: |
           git --version
           go test -timeout 5m -coverpkg=./internal/... -coverprofile="$RUNNER_TEMP/cover.out" ./...
@@ -83,6 +84,7 @@ jobs:
       - name: Black-box smoke of the built binary
         env:
           CGO_ENABLED: 0
+          YSS_TEST_REQUIRE_SKILL_REFERENCES: 1
         run: |
           go build -o "$RUNNER_TEMP/yss-smoke/yss" ./cmd/yss
           node tools/smoke/main.mjs --bin "$RUNNER_TEMP/yss-smoke/yss"

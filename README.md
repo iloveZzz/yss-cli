@@ -1,7 +1,7 @@
 # yss
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.8.2`。固定模板：backend `v4.8.2`、spec `v4.8.2`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.8.3`。固定模板：backend `v4.8.3`、spec `v4.8.3`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 English: [quickstart](docs/quickstart.en.md).
@@ -127,7 +127,7 @@ yss update rollback --tool-root ./tools/yss --json
 
 在新目录选择一个 Profile 和安装方式。以下完整治理示例显式选择 `governed`；独立技能安装使用默认 `skills`：
 
-使用包含引用清单的 Bundle 时，默认 `skills` 同时安装已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖；这些参考文件不启用治理身份或正式治理能力。已有项目在使用对应新版 CLI 后，通过审阅并应用 `yss sync` 计划获取新的受管引用资产；当前已发布版本不包含此新清单。
+从 CLI `2.8.3` 起，默认 `skills` 同时安装已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖；这些参考文件不启用治理身份或正式治理能力。已有项目在使用对应新版 CLI 后，通过审阅并应用 `yss sync` 计划获取新的受管引用资产；`2.8.2` 及更早版本不包含此新清单。
 
 ```sh
 yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目
