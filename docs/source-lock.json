@@ -2,7 +2,7 @@
   "schemaVersion": 5,
   "producer": {
     "version": "bundle-producer-v4",
-    "commit": "545e3c6a324f0122047abefd6c0a928b8998de99",
+    "commit": "b7c6c22e74fb214f9ca9fbb687b337a9b9bcc3dd",
     "sourceState": "committed"
   },
   "profiles": {
