@@ -24,7 +24,7 @@ function validateBindings(root,native){
   const binding=read(root,ref);
   if(!binding)continue;
   ensure(native,'插件 binding 缺少匹配原生身份: '+ref);
-  ensure([2,3].includes(native.schemaVersion)&&native.profile===profile&&binding.schema_version===2&&binding.plugin===plugin&&binding.profile===profile&&binding.template_commit===native.templateCommit&&binding.bundle_hash===native.bundleHash&&hex(binding.binary_sha256),'插件 binding 与原生身份或来源不一致: '+ref);
+  ensure([2,3,4,5].includes(native.schemaVersion)&&(native.schemaVersion!==5||native.distribution?.installation==='governed')&&native.profile===profile&&binding.schema_version===2&&binding.plugin===plugin&&binding.profile===profile&&binding.template_commit===native.templateCommit&&binding.bundle_hash===native.bundleHash&&hex(binding.binary_sha256),'插件 binding 与原生身份或来源不一致: '+ref);
  }
 }
 /** Native identity wins only after validation; preserved legacy bytes are lineage. */

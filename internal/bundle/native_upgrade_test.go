@@ -23,7 +23,7 @@ func TestProducedNativeMetadataConsumer(t *testing.T) {
 		"validation-phase.mjs":  []byte(`export {existsSync,lstatSync,readFileSync} from 'node:fs';`),
 		"structured-assets.mjs": []byte(`export const parseAsset = bytes => JSON.parse(bytes.toString());`),
 		"probe.mjs": []byte(`import assert from 'node:assert/strict';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,rmSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {readInstanceMetadata,nativeInstalledSkillRefs} from './instance-metadata.mjs';
 const hash='a'.repeat(64), commit='b'.repeat(40);
@@ -38,6 +38,16 @@ check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"skills"
 check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"governed"}},true);
 check({profile:'design',profileId:'harness.business-ddd-strategy-handoff'},false);
 check({baselineDigest:'c'.repeat(64)},false);
+const binding={schema_version:2,plugin:'yss-backend-delivery',profile:'spec',template_commit:commit,bundle_hash:hash,binary_sha256:hash};
+const bindingRef='.yss-backend-plugin.json';
+writeFileSync(bindingRef,JSON.stringify(binding));
+for(const schemaVersion of [2,3,4,5])check({schemaVersion,bundleSchemaVersion:schemaVersion,distribution:schemaVersion===5?{installation:'governed'}:{}},true);
+check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:'skills'}},false);
+for(const [key,value] of [['schema_version',3],['plugin','unknown'],['profile','backend'],['template_commit','c'.repeat(40)],['bundle_hash','c'.repeat(64)],['binary_sha256','invalid']]){
+ writeFileSync(bindingRef,JSON.stringify({...binding,[key]:value}));
+ check({},false);
+}
+rmSync(bindingRef);
 const wbRecord={baseline:{type:'file',digest:hash,mode:420},lastApplied:{type:'file',digest:hash,mode:420},ownership:'managed'};
 const wbMetadata={distribution:{runtimes:['workbuddy'],installedSkills:['a']},managedFiles:{'.agents/skills/a/SKILL.md':wbRecord,'.workbuddy/skills/a/SKILL.md':wbRecord}};
 const wbLock={version:3,canonicalRoot:'.agents/skills',projectionRoots:['.workbuddy/skills'],skills:{shared:{a:{targets:['.agents/skills','.workbuddy/skills']}},platform:{}}};
