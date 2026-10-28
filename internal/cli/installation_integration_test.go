@@ -179,8 +179,8 @@ func TestInstallationMigrationResolutionCLI(t *testing.T) {
 	if b.SchemaVersion < 5 {
 		t.Skip("requires installation source")
 	}
-	root := filepath.Join(t.TempDir(), "project")
-	commandOK(t, root, "init", "--installation", "governed", "--profile", "spec")
+	// Reuse the initialized governed fixture while isolating its files and journals.
+	root := commandProject(t)
 	entry := filepath.Join(root, "AGENTS.md")
 	data, err := os.ReadFile(entry)
 	if err != nil {
