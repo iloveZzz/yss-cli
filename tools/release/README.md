@@ -1,6 +1,6 @@
 # 固定原生资产装配
 
-本轮稳定范围是 `local-platform-impacted-consumers`，独立平台范围为本机 `darwin/arm64`。六平台仍是支持列表；装配不会隐式要求其他平台运行。
+装配器默认资格范围为 `local-platform-impacted-consumers`；当前发行证据流程显式选择下述 `local-platform-program-install`，独立验收平台为 `darwin/arm64`。六平台仍是支持列表；装配不会隐式要求其他平台运行。
 
 ```sh
 go run ./tools/package --native-candidate-manifest INPUT.json --required-platforms darwin/arm64 NEW_CANDIDATE_DIR
@@ -48,6 +48,6 @@ go run ./tools/package --native-manifest INPUT.json --required-platforms darwin/
 
 未来完整模板模式需显式 `--gate-basis`，资格范围 `complete-template-release`，独立 BEFORE 编译计划、调用与输入摘要，并保留原完整模板/四 CLI/旧恢复/真实实例来源。此模式不是本轮默认前置。
 
-本仓的测试源码和自动验收工具已移除。装配工具继续校验上述真实证据合同，但不再由仓库测试工具生成新回执；需另行提供符合合同的证据。构建检查可使用 `CGO_ENABLED=0 go build ./tools/package ./tools/release`，构建成功不代表原生平台运行验收。
+本仓保留轻量 Go 测试和发行工具离线回归，范围见[测试与 CI 状态](../../docs/ci-verification.md)。这些测试不生成正式发行回执；当前 `local-platform-program-install` 证据由下述发行脚本在真实目标平台生成，其他资格范围仍须提供其完整证据。构建检查可使用 `CGO_ENABLED=0 go build ./tools/package ./tools/release`，构建成功不代表原生平台运行验收。
 
 发版证据（原生 receipt、程序安装、门禁、Windows 仅构建包及公开在线升级验证）的生成脚本与完整执行顺序见 [tools/release-evidence](../release-evidence/README.md)。

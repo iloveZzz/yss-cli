@@ -1,7 +1,7 @@
 // yss git 写入路径：临时仓库 + 本地裸远端（file://）上的 计划→应用 主流程与闸门。
 import fs from 'node:fs';
 import path from 'node:path';
-import {check, fail} from './lib.mjs';
+import {check} from './lib.mjs';
 
 const TICKET = 'FEAT-1';
 const BRANCH = `feat/${TICKET}-smoke`;

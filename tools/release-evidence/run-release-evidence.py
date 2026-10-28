@@ -154,7 +154,7 @@ def prepare(options):
     steps = [
         {'id': '01-fetch-bundle', 'description': '生成并校验内嵌 Bundle 归档（不入库）', 'argv': fetch},
         {'id': '02-build-darwin', 'description': '构建 darwin/arm64 二进制并记录 build-receipt', 'argv': ['node', 'tools/build-candidate.mjs', '--root', str(C), '--out', str(E / 'build-darwin')]},
-        {'id': '03-native-receipt', 'description': '原生 receipt：只执行 version 与三个 bundle inspect，checks 为空',
+        {'id': '03-native-receipt', 'description': '原生 receipt：只执行 version 与来源锁中全部现役 Profile 的 bundle inspect，checks 为空',
          'argv': lambda: ['node', str(T / 'native-receipt.mjs'), '--binary', str(E / 'build-darwin' / 'yss'), '--out', str(E / 'native-darwin-arm64'),
                           '--artifact-prefix', 'native-darwin-arm64', '--cli-root', str(C), '--binary-sha256', binary_sha()]},
         {'id': '04-prepare-native-input', 'description': '生成 native-input.json（不授予资格）',

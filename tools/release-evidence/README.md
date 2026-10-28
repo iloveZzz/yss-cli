@@ -84,7 +84,7 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 | 文件 | 作用 |
 | --- | --- |
 | `run-release-evidence.py` | 总控：`prepare`（步骤 1–12 并确认源码未漂移）与 `verify-public`（发布后在线升级验证） |
-| `native-receipt.mjs` | 本机原生 receipt：只实际执行 `version` 与三个 `bundle inspect`，`checks` 为空，不冒充 smoke/recovery/plugin |
+| `native-receipt.mjs` | 本机原生 receipt：只实际执行 `version` 与来源锁中全部现役 Profile 的 `bundle inspect`，`checks` 为空，不冒充 smoke/recovery/plugin |
 | `prepare-native-input.py` | 绑定二进制、receipt 与七个分发文档，生成 `native-input.json`（资格范围 `local-platform-program-install`） |
 | `run-observed.py` | 外部观察记录器：记录前后源码输入摘要、真实退出码与信号；不改动源码仓库 |
 | `run-program-installation.py` | 对候选包（或带 `--published-sha256` 时对公开包）实际执行安装五项，并逐命令保留日志与摘要 |

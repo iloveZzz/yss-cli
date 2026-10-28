@@ -88,7 +88,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss
 
 当前轻量 Go 测试、黑盒冒烟和生成检查由 `artifacts.yml` 执行；`scaffold-parity.yml` 独立执行 Go/Node 对拍。早期原生验收 workflow 的删除属于历史事实，不能解释为当前测试 workflow 已删除。仓库 ruleset/required checks 需单独核实，不能从本地工作流文件推断。
 
-发行装配工具仍要求原有真实证据，产品安装与升级继续校验发行资格。当前仓库已无自动生成这些验收回执的测试工具；需要正式装配时，必须另行提供符合现有合同的证据。删除测试不等同于跳过装配校验或生成通过结果。
+发行装配工具仍要求真实证据，产品安装与升级继续校验发行资格。当前[发行证据工具](../tools/release-evidence/README.md)在真实目标平台生成 `local-platform-program-install` 范围的原生与安装回执，`release-evidence.yml` 执行准备及发布后验证；普通 Go 测试和黑盒冒烟不生成这些回执。其他资格范围须提供对应的完整证据，不能用构建或局部测试替代。
 
 ## 未提交模板的本地装配
 

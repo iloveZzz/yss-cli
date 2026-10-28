@@ -107,7 +107,3 @@ function excerpt(result) {
   const out = result.stdout.length > 800 ? result.stdout.slice(0, 800) + '…' : result.stdout;
   return `stdout: ${out.trim()}\nstderr: ${result.stderr.trim().slice(0, 400)}`;
 }
-
-export function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
