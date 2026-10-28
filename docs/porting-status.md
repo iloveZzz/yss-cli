@@ -1,7 +1,7 @@
 # 迁移覆盖与切换清单
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.7.6`。固定模板：backend `git:7a33baf3ffca23255fa10b0871192666213b4e82`、spec `git:7a33baf3ffca23255fa10b0871192666213b4e82`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`2.7.6`。固定模板：backend `git:7ea9058fa97df7706fefe7e040935921e7d101fd`、spec `git:7ea9058fa97df7706fefe7e040935921e7d101fd`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 本工程当前版本与固定模板见上方生成信息。本表记录当前能力及实际限制，不授予稳定发布资格。四旧 CLI 的退役范围、现役消费者、历史恢复和发行条件见 [退役合同](cli-retirement.md)；必要 Node/Python 治理工具继续维护。
