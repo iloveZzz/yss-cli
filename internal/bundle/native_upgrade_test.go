@@ -36,6 +36,7 @@ check({bundleSchemaVersion:3},false);
 check({schemaVersion:5,bundleSchemaVersion:5},false);
 check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"skills"}},true);
 check({schemaVersion:5,bundleSchemaVersion:5,distribution:{installation:"governed"}},true);
+for(const schemaVersion of [3,4])check({schemaVersion,bundleSchemaVersion:schemaVersion,distribution:{installation:'skills'}},false);
 check({profile:'design',profileId:'harness.business-ddd-strategy-handoff'},false);
 check({baselineDigest:'c'.repeat(64)},false);
 const binding={schema_version:2,plugin:'yss-backend-delivery',profile:'spec',template_commit:commit,bundle_hash:hash,binary_sha256:hash};
