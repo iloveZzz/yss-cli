@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/project"
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -24,7 +26,7 @@ func TestSkillsDefaultCLI(t *testing.T) {
 	}
 	root := filepath.Join(t.TempDir(), "project")
 	commandOK(t, root, "init", "--profile", "spec")
-	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md", ".template-spec"} {
+	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md"} {
 		if _, err = os.Stat(filepath.Join(root, ref)); !os.IsNotExist(err) {
 			t.Fatalf("unexpected ordinary governance asset %s", ref)
 		}
@@ -45,6 +47,7 @@ func TestSkillsDefaultCLI(t *testing.T) {
 	if len(installed) != len(roots) {
 		t.Fatalf("default skills: %v", installed)
 	}
+	assertInstalledSkillReferences(t, root, b, roots)
 	before := installationInventory(t, root)
 	doctor := commandOK(t, root, "doctor")
 	readiness := doctor["readiness"].(map[string]any)
@@ -103,11 +106,12 @@ func TestSkillsDefaultCLI(t *testing.T) {
 			t.Fatalf("ensured skills: %v", got)
 		}
 	}
-	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md", ".template-spec", "scripts"} {
+	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md"} {
 		if _, err = os.Stat(filepath.Join(root, ref)); !os.IsNotExist(err) {
 			t.Fatalf("ensure introduced governance: %s", ref)
 		}
 	}
+	assertInstalledSkillReferences(t, root, b, append(append([]string{}, roots...), "setup-yss-harness"))
 	for _, kind := range []string{"governed", "skills"} {
 		plan = filepath.Join(t.TempDir(), "migration.json")
 		commandOK(t, root, "migrate", "--installation", kind, "--plan", "--out", plan)
@@ -146,6 +150,50 @@ func TestSkillsDefaultCLI(t *testing.T) {
 			}
 
 		}
+	}
+}
+
+// Historical v5 bundles have no reference map. New bundles must install and
+// bind each selected skill's declared passive assets, without acquiring identity.
+func assertInstalledSkillReferences(t *testing.T, root string, b *bundle.Bundle, skills []string) {
+	t.Helper()
+	id, err := project.Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Native.Distribution["installation"] != "skills" {
+		t.Fatal("reference assets changed installation identity")
+	}
+	item := b.Installations["skills"]
+	seenSource, seenSpec := false, false
+	for _, skill := range skills {
+		refs, err := item.ReferencesForSkill(skill)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ref := range refs {
+			seenSource = seenSource || strings.HasPrefix(ref, ".template-source/")
+			seenSpec = seenSpec || strings.HasPrefix(ref, ".template-spec/")
+			expected, ok := b.Files[ref]
+			if !ok {
+				t.Fatalf("declared reference absent from Bundle: %s", ref)
+			}
+			got, err := safefs.Describe(root, ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			managed, ok := id.Native.Managed[ref]
+			if !ok || got.Type != "file" || got != managed.Applied || managed.Source == nil || managed.Source.Path != ref || managed.Source.TemplateCommit != b.TemplateCommit || managed.Source.SnapshotHash != b.SnapshotHash {
+				t.Fatalf("reference missing or unbound: %s", ref)
+			}
+			// harness-profile is natively transformed during materialization.
+			if ref != ".template-spec/process/harness-profile.yaml" && managed.Source.TemplateDigest != expected.Digest {
+				t.Fatalf("reference source mismatch: %s", ref)
+			}
+		}
+	}
+	if os.Getenv("YSS_TEST_REQUIRE_SKILL_REFERENCES") == "1" && (!seenSource || !seenSpec) {
+		t.Fatal("required skill reference declarations missing from Bundle")
 	}
 }
 

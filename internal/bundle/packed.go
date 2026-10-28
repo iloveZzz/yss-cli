@@ -13,7 +13,7 @@ import (
 )
 
 const packedFilename = "bundles.json.gz"
-const storageFormatVersion = 1
+const storageFormatVersion = 2
 const MaxArchiveBytes = 10_000_000
 
 // StorageReport describes physical storage, independently of logical Bundle hashes.
@@ -45,6 +45,11 @@ func packBundles(bundles map[string]*Bundle) ([]byte, *StorageReport, error) {
 		}
 		b := *original
 		b.Files, b.Initial = maps.Clone(b.Files), maps.Clone(b.Initial)
+		b.Installations = maps.Clone(b.Installations)
+		for kind, installation := range b.Installations {
+			installation.Initial = maps.Clone(installation.Initial)
+			b.Installations[kind] = installation
+		}
 		b.NativeTransforms = slices.Clone(b.NativeTransforms)
 		if err := validate(&b, profile); err != nil {
 			return nil, nil, err
@@ -52,7 +57,7 @@ func packBundles(bundles map[string]*Bundle) ([]byte, *StorageReport, error) {
 		if b.SchemaVersion < 2 || b.BundleHash != contentHash(&b) {
 			return nil, nil, domain.Fail("BUNDLE", "Bundle 摘要不一致: "+profile)
 		}
-		err := mapFileContent(&b, func(ref string, f File) (File, error) {
+		packContent := func(ref string, f File) (File, error) {
 			if previous, exists := a.Objects[f.Digest]; exists {
 				if previous != f.Data {
 					return f, domain.Fail("BUNDLE", "同摘要内容冲突: "+ref)
@@ -66,8 +71,12 @@ func packBundles(bundles map[string]*Bundle) ([]byte, *StorageReport, error) {
 			}
 			f.Data = ""
 			return f, nil
-		})
+		}
+		err := mapFileContent(&b, packContent)
 		if err != nil {
+			return nil, nil, err
+		}
+		if err = mapInstallationFileContent(&b, packContent); err != nil {
 			return nil, nil, err
 		}
 		a.Profiles[profile], err = json.Marshal(&b)
@@ -126,7 +135,7 @@ func loadPackedProfile(a *packedArchive, profile string) (*Bundle, error) {
 }
 
 func loadPackedProfileWith(a *packedArchive, profile string, op *validationOp) (*Bundle, error) {
-	if a.StorageFormatVersion != storageFormatVersion || a.Profiles == nil || a.Objects == nil {
+	if (a.StorageFormatVersion != 1 && a.StorageFormatVersion != storageFormatVersion) || a.Profiles == nil || a.Objects == nil {
 		return nil, domain.Fail("BUNDLE", "内嵌存储格式不支持或不完整")
 	}
 	metadata, exists := a.Profiles[profile]
@@ -147,6 +156,31 @@ func loadPackedProfileWith(a *packedArchive, profile string, op *validationOp) (
 	}); err != nil {
 		return nil, err
 	}
+	// Storage v1 archives contained inline installation bytes; v2 requires
+	// references to content-addressed objects, including for empty files.
+	if err := mapInstallationFileContent(&b, func(ref string, f File) (File, error) {
+		if a.StorageFormatVersion == 1 {
+			data, err := base64.StdEncoding.DecodeString(f.Data)
+			if err != nil || safefs.Digest(data) != f.Digest {
+				return f, domain.Fail("BUNDLE", "安装内联内容摘要不一致: "+ref)
+			}
+			if object, ok := a.Objects[f.Digest]; ok && object != f.Data {
+				return f, domain.Fail("BUNDLE", "安装内容与对象冲突: "+ref)
+			}
+			return f, nil
+		}
+		if f.Data != "" {
+			return f, domain.Fail("BUNDLE", "安装内容不允许内联: "+ref)
+		}
+		data, exists := a.Objects[f.Digest]
+		if !exists {
+			return f, domain.Fail("BUNDLE", "安装内容引用缺失: "+ref)
+		}
+		f.Data = data
+		return f, nil
+	}); err != nil {
+		return nil, err
+	}
 	if err := validateWith(&b, profile, op); err != nil {
 		return nil, err
 	}
@@ -154,6 +188,20 @@ func loadPackedProfileWith(a *packedArchive, profile string, op *validationOp) (
 		return nil, domain.Fail("BUNDLE", "Bundle 摘要不一致")
 	}
 	return &b, nil
+}
+
+func mapInstallationFileContent(b *Bundle, transform func(string, File) (File, error)) error {
+	for kind, installation := range b.Installations {
+		for ref, f := range installation.Initial {
+			changed, err := transform(ref, f)
+			if err != nil {
+				return err
+			}
+			installation.Initial[ref] = changed
+		}
+		b.Installations[kind] = installation
+	}
+	return nil
 }
 
 func mapFileContent(b *Bundle, transform func(string, File) (File, error)) error {
