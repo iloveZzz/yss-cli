@@ -24,6 +24,9 @@ type Change struct {
 	Ownership string            `json:"ownership"`
 }
 type Plan struct {
+	Kind                  string                 `json:"kind,omitempty"`
+	CLI                   *InstallationCLI       `json:"cli,omitempty"`
+	BundleHash            string                 `json:"bundleHash,omitempty"`
 	InstallationMigration *InstallationMigration `json:"installationMigration,omitempty"`
 	Installation          InstallationKind       `json:"installation,omitempty"`
 	GovernanceMigration   *GovernanceMigration   `json:"governanceMigration,omitempty"`
@@ -63,6 +66,9 @@ func (p *Plan) Public() map[string]any {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
 	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	if p.Kind != "" {
+		public["kind"], public["cli"], public["bundleHash"] = p.Kind, p.CLI, p.BundleHash
+	}
 	// 只在目标 Bundle 含版本区间规则时才出现，其余计划的输出保持不变。
 	if p.InstallationMigration != nil {
 		public["installationMigration"] = p.InstallationMigration
@@ -126,6 +132,9 @@ func build(root, profile, command string, vars map[string]string, selection []st
 func buildCore(root, profile, command string, vars map[string]string, selection []string, binding *Binding, options PlanningOptions) (*Plan, error) {
 	init := command == "init"
 	attach := command == "attach"
+	if options.BindCLI && !init && !attach {
+		return nil, domain.Fail("ARGUMENT", "CLI 绑定计划仅支持 init 或 attach")
+	}
 	var id *Identity
 	var err error
 	if command == "migrate" && options.Installation != "" {
@@ -166,17 +175,6 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, e
 		}
 	}
-	if !init && !skillsIdentity(id) {
-		if ok, e := exists(id.Root, "CONTEXT.md"); e != nil {
-			return nil, e
-		} else if ok {
-			if _, e := governance.Run("context", "verify", id.Root, nil); e != nil {
-				return nil, e
-			}
-		} else if id.Native != nil {
-			return nil, domain.Fail("CONTEXT_MISSING", "原生实例缺少 CONTEXT.md；请恢复项目 Context 后重新规划")
-		}
-	}
 	if !init && !attach && id.Native == nil && command != "diff" && command != "doctor" {
 		return nil, domain.Fail("IDENTITY", "缺少统一 CLI metadata；本 CLI 仅支持 2.3.1 基线实例")
 	}
@@ -187,6 +185,13 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, err
 		}
 	}
+	canonicalBundleHash := ""
+	if options.BindCLI {
+		if b.SchemaVersion != 5 {
+			return nil, domain.Fail("CAPABILITY", "CLI 绑定安装计划要求 Bundle5")
+		}
+		canonicalBundleHash = bundle.Hash(b)
+	}
 	installation := InstallationGoverned
 	if b.SchemaVersion >= 5 || options.Installation != "" {
 		installation, err = ResolveInstallation(id, command, options.Installation)
@@ -196,6 +201,18 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		b, err = b.ForInstallation(string(installation))
 		if err != nil {
 			return nil, err
+		}
+	}
+	skillsAttach := attach && id.Native == nil && installation == InstallationSkills
+	if !init && !skillsIdentity(id) && !skillsAttach {
+		if ok, e := exists(id.Root, "CONTEXT.md"); e != nil {
+			return nil, e
+		} else if ok {
+			if _, e := governance.Run("context", "verify", id.Root, nil); e != nil {
+				return nil, e
+			}
+		} else if id.Native != nil {
+			return nil, domain.Fail("CONTEXT_MISSING", "原生实例缺少 CONTEXT.md；请恢复项目 Context 后重新规划")
 		}
 	}
 	if err := requireWorkBuddyRootSync(id, b, command); err != nil {
@@ -234,6 +251,14 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	if b.SchemaVersion == 5 {
 		p.SchemaVersion = 4
 		p.Installation = installation
+		if options.BindCLI {
+			p.SchemaVersion = 5
+			p.Kind, p.BundleHash = "installation-plan", canonicalBundleHash
+			p.CLI, err = installationCLI()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	// Bind identity and vocabulary inputs even when preserved custom files do not
 	// appear in managedFiles. Transaction guards recheck them under the write lock.
@@ -481,8 +506,11 @@ func ReadPlan(file string) (*Plan, error) {
 	if e = d.Decode(&p); e != nil {
 		return nil, e
 	}
-	if (p.SchemaVersion != 1 && p.SchemaVersion != 2 && p.SchemaVersion != 3 && p.SchemaVersion != 4) || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
+	if (p.SchemaVersion < 1 || p.SchemaVersion > 5) || p.ProtocolVersion != domain.ProtocolVersion || p.Digest != planDigest(&p) {
 		return nil, domain.Fail("PLAN", "计划版本或摘要不合法")
+	}
+	if e = validateInstallationPlan(&p); e != nil {
+		return nil, e
 	}
 	return &p, nil
 }
@@ -495,6 +523,48 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 		return transaction.Result{}, err
 	}
 	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, a.ops, p.Inputs, a.materials, func() error { return verifyAppliedPlan(ctx, p, a.bundle) })
+}
+
+func ApplyConfirmedContext(ctx context.Context, p *Plan, expectedDigest string) (transaction.Result, error) {
+	if p == nil {
+		return transaction.Result{}, domain.Fail("PLAN", "缺少保存计划")
+	}
+	if p.SchemaVersion == 5 && expectedDigest == "" {
+		return transaction.Result{}, domain.Fail("PLAN_REQUIRED", "应用安装保存计划须提供 --expected-digest <已确认摘要>")
+	}
+	if expectedDigest != "" && expectedDigest != p.Digest {
+		return transaction.Result{}, domain.Fail("INPUT_DRIFT", "保存计划与原确认摘要不一致；请重新规划")
+	}
+	return ApplyContext(ctx, p)
+}
+
+func validateInstallationPlan(p *Plan) error {
+	if p.SchemaVersion != 5 {
+		return nil
+	}
+	if p.Kind != "installation-plan" || p.Command != "init" && p.Command != "attach" ||
+		p.Installation != InstallationSkills && p.Installation != InstallationGoverned || p.CLI == nil ||
+		!digestPattern.MatchString(p.CLI.ExecutableSHA256) || !digestPattern.MatchString(p.BundleHash) {
+		return domain.Fail("PLAN", "安装保存计划缺少合法的类型、安装方式或来源绑定")
+	}
+	return nil
+}
+
+func verifyInstallationPlanSource(p *Plan, b *bundle.Bundle) error {
+	if err := validateInstallationPlan(p); err != nil {
+		return err
+	}
+	if p.SchemaVersion != 5 {
+		return nil
+	}
+	current, err := installationCLI()
+	if err != nil {
+		return err
+	}
+	if *p.CLI != *current || p.BundleHash != bundle.Hash(b) || p.TemplateCommit != b.TemplateCommit || p.SnapshotHash != b.SnapshotHash {
+		return domain.Fail("INPUT_DRIFT", "计划绑定的 CLI 或 Bundle 已改变；请重新规划")
+	}
+	return nil
 }
 
 type applicationInputs struct {
@@ -523,7 +593,7 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	if p.Command == "doctor" || p.Command == "diff" {
 		return nil, domain.Fail("PLAN", "只读检查计划不能应用；请生成显式同步或迁移计划")
 	}
-	if p.SchemaVersion != 2 && p.SchemaVersion != 3 && p.SchemaVersion != 4 {
+	if p.SchemaVersion < 2 || p.SchemaVersion > 5 {
 		return nil, domain.Fail("PLAN_VERSION", "旧保存计划不能应用；须用新 CLI 重新生成")
 	}
 	if p.Digest != planDigest(p) {
@@ -538,6 +608,9 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	}
 	if b.TemplateCommit != p.TemplateCommit || b.SnapshotHash != p.SnapshotHash {
 		return nil, domain.Fail("BUNDLE", "计划绑定快照已改变")
+	}
+	if e = verifyInstallationPlanSource(p, b); e != nil {
+		return nil, e
 	}
 	if p.InstallationMigration != nil {
 		_, e = Detect(p.Root, p.Profile, false)

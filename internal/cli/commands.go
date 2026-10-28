@@ -40,6 +40,8 @@ func initializeArguments() {
 	defineArgument("tool-root", "<目录>", "程序安装目录；update 必需，upgrade 默认识别运行目录")
 	defineArgument("out", "<新路径>", "计划文件或导出目录；目标须不存在，按命令选择")
 	defineArgument("plan-file", "<文件>", "消费已有计划；写入前核验输入摘要")
+	defineArgument("expected-digest", "<摘要>", "应用已确认计划时提供原确认摘要")
+	argumentSpecs["bind-cli"] = argumentSpec{description: "init/attach 预演绑定当前 CLI 与 Bundle，应用时须提供原确认摘要", boolean: true}
 	defineArgument("review-out", "<新目录>", "在项目外导出冲突、基线、合并候选和决议模板")
 	defineArgument("base-bundle", "<路径>", "显式提供完整历史 Bundle 材料；默认离线")
 	defineArgument("resolution-file", "<文件>", "结合 --plan-file 原计划重新规划已决议资产")

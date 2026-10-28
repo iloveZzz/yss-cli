@@ -1,14 +1,92 @@
 package project
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInstallationPlanBindingIsExplicit(t *testing.T) {
+	for _, bound := range []bool{false, true} {
+		b := installationFixture()
+		root := filepath.Join(t.TempDir(), "not-created")
+		p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b, BindCLI: bound})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantSchema := 4
+		if bound {
+			wantSchema = 5
+			if p.Kind != "installation-plan" || p.CLI == nil || p.CLI.ExecutableSHA256 == "" || p.BundleHash != bundle.Hash(b) {
+				t.Fatalf("missing source binding: %+v", p)
+			}
+		} else if p.Kind != "" || p.CLI != nil || p.BundleHash != "" {
+			t.Fatal("ordinary plan acquired a new binding requirement")
+		}
+		if p.SchemaVersion != wantSchema || planningOptionsForReplay(p).BindCLI != bound {
+			t.Fatalf("schema/replay changed: %d %+v", p.SchemaVersion, planningOptionsForReplay(p))
+		}
+		file := filepath.Join(t.TempDir(), "plan.json")
+		if err := SavePlan(p, file); err != nil {
+			t.Fatal(err)
+		}
+		read, err := ReadPlan(file)
+		if err != nil || read.Digest != p.Digest || read.SchemaVersion != wantSchema {
+			t.Fatalf("saved plan round trip: %v %v", read, err)
+		}
+		if _, err := os.Stat(root); !os.IsNotExist(err) {
+			t.Fatalf("planning wrote target: %v", err)
+		}
+	}
+}
+
+func TestBoundInstallationRejectsUnconfirmedOrDifferentSource(t *testing.T) {
+	b := installationFixture()
+	root := filepath.Join(t.TempDir(), "not-created")
+	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b, BindCLI: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ digest, code string }{{"", "PLAN_REQUIRED"}, {"different", "INPUT_DRIFT"}} {
+		_, err := ApplyConfirmedContext(context.Background(), p, tc.digest)
+		var rejection *domain.Error
+		if !errors.As(err, &rejection) || rejection.Code != tc.code {
+			t.Fatalf("confirmation %q: %v", tc.digest, err)
+		}
+	}
+	if err := verifyInstallationPlanSource(p, b); err != nil {
+		t.Fatalf("actual source rejected: %v", err)
+	}
+	for _, field := range []string{"executable", "bundle", "snapshot"} {
+		changed := *p
+		cli := *p.CLI
+		changed.CLI = &cli
+		switch field {
+		case "executable":
+			changed.CLI.ExecutableSHA256 = strings.Repeat("0", 64)
+		case "bundle":
+			changed.BundleHash = strings.Repeat("0", 64)
+		case "snapshot":
+			changed.SnapshotHash = strings.Repeat("0", 64)
+		}
+		changed.Digest = planDigest(&changed)
+		var rejection *domain.Error
+		if err := verifyInstallationPlanSource(&changed, b); !errors.As(err, &rejection) || rejection.Code != "INPUT_DRIFT" {
+			t.Fatalf("changed %s accepted: %v", field, err)
+		}
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("rejection wrote target: %v", err)
+	}
+}
 
 func TestResolveInstallation(t *testing.T) {
 	for _, tc := range []struct {

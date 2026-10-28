@@ -74,7 +74,8 @@ func (t *Tree) Data(path string) []byte {
 	return nil
 }
 
-// Mode is the permission bits the file will carry before umask.
+// Mode is the legacy template mode. Default files actually use 0666 filtered by
+// umask; plan descriptors must use the file's fixed flag instead of this value.
 func (t *Tree) Mode(path string) os.FileMode {
 	file := t.files[path]
 	if file == nil {
@@ -96,11 +97,17 @@ func (t *Tree) Paths() []string {
 	return paths
 }
 
-// Commit writes the tree below root, which must already exist.
-func (t *Tree) Commit(root string) error {
+func (t *Tree) directoryModes() map[string]os.FileMode {
 	dirs := map[string]os.FileMode{}
 	for dir, mode := range t.dirs {
 		dirs[dir] = mode
+	}
+	for path := range t.dirs {
+		for dir := parent(path); dir != ""; dir = parent(dir) {
+			if _, ok := dirs[dir]; !ok {
+				dirs[dir] = 0
+			}
+		}
 	}
 	for path := range t.files {
 		for dir := parent(path); dir != ""; dir = parent(dir) {
@@ -109,6 +116,12 @@ func (t *Tree) Commit(root string) error {
 			}
 		}
 	}
+	return dirs
+}
+
+// Commit writes the tree below root, which must already exist.
+func (t *Tree) Commit(root string) error {
+	dirs := t.directoryModes()
 	names := make([]string, 0, len(dirs))
 	for dir := range dirs {
 		names = append(names, dir)
