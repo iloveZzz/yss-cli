@@ -437,6 +437,32 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 			}
 		} else {
 			entry := installed.Skills.Shared[name]
+			if skillsIdentity(id) {
+				references, refErr := b.Installations["skills"].ReferencesForSkill(name)
+				if refErr != nil {
+					issue(name, "skill-reference-invalid", refErr.Error())
+				}
+				for _, ref := range references {
+					file, ok := b.Files[ref]
+					if !ok {
+						issue(name, "skill-reference-missing", "固定 Bundle 缺少技能引用: "+ref)
+						continue
+					}
+					if ref == ".template-spec/process/harness-profile.yaml" {
+						file, err = nativeProfileFile(file, id.Profile)
+						if err != nil {
+							issue(name, "skill-reference-missing-or-drift", "技能引用转换失败: "+ref)
+							continue
+						}
+					}
+					observed, e := safefs.Describe(id.Root, ref)
+					previous, tracked := managed[ref]
+					source := previous.Source
+					if e != nil || !tracked || observed.Type != "file" || observed != previous.Applied || previous.Applied != previous.Baseline || source == nil || source.Kind != "bundle" || source.Path != ref || source.TemplateCommit != b.TemplateCommit || source.SnapshotHash != b.SnapshotHash || (b.BundleHash != "" && source.BundleHash != b.BundleHash) || source.TemplateDigest != file.Digest {
+						issue(name, "skill-reference-missing-or-drift", "技能引用缺失或漂移: "+ref)
+					}
+				}
+			}
 			if !locked {
 				issue(name, "skill-source-unlocked", "技能未登记在实例来源锁")
 			}

@@ -6,6 +6,8 @@
 
 当前 CLI 的部分离线帮助及生成参考仍有旧 Design 转 Spec、默认初始化后直接进入治理的提示。当前 Design 输入不受支持；治理命令示例应先选择 `governed`。这些旧提示不能扩大本页声明的迁移范围。
 
+新版 Bundle 的 `skills` 安装包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖，这些文件本身不启用治理身份或阶段能力；已有实例经审阅并应用 `sync` 计划补齐受管资源。
+
 `attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate --plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 
 迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本先查 `internal/bundle/assets/version-table.json`，再看 metadata 自己记录的语义化版本；两者都没有时版本区间规则不适用，计划的 `notices` 如实报告，不猜测。对照表由 `tools/version-table.mjs` 对 2026-10-06 之后的来源锁与内嵌 Bundle 历史一次性生成，各 Profile 按首次出现的先后记为 `4.0.0-pre.N`；另外补充固定旧包 create-yss-harness-design 0.8.17 与 create-yss-harness-backend 0.4.21 的两个精确模板提交，登记包与快照摘要；`4.0.0-pre.legacy.1` 只是低于 4.0.0 的迁移标识，不是历史发行版本或首次出现顺序。其他未登记旧来源仍不匹配版本区间。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留、升级不失败，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。`--review-out` 的 `conflicts.json` 一并列出这些删除项。

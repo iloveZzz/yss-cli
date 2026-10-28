@@ -435,3 +435,214 @@ func TestGovernedSkillEnsureOmittedDependencyRollsBack(t *testing.T) {
 		t.Fatal("missing dependency query wrote files")
 	}
 }
+
+func TestStandaloneSkillReferencesIncludeTransitiveSelectedSkills(t *testing.T) {
+	b := selectionFixture(t)
+	b.Files[".template-source/process/reference.md"] = b.Files[".template-spec/Common.yaml"]
+	var installation bundle.Installation
+	if err := json.Unmarshal([]byte(`{"skillReferences":{"root":[".template-spec/Common.yaml"],"required":[".template-source/process/reference.md", "scripts/step.sh"]}}`), &installation); err != nil {
+		t.Fatal(err)
+	}
+	b.Installations = map[string]bundle.Installation{"skills": installation}
+	got, err := SelectSkillResources(b, InstallationSkills, []string{"root"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{".template-spec/Common.yaml", ".template-source/process/reference.md", "scripts/step.sh"} {
+		if !containsString(got, ref) {
+			t.Errorf("selected standalone skill missing reference %s: %v", ref, got)
+		}
+	}
+	if err := validateSkillsSelection(b, got, nil); err != nil {
+		t.Fatalf("declared references must be allowed: %v", err)
+	}
+	delete(b.Files, ".template-source/process/reference.md")
+	if _, err := SelectSkillResources(b, InstallationSkills, []string{"root"}, nil); err == nil {
+		t.Fatal("missing referenced file should prevent a ready selection")
+	}
+}
+
+func TestStandaloneSkillReferencesRejectUnregisteredPaths(t *testing.T) {
+	b := selectionFixture(t)
+	var installation bundle.Installation
+	if err := json.Unmarshal([]byte(`{"skillReferences":{"root":[".template-spec/Common.yaml"]}}`), &installation); err != nil {
+		t.Fatal(err)
+	}
+	b.Installations = map[string]bundle.Installation{"skills": installation}
+	if err := validateSkillsSelection(b, []string{".template-spec/Common.yaml"}, nil); err != nil {
+		t.Fatalf("declared reference rejected: %v", err)
+	}
+	if err := validateSkillsSelection(b, []string{"scripts/step.sh"}, nil); err == nil {
+		t.Fatal("unregistered governance resource was selected")
+	}
+}
+
+func TestStandaloneSkillResolutionDetectsMissingReference(t *testing.T) {
+	b := standaloneFixture(t)
+	b.Files[".template-spec/reference.md"] = b.Files[".agents/skills/probe/references/guide.md"]
+	entry := b.Installations["skills"]
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["skillReferences"] = json.RawMessage(`{"probe":[".template-spec/reference.md"]}`)
+	raw, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &entry); err != nil {
+		t.Fatal(err)
+	}
+	b.Installations["skills"] = entry
+	root, _ := writeInstallationBundleFixture(t, b)
+	refs, err := SelectSkillResources(b, InstallationSkills, []string{"probe"}, []string{"claude", "workbuddy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := buildCore(root, "spec", "skills", nil, refs, nil, PlanningOptions{target: b})
+	if err != nil || !p.ReadyToApply {
+		t.Fatalf("plan: %+v %v", p, err)
+	}
+	if err = applyStandaloneFixture(t, p, b); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(root, ".template-spec/reference.md")); err != nil {
+		t.Fatal(err)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ResolveSkills(id, b, []string{"probe"}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status == "ready" {
+		t.Fatalf("missing declared reference was reported ready: %+v", result)
+	}
+}
+
+func TestStandaloneReferenceReadinessAcceptsRenderedTracker(t *testing.T) {
+	for _, tracker := range []string{"", "gitlab"} {
+		t.Run("tracker="+tracker, func(t *testing.T) {
+			b := standaloneFixture(t)
+			ref := ".template-spec/agents/issue-tracker.md"
+			data := []byte("---\ntracker:\n  platform: local-markdown\n  root: .work\n---\n| `platform` | `local-markdown` |\n")
+			b.Files[ref] = bundle.File{Data: base64.StdEncoding.EncodeToString(data), Digest: safefs.Digest(data), Mode: 0644, Ownership: "managed"}
+			item := b.Installations["skills"]
+			item.Initial[ref] = b.Files[ref]
+			item.SkillReferences = map[string][]string{"implement": {ref}}
+			b.Installations["skills"] = item
+			b.BundleHash = strings.Repeat("a", 64)
+			root := t.TempDir()
+			p, err := buildCore(root, "spec", "init", map[string]string{"issueTracker": tracker}, nil, nil, PlanningOptions{target: b, Installation: InstallationSkills})
+			if err != nil || !p.ReadyToApply {
+				t.Fatalf("init plan: %+v %v", p, err)
+			}
+			if err = applyStandaloneFixture(t, p, b); err != nil {
+				t.Fatal(err)
+			}
+			id, err := Detect(root, "spec", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := ResolveSkills(id, b, []string{"implement"}, "", "")
+			if err != nil || result.Status != "ready" {
+				t.Fatalf("valid rendered reference not ready: %+v %v", result, err)
+			}
+			syncPlan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, change := range syncPlan.Changes {
+				if change.Path == ref {
+					t.Fatalf("sync unexpectedly rewrites unchanged reference: %+v", change)
+				}
+			}
+			previous := id.Native.Managed[ref]
+			originalSource := *previous.Source
+			wrongSource := originalSource
+			wrongSource.BundleHash = strings.Repeat("b", 64)
+			previous.Source = &wrongSource
+			id.Native.Managed[ref] = previous
+			result, err = ResolveSkills(id, b, []string{"implement"}, "", "")
+			if err != nil || result.Status == "ready" {
+				t.Fatalf("wrong bundle source falsely ready: %+v %v", result, err)
+			}
+			previous.Source = &originalSource
+			id.Native.Managed[ref] = previous
+			if err = os.WriteFile(filepath.Join(root, ref), []byte("locally changed"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			local, err := safefs.Describe(root, ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previous = id.Native.Managed[ref]
+			previous.Applied = local
+			id.Native.Managed[ref] = previous
+			result, err = ResolveSkills(id, b, []string{"implement"}, "", "")
+			if err != nil || result.Status == "ready" {
+				t.Fatalf("preserved local change falsely ready: %+v %v", result, err)
+			}
+		})
+	}
+}
+
+func TestStandaloneSkillReferenceReadinessAcceptsNativeProfile(t *testing.T) {
+	b := standaloneFixture(t)
+	ref := ".template-spec/process/harness-profile.yaml"
+	data := []byte("schema_version: 2\nprofile_id: harness.spec-template\ninstantiation:\n  cli_package: legacy\n")
+	b.Files[ref] = bundle.File{Data: base64.StdEncoding.EncodeToString(data), Digest: safefs.Digest(data), Mode: 0644, Ownership: "managed"}
+	item := b.Installations["skills"]
+	item.SkillReferences = map[string][]string{"probe": {ref}}
+	b.Installations["skills"] = item
+	root, _ := writeInstallationBundleFixture(t, b)
+	refs, err := SelectSkillResources(b, InstallationSkills, []string{"probe"}, []string{"claude", "workbuddy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildCore(root, "spec", "skills", nil, refs, nil, PlanningOptions{target: b})
+	if err != nil || !plan.ReadyToApply {
+		t.Fatalf("plan: %+v %v", plan, err)
+	}
+	if err = applyStandaloneFixture(t, plan, b); err != nil {
+		t.Fatal(err)
+	}
+	id, err := Detect(root, "spec", false)
+	if err != nil || !skillsIdentity(id) {
+		t.Fatalf("identity: %+v %v", id, err)
+	}
+	result, err := ResolveSkills(id, b, []string{"probe"}, "", "")
+	if err != nil || result.Status != "ready" {
+		t.Fatalf("native profile reference not ready: %+v %v", result, err)
+	}
+}
+
+func TestStandaloneSkillReferenceGroupsFollowSelectedClosure(t *testing.T) {
+	b := selectionFixture(t)
+	b.Files[".template-spec/shared.yaml"] = b.Files[".template-spec/Common.yaml"]
+	b.Files[".template-spec/unselected.yaml"] = b.Files[".template-spec/Common.yaml"]
+	var installation bundle.Installation
+	if err := json.Unmarshal([]byte(`{"referenceGroups":{"common":[".template-spec/shared.yaml"],"unrelated":[".template-spec/unselected.yaml"]},"skillReferenceGroups":{"required":["common"],"review":["unrelated"]}}`), &installation); err != nil {
+		t.Fatal(err)
+	}
+	b.Installations = map[string]bundle.Installation{"skills": installation}
+	got, err := SelectSkillResources(b, InstallationSkills, []string{"root"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(got, ".template-spec/shared.yaml") {
+		t.Fatalf("missing selected group: %v", got)
+	}
+	if containsString(got, ".template-spec/unselected.yaml") {
+		t.Fatalf("installed unselected group: %v", got)
+	}
+	if err = validateSkillsSelection(b, got, nil); err != nil {
+		t.Fatalf("selected group rejected: %v", err)
+	}
+}

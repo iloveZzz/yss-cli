@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
@@ -329,5 +330,86 @@ func TestSkillsSyncAdoptsNewRequiredDependency(t *testing.T) {
 	repeat, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil || len(repeat.Changes) > 0 {
 		t.Fatalf("repeat: %+v %v", repeat, err)
+	}
+}
+
+func TestSkillsSyncAddsReferencesWithoutOverwritingUserFiles(t *testing.T) {
+	for _, occupied := range []bool{false, true} {
+		t.Run(fmt.Sprintf("occupied=%v", occupied), func(t *testing.T) {
+			old := standaloneFixture(t)
+			root, _ := writeInstallationBundleFixture(t, old)
+			target := standaloneFixture(t)
+			ref := ".template-source/process/reference.md"
+			target.Files[ref] = target.Files[".agents/skills/implement/references/guide.md"]
+			item := target.Installations["skills"]
+			item.SkillReferences = map[string][]string{"implement": {ref}}
+			item.Initial[ref] = target.Files[ref]
+			target.Installations["skills"] = item
+			path := filepath.Join(root, ref)
+			if occupied {
+				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("user content"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if occupied {
+				if p.ReadyToApply {
+					t.Fatal("sync would overwrite a user file")
+				}
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != "user content" {
+					t.Fatal("user file changed")
+				}
+				return
+			}
+			if !p.ReadyToApply {
+				t.Fatalf("unexpected blockers: %+v", p.Blockers)
+			}
+			if err := applyStandaloneFixture(t, p, target); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("missing synchronized reference: %v", err)
+			}
+			id, err := Detect(root, "spec", false)
+			if err != nil || !skillsIdentity(id) {
+				t.Fatalf("identity changed: %+v %v", id, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "yss-project.yaml")); !os.IsNotExist(err) {
+				t.Fatalf("unexpected governance identity: %v", err)
+			}
+		})
+	}
+}
+
+func TestSkillsSyncProtectsChangedReference(t *testing.T) {
+	b := standaloneFixture(t)
+	ref := ".template-source/process/reference.md"
+	b.Files[ref] = b.Files[".agents/skills/implement/references/guide.md"]
+	item := b.Installations["skills"]
+	item.SkillReferences = map[string][]string{"implement": {ref}}
+	item.Initial[ref] = b.Files[ref]
+	b.Installations["skills"] = item
+	root, _ := writeInstallationBundleFixture(t, b)
+	path := filepath.Join(root, ref)
+	if err := os.WriteFile(path, []byte("user edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ReadyToApply {
+		t.Fatal("sync allowed changed reference without resolution")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "user edit" {
+		t.Fatal("planning modified user edit")
 	}
 }

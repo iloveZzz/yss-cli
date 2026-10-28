@@ -127,6 +127,12 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if err != nil {
 			return nil, profile, err
 		}
+		if b.SchemaVersion >= 5 {
+			b, err = b.ForInstallation(string(kind))
+			if err != nil {
+				return nil, profile, err
+			}
+		}
 		for ref := range b.Files {
 			if b.SchemaVersion >= 5 && kind == project.InstallationSkills && !strings.HasPrefix(ref, ".agents/skills/") {
 				continue
