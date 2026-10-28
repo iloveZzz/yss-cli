@@ -158,7 +158,11 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if o.args[1] != "ensure" || len(o.args) < 3 {
 			return nil, profile, domain.Fail("ARGUMENT", "需要 ensure <标识>")
 		}
+		standalone := id.Native != nil && id.Native.SchemaVersion == 5 && id.Native.Distribution["installation"] == "skills"
 		if command == "assets" {
+			if standalone {
+				return nil, profile, domain.Fail("GOVERNED_REQUIRED", "阶段资产需要显式启用治理")
+			}
 			for _, stage := range o.args[2:] {
 				r, ok := b.StageRequirements[stage]
 				if !ok {
@@ -174,31 +178,25 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 				}
 			}
 		} else {
-			for _, name := range o.args[2:] {
-				if r, ok := b.SkillRequirements[name]; ok {
-					if r.UnsupportedReason != "" {
-						return nil, profile, domain.Fail("UNPORTED", r.UnsupportedReason)
-					}
-					selection = append(selection, r.Paths...)
-					for _, dep := range r.Skills {
-						for ref := range b.Files {
-							if strings.HasPrefix(ref, ".agents/skills/"+dep+"/") || strings.HasPrefix(ref, ".claude/skills/"+dep+"/") {
-								selection = append(selection, ref)
-							}
-						}
-					}
+			kind := project.InstallationGoverned
+			var runtimes []string
+			if standalone {
+				kind = project.InstallationSkills
+				values, ok := id.Native.Distribution["runtimes"].([]any)
+				if !ok && id.Native.Distribution["runtimes"] != nil {
+					return nil, profile, domain.Fail("IDENTITY", "非法技能运行时登记")
 				}
-				prefix := ".agents/skills/" + name + "/"
-				count := 0
-				for ref := range b.Files {
-					if strings.HasPrefix(ref, prefix) || strings.HasPrefix(ref, ".claude/skills/"+name+"/") {
-						selection = append(selection, ref)
-						count++
+				for _, value := range values {
+					runtime, ok := value.(string)
+					if !ok {
+						return nil, profile, domain.Fail("IDENTITY", "非法技能运行时登记")
 					}
+					runtimes = append(runtimes, runtime)
 				}
-				if count == 0 {
-					return nil, profile, domain.Fail("SKILL", "快照未登记 Skill: "+name)
-				}
+			}
+			selection, e = project.SelectSkillResources(b, kind, o.args[2:], runtimes)
+			if e != nil {
+				return nil, profile, e
 			}
 		}
 	}

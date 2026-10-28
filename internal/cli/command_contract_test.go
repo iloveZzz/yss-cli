@@ -45,6 +45,8 @@ func TestCLIContractFlags(t *testing.T) {
 		{"version", "--json=1"}, {"version", "--json=TRUE"},
 		{"version", "-v"}, {"version", "-hV"}, {"upgrade", "--root", missing},
 		{"check", "--root"},
+		{"skills", "ensure", "yss-research", "--root", missing, "--when", "x"},
+		{"skills", "--apply", "--plan-file", "absent.json", "--root", missing, "--when", "x"},
 		{"lifecycle", "route", "--root", missing, "--task", "a", "--task", "b"},
 		{"scaffold", "ddd", "--project-name", "a", "--project-name", "b"},
 		{"upgrade", "--to", "2.0.0", "--to", "2.1.0"},

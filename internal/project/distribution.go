@@ -58,6 +58,32 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 		return d, nil
 	}
 	if text(d["mode"]) == "skills" {
+		if skillsIdentity(id) {
+			for _, field := range []string{"installedSkills", "runtimes"} {
+				switch value := id.Native.Distribution[field].(type) {
+				case nil, []string:
+				case []any:
+					if len(stringsOf(value)) != len(value) {
+						return nil, domain.Fail("SKILL", "安装声明必须为字符串数组: "+field)
+					}
+				default:
+					return nil, domain.Fail("SKILL", "安装声明必须为字符串数组: "+field)
+				}
+			}
+			installed, err := installedSkillLock(id)
+			if err != nil {
+				return nil, domain.Wrap("SKILL", err)
+			}
+			descriptor, err := safefs.Describe(id.Root, "skills-lock.json")
+			managed, ok := id.Native.Managed["skills-lock.json"]
+			if err != nil || !ok || descriptor != managed.Applied {
+				return nil, domain.Fail("SKILL", "技能来源锁受管状态缺失或漂移")
+			}
+			if reason := runtimeDeclarationIssue(id, installed); reason != "" {
+				return nil, domain.Fail("SKILL", reason)
+			}
+		}
+		d["runtimes"] = shippedRuntimes(b, union(stringsOf(d["runtimes"]), stringsOf(b.Distribution["runtimes"])))
 		added := []string{}
 		for _, ref := range selection {
 			if strings.HasPrefix(ref, ".agents/skills/") {
@@ -67,7 +93,11 @@ func distributionFor(id *Identity, b *bundle.Bundle, selection []string) (map[st
 				}
 			}
 		}
-		d["installedSkills"] = union(stringsOf(d["installedSkills"]), added)
+		selected, err := resolveSkillSelection(b, union(stringsOf(d["installedSkills"]), stringsOf(b.Distribution["installedSkills"]), added), "")
+		if err != nil {
+			return nil, err
+		}
+		d["installedSkills"] = union(selected.CanonicalIDs)
 		return d, nil
 	}
 	if id.Profile.Name != "spec" || text(d["mode"]) != "selected" {

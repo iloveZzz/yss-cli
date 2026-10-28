@@ -24,7 +24,7 @@ function validateBindings(root,native){
   const binding=read(root,ref);
   if(!binding)continue;
   ensure(native,'插件 binding 缺少匹配原生身份: '+ref);
-  ensure([2,3].includes(native.schemaVersion)&&native.profile===profile&&binding.schema_version===2&&binding.plugin===plugin&&binding.profile===profile&&binding.template_commit===native.templateCommit&&binding.bundle_hash===native.bundleHash&&hex(binding.binary_sha256),'插件 binding 与原生身份或来源不一致: '+ref);
+  ensure([2,3,4,5].includes(native.schemaVersion)&&(native.schemaVersion!==5||native.distribution?.installation==='governed')&&native.profile===profile&&binding.schema_version===2&&binding.plugin===plugin&&binding.profile===profile&&binding.template_commit===native.templateCommit&&binding.bundle_hash===native.bundleHash&&hex(binding.binary_sha256),'插件 binding 与原生身份或来源不一致: '+ref);
  }
 }
 /** Native identity wins only after validation; preserved legacy bytes are lineage. */
@@ -36,6 +36,7 @@ export function readInstanceMetadata(root){
  ensure((native.templateSourceState==='committed'||native.schemaVersion>=3&&native.templateSourceState==='working-tree'&&native.cliSourceState==='working-tree'&&/^worktree:[a-f0-9]{40}$/.test(native.templateVersion))&&/^[a-f0-9]{40}$/.test(native.templateCommit)&&hex(native.snapshotHash)&&hex(native.manifestHash),'native 来源缺失或不合法');
  if(native.schemaVersion>=2)ensure((native.bundleSchemaVersion===native.schemaVersion)&&hex(native.bundleHash)&&['committed','working-tree','unknown'].includes(native.cliSourceState)&&(!native.cliCommit||/^[a-f0-9]{40}$/.test(native.cliCommit))&&(native.cliSourceState!=='committed'||native.cliCommit),'native v2来源不合法');
  if(native.schemaVersion===5)ensure(["skills","governed"].includes(native.distribution?.installation),"metadata5 requires installation");
+ if(native.schemaVersion<5)ensure(native.distribution?.installation==null||native.distribution.installation==='governed','legacy metadata cannot select skills installation');
  if(native.schemaVersion>=4)ensure(['spec','backend'].includes(native.profile)&&legacy.length===0,'metadata4 不接受家族 metadata');
  ensure(native.variables&&native.distribution&&hex(native.baselineDigest)&&managedDigest(native.managedFiles,native.schemaVersion)===native.baselineDigest,'native 受管基线摘要不一致');
  if(native.schemaVersion>=3)for(const [ref,item]of Object.entries(native.managedFiles)){ensure(item.baselineSource,'缺少模板基线来源: '+ref);if(item.disposition)ensure(JSON.stringify(descriptor(item.disposition.target))===JSON.stringify(descriptor(item.baseline))&&JSON.stringify(descriptor(item.disposition.applied,true))===JSON.stringify(descriptor(item.lastApplied,true)),'保留决定与基线矛盾: '+ref);}

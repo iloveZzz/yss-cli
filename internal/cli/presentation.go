@@ -172,6 +172,9 @@ func renderHumanSuccess(command string, o options, profile string, result any) s
 		fmt.Fprintf(&out, "下一步：核对安装文件与已安装技能\n  %s\n", formatArgv([]string{"yss", "doctor", "--root", root, "--json"}))
 		if m["installation"] == "skills" {
 			out.WriteString("独立技能安装；按需查询并使用技能，工作流与宿主发现另行验证。\n")
+			if profile == "spec" {
+				out.WriteString("Spec 普通需求从 yss-product-lifecycle（life）开始；to-spec、implement 仅用户显式调用。\n")
+			}
 			fmt.Fprintf(&out, "  %s", formatArgv([]string{"yss", "skills", "list", "--root", root, "--details", "--json"}))
 		} else if view, err := helpview.Load(profile); err == nil {
 			fmt.Fprintf(&out, "治理安装；查询当前登记入口：\n  %s", formatArgv([]string{"yss", "lifecycle", "query", "--root", root, "--id", view.EntryWorkUnit, "--json"}))
