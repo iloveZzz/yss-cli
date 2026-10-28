@@ -196,7 +196,7 @@ func renderTutorial(topic string) (string, error) {
 }
 
 const quickstartTutorial = `快速上手
-默认 skills 只安装独立技能；本教程显式选择 governed，--full 不切换安装方式。
+默认 skills 安装独立技能；支持引用清单的 Bundle 还会安装声明的参考资产，但不启用治理身份。本教程显式选择 governed，--full 不切换安装方式。
 前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 

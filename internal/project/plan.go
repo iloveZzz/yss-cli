@@ -28,6 +28,7 @@ type Plan struct {
 	CLI                   *InstallationCLI       `json:"cli,omitempty"`
 	BundleHash            string                 `json:"bundleHash,omitempty"`
 	InstallationMigration *InstallationMigration `json:"installationMigration,omitempty"`
+	RetainedSourceDigest  string                 `json:"retainedSourceDigest,omitempty"`
 	Installation          InstallationKind       `json:"installation,omitempty"`
 	GovernanceMigration   *GovernanceMigration   `json:"governanceMigration,omitempty"`
 	materialData          map[string][]byte
@@ -192,6 +193,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 		canonicalBundleHash = bundle.Hash(b)
 	}
+	canonicalBundle := b
 	installation := InstallationGoverned
 	if b.SchemaVersion >= 5 || options.Installation != "" {
 		installation, err = ResolveInstallation(id, command, options.Installation)
@@ -201,6 +203,32 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		b, err = b.ForInstallation(string(installation))
 		if err != nil {
 			return nil, err
+		}
+	}
+	if installationMigration != nil && installationMigration.Source == InstallationSkills && installationMigration.Target == InstallationGoverned {
+		if err := validateRetainedTemplateSourceReferences(id, canonicalBundle, installationMigration.RetainedTemplateSourceReferences); err != nil {
+			return nil, err
+		}
+	}
+	var retainedRefs []string
+	var retainedDigest string
+	if id.Native != nil && !skillsIdentity(id) && installation == InstallationGoverned && installationMigration == nil {
+		retainedRefs = stringsOf(id.Native.Distribution["retainedTemplateSourceReferences"])
+		if len(retainedRefs) > 0 {
+			actual, e := retainedTemplateSourceReferences(id)
+			if e != nil {
+				return nil, e
+			}
+			if strings.Join(retainedRefs, "\x00") != strings.Join(actual, "\x00") {
+				return nil, domain.Fail("MIGRATION_INPUT", ".template-source 保留清单与实际受管目录不一致")
+			}
+			if e = validateRetainedTarget(canonicalBundle, retainedRefs); e != nil {
+				return nil, e
+			}
+			retainedDigest, _, e = observeInstallationWork(context.Background(), id.Root, []string{".template-source"})
+			if e != nil {
+				return nil, e
+			}
 		}
 	}
 	skillsAttach := attach && id.Native == nil && installation == InstallationSkills
@@ -235,6 +263,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	distribution, err := distributionFor(id, b, selection)
 	if installationMigration != nil {
 		distribution = cloneInstallationDistribution(b.Distribution)
+		if len(installationMigration.RetainedTemplateSourceReferences) > 0 {
+			distribution["retainedTemplateSourceReferences"] = installationMigration.RetainedTemplateSourceReferences
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -244,7 +275,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, err
 		}
 	}
-	p := &Plan{InstallationMigration: installationMigration, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
+	p := &Plan{InstallationMigration: installationMigration, RetainedSourceDigest: retainedDigest, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
 	if b.SchemaVersion >= 4 {
 		p.SchemaVersion = 3
 	}
@@ -300,6 +331,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		for ref, f := range b.Initial {
 			refs[ref] = f
 		}
+	}
+	for _, ref := range retainedRefs {
+		refs[ref] = canonicalBundle.Files[ref]
 	}
 	for _, ref := range selection {
 		f, ok := b.Files[ref]
@@ -621,6 +655,9 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 		return nil, e
 	}
 	if e = verifyInstallationWork(ctx, p); e != nil {
+		return nil, e
+	}
+	if e = verifyRetainedSourceBefore(ctx, p); e != nil {
 		return nil, e
 	}
 	for ref, before := range p.Inputs {

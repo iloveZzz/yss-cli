@@ -15,10 +15,11 @@ import (
 )
 
 type InstallationMigration struct {
-	Source     InstallationKind `json:"source"`
-	Target     InstallationKind `json:"target"`
-	WorkRoots  []string         `json:"workRoots"`
-	WorkDigest string           `json:"workDigest"`
+	Source                           InstallationKind `json:"source"`
+	Target                           InstallationKind `json:"target"`
+	WorkRoots                        []string         `json:"workRoots"`
+	WorkDigest                       string           `json:"workDigest"`
+	RetainedTemplateSourceReferences []string         `json:"retainedTemplateSourceReferences,omitempty"`
 }
 
 func BuildInstallationMigration(ctx context.Context, root string, target InstallationKind) (*Plan, error) {
@@ -166,11 +167,21 @@ func planInstallationMigration(ctx context.Context, id *Identity, target Install
 			return nil, err
 		}
 	}
+	var retained []string
+	if source == InstallationSkills && target == InstallationGoverned {
+		retained, err = retainedTemplateSourceReferences(id)
+		if err != nil {
+			return nil, err
+		}
+		// Include the complete tree, including the missing state, so that a
+		// new file or directory between plan and apply cannot go unnoticed.
+		roots = union(roots, []string{".template-source"})
+	}
 	digest, _, err := observeInstallationWork(ctx, id.Root, roots)
 	if err != nil {
 		return nil, err
 	}
-	return &InstallationMigration{Source: source, Target: target, WorkRoots: roots, WorkDigest: digest}, nil
+	return &InstallationMigration{Source: source, Target: target, WorkRoots: roots, WorkDigest: digest, RetainedTemplateSourceReferences: retained}, nil
 }
 func verifyInstallationWork(ctx context.Context, p *Plan) error {
 	if p.InstallationMigration == nil {

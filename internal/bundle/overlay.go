@@ -53,7 +53,12 @@ func readOverlaySource(ctx context.Context, root, commit string, overlayPaths []
 		seen[overlayPath] = true
 	}
 	include := func(ref string) bool { return includedByManifest(ref, manifest, false) }
-	merged, e := readGitFilesUnder(ctx, root, commit, "", func(ref string) bool { return inKernelScope(ref) && include(ref) })
+	// An exact source-file allowlist permits shared references without expanding
+	// the kernel scope to the whole template-maintenance directory.
+	sourceRefs := stringSet(stringsFrom(manifest["allowFiles"]))
+	merged, e := readGitFilesUnder(ctx, root, commit, "", func(ref string) bool {
+		return (inKernelScope(ref) || strings.HasPrefix(ref, ".template-source/") && sourceRefs[ref]) && include(ref)
+	})
 	if e != nil {
 		return nil, e
 	}

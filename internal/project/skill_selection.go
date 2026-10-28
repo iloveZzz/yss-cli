@@ -151,6 +151,19 @@ func SelectSkillResources(b *bundle.Bundle, installation InstallationKind, reque
 					return nil, domain.Fail("SKILL", "固定来源缺少技能或投影: "+root+"/"+name)
 				}
 			}
+			refs, err := b.Installations["skills"].ReferencesForSkill(name)
+			if err != nil {
+				return nil, domain.Fail("BUNDLE", err.Error())
+			}
+			for _, ref := range refs {
+				if err := safefs.ValidateRef(ref); err != nil || !(strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".template-source/") || strings.HasPrefix(ref, "scripts/")) {
+					return nil, domain.Fail("BUNDLE", "独立技能引用不合法: "+ref)
+				}
+				if _, ok := b.Files[ref]; !ok {
+					return nil, domain.Fail("BUNDLE", "独立技能引用缺失: "+ref)
+				}
+				paths[ref] = true
+			}
 		}
 	case InstallationGoverned:
 		if b.SchemaVersion == 5 {
@@ -221,6 +234,19 @@ func validateSkillsSelection(b *bundle.Bundle, selection, runtimes []string) err
 	if err != nil {
 		return err
 	}
+	allowedRefs := map[string]bool{}
+	item := b.Installations["skills"]
+	for _, skill := range item.ReferenceOwners() {
+		refs, err := item.ReferencesForSkill(skill)
+		if err != nil {
+			return domain.Fail("BUNDLE", err.Error())
+		}
+		for _, ref := range refs {
+			if strings.HasPrefix(ref, ".template-spec/") || strings.HasPrefix(ref, ".template-source/") || strings.HasPrefix(ref, "scripts/") {
+				_, allowedRefs[ref] = b.Files[ref]
+			}
+		}
+	}
 	for _, ref := range selection {
 		if err := safefs.ValidateRef(ref); err != nil {
 			return err
@@ -228,7 +254,7 @@ func validateSkillsSelection(b *bundle.Bundle, selection, runtimes []string) err
 		if _, ok := b.Initial[ref]; ok {
 			continue
 		}
-		allowed := false
+		allowed := allowedRefs[ref]
 		for _, skill := range registry.Skills {
 			if skill.Maturity == "deprecated" {
 				continue

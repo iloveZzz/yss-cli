@@ -35,6 +35,18 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 	if id.Native == nil || id.Native.SchemaVersion != b.SchemaVersion || id.Native.TemplateCommit != p.TemplateCommit || id.Native.Profile != p.Profile {
 		return domain.Fail("VERIFY", "应用后身份或来源不匹配")
 	}
+	if len(stringsOf(id.Native.Distribution["retainedTemplateSourceReferences"])) > 0 {
+		refs, err := retainedTemplateSourceReferences(id)
+		if err != nil {
+			return domain.Wrap("VERIFY", err)
+		}
+		if strings.Join(refs, "\x00") != strings.Join(stringsOf(id.Native.Distribution["retainedTemplateSourceReferences"]), "\x00") {
+			return domain.Fail("VERIFY", ".template-source 保留清单与实际目录不一致")
+		}
+		if err = validateRetainedTemplateSourceReferences(id, b, refs); err != nil {
+			return domain.Wrap("VERIFY", err)
+		}
+	}
 	if !skillsIdentity(id) {
 		if _, e = governance.RunContext(ctx, "context", "verify", p.Root, nil); e != nil {
 			return domain.Wrap("VERIFY", e)
