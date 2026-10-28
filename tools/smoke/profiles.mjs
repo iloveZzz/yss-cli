@@ -1,6 +1,7 @@
 // 当前 Spec/Backend 实例各走一遍 init → 查询类命令 → sync → 回退。
 import fs from 'node:fs';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import {check} from './lib.mjs';
 
 export const PROFILES = ['spec', 'backend'];
@@ -71,7 +72,17 @@ export function runSkillsProfile(session, profile, tempRoot) {
  session.expectOk(['init','--root',root,'--apply','--plan-file',plan,'--json'],{label:'skills init apply'});
  const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
  check(metadata.distribution.installation==='skills','default installation must be skills');
- for(const ref of ['yss-project.yaml','CONTEXT.md','.template-spec'])check(!fs.existsSync(path.join(root,ref)),`ordinary installation unexpectedly requires ${ref}`);
+ for(const ref of ['yss-project.yaml','CONTEXT.md'])check(!fs.existsSync(path.join(root,ref)),`ordinary installation unexpectedly requires ${ref}`);
+ const fixed=session.expectOk(['bundle','inspect','--profile',profile,'--json']).result;
+ const references=['.template-source/process/MATT-POCOCK-ENGINEERING-SKILLS.md','.template-spec/process/orchestration-contract.yaml','.template-spec/agents/issue-tracker.md'];
+ // Bundles predating reference maps do not contain the marker source file.
+ if(process.env.YSS_TEST_REQUIRE_SKILL_REFERENCES==='1')check(!!fixed.files[references[0]],'new Bundle must include declared skill references');
+ if(fixed.files[references[0]])for(const ref of references) {
+  const absolute=path.join(root,ref), record=metadata.managedFiles?.[ref];
+  check(fixed.files[ref]&&fs.lstatSync(absolute).isFile()&&record?.lastApplied?.digest,`declared reference missing: ${ref}`);
+  check(createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')===record.lastApplied.digest,`declared reference drifted: ${ref}`);
+ }
+
  session.expectOk(['doctor','--root',root,'--json'],{label:'skills doctor without governance'});
  const roots=profile==='spec'?['yss-product-lifecycle','grilling','yss-research','domain-modeling','to-spec','i-have-adhd','code-review','implement']:['implement','code-review'];
  check(metadata.distribution.installedSkills.length===roots.length&&roots.every(id=>metadata.distribution.installedSkills.includes(id)),'default skills must match Profile starter roots');
@@ -119,12 +130,12 @@ export function runSkillsProfile(session, profile, tempRoot) {
   session.expectOk(['init','--root',fullRoot,'--profile','spec','--installation',installation,'--full','--json'],{label:`full ${installation} init`});
   const full=JSON.parse(fs.readFileSync(path.join(fullRoot,'.yss.json')));
   check(full.distribution.installation===installation,'full must preserve selected installation');
-  for(const ref of ['yss-project.yaml','CONTEXT.md','.template-spec'])check(fs.existsSync(path.join(fullRoot,ref))===(installation==='governed'),'full governance boundary differs from installation');
+  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(fullRoot,ref))===(installation==='governed'),'full governance identity boundary differs from installation');
   const supported=session.expectOk(['skills','list','--root',fullRoot,'--json']).result;
   check(supported.every(id=>full.distribution.installedSkills.includes(id)),'full must install all supported Profile skills');
   if(installation==='governed') {
    const fixed=session.expectOk(['bundle','inspect','--profile','spec','--json']).result;
-   for(const ref of Object.keys(fixed.files))check(fs.existsSync(path.join(fullRoot,ref)),`full governed resource missing ${ref}`);
+   for(const ref of Object.keys(fixed.files))if(!ref.startsWith('.template-source/'))check(fs.existsSync(path.join(fullRoot,ref)),`full governed resource missing ${ref}`);
   }
   specReadiness(session,fullRoot,full.distribution.installedSkills);
  }

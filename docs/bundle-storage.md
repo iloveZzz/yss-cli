@@ -1,20 +1,22 @@
 # 模板存储与体积验证
 
-CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当前装配使用 source-lock v5、Bundle v5 与 metadata v5；存储格式保持 v1，envelope / protocol 保持 v1。
+CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当前装配使用 source-lock v5、Bundle v5 与 metadata v5；新归档采用私有存储格式 v2，envelope / protocol 保持 v1。
 
-## 私有归档 v1
+## 私有归档 v2
 
 `internal/bundle/assets/bundles.json.gz` 是唯一嵌入资产，但不进入版本库（`.gitignore` 忽略）。版本库只提交它的 SHA-256 摘要 `internal/bundle/assets/bundles.json.gz.sha256`；归档由 `node tools/fetch-bundle.mjs` 按 `docs/source-lock.json` 的固定提交生成并校验摘要，生成结果逐字节可重现。`go:embed` 位于 `internal/bundle/embed_archive.go`；带 `yss_nobundle` tag 时改用空占位（`embed_archive_stub.go`），仅供 `tools/bundle` 在归档尚不存在时自举编译，不得用于发行。`artifacts.mjs check` 重建归档并与摘要比对，漂移即失败。解压后为：
 
 ```json
 {
-  "storageFormatVersion": 1,
+  "storageFormatVersion": 2,
   "profiles": {"spec": {}, "backend": {}},
   "objects": {"<原始文件字节的 SHA-256>": "<Base64 内容>"}
 }
 ```
 
 `profiles` 保存原 Bundle 的全部结构，只有文件记录的 `data` 置为空字符串。路径、`digest`、`mode`、`ownership`、初始变体和转换来源分别保留；`files`、`initial`、`installations.*.initial`、`NativeTransforms.Source` 均通过 `digest` 引用对象。空文件也必须引用合法的空内容摘要。对象相同不要求路径、权限或归属相同；同路径的不同变体可以引用不同对象。
+
+历史 v1 的 `installations.*.initial` 内容以内联 Base64 保存；新读取器仍逐项核验这些字节和摘要。v2 初始资产必须使用对象引用，缺失对象或夹带内联数据会被拒绝。旧版本读取器不能读取 v2，但旧二进制仍保留自身的 v1 归档。
 
 生产入口先验证完整 Bundle 和逻辑摘要，复制内容容器后提取对象，拒绝同摘要的不同编码内容。按标准库 JSON 的确定性键序编码，用 `gzip.BestCompression` 和固定头压缩；生成结果经真实加载器验证后才以临时文件和重命名替换归档。输入 Bundle 不被改写。同一固定输入重复生成，归档字节与摘要必须一致。
 
@@ -67,4 +69,4 @@ go run ./tools/package /absolute/new-package-directory
 
 ## 安装集合
 
-Bundle5 的 `installations` 声明 `skills` 与 `governed` 两种分发视图。新初始化默认选择 skills；旧 Bundle3/4 维持 governed。每个视图保存独立分发清单及初始变体，并参与逻辑摘要。`governed.initial` 为 null 时复用根 `initial`，避免重复存储；读取器必须按此约定选择视图。存储格式仍为 v1，公开 Bundle5 快照与私有 gzip 归档不可混用。
+Bundle5 的 `installations` 声明 `skills` 与 `governed` 两种分发视图。新初始化默认选择 skills；旧 Bundle3/4 维持 governed。每个视图保存独立分发清单及初始变体，并参与逻辑摘要。`governed.initial` 为 null 时复用根 `initial`，避免重复存储；读取器必须按此约定选择视图。新存储格式为 v2；读取器仍接受并校验历史 v1 的内联安装内容，但旧读取器不能读取 v2。公开 Bundle5 快照与私有 gzip 归档不可混用。

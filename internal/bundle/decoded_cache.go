@@ -38,7 +38,7 @@ func (c *decodedBundleCache) validated(profile string, op *validationOp) (*Bundl
 	}
 	a := c.archive
 	if a == nil {
-		raw, err := snapshots.load("packed-v1", packedData)
+		raw, err := snapshots.load("packed", packedData)
 		if err != nil {
 			return nil, err
 		}
@@ -59,6 +59,15 @@ func (c *decodedBundleCache) validated(profile string, op *validationOp) (*Bundl
 func cloneBundle(source *Bundle) *Bundle {
 	b := *source
 	b.Files, b.Initial = maps.Clone(source.Files), maps.Clone(source.Initial)
+	b.Installations = maps.Clone(source.Installations)
+	for kind, installation := range b.Installations {
+		installation.Initial = maps.Clone(installation.Initial)
+		installation.Distribution = cloneJSONMap(installation.Distribution)
+		installation.SkillReferences = cloneReferenceMap(installation.SkillReferences)
+		installation.ReferenceGroups = cloneReferenceMap(installation.ReferenceGroups)
+		installation.SkillReferenceGroups = cloneReferenceMap(installation.SkillReferenceGroups)
+		b.Installations[kind] = installation
+	}
 	b.NativeTransforms = slices.Clone(source.NativeTransforms)
 	b.Manifest, b.Distribution = cloneJSONMap(source.Manifest), cloneJSONMap(source.Distribution)
 	b.StageRequirements, b.SkillRequirements = cloneRequirements(source.StageRequirements), cloneRequirements(source.SkillRequirements)
@@ -72,6 +81,14 @@ func cloneBundle(source *Bundle) *Bundle {
 		b.Upgrade = &p
 	}
 	return &b
+}
+
+func cloneReferenceMap(source map[string][]string) map[string][]string {
+	out := maps.Clone(source)
+	for key, refs := range out {
+		out[key] = slices.Clone(refs)
+	}
+	return out
 }
 
 func cloneRequirements(source map[string]Requirement) map[string]Requirement {
