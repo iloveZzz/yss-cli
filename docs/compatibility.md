@@ -10,7 +10,7 @@
 
 `attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate --plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 
-迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本只读取 metadata 中记录的语义化 `templateVersion`；缺失或不是合法语义化版本时，版本区间规则不适用，计划的 `notices` 如实报告，不从提交或旧版本对照表推测。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留、升级不失败，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。`--review-out` 的 `conflicts.json` 一并列出这些删除项。
+迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要，可再绑定 Bundle 摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本只读取 metadata 中记录的语义化 `templateVersion`；缺失或不是合法语义化版本时，版本区间规则不适用，计划的 `notices` 如实报告，不从提交或旧版本对照表推测。精确来源可选 `from.templateVersion`，接受语义化版本或与 `templateCommit` 对应的 `git:<完整提交>`，并额外核对实例登记值；静态重叠判断中，语义化版本按区间判断，git 版本不匹配版本区间，未声明版本的精确来源仍按可能重叠处理。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。处于活动技能树内的旧合同仍会因新来源锁不兼容而阻断升级，不能把保留当作放行。`--review-out` 的 `conflicts.json` 一并列出这些删除项。
 
 Bundle 生产器按固定 Git 对象取源；`native-upgrade-v3` 兼容生成器使用 CLI 中已审查的输入，为旧快照提供 v3 metadata 读取脚本和升级指引。Bundle4 及后续版本保留固定模板的 Skill 与升级协议说明，不用历史内嵌文案覆盖；必要 metadata 消费脚本转换继续执行。Bundle1/2/3 保持原说明兼容转换。`nativeTransforms` 记录源字节与输出摘要，归档保留两者；原模板提交及快照摘要仍指向旧固定来源，生成器来源另由 producer 记录。当前工作树 producer 只能交付 implementation-ready，不能作为 committed-source 发行证据。
 

@@ -384,6 +384,9 @@ func (u *upgradePlanner) previousVersion() (string, bool, error) {
 
 // matchesSource 判断迁移规则是否适用于该实例的旧来源：精确来源逐项相等，版本区间按识别出的版本匹配。
 func (u *upgradePlanner) matchesSource(from bundle.SourceMatch) (bool, error) {
+	if from.TemplateVersion != "" && (u.id.Native == nil || u.id.Native.TemplateVersion != from.TemplateVersion) {
+		return false, nil
+	}
 	if from.Versions != nil {
 		version, ok, e := u.previousVersion()
 		if e != nil || !ok {
@@ -582,7 +585,7 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		strictLock := !initial && selectedLock && ref == "skills-lock.json"
 		if strictLock && (!managedDerivedSkillsLock(u.id, ref, f, previous, wasManaged, selectedLock) || before.Type != "file" || before.Digest != previous.Applied.Digest || modeConflict) {
 			u.conflict(&a, "生成锁被修改或缺少可信登记，须由固定生成器重建")
-		} else if wasManaged && (kind == "fixed" || kind == "generated") && !appliedMatches {
+		} else if wasManaged && (kind == "fixed" || kind == "generated") && !appliedMatches && before != desired {
 			u.conflict(&a, "固定来源资产已被修改，须显式恢复登记来源")
 		} else if kind == "preserve" && !initial && before.Type == "file" {
 			a.Action = "preserve"

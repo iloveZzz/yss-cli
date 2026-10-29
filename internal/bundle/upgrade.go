@@ -26,14 +26,14 @@ type AssetPolicy struct {
 }
 
 // SourceMatch 描述迁移规则适用的旧来源，二选一：
-//   - 精确来源：TemplateCommit 与 SnapshotHash（可再加 BundleHash）；
+//   - 精确来源：TemplateCommit 与 SnapshotHash（可再加 BundleHash 和 TemplateVersion 版本绑定）；
 //   - 版本区间：Versions，按实例的模板版本匹配，实例版本无法识别时规则不适用。
 type SourceMatch struct {
 	Profile        string `json:"profile"`
 	TemplateCommit string `json:"templateCommit,omitempty"`
 	SnapshotHash   string `json:"sourceSnapshotHash,omitempty"`
 	BundleHash     string `json:"bundleHash,omitempty"`
-	// TemplateVersion 是精确来源实例记录的模板版本（语义化版本或 git:<templateCommit>），只用于静态重叠判断。
+	// TemplateVersion 是精确来源实例记录的模板版本（语义化版本或 git:<templateCommit>），用于静态重叠判断及运行时版本绑定。
 	TemplateVersion string        `json:"templateVersion,omitempty"`
 	Versions        *VersionRange `json:"versions,omitempty"`
 }
