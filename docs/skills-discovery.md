@@ -41,7 +41,7 @@ yss skills ensure code-review codebase-design --root /path/to/project --apply --
 
 ## 独立技能安装（新安装合同）
 
-Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建和接管默认 governed，独立技能显式选择 `--installation skills`；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
 
 ```sh
 yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json

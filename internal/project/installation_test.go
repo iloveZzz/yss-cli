@@ -42,6 +42,9 @@ func TestInstallationPlanBindingIsExplicit(t *testing.T) {
 		if err != nil || read.Digest != p.Digest || read.SchemaVersion != wantSchema {
 			t.Fatalf("saved plan round trip: %v %v", read, err)
 		}
+		if read.Installation != p.Installation || planningOptionsForReplay(read).Installation != read.Installation {
+			t.Fatal("saved plan lost installation choice")
+		}
 		if _, err := os.Stat(root); !os.IsNotExist(err) {
 			t.Fatalf("planning wrote target: %v", err)
 		}
@@ -93,9 +96,26 @@ func TestResolveInstallation(t *testing.T) {
 		command, requested, saved, want string
 		old, fail                       bool
 	}{
-		{"init", "", "", "skills", false, false}, {"attach", "governed", "", "governed", false, false},
-		{"sync", "", "", "governed", true, false}, {"sync", "", "skills", "skills", true, false},
-		{"sync", "skills", "governed", "", true, true}, {"init", "unknown", "", "", false, true},
+		{"init", "", "", "governed", false, false},
+		{"attach", "", "", "governed", false, false},
+		{"init", "skills", "", "skills", false, false},
+		{"attach", "skills", "", "skills", false, false},
+		{"init", "governed", "", "governed", false, false},
+		{"attach", "governed", "", "governed", false, false},
+		{"doctor", "", "", "skills", false, false},
+		{"diff", "", "", "skills", false, false},
+		{"migrate", "", "", "skills", false, false},
+		{"sync", "", "", "governed", true, false},
+		{"sync", "", "skills", "skills", true, false},
+		{"doctor", "", "governed", "governed", true, false},
+		{"diff", "", "skills", "skills", true, false},
+		{"ensure", "", "skills", "skills", true, false},
+		{"init", "", "skills", "skills", true, false},
+		{"migrate", "", "", "governed", true, false},
+		{"migrate", "governed", "skills", "governed", true, false},
+		{"attach", "governed", "skills", "", true, true},
+		{"sync", "skills", "governed", "", true, true},
+		{"init", "unknown", "", "", false, true},
 	} {
 		id := &Identity{}
 		if tc.old {
@@ -118,25 +138,38 @@ func installationFixture() *bundle.Bundle {
 }
 func TestInitInstallationAssets(t *testing.T) {
 	for _, profile := range []string{"spec", "backend"} {
-		t.Run(profile, func(t *testing.T) {
-			b := installationFixture()
-			b.Profile = profile
-			p, err := buildCore(t.TempDir(), profile, "init", nil, nil, nil, PlanningOptions{target: b})
-			if err != nil {
-				t.Fatal(err)
+		for _, command := range []string{"init", "attach"} {
+			for _, requested := range []InstallationKind{"", InstallationSkills} {
+				t.Run(profile+"/"+command+"/"+string(requested), func(t *testing.T) {
+					b := installationFixture()
+					b.Profile = profile
+					p, err := buildCore(t.TempDir(), profile, command, nil, nil, nil, PlanningOptions{target: b, Installation: requested})
+					if err != nil {
+						t.Fatal(err)
+					}
+					want, entry := InstallationGoverned, "formal"
+					if requested == InstallationSkills {
+						want, entry = InstallationSkills, "engineering"
+					}
+					if p.SchemaVersion != 4 || p.Installation != want || p.Profile != domain.Profiles[profile].Name {
+						t.Fatalf("wrong plan: %d %s %s", p.SchemaVersion, p.Installation, p.Profile)
+					}
+					found := false
+					for _, c := range p.Changes {
+						if c.Path == "AGENTS.md" {
+							raw, err := base64.StdEncoding.DecodeString(c.Data)
+							if err != nil || string(raw) != entry {
+								t.Fatalf("wrong entry: %q %v", raw, err)
+							}
+							found = true
+						}
+					}
+					if !found {
+						t.Fatal("missing entry")
+					}
+				})
 			}
-			if p.SchemaVersion != 4 || p.Installation != InstallationSkills {
-				t.Fatalf("wrong plan: %d %s", p.SchemaVersion, p.Installation)
-			}
-			for _, c := range p.Changes {
-				if c.Path == "yss-project.yaml" || strings.HasPrefix(c.Path, ".template-spec/") {
-					t.Fatalf("generated governance %s", c.Path)
-				}
-			}
-			if p.Profile != domain.Profiles[profile].Name {
-				t.Fatal("profile changed")
-			}
-		})
+		}
 	}
 }
 

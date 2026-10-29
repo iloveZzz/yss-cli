@@ -53,20 +53,23 @@ func TestInstallationHumanNextStep(t *testing.T) {
 }
 
 func TestInstallationHelpContract(t *testing.T) {
-	text, err := renderHelp([]string{"init"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, part := range []string{"默认 skills", "--installation governed", "--full"} {
-		if !strings.Contains(text, part) {
-			t.Fatalf("init help missing %s: %s", part, text)
+	for _, command := range []string{"init", "attach"} {
+		text, err := renderHelp([]string{command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, part := range []string{"默认 governed", "--installation skills", "--full"} {
+			if !strings.Contains(text, part) {
+				t.Fatalf("%s help missing %s: %s", command, part, text)
+			}
 		}
 	}
-	text, err = profileTutorial("spec")
+
+	text, err := profileTutorial("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "init --profile spec --installation governed") {
+	if !strings.Contains(text, "init --profile spec --root") {
 		t.Fatalf("governance tutorial uses skills installation: %s", text)
 	}
 }

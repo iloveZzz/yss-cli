@@ -19,13 +19,13 @@ Profile 职责:
   旧 Design 保留原记录，当前不提供转为 Spec 的迁移。
   本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
 
-快速上手（默认 skills 独立技能安装；选择一个 Profile，在独立新目录运行）:
+快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:
   yss init --profile spec --root ./demo-spec --project-name 演示项目
   yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-spec --human
   yss skills list --root ./demo-spec --details --json
   Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
-  完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。
+  独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。
 
 治理安装的生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
@@ -126,13 +126,13 @@ Shell 补全:
 
 ```text
 快速上手
-默认 skills 安装独立技能；支持引用清单的 Bundle 还会安装声明的参考资产，但不启用治理身份。本教程显式选择 governed，--full 不切换安装方式。
+新建和接管默认 governed，安装治理身份与基线；独立技能显式选择 --installation skills，其参考资产不启用治理身份。--full 只扩大资源集合，不切换安装方式。
 前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
   yss capabilities --json
-  yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
+  yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
   yss context verify --root ./demo-spec --json
@@ -321,7 +321,7 @@ Profile spec
 前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
 输入材料：项目名称、当前职责对应的合同/交接材料。
 
-  yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目
+  yss init --profile spec --root ./demo-spec --project-name 演示项目
   yss doctor --root ./demo-spec --json
   yss context verify --root ./demo-spec --json
   yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
@@ -483,7 +483,7 @@ Profile backend
 前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
 输入材料：项目名称、当前职责对应的合同/交接材料。
 
-  yss init --profile backend --installation governed --root ./demo-backend --project-name 演示项目
+  yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-backend --json
   yss context verify --root ./demo-backend --json
   yss lifecycle query --root ./demo-backend --id work-unit.harness-entry --json
@@ -1207,7 +1207,8 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
 --review-out <新目录>  项目外审查材料与决议模板
 --base-bundle <路径>  离线历史 Bundle 完整材料
 --resolution-file <文件>  与 --plan --plan-file 原计划一起重新规划
---full  选择完整资源集合
+--installation skills|governed  默认 governed；独立技能显式选择 --installation skills
+--full  仅扩大所选安装方式的资源集合，不切换安装方式
 --binding-file <文件>  将插件 binding 纳入同一计划
 --bind-cli  与 --plan --out 同用，绑定当前 CLI 与 Bundle；应用时必须提供 --expected-digest <原摘要>
 
@@ -3466,13 +3467,13 @@ Profile 职责:
   旧 Design 保留原记录，当前不提供转为 Spec 的迁移。
   本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
 
-快速上手（默认 skills 独立技能安装；选择一个 Profile，在独立新目录运行）:
+快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:
   yss init --profile spec --root ./demo-spec --project-name 演示项目
   yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-spec --human
   yss skills list --root ./demo-spec --details --json
   Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
-  完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。
+  独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。
 
 治理安装的生命周期导航:
   正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
@@ -3935,13 +3936,13 @@ YSS 完整离线教程
 所有帮助仅输出文本；命令由使用者在适当目录执行。内部测试案例不是生产批准或真实交付证据。
 
 快速上手
-默认 skills 安装独立技能；支持引用清单的 Bundle 还会安装声明的参考资产，但不启用治理身份。本教程显式选择 governed，--full 不切换安装方式。
+新建和接管默认 governed，安装治理身份与基线；独立技能显式选择 --installation skills，其参考资产不启用治理身份。--full 只扩大资源集合，不切换安装方式。
 前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
   yss capabilities --json
-  yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
+  yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
   yss context verify --root ./demo-spec --json
@@ -4118,7 +4119,7 @@ Profile spec
 前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
 输入材料：项目名称、当前职责对应的合同/交接材料。
 
-  yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目
+  yss init --profile spec --root ./demo-spec --project-name 演示项目
   yss doctor --root ./demo-spec --json
   yss context verify --root ./demo-spec --json
   yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
@@ -4276,7 +4277,7 @@ Profile backend
 前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
 输入材料：项目名称、当前职责对应的合同/交接材料。
 
-  yss init --profile backend --installation governed --root ./demo-backend --project-name 演示项目
+  yss init --profile backend --root ./demo-backend --project-name 演示项目
   yss doctor --root ./demo-backend --json
   yss context verify --root ./demo-backend --json
   yss lifecycle query --root ./demo-backend --id work-unit.harness-entry --json
@@ -4498,7 +4499,7 @@ yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan
 --root          项目目录；默认当前目录，推荐显式指定新目录
 --project-name  项目名称
 --business-domain / --team-size  模板变量
---installation skills|governed  默认 skills；完整治理显式选择 --installation governed
+--installation skills|governed  默认 governed；独立技能显式选择 --installation skills
 --full          仅扩大所选安装方式的资源集合，不切换安装方式
 --plan --out <新文件>  只生成计划；默认直接初始化
 --bind-cli      与 --plan --out 同用，绑定当前 CLI 与 Bundle
@@ -4506,7 +4507,7 @@ yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan
 --issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置
 
 预期结果:
-默认 skills 形成独立技能安装；Spec 普通需求从 yss-product-lifecycle（life）开始；governed 形成治理身份与基线；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。
+默认 governed 形成治理身份与基线；独立技能显式选择 --installation skills；Spec 普通需求从 yss-product-lifecycle（life）开始；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。
 
 下一步:
 yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。

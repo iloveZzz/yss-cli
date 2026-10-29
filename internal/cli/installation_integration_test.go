@@ -16,7 +16,33 @@ import (
 	"testing"
 )
 
-func TestSkillsDefaultCLI(t *testing.T) {
+func TestInstallationFullPreservesChoice(t *testing.T) {
+	for _, kind := range []string{"", "skills"} {
+		t.Run(kind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "not-created")
+			file := filepath.Join(t.TempDir(), "full.json")
+			args := []string{"init", "--profile", "spec", "--plan", "--out", file, "--full"}
+			want := project.InstallationGoverned
+			if kind != "" {
+				args = append(args, "--installation", kind)
+				want = project.InstallationSkills
+			}
+			commandOK(t, root, args...)
+			p, err := project.ReadPlan(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Installation != want {
+				t.Fatalf("full switched installation: %s", p.Installation)
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatalf("planning wrote target: %v", err)
+			}
+		})
+	}
+}
+
+func TestExplicitSkillsCLI(t *testing.T) {
 	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +51,7 @@ func TestSkillsDefaultCLI(t *testing.T) {
 		t.Skip("fixed source predates independent installations")
 	}
 	root := filepath.Join(t.TempDir(), "project")
-	commandOK(t, root, "init", "--profile", "spec")
+	commandOK(t, root, "init", "--profile", "spec", "--installation", "skills")
 	for _, ref := range []string{"yss-project.yaml", "CONTEXT.md"} {
 		if _, err = os.Stat(filepath.Join(root, ref)); !os.IsNotExist(err) {
 			t.Fatalf("unexpected ordinary governance asset %s", ref)

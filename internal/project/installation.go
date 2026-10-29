@@ -48,6 +48,9 @@ func ResolveInstallation(id *Identity, command string, requested InstallationKin
 	if requested != "" {
 		return requested, nil
 	}
+	if command == "init" || command == "attach" {
+		return InstallationGoverned, nil
+	}
 	return InstallationSkills, nil
 }
 func skillsIdentity(id *Identity) bool {

@@ -919,8 +919,8 @@ func sortedManaged(m map[string]Managed) []string {
 func mustDecode(data string) []byte { b, _ := base64.StdEncoding.DecodeString(data); return b }
 
 func BuildWithOptions(root, profile, command string, vars map[string]string, selection []string, binding *Binding, o PlanningOptions) (*Plan, error) {
-	if o.Original != nil && o.Original.InstallationMigration != nil && o.Installation == "" {
-		o.Installation = o.Original.Installation
+	if o.Original != nil && o.Installation == "" {
+		o.Installation = planningOptionsForReplay(o.Original).Installation
 	}
 	baseOptions := o
 	baseOptions.Resolutions = nil

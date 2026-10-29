@@ -6,7 +6,7 @@
 
 English: [quickstart](docs/quickstart.en.md).
 
-统一 Spec、Backend 的 Go CLI。当前身份见上方生成信息。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新建默认安装独立技能（`skills`）；需要完整生命周期时显式选择 `--installation governed`，其治理版本为 2。Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
+统一 Spec、Backend 的 Go CLI。当前身份见上方生成信息。命令入口迁至 Cobra，提供 Bash、Zsh、Fish、PowerShell 补全；参数、中文帮助与生成参考来自同一命令树，保留 JSON envelope、MCP 与保存计划保护。新建和接管默认采用治理安装（`governed`），治理版本为 2；只需独立技能时显式选择 `--installation skills`。Spec 包含必要产品设计，Backend 承担技术设计与专职交付；独立 Design 身份及兼容入口已移除，旧 Design 实例升级前应保留原版本与原始资产。新增治理合同、任务候选及执行事实校验、适用复核和 pending review 事务发布；帮助见 `yss --help`、`yss migrate --help`、`yss contract publish-review --help`。Frontend 与 `--stack` 继续退役，旧文件保持保留语义。接口见 [技能按需查询](docs/skills-discovery.md)，发行资格见 [兼容边界](docs/compatibility.md)。
 
 本版本发行目标为 macOS ARM64 与 Windows x64，各平台资格以最终固定二进制的实际收据为准。macOS 项目及程序事务要求归档与目标位于同一支持原子文件克隆的 APFS 卷；不支持克隆或跨卷返回 `UNPORTED`。已有用户修改及旧零字节事务临时文件保留并阻断恢复。Windows 权限与恢复边界见 [迁移清单](docs/porting-status.md)。
 
@@ -51,10 +51,10 @@ JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅
 
 安装诊断分别呈现文件对齐、已安装技能完整性和工作流验收。`doctor.readiness.skills` 只核验当前 Spec metadata5 已声明的技能及运行时，`workflow` 保持 `not-evaluated`；其他 Profile / 历史代际不新增技能核验义务。`skills resolve` 按 `result.status` 判断 ready / missing / blocked，退出 0 只表示查询完成；Claude 与 WorkBuddy 的投影检查不证明宿主已发现技能。
 
-以下示例选择完整治理安装，后续才能使用 Context 与生命周期命令。只需独立技能时省略 `--installation` 或选择 `skills`，无需先建立 Ticket、checkpoint 或治理批准。
+以下示例选择完整治理安装，后续才能使用 Context 与生命周期命令。只需独立技能时显式选择 `--installation skills`，无需先建立 Ticket、checkpoint 或治理批准。
 
 ```sh
-yss init --profile spec --installation governed --root ./my-project --project-name 项目名称
+yss init --profile spec --root ./my-project --project-name 项目名称
 yss doctor --root ./my-project --json
 yss sync --root ./my-project --plan --out /tmp/yss-sync-plan.json
 yss sync --root ./my-project --apply --plan-file /tmp/yss-sync-plan.json
@@ -125,13 +125,13 @@ yss update rollback --tool-root ./tools/yss --json
 
 ## 入门教程与 CLI 在线升级
 
-在新目录选择一个 Profile 和安装方式。以下完整治理示例显式选择 `governed`；独立技能安装使用默认 `skills`：
+在新目录选择一个 Profile 和安装方式。新建和接管默认使用 `governed`；独立技能安装显式选择 `--installation skills`：
 
-从 CLI `2.8.3` 起，默认 `skills` 同时安装已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖；这些参考文件不启用治理身份或正式治理能力。已有项目在使用对应新版 CLI 后，通过审阅并应用 `yss sync` 计划获取新的受管引用资产；`2.8.2` 及更早版本不包含此新清单。
+从 CLI `2.8.3` 起，`skills` 安装同时包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖；这些参考文件不启用治理身份或正式治理能力。已有项目在使用对应新版 CLI 后，通过审阅并应用 `yss sync` 计划获取新的受管引用资产；`2.8.2` 及更早版本不包含此新清单。
 
 ```sh
-yss init --profile spec --installation governed --root ./demo-spec --project-name 演示项目
-yss init --profile backend --installation governed --root ./demo-backend --project-name 演示后端
+yss init --profile spec --root ./demo-spec --project-name 演示项目
+yss init --profile backend --root ./demo-backend --project-name 演示后端
 yss doctor --root ./demo-spec --json
 yss diff --root ./demo-spec --json
 ```

@@ -1,6 +1,6 @@
 # yss quickstart (English)
 
-`yss` is the offline CLI for YSS spec-driven projects. It installs standalone skills by default, supports governed project instances from an embedded template bundle, and checks lifecycle routes, contracts and evidence. Most user-facing messages are in Simplified Chinese; JSON output (`--json`) is stable and language-neutral.
+`yss` is the offline CLI for YSS spec-driven projects. It creates governed project instances by default from an embedded template bundle, supports explicit standalone skills installations, and checks lifecycle routes, contracts and evidence. Most user-facing messages are in Simplified Chinese; JSON output (`--json`) is stable and language-neutral.
 
 ## 1. Install and verify
 
@@ -20,14 +20,14 @@ yss init --profile spec --root ./demo --project-name Demo
 yss doctor --root ./demo --json
 ```
 
-Profiles: `spec` (requirements, product design and integrated delivery), `backend` (dedicated backend delivery). The default `skills` installation includes the selected skills and their required `.template-source` / `.template-spec` references; those files do not enable governance. Use `yss attach` for an existing repository and `yss sync` to upgrade an instance to the bundle shipped with your CLI. Every write supports `--plan --out <file>` first, then `--apply --plan-file <file>`.
+Profiles: `spec` (requirements, product design and integrated delivery), `backend` (dedicated backend delivery). New `init` and `attach` installations default to `governed`. Use `--installation skills` for standalone skills. That installation includes the selected skills and their required `.template-source` / `.template-spec` references; those files do not enable governance. Use `yss attach` for an existing repository and `yss sync` to upgrade an instance to the bundle shipped with your CLI. Every write supports `--plan --out <file>` first, then `--apply --plan-file <file>`.
 
 ## 3. Your first task: the daily path
 
 Lifecycle routing requires a `governed` installation. Create it in a new directory before following the governance examples below:
 
 ```sh
-yss init --profile spec --installation governed --root ./demo-governed --project-name Demo
+yss init --profile spec --root ./demo-governed --project-name Demo
 ```
 
 Write one Markdown task record (goal, acceptance, implementation repository, rollback) in that project, then ask for a route:
@@ -92,7 +92,7 @@ Exit codes: `0` passed, `1` rejected, `2` input or capability problem (cannot de
 
 ## 独立技能安装（新安装合同）
 
-Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建和接管默认 governed，独立技能显式选择 `--installation skills`；旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
 
 ```sh
 yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json

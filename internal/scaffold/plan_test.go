@@ -18,6 +18,19 @@ func TestBoundScaffoldPlanRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defaults, choices := 0, map[string]bool{}
+	for _, choice := range catalog.Installations {
+		choices[choice.ID] = true
+		if choice.Default {
+			defaults++
+			if choice.ID != "governed" {
+				t.Fatalf("unexpected installation default: %s", choice.ID)
+			}
+		}
+	}
+	if defaults != 1 || !choices["skills"] || !choices["governed"] {
+		t.Fatalf("installation choices: %+v", catalog.Installations)
+	}
 	var platform *CatalogPlatform
 	for i := range catalog.Platforms {
 		if catalog.Platforms[i].StandaloneAllowed {

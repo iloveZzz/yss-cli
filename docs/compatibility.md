@@ -2,9 +2,9 @@
 
 呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
 
-程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前 CLI 的固定模板使用 Bundle5 / metadata5，项目保存计划为 v4，仅支持 Spec/Backend。新建默认 `skills`，完整治理显式选择 `governed`；治理安装采用 identity2 / Profile3 / governance2。旧项目保存计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 仅描述原版本来源，不作为当前生产输入。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design、Frontend、旧 dev 及退役产品设计插件输入明确拒绝，不提供转为 Spec 的迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
+程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前 CLI 的固定模板使用 Bundle5 / metadata5，项目保存计划为 v4，仅支持 Spec/Backend。新建和接管默认 `governed`，独立技能显式选择 `--installation skills`；治理安装采用 identity2 / Profile3 / governance2。旧项目保存计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 仅描述原版本来源，不作为当前生产输入。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design、Frontend、旧 dev 及退役产品设计插件输入明确拒绝，不提供转为 Spec 的迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
 
-当前 CLI 的部分离线帮助及生成参考仍有旧 Design 转 Spec、默认初始化后直接进入治理的提示。当前 Design 输入不受支持；治理命令示例应先选择 `governed`。这些旧提示不能扩大本页声明的迁移范围。
+历史离线帮助中旧 Design 转 Spec 的提示不能扩大本页声明的迁移范围；当前 Design 输入不受支持。新建和接管默认安装 governed，已有 skills 实例仍须显式迁移才能启用治理。
 
 新版 Bundle 的 `skills` 安装包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖，这些文件本身不启用治理身份或阶段能力；已有实例经审阅并应用 `sync` 计划补齐受管资源。
 
@@ -47,7 +47,7 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 
 | 组合 | 当前行为 |
 | --- | --- |
-| Bundle5 + metadata5 + 项目保存计划 v4 | 当前新建 Spec/Backend；默认 skills，显式 governed 启用完整治理；治理内按适用检查与真实自检执行，独立复核取决于当前要求 |
+| Bundle5 + metadata5 + 项目保存计划 v4 | 当前新建 Spec/Backend；默认 governed，显式 skills 安装独立技能；治理内按适用检查与真实自检执行，独立复核取决于当前要求 |
 | Bundle4 + metadata4 + identity2 + Profile3 + governance2 | 历史治理安装；sync 保持原安装方式，转换安装方式须显式 migrate |
 | metadata3 + identity1 + 原 Profile/政策 | 原语义读取；显式 migrate 保存计划、审阅冲突后事务应用，不直接创建旧 task/stage |
 | Design4.5 multipart container2 | 原 role policy；仅确切旧 Design 身份且无 governance_versions 时识别，不等于新治理2 |
@@ -63,7 +63,7 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 
 ## 独立技能安装（新安装合同）
 
-Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建默认 skills；Spec 默认包含 life 路由、澄清、研究、领域、规格草稿、中文写作、审查与显式实现入口，Backend 默认开发与审查入口。具体集合由固定 Bundle 政策决定，to-spec 和 implement 保持用户显式调用。独立 ensure 仅选择技能内闭包；条件依赖继续先 resolve --when，再显式 ensure missing 集合，不新增 ensure --when。已有独立项目仅在显式 sync 保存/应用计划时采纳目标默认，程序升级本身不写项目；文件、元数据、锁和有效投影同时更新，旧锁或运行时异常仍拒绝。旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建和接管默认 governed；显式 skills 安装中，Spec 默认包含 life 路由、澄清、研究、领域、规格草稿、中文写作、审查与显式实现入口，Backend 默认开发与审查入口。具体集合由固定 Bundle 政策决定，to-spec 和 implement 保持用户显式调用。独立 ensure 仅选择技能内闭包；条件依赖继续先 resolve --when，再显式 ensure missing 集合，不新增 ensure --when。已有独立项目仅在显式 sync 保存/应用计划时采纳目标默认，程序升级本身不写项目；文件、元数据、锁和有效投影同时更新，旧锁或运行时异常仍拒绝。旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
 
 ```sh
 yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json

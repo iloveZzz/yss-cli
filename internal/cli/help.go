@@ -20,7 +20,7 @@ var helpTopics = map[string]helpTopic{
 	"init": {
 		summary:  "创建固定模板来源的项目实例。",
 		usage:    "--profile <spec|backend> --root <目录> [--project-name <名称>]",
-		options:  "--profile       必需，选择 Spec 或 Backend\n--root          项目目录；默认当前目录，推荐显式指定新目录\n--project-name  项目名称\n--business-domain / --team-size  模板变量\n--installation skills|governed  默认 skills；完整治理显式选择 --installation governed\n--full          仅扩大所选安装方式的资源集合，不切换安装方式\n--plan --out <新文件>  只生成计划；默认直接初始化\n--bind-cli      与 --plan --out 同用，绑定当前 CLI 与 Bundle\n--apply --plan-file <文件> [--expected-digest <原摘要>]  应用保存计划；绑定 CLI 的计划必须提供原摘要\n--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置",
+		options:  "--profile       必需，选择 Spec 或 Backend\n--root          项目目录；默认当前目录，推荐显式指定新目录\n--project-name  项目名称\n--business-domain / --team-size  模板变量\n--installation skills|governed  默认 governed；独立技能显式选择 --installation skills\n--full          仅扩大所选安装方式的资源集合，不切换安装方式\n--plan --out <新文件>  只生成计划；默认直接初始化\n--bind-cli      与 --plan --out 同用，绑定当前 CLI 与 Bundle\n--apply --plan-file <文件> [--expected-digest <原摘要>]  应用保存计划；绑定 CLI 的计划必须提供原摘要\n--issue-tracker <local-markdown|github|gitlab>  Spec Tracker 配置",
 		examples: "yss init --profile spec --root ./demo-spec --project-name 演示项目\nyss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan.json",
 		notes:    "拒绝覆盖用户文件；初始化使用程序内置 Bundle，无需 Node/Python 或网络。已有工程请先查看 yss attach --help。",
 	},
@@ -122,11 +122,11 @@ func renderHelpFrom(root *cobra.Command, args []string) (string, error) {
 func rootHelp() string { return rootHelpFrom(newRootCommand(nil, io.Discard, io.Discard)) }
 func rootHelpFrom(root *cobra.Command) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "yss %s — Spec / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  Spec 包含必要产品设计；backend 承担技术设计与专职交付。\n  旧 Design 保留原记录，当前不提供转为 Spec 的迁移。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（默认 skills 独立技能安装；选择一个 Profile，在独立新目录运行）:\n", domain.Version)
+	fmt.Fprintf(&out, "yss %s — Spec / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  Spec 包含必要产品设计；backend 承担技术设计与专职交付。\n  旧 Design 保留原记录，当前不提供转为 Spec 的迁移。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:\n", domain.Version)
 	for _, p := range []string{"spec", "backend"} {
 		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
 	}
-	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。\n  完整治理使用 --installation governed；--full 只扩大当前安装方式的资源。\n\n治理安装的生命周期导航:\n")
+	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。\n  独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。\n\n治理安装的生命周期导航:\n")
 	if v, e := helpview.Load("spec"); e == nil {
 		names := []string{}
 		for _, s := range v.Stages {

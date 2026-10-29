@@ -63,7 +63,7 @@ func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 	}
 	view := &CatalogView{Kind: "scaffold-catalog", SchemaVersion: 1, Bundles: []BundleBinding{}, Platforms: []CatalogPlatform{},
 		Profiles:      []CatalogChoice{{ID: "spec", Description: "规格及适用后端职责"}, {ID: "backend", Description: "后端交付职责"}},
-		Installations: []CatalogChoice{{ID: "skills", Description: "安装规则、技能及其资源闭包", Default: true}, {ID: "governed", Description: "额外安装完整治理资产"}},
+		Installations: []CatalogChoice{{ID: "skills", Description: "安装规则、技能及其资源闭包"}, {ID: "governed", Description: "安装技能、治理身份与治理资产", Default: true}},
 		Architectures: []CatalogChoice{{ID: "ddd", Description: "领域驱动多模块后端"}, {ID: "mvc", Description: "分层 MVC 多模块后端"}}}
 	var src Source
 	for _, profile := range view.Profiles {
@@ -175,7 +175,7 @@ func describeCatalogFields(platforms []CatalogPlatform) []CatalogField {
 	}
 	fields := []CatalogField{
 		{ID: "profile", Flag: "--profile", Required: true, Choices: []string{"spec", "backend"}, Operations: []string{"init", "attach"}, Description: "AI 工作资产职责"},
-		{ID: "installation", Flag: "--installation", Choices: []string{"skills", "governed"}, Operations: []string{"init", "attach"}, Description: "默认 skills；governed 额外安装治理资产"},
+		{ID: "installation", Flag: "--installation", Choices: []string{"skills", "governed"}, Operations: []string{"init", "attach"}, Description: "默认 governed；独立技能显式选择 skills"},
 		{ID: "root", Flag: "--root", Required: true, Choices: []string{}, Operations: []string{"init", "attach"}, Description: "AI 安装的实际目标根目录"},
 		{ID: "architecture", Argument: "<ddd|mvc>", Required: true, Choices: []string{"ddd", "mvc"}, Operations: []string{"scaffold"}, Description: "scaffold 的位置参数"},
 	}

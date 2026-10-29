@@ -18,6 +18,8 @@ IDEA 插件通过本协议取得固定目录、真实文件计划和落盘核查
 | 固定目录 | `kind=scaffold-catalog`、`schemaVersion=1`。 |
 | 项目身份检查 | `kind=project-inspection`、`schemaVersion=1`。 |
 
+`scaffold catalog` 的安装选项中，`governed` 是唯一默认项；`skills` 仍可显式选择。省略安装参数的新建和接管采用 governed，已有实例和保存计划保留原选择。
+
 `ideaIntegration` 仅向插件声明 `spec`、`backend` 与 `skills`、`governed`。`init`、`attach`、`scaffold` 的写入均声明 `safeCancel=false`；插件停止后续步骤，但不能据此强杀当前写进程或宣称自动回滚。只读、下载与规划能否中断，由实际调用及其结果判断。
 
 ## AI 安装：显式绑定 CLI 的计划

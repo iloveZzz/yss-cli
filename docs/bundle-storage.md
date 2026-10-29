@@ -69,4 +69,4 @@ go run ./tools/package /absolute/new-package-directory
 
 ## 安装集合
 
-Bundle5 的 `installations` 声明 `skills` 与 `governed` 两种分发视图。新初始化默认选择 skills；旧 Bundle3/4 维持 governed。每个视图保存独立分发清单及初始变体，并参与逻辑摘要。`governed.initial` 为 null 时复用根 `initial`，避免重复存储；读取器必须按此约定选择视图。新存储格式为 v2；读取器仍接受并校验历史 v1 的内联安装内容，但旧读取器不能读取 v2。公开 Bundle5 快照与私有 gzip 归档不可混用。
+Bundle5 的 `installations` 声明 `skills` 与 `governed` 两种分发视图。新初始化和接管默认选择 governed，独立技能显式选择 `--installation skills`；旧 Bundle3/4 维持 governed。每个视图保存独立分发清单及初始变体，并参与逻辑摘要。`governed.initial` 为 null 时复用根 `initial`，避免重复存储；读取器必须按此约定选择视图。新存储格式为 v2；读取器仍接受并校验历史 v1 的内联安装内容，但旧读取器不能读取 v2。公开 Bundle5 快照与私有 gzip 归档不可混用。

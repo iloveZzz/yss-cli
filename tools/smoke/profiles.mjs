@@ -27,15 +27,16 @@ export function runProfile(session, profile, tempRoot) {
   const name = ['--project-name', 'Smoke'];
 
   const initPlan = path.join(plans, 'init.json');
-  session.expectOk(['init', '--installation', 'governed', '--profile', profile, '--root', root, ...name, '--plan', '--out', initPlan, '--json'], {label: 'init --plan'});
+  session.expectOk(['init', '--profile', profile, '--root', root, ...name, '--plan', '--out', initPlan, '--json'], {label: 'init --plan'});
   check(fs.existsSync(initPlan), `init --plan 未写出计划文件: ${initPlan}`);
   check(!fs.existsSync(root), 'init --plan 不应创建项目目录');
-  const applied = session.expectOk(['init', '--profile', profile, '--root', root, '--apply', '--plan-file', initPlan, '--json'], {label: 'init --apply'});
-  check(applied.result?.status === 'applied', `init --apply 结果应为 applied，实际 ${applied.result?.status}`);
-  check(fs.existsSync(path.join(root, 'yss-project.yaml')) || fs.existsSync(path.join(root, '.yss')), '项目实例缺少身份文件或事务目录');
+  const applied = session.expectOk(['init', '--profile', profile, '--root', root, ...name, '--json'], {label: 'default init'});
+  check(applied.result?.status === 'applied', `init 结果应为 applied，实际 ${applied.result?.status}`);
+  const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
+  check(metadata.distribution.installation==='governed','default init must record governed');
+  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(root,ref)),`default init missing ${ref}`);
 
   if(profile==='spec') {
-   const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
    for(const id of SPEC_CORE)check(metadata.distribution.installedSkills.includes(id),`governed core missing ${id}`);
    specReadiness(session,root,SPEC_CORE);
   }
@@ -62,16 +63,29 @@ export function runProfile(session, profile, tempRoot) {
   const rolledBack = session.expectOk(['rollback', '--root', root, '--apply', json], {label: 'rollback --apply'});
   check(rolledBack.result?.status === 'rolled-back', `rollback --apply 结果应为 rolled-back，实际 ${rolledBack.result?.status}`);
   session.expectRejected(['doctor', '--root', root, json], {code: 'IDENTITY', label: '回退后 doctor 找不到项目身份'});
+
+  const existing=path.join(tempRoot,`attach-${profile}`), attachPlan=path.join(plans,'attach.json');
+  fs.mkdirSync(existing);
+  const business=path.join(existing,'business.txt');
+  fs.writeFileSync(business,'user business');
+  session.expectOk(['attach','--profile',profile,'--root',existing,'--plan','--out',attachPlan,json],{label:'default attach --plan'});
+  check(fs.readdirSync(existing).length===1&&fs.readFileSync(business,'utf8')==='user business','attach planning must preserve existing files');
+  check(JSON.parse(fs.readFileSync(attachPlan)).installation==='governed','default attach plan must select governed');
+  session.expectOk(['attach','--root',existing,'--apply','--plan-file',attachPlan,json],{label:'default attach --apply'});
+  const attached=JSON.parse(fs.readFileSync(path.join(existing,'.yss.json')));
+  check(attached.distribution.installation==='governed','saved attach plan must preserve governed');
+  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(existing,ref)),`default attach missing ${ref}`);
+  check(fs.readFileSync(business,'utf8')==='user business','attach must preserve user bytes');
 }
 
 export function runSkillsProfile(session, profile, tempRoot) {
  const root=path.join(tempRoot,`skills-${profile}`),plans=path.join(tempRoot,`skills-plans-${profile}`);
  fs.mkdirSync(plans,{recursive:true});
  const plan=path.join(plans,'init.json');
- session.expectOk(['init','--root',root,'--profile',profile,'--plan','--out',plan,'--json'],{label:'skills default init plan'});
+ session.expectOk(['init','--installation','skills','--root',root,'--profile',profile,'--plan','--out',plan,'--json'],{label:'explicit skills init plan'});
  session.expectOk(['init','--root',root,'--apply','--plan-file',plan,'--json'],{label:'skills init apply'});
  const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
- check(metadata.distribution.installation==='skills','default installation must be skills');
+ check(metadata.distribution.installation==='skills','explicit installation must be skills');
  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(!fs.existsSync(path.join(root,ref)),`ordinary installation unexpectedly requires ${ref}`);
  const fixed=session.expectOk(['bundle','inspect','--profile',profile,'--json']).result;
  const references=['.template-source/process/MATT-POCOCK-ENGINEERING-SKILLS.md','.template-spec/process/orchestration-contract.yaml','.template-spec/agents/issue-tracker.md'];

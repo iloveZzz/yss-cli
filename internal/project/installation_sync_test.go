@@ -24,7 +24,7 @@ func writeInstallationFixture(t *testing.T) (string, *Plan) {
 func writeInstallationBundleFixture(t *testing.T, b *bundle.Bundle) (string, *Plan) {
 	t.Helper()
 	root := t.TempDir()
-	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b})
+	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationSkills})
 	if err != nil {
 		t.Fatal(err)
 	}
