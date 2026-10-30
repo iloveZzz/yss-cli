@@ -26,7 +26,9 @@ node tools/fetch-bundle.mjs && go test -timeout 5m ./...  # 含用内嵌 Bundle 
 
 ## CI
 
-`Build and generated artifacts` workflow 先以 Python 3.12 运行发行工具离线回归（`python3 -m unittest discover -s tools/release-evidence -p 'test_*.py'`，步骤上限 5 分钟），再执行生产包构建、候选来源记录、格式／静态检查、Go 测试、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。发行工具测试使用临时 fixture 与受控假 transport，不访问外部 API、不发布；不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
+`CLI verification` 仅由 PR 事件触发；同一 PR 更新时取消该 PR 仍在运行的旧检查，不影响其他 PR。合并到 `main` 不再启动这条流水线。
+
+`CLI verification` workflow 的 `artifacts` job 先以 Python 3.12 运行发行工具离线回归（`python3 -m unittest discover -s tools/release-evidence -p 'test_*.py'`，步骤上限 5 分钟），再执行生产包构建、候选来源记录、格式／静态检查、Go 测试、构建后黑盒冒烟，以及从固定 Git 来源重建 Bundle → 帮助视图 → 完整帮助的逐字节检查。发行工具测试使用临时 fixture 与受控假 transport，不访问外部 API、不发布；不恢复原生验收工具，也不生成正式发行通过回执。每次运行均检查全部生成链，避免生成器传递依赖或工具链变化漏检。性能与兼容性证据在仓库外维护，见 [性能合同](artifact-performance.md)。
 
 ## 格式与静态检查
 
@@ -70,7 +72,7 @@ CGO_ENABLED=0 go build -o /仓库外/路径/yss ./cmd/yss
 node tools/scaffold-parity/main.mjs --bin /仓库外/路径/yss --template-root /仓库外/固定提交的模板仓
 ```
 
-它是构建后黑盒校验，**不是**单元测试或发行验收，不进入发行包。Node（以及正式合同场景所需的 Python `jsonschema`/`referencing`）只是对拍基准的运行条件，`yss` 运行时不依赖它们。CI 里它是独立工作流 `.github/workflows/scaffold-parity.yml` 的单个 job，只在 ubuntu 运行，失败不影响 `artifacts.yml` 的构建与发行包。
+它是构建后黑盒校验，**不是**单元测试或发行验收，不进入发行包。Node（以及正式合同场景所需的 Python `jsonschema`/`referencing`）只是对拍基准的运行条件，`yss` 运行时不依赖它们。CI 里它是 `.github/workflows/artifacts.yml` 中独立的 `scaffold-parity` job，只在 ubuntu 运行，失败不影响 `artifacts` job 的构建与发行包。
 
 ## 本地构建
 
@@ -86,7 +88,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss
 
 ## GitHub 与发行衔接
 
-当前轻量 Go 测试、黑盒冒烟和生成检查由 `artifacts.yml` 执行；`scaffold-parity.yml` 独立执行 Go/Node 对拍。早期原生验收 workflow 的删除属于历史事实，不能解释为当前测试 workflow 已删除。仓库 ruleset/required checks 需单独核实，不能从本地工作流文件推断。
+当前 Go 测试、黑盒冒烟和生成检查由 `artifacts` job 执行；同一 workflow 的 `scaffold-parity` job 独立执行 Go/Node 对拍。早期原生验收 workflow 的删除属于历史事实，不能解释为当前测试 workflow 已删除。仓库 ruleset/required checks 需单独核实，不能从本地工作流文件推断。
 
 发行装配工具仍要求真实证据，产品安装与升级继续校验发行资格。当前[发行证据工具](../tools/release-evidence/README.md)在真实目标平台生成 `local-platform-program-install` 范围的原生与安装回执，`release-evidence.yml` 执行准备及发布后验证；普通 Go 测试和黑盒冒烟不生成这些回执。其他资格范围须提供对应的完整证据，不能用构建或局部测试替代。
 

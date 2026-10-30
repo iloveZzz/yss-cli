@@ -80,4 +80,4 @@ node tools/scaffold-parity/main.mjs \
 登记差异使用: generated-at
 ```
 
-DDD/MVC 的成功场景全部逐字节一致（含 Maven Wrapper `maven-wrapper.jar` 的内容与权限），拒绝场景两侧一致拒绝且无产物。每次变更生成器、模板来源或平台目录后应重新运行；CI 里它是单独的 `scaffold-parity` 工作流（见 `.github/workflows/scaffold-parity.yml`），只在 ubuntu 运行，失败不影响发行包。
+DDD/MVC 的成功场景全部逐字节一致（含 Maven Wrapper `maven-wrapper.jar` 的内容与权限），拒绝场景两侧一致拒绝且无产物。每次变更生成器、模板来源或平台目录后应重新运行；CI 里它是 `.github/workflows/artifacts.yml` 中独立的 `scaffold-parity` job，只在 ubuntu 运行，失败不影响构建 job 的发行包。
