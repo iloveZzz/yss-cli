@@ -18,18 +18,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
 
-// standard 路线：模板 4.5.0 起 Bundle 自带 standard 策略；旧 Bundle 没有时在实例副本里注入同一策略块。
-// "未启用"用例在另一份副本里删除策略块，证明 standard 记录回落到 governed。
-
-const standardPolicy = `    standard:
-      version: 1
-      impacts:
-        - behavior-change
-        - new-capability
-      decision:
-        id: standard-change-approved
-        actor_kind: human
-`
+// 当前受信 Bundle 内的 standard 策略支持标准路由；对受管政策的本地修改须拒绝。
 
 var standardPolicyBlock = regexp.MustCompile(`(?m)^    standard:\n(?:      .*\n|\n)*`)
 
@@ -80,21 +69,17 @@ func (v *triageVariant) fixture(t *testing.T, name string, rewrite func(string) 
 
 func standardFixtureFor(t *testing.T) routeFixture {
 	return standardEnabled.fixture(t, "standard", func(raw string) string {
-		if standardPolicyBlock.MatchString(raw) {
-			return raw
-		}
-		text := strings.Replace(raw, "  delivery_path:\n    version: 1\n", "  delivery_path:\n    version: 1\n"+standardPolicy, 1)
-		if text == raw {
+		if !standardPolicyBlock.MatchString(raw) {
 			return ""
 		}
-		return text
+		return raw
 	})
 }
 
 func standardDisabledFixtureFor(t *testing.T) routeFixture {
 	return standardDisabled.fixture(t, "standard-disabled", func(raw string) string {
 		if !standardPolicyBlock.MatchString(raw) {
-			return raw
+			return "" // fixture must actually remove the installed policy
 		}
 		return standardPolicyBlock.ReplaceAllString(raw, "")
 	})
@@ -203,7 +188,7 @@ func TestStandardEscalationBlocksVerifyDaily(t *testing.T) {
 	}
 }
 
-func TestStandardDisabledFallsBackToGoverned(t *testing.T) {
+func TestStandardPolicyRemovalRejectsRoutingWithoutWriting(t *testing.T) {
 	f := standardDisabledFixtureFor(t)
 	for _, tc := range []struct {
 		id     string
@@ -212,9 +197,27 @@ func TestStandardDisabledFallsBackToGoverned(t *testing.T) {
 		{"STD-OFF-1", standardEvidence(t, f, "STD-OFF-1")},
 		{"STD-OFF-2", func(e map[string]any) { e["scope"].(map[string]any)["impacts"] = []any{"behavior-change"} }},
 	} {
-		code, path, env := route(t, f, writeTask(t, f, tc.id, tc.mutate))
-		if code != 0 || path != "governed" {
-			t.Errorf("%s: 未启用 standard 时必须走 governed：退出码=%d 路径=%q；%s", tc.id, code, path, summary(env))
+		ref := writeTask(t, f, tc.id, tc.mutate)
+		policy := filepath.Join(f.project, ".template-spec/process/orchestration/entry/request-triage.yaml")
+		task := filepath.Join(f.project, ref)
+		files := []string{policy, task, filepath.Join(f.project, ".yss.json")}
+		before := map[string][]byte{}
+		for _, file := range files {
+			raw, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before[file] = raw
+		}
+		code, path, env := route(t, f, ref)
+		if code == 0 || env["code"] != "GOVERNANCE_POLICY" || !strings.Contains(summary(env), "request-triage.yaml") {
+			t.Errorf("%s: 修改受管政策必须拒绝路由：退出码=%d 路径=%q；%s", tc.id, code, path, summary(env))
+		}
+		for _, file := range files {
+			raw, err := os.ReadFile(file)
+			if err != nil || string(raw) != string(before[file]) {
+				t.Fatalf("拒绝后文件变化 %s: %v", file, err)
+			}
 		}
 	}
 }

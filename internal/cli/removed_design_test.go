@@ -87,14 +87,13 @@ func TestRemovedDesignSemanticCommandsRejected(t *testing.T) {
 	}
 }
 
-func TestRemovedDesignHistorySemanticCommandsRejected(t *testing.T) {
+func TestLegacyDesignHistoryRejectedBeforeSemanticEvaluation(t *testing.T) {
 	for _, badDigest := range []bool{false, true} {
 		root := t.TempDir()
 		raw := []byte(`{"schema_version":1,"kind":"governance-original-source","source_profile":"design","files":{}}`)
 		digest := safefs.Digest(raw)
-		want := "Design Profile 已移除"
 		if badDigest {
-			digest, want = strings.Repeat("e", 64), "HISTORY_SOURCE_DRIFT"
+			digest = strings.Repeat("e", 64)
 		}
 		ref := ".template-spec/compatibility/governance-history/" + digest + "/manifest.json"
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, ref)), 0755); err != nil {
@@ -116,8 +115,19 @@ func TestRemovedDesignHistorySemanticCommandsRejected(t *testing.T) {
 			{"lifecycle", "verify", "--checkpoint", "checkpoint.json"},
 		} {
 			code, out, stderr := captureCommand(t, context.Background(), append(args, "--root", root, "--json"), false)
-			if code == 0 || !strings.Contains(out+stderr, want) {
-				t.Fatalf("semantic history check: %v %s %s", args, out, stderr)
+			if code == 0 || (commandEnvelope(t, out)["code"] != legacyHistoryRejectionCode || !strings.Contains(out+stderr, legacyHistoryRejectionMessage)) {
+				t.Fatalf("legacy source must be rejected before history evaluation: %v %s %s", args, out, stderr)
+			}
+		}
+		for file, want := range map[string][]byte{".yss.json": metadata, ref: raw} {
+			name := filepath.Join(root, file)
+			got, err := os.ReadFile(name)
+			if err != nil || string(got) != string(want) {
+				t.Fatalf("legacy source bytes changed: %s: %v", file, err)
+			}
+			info, err := os.Stat(name)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatalf("legacy source permissions changed: %s: %v", file, err)
 			}
 		}
 	}

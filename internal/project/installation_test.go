@@ -220,3 +220,11 @@ func TestLegacyMigrateReplayDoesNotRequestInstallationChange(t *testing.T) {
 		t.Fatal("explicit migration lost its target")
 	}
 }
+
+func TestRetiredGovernancePlanCannotApply(t *testing.T) {
+	p := &Plan{SchemaVersion: 4, Command: "migrate", ReadyToApply: true, GovernanceMigration: &GovernanceMigration{}}
+	p.Digest = planDigest(p)
+	if err := PreflightApplyContext(context.Background(), p); err == nil || !strings.Contains(err.Error(), "旧治理迁移计划已停止") {
+		t.Fatalf("已退役迁移计划必须在写入前拒绝: %v", err)
+	}
+}

@@ -20,7 +20,9 @@ func TestSpecStageGatesRequireMatchingCapability(t *testing.T) {
 	writePolicyFixture(t, root, ".template-spec/process/lifecycle-registry.yaml", registry)
 	writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
 	current := NewSemanticSession(context.Background(), root, nil)
-	if err := current.Authorities(); err != nil {
+	current.Report.Profile = "spec"
+	current.Registry = registry
+	if err := current.loadGovernancePolicy(map[string]any{"schema_version": 2, "repository_mode": "project-instance"}, profile); err != nil {
 		t.Fatal(err)
 	}
 	if !current.StageGatesEnabled() {
@@ -44,7 +46,9 @@ func TestSpecStageGatesRequireMatchingCapability(t *testing.T) {
 			writePolicyFixture(t, root, ".template-spec/process/harness-profile.yaml", prof)
 			writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", candidate)
 			s := NewSemanticSession(context.Background(), root, nil)
-			if err := s.Authorities(); err == nil {
+			s.Report.Profile = "spec"
+			s.Registry = registry
+			if err := s.loadGovernancePolicy(map[string]any{"schema_version": 2, "repository_mode": "project-instance"}, prof); err == nil {
 				t.Fatal("incomplete stage policy was accepted")
 			}
 		})

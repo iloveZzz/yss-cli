@@ -4,7 +4,7 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 
 ## 私有归档 v2
 
-`internal/bundle/assets/bundles.json.gz` 是唯一嵌入资产，但不进入版本库（`.gitignore` 忽略）。版本库只提交它的 SHA-256 摘要 `internal/bundle/assets/bundles.json.gz.sha256`；归档由 `node tools/fetch-bundle.mjs` 按 `docs/source-lock.json` 的固定提交生成并校验摘要，生成结果逐字节可重现。`go:embed` 位于 `internal/bundle/embed_archive.go`；带 `yss_nobundle` tag 时改用空占位（`embed_archive_stub.go`），仅供 `tools/bundle` 在归档尚不存在时自举编译，不得用于发行。`artifacts.mjs check` 重建归档并与摘要比对，漂移即失败。解压后为：
+CLI 嵌入当前 `bundles.json.gz` 和基线差量 `baseline-delta.json.gz`，用于对照当前来源和受信 Template 5.0 基线。当前归档及独立的 `baseline-5.0.0.json.gz` 不进入版本库，仅提交各自的 SHA-256 摘要。`node tools/fetch-bundle.mjs` 根据 `docs/source-lock.json` 和 `docs/template-5.0.0-source-lock.json` 生成并核验两个归档，再生成差量；重建基线还需要本地存在固定 CLI 3.0 提交 `d67bc777198174a92cc3f58e4f26ce9f0daef2d9`，缺失时明确失败。运行时利用当前对象和差量重建完整基线，并核验固定的原始字节摘要。`go:embed` 位于 `internal/bundle/embed_archive.go`；`yss_nobundle` 使用空占位，仅供自举或不依赖 Bundle 的测试，不得用于发行。解压后为：
 
 ```json
 {
@@ -31,7 +31,7 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 在源码仓运行：
 
 ```sh
-go run ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
+node tools/fetch-bundle.mjs --source-root /absolute/template-source
 go run ./tools/package /absolute/new-package-directory
 ```
 

@@ -64,19 +64,12 @@ func TestAuthoritiesRejectRemovedDesignIdentity(t *testing.T) {
 					}
 				}
 				err := s.Authorities()
-				switch scenario {
-				case "spec", "backend":
-					if err != nil {
-						t.Fatal("supported original source rejected", err)
-					}
-				case "bad-history-digest":
-					if SemanticCode(err) != "HISTORY_SOURCE_DRIFT" {
-						t.Fatal("history digest must be checked before source profile", err)
-					}
-				default:
+				if strings.HasPrefix(scenario, ".yss-") {
 					if err == nil || !strings.Contains(err.Error(), "Design Profile 已移除") {
 						t.Fatal("semantic authority accepted removed Design identity", err)
 					}
+				} else if SemanticCode(err) != "BASELINE" {
+					t.Fatal("unsupported legacy source must be rejected before historical policy consumption", err)
 				}
 			})
 		}

@@ -47,12 +47,13 @@ func TestMigrationRejectsUnknownSource(t *testing.T) {
 }
 
 func TestMigrationDoesNotRewriteHistory(t *testing.T) {
-	root, _ := writeInstallationFixture(t)
+	b := trustedBundle(t, "backend")
+	root, _ := writeInstallationBundleFixture(t, b)
 	history := filepath.Join(root, "history.txt")
 	if err := os.WriteFile(history, []byte("original decision"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: installationFixture(), Installation: InstallationGoverned})
+	p, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -208,8 +208,12 @@ func claimedAsset(m map[string]any) bool {
 	return false
 }
 
-func nativeProjectCheck(root string) (map[string]any, error) {
-	v := kernel.NewView(root)
+func nativeProjectCheck(runCtx context.Context, root string) (map[string]any, error) {
+	s := kernel.NewSemanticSession(runCtx, root, nil)
+	if err := s.Authorities(); err != nil {
+		return nil, err
+	}
+	v := s.V
 	if err := pendingOldTransaction(v); err != nil {
 		return nil, err
 	}
@@ -281,7 +285,7 @@ func nativeProjectCheck(root string) (map[string]any, error) {
 			if kernel.Text(m["repository_mode"]) != "project-instance" {
 				return nil, domain.Fail("CI_IDENTITY", "checkpoint 身份与项目不一致: "+ref)
 			}
-			stage, err := kernel.CheckStage(v, m, ref)
+			stage, err := kernel.CheckStage(v, m, ref, s)
 			if err != nil {
 				return nil, err
 			}
@@ -349,13 +353,17 @@ func completeWorkflow(branch, source string) []byte {
 	return []byte(fmt.Sprintf("# Managed by Go project-ci explicit plan/apply. Scope: complete governance (same as default project-ci check).\nname: YSS governance\non:\n  pull_request:\n  push:\n    branches: [%q]\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  complete-governance:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          persist-credentials: false\n      - uses: actions/setup-go@v5\n        with:\n          go-version-file: %s/go.mod\n          cache: false\n      - name: Check complete governance\n        shell: bash\n        run: go -C %s run ./cmd/yss project-ci check --root \"$GITHUB_WORKSPACE\" --runtime-store off --json > \"$RUNNER_TEMP/yss-governance.json\"\n      - uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: yss-governance\n          path: ${{ runner.temp }}/yss-governance.json\n          if-no-files-found: error\n", branch, source, source))
 }
 
-func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
+func buildCIPlan(ctx context.Context, root string, args map[string]string) (WritePlan, error) {
 	scope := kernel.First(args["scope"], ciScopeComplete)
 	plan := WritePlan{SchemaVersion: 1, ProtocolVersion: 1, Kind: ciPlanKinds[scope], Root: root, Action: "install", Scope: scope, Options: map[string]string{}, Observed: map[string]domain.Descriptor{}, Operations: []transaction.Operation{}}
 	if plan.Kind == "" {
 		return plan, domain.Fail("ARGUMENT", "--scope 只支持 native-go；省略时安装完整治理")
 	}
-	v := kernel.NewView(root)
+	s := kernel.NewSemanticSession(ctx, root, nil)
+	if err := s.Authorities(); err != nil {
+		return plan, err
+	}
+	v := s.V
 	if err := pendingOldTransaction(v); err != nil {
 		return plan, err
 	}
@@ -467,7 +475,12 @@ func buildCIPlan(root string, args map[string]string) (WritePlan, error) {
 	if err = v.Set(nativeCIReceiptRef, receipt); err != nil {
 		return plan, err
 	}
-	plan.Observed = v.Observed
+	for ref, descriptor := range v.Observed {
+		// The transaction owns its journal and pending exclusion under its lock.
+		if ref != ".yss/transactions" && !strings.HasPrefix(ref, ".yss/transactions/") {
+			plan.Observed[ref] = descriptor
+		}
+	}
 	plan.Operations, err = v.Ops()
 	if err != nil {
 		return plan, err
@@ -490,10 +503,10 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		}
 	}
 	if action == "verify" || action == "check" {
-		return nativeProjectCheck(root)
+		return nativeProjectCheck(ctx, root)
 	}
 	if action == "transition" {
-		return nativeStageTransition(root, args)
+		return nativeStageTransition(ctx, root, args)
 	}
 	if action != "install" && action != "plan" && action != "apply" {
 		return nil, domain.Fail("UNPORTED", "不支持的 project-ci 动作: "+action)
@@ -522,7 +535,7 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		if err != nil || digest != plan.PlanDigest {
 			return nil, domain.Fail("PLAN", "CI 计划摘要不一致")
 		}
-		fresh, err := buildCIPlan(root, plan.Options)
+		fresh, err := buildCIPlan(ctx, root, plan.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -535,12 +548,16 @@ func projectCIRun(ctx context.Context, action, root string, args map[string]stri
 		}
 		return map[string]any{"status": tx.Status, "transaction": tx, "scope": plan.Scope, "full_project_governance": plan.Scope == ciScopeComplete, "remote_changed": false, "verification_status": "not-executed"}, nil
 	}
-	return buildCIPlan(root, args)
+	return buildCIPlan(ctx, root, args)
 }
 
-func nativeStageTransition(root string, args map[string]string) (any, error) {
+func nativeStageTransition(ctx context.Context, root string, args map[string]string) (any, error) {
 	ref := kernel.First(args["checkpoint"], args["file"], args["arg0"])
-	v := kernel.NewView(root)
+	s := kernel.NewSemanticSession(ctx, root, args)
+	if err := s.Authorities(); err != nil {
+		return nil, err
+	}
+	v := s.V
 	if err := pendingOldTransaction(v); err != nil {
 		return nil, err
 	}
@@ -548,7 +565,7 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	result, err := kernel.CheckStage(v, cp, ref)
+	result, err := kernel.CheckStage(v, cp, ref, s)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +586,7 @@ func nativeStageTransition(root string, args map[string]string) (any, error) {
 	if current == "" || next == "" {
 		return nil, domain.Fail("TRACKING_TRANSITION", "需要明确当前/下一工作单元，不能推断阶段")
 	}
-	r, err := v.Document(".template-spec/process/lifecycle-registry.yaml")
+	r, err := s.Doc(".template-spec/process/lifecycle-registry.yaml")
 	if err != nil {
 		return nil, err
 	}

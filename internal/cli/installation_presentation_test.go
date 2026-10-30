@@ -64,6 +64,10 @@ func TestInstallationHelpContract(t *testing.T) {
 			}
 		}
 	}
+	migrate, err := renderHelp([]string{"migrate"})
+	if err != nil || !strings.Contains(migrate, "--installation") || !strings.Contains(migrate, "旧治理迁移已停止") || strings.Contains(migrate, "metadata3") {
+		t.Fatalf("迁移帮助必须只说明受支持的安装转换: %s %v", migrate, err)
+	}
 
 	text, err := profileTutorial("spec")
 	if err != nil {

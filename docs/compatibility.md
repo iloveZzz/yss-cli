@@ -2,13 +2,13 @@
 
 呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
 
-程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前 CLI 的固定模板使用 Bundle5 / metadata5，项目保存计划为 v4，仅支持 Spec/Backend。新建和接管默认 `governed`，独立技能显式选择 `--installation skills`；治理安装采用 identity2 / Profile3 / governance2。旧项目保存计划必须重新生成。SourceLock5 构建两个 Profile；历史 SourceLock2/3/4 仅描述原版本来源，不作为当前生产输入。旧统一 metadata3 / identity1 实例可读，task/stage 新写入需要显式 `migrate`；Design、Frontend、旧 dev 及退役产品设计插件输入明确拒绝，不提供转为 Spec 的迁移。旧家族 metadata、更早或未知格式不猜测迁移，文件保持原样。
+程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前仅支持 Spec/Backend，实例必须能与当前内嵌 Bundle 或受信 Template 5.0 基线逐项对照；版本号或自报摘要不足以证明来源。旧产品及无法证明来源的实例明确拒绝并保留文件，历史中断事务应使用匹配的原版本工具。创建实例的 CLI 版本或 Schema 号单独不能决定模板来源。新建和接管默认 `governed`，独立技能显式选择 `--installation skills`；项目保存计划须符合当前合同。
 
 历史离线帮助中旧 Design 转 Spec 的提示不能扩大本页声明的迁移范围；当前 Design 输入不受支持。新建和接管默认安装 governed，已有 skills 实例仍须显式迁移才能启用治理。
 
 新版 Bundle 的 `skills` 安装包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖，这些文件本身不启用治理身份或阶段能力；已有实例经审阅并应用 `sync` 计划补齐受管资源。
 
-`attach` 仅接管没有 YSS metadata 的已有工程；原生实例返回 `SYNC_REQUIRED`，旧 CLI 实例返回 `MIGRATION_REQUIRED`。`attach`、`sync`、`migrate --plan` 共用完整资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
+`attach` 仅接管没有 YSS metadata 的已有工程；受支持的原生实例使用 `sync`，已识别旧实例不当作普通工程接管。`attach`、`sync` 和安装方式转换共用资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
 
 迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要，可再绑定 Bundle 摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本只读取 metadata 中记录的语义化 `templateVersion`；缺失或不是合法语义化版本时，版本区间规则不适用，计划的 `notices` 如实报告，不从提交或旧版本对照表推测。精确来源可选 `from.templateVersion`，接受语义化版本或与 `templateCommit` 对应的 `git:<完整提交>`，并额外核对实例登记值；静态重叠判断中，语义化版本按区间判断，git 版本不匹配版本区间，未声明版本的精确来源仍按可能重叠处理。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。处于活动技能树内的旧合同仍会因新来源锁不兼容而阻断升级，不能把保留当作放行。`--review-out` 的 `conflicts.json` 一并列出这些删除项。
 
@@ -48,18 +48,13 @@ Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索�
 | 组合 | 当前行为 |
 | --- | --- |
 | Bundle5 + metadata5 + 项目保存计划 v4 | 当前新建 Spec/Backend；默认 governed，显式 skills 安装独立技能；治理内按适用检查与真实自检执行，独立复核取决于当前要求 |
-| Bundle4 + metadata4 + identity2 + Profile3 + governance2 | 历史治理安装；sync 保持原安装方式，转换安装方式须显式 migrate |
-| metadata3 + identity1 + 原 Profile/政策 | 原语义读取；显式 migrate 保存计划、审阅冲突后事务应用，不直接创建旧 task/stage |
-| Design4.5 multipart container2 | 原 role policy；仅确切旧 Design 身份且无 governance_versions 时识别，不等于新治理2 |
-| 迁移后的旧记录 | --history 显式选择 metadata 绑定的完整原快照；当前读取不回退、不重写批准 |
+| 可与内嵌受信 Bundle 对照的 Template 5.x | 以来源及受管策略实际字节判断；安装方式转换须显式执行 |
+| 旧产品或无法对照的来源 | 不作为当前实例迁移或写入；保留文件，使用匹配原版本工具诊断 |
 | 新政策 Handoff5 / package2 | 显式 context2、approval3 和任务来源快照；重算 Git 对象、基线、候选与执行事实，源仓不可用时仍只读验包；目标先对账，不授予实现资格 |
-| 原政策 Handoff4 / package1 / Receipt2 | 按包内原签署政策读取；实际 Receipt2 在显式迁移后保持原字节并重读 |
-| 历史 task1 / task2 | task1 的 --history 保留原模板维护限制；task2 只读分诊按原政策核验，issued 不等于已执行或已完成 |
-| 缺失或漂移的原政策快照 | 明确拒绝 --history，不回退到当前政策或当前批准资格 |
-| 已完成治理迁移的 downgrade | DOWNGRADE_UNSUPPORTED；原件和新记录保留，未完成迁移使用原事务 recover |
+| 缺失或漂移的原政策快照 | 明确拒绝，不回退到当前政策或当前批准资格 |
 | 旧 CLI + 新身份 | 拒绝不支持的 schema/字段；以实际退出和文件未变作为错配证据 |
 
-新实例不分发岗位/数字人注册表；真实用户决定、当前合同范围、原始摘要、实际执行和未知外部规则边界继续生效。旧 SourceLock、原始政策和审批字节只作为原协议输入，不用于新资格。程序升级、项目迁移及发布分别授权。
+新实例不分发岗位/数字人注册表；真实用户决定、当前合同范围、原始摘要、实际执行和未知外部规则边界继续生效。旧 SourceLock、原始政策和审批字节不用于取得新资格。程序升级、项目迁移及发布分别授权。
 
 ## 独立技能安装（新安装合同）
 
@@ -70,7 +65,7 @@ yss init --root /path/to/new-project --profile spec --installation skills --plan
 yss init --root /path/to/new-project --apply --plan-file /outside/project/init-plan.json --json
 ```
 
-`init`、`attach` 可选择安装方式，`migrate --installation skills|governed` 显式转换已有 metadata4/5 实例；未给选择的 migrate 保留旧治理迁移语义。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
+`init`、`attach` 可选择安装方式，受信来源的实例可用 `migrate --installation skills|governed` 显式转换安装方式。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
 
 安装诊断分别呈现文件对齐、已安装技能完整性和工作流验收。`doctor.readiness.skills` 只核验当前 Spec metadata5 已声明的技能及运行时，`workflow` 保持 `not-evaluated`；其他 Profile / 历史代际不新增技能核验义务。`skills resolve` 按 `result.status` 判断 ready / missing / blocked，退出 0 只表示查询完成；Claude 与 WorkBuddy 的投影检查不证明宿主已发现技能。
 

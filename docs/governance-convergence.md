@@ -271,7 +271,7 @@
 
 ### 防回归与维护
 
-- `tools/check-no-pinned-digests.mjs`：静态护栏，非测试 Go 代码里出现 64 位十六进制字面量即失败，已接入 CI 的 gofmt/vet 步骤（<1 秒）。以后新增 Node 镜像不得再用固定字节绑定，必须写语义校验。
+- `tools/check-no-pinned-digests.mjs`：静态护栏，非测试 Go 代码里出现 64 位十六进制字面量即失败，已接入 CI 的 gofmt/vet 步骤（<1 秒）。以后新增 Node 镜像不得再用固定字节绑定，必须写语义校验。CI 仅对 `internal/bundle/baseline_delta.go` 显式使用 `--allow`：该文件的摘要固定受信 Template 5.0 基线的完整重建字节，用于拒绝篡改，不是 Node 规则字节绑定；其余路径仍受护栏检查。
 - 对拍工具（仓外，位于侧会话笔记目录 `diff-harness-batch2/`）分两档，按触发条件运行，不属于日常流程：
   - 快档 `quick.sh`：212 个代表用例，约 100 秒。改动 `internal/governance/reading/*.go` 或升级模板固定提交后运行；结果不得出现 `GO-LOOSER`、`BYTE-DIFF`。
   - 全档 `gen.mjs`（可 `--only A|B|C --skip N --limit N` 分批）：约 4000 个用例，只在渲染规则大改时运行，单批不超过 5 分钟。

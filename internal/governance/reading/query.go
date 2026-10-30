@@ -7,7 +7,6 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -35,39 +34,12 @@ type readingSession struct {
 }
 
 func (r *readingSession) bytes(ref string) ([]byte, error) {
-	if err := r.s.Guard(); err != nil {
+	// Reading references have historically been portable project-relative paths.
+	// Check their spelling before the semantic view resolves any aliases.
+	if err := safefs.ValidateRef(ref); err != nil {
 		return nil, err
 	}
-	p, err := safefs.Path(r.s.Root, ref)
-	if err != nil {
-		return nil, err
-	}
-	ref = filepath.ToSlash(filepath.Clean(ref))
-	if b, ok := r.s.V.Overlay[ref]; ok {
-		return b, nil
-	}
-	before, err := os.Lstat(p)
-	if err != nil {
-		return nil, err
-	}
-	if !before.Mode().IsRegular() {
-		return nil, domain.Fail("INPUT", "输入必须为普通文件: "+ref)
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return nil, err
-	}
-	after, err := os.Lstat(p)
-	if err != nil || !kernel.SameObservedIdentity(before, after) {
-		return nil, domain.Fail("INPUT_DRIFT", "读取期间输入变化: "+ref)
-	}
-	r.s.V.Observed[ref] = domain.Descriptor{Type: "file", Digest: safefs.Digest(b), Mode: uint32(before.Mode().Perm())}
-	if r.s.V.Identities == nil {
-		r.s.V.Identities = map[string]os.FileInfo{}
-	}
-	r.s.V.Identities[ref] = before
-	r.s.V.Overlay[ref] = b
-	return b, nil
+	return r.s.Bytes(ref)
 }
 
 func (r *readingSession) doc(ref string) (map[string]any, error) {
@@ -113,27 +85,6 @@ func (r *readingSession) binding(ref string, id, version any) map[string]any {
 	return map[string]any{"ref": ref, "id": id, "version": version, "digest": "sha256:" + r.s.V.Observed[filepath.ToSlash(filepath.Clean(ref))].Digest}
 }
 
-func (r *readingSession) validate(ref string, value any) error {
-	p, err := safefs.Path(r.s.Root, ref)
-	if err != nil {
-		return err
-	}
-	issues, err := schema.ValidateValueWithReader(p, value, func(file string) ([]byte, error) {
-		local, e := filepath.Rel(r.s.Root, file)
-		if e != nil {
-			return nil, e
-		}
-		return r.bytes(filepath.ToSlash(local))
-	})
-	if err != nil {
-		return err
-	}
-	if len(issues) > 0 {
-		return domain.Fail("SCHEMA", fmt.Sprint(issues))
-	}
-	return nil
-}
-
 func Run(ctx context.Context, group, action, root string, args map[string]string, sources Sources) (any, error) {
 	r := &readingSession{sources: sources, s: kernel.NewSemanticSession(ctx, root, args), docs: map[string]map[string]any{}}
 	mode := args["view"]
@@ -155,7 +106,7 @@ func Run(ctx context.Context, group, action, root string, args map[string]string
 	if !ok || (n != 1 && n != 2) || (kernel.Text(identity["repository_mode"]) != "project-instance" && !(group == "context" && kernel.Text(identity["repository_mode"]) == "template-source")) {
 		return nil, domain.Fail("IDENTITY", "阅读入口需要合法 schema v1/v2 工程身份")
 	}
-	if n == 2 {
+	if kernel.Text(identity["repository_mode"]) == "project-instance" {
 		if err = r.s.Authorities(); err != nil {
 			return nil, err
 		}
@@ -391,7 +342,7 @@ func (r *readingSession) slice(args map[string]string, mode string) (map[string]
 		return nil, nil, domain.Fail("CONTRACT_SCHEMA", "Slice4需要当前role-independent政策")
 	}
 	if n == 3 || n == 4 {
-		err = r.validate(fmt.Sprintf(".template-spec/process/schemas/slice-implementation-contract-v%d.schema.json", n), raw)
+		err = r.s.ValidateSchema(fmt.Sprintf(".template-spec/process/schemas/slice-implementation-contract-v%d.schema.json", n), raw)
 	} else {
 		err = r.sliceV2(raw)
 	}
