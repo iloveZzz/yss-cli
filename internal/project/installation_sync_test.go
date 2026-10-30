@@ -413,3 +413,63 @@ func TestSkillsSyncProtectsChangedReference(t *testing.T) {
 		t.Fatal("planning modified user edit")
 	}
 }
+
+func TestSkillsSyncRemovedReferenceWithoutMigrationPreservesManagedFile(t *testing.T) {
+	old := standaloneFixture(t)
+	ref := ".template-source/process/retained-reference.md"
+	old.Files[ref] = old.Files[".agents/skills/implement/references/guide.md"]
+	item := old.Installations["skills"]
+	item.SkillReferences = map[string][]string{"implement": {ref}}
+	item.Initial[ref] = old.Files[ref]
+	old.Installations["skills"] = item
+	root, _ := writeInstallationBundleFixture(t, old)
+	file := filepath.Join(root, ref)
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, ok := identity.Native.Managed[ref]
+	if !ok {
+		t.Fatal("fixture reference was not managed")
+	}
+	target := standaloneFixture(t)
+	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.ReadyToApply {
+		t.Fatalf("unexpected blockers: %+v", p.Blockers)
+	}
+	for _, change := range p.Changes {
+		if change.Path == ref {
+			t.Fatalf("declaration shrink produced a file change: %+v", change)
+		}
+	}
+	if err = applyStandaloneFixture(t, p, target); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(file)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("reference changed: %q %v", after, err)
+	}
+	identity, err = Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(identity.Native.Managed[ref], managed) {
+		t.Fatalf("protection record changed: %+v", identity.Native.Managed[ref])
+	}
+	fresh, err := buildCore(t.TempDir(), "spec", "init", nil, nil, nil, PlanningOptions{target: target, Installation: InstallationSkills})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range fresh.Changes {
+		if change.Path == ref {
+			t.Fatal("fresh installation includes removed reference")
+		}
+	}
+}

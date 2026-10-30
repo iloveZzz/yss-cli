@@ -123,3 +123,22 @@ func TestResolveClaudeProjection(t *testing.T) {
 		})
 	}
 }
+
+func TestRetiredSkillResolveV2WithoutJavaScript(t *testing.T) {
+	id, b := skillsOnlyProject(t)
+	raw, err := b.Files[skillRegistryRef].Render(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := strings.Replace(string(raw), "maturity: supported}", "maturity: supported, aliases: [research]}", 1) + retirementV2
+	b.Files[skillRegistryRef] = retirementFile(registry)
+	delete(b.Files, retirementJavaScript)
+	before := recoveryTree(t, id.Root)
+	got, err := ResolveSkills(id, b, []string{"research"}, "workbuddy", "")
+	if err != nil || got.Status != "ready" || !reflect.DeepEqual(got.CanonicalIDs, []string{"probe"}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if !reflect.DeepEqual(before, recoveryTree(t, id.Root)) {
+		t.Fatal("resolve mutated project")
+	}
+}

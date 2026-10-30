@@ -33,7 +33,7 @@ Profile 职责:
   · 澄清业务、查证事实与统一词汇
   · 非技术规格及按风险选择产品设计
   · 按实际授权和审批发布到所选 Issue tracker，供下游引用
-  固定模板：89b06397c89206ed0014fa995a6de0e14f1bc61e；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
+  固定模板：1e49127842c358caf552af8ebec58f438a35c5a6；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
   Backend 日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   非技术 Spec 工作流：yss help tutorial spec
@@ -173,7 +173,7 @@ GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https:/
 
 ```text
 日常交付（Backend，依实例当前政策；新 Spec 不使用 lifecycle daily）
-来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
+来源摘要：template=1e49127842c358caf552af8ebec58f438a35c5a6；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/harness-orchestrator/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -236,7 +236,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=1e49127842c358caf552af8ebec58f438a35c5a6；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -3225,7 +3225,7 @@ Profile 职责:
   · 澄清业务、查证事实与统一词汇
   · 非技术规格及按风险选择产品设计
   · 按实际授权和审批发布到所选 Issue tracker，供下游引用
-  固定模板：89b06397c89206ed0014fa995a6de0e14f1bc61e；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
+  固定模板：1e49127842c358caf552af8ebec58f438a35c5a6；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
   Backend 日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
   非技术 Spec 工作流：yss help tutorial spec
@@ -3719,7 +3719,7 @@ GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https:/
 
 
 日常交付（Backend，依实例当前政策；新 Spec 不使用 lifecycle daily）
-来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
+来源摘要：template=1e49127842c358caf552af8ebec58f438a35c5a6；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
 输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/harness-orchestrator/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
@@ -3774,7 +3774,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=1e49127842c358caf552af8ebec58f438a35c5a6；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
