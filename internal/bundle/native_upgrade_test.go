@@ -48,6 +48,9 @@ for(const [key,value] of [['schema_version',3],['plugin','unknown'],['profile','
  writeFileSync(bindingRef,JSON.stringify({...binding,[key]:value}));
  check({},false);
 }
+writeFileSync(bindingRef,JSON.stringify({...binding,schema_version:3,profile:'backend'}));
+check({profile:'backend',profileId:'harness.backend-delivery'},true);
+check({},false);
 rmSync(bindingRef);
 const wbRecord={baseline:{type:'file',digest:hash,mode:420},lastApplied:{type:'file',digest:hash,mode:420},ownership:'managed'};
 const wbMetadata={distribution:{runtimes:['workbuddy'],installedSkills:['a']},managedFiles:{'.agents/skills/a/SKILL.md':wbRecord,'.workbuddy/skills/a/SKILL.md':wbRecord}};

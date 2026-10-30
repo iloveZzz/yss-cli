@@ -283,6 +283,9 @@ func guidanceTargetInput(ctx context.Context, source *kernel.SemanticSession, pr
 }
 
 func guidanceTargetInputSession(ctx context.Context, source *kernel.SemanticSession, profile, cpRef string, cp map[string]any, targetRoot, target, engineering string, targetSession *kernel.SemanticSession) (string, string, []string) {
+	if profile == "spec" && target == "backend" {
+		return "blocked", "legacy-strategic-handoff-unsupported: 外部机器验收已退役，使用手动 PR/MR 交接", nil
+	}
 	if engineering == "needs-attention" {
 		return "blocked", "目标身份或未完成事务需要处理后才能核验输入", nil
 	}
