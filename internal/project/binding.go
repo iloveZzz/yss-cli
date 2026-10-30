@@ -59,8 +59,11 @@ func (b *Binding) validate(profile, command string) ([]byte, error) {
 	if b.LegacyBaselinePolicy != "" && (command != "migrate" || profile != "spec") {
 		return nil, domain.Fail("LEGACY_POLICY", "historical baseline policies only support explicit legacy plugin migration")
 	}
-	if b.Path != ".yss-backend-plugin.json" || profile != "spec" {
+	if b.Path != ".yss-backend-plugin.json" || (profile != "spec" && profile != "backend") {
 		return nil, domain.Fail("BINDING", "binding path does not match plugin profile")
+	}
+	if profile == "backend" && len(b.Guards) != 0 {
+		return nil, domain.Fail("UNPORTED", "legacy Spec plugin binding cannot migrate to Backend")
 	}
 	data, e := base64.StdEncoding.DecodeString(b.Data)
 	if e != nil || len(data) > 2*1024*1024 || !json.Valid(data) {
@@ -85,6 +88,18 @@ func addBinding(p *Plan, b *Binding) error {
 	data, e := b.validate(p.Profile, p.Command)
 	if e != nil {
 		return e
+	}
+	if p.Profile == "backend" {
+		for _, ref := range []string{".yss-plugin.json", ".yss-execution-scope.yaml"} {
+			observed, err := safefs.Describe(p.Root, ref)
+			if err != nil {
+				return err
+			}
+			p.Inputs[ref] = observed
+			if observed.Type != "missing" {
+				return domain.Fail("UNPORTED", "legacy Spec plugin markers cannot migrate to Backend: "+ref)
+			}
+		}
 	}
 
 	var payload map[string]any
@@ -111,6 +126,20 @@ func addBinding(p *Plan, b *Binding) error {
 	} else if before.Type != "file" || b.PreviousDigest == "" || before.Digest != b.PreviousDigest {
 		return domain.Fail("BINDING_CONFLICT", "existing binding requires its explicit matching previousDigest")
 	}
+	if before.Type == "file" {
+		previous, err := load(p.Root, b.Path)
+		if err != nil {
+			return err
+		}
+		old, ok := object(previous)
+		version := 2
+		if p.Profile == "backend" {
+			version = 3
+		}
+		if !ok || old["profile"] != p.Profile || old["plugin"] != "yss-backend-delivery" || number(old["schema_version"]) != version {
+			return domain.Fail("UNPORTED", "legacy plugin binding cannot change Profile")
+		}
+	}
 	for ref, digest := range b.Guards {
 		if ref != ".yss-plugin.json" || !digestPattern.MatchString(digest) {
 			return domain.Fail("BINDING", "unsupported legacy binding guard")
@@ -127,36 +156,42 @@ func addBinding(p *Plan, b *Binding) error {
 	if b.Path == ".yss-backend-plugin.json" {
 		var payload map[string]any
 		_ = json.Unmarshal(data, &payload)
-		if payload["execution_scope"] != "plan-to-backend" || payload["plugin"] != "yss-backend-delivery" || number(payload["schema_version"]) != 2 {
-			return domain.Fail("BINDING", "backend plugin binding must retain plan-to-backend scope")
+		version, scope := 2, "plan-to-backend"
+		if p.Profile == "backend" {
+			version, scope = 3, "backend-profile"
 		}
-		scopeRef := ".yss-execution-scope.yaml"
-		scopeBytes := []byte("schema_version: 1\nscope_id: plan-to-backend\n")
-		scopeBefore, e := safefs.Describe(p.Root, scopeRef)
-		if e != nil {
-			return e
+		if payload["execution_scope"] != scope || payload["plugin"] != "yss-backend-delivery" || number(payload["schema_version"]) != version || (p.Profile == "backend" && (payload["execution_owner"] != "project-local-harness-orchestrator" || payload["business_execution_ready"] != false)) {
+			return domain.Fail("BINDING", "backend plugin binding does not match its Profile")
 		}
-		p.Inputs[scopeRef] = scopeBefore
-		if scopeBefore.Type != "missing" {
-			existing, e := os.ReadFile(filepath.Join(p.Root, scopeRef))
+		if p.Profile == "spec" {
+			scopeRef := ".yss-execution-scope.yaml"
+			scopeBytes := []byte("schema_version: 1\nscope_id: plan-to-backend\n")
+			scopeBefore, e := safefs.Describe(p.Root, scopeRef)
 			if e != nil {
 				return e
 			}
-			v, e := schema.Parse(existing)
-			if e != nil {
-				return e
+			p.Inputs[scopeRef] = scopeBefore
+			if scopeBefore.Type != "missing" {
+				existing, e := os.ReadFile(filepath.Join(p.Root, scopeRef))
+				if e != nil {
+					return e
+				}
+				v, e := schema.Parse(existing)
+				if e != nil {
+					return e
+				}
+				m, ok := v.(map[string]any)
+				if !ok || len(m) != 2 || number(m["schema_version"]) != 1 || m["scope_id"] != "plan-to-backend" {
+					return domain.Fail("BINDING_CONFLICT", "existing plugin scope must not be overwritten")
+				}
 			}
-			m, ok := v.(map[string]any)
-			if !ok || len(m) != 2 || number(m["schema_version"]) != 1 || m["scope_id"] != "plan-to-backend" {
-				return domain.Fail("BINDING_CONFLICT", "existing plugin scope must not be overwritten")
+			if scopeBefore.Type == "missing" {
+				scopeAfter := domain.Descriptor{Type: "file", Digest: safefs.Digest(scopeBytes), Mode: 0644}
+				p.Changes = append(p.Changes, Change{scopeRef, scopeBefore, scopeAfter, base64.StdEncoding.EncodeToString(scopeBytes), "plugin-scope"})
+				addSystemAsset(p, scopeRef, scopeBefore, scopeAfter, "plugin-scope")
+			} else {
+				addSystemAsset(p, scopeRef, scopeBefore, scopeBefore, "plugin-scope")
 			}
-		}
-		if scopeBefore.Type == "missing" {
-			scopeAfter := domain.Descriptor{Type: "file", Digest: safefs.Digest(scopeBytes), Mode: 0644}
-			p.Changes = append(p.Changes, Change{scopeRef, scopeBefore, scopeAfter, base64.StdEncoding.EncodeToString(scopeBytes), "plugin-scope"})
-			addSystemAsset(p, scopeRef, scopeBefore, scopeAfter, "plugin-scope")
-		} else {
-			addSystemAsset(p, scopeRef, scopeBefore, scopeBefore, "plugin-scope")
 		}
 	}
 	copy := *b
@@ -212,7 +247,11 @@ func guardPluginBindings(id *Identity, source *bundle.Bundle, p *Plan, next *Bin
 		expected := ".yss-backend-plugin.json"
 		plugin := "yss-backend-delivery"
 
-		if !ok || ref != expected || number(receipt["schema_version"]) != 2 || receipt["plugin"] != plugin || receipt["profile"] != id.Profile.Name || receipt["template_commit"] != id.Native.TemplateCommit || receipt["bundle_hash"] != id.Native.BundleHash || !digestPattern.MatchString(text(receipt["binary_sha256"])) {
+		version := 2
+		if id.Profile.Name == "backend" {
+			version = 3
+		}
+		if !ok || ref != expected || number(receipt["schema_version"]) != version || receipt["plugin"] != plugin || receipt["profile"] != id.Profile.Name || receipt["template_commit"] != id.Native.TemplateCommit || receipt["bundle_hash"] != id.Native.BundleHash || !digestPattern.MatchString(text(receipt["binary_sha256"])) {
 			return domain.Explain(domain.Fail("BINDING_CONFLICT", "plugin receipt and native source identity disagree; use the public plugin upgrade plan"), "PLUGIN_BINDING_SOURCE_MISMATCH", "插件收据与原生项目的 Profile、模板或 Bundle 来源不一致。", map[string]any{"root": id.Root, "path": ref, "plugin": plugin, "templateCommit": id.Native.TemplateCommit, "bindingTemplateCommit": receipt["template_commit"]})
 		}
 		if p.Command == "diff" || p.Command == "doctor" {

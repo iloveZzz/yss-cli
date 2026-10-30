@@ -166,6 +166,9 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 		state = cp
 		// Results may add evidence, never replace current approval expectations.
 	}
+	if current == "work-unit.strategic-design-handoff" || next == "work-unit.strategic-design-handoff" {
+		return s.Reject("UNPORTED", "legacy-strategic-handoff-unsupported: 用户手动交接使用 PR/MR")
+	}
 	if s.StageGatesEnabled() {
 		return verifyStageCheckpoint(s, cpRef, state, opts)
 	}
@@ -191,28 +194,6 @@ func verifyNextRouteSemantic(s *kernel.SemanticSession, ref string, opts map[str
 	}
 	if current == "work-unit.entry-triage" && identity["repository_mode"] == "template-source" {
 		allowed = []string{"work-unit.maintenance-research", "work-unit.ssot-update"}
-	}
-	if profile["profile_id"] == "harness.spec-template" && (current == "work-unit.strategic-design-handoff" || next == "work-unit.strategic-design-handoff") {
-		config, cp, e := kernel.ProgressionLocation(s, cpRef)
-		if e != nil {
-			return e
-		}
-		raw, e := s.Bytes(config)
-		if e != nil {
-			return e
-		}
-		intent, e := parseProgressionTarget(raw)
-		if e != nil {
-			return e
-		}
-		if intent.FeatureID != kernel.Text(cp["feature_id"]) || intent.CheckpointRef != cpRef || !progressionExternalImplementation(intent, s.Root) {
-			return s.Reject("PROFILE_ROUTE", "Spec 战略交接需要同功能显式外部专职消费者")
-		}
-		if current == "work-unit.strategic-design-handoff" {
-			if e = progressionCheck(s, cpRef, cp, "strategic-handoff-delivery"); e != nil {
-				return e
-			}
-		}
 	}
 
 	if (current == "work-unit.maintenance-research" || next == "work-unit.maintenance-research") && identity["repository_mode"] != "template-source" {

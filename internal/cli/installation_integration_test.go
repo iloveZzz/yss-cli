@@ -70,6 +70,9 @@ func TestExplicitSkillsCLI(t *testing.T) {
 		t.Fatal("ordinary installation not recorded")
 	}
 	roots := []string{"yss-product-lifecycle", "grilling", "yss-research", "domain-modeling", "to-spec", "i-have-adhd", "code-review", "implement"}
+	if _, ok := b.Installations["skills"].Initial[".agents/skills/handoff/SKILL.md"]; ok {
+		roots = append(roots, "handoff")
+	}
 	installed := meta["distribution"].(map[string]any)["installedSkills"].([]any)
 	if len(installed) != len(roots) {
 		t.Fatalf("default skills: %v", installed)
@@ -121,7 +124,7 @@ func TestExplicitSkillsCLI(t *testing.T) {
 	if err = json.Unmarshal(raw, &meta); err != nil {
 		t.Fatal(err)
 	}
-	if len(meta["distribution"].(map[string]any)["installedSkills"].([]any)) != 9 {
+	if len(meta["distribution"].(map[string]any)["installedSkills"].([]any)) != len(roots)+1 {
 		t.Fatal("ensure roots inconsistent")
 	}
 	for _, runtime := range []string{"", "claude", "workbuddy"} {

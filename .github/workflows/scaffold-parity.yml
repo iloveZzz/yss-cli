@@ -4,6 +4,8 @@ name: Scaffold parity (Go vs Node)
 # 单独成 job：失败不影响 artifacts.yml 的构建与发行包。
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 permissions:
