@@ -4,7 +4,11 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 
 ## 私有归档 v2
 
-CLI 嵌入当前 `bundles.json.gz` 和基线差量 `baseline-delta.json.gz`，用于对照当前来源和受信 Template 5.0 基线。当前归档及独立的 `baseline-5.0.0.json.gz` 不进入版本库，仅提交各自的 SHA-256 摘要。`node tools/fetch-bundle.mjs` 根据 `docs/source-lock.json` 和 `docs/template-5.0.0-source-lock.json` 生成并核验两个归档，再生成差量；重建基线还需要本地存在固定 CLI 3.0 提交 `d67bc777198174a92cc3f58e4f26ce9f0daef2d9`，缺失时明确失败。运行时利用当前对象和差量重建完整基线，并核验固定的原始字节摘要。`go:embed` 位于 `internal/bundle/embed_archive.go`；`yss_nobundle` 使用空占位，仅供自举或不依赖 Bundle 的测试，不得用于发行。解压后为：
+CLI 嵌入当前 `bundles.json.gz` 和基线差量 `baseline-delta.json.gz`，用于对照当前来源和受信 Template 5.0 基线。当前归档及独立的 `baseline-5.0.0.json.gz` 不进入版本库，仅提交各自的 SHA-256 摘要。`node tools/fetch-bundle.mjs` 根据 `docs/source-lock.json` 和 `docs/template-5.0.0-source-lock.json` 生成并核验两个归档，再生成差量；重建基线还需要本地存在固定 CLI 3.0 提交 `d67bc777198174a92cc3f58e4f26ce9f0daef2d9`，缺失时明确失败。运行时利用当前对象和差量重建完整基线，并核验固定的原始字节摘要。`go:embed` 位于 `internal/bundle/embed_archive.go`；`yss_nobundle` 使用空占位，仅供自举或不依赖 Bundle 的测试，不得用于发行。
+
+同名模板标签重发后，历史基线仍须使用旧标签身份。重建时从 `docs/template-5.0.0-tag-object.txt` 校验原 annotated tag 对象的 Git 对象 ID 与 SHA-256，在临时 Git 仓恢复旧标签，并由固定生成器校验旧标签和原来源锁；不改调用方模板仓的标签。该对象是历史证据，不表示远端当前标签仍指向旧提交。当前 Bundle 仍按当前来源锁验证其来源。
+
+解压后为：
 
 ```json
 {

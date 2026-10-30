@@ -6,7 +6,56 @@ import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {extractBaselineGenerator} from './fetch-bundle.mjs';
+import {extractBaselineGenerator, prepareBaselineSource} from './fetch-bundle.mjs';
+
+test('历史标签单独还原且不改当前模板仓的同名标签，篡改对象被拒绝', t => {
+  const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-baseline-tag-'));
+  t.after(() => rmSync(root, {recursive: true, force: true}));
+  const source = path.join(root, 'source');
+  mkdirSync(source);
+  const git = (cwd, args, input) => {
+    const result = spawnSync('git', args, {cwd, input, encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(source, ['init', '--quiet']);
+  git(source, ['config', 'user.email', 'test@example.org']);
+  git(source, ['config', 'user.name', 'Test']);
+  writeFileSync(path.join(source, 'file'), 'original');
+  git(source, ['add', 'file']);
+  git(source, ['commit', '--quiet', '-m', 'original']);
+  const oldCommit = git(source, ['rev-parse', 'HEAD']);
+  git(source, ['tag', '-a', 'v5.0.0', '-m', 'original']);
+  const oldTag = git(source, ['rev-parse', 'refs/tags/v5.0.0']);
+  const oldObject = Buffer.from(spawnSync('git', ['cat-file', 'tag', oldTag], {cwd: source}).stdout);
+  const oldDigest = createHash('sha256').update(oldObject).digest('hex');
+  writeFileSync(path.join(source, 'file'), 'new');
+  git(source, ['commit', '--quiet', '-am', 'new']);
+  const newCommit = git(source, ['rev-parse', 'HEAD']);
+  git(source, ['tag', '-f', 'v5.0.0', newCommit]);
+  const sourceRefs = git(source, ['show-ref']);
+  const historical = path.join(root, 'historical');
+  prepareBaselineSource(source, historical, oldObject, oldTag, oldCommit, oldDigest);
+  assert.equal(git(historical, ['rev-parse', 'refs/tags/v5.0.0']), oldTag);
+  assert.equal(git(historical, ['rev-parse', 'refs/tags/v5.0.0^{commit}']), oldCommit);
+  assert.equal(git(source, ['rev-parse', 'refs/tags/v5.0.0^{commit}']), newCommit);
+  assert.throws(() => prepareBaselineSource(source, path.join(root, 'corrupt'), Buffer.concat([oldObject, Buffer.from('x')]), oldTag, oldCommit, oldDigest), /历史标签对象/);
+  assert.throws(() => prepareBaselineSource(source, path.join(root, 'wrong-hash'), oldObject, oldTag, oldCommit, '0'.repeat(64)), /历史标签对象/);
+  assert.throws(() => prepareBaselineSource(source, path.join(root, 'wrong-commit'), oldObject, oldTag, newCommit, oldDigest), /历史标签.*固定提交/);
+  assert.equal(git(source, ['rev-parse', 'refs/tags/v5.0.0^{commit}']), newCommit);
+  assert.equal(git(source, ['show-ref']), sourceRefs);
+  const cli = path.join(root, 'cli');
+  mkdirSync(path.join(cli, 'tools'), {recursive: true});
+  mkdirSync(path.join(cli, 'internal/bundle/assets'), {recursive: true});
+  mkdirSync(path.join(cli, 'docs'));
+  const tools = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of ['fetch-bundle.mjs', 'go-environment.mjs', 'baseline-delta.mjs']) copyFileSync(path.join(tools, file), path.join(cli, 'tools', file));
+  writeFileSync(path.join(cli, 'internal/bundle/assets/bundles.json.gz.sha256'), '0'.repeat(64));
+  writeFileSync(path.join(cli, 'docs/source-lock.json'), JSON.stringify({profiles:{spec:{templateCommit:oldCommit, sourcePath:'.', templateTag:'v5.0.0'}}}));
+  const current = spawnSync(process.execPath, [path.join(cli, 'tools/fetch-bundle.mjs'), '--force', '--source-root', source], {encoding: 'utf8'});
+  assert.notEqual(current.status, 0);
+  assert.match(current.stderr, /模板 tag v5\.0\.0 与固定提交不一致/);
+});
 
 test('固定 CLI 3.0 源码缺失时提示取得指定提交', t => {
   const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-missing-generator-'));

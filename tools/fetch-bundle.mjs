@@ -19,6 +19,9 @@ const ARCHIVE = path.join(root, 'internal/bundle/assets/bundles.json.gz');
 const DIGEST = ARCHIVE + '.sha256';
 const DELTA = path.join(root, 'internal/bundle/assets/baseline-delta.json.gz');
 const BASELINE_GENERATOR = 'd67bc777198174a92cc3f58e4f26ce9f0daef2d9';
+const BASELINE_TAG_OBJECT = '0cd62adfc13edad5caa5efd1b5c15acbdbc5b6d7';
+const BASELINE_TAG_SHA256 = '395512eb59b70a8ff76a7b3f466acb8943d4ea1b96faa16670a5c708f45f0a5e';
+const BASELINE_TEMPLATE_COMMIT = '1e49127842c358caf552af8ebec58f438a35c5a6';
 const COMMIT = /^[a-f0-9]{40}$/;
 const sha = data => createHash('sha256').update(data).digest('hex');
 const git = (cwd, args, options = {}) => (execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options}) ?? '').trim();
@@ -77,6 +80,26 @@ export function extractBaselineGenerator(repo, directory) {
   execFileSync('tar', ['-x', '-C', directory], {input: fixedSource});
 }
 
+export function prepareBaselineSource(sourceRoot, directory, tagObject, expectedTag, expectedCommit, expectedSha256) {
+  const objectHash = createHash('sha1').update(`tag ${tagObject.length}\0`).update(tagObject).digest('hex');
+  if (objectHash !== expectedTag || sha(tagObject) !== expectedSha256) throw new Error('历史标签对象摘要不一致');
+  if (!tagObject.toString('utf8').startsWith(`object ${expectedCommit}\ntype commit\ntag v5.0.0\n`)) {
+    throw new Error('历史标签与固定提交不一致');
+  }
+  if (fs.existsSync(sourceRoot) && !fs.statSync(sourceRoot).isDirectory()) throw new Error('模板来源不是目录');
+  let source = TEMPLATE_REMOTE;
+  if (fs.existsSync(path.join(sourceRoot, '.git'))) {
+    source = hasCommit(sourceRoot, expectedCommit) ? sourceRoot : git(sourceRoot, ['remote', 'get-url', 'origin']);
+  }
+  fs.mkdirSync(directory);
+  git(directory, ['init', '-q']);
+  git(directory, ['fetch', '--depth', '1', '--no-tags', source, expectedCommit], {stdio: 'inherit'});
+  const restored = git(directory, ['hash-object', '-t', 'tag', '-w', '--stdin'], {input: tagObject, stdio: ['pipe', 'pipe', 'inherit']});
+  if (restored !== expectedTag) throw new Error('历史标签对象写入不一致');
+  git(directory, ['update-ref', 'refs/tags/v5.0.0', restored]);
+  if (git(directory, ['rev-parse', 'refs/tags/v5.0.0^{commit}']) !== expectedCommit) throw new Error('历史标签与固定提交不一致');
+}
+
 export function fetchBundle({sourceRoot, force = false, baseline = false}) {
   const archive = baseline ? path.join(root, 'internal/bundle/assets/baseline-5.0.0.json.gz') : ARCHIVE;
   const digest = baseline ? archive + '.sha256' : DIGEST;
@@ -85,7 +108,6 @@ export function fetchBundle({sourceRoot, force = false, baseline = false}) {
   if (!force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected) return {status: 'up-to-date', sha256: expected};
   sourceRoot = path.resolve(sourceRoot ?? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', 'template-source'));
   const lock = JSON.parse(fs.readFileSync(path.join(root, lockFile), 'utf8'));
-  ensureSources(sourceRoot, lock);
   const stage = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'yss-bundle-'));
   try {
     // -tags yss_nobundle：生成工具自举编译，不需要归档已存在。
@@ -98,7 +120,11 @@ export function fetchBundle({sourceRoot, force = false, baseline = false}) {
           expectedDigest(path.join(generatorRoot, 'internal/bundle/assets/bundles.json.gz.sha256')) !== expected) {
         throw new Error('受信基线锁或摘要与固定 CLI 3.0 来源不一致');
       }
+      const historicalRoot = path.join(stage, 'historical-source');
+      prepareBaselineSource(sourceRoot, historicalRoot, fs.readFileSync(path.join(root, 'docs/template-5.0.0-tag-object.txt')), BASELINE_TAG_OBJECT, BASELINE_TEMPLATE_COMMIT, BASELINE_TAG_SHA256);
+      sourceRoot = historicalRoot;
     }
+    ensureSources(sourceRoot, lock);
     execFileSync('go', ['run', '-tags', 'yss_nobundle', './tools/bundle', '--source-root', sourceRoot, '--lock', path.join(root, lockFile), '--out', stage], {cwd: generatorRoot, env: fixedGoEnvironment(), stdio: ['ignore', 'inherit', 'inherit']});
     const built = path.join(stage, 'bundles.json.gz');
     const actual = sha(fs.readFileSync(built));
