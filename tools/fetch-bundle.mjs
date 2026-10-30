@@ -73,21 +73,30 @@ function ensureSources(sourceRoot, lock, readOnly = false) {
   }
 }
 
-function prepareManagedSource(lockBytes, lock) {
-  const cache = path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli');
+export function findManagedSource(cache, lockBytes, lock, requiredCommit) {
   const digest = sha(lockBytes);
   const prefix = `template-source-${digest}-`;
-  fs.mkdirSync(cache, {recursive: true});
+  if (!fs.existsSync(cache)) return undefined;
   for (const name of fs.readdirSync(cache).filter(name => name.startsWith(prefix) && !name.endsWith('.ready'))) {
     const candidate = path.join(cache, name);
     try {
       if (!fs.lstatSync(candidate).isDirectory() || !fs.lstatSync(candidate + '.ready').isFile() || fs.readFileSync(candidate + '.ready', 'utf8') !== digest) continue;
       ensureSources(candidate, lock, true);
+      if (requiredCommit && !hasCommit(candidate, requiredCommit)) continue;
       return candidate;
     } catch (error) {
       process.stderr.write(`缓存不可复用，保留在 ${candidate}: ${error.message}\n`);
     }
   }
+}
+
+function prepareManagedSource(lockBytes, lock) {
+  const cache = path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli');
+  const digest = sha(lockBytes);
+  const prefix = `template-source-${digest}-`;
+  fs.mkdirSync(cache, {recursive: true});
+  const existing = findManagedSource(cache, lockBytes, lock);
+  if (existing) return existing;
   const candidate = fs.mkdtempSync(path.join(cache, prefix));
   try {
     ensureSources(candidate, lock);
@@ -136,9 +145,13 @@ export function fetchBundle({sourceRoot, force = false, baseline = false}) {
   if (!force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected) return {status: 'up-to-date', sha256: expected};
   const lockBytes = fs.readFileSync(path.join(root, lockFile));
   const lock = JSON.parse(lockBytes.toString('utf8'));
-  sourceRoot = sourceRoot != null ? path.resolve(sourceRoot) : baseline
-    ? path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', `template-source-${sha(lockBytes)}`)
-    : prepareManagedSource(lockBytes, lock);
+  if (sourceRoot != null) sourceRoot = path.resolve(sourceRoot);
+  else if (baseline) {
+    const cache = path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli');
+    const currentLock = fs.readFileSync(path.join(root, 'docs/source-lock.json'));
+    sourceRoot = findManagedSource(cache, currentLock, JSON.parse(currentLock.toString('utf8')), BASELINE_TEMPLATE_COMMIT)
+      ?? path.join(cache, `template-source-${sha(lockBytes)}`);
+  } else sourceRoot = prepareManagedSource(lockBytes, lock);
   const stage = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'yss-bundle-'));
   try {
     // -tags yss_nobundle：生成工具自举编译，不需要归档已存在。

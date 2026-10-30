@@ -6,7 +6,55 @@ import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {extractBaselineGenerator, prepareBaselineSource} from './fetch-bundle.mjs';
+import {extractBaselineGenerator, findManagedSource, prepareBaselineSource} from './fetch-bundle.mjs';
+
+test('离线重建历史基线复用已校验缓存且不改缓存', t => {
+  const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-offline-baseline-'));
+  t.after(() => rmSync(root, {recursive: true, force: true}));
+  const origin = path.join(root, 'origin');
+  mkdirSync(origin);
+  const git = (cwd, args) => {
+    const result = spawnSync('git', args, {cwd, encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(origin, ['init', '--quiet']);
+  git(origin, ['config', 'user.email', 'test@example.org']);
+  git(origin, ['config', 'user.name', 'Test']);
+  writeFileSync(path.join(origin, 'file'), 'old');
+  git(origin, ['add', 'file']);
+  git(origin, ['commit', '--quiet', '-m', 'old']);
+  const oldCommit = git(origin, ['rev-parse', 'HEAD']);
+  git(origin, ['tag', '-a', 'v5.0.0', '-m', 'old']);
+  const oldTag = git(origin, ['rev-parse', 'refs/tags/v5.0.0']);
+  const oldObject = spawnSync('git', ['cat-file', 'tag', oldTag], {cwd: origin}).stdout;
+  writeFileSync(path.join(origin, 'file'), 'new');
+  git(origin, ['commit', '--quiet', '-am', 'new']);
+  const newCommit = git(origin, ['rev-parse', 'HEAD']);
+  git(origin, ['tag', '-f', 'v5.0.0', newCommit]);
+  const lock = {profiles:{spec:{templateCommit:newCommit, sourcePath:'.', templateTag:'v5.0.0'}}};
+  const lockBytes = Buffer.from(JSON.stringify(lock));
+  const digest = createHash('sha256').update(lockBytes).digest('hex');
+  const cache = path.join(root, 'cache');
+  mkdirSync(cache);
+  const cached = path.join(cache, `template-source-${digest}-offline`);
+  git(root, ['clone', '--quiet', '--no-checkout', origin, cached]);
+  git(cached, ['remote', 'set-url', 'origin', path.join(root, 'unavailable')]);
+  writeFileSync(cached + '.ready', 'corrupt');
+  assert.equal(findManagedSource(cache, lockBytes, lock, oldCommit), undefined);
+  writeFileSync(cached + '.ready', digest);
+  git(cached, ['tag', '-f', 'v5.0.0', oldCommit]);
+  assert.equal(findManagedSource(cache, lockBytes, lock, oldCommit), undefined);
+  git(cached, ['tag', '-f', 'v5.0.0', newCommit]);
+  assert.equal(findManagedSource(cache, lockBytes, lock, '0'.repeat(40)), undefined);
+  const before = git(cached, ['show-ref']);
+  const selected = findManagedSource(cache, lockBytes, lock, oldCommit);
+  assert.equal(selected, cached);
+  const historical = path.join(root, 'historical');
+  prepareBaselineSource(selected, historical, oldObject, oldTag, oldCommit, createHash('sha256').update(oldObject).digest('hex'));
+  assert.equal(git(historical, ['rev-parse', 'refs/tags/v5.0.0^{commit}']), oldCommit);
+  assert.equal(git(cached, ['show-ref']), before);
+});
 
 test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', async t => {
   const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-source-cache-'));
