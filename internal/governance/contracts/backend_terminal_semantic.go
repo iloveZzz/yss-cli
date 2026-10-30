@@ -52,12 +52,7 @@ func verifyBackendDeliveryTerminalPublic(s *kernel.SemanticSession, ref string, 
 
 // 公开入口 handoff verify --kind backend-delivery --package <目录|ZIP>：离线校验后端交付包，报告 coverage 与 Node 的 backend-delivery verify 同形。
 func verifyBackendDeliveryPackagePublic(s *kernel.SemanticSession, ref string, opts map[string]string) error {
-	manifest, _, e := backendOpenDelivery(s, ref, opts)
-	if e != nil {
-		return e
-	}
-	s.Report.Coverage = map[string]any{"result": "verified", "delivery_id": manifest["delivery_id"], "version": manifest["version"], "bundle_digest": manifest["bundle_digest"], "live_service_checked": false}
-	return nil
+	return s.Reject("UNPORTED", "依赖旧战略包的外部后端交付验收已停止支持；请使用本地后端验证")
 }
 
 func BackendReject(s *kernel.SemanticSession, message string) error {
@@ -497,7 +492,7 @@ func backendArtifactApproval(s *kernel.SemanticSession, gate string, binding, re
 }
 
 func BackendInspectDelivery(s *kernel.SemanticSession, ref string, opts map[string]string) (map[string]any, error) {
-	return backendInspectDeliveryMode(s, ref, opts, false, "")
+	return nil, s.Reject("UNPORTED", "依赖旧战略包的外部后端交付验收已停止支持；请使用本地后端验证")
 }
 
 func backendInspectDeliveryMode(s *kernel.SemanticSession, ref string, opts map[string]string, local bool, cpRef string) (map[string]any, error) {

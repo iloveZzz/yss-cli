@@ -230,6 +230,11 @@ func progressionConsumerAwaitable(s *kernel.SemanticSession, profile, cpRef stri
 		return false
 	}
 	row := kernel.SemMap(coordination[consumer.Profile])
+	if profile == "spec" && consumer.Profile == "backend" {
+		row["source_ready"] = false
+		row["reason"] = "legacy-strategic-handoff-unsupported: 外部机器验收已退役"
+		return false
+	}
 	if row["input_status"] == "verified" {
 		row["source_ready"] = true
 		return true
@@ -453,18 +458,7 @@ func progressionCheck(s *kernel.SemanticSession, cpRef string, cp map[string]any
 		}
 		return nil
 	case "strategic-handoff-delivery":
-		ref, present, err := guidanceStrategicDeliveryRef(s, cp)
-		if err != nil {
-			return err
-		}
-		if !present {
-			ref = guidanceArtifact(cp, "artifact.strategic-handoff-delivery", "strategic_delivery_ref")
-		}
-		if ref == "" {
-			return s.Reject("WAITING_PROFILE_INPUT", "等待当前战略交接交付包")
-		}
-		_, _, err = handoff.ContractOpenStrategicDelivery(s, ref)
-		return err
+		return s.Reject("UNPORTED", "legacy-strategic-handoff-unsupported: 外部战略包验收已退役")
 	default:
 		return s.Unavailable("CAPABILITY", "未知目标完成检查："+check)
 	}
@@ -501,6 +495,10 @@ func progressionConsumers(s *kernel.SemanticSession, profile, cpRef string, cp m
 	for _, c := range target.Consumers {
 		row := map[string]any{"profile": c.Profile, "root": c.Root, "checkpoint_ref": c.CheckpointRef, "input_status": "pending", "completion_status": "not-evaluated"}
 		rows[c.Profile] = row
+		if profile == "spec" && c.Profile == "backend" {
+			row["input_status"], row["reason"] = "blocked", "legacy-strategic-handoff-unsupported: 外部机器验收已退役，使用手动 PR/MR 交接"
+			continue
+		}
 		if c.Root == s.Root {
 			row["input_status"], row["reason"] = "blocked", "消费者不能指向主控工程"
 			continue

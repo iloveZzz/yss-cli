@@ -85,3 +85,18 @@ func TestBackendFreshTaskCannotUseCompletedDraftAsImplementation(t *testing.T) {
 		t.Fatalf("draft must not qualify as completed Slice implementation: %v", err)
 	}
 }
+
+func TestExternalStrategicBackendDeliveryIsUnsupported(t *testing.T) {
+	s := kernel.NewSemanticSession(context.Background(), t.TempDir(), nil)
+	_, err := BackendInspectDelivery(s, "legacy-delivery.json", nil)
+	if kernel.SemanticCode(err) != "UNPORTED" {
+		t.Fatalf("legacy external delivery must be explicitly unsupported, got %v", err)
+	}
+	if err := verifyBackendDeliveryPackagePublic(s, "legacy-package", nil); kernel.SemanticCode(err) != "UNPORTED" {
+		t.Fatalf("legacy external package must be explicitly unsupported, got %v", err)
+	}
+	_, localErr := backendInspectDeliveryMode(s, "local-delivery.json", nil, true, "")
+	if localErr == nil || kernel.SemanticCode(localErr) == "UNPORTED" {
+		t.Fatalf("local evidence must retain its actual validation path, got %v", localErr)
+	}
+}
