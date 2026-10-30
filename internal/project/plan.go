@@ -240,7 +240,8 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 	}
 	skillsAttach := attach && id.Native == nil && installation == InstallationSkills
-	if !init && !skillsIdentity(id) && !IsMattSpec(id) && !skillsAttach {
+	specAttach := attach && id.Native == nil && installation == InstallationGoverned && b.Profile == "spec" && text(b.Distribution["specWorkflow"]) == identitymeta.MattSpecWorkflow
+	if !init && !skillsIdentity(id) && !IsMattSpec(id) && !skillsAttach && !specAttach {
 		if ok, e := exists(id.Root, "CONTEXT.md"); e != nil {
 			return nil, e
 		} else if ok {

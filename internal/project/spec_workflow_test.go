@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/base64"
+	"errors"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
@@ -11,6 +12,65 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func TestSpecAttachPreservesOrdinaryContext(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile, workflow, identity, code string
+		native                                  bool
+	}{
+		{name: "new-spec", profile: "spec", workflow: "matt-spec-v1"},
+		{name: "legacy-spec", profile: "spec", code: "CONTEXT"},
+		{name: "backend", profile: "backend", code: "CONTEXT"},
+		{name: "unknown-workflow", profile: "spec", workflow: "unknown", code: "CONTEXT"},
+		{name: "unknown-identity", profile: "spec", workflow: "matt-spec-v1", identity: "schema_version: 999\nrepository_mode: project-instance\n", code: "IDENTITY"},
+		{name: "native-instance", profile: "spec", workflow: "matt-spec-v1", native: true, code: "SYNC_REQUIRED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := installationFixture()
+			b.Profile = tc.profile
+			item := b.Installations["governed"]
+			if tc.workflow != "" {
+				item.Distribution["specWorkflow"] = tc.workflow
+			}
+			root := t.TempDir()
+			if tc.native {
+				root, _ = writeInstallationFixture(t)
+			}
+			body := []byte("# Existing business context\nProject-owned terms and decisions.\n")
+			if err := os.WriteFile(filepath.Join(root, "CONTEXT.md"), body, 0444); err != nil {
+				t.Fatal(err)
+			}
+			if tc.identity != "" {
+				if err := os.WriteFile(filepath.Join(root, "yss-project.yaml"), []byte(tc.identity), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := safefs.Describe(root, "CONTEXT.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := BuildWithOptions(root, tc.profile, "attach", nil, nil, nil, PlanningOptions{target: b})
+			if tc.code == "" {
+				if err != nil {
+					t.Fatalf("new Spec attach requires legacy Context: %v", err)
+				}
+				for _, change := range p.Changes {
+					if change.Path == "CONTEXT.md" {
+						t.Fatal("attach planned to modify the user's Context")
+					}
+				}
+			} else {
+				var rejection *domain.Error
+				if !errors.As(err, &rejection) || rejection.Code != tc.code {
+					t.Fatalf("want %s, got %v", tc.code, err)
+				}
+			}
+			if after, err := safefs.Describe(root, "CONTEXT.md"); err != nil || after != before {
+				t.Fatalf("user Context bytes or mode changed: %v", err)
+			}
+		})
+	}
+}
 
 func TestSpecWorkflowProvenanceRequired(t *testing.T) {
 	root := t.TempDir()
