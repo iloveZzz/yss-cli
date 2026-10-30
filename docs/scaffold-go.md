@@ -114,7 +114,7 @@ CLI JSON 返回 `projectRoot`、`manifestPath`、`generatorSkill`、`architectur
 
 ## 10. 对拍
 
-`tools/scaffold-parity/`（Node，仅开发/CI，不进入发行包，不是运行依赖）在相同输入下分别运行 Node 基准与新二进制，比较文件集合、SHA-256、权限位、符号链接与空目录。允许差异只能登记在表中，默认零差异；矩阵与登记见该目录 README。**对拍属构建后黑盒校验，不代表发行验收**，也不恢复已删除的测试体系；CI 中单独成 job（`.github/workflows/scaffold-parity.yml`），仅 ubuntu 运行，失败不影响发行包。
+`tools/scaffold-parity/`（Node，仅开发/CI，不进入发行包，不是运行依赖）在相同输入下分别运行 Node 基准与新二进制，比较文件集合、SHA-256、权限位、符号链接与空目录。允许差异只能登记在表中，默认零差异；矩阵与登记见该目录 README。**对拍属构建后黑盒校验，不代表发行验收**，也不恢复已删除的测试体系；CI 中是 `.github/workflows/artifacts.yml` 的独立 job，仅 ubuntu 运行，失败不影响构建 job 的发行包。
 
 固定模板提交 `981f7399ef6c` 上的结果：100 个场景（独立 DDD/MVC × 5 个平台 Profile、命名/坐标/输出位置、参考示例、拒绝；正式合同 v4/v5、数据/API 决定、MVC 全部能力组合、拒绝），失败 0，比较 1430 个文件、6,106,484 字节；唯一使用的登记差异是 `generated-at`。
 
