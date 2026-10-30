@@ -45,7 +45,9 @@ yss scaffold mvc --project-name order-service --base-package com.yss.orders \
 
 JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式的合同、架构决定、用户决定和设计前置校验由内置治理核心完成，不再需要 Python3、`jsonschema`、`referencing`。
 
-内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（缓存于 `~/.cache/yss-cli/template-source`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
+内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（按来源锁摘要隔离缓存于 `~/.cache/yss-cli/`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
+
+默认缓存只有通过来源校验后才会复用；准备失败的目录保留供排查，错误信息给出其路径，重试会使用新的隔离目录。
 
 编译：`CGO_ENABLED=0 go build -trimpath -o bin/yss ./cmd/yss`。测试：`go test -tags yss_nobundle -timeout 5m ./...`（纯逻辑），生成内嵌 Bundle 后 `go test -timeout 5m ./...`（含真实实例集成用例）。编译或测试成功都不代表发行验收通过。详见 [测试与 CI 状态](docs/ci-verification.md)。
 
