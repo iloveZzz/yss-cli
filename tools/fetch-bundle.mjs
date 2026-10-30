@@ -37,8 +37,9 @@ function hasCommit(repo, commit) {
   try {git(repo, ['cat-file', '-e', commit + '^{commit}']); return true} catch {return false}
 }
 
-function ensureSources(sourceRoot, lock) {
+function ensureSources(sourceRoot, lock, readOnly = false) {
   if (!fs.existsSync(path.join(sourceRoot, '.git'))) {
+    if (readOnly) throw new Error('来源仓库未初始化');
     fs.mkdirSync(sourceRoot, {recursive: true});
     git(sourceRoot, ['init', '-q']);
     git(sourceRoot, ['remote', 'add', 'origin', TEMPLATE_REMOTE]);
@@ -52,6 +53,7 @@ function ensureSources(sourceRoot, lock) {
         throw new Error(`来源仓库未初始化: ${repo}（子仓来源需自行初始化）`);
       }
       if (!hasCommit(repo, item.templateCommit)) {
+        if (readOnly) throw new Error(`缺少固定提交: ${profile}`);
         process.stderr.write(`fetch ${profile} ${item.templateCommit.slice(0, 12)}\n`);
         git(repo, ['fetch', '--depth', '1', 'origin', item.templateCommit], {stdio: 'inherit'});
       }
@@ -61,12 +63,38 @@ function ensureSources(sourceRoot, lock) {
         let tagged = '';
         try {tagged = git(repo, ['rev-parse', '--verify', '-q', ref + '^{commit}'])} catch {}
         if (!tagged) {
+          if (readOnly) throw new Error(`缺少模板 tag ${item.templateTag}`);
           git(repo, ['fetch', '--depth', '1', 'origin', `${ref}:${ref}`], {stdio: 'inherit'});
           tagged = git(repo, ['rev-parse', ref + '^{commit}']);
         }
         if (tagged !== item.templateCommit) throw new Error(`模板 tag ${item.templateTag} 与固定提交不一致`);
       }
     }
+  }
+}
+
+function prepareManagedSource(lockBytes, lock) {
+  const cache = path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli');
+  const digest = sha(lockBytes);
+  const prefix = `template-source-${digest}-`;
+  fs.mkdirSync(cache, {recursive: true});
+  for (const name of fs.readdirSync(cache).filter(name => name.startsWith(prefix) && !name.endsWith('.ready'))) {
+    const candidate = path.join(cache, name);
+    try {
+      if (!fs.lstatSync(candidate).isDirectory() || !fs.lstatSync(candidate + '.ready').isFile() || fs.readFileSync(candidate + '.ready', 'utf8') !== digest) continue;
+      ensureSources(candidate, lock, true);
+      return candidate;
+    } catch (error) {
+      process.stderr.write(`缓存不可复用，保留在 ${candidate}: ${error.message}\n`);
+    }
+  }
+  const candidate = fs.mkdtempSync(path.join(cache, prefix));
+  try {
+    ensureSources(candidate, lock);
+    fs.writeFileSync(candidate + '.ready', digest, {flag: 'wx'});
+    return candidate;
+  } catch (error) {
+    throw new Error(`缓存准备失败，保留在 ${candidate}: ${error.message}`, {cause: error});
   }
 }
 
@@ -107,8 +135,10 @@ export function fetchBundle({sourceRoot, force = false, baseline = false}) {
   const expected = expectedDigest(digest);
   if (!force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected) return {status: 'up-to-date', sha256: expected};
   const lockBytes = fs.readFileSync(path.join(root, lockFile));
-  sourceRoot = path.resolve(sourceRoot ?? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', `template-source-${sha(lockBytes)}`));
   const lock = JSON.parse(lockBytes.toString('utf8'));
+  sourceRoot = sourceRoot != null ? path.resolve(sourceRoot) : baseline
+    ? path.resolve(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', `template-source-${sha(lockBytes)}`)
+    : prepareManagedSource(lockBytes, lock);
   const stage = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'yss-bundle-'));
   try {
     // -tags yss_nobundle：生成工具自举编译，不需要归档已存在。

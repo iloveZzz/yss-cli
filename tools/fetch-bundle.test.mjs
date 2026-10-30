@@ -1,14 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, realpathSync, rmSync} from 'node:fs';
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {extractBaselineGenerator, prepareBaselineSource} from './fetch-bundle.mjs';
 
-test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', t => {
+test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', async t => {
   const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-source-cache-'));
   t.after(() => rmSync(root, {recursive: true, force: true}));
   const source = path.join(root, 'origin');
@@ -51,7 +51,7 @@ test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', t 
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {encoding:'utf8', env});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, 'generated');
-  const directories = readdirSync(cache).filter(name => name !== 'template-source');
+  const directories = readdirSync(cache).filter(name => name !== 'template-source' && !name.endsWith('.ready'));
   assert.equal(directories.length, 1);
   assert.equal(git(path.join(cache, directories[0]), ['rev-parse', 'refs/tags/v5.0.0^{commit}']), newCommit);
   assert.equal(git(stale, ['show-ref']), before);
@@ -63,10 +63,35 @@ test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', t 
   git(source, ['tag', '-f', 'v5.0.0', oldCommit]);
   const lockFile = path.join(cli, 'docs/source-lock.json');
   writeFileSync(lockFile, readFileSync(lockFile, 'utf8') + '\n');
+  const previousCache = path.join(cache, `template-source-${createHash('sha256').update(readFileSync(lockFile)).digest('hex')}`);
+  git(root, ['clone', '--quiet', '--no-checkout', source, previousCache]);
+  const previousRefs = git(previousCache, ['show-ref']);
   const remoteMismatch = spawnSync(process.execPath, ['--input-type=module', '-e', script], {encoding:'utf8', env});
   assert.notEqual(remoteMismatch.status, 0);
   assert.match(remoteMismatch.stderr, /模板 tag v5\.0\.0 与固定提交不一致/);
+  assert.match(remoteMismatch.stderr, /缓存准备失败，保留在/);
   assert.equal(git(stale, ['show-ref']), before);
+  const failedDirectories = readdirSync(cache).filter(name => name !== 'template-source' && !name.endsWith('.ready'));
+  assert.equal(failedDirectories.length, 3);
+  git(source, ['tag', '-f', 'v5.0.0', newCommit]);
+  const retried = spawnSync(process.execPath, ['--input-type=module', '-e', script], {encoding:'utf8', env});
+  assert.equal(retried.status, 0, retried.stderr);
+  assert.equal(JSON.parse(retried.stdout).status, 'generated');
+  for (const name of failedDirectories) assert.ok(readdirSync(cache).includes(name), '失败目录必须保留');
+  assert.equal(git(stale, ['show-ref']), before);
+  assert.equal(git(previousCache, ['show-ref']), previousRefs);
+  writeFileSync(lockFile, readFileSync(lockFile, 'utf8') + '\n');
+  const run = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], {env});
+    let stderr = '';
+    child.stderr.on('data', chunk => {stderr += chunk});
+    child.on('error', reject);
+    child.on('close', status => resolve({status, stderr}));
+  });
+  for (const result of await Promise.all([run(), run()])) assert.equal(result.status, 0, result.stderr);
+  for (const name of failedDirectories) assert.ok(readdirSync(cache).includes(name), '并发执行不能删除已有目录');
+  assert.equal(git(stale, ['show-ref']), before);
+  assert.equal(git(previousCache, ['show-ref']), previousRefs);
 });
 
 test('历史标签单独还原且不改当前模板仓的同名标签，篡改对象被拒绝', t => {
