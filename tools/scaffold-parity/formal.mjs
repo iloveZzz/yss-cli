@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {run} from './lib.mjs';
 
 const SKILLS = {ddd: 'yss-ddd-scaffold-generator', mvc: 'yss-layered-mvc-scaffold-generator'};
 const COMMANDS = ['./mvnw validate', './mvnw test', './mvnw package'];
@@ -28,14 +29,15 @@ const importFrom = (templateRoot, relative) => import(pathToFileURL(path.join(te
 const digest = text => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
 async function modules(templateRoot) {
-  const [decision, design, example, platform, scaffold] = await Promise.all([
+  const [decision, design, example, platform, scaffold, installed] = await Promise.all([
     importFrom(templateRoot, 'scripts/fixtures/user-decision/build-fixture.mjs'),
     importFrom(templateRoot, 'scripts/fixtures/backend-scaffold/design-prerequisites.mjs'),
     importFrom(templateRoot, 'scripts/lib/scaffold-reference-example.mjs'),
     importFrom(templateRoot, 'scripts/fixtures/backend-scaffold/platform-fixture.mjs'),
     importFrom(templateRoot, 'scripts/lib/backend-platform.mjs'),
+    importFrom(templateRoot, 'scripts/fixtures/role-independent-draft/installed-fixture.mjs'),
   ]);
-  return {attachScaffoldDecisionFixture: decision.attachScaffoldDecisionFixture, attachDesignPrerequisites: design.attachDesignPrerequisites, referenceExample: example.referenceExample, fixtureCatalog: platform.fixtureCatalog, backend: scaffold};
+  return {attachScaffoldDecisionFixture: decision.attachScaffoldDecisionFixture, buildDecisionFixture: decision.buildDecisionFixture, attachDesignPrerequisites: design.attachDesignPrerequisites, referenceExample: example.referenceExample, fixtureCatalog: platform.fixtureCatalog, backend: scaffold, installedFixture: installed.installedFixture};
 }
 
 function decisionRecord(spec) {
@@ -82,15 +84,24 @@ function contractRecord(spec, outputDir, decisionRef, decisionDigest) {
 // 在 base/gov 下构造治理根、合同与候选目录；返回对拍需要的选项与候选目录文件。
 async function prepare(spec, context, base, outputDir) {
   const m = context.modules ??= await modules(context.templateRoot);
-  const {makeRoot} = await importFrom(context.templateRoot, 'tests/helpers/yss-instance.mjs');
-  const root = makeRoot('yss-scaffold-parity-gov-');
-  fs.cpSync(root, path.join(base, 'gov'), {recursive: true});
-  fs.rmSync(root, {recursive: true, force: true});
-  const gov = path.join(base, 'gov');
-  // 治理校验读取的是治理根里的技能资产（真实项目由 skills ensure 安装）；夹具根只带脚本，这里补齐设计校验所需的技能目录。
-  for (const skill of ['yss-technical-design', 'yss-tactical-design', 'yss-dto', 'yss-ddd-scaffold-generator', 'yss-layered-mvc-scaffold-generator']) {
-    fs.cpSync(path.join(context.templateRoot, '.agents/skills', skill), path.join(gov, '.agents/skills', skill), {recursive: true, force: true});
+  if (!context.governanceTemplate) {
+    const root = path.join(context.work, 'backend-template');
+    const initialized = run(context.bin, ['init', '--root', root, '--profile', 'backend', '--installation', 'governed', '--json'], {env: context.env});
+    if (initialized.status !== 0) throw new Error(`受信 Backend 初始化失败: ${initialized.stderr || initialized.stdout}`);
+    const metadata = JSON.parse(fs.readFileSync(path.join(root, '.yss.json'), 'utf8'));
+    const inspection = run(context.bin, ['bundle', 'inspect', '--profile', 'backend', '--json'], {env: context.env});
+    if (inspection.status !== 0) throw new Error(`Backend Bundle 检查失败: ${inspection.stderr || inspection.stdout}`);
+    const source = JSON.parse(inspection.stdout).result;
+    for (const [key, sourceKey] of [['templateCommit', 'templateCommit'], ['templateVersion', 'templateVersion'], ['snapshotHash', 'sourceSnapshotHash'], ['manifestHash', 'manifestHash'], ['bundleHash', 'bundleHash'], ['templateSourceState', 'sourceState']]) {
+      if (metadata[key] !== source[sourceKey]) throw new Error(`Backend 安装来源不匹配: ${key}`);
+    }
+    if (metadata.profile !== 'backend' || metadata.distribution?.installation !== 'governed') throw new Error('Backend 安装身份不匹配');
+    context.governanceTemplate = root;
   }
+  fs.cpSync(context.governanceTemplate, path.join(base, 'gov'), {recursive: true});
+  const gov = path.join(base, 'gov');
+  // 初始化事务归档绑定原根路径；副本只使用实际安装的资产与身份。
+  fs.rmSync(path.join(gov, '.yss/transactions'), {recursive: true, force: true});
   const decisionFile = path.join(gov, 'scaffold-architecture-decisions.yaml');
   const decisionSet = {schema_version: 1, kind: 'scaffold-architecture-decisions', template: false, status: 'current', decisions: [decisionRecord(spec)]};
   decisionSet.decisions = decisionSet.decisions.map(decision => m.attachScaffoldDecisionFixture(path.join(gov, 'user-decision'), decision));
@@ -103,9 +114,50 @@ async function prepare(spec, context, base, outputDir) {
     contract.platform_configuration = m.backend.platformBinding(m.backend.platformProfile(entry.profile_id, catalog, entry.spring_boot_version), entry);
   }
   m.attachDesignPrerequisites(gov, contract, {dataImpact: spec.dataImpact ?? 'not-applicable', apiImpact: spec.apiImpact ?? 'not-applicable'});
+  // 模板测试 helper 会写入旧身份和政策；保留实际安装的当前来源与受管政策。
+  fs.rmSync(path.join(gov, '.template-spec/process/schemas'), {recursive: true, force: true});
+  for (const ref of ['yss-project.yaml', '.template-spec/process/harness-profile.yaml', '.template-spec/process/lifecycle-registry.yaml', '.template-spec/process/schemas']) {
+    const source = path.join(context.governanceTemplate, ref);
+    if (fs.existsSync(source)) fs.cpSync(source, path.join(gov, ref), {recursive: true, force: true});
+  }
+  if (!fs.existsSync(path.join(context.governanceTemplate, '.template-spec/agents/digital-human-roles.yaml'))) fs.rmSync(path.join(gov, '.template-spec/agents/digital-human-roles.yaml'), {force: true});
+  for (const args of [['init', '-q'], ['-c', 'user.name=Parity', '-c', 'user.email=parity@example.invalid', 'commit', '--allow-empty', '-qm', 'base']]) {
+    const result = run('git', args, {cwd: gov, env: context.env});
+    if (result.status !== 0) throw new Error(`对拍 Git 初始化失败: ${result.stderr}`);
+  }
+  const f = m.installedFixture('backend', {existingRoot: gov});
+  const oldApproval = JSON.parse(f.read('engineering-contract-approval.json'));
+  const engineeringPackage = JSON.parse(f.read('engineering-contract-package.json'));
+  for (const item of engineeringPackage.basis.filter(item => item.ref.endsWith('.md'))) {
+    f.write(item.ref, `---\n{}\n---\n${f.read(item.ref)}`);
+    item.digest = `sha256:${f.asset(item.ref).digest}`;
+  }
+  f.write('demo-service/engineering-contract-package.json', engineeringPackage);
+  const basis = engineeringPackage.basis.map(item => ({ref: item.ref, digest: item.digest.replace(/^sha256:/, '')}));
+  const candidate = f.asset('demo-service/engineering-contract-package.json');
+  const decision = m.buildDecisionFixture(path.join(gov, 'current-engineering-decision'), {boundary: oldApproval.gate_id, scope: oldApproval.approval_scope, subjectRef: path.join(gov, candidate.ref)});
+  decision.record.request.items[0].subject.ref = candidate.ref;
+  decision.present(); decision.record.responses = []; decision.respond(); decision.save();
+  f.write('engineering-review-input.json', {scope: {impacted_areas: ['wording']}, status: 'draft'});
+  f.write('reconciliation.json', {status: 'reconciled'});
+  const draft = f.draftTask({taskRef: 'engineering-draft-task.json', unit: 'work-unit.technical-design', stage: 'stage.technical-design', inputs: ['engineering-review-input.json'], outputs: [candidate.ref], paths: oldApproval.approval_scope});
+  f.finishTask(draft);
+  f.run('current-engineering-draft', ['contract', 'verify', '--kind', 'task', '--file', 'engineering-draft-task.json']);
+  basis.push(f.asset('engineering-draft-task.json'));
+  const review = f.draftTask({taskRef: 'engineering-review-task.json', unit: 'work-unit.technical-design', stage: 'stage.technical-design', inputs: ['engineering-review-input.json', ...basis.map(item => item.ref)], outputs: ['engineering-review/result.json'], paths: ['engineering-review']});
+  review.execution_state = 'Reviewer';
+  review.review_context = {candidate, policy: review.policy, check_ids: review.skill_source.check_ids, approval_scope: oldApproval.approval_scope, basis, review: {mode: 'self-check', provenance: review.provenance}};
+  f.write('engineering-review/result.json', {result: 'passed', synthetic: true});
+  f.finishTask(review, {candidate, scope: oldApproval.approval_scope});
+  f.run('current-engineering-review', ['contract', 'verify', '--kind', 'task', '--file', 'engineering-review-task.json']);
+  f.write('engineering-contract-approval.json', {schema_version: 3, gate_id: oldApproval.gate_id, decision: 'approved', actor_kind: 'agent', subject_ref: candidate.ref, subject_digest: candidate.digest, approval_scope: oldApproval.approval_scope, basis, evidence_refs: [review.provenance.execution_ref], review_task_ref: review.provenance.task_ref, review_task_digest: f.asset(review.provenance.task_ref).digest, check_ids: review.skill_source.check_ids, policy: review.policy, review: review.review_context.review, user_decision_ref: decision.ref, artifact_bindings: oldApproval.artifact_bindings});
+  contract.design_prerequisites.technical_design.approval_context.subject_ref = candidate.ref;
+  contract.design_prerequisites.technical_design.approval_context.basis = basis;
   spec.mutate?.(contract, {gov, decisionFile});
   const contractFile = path.join(gov, 'contract.json');
   fs.writeFileSync(contractFile, `${JSON.stringify(contract, null, 2)}\n`);
+  const doctor = run(context.bin, ['doctor', '--root', gov, '--json'], {env: context.env});
+  if (doctor.status !== 0 || JSON.parse(doctor.stdout).result?.readiness?.files !== 'aligned') throw new Error(`对拍 Backend 受管资产漂移: ${doctor.stderr || doctor.stdout}`);
   const catalogFile = path.join(base, 'candidate-catalog.json');
   fs.writeFileSync(catalogFile, JSON.stringify(m.fixtureCatalog(contract)));
   const options = {
