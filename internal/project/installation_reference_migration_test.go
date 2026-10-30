@@ -3,12 +3,15 @@ package project
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/bundle"
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
@@ -37,9 +40,25 @@ func referenceMigrationFixture(t *testing.T) (string, *bundle.Bundle, string) {
 	return root, b, ref
 }
 
+func trustedReferenceMigrationFixture(t *testing.T) (string, *bundle.Bundle, string) {
+	t.Helper()
+	b := trustedBundle(t, "backend")
+	root, _ := writeInstallationBundleFixture(t, b)
+	refs, err := SelectSkillResources(b, InstallationSkills, []string{"implement"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := buildCore(root, "backend", "skills", nil, refs, nil, PlanningOptions{target: b})
+	if err != nil || !p.ReadyToApply {
+		t.Fatalf("ensure: %+v %v", p, err)
+	}
+	writeFixtureChanges(t, root, p)
+	return root, b, ".template-source/process/MATT-POCOCK-ENGINEERING-SKILLS.md"
+}
+
 func TestSkillsMigrationRetainsVerifiedSourceReferences(t *testing.T) {
-	root, b, ref := referenceMigrationFixture(t)
-	p, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+	root, b, ref := trustedReferenceMigrationFixture(t)
+	p, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +91,7 @@ func TestSkillsMigrationRetainsVerifiedSourceReferences(t *testing.T) {
 func TestSkillsMigrationRejectsUntrustedSourceFiles(t *testing.T) {
 	for _, scenario := range []string{"modified", "unmanaged", "symlink"} {
 		t.Run(scenario, func(t *testing.T) {
-			root, b, ref := referenceMigrationFixture(t)
+			root, b, ref := trustedReferenceMigrationFixture(t)
 			file := filepath.Join(root, filepath.FromSlash(ref))
 			switch scenario {
 			case "modified":
@@ -94,7 +113,21 @@ func TestSkillsMigrationRejectsUntrustedSourceFiles(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			_, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+			var userData []byte
+			var linkTarget string
+			if scenario == "symlink" {
+				linkTarget, e = os.Readlink(file)
+			} else {
+				userData, e = os.ReadFile(file)
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			meta, e := os.ReadFile(filepath.Join(root, MetadataFile))
+			if e != nil {
+				t.Fatal(e)
+			}
+			_, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
 			if err == nil || !strings.Contains(err.Error(), ".template-source") {
 				t.Fatalf("untrusted reference was not rejected: %v", err)
 			}
@@ -102,13 +135,28 @@ func TestSkillsMigrationRejectsUntrustedSourceFiles(t *testing.T) {
 			if e != nil || after.Mode() != before.Mode() {
 				t.Fatalf("user file changed: %v", e)
 			}
+			if scenario == "symlink" {
+				actual, e := os.Readlink(file)
+				if e != nil || actual != linkTarget {
+					t.Fatalf("symlink changed: %v", e)
+				}
+			} else {
+				actual, e := os.ReadFile(file)
+				if e != nil || string(actual) != string(userData) {
+					t.Fatalf("user data changed: %v", e)
+				}
+			}
+			now, e := os.ReadFile(filepath.Join(root, MetadataFile))
+			if e != nil || string(now) != string(meta) {
+				t.Fatalf("metadata changed: %v", e)
+			}
 		})
 	}
 }
 
 func TestSkillsMigrationRejectsNewSourceFilesAfterPlanning(t *testing.T) {
-	root, b, _ := referenceMigrationFixture(t)
-	p, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+	root, b, _ := trustedReferenceMigrationFixture(t)
+	p, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +172,7 @@ func TestSkillsMigrationRejectsNewSourceFilesAfterPlanning(t *testing.T) {
 func TestSkillsMigrationRejectsDifferentReferenceBundle(t *testing.T) {
 	for _, field := range []string{"commit", "snapshot", "bundle", "file"} {
 		t.Run(field, func(t *testing.T) {
-			root, b, ref := referenceMigrationFixture(t)
+			root, b, ref := trustedReferenceMigrationFixture(t)
 			switch field {
 			case "commit":
 				b.TemplateCommit = strings.Repeat("b", 40)
@@ -137,126 +185,110 @@ func TestSkillsMigrationRejectsDifferentReferenceBundle(t *testing.T) {
 				f.Digest = strings.Repeat("0", 64)
 				b.Files[ref] = f
 			}
-			_, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
-			if err == nil {
-				t.Fatal("different reference provenance accepted")
+			before, err := os.ReadFile(filepath.Join(root, ref))
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := os.ReadFile(filepath.Join(root, MetadataFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+			var failure *domain.Error
+			if !errors.As(err, &failure) || failure.Code != "MIGRATION_INPUT" || !strings.Contains(err.Error(), ".template-source") {
+				t.Fatalf("different reference provenance accepted: %v", err)
+			}
+			after, err := os.ReadFile(filepath.Join(root, ref))
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("source changed: %v", err)
+			}
+			after, err = os.ReadFile(filepath.Join(root, MetadataFile))
+			if err != nil || string(after) != string(meta) {
+				t.Fatalf("metadata changed: %v", err)
 			}
 		})
 	}
 }
 
 func TestSkillsMigrationRetainsGroupOnlySourceReferences(t *testing.T) {
-	root, b, ref := referenceMigrationFixture(t)
+	root, b, ref := trustedReferenceMigrationFixture(t)
 	item := b.Installations["skills"]
-	item.SkillReferences = nil
-	item.ReferenceGroups = map[string][]string{"shared-source": {ref}}
-	item.SkillReferenceGroups = map[string][]string{"implement": {"shared-source"}}
-	b.Installations["skills"] = item
-	plan, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
-	if err != nil {
-		t.Fatalf("group-only source reference blocked migration: %v", err)
+	if len(item.SkillReferences["implement"]) != 0 || len(item.SkillReferenceGroups["implement"]) == 0 {
+		t.Fatal("official implement reference is not group-only")
 	}
-	if err = applyStandaloneFixture(t, plan, b); err != nil {
-		t.Fatal(err)
+	plan, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+	if err != nil || !plan.ReadyToApply {
+		t.Fatalf("migration: %+v %v", plan, err)
 	}
-	data, err := json.Marshal(b)
+	writeFixtureChanges(t, root, plan)
+	id, err := Detect(root, "backend", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var next bundle.Bundle
-	if err = json.Unmarshal(data, &next); err != nil {
-		t.Fatal(err)
+	if !reflect.DeepEqual(stringsOf(id.Native.Distribution["retainedTemplateSourceReferences"]), []string{ref}) {
+		t.Fatal("group reference not retained")
 	}
-	next.TemplateCommit, next.SnapshotHash, next.BundleHash = strings.Repeat("f", 40), strings.Repeat("1", 64), strings.Repeat("2", 64)
-	f := next.Files[ref]
-	updated := []byte("updated group reference")
-	f.Data, f.Digest = base64.StdEncoding.EncodeToString(updated), safefs.Digest(updated)
-	next.Files[ref] = f
-	nextItem := next.Installations["skills"]
-	nextItem.Initial[ref] = f
-	next.Installations["skills"] = nextItem
-	sync, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: &next})
-	if err != nil {
-		t.Fatalf("group-only source reference blocked sync: %v", err)
+	sync, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: b})
+	if err != nil || !sync.ReadyToApply {
+		t.Fatalf("same bundle sync: %+v %v", sync, err)
 	}
-	if err = applyStandaloneFixture(t, sync, &next); err != nil {
-		t.Fatal(err)
-	}
-	actual, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ref)))
-	if err != nil || string(actual) != string(updated) {
-		t.Fatalf("group-only source not updated: %v", err)
+	for _, change := range sync.Changes {
+		if change.Path == ref {
+			t.Fatalf("unchanged reference rewritten: %+v", change)
+		}
 	}
 }
 
-func TestGovernedSyncUpdatesRetainedReferencesWithBundle(t *testing.T) {
-	root, b, ref := referenceMigrationFixture(t)
-	p, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+func TestGovernedSyncPlansRetainedReferenceUpdateFromTrustedSource(t *testing.T) {
+	root, b, ref := trustedReferenceMigrationFixture(t)
+	itemOld := b.Installations["skills"]
+	if len(itemOld.SkillReferences["implement"]) != 0 || len(itemOld.SkillReferenceGroups["implement"]) == 0 {
+		t.Fatal("expected official group-only reference")
+	}
+	migration, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+	if err != nil || !migration.ReadyToApply {
+		t.Fatalf("migration: %+v %v", migration, err)
+	}
+	writeFixtureChanges(t, root, migration)
+	// Altered target exercises planner behavior only; it is not a trusted release.
+	target := trustedBundle(t, "backend")
+	target.TemplateCommit = strings.Repeat("f", 40)
+	target.SnapshotHash = strings.Repeat("1", 64)
+	target.BundleHash = strings.Repeat("2", 64)
+	f := target.Files[ref]
+	raw, err := f.Render(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = applyStandaloneFixture(t, p, b); err != nil {
-		t.Fatal(err)
+	raw = append(raw, '\n')
+	f.Data, f.Digest = base64.StdEncoding.EncodeToString(raw), safefs.Digest(raw)
+	target.Files[ref] = f
+	item := target.Installations["skills"]
+	if _, ok := item.Initial[ref]; ok {
+		item.Initial[ref] = f
 	}
-	data, err := json.Marshal(b)
-	if err != nil {
-		t.Fatal(err)
+	target.Installations["skills"] = item
+	p, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: target})
+	if err != nil || !p.ReadyToApply {
+		t.Fatalf("planner: %+v %v", p, err)
 	}
-	var next bundle.Bundle
-	if err = json.Unmarshal(data, &next); err != nil {
-		t.Fatal(err)
-	}
-	next.TemplateCommit, next.SnapshotHash, next.BundleHash = strings.Repeat("f", 40), strings.Repeat("1", 64), strings.Repeat("2", 64)
-	f := next.Files[ref]
-	updated := []byte("updated reference")
-	f.Data, f.Digest = base64.StdEncoding.EncodeToString(updated), safefs.Digest(updated)
-	next.Files[ref] = f
-	item := next.Installations["skills"]
-	item.Initial[ref] = f
-	next.Installations["skills"] = item
-	sync, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: &next})
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, c := range sync.Changes {
-		if c.Path == ref && c.After.Digest == safefs.Digest(updated) {
-			found = true
+	for _, c := range p.Changes {
+		if c.Path == ref && c.After.Digest == safefs.Digest(raw) {
+			return
 		}
 	}
-	if !found {
-		t.Fatalf("governed sync failed to plan updated retained source reference %s", ref)
-	}
-	if err = applyStandaloneFixture(t, sync, &next); err != nil {
-		t.Fatal(err)
-	}
-	actual, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ref)))
-	if err != nil || string(actual) != string(updated) {
-		t.Fatalf("retained reference not updated: %v", err)
-	}
-	id, err := Detect(root, "spec", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id.Native.TemplateCommit != next.TemplateCommit || id.Native.Managed[ref].Source.TemplateCommit != next.TemplateCommit {
-		t.Fatal("updated metadata not bound to new source")
-	}
-	repeat, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: &next})
-	if err != nil || len(repeat.Changes) != 0 {
-		t.Fatalf("repeat sync: %+v %v", repeat, err)
-	}
+	t.Fatalf("retained reference update not planned: %s", ref)
 }
 
 func TestGovernedSyncProtectsRetainedReferences(t *testing.T) {
 	for _, scenario := range []string{"modified", "deleted", "unmanaged", "target-missing", "after-plan"} {
 		t.Run(scenario, func(t *testing.T) {
-			root, b, ref := referenceMigrationFixture(t)
-			p, err := buildCore(root, "spec", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
+			root, b, ref := trustedReferenceMigrationFixture(t)
+			p, err := buildCore(root, "backend", "migrate", nil, nil, nil, PlanningOptions{target: b, Installation: InstallationGoverned})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = applyStandaloneFixture(t, p, b); err != nil {
-				t.Fatal(err)
-			}
+			writeFixtureChanges(t, root, p)
 			file := filepath.Join(root, filepath.FromSlash(ref))
 			switch scenario {
 			case "modified":
@@ -272,11 +304,18 @@ func TestGovernedSyncProtectsRetainedReferences(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "target-missing":
-				item := b.Installations["skills"]
-				delete(item.SkillReferences, "implement")
-				b.Installations["skills"] = item
+				delete(b.Files, ref)
 			}
-			sync, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
+			meta, err := os.ReadFile(filepath.Join(root, MetadataFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			guarded := file
+			if scenario == "unmanaged" {
+				guarded = filepath.Join(root, ".template-source/process/user.txt")
+			}
+			before, beforeErr := os.ReadFile(guarded)
+			sync, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: b})
 			if scenario == "after-plan" {
 				if err != nil {
 					t.Fatal(err)
@@ -287,8 +326,20 @@ func TestGovernedSyncProtectsRetainedReferences(t *testing.T) {
 				if err = verifyRetainedSourceBefore(t.Context(), sync); err == nil {
 					t.Fatal("source tree drift accepted")
 				}
-			} else if err == nil {
-				t.Fatalf("%s: unsafe sync accepted", scenario)
+				created, readErr := os.ReadFile(filepath.Join(root, ".template-source/process/new.txt"))
+				if readErr != nil || string(created) != "user" {
+					t.Fatalf("drift file changed: %v", readErr)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), ".template-source") {
+				t.Fatalf("%s: wrong sync rejection: %v", scenario, err)
+			}
+			after, afterErr := os.ReadFile(guarded)
+			if (beforeErr == nil) != (afterErr == nil) || string(before) != string(after) {
+				t.Fatalf("%s: user reference changed: %v", scenario, afterErr)
+			}
+			now, readErr := os.ReadFile(filepath.Join(root, MetadataFile))
+			if readErr != nil || string(now) != string(meta) {
+				t.Fatalf("%s: metadata changed: %v", scenario, readErr)
 			}
 		})
 	}

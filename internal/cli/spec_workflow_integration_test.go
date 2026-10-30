@@ -198,8 +198,7 @@ func TestDailyTutorialTargetsBackendPolicy(t *testing.T) {
 
 // An installed Backend project must contain each skill document the daily tutorial asks readers to open.
 func TestBackendDailyTutorialResourceExistsInInstalledProject(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "backend")
-	commandOK(t, root, "init", "--profile", "backend")
+	root := backendFixtureFor(t)
 	code, tutorial, stderr := captureCommand(t, context.Background(), []string{"help", "tutorial", "daily"}, false)
 	if code != 0 {
 		t.Fatalf("help failed: %s", stderr)

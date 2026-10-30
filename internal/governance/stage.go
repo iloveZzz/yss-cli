@@ -525,6 +525,9 @@ func stageRun(ctx context.Context, action, root string, args map[string]string) 
 	if action == "query" || action == "status" || action == "check" {
 		s := kernel.NewSemanticSession(ctx, root, args)
 		v := s.V
+		if err := s.Authorities(); err != nil {
+			return nil, err
+		}
 		if err := pendingOldTransaction(v); err != nil {
 			return nil, err
 		}

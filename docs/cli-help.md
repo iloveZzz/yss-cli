@@ -55,7 +55,7 @@ Profile 职责:
     doctor           检查项目身份、受管基线和冲突。
     diff             查看当前文件相对固定模板的差异和同步计划。
     sync             将项目模板升级到本 CLI 内置固定 Bundle。
-    migrate          显式迁移 Spec 或 Backend 的 metadata3 治理实例。
+    migrate          显式转换受信实例的安装方式。
     recover          查询或恢复未完成的项目事务。
     rollback         查询或整体回退最近一次成功项目事务。
   [资源]
@@ -485,7 +485,7 @@ YSS 离线入门教程
 | `lifecycle verify` | 核验当前 checkpoint 的领域门禁。 | `yss help examples lifecycle verify` |
 | `lifecycle verify-daily` | 核验同一日常任务的当前差异、测试和适用复核。 | `yss help examples lifecycle verify-daily` |
 | `mcp` | 以 MCP stdio 服务提供只读治理工具。 | `yss help examples mcp` |
-| `migrate` | 显式迁移 Spec 或 Backend 的 metadata3 治理实例。 | `yss help examples migrate` |
+| `migrate` | 显式转换受信实例的安装方式。 | `yss help examples migrate` |
 | `profile` | 准备独立的下游 Profile 工程并登记显式关联。 | `yss help examples profile` |
 | `profile prepare` | 为显式外部 Backend 生成或执行初始化保存计划。 | `yss help examples profile prepare` |
 | `project` | 只读检查安装身份与计划输出。 | `yss help examples project` |
@@ -3247,7 +3247,7 @@ Profile 职责:
     doctor           检查项目身份、受管基线和冲突。
     diff             查看当前文件相对固定模板的差异和同步计划。
     sync             将项目模板升级到本 CLI 内置固定 Bundle。
-    migrate          显式迁移 Spec 或 Backend 的 metadata3 治理实例。
+    migrate          显式转换受信实例的安装方式。
     recover          查询或恢复未完成的项目事务。
     rollback         查询或整体回退最近一次成功项目事务。
   [资源]
@@ -4572,17 +4572,17 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ```text
 yss 3.0.0 — migrate
 ──────────────────────
-显式迁移 Spec 或 Backend 的 metadata3 治理实例。
+显式转换受信实例的安装方式。
 
-用法: yss migrate --root <目录> [--profile spec] --plan --out <新文件>；应用：--apply --plan-file <文件>
+用法: yss migrate --root <目录> --installation <skills|governed> --plan --out <新文件>；应用：--apply --plan-file <文件>
 
 前置条件:
 合法项目身份及所需输入；项目根默认当前目录，推荐显式 --root。
-只支持统一 metadata3 / identity1 / policy1；未知格式原件保留。封存原身份、政策和记录。旧批准通过 --history 按原语义只读；不授予新资格。未完成迁移可 recover，已完成后不支持降级。
+仅转换来源可核验且支持该操作的实例；旧治理迁移已停止，旧实例和无法证明来源的文件保留。
 
 最小示例:
-yss migrate --root ./old-spec --profile spec --plan --out /tmp/governance-migration.json
-yss migrate --root ./old-spec --profile spec --apply --plan-file /tmp/governance-migration.json
+yss migrate --root ./demo-backend --installation skills --plan --out /tmp/installation-migration.json
+yss migrate --root ./demo-backend --apply --plan-file /tmp/installation-migration.json
 
 参数:
   --apply                         应用已保存计划或显式恢复；写入前检查冲突
@@ -4611,6 +4611,9 @@ yss migrate --root ./old-spec --profile spec --apply --plan-file /tmp/governance
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
 --profile <spec|backend>  实例类型
+--plan --out <新文件>  生成保存计划，输出文件必须不存在
+--apply --plan-file <文件>  应用保存计划；输入变化时拒绝
+--installation skills|governed  显式选择目标安装方式
 --review-out / --base-bundle / --resolution-file  复用同步冲突审阅与决议
 
 预期结果:

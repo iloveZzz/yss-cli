@@ -6,6 +6,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
+	"github.com/iloveZzz/yss-cli/internal/trustguard"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,6 +81,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, err
 	}
 	out := &Identity{Root: root}
+	var sourceGuard *trustguard.Guard
 	found := ""
 	legacyFile := ""
 	// 前端 Profile 已移除：旧前端实例（旧版 metadata）明确拒绝，不识别、不升级、不迁移，文件原样保留。
@@ -109,7 +111,7 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, err
 	}
 	if !nativePresent && legacyFile != "" {
-		return nil, domain.Explain(domain.Fail("LEGACY", "旧版实例不再受支持；本 CLI 以 2.3.1 为基线"), "LEGACY_INSTANCE_UNSUPPORTED", "该目录只有旧家族 metadata，没有统一 CLI metadata；不再提供迁移。", map[string]any{"root": root, "metadataFile": legacyFile})
+		return nil, domain.Explain(domain.Fail("LEGACY", "旧版实例不再受支持；请使用原版本工具"), "LEGACY_INSTANCE_UNSUPPORTED", "该目录只有旧家族 metadata，没有统一 CLI metadata；不再提供迁移。", map[string]any{"root": root, "metadataFile": legacyFile})
 	}
 	if nativePresent {
 		if _, e := load(root, MetadataFile); e != nil {
@@ -120,6 +122,10 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 			return nil, e
 		}
 		meta, e := identitymeta.ValidateNative(root, b, found)
+		if e != nil {
+			return nil, e
+		}
+		sourceGuard, e = trustguard.Open(meta)
 		if e != nil {
 			return nil, e
 		}
@@ -180,6 +186,15 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 	if ok, e := exists(root, profileRef); e != nil {
 		return nil, e
 	} else if ok {
+		if sourceGuard != nil {
+			actual, e := safefs.Describe(root, profileRef)
+			if e != nil {
+				return nil, e
+			}
+			if e = sourceGuard.VerifyPolicy(profileRef, actual); e != nil {
+				return nil, e
+			}
+		}
 		v, e := load(root, profileRef)
 		if e != nil {
 			return nil, e
@@ -200,6 +215,13 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 		return nil, domain.Fail("IDENTITY", "缺少项目 Profile 合同")
 	}
 	if IsMattSpec(out) {
+		actual, e := safefs.Describe(root, SpecWorkflowRef)
+		if e != nil {
+			return nil, e
+		}
+		if e = sourceGuard.VerifyPolicy(SpecWorkflowRef, actual); e != nil {
+			return nil, e
+		}
 		if err := validateInstalledSpecWorkflow(out); err != nil {
 			return nil, err
 		}

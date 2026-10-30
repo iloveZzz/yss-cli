@@ -64,6 +64,24 @@ func TestStageRefreshAndFilters(t *testing.T) {
 	writeJSON(t, dir, "docs/done.json", map[string]any{"id": "plan-req", "progress": "completed", "completion": []any{map[string]any{"criterion": "ok", "evidence_refs": []any{map[string]string{"ref": "docs/ev.md", "digest": "sha256:" + hex.EncodeToString(sum[:])}}}}})
 	writeJSON(t, dir, "docs/cancel.json", map[string]any{"id": "plan-cancel", "progress": "cancelled", "cancellation_reason": "不做"})
 	stagePlan(t, dir, "docs/p1.json", "plan", "--items", "docs/items.json")
+	{
+		// The native CI stage check must use the same trusted policy view.
+		trackingSchema := filepath.Join(dir, ".template-spec/process/schemas/stage-tracking.schema.json")
+		trustedSchema, err := os.ReadFile(trackingSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(trackingSchema, append(append([]byte(nil), trustedSchema...), '\n'), 0644); err != nil {
+			t.Fatal(err)
+		}
+		code, env, _ := runYSS("project-ci", "check", "--root", dir, "--scope", "native-go")
+		if err = os.WriteFile(trackingSchema, trustedSchema, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if code == 0 || env["code"] != "BASELINE" {
+			t.Fatalf("CI must reject tampered stage schema: %d %v", code, env)
+		}
+	}
 	stagePlan(t, dir, "docs/p2.json", "update", "--item", "docs/done.json")
 	stagePlan(t, dir, "docs/p3.json", "update", "--item", "docs/cancel.json")
 

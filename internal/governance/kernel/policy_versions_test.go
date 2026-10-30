@@ -45,14 +45,31 @@ func policyFixture(t *testing.T) (string, map[string]any) {
 	return root, policy
 }
 
-func TestRoleIndependentAuthoritiesWithoutRegistryOfActors(t *testing.T) {
-	root, _ := policyFixture(t)
+// Test policy semantics directly; public instance admission requires a trusted Bundle.
+func checkPolicyFixture(t *testing.T, root string) (*SemanticSession, error) {
+	t.Helper()
 	s := NewSemanticSession(context.Background(), root, nil)
-	if err := s.Authorities(); err != nil {
+	s.Report.Profile = "backend"
+	registry, err := s.Doc(".template-spec/process/lifecycle-registry.yaml")
+	if err != nil {
+		return s, err
+	}
+	s.Registry = registry
+	profile, err := s.Doc(".template-spec/process/harness-profile.yaml")
+	if err != nil {
+		return s, err
+	}
+	return s, s.loadGovernancePolicy(map[string]any{"schema_version": 2, "repository_mode": "project-instance"}, profile)
+}
+
+func TestRoleIndependentPolicyWithoutRegistryOfActors(t *testing.T) {
+	root, _ := policyFixture(t)
+	s, err := checkPolicyFixture(t, root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RequireGovernanceWrite(); SemanticCode(err) != "CAPABILITY" {
-		t.Fatalf("partial consumer must not activate new writes: %v", err)
+	if err := s.RequireGovernanceWrite(); SemanticCode(err) != "IDENTITY" {
+		t.Fatalf("untrusted instance must not activate new writes: %v", err)
 	}
 	if len(s.Roles) != 0 {
 		t.Fatal("new authority must not load roles")
@@ -85,32 +102,26 @@ func TestRoleIndependentAuthorityRejectsMixedAndMissingPolicy(t *testing.T) {
 			if scenario != "missing-policy" {
 				writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
 			}
-			if err := NewSemanticSession(context.Background(), root, nil).Authorities(); err == nil {
+			if _, err := checkPolicyFixture(t, root); err == nil {
 				t.Fatal("accepted incomplete or mixed authorities")
 			}
 		})
 	}
 }
 
-func TestLegacyAuthoritiesReadButCannotWriteAndNewConsumersFailClosed(t *testing.T) {
+func TestLegacyAuthoritiesRejectedAndNewConsumersFailClosed(t *testing.T) {
 	root, _ := policyFixture(t)
 	writePolicyFixture(t, root, "yss-project.yaml", map[string]any{"schema_version": 1, "repository_mode": "project-instance"})
 	writePolicyFixture(t, root, ".template-spec/process/harness-profile.yaml", map[string]any{"schema_version": 2, "profile_id": "harness.backend-delivery"})
 	writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", map[string]any{"schema_version": 1})
 	writePolicyFixture(t, root, ".template-spec/agents/digital-human-roles.yaml", map[string]any{"schema_version": 1, "status": "active", "user_decision_policy": map[string]any{"schema_version": 1, "gates": []any{}, "work_units": map[string]any{}}, "gate_policy": map[string]any{"default_if_unlisted": "reject-unlisted"}})
 	s := NewSemanticSession(context.Background(), root, nil)
-	if err := s.Authorities(); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.Roles) == 0 {
-		t.Fatal("legacy source role policy was not loaded")
-	}
-	if err := s.RequireGovernanceWrite(); SemanticCode(err) != "GOVERNANCE_MIGRATION_REQUIRED" {
-		t.Fatalf("legacy write: %v", err)
+	if err := s.Authorities(); SemanticCode(err) != "IDENTITY" {
+		t.Fatalf("legacy source must be rejected: %v", err)
 	}
 	root, _ = policyFixture(t)
-	s = NewSemanticSession(context.Background(), root, nil)
-	if err := s.Authorities(); err != nil {
+	s, err := checkPolicyFixture(t, root)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Verify("task", "task.yaml", nil); SemanticCode(err) != "CAPABILITY" {
@@ -150,7 +161,7 @@ func TestRoleIndependentPolicyCompleteness(t *testing.T) {
 				ApMap(ApMap(decisions["continuation"])["boundaries_by_profile"])["backend"] = []string{"implementation-scope"}
 			}
 			writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
-			if err := NewSemanticSession(context.Background(), root, nil).Authorities(); SemanticCode(err) != "GOVERNANCE_POLICY" {
+			if _, err := checkPolicyFixture(t, root); SemanticCode(err) != "GOVERNANCE_POLICY" {
 				t.Fatalf("incomplete policy accepted: %v", err)
 			}
 		})
@@ -172,7 +183,7 @@ func TestPolicyRoutesCannotLoseUserDecisionMappings(t *testing.T) {
 				delete(ApMap(scope["work_unit_gates"]), "work-unit.spec-synthesis")
 			}
 			writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
-			if err := NewSemanticSession(context.Background(), root, nil).Authorities(); SemanticCode(err) != "GOVERNANCE_POLICY" {
+			if _, err := checkPolicyFixture(t, root); SemanticCode(err) != "GOVERNANCE_POLICY" {
 				t.Fatalf("route user gate disappeared from policy: %v", err)
 			}
 		})
@@ -208,7 +219,7 @@ func TestPolicyAggregateHandoffRequiresExplicitSourceApprovalRelation(t *testing
 			}
 			writePolicyFixture(t, root, ".template-spec/process/lifecycle-registry.yaml", registry)
 			writePolicyFixture(t, root, ".template-spec/process/orchestration-contract.yaml", p)
-			err = NewSemanticSession(context.Background(), root, nil).Authorities()
+			_, err = checkPolicyFixture(t, root)
 			if (err == nil) != (scenario == "valid") {
 				t.Fatalf("%s: %v", scenario, err)
 			}
@@ -218,8 +229,8 @@ func TestPolicyAggregateHandoffRequiresExplicitSourceApprovalRelation(t *testing
 
 func TestGovernedMetadata5PolicyBinding(t *testing.T) {
 	root, _ := policyFixture(t)
-	s := NewSemanticSession(context.Background(), root, nil)
-	if err := s.Authorities(); err != nil {
+	s, err := checkPolicyFixture(t, root)
+	if err != nil {
 		t.Fatal(err)
 	}
 	writePolicyFixture(t, root, ".yss.json", map[string]any{"schemaVersion": 5, "bundleSchemaVersion": 5, "distribution": map[string]any{"installation": "governed"}})

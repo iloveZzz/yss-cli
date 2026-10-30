@@ -77,6 +77,9 @@ func RenderReadingMode(s *kernel.SemanticSession, cpRef string, v2 bool) (*Readi
 }
 
 func buildReading(s *kernel.SemanticSession, cpRef string, v2 bool) (*ReadingBuild, error) {
+	if _, _, err := loadReadingPolicy(s); err != nil {
+		return nil, err
+	}
 	checkpoint, err := s.Doc(cpRef)
 	if err != nil {
 		return nil, err

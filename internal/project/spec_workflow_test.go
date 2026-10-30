@@ -1,7 +1,6 @@
 package project
 
 import (
-	"encoding/base64"
 	"errors"
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
@@ -34,7 +33,8 @@ func TestSpecAttachPreservesOrdinaryContext(t *testing.T) {
 			}
 			root := t.TempDir()
 			if tc.native {
-				root, _ = writeInstallationFixture(t)
+				b = trustedBundle(t, "spec")
+				root, _ = writeInstallationBundleFixture(t, b)
 			}
 			body := []byte("# Existing business context\nProject-owned terms and decisions.\n")
 			if err := os.WriteFile(filepath.Join(root, "CONTEXT.md"), body, 0444); err != nil {
@@ -116,19 +116,7 @@ func TestSpecWorkflowProvenanceRequired(t *testing.T) {
 }
 
 func TestSpecGovernedWithoutProductAssets(t *testing.T) {
-	b := installationFixture()
-	raw := []byte("{\"schemaVersion\":1,\"specWorkflow\":\"matt-spec-v1\",\"profile\":\"spec\"}\n")
-	file := bundle.File{Data: base64.StdEncoding.EncodeToString(raw), Digest: safefs.Digest(raw), Mode: 0644, Ownership: "managed"}
-	b.Files[SpecWorkflowRef] = file
-	inst := b.Installations["governed"]
-	inst.Initial[SpecWorkflowRef] = file
-	for ref, body := range map[string]string{"yss-project.yaml": "schema_version: 2\nrepository_mode: project-instance\n", ".template-spec/process/harness-profile.yaml": "schema_version: 3\nprofile_id: harness.spec-template\n"} {
-		f := bundle.File{Data: base64.StdEncoding.EncodeToString([]byte(body)), Digest: safefs.Digest([]byte(body)), Mode: 0644, Ownership: "managed"}
-		b.Files[ref] = f
-		inst.Initial[ref] = f
-	}
-	inst.Distribution["specWorkflow"] = "matt-spec-v1"
-	b.Installations["governed"] = inst
+	b := trustedBundle(t, "spec")
 	root := t.TempDir()
 	p, err := buildCore(root, "spec", "init", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {

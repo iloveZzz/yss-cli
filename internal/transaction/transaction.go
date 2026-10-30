@@ -1640,16 +1640,33 @@ func rollbackWithValidator(ctx context.Context, root, wantKind string, validate 
 // archive. A unique pending transaction takes precedence over the latest
 // committed transaction. It creates no state and never reads target file bytes.
 func ArchivedFile(root, ref string) ([]byte, error) {
-	root, err := safeRoot(root, false)
+	b, d, found, err := ArchivedCandidate(root, ref)
 	if err != nil {
 		return nil, err
 	}
+	if !found {
+		return nil, fail("ARCHIVE", "事务没有登记候选路径: "+ref)
+	}
+	if d.Type != "file" {
+		return nil, fail("ARCHIVE", "归档路径没有候选文件: "+ref)
+	}
+	return b, nil
+}
+
+// ArchivedCandidate returns the verified plan descriptor from the selected
+// archive, and verified bytes when it is a file. Directory and deletion
+// candidates have no bytes. found=false means the plan did not write ref.
+func ArchivedCandidate(root, ref string) ([]byte, domain.Descriptor, bool, error) {
+	root, err := safeRoot(root, false)
+	if err != nil {
+		return nil, domain.Descriptor{}, false, err
+	}
 	if err := safefs.ValidateRef(ref); err != nil {
-		return nil, err
+		return nil, domain.Descriptor{}, false, err
 	}
 	all, _, err := scan(root)
 	if err != nil {
-		return nil, err
+		return nil, domain.Descriptor{}, false, err
 	}
 	pending := []loaded{}
 	for _, l := range all {
@@ -1658,7 +1675,7 @@ func ArchivedFile(root, ref string) ([]byte, error) {
 		}
 	}
 	if len(pending) > 1 {
-		return nil, fail("AMBIGUOUS", "多个未完成事务，不能猜测候选归档")
+		return nil, domain.Descriptor{}, false, fail("AMBIGUOUS", "多个未完成事务，不能猜测候选归档")
 	}
 	var selected *loaded
 	if len(pending) == 1 {
@@ -1672,18 +1689,95 @@ func ArchivedFile(root, ref string) ([]byte, error) {
 		}
 	}
 	if selected == nil {
-		return nil, fail("ARCHIVE", "没有可读取的候选事务归档")
+		return nil, domain.Descriptor{}, false, fail("ARCHIVE", "没有可读取的候选事务归档")
 	}
+	return archivedCandidate(root, *selected, ref)
+}
+
+// ArchivedCandidateByID reads the exact archive selected by a transaction
+// validator; the caller must bind id to its lock-held Summary.
+func ArchivedCandidateByID(root, id, ref string) ([]byte, domain.Descriptor, bool, error) {
+	archive, err := OpenCandidateArchive(root, id)
+	if err != nil {
+		return nil, domain.Descriptor{}, false, err
+	}
+	return archive.Candidate(ref)
+}
+
+// CandidateArchive is a verified immutable transaction plan view. Callers
+// validating recovery must keep the transaction lock while using it.
+type CandidateArchive struct {
+	root     string
+	selected loaded
+}
+
+func (a *CandidateArchive) Kind() string { return a.selected.plan.Kind }
+
+func OpenCandidateArchive(root, id string) (*CandidateArchive, error) {
+	root, err := safeRoot(root, false)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := load(root, id)
+	if err != nil {
+		return nil, err
+	}
+	return &CandidateArchive{root: root, selected: selected}, nil
+}
+
+func (a *CandidateArchive) Candidate(ref string) ([]byte, domain.Descriptor, bool, error) {
+	if err := safefs.ValidateRef(ref); err != nil {
+		return nil, domain.Descriptor{}, false, err
+	}
+	return archivedCandidate(a.root, a.selected, ref)
+}
+
+// Paths returns the exact operation paths from this verified archive.
+func (a *CandidateArchive) Paths() []string {
+	paths := make([]string, 0, len(a.selected.plan.Operations))
+	for _, op := range a.selected.plan.Operations {
+		paths = append(paths, op.Path)
+	}
+	return paths
+}
+
+// Original returns the lock-selected transaction's validated pre-operation
+// bytes and descriptor, or found=false if the operation did not touch ref.
+func (a *CandidateArchive) Original(ref string) ([]byte, domain.Descriptor, bool, error) {
+	if err := safefs.ValidateRef(ref); err != nil {
+		return nil, domain.Descriptor{}, false, err
+	}
+	for i, r := range a.selected.plan.Operations {
+		if r.Path != ref {
+			continue
+		}
+		if r.Before.Type != "file" {
+			return nil, r.Before, true, nil
+		}
+		b, err := blob(a.root, a.selected.base, i, r.Before, true)
+		if err != nil {
+			return nil, domain.Descriptor{}, false, err
+		}
+		return b, r.Before, true, nil
+	}
+	return nil, domain.Descriptor{}, false, nil
+}
+
+func archivedCandidate(root string, selected loaded, ref string) ([]byte, domain.Descriptor, bool, error) {
 	for i, r := range selected.plan.Operations {
 		if r.Path != ref {
 			continue
 		}
 		if r.After.Type != "file" {
-			return nil, fail("ARCHIVE", "归档路径没有候选文件: "+ref)
+			return nil, r.After, true, nil
 		}
-		return blob(root, selected.base, i, r.After, false)
+		b, err := blob(root, selected.base, i, r.After, false)
+		if err != nil {
+			return nil, domain.Descriptor{}, false, err
+		}
+		return b, r.After, true, nil
 	}
-	return nil, fail("ARCHIVE", "事务没有登记候选路径: "+ref)
+	return nil, domain.Descriptor{}, false, nil
 }
 
 // Status reads journals only; it creates no directory and acquires no write lock.

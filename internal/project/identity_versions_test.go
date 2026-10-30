@@ -12,6 +12,31 @@ import (
 	"testing"
 )
 
+func TestLegacyOnlyIdentityRefusedWithoutChangingFiles(t *testing.T) {
+	for _, profile := range []string{"spec", "backend"} {
+		t.Run(profile, func(t *testing.T) {
+			root := t.TempDir()
+			file := filepath.Join(root, domain.Profiles[profile].Metadata)
+			original := []byte("{\"user\":\"preserve\"}\n")
+			if err := os.WriteFile(file, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Detect(root, profile, true)
+			if err == nil || !strings.Contains(err.Error(), "原版本") || strings.Contains(err.Error(), "2.3.1") {
+				t.Fatalf("旧实例应明确拒绝并提示使用原版本，得到 %v", err)
+			}
+			after, err := os.ReadFile(file)
+			if err != nil || string(after) != string(original) {
+				t.Fatal("旧身份文件被修改")
+			}
+			info, err := os.Stat(file)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatal("旧身份文件权限被修改")
+			}
+		})
+	}
+}
+
 func TestRemovedDesignOriginalSourceRejected(t *testing.T) {
 	root := t.TempDir()
 	raw := []byte("{\"schema_version\":1,\"kind\":\"governance-original-source\",\"source_profile\":\"design\",\"files\":{}}")

@@ -459,17 +459,21 @@ func (d *dailySession) identity(requested string) error {
 	if err != nil {
 		return err
 	}
-	if exists {
-		raw, err := d.s.Bytes(domain.MetadataFile)
-		if err != nil {
-			return err
-		}
-		meta, err := identitymeta.ValidateNative(d.s.Root, raw, family)
-		if err != nil {
-			return d.s.Unavailable("IDENTITY", err.Error())
-		}
-		family = meta.Profile
+	if !exists {
+		return d.s.Unavailable("IDENTITY", "实例缺少可核验的受信来源")
 	}
+	raw, err := d.s.Bytes(domain.MetadataFile)
+	if err != nil {
+		return err
+	}
+	meta, err := identitymeta.ValidateNative(d.s.Root, raw, family)
+	if err != nil {
+		return d.s.Unavailable("IDENTITY", err.Error())
+	}
+	if err = d.s.BindTrustedSource(meta); err != nil {
+		return err
+	}
+	family = meta.Profile
 	if family == "" {
 		return d.s.Unavailable("UNPORTED", "缺少可核验的 Profile metadata")
 	}

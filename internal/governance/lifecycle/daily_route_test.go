@@ -3,11 +3,49 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
 )
+
+func TestDailyIdentityRejectsLegacyOnlyWithoutWrites(t *testing.T) {
+	for _, profile := range []string{"spec", "backend"} {
+		t.Run(profile, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "yss-project.yaml"), []byte("schema_version: 1\nrepository_mode: project-instance\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			p := domain.Profiles[profile]
+			version := 2
+			if profile == "spec" {
+				version = 3
+			}
+			file := filepath.Join(root, p.Metadata)
+			raw := []byte(fmt.Sprintf(`{"metadataSchemaVersion":%d,"templateSource":%q}`, version, p.TemplateSource))
+			if err := os.WriteFile(file, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			s := kernel.NewSemanticSession(context.Background(), root, nil)
+			d := &dailySession{s: s, report: &DailyReport{SemanticReport: s.Report}}
+			if err := d.identity(profile); err == nil {
+				t.Fatal("只有旧家族身份不得进入日常治理")
+			}
+			after, err := os.ReadFile(file)
+			if err != nil || string(after) != string(raw) {
+				t.Fatal("拒绝时修改了用户身份")
+			}
+			info, err := os.Stat(file)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatal("拒绝时修改了身份权限")
+			}
+		})
+	}
+}
 
 const fullSHA = "0123456789abcdef0123456789abcdef01234567"
 

@@ -61,7 +61,7 @@ node tools/scaffold-parity/main.mjs \
 
 ### 正式合同模式（带合同参数）
 
-夹具取自模板仓测试工具：合成的批准合同、架构决定、用户决定、设计前置（Technical Design、数据/API 决定、工程合同批准）和一个真实 `yss init` 的 spec 项目根。夹具只用于机制对拍，不代表任何真实批准。
+对拍先用被测 CLI 实际 `yss init` 一个 Backend 工程，核对其与内嵌 Bundle 的来源，再为各场景复制安装资产。模板仓测试工具生成合成合同、架构决定、用户决定及设计前置；对拍使用当前任务、审查和 approval3 合同生成测试证据，并让两侧消费同一份输入。这些夹具只用于机制对拍，不代表任何真实批准。
 
 固定模板提交上，真实目录里唯一 `verified` 的平台条目（Boot 3.5/JDK17 + YSS 3.2.0-SNAPSHOT）的资格证据与生成器源码指纹漂移（`requalify candidate`），所以 Node 的生产路径对任何合同都会拒绝。成功路径因此走“候选目录”：Node 用模板仓的 `generate-candidate` 夹具入口，Go 用 `Options.PlatformCatalog` + `AllowCandidate`（只在 `driver/` 里设置，CLI 不暴露）。
 

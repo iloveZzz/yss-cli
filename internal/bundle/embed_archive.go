@@ -8,3 +8,6 @@ import _ "embed"
 //
 //go:embed assets/bundles.json.gz
 var packedData []byte
+
+//go:embed assets/baseline-delta.json.gz
+var baselineDelta []byte

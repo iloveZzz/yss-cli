@@ -177,7 +177,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 	}
 	if !init && !attach && id.Native == nil && command != "diff" && command != "doctor" {
-		return nil, domain.Fail("IDENTITY", "缺少统一 CLI metadata；本 CLI 仅支持 2.3.1 基线实例")
+		return nil, domain.Fail("IDENTITY", "缺少可核验的受信实例 metadata")
 	}
 	b := options.target
 	if b == nil {
@@ -208,8 +208,23 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, err
 		}
 	}
-	if id.Native != nil && text(b.Distribution["specWorkflow"]) != "" {
-		if err := ValidateSpecWorkflow(id, b); err != nil {
+	if id.Native != nil && (IsMattSpec(id) || text(b.Distribution["specWorkflow"]) != "") {
+		source := b
+		if IsMattSpec(id) {
+			if text(b.Distribution["specWorkflow"]) != identitymeta.MattSpecWorkflow {
+				return nil, domain.Fail("SPEC_WORKFLOW_UNSUPPORTED", "目标 Bundle 不支持实例声明的 Spec 工作流")
+			}
+			meta := id.Native
+			trusted, e := bundle.LoadTrustedSource(bundle.SourceIdentity{Profile: meta.Profile, Version: meta.TemplateVersion, Commit: meta.TemplateCommit, Snapshot: meta.SnapshotHash, Manifest: meta.ManifestHash, Bundle: meta.BundleHash, State: meta.TemplateSourceState})
+			if e != nil {
+				return nil, e
+			}
+			source, e = trusted.ForInstallation(string(InstallationGoverned))
+			if e != nil {
+				return nil, e
+			}
+		}
+		if err := ValidateSpecWorkflow(id, source); err != nil {
 			return nil, err
 		}
 	}
@@ -254,12 +269,6 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	if err := requireWorkBuddyRootSync(id, b, command); err != nil {
 		return nil, err
-	}
-	if b.SchemaVersion >= 4 && id.Native != nil && id.Native.SchemaVersion == 3 && command != "migrate" && command != "diff" && command != "doctor" {
-		return nil, domain.Fail("GOVERNANCE_MIGRATION_REQUIRED", "旧实例须先显式 migrate；sync 不隐式改变治理身份")
-	}
-	if command == "migrate" && b.SchemaVersion < 4 {
-		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "迁移目标必须为 Bundle4")
 	}
 	vars = Variables(id, vars)
 	for key, value := range vars {
@@ -417,13 +426,8 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		return p, nil
 	}
 	var history *identitymeta.GovernanceHistory
-	if installationMigration != nil {
+	if id.Native != nil {
 		history = id.Native.GovernanceHistory
-	} else {
-		history, err = planOriginalGovernance(p, id)
-	}
-	if err != nil {
-		return nil, err
 	}
 	meta := Metadata{GovernanceHistory: history, SchemaVersion: 3, Profile: id.Profile.Name, ProfileID: id.Profile.ID, ProtocolVersion: domain.ProtocolVersion, CLIVersion: domain.Version, TemplateVersion: b.LegacyVersion, LegacyCLIVersion: b.LegacyVersion, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, TemplateSourceState: b.SourceState, Managed: managed, Variables: vars, Distribution: distribution}
 	if b.SchemaVersion >= 4 {
@@ -641,6 +645,9 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	}
 	if p.Digest != planDigest(p) {
 		return nil, domain.Fail("PLAN", "计划摘要不合法")
+	}
+	if p.GovernanceMigration != nil {
+		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "旧治理迁移计划已停止；原件保留")
 	}
 	if len(p.Conflicts) > 0 || len(p.Blockers) > 0 || !p.ReadyToApply {
 		return nil, domain.Explain(domain.Fail("CONFLICT", "存在用户修改冲突，须先人工合并"), "MANAGED_FILE_CONFLICT", "保存计划中存在尚未关闭的文件冲突或阻断项。", map[string]any{"root": p.Root, "conflicts": p.Conflicts, "blockers": p.Blockers})

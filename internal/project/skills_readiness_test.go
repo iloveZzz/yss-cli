@@ -1,8 +1,7 @@
 package project
 
 import (
-	"context"
-	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 func TestInstalledSkillReadiness(t *testing.T) {
@@ -82,16 +80,42 @@ func TestInstalledSkillReadiness(t *testing.T) {
 }
 
 func TestSpecSkillVerificationBlocksFalseSuccess(t *testing.T) {
-	b := installationFixture()
-	f := b.Files["skills-lock.json"]
-	raw, _ := f.Render(nil)
-	raw = []byte(strings.ReplaceAll(string(raw), ".agents/skills/implement", ".agents/skills/wrong"))
-	f.Data, f.Digest = base64.StdEncoding.EncodeToString(raw), safefs.Digest(raw)
-	b.Files["skills-lock.json"] = f
-	_, p := writeInstallationBundleFixture(t, b)
-	err := verifyAppliedPlan(context.Background(), p, installationFixture())
+	b := trustedBundle(t, "spec")
+	root, _ := writeInstallationBundleFixture(t, b)
+	id, err := Detect(root, "spec", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = verifySkillTrees(root, id.Native); err != nil {
+		t.Fatalf("valid lock rejected: %v", err)
+	}
+	file := filepath.Join(root, "skills-lock.json")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock map[string]any
+	if err = json.Unmarshal(raw, &lock); err != nil {
+		t.Fatal(err)
+	}
+	shared := lock["skills"].(map[string]any)["shared"].(map[string]any)
+	if len(shared) == 0 {
+		t.Fatal("real lock contains no shared skills")
+	}
+	for _, value := range shared {
+		value.(map[string]any)["effectiveHash"] = strings.Repeat("0", 64)
+		break
+	}
+	raw, err = json.Marshal(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(file, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	err = verifySkillTrees(root, id.Native)
 	var failure *domain.Error
-	if !errors.As(err, &failure) || failure.Code != "VERIFY" {
-		t.Fatalf("source-inconsistent installed lock must fail VERIFY: %v", err)
+	if !errors.As(err, &failure) || failure.Code != "VERIFY" || !strings.Contains(err.Error(), "Skill 来源锁") {
+		t.Fatalf("inconsistent lock must fail VERIFY: %v", err)
 	}
 }

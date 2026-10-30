@@ -16,29 +16,21 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
-func TestRecoveryArchiveOriginalProfile(t *testing.T) {
-	for _, source := range []string{"spec", "backend", "design", "bad-digest", "missing-archive"} {
+func TestRecoveryRejectsPreFiveArchiveAndPreservesFiles(t *testing.T) {
+	// Without an embedded Bundle, this is not an instance provenance test.
+	trustedBundle(t, "spec")
+	for _, source := range []string{"spec", "backend"} {
 		t.Run(source, func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile := source
-			if source == "bad-digest" || source == "missing-archive" {
-				profile = "design"
-			}
-			raw, _ := json.Marshal(identitymeta.GovernanceSnapshot{SchemaVersion: 1, Kind: "governance-original-source", SourceProfile: profile})
+			raw, _ := json.Marshal(identitymeta.GovernanceSnapshot{SchemaVersion: 1, Kind: "governance-original-source", SourceProfile: source})
 			digest := safefs.Digest(raw)
-			if source == "bad-digest" {
-				digest = strings.Repeat("e", 64)
-			}
 			ref := ".template-spec/compatibility/governance-history/" + digest + "/manifest.json"
 			meta := Metadata{SchemaVersion: 4, BundleSchemaVersion: 4, ProtocolVersion: 1, Profile: "spec", ProfileID: "harness.spec-template", CLIVersion: "2.5.0", TemplateVersion: "4.6.1", LegacyCLIVersion: "1.0.0", TemplateCommit: strings.Repeat("a", 40), TemplateSourceState: "committed", CLISourceState: "unknown", SnapshotHash: strings.Repeat("b", 64), ManifestHash: strings.Repeat("c", 64), BundleHash: strings.Repeat("d", 64), Managed: map[string]Managed{}, BaselineDigest: safefs.Digest([]byte("{}")), Variables: map[string]string{}, Distribution: map[string]any{}, GovernanceHistory: &identitymeta.GovernanceHistory{Ref: ref, Digest: digest}}
 			metadata, _ := json.Marshal(meta)
-			ops := []transaction.Operation{{Path: MetadataFile, Data: metadata, Mode: 0644}}
-			if source != "missing-archive" {
-				ops = append(ops, transaction.Operation{Path: ref, Data: raw, Mode: 0644})
-			}
+			ops := []transaction.Operation{{Path: MetadataFile, Data: metadata, Mode: 0644}, {Path: ref, Data: raw, Mode: 0644}}
 			if _, err = transaction.ApplyContextWithValidation(context.Background(), root, "init", ops, nil, nil, func() error { return domain.Fail("STATE", "test rollback before installed identity") }); err == nil {
 				t.Fatal("fixture must leave only the verified archive")
 			}
@@ -53,25 +45,10 @@ func TestRecoveryArchiveOriginalProfile(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := recoveryTree(t, root)
-			id, err := RecoveryIdentity(root, "spec")
-			switch source {
-			case "spec", "backend":
-				if err != nil || id.Profile.Name != "spec" {
-					t.Fatal("supported archive rejected", err)
-				}
-			case "design":
-				if err == nil || !strings.Contains(err.Error(), "Design Profile 已移除") {
-					t.Fatal("Design original policy accepted from recovery archive", err)
-				}
-			case "bad-digest":
-				var failure *domain.Error
-				if !errors.As(err, &failure) || failure.Code != "HISTORY_SOURCE_DRIFT" {
-					t.Fatal("archive digest must be checked first", err)
-				}
-			case "missing-archive":
-				if err == nil {
-					t.Fatal("physical manifest substituted for missing archive")
-				}
+			_, err = RecoveryIdentity(root, "spec")
+			var failure *domain.Error
+			if !errors.As(err, &failure) || failure.Code != "BASELINE" {
+				t.Fatalf("Template 4.6 归档必须先按不受信来源拒绝: %v", err)
 			}
 			if !reflect.DeepEqual(before, recoveryTree(t, root)) {
 				t.Fatal("identity read changed bytes, modes or file inventory")

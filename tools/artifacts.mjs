@@ -6,13 +6,16 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {createBaselineDelta} from './baseline-delta.mjs';
 
 const PROFILES = ['spec', 'backend'];
 const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
+const BASELINE = 'internal/bundle/assets/baseline-5.0.0.json.gz';
+const DELTA = 'internal/bundle/assets/baseline-delta.json.gz';
 const DIGEST = ARCHIVE + '.sha256'; // 入库的归档摘要；归档本身不入库，由 tools/fetch-bundle.mjs 生成
 const VIEWS = PROFILES.map(p => `internal/helpview/assets/${p}.json`);
 const HELP = 'docs/cli-help.md';
-const TARGETS = [ARCHIVE, DIGEST, ...VIEWS, HELP];
+const TARGETS = [ARCHIVE, DELTA, DIGEST, ...VIEWS, HELP];
 const sha = value => createHash('sha256').update(value).digest('hex');
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -41,7 +44,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
   const env = fixedGoEnvironment();
   const receiptFile = path.join(out,'receipt.json');
   const save = () => fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2)+'\n');
-  let lockPath, ownsLock = false, placeholder = false;
+  let lockPath, ownsLock = false, placeholder = false, deltaPlaceholder = false;
   const previousUmask = process.umask(0o022);
   receipt.umask = '0022';
   function run(command,args,cwd=root) {
@@ -61,10 +64,13 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     // Include uncommitted generator inputs. The known outputs are compared separately.
     const result = spawnSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root,encoding:'utf8'});
     if (result.status !== 0) throw new Error('cannot inventory generator inputs');
-    return Object.fromEntries([...new Set(result.stdout.split('\0').filter(Boolean))].sort().filter(ref=>!TARGETS.includes(ref)).map(ref=>[ref,identity(path.join(root,ref))]));
+    return Object.fromEntries([...new Set([...result.stdout.split('\0').filter(Boolean),BASELINE])].sort().filter(ref=>!TARGETS.includes(ref)).map(ref=>[ref,identity(path.join(root,ref))]));
   }
   try {
     save();
+    const baseline=identity(path.join(root,BASELINE));
+    const expectedBaseline=fs.readFileSync(path.join(root,BASELINE+'.sha256'),'utf8').trim().split(/\s+/)[0];
+    if(!baseline || baseline.link || baseline.sha256!==expectedBaseline) throw new Error('受信基线归档缺失或摘要不一致；请先运行 node tools/fetch-bundle.mjs');
     if (mode === 'generate') {
       lockPath = path.resolve(root,git(['rev-parse','--git-path','yss-artifacts.lock']));
       const fd = fs.openSync(lockPath,'wx',0o600);
@@ -86,6 +92,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
       // 归档不入库：缺失时放空占位，仅让生成工具与 go list 能编译；结束时移除。
       fs.writeFileSync(archivePath,'',{flag:'wx'}); placeholder = true;
     }
+    if (!fs.existsSync(path.join(root,DELTA))) { fs.writeFileSync(path.join(root,DELTA),'',{flag:'wx'}); deltaPlaceholder = true; }
     const generatorPackages = ['./tools/helpview','./tools/helpdocs','./tools/artifact-sizes'];
     if (scope === 'all') generatorPackages.push('./tools/bundle');
     const prior = Object.fromEntries(TARGETS.map(ref=>[ref,identity(path.join(root,ref))]));
@@ -122,6 +129,10 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
       candidates[DIGEST] = path.join(archiveDir,'bundles.json.gz.sha256');
       fs.writeFileSync(candidates[DIGEST],digestLine(sha(fs.readFileSync(candidates[ARCHIVE]))));
     }
+    const deltaPath = path.join(stage,'baseline-delta.json.gz');
+    fs.writeFileSync(deltaPath,createBaselineDelta(fs.readFileSync(candidates[ARCHIVE] ?? archivePath),fs.readFileSync(path.join(root,BASELINE))));
+    candidates[DELTA] = deltaPath;
+    overlay.Replace[path.join(root,DELTA)] = deltaPath;
     fs.writeFileSync(overlayPath,JSON.stringify(overlay));
     const viewDir = path.join(stage,'views');
     // Each fresh compiler sees the preceding candidate via overlay, including go:embed.
@@ -180,7 +191,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
   } catch (error) {
     receipt.status = 'failed'; receipt.error = error.message; save(); throw error;
   } finally {
-    try {if (placeholder && fs.existsSync(path.join(root,ARCHIVE)) && fs.statSync(path.join(root,ARCHIVE)).size === 0) fs.unlinkSync(path.join(root,ARCHIVE))}
+    try {if (placeholder && fs.existsSync(path.join(root,ARCHIVE)) && fs.statSync(path.join(root,ARCHIVE)).size === 0) fs.unlinkSync(path.join(root,ARCHIVE)); if (deltaPlaceholder && fs.existsSync(path.join(root,DELTA)) && fs.statSync(path.join(root,DELTA)).size === 0) fs.unlinkSync(path.join(root,DELTA))}
     finally {try {if (ownsLock) fs.unlinkSync(lockPath)} finally {process.umask(previousUmask)}}
   }
 }

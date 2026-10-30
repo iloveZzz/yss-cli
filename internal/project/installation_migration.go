@@ -149,7 +149,7 @@ func validateInstallationWork(ctx context.Context, root string, roots []string) 
 }
 func planInstallationMigration(ctx context.Context, id *Identity, target InstallationKind) (*InstallationMigration, error) {
 	if id.Native == nil || id.Native.SchemaVersion < 4 {
-		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "安装方式转换仅支持 metadata4/5；metadata3 先按原流程迁移")
+		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "当前安装合同不支持此 metadata 格式；原件保留")
 	}
 	source := InstallationGoverned
 	if skillsIdentity(id) {

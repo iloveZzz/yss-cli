@@ -27,7 +27,21 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				return nil, profile, domain.Fail("ARGUMENT", "rollback不支持参数: --"+k)
 			}
 		}
-		id, e := project.RecoveryIdentity(root, profile)
+		status, e := transaction.Status(root)
+		if e != nil {
+			return nil, profile, e
+		}
+		selectedID := ""
+		if len(status.Pending) == 0 {
+			for i := len(status.Transactions) - 1; i >= 0; i-- {
+				tx := status.Transactions[i]
+				if tx.Phase == "committed" || tx.Phase == "rolled-back" {
+					selectedID = tx.TransactionID
+					break
+				}
+			}
+		}
+		id, e := project.RecoveryIdentityForTransaction(root, profile, selectedID)
 		if e != nil {
 			return nil, profile, e
 		}
@@ -39,7 +53,7 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 		r, e := transaction.RollbackContextWithValidator(ctx, root, func(summary transaction.Summary, paths []string) error {
 			switch summary.Kind {
 			case "migrate":
-				if e := project.ValidateMigrationRollback(root); e != nil {
+				if e := project.ValidateMigrationRollbackForTransaction(root, summary.TransactionID); e != nil {
 					return e
 				}
 			case "profile-links":
@@ -68,14 +82,14 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
 			}
-			current, e := project.RecoveryIdentity(root, profile)
+			current, e := project.RecoveryIdentityForTransaction(root, profile, summary.TransactionID)
 			if e != nil {
 				return e
 			}
 			if current.Profile.Name != profile {
 				return domain.Fail("IDENTITY", "回退时Profile已变化")
 			}
-			return nil
+			return project.VerifyRecoveryCandidatePolicies(root, current, paths, summary.TransactionID)
 		})
 		return r, profile, e
 	}
@@ -129,18 +143,22 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "init", "attach", "sync", "migrate", "skills", "assets":
+			case "migrate":
+				if e := project.ValidateMigrationRollbackForTransaction(root, summary.TransactionID); e != nil {
+					return e
+				}
+			case "init", "attach", "sync", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "recover仅支持项目事务")
 			}
-			current, e := project.RecoveryIdentity(root, profile)
+			current, e := project.RecoveryIdentityForTransaction(root, profile, summary.TransactionID)
 			if e != nil {
 				return e
 			}
 			if current.Profile.Name != profile {
 				return domain.Fail("IDENTITY", "恢复时Profile已变化")
 			}
-			return nil
+			return project.VerifyRecoveryCandidatePolicies(root, current, paths, summary.TransactionID)
 		})
 		return r, profile, err
 	}

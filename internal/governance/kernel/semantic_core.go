@@ -12,6 +12,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"github.com/iloveZzz/yss-cli/internal/trustguard"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -70,6 +71,7 @@ type SemanticReport struct {
 }
 
 type SemanticSession struct {
+	trustedSource *trustguard.Guard
 	// Only a current daily Ticket supplies original section bytes; all file reads remain guarded.
 	EvidenceFragment func(string) ([]byte, error) `json:"-" yaml:"-"`
 	Ctx              context.Context              `json:"-" yaml:"-"`
@@ -162,7 +164,33 @@ func (s *SemanticSession) Bytes(ref string) ([]byte, error) {
 		}
 		return nil, s.Unavailable("INPUT", err.Error())
 	}
+	logical := ref
+	if filepath.IsAbs(ref) {
+		logical, _ = filepath.Rel(s.Root, ref)
+		logical = filepath.ToSlash(logical)
+	}
+	if s.trustedSource != nil && v == s.V && trustguard.IsPolicy(logical) && logical != local {
+		return nil, s.Unavailable("BASELINE", "政策引用不能重映射: "+logical)
+	}
+	if s.trustedSource != nil && v == s.V && trustguard.IsPolicy(local) {
+		actual, e := v.Watch(local)
+		if e != nil {
+			return nil, e
+		}
+		if e = s.trustedSource.VerifyPolicy(local, actual); e != nil {
+			return nil, s.Unavailable("BASELINE", e.Error())
+		}
+	}
 	return b, nil
+}
+
+func (s *SemanticSession) BindTrustedSource(meta *identitymeta.Metadata) error {
+	guard, err := trustguard.Open(meta)
+	if err != nil {
+		return s.Unavailable("BASELINE", err.Error())
+	}
+	s.trustedSource = guard
+	return nil
 }
 
 func (s *SemanticSession) Doc(ref string) (map[string]any, error) {
@@ -929,6 +957,9 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 			}
 			return s.Unavailable(code, err.Error())
 		}
+		if err := s.BindTrustedSource(meta); err != nil {
+			return err
+		}
 		if workflow, e := identitymeta.SpecWorkflow(meta); e != nil {
 			return s.Unavailable(SemanticCode(e), e.Error())
 		} else if workflow != "" {
@@ -951,6 +982,9 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 	identity, err := s.Doc("yss-project.yaml")
 	if err != nil {
 		return err
+	}
+	if identity["repository_mode"] == "project-instance" && native.Type == "missing" {
+		return s.Unavailable("IDENTITY", "实例缺少可核验的受信来源")
 	}
 	n, ok := Integer(identity["schema_version"])
 	if !ok || (n != 1 && n != 2) || !SemHas([]string{"template-source", "project-instance"}, Text(identity["repository_mode"])) || n == 2 && identity["repository_mode"] != "project-instance" {

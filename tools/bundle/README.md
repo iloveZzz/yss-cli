@@ -12,7 +12,7 @@ Producer 只读取 `templateCommit` 指定的完整 Git commit 对象，不读�
 
 `bundle.Inspect(profile)` 返回同二进制完整 manifest、provenance、分发和每个文件的摘要、权限、ownership、字节长度，不含私有源码入口。`bundle.Export(ctx,profile,out)` 要求新普通目录，拒绝符号链祖先、已有目标及不安全路径；输出资产 bytes/mode、`.yss-bundle.json`（Inspection）和 `.yss-bundle.snapshot.json`（完整 JSON Bundle，包含 full/initial 变体与来源材料）。它不替代 init 的实例变量渲染。`attach`、`sync`、`migrate --plan` 的 `--base-bundle` 可显式读取该导出目录或完整 JSON 文件，最大 128MiB；默认不联网，不接受内部 gzip 资产作为公开输入。
 
-程序 JSON envelope 与运行协议继续使用 v1；当前 Bundle/metadata 使用 v5，项目保存计划 v4，根 identity2、Profile3、governance2，来源锁 v5 仅包含 Spec/Backend。旧统一 metadata3 / identity1 / policy1 通过显式 migrate 保存原政策和记录；旧 npm 家族、Design、Frontend 或未知代际不猜测迁移。保存计划跨执行器或代际重新生成，保留准确诊断。当前 Bundle5 的 Skill 与升级协议说明来自固定模板，producer 不再用旧说明覆盖；metadata 消费脚本仍作必要兼容转换。历史 Bundle1/2/3 的原说明转换与原字节记录保持，不把历史批准变成新资格。
+程序 JSON envelope 与运行协议继续使用 v1；当前 Bundle/metadata 使用 v5，项目保存计划 v4，根 identity2、Profile3、governance2，来源锁 v5 仅包含 Spec/Backend。旧治理迁移已停止；旧实例和来源无法验证的实例保留文件，不猜测迁移。受信实例的安装方式转换仍须显式规划。保存计划跨执行器或代际重新生成，不把历史批准变成新资格。
 
 ## 内核 + 覆盖层来源
 
