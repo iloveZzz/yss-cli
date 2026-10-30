@@ -2,7 +2,7 @@
 // 按 docs/source-lock.json 的固定模板提交生成内嵌归档 internal/bundle/assets/bundles.json.gz。
 // 归档不进入版本库：编译 CLI 前先运行本脚本；结果必须与已提交的 bundles.json.gz.sha256 一致。
 //   node tools/fetch-bundle.mjs [--source-root DIR] [--force] [--baseline]
-// --source-root 缺省为 $XDG_CACHE_HOME/yss-cli/template-source（或 ~/.cache/yss-cli/template-source），
+// --source-root 缺省为 $XDG_CACHE_HOME/yss-cli/template-source-<来源锁摘要>（或 ~/.cache/yss-cli/），
 // 目录不存在时自动初始化并按固定提交浅取；已有模板仓时直接复用，缺少固定提交才联网取。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -106,8 +106,9 @@ export function fetchBundle({sourceRoot, force = false, baseline = false}) {
   const lockFile = baseline ? 'docs/template-5.0.0-source-lock.json' : 'docs/source-lock.json';
   const expected = expectedDigest(digest);
   if (!force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected) return {status: 'up-to-date', sha256: expected};
-  sourceRoot = path.resolve(sourceRoot ?? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', 'template-source'));
-  const lock = JSON.parse(fs.readFileSync(path.join(root, lockFile), 'utf8'));
+  const lockBytes = fs.readFileSync(path.join(root, lockFile));
+  sourceRoot = path.resolve(sourceRoot ?? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'yss-cli', `template-source-${sha(lockBytes)}`));
+  const lock = JSON.parse(lockBytes.toString('utf8'));
   const stage = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'yss-bundle-'));
   try {
     // -tags yss_nobundle：生成工具自举编译，不需要归档已存在。
