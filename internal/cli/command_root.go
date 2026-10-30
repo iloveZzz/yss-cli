@@ -109,6 +109,15 @@ func (inv *invocation) run(cmd *cobra.Command, args []string, handler func(conte
 	if err := cmd.Context().Err(); err != nil && inv.command != "upgrade" {
 		return domain.Wrap("CANCELLED", err)
 	}
+	if len(o.args) > 0 {
+		root, err := projectRoot(o)
+		if err != nil {
+			return err
+		}
+		if err := rejectLegacySpecCommand(root, inv.command); err != nil {
+			return err
+		}
+	}
 	var err error
 	if inv.command == "version" {
 		if len(o.args) == 0 {

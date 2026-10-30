@@ -13,6 +13,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/governance"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 )
 
 func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
@@ -47,7 +48,19 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 			return domain.Wrap("VERIFY", err)
 		}
 	}
-	if !skillsIdentity(id) {
+	if IsMattSpec(id) {
+		view, e := b.ForInstallation("governed")
+		if e != nil {
+			return e
+		}
+		if e := ValidateSpecWorkflow(id, view); e != nil {
+			return e
+		}
+		if _, e := worklayout.ReadSpecTracker(p.Root); e != nil {
+			return e
+		}
+	}
+	if !skillsIdentity(id) && !IsMattSpec(id) {
 		if _, e = governance.RunContext(ctx, "context", "verify", p.Root, nil); e != nil {
 			return domain.Wrap("VERIFY", e)
 		}

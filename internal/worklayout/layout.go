@@ -31,9 +31,21 @@ func ReadScanRoots(root string) ([]string, error) {
 	if err == nil {
 		layout, err := Read(root)
 		if err != nil {
-			return nil, err
+			config, configErr := ReadSpecTracker(root)
+			if configErr != nil || config.Root != "" || config.Platform == "local-markdown" {
+				return nil, err
+			}
+			allowed, sourceErr := remoteSpecScanAllowed(root)
+			if sourceErr != nil {
+				return nil, sourceErr
+			}
+			if !allowed {
+				return nil, err
+			}
+			// Only protection scans use the conventional roots; no writing root is chosen.
+		} else {
+			roots = layout.ScanRoots
 		}
-		roots = layout.ScanRoots
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}

@@ -17,7 +17,7 @@ func TestMCPToolMatchesCommandLine(t *testing.T) {
 	in := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"explain","arguments":{"term":"gate.plan-approved"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lifecycle_query","arguments":{"id":"work-unit.entry-triage"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lifecycle_query","arguments":{"id":"work-unit.harness-entry"}}}`,
 	}, "\n") + "\n"
 	var out bytes.Buffer
 	if err := ServeMCP(context.Background(), project, io.NopCloser(strings.NewReader(in)), &out); err != nil {
@@ -27,7 +27,7 @@ func TestMCPToolMatchesCommandLine(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("应有 3 条响应: %s", out.String())
 	}
-	for i, args := range [][]string{{"explain", "gate.plan-approved"}, {"lifecycle", "query", "--view", "agent", "--id", "work-unit.entry-triage"}} {
+	for i, args := range [][]string{{"explain", "gate.plan-approved"}, {"lifecycle", "query", "--view", "agent", "--id", "work-unit.harness-entry"}} {
 		var resp struct {
 			Result struct {
 				IsError bool `json:"isError"`

@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -138,45 +139,16 @@ func TestExplicitSkillsCLI(t *testing.T) {
 		}
 	}
 	assertInstalledSkillReferences(t, root, b, append(append([]string{}, roots...), "setup-yss-harness"))
-	for _, kind := range []string{"governed", "skills"} {
-		plan = filepath.Join(t.TempDir(), "migration.json")
-		commandOK(t, root, "migrate", "--installation", kind, "--plan", "--out", plan)
-		commandOK(t, root, "migrate", "--apply", "--plan-file", plan)
-		if kind == "governed" {
-			roots := []string{"yss-product-lifecycle", "setup-yss-harness", "yss-research", "grilling", "domain-modeling", "yss-stage-decision", "i-have-adhd", "code-review"}
-			raw, err := os.ReadFile(filepath.Join(root, ".yss.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := json.Unmarshal(raw, &meta); err != nil {
-				t.Fatal(err)
-			}
-			installed := meta["distribution"].(map[string]any)["installedSkills"].([]any)
-			for _, skill := range roots {
-				found := false
-				for _, value := range installed {
-					found = found || value == skill
-				}
-				if !found {
-					t.Fatalf("governed core missing %s: %v", skill, installed)
-				}
-			}
-			for _, runtime := range []string{"", "claude", "workbuddy"} {
-				args := append([]string{"skills", "resolve"}, roots...)
-				if runtime != "" {
-					args = append(args, "--agent-runtime", runtime)
-				}
-				if got := commandOK(t, root, args...); got["status"] != "ready" {
-					t.Fatalf("governed skills not ready: %v", got)
-				}
-			}
-			doctor := commandOK(t, root, "doctor")
-			if doctor["identity"] == nil || doctor["context"] == nil || doctor["plan"] == nil || doctor["stableReady"] != false || doctor["readiness"].(map[string]any)["workflow"] != "not-evaluated" {
-				t.Fatalf("governed doctor structure lost: %v", doctor)
-			}
-
-		}
+	// 新 Spec 不自动将独立 skills 或旧实例转换到新 governed 工作流。
+	plan = filepath.Join(t.TempDir(), "migration.json")
+	code, out, _ := captureCommand(t, context.Background(), []string{"migrate", "--root", root, "--installation", "governed", "--plan", "--out", plan, "--json"}, false)
+	if code == 0 || commandEnvelope(t, out)["code"] != "SPEC_MANUAL_MIGRATION_REQUIRED" {
+		t.Fatalf("unexpected automatic workflow migration: %d %s", code, out)
 	}
+	if _, err := os.Stat(plan); !os.IsNotExist(err) {
+		t.Fatal("rejected migration wrote plan")
+	}
+
 }
 
 // Historical v5 bundles have no reference map. New bundles must install and
@@ -284,7 +256,17 @@ func TestInstallationMigrationResolutionCLI(t *testing.T) {
 		t.Fatal("custom entry conflict not observed")
 	}
 	resolutionFile := filepath.Join(t.TempDir(), "resolution.json")
-	raw, err := json.Marshal(project.ResolutionFile{SchemaVersion: 1, PlanDigest: original.Digest, Decisions: []project.Resolution{decision}})
+	decisions := []project.Resolution{decision}
+	for _, asset := range original.Assets {
+		if asset.Path == "skills-lock.json" {
+			for _, conflict := range original.Conflicts {
+				if conflict == asset.Path {
+					decisions = append(decisions, project.Resolution{Path: asset.Path, Choice: "use-template", Before: asset.Before, Target: asset.Target})
+				}
+			}
+		}
+	}
+	raw, err := json.Marshal(project.ResolutionFile{SchemaVersion: 1, PlanDigest: original.Digest, Decisions: decisions})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +280,7 @@ func TestInstallationMigrationResolutionCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resolved.InstallationMigration == nil || resolved.Installation != project.InstallationSkills || len(resolved.Conflicts) != 0 {
-		t.Fatal("resolution lost installation intent")
+		t.Fatalf("resolution lost installation intent: migration=%+v installation=%s conflicts=%v", resolved.InstallationMigration, resolved.Installation, resolved.Conflicts)
 	}
 	commandOK(t, root, "migrate", "--apply", "--plan-file", resolvedFile)
 }

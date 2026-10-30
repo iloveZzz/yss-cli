@@ -22,6 +22,7 @@ type Installation struct {
 	SkillReferenceGroups map[string][]string `json:"skillReferenceGroups,omitempty"`
 }
 type InstallationPolicy struct {
+	SpecWorkflow         string              `json:"specWorkflow,omitempty"`
 	Entries              map[string]string   `json:"entries"`
 	Skills               []string            `json:"skills"`
 	Files                []string            `json:"files"`
@@ -165,6 +166,21 @@ func (b *Bundle) ForInstallation(kind string) (*Bundle, error) {
 		}
 	}
 	view.Distribution = cloneDistribution(item.Distribution)
+	if kind == "governed" && item.Distribution["specWorkflow"] == "matt-spec-v1" {
+		view.Files = specGovernedCatalog(b, item)
+		view.StageRequirements = map[string]Requirement{}
+		view.SkillRequirements = map[string]Requirement{}
+		for ref := range view.Files {
+			if strings.HasPrefix(ref, ".agents/skills/") && strings.HasSuffix(ref, "/SKILL.md") && strings.Count(ref, "/") == 3 {
+				skill := strings.Split(ref, "/")[2]
+				refs, err := item.ReferencesForSkill(skill)
+				if err != nil {
+					return nil, err
+				}
+				view.SkillRequirements[skill] = Requirement{Paths: refs}
+			}
+		}
+	}
 	return &view, nil
 }
 func cloneDistribution(d map[string]any) map[string]any {
@@ -299,6 +315,28 @@ func buildInstallations(ctx context.Context, b *Bundle, p Policy, s Source, root
 		return err
 	}
 	d := map[string]any{"installation": "skills", "mode": "skills", "installedSkills": cfg.Skills, "installedStages": []string{}, "runtimes": runtimes}
+	if gc := p.Installations["governed"]; gc.SpecWorkflow != "" {
+		governed, err = selectSpecGoverned(b, gc)
+		if err != nil {
+			return err
+		}
+		for target, source := range gc.Entries {
+			if err := safefs.ValidateRef(target); err != nil {
+				return err
+			}
+			if err := safefs.ValidateRef(source); err != nil {
+				return err
+			}
+			data, err := committedSkillFile(ctx, root, s.Commit, source)
+			if s.State == "working-tree" {
+				data, err = git(ctx, root, "show", object+":"+source)
+			}
+			if err != nil {
+				return err
+			}
+			governed.Initial[target] = encodedFile(data, 0644, "managed-customizable")
+		}
+	}
 	b.Installations = map[string]Installation{"governed": governed, "skills": {Initial: initial, Distribution: d, SkillReferences: cfg.SkillReferences, ReferenceGroups: cfg.ReferenceGroups, SkillReferenceGroups: cfg.SkillReferenceGroups}}
 	return nil
 }

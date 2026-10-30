@@ -564,7 +564,11 @@ func (u *upgradePlanner) planAssets(refs map[string]bundle.File, selectedLock bo
 		}
 		initial := u.plan.Command == "init" || u.plan.Command == "attach"
 		if ref == ".template-spec/agents/issue-tracker.md" && initial {
-			data, e = renderTracker(data, u.plan.Variables["issueTracker"])
+			if text(u.bundle.Distribution["specWorkflow"]) == "matt-spec-v1" {
+				data, e = renderSpecTracker(data, u.plan.Variables, u.plan.Root)
+			} else {
+				data, e = renderTracker(data, u.plan.Variables["issueTracker"])
+			}
 			if e != nil {
 				return nil, e
 			}

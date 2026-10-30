@@ -193,6 +193,9 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 		canonicalBundleHash = bundle.Hash(b)
 	}
+	if command == "migrate" && id.Profile.Name == "spec" && (IsMattSpec(id) || b.Installations["governed"].Distribution["specWorkflow"] == "matt-spec-v1") {
+		return nil, domain.Fail("SPEC_MANUAL_MIGRATION_REQUIRED", "新 Spec 不支持自动转换工作流或安装方式；请人工迁移")
+	}
 	canonicalBundle := b
 	installation := InstallationGoverned
 	if b.SchemaVersion >= 5 || options.Installation != "" {
@@ -202,6 +205,11 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 		b, err = b.ForInstallation(string(installation))
 		if err != nil {
+			return nil, err
+		}
+	}
+	if id.Native != nil && text(b.Distribution["specWorkflow"]) != "" {
+		if err := ValidateSpecWorkflow(id, b); err != nil {
 			return nil, err
 		}
 	}
@@ -232,7 +240,8 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		}
 	}
 	skillsAttach := attach && id.Native == nil && installation == InstallationSkills
-	if !init && !skillsIdentity(id) && !skillsAttach {
+	specAttach := attach && id.Native == nil && installation == InstallationGoverned && b.Profile == "spec" && text(b.Distribution["specWorkflow"]) == identitymeta.MattSpecWorkflow
+	if !init && !skillsIdentity(id) && !IsMattSpec(id) && !skillsAttach && !specAttach {
 		if ok, e := exists(id.Root, "CONTEXT.md"); e != nil {
 			return nil, e
 		} else if ok {

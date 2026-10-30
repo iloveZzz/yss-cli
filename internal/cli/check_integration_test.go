@@ -75,7 +75,7 @@ func TestCheckRejectsUnfilledApprovalTemplate(t *testing.T) {
 func TestCheckReportsSchemaFindingInUnifiedFormat(t *testing.T) {
 	project := checkProject(t)
 	ref := ".work/check-it/reconciliation.yaml"
-	copyTemplate(t, project, ".template-spec/process/templates/context-reconciliation-template.yaml", ref)
+	writeCheckFile(t, project, ref, "repository_mode: project-instance\nwork_unit: invalid\ncontext_snapshot: {}\nschema_version: 999\n")
 	code, env, err := runYSS("check", ref, "--root", project)
 	if err != nil || code != 1 || env["code"] != "CHECK_FAILED" {
 		t.Fatalf("模板占位符应校验失败: code=%d err=%v env=%v", code, err, env)

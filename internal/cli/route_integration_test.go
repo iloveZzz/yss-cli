@@ -17,11 +17,12 @@ import (
 	"testing"
 )
 
-// 端到端：用内嵌 Bundle 初始化真实 spec 实例，再对同一实现仓走 lifecycle route。
+// 端到端：用内嵌 Bundle 初始化真实 backend 实例，再对同一实现仓走 lifecycle route。
 // 需要先 node tools/fetch-bundle.mjs；yss 读取实现仓时要求 Git 支持 --no-lazy-fetch（2.44+），否则跳过。
 
 type routeFixture struct {
 	project, impl, base, skillRef, skillDigest string
+	inputRef, inputDigest                      string
 }
 
 var (
@@ -78,7 +79,7 @@ func setupFixture() (routeFixture, error) {
 		return routeFixture{}, err
 	}
 	f := routeFixture{project: filepath.Join(dir, "proj"), impl: filepath.Join(dir, "impl")}
-	if code, env, err := runYSS("init", "--installation", "governed", "--profile", "spec", "--root", f.project, "--project-name", "Demo"); err != nil || code != 0 {
+	if code, env, err := runYSS("init", "--installation", "governed", "--profile", "backend", "--root", f.project, "--project-name", "Demo"); err != nil || code != 0 {
 		return f, fmt.Errorf("init 失败: code=%d env=%v err=%v", code, env, err)
 	}
 	if err := os.MkdirAll(f.impl, 0o755); err != nil {
@@ -115,6 +116,13 @@ func setupFixture() (routeFixture, error) {
 	}
 	sum := sha256.Sum256(raw)
 	f.skillDigest = "sha256:" + hex.EncodeToString(sum[:])
+	f.inputRef = "business-input.md"
+	input := []byte("Standalone Backend: update a.txt only.\n")
+	sum = sha256.Sum256(input)
+	f.inputDigest = "sha256:" + hex.EncodeToString(sum[:])
+	if err := os.WriteFile(filepath.Join(f.project, f.inputRef), input, 0644); err != nil {
+		return f, err
+	}
 	return f, nil
 }
 
@@ -135,12 +143,13 @@ func writeTask(t *testing.T, f routeFixture, id string, mutate func(map[string]a
 		"schema_version": 2, "policy_version": 2,
 		"task_id": id, "delivery_path": "daily", "formal_bindings": []any{},
 		"goal_ref": "#目标", "acceptance_ref": "#验收",
-		"repository": map[string]any{"root": f.impl, "baseline_sha": f.base, "baseline_ref": "#基线", "rollback_ref": "#回滚"},
-		"scope":      map[string]any{"paths": []any{"a.txt"}, "risk_ref": "#风险", "impacts": []any{"no-api"}},
-		"skills":     []any{map[string]any{"ref": f.skillRef, "digest": f.skillDigest}},
-		"inputs":     []any{},
-		"commands":   []any{map[string]any{"argv": []any{"true"}, "cwd": "."}},
-		"api":        map[string]any{"mode": "none", "reason": "只改文本"},
+		"repository":     map[string]any{"root": f.impl, "baseline_sha": f.base, "baseline_ref": "#基线", "rollback_ref": "#回滚"},
+		"scope":          map[string]any{"paths": []any{"a.txt"}, "risk_ref": "#风险", "impacts": []any{"no-api"}},
+		"skills":         []any{map[string]any{"ref": f.skillRef, "digest": f.skillDigest}},
+		"business_input": map[string]any{"mode": "standalone", "side": "backend", "ref": f.inputRef, "digest": f.inputDigest, "conflicts": []any{}},
+		"inputs":         []any{},
+		"commands":       []any{map[string]any{"argv": []any{"true"}, "cwd": "."}},
+		"api":            map[string]any{"mode": "none", "reason": "只改文本"},
 	}
 	if mutate != nil {
 		mutate(evidence)
