@@ -173,7 +173,8 @@ export function runSkillsProfile(session, profile, tempRoot) {
   check(supported.every(id=>full.distribution.installedSkills.includes(id)),'full must install all supported Profile skills');
   if(installation==='governed') {
    specWorkflow(fullRoot,full);
-   check(supported.length===SPEC_CORE.length+SPEC_ON_DEMAND.length&&[...SPEC_CORE,...SPEC_ON_DEMAND].every(id=>supported.includes(id)),'full governed Spec must expose its core and on-demand skill catalog');
+   const catalog=[...SPEC_CORE,...SPEC_ON_DEMAND,...(supported.includes('handoff')?['handoff']:[])];
+   check(supported.length===catalog.length&&catalog.every(id=>supported.includes(id)),'full governed Spec must expose its core and on-demand skill catalog');
    for(const ref of ['DESIGN.md','.template-spec/design/tokens/theme.json','scripts/lib/source-context-snapshot.mjs'])check(fs.existsSync(path.join(fullRoot,ref)),`full Spec optional resource missing ${ref}`);
   }
   specReadiness(session,fullRoot,full.distribution.installedSkills);
