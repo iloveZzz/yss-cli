@@ -199,6 +199,11 @@ func Detect(root, explicit string, allowAbsent bool) (*Identity, error) {
 	} else if out.Native != nil || identityVersion == 2 {
 		return nil, domain.Fail("IDENTITY", "缺少项目 Profile 合同")
 	}
+	if IsMattSpec(out) {
+		if err := validateInstalledSpecWorkflow(out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 

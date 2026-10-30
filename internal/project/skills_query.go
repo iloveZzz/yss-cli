@@ -437,8 +437,12 @@ func ResolveSkills(id *Identity, b *bundle.Bundle, requested []string, runtime, 
 			}
 		} else {
 			entry := installed.Skills.Shared[name]
-			if skillsIdentity(id) {
-				references, refErr := b.Installations["skills"].ReferencesForSkill(name)
+			if skillsIdentity(id) || IsMattSpec(id) {
+				installation := "skills"
+				if IsMattSpec(id) {
+					installation = "governed"
+				}
+				references, refErr := b.Installations[installation].ReferencesForSkill(name)
 				if refErr != nil {
 					issue(name, "skill-reference-invalid", refErr.Error())
 				}

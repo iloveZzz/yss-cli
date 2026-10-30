@@ -929,6 +929,11 @@ func (s *SemanticSession) loadAuthorities(sourcePolicy func(*SemanticSession) er
 			}
 			return s.Unavailable(code, err.Error())
 		}
+		if workflow, e := identitymeta.SpecWorkflow(meta); e != nil {
+			return s.Unavailable(SemanticCode(e), e.Error())
+		} else if workflow != "" {
+			return s.Unavailable("SPEC_COMMAND_NOT_APPLICABLE", "新 Spec 不消费旧产品生命周期资格")
+		}
 		if meta.GovernanceHistory != nil {
 			raw, err := s.Bytes(meta.GovernanceHistory.Ref)
 			if err != nil {

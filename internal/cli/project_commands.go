@@ -7,6 +7,7 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/governance"
 	"github.com/iloveZzz/yss-cli/internal/project"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
+	"github.com/iloveZzz/yss-cli/internal/worklayout"
 	"github.com/spf13/cobra"
 	"sort"
 	"strings"
@@ -22,7 +23,7 @@ func addProjectCommands(root *cobra.Command, inv *invocation) {
 			addFlags(cmd, inv, "installation")
 		}
 		if name == "init" || name == "attach" {
-			addFlags(cmd, inv, "expected-digest bind-cli")
+			addFlags(cmd, inv, "expected-digest bind-cli tracker-repository tracker-host tracker-project")
 		}
 		if name == "attach" || name == "sync" || name == "migrate" {
 			addFlags(cmd, inv, "review-out base-bundle resolution-file")
@@ -152,6 +153,18 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if e != nil {
 			return nil, profile, e
 		}
+		if project.IsMattSpec(id) {
+			b, e = b.ForInstallation("governed")
+			if e != nil {
+				return nil, profile, e
+			}
+			if e = project.ValidateSpecWorkflow(id, b); e != nil {
+				return nil, profile, e
+			}
+			if command == "assets" {
+				return nil, profile, domain.Fail("SPEC_COMMAND_NOT_APPLICABLE", "新 Spec 不按旧阶段补装资产")
+			}
+		}
 		if o.args[1] == "list" {
 			if command == "assets" {
 				return b.StageRequirements, profile, nil
@@ -235,6 +248,21 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, domain.Fail("ARGUMENT", "未知issue-tracker")
 		}
 	}
+	for option, variable := range map[string]string{"tracker-repository": "trackerRepository", "tracker-host": "trackerHost", "tracker-project": "trackerProject"} {
+		if value, present := o.values[option]; present {
+			expected := "gitlab"
+			if option == "tracker-repository" {
+				expected = "github"
+			}
+			if profile != "spec" || o.values["installation"] == "skills" || vars["issueTracker"] != expected {
+				return nil, profile, domain.Fail("ARGUMENT", "tracker 目标参数仅用于新 governed Spec 的对应 --issue-tracker 平台")
+			}
+			if strings.TrimSpace(value) == "" {
+				return nil, profile, domain.Fail("ARGUMENT", "tracker 目标不能为空")
+			}
+			vars[variable] = value
+		}
+	}
 	var binding *project.Binding
 	if file := o.values["binding-file"]; file != "" {
 		binding, e = project.ReadBinding(file)
@@ -247,7 +275,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if o.values["resolution-file"] == "" || o.values["plan"] != "true" {
 			return nil, profile, domain.Fail("ARGUMENT", "重新规划须同时提供 --plan --plan-file 和 --resolution-file")
 		}
-		for _, key := range []string{"project-name", "business-domain", "team-size", "issue-tracker", "installation", "full", "binding-file"} {
+		for _, key := range []string{"project-name", "business-domain", "team-size", "issue-tracker", "tracker-repository", "tracker-host", "tracker-project", "installation", "full", "binding-file"} {
 			if _, supplied := o.values[key]; supplied {
 				return nil, profile, domain.Fail("ARGUMENT", "决议重规划使用原保存计划，不能同时改写参数: "+key)
 			}
@@ -277,6 +305,18 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		if err != nil {
 			return nil, profile, err
 		}
+		if project.IsMattSpec(id) {
+			b, err = b.ForInstallation("governed")
+			if err != nil {
+				return nil, profile, err
+			}
+			if err = project.ValidateSpecWorkflow(id, b); err != nil {
+				return nil, profile, err
+			}
+			if _, err = worklayout.ReadSpecTracker(root); err != nil {
+				return nil, profile, err
+			}
+		}
 		skills, err := project.CheckInstalledSkills(id, b)
 		if err != nil {
 			return nil, profile, err
@@ -289,7 +329,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 		}
 		readiness = map[string]any{"files": files, "skills": skills, "workflow": "not-evaluated"}
 	}
-	if command == "doctor" && p.Installation != project.InstallationSkills {
+	if command == "doctor" && p.Installation != project.InstallationSkills && !project.IsMattSpec(id) {
 		checks, e := governance.Run("context", "verify", root, nil)
 		if e != nil {
 			return nil, profile, e

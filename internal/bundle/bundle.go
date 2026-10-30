@@ -212,6 +212,19 @@ func validateGovernance4(files map[string]File, profile string) error {
 	if len(identity) != 2 || identity["schema_version"] != json.Number("2") || identity["repository_mode"] != "project-instance" || harness["schema_version"] != json.Number("3") || harness["profile_id"] != p.ID || harness["status"] != "active" {
 		return domain.Fail("BUNDLE", "Bundle4 必须使用当前 identity2/Profile3 精确组合")
 	}
+	if workflow, present := harness["spec_workflow"]; present {
+		if profile != "spec" || workflow != "matt-spec-v1" {
+			return domain.Fail("BUNDLE", "未知 Spec 工作流 Profile")
+		}
+		policy, err := doc(".template-spec/process/spec-workflow.json")
+		if err != nil {
+			return err
+		}
+		if len(policy) != 3 || policy["schemaVersion"] != json.Number("1") || policy["specWorkflow"] != workflow || policy["profile"] != "spec" {
+			return domain.Fail("BUNDLE", "Spec 工作流来源政策不匹配")
+		}
+		return nil
+	}
 	policy, _, _, err := schema.LoadOrchestration(read, schema.OrchestrationRef)
 	if err != nil {
 		return err

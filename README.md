@@ -1,7 +1,7 @@
 # yss
 
 <!-- YSS_CURRENT_STATUS_START -->
-当前源码版本：`2.8.3`。固定模板：backend `v4.8.3`、spec `v4.8.3`。现役 Profile：`backend`、`spec`。协议版本：`1`。
+当前源码版本：`3.0.0`。固定模板：backend `v4.8.3`、spec `v4.8.3`。现役 Profile：`backend`、`spec`。协议版本：`1`。
 <!-- YSS_CURRENT_STATUS_END -->
 
 English: [quickstart](docs/quickstart.en.md).

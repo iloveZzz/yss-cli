@@ -8,16 +8,16 @@
 ## 入口导航
 
 ```text
-yss 2.8.3 — Spec / Backend 统一入口
+yss 3.0.0 — Spec / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
 
 Profile 职责:
-  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。
-  Spec 包含必要产品设计；backend 承担技术设计与专职交付。
+  spec 负责非技术业务规格与必要产品设计，以所选 Issue tracker 供下游消费。
+  backend 承担技术设计、API、实现切片与专职交付；Spec 不执行这些工作。
   旧 Design 保留原记录，当前不提供转为 Spec 的迁移。
-  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
+  仅实际需审批的动作取得人工批准；旧 Spec 由人工迁移，不自动转换。
 
 快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:
   yss init --profile spec --root ./demo-spec --project-name 演示项目
@@ -27,13 +27,17 @@ Profile 职责:
   Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
   独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。
 
-治理安装的生命周期导航:
-  正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：4efd67df00c9e415ab206970dfdd9c39c3ad6851；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
-  日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
+工作流导航:
+  工作流: matt-spec-v1（工作步骤，不新增阶段批准）
+  · 初始化与按需技能就绪
+  · 澄清业务、查证事实与统一词汇
+  · 非技术规格及按风险选择产品设计
+  · 按实际授权和审批发布到所选 Issue tracker，供下游引用
+  固定模板：89b06397c89206ed0014fa995a6de0e14f1bc61e；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
+  Backend 日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
-  先 Spec、再设计、再交付：yss help tutorial spec
-  目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target
+  非技术 Spec 工作流：yss help tutorial spec
+  Backend 目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target
 
 通用选项:
   -h, --help       显示离线帮助
@@ -127,7 +131,7 @@ Shell 补全:
 ```text
 快速上手
 新建和接管默认 governed，安装治理身份与基线；独立技能显式选择 --installation skills，其参考资产不启用治理身份。--full 只扩大资源集合，不切换安装方式。
-前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 负责非技术规格和必要产品设计，backend 承担技术设计和交付；仅支持 Spec 和 Backend。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -135,11 +139,10 @@ Shell 补全:
   yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+  yss skills list --root ./demo-spec --json
 
 预期结果：计划保存、初始化形成身份与基线；后续查询返回当前输入状态。
-下一步：yss help tutorial governed；符合日常政策时另读 daily。
+下一步：Spec 使用 yss help tutorial spec 与 life；Backend 按本端政策使用 yss help tutorial backend 或 daily。
 失败恢复：目录错误查看 yss help errors IDENTITY；未完成原生事务先 yss recover --root ./demo-spec --json，再在已确认恢复范围内增加 --apply。
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。
 ```
@@ -147,159 +150,37 @@ Shell 补全:
 ## 教程：governed
 
 ```text
-正式生命周期（spec）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
-前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
-输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
+Spec 非技术规格工作流
 
-本次目标、停止与续推（Spec 主控）
-当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
+1. 在指定工程开展需求工作；必要初始化与技能缺口由已可发现的 setup 引导处理，已有配置直接复用。
+2. 事实调查、业务决定澄清和术语处理按实际缺口进行；已有讨论足够时直接综合规格。
+3. AI 按风险选择文字、流程、状态或原型，不强制完整设计资产。
+4. 仅实际需人工审批的动作消费真实批准；在授权范围保存/发布到选定 Issue tracker。
+5. 下游通过规格及材料引用消费，承担技术、API、实现切片和代码工作。
 
-三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
-五个可写目标：
-  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
-  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
-  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
-  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
-专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
-
-示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
-{
-  "schema_version": 1,
-  "kind": "lifecycle-progression-target",
-  "feature_id": "feature.example",
-  "checkpoint_ref": ".work/feature/checkpoint.json",
-  "target": "spec-approved",
-  "intent_source": "用户要求先完成 Spec",
-  "consumers": []
-}
-草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
-
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-
-plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
-达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
-
-用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
-设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
-每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
-
-本地或独立专职：
-  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
-  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
-  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
-
-读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
-失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
-详细输入和独立消费者示例见 docs/lifecycle-target.md。
-
-1. 入口分诊（stage.entry-triage）
-目标：确认仓库身份、问题范围和影响面。
-  yss stage query --root ./demo-spec --id stage.entry-triage --json
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-2. Plan（战略规划）（stage.plan）
-目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
-  yss stage query --root ./demo-spec --id stage.plan --json
-  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
-  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
-  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-3. Spec / 功能架构（stage.spec-architecture）
-目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
-  yss stage query --root ./demo-spec --id stage.spec-architecture --json
-  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
-  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
-  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-4. 产品设计与业务 Ticket 正式化（stage.product-design）
-目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
-  yss stage query --root ./demo-spec --id stage.product-design --json
-  yss assets list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
-  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
-目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
-  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
-  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
-  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
-  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
-  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-6. 实现切片拆分与合同准入（stage.ticket-formalization）
-目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
-  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
-  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
-  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
-  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-7. 垂直切片实现（stage.vertical-slice-implementation）
-目标：以批准合同驱动 TDD 实现和跨仓库协作。
-  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
-  yss skills list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
-目标：完成 fresh verification、发布和回顾。
-  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
-  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
-  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
+本地 Markdown、GitHub Issues、GitLab Issues 三选一，不创建 Git PR、checkpoint、实施合同或固定 Backend 交接。
+新工程示例：
+  yss init --profile spec --root ./demo-spec
+  yss doctor --root ./demo-spec
+  yss skills list --root ./demo-spec --details --json
+GitHub 配置：init/attach 使用 --issue-tracker github --tracker-repository owner/repo。
+GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https://git.example.org --tracker-project group/project。
+平台配置不等于远程发布，发布后才返回实际 Issue 引用。旧 Spec 由人工迁移，新流程不执行旧阶段和实施命令。
 
 ```
 
 ## 教程：daily
 
 ```text
-日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+日常交付（Backend，依实例当前政策；新 Spec 不使用 lifecycle daily）
+来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
-输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
+输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/harness-orchestrator/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 适用复核 → verify-daily。
 
-  yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
-  yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle route --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle verify-daily --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
 预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及适用复核，再 verify-daily。
@@ -314,162 +195,22 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 ## 教程：spec
 
 ```text
-Profile spec
-职责：综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。
-日常政策启用：true
+Spec 非技术规格工作流
 
-前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
-输入材料：项目名称、当前职责对应的合同/交接材料。
+1. 在指定工程开展需求工作；必要初始化与技能缺口由已可发现的 setup 引导处理，已有配置直接复用。
+2. 事实调查、业务决定澄清和术语处理按实际缺口进行；已有讨论足够时直接综合规格。
+3. AI 按风险选择文字、流程、状态或原型，不强制完整设计资产。
+4. 仅实际需人工审批的动作消费真实批准；在授权范围保存/发布到选定 Issue tracker。
+5. 下游通过规格及材料引用消费，承担技术、API、实现切片和代码工作。
 
-  yss init --profile spec --root ./demo-spec --project-name 演示项目
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-  yss assets list --root ./demo-spec --json
-  yss skills list --root ./demo-spec --json
-
-预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。
-下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。
-失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
-
-正式生命周期（spec）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
-前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
-输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
-
-本次目标、停止与续推（Spec 主控）
-当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
-
-三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
-五个可写目标：
-  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
-  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
-  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
-  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
-专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
-
-示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
-{
-  "schema_version": 1,
-  "kind": "lifecycle-progression-target",
-  "feature_id": "feature.example",
-  "checkpoint_ref": ".work/feature/checkpoint.json",
-  "target": "spec-approved",
-  "intent_source": "用户要求先完成 Spec",
-  "consumers": []
-}
-草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
-
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-
-plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
-达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
-
-用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
-设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
-每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
-
-本地或独立专职：
-  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
-  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
-  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
-
-读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
-失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
-详细输入和独立消费者示例见 docs/lifecycle-target.md。
-
-1. 入口分诊（stage.entry-triage）
-目标：确认仓库身份、问题范围和影响面。
-  yss stage query --root ./demo-spec --id stage.entry-triage --json
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-2. Plan（战略规划）（stage.plan）
-目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
-  yss stage query --root ./demo-spec --id stage.plan --json
-  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
-  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
-  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-3. Spec / 功能架构（stage.spec-architecture）
-目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
-  yss stage query --root ./demo-spec --id stage.spec-architecture --json
-  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
-  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
-  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-4. 产品设计与业务 Ticket 正式化（stage.product-design）
-目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
-  yss stage query --root ./demo-spec --id stage.product-design --json
-  yss assets list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
-  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
-目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
-  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
-  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
-  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
-  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
-  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-6. 实现切片拆分与合同准入（stage.ticket-formalization）
-目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
-  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
-  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
-  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
-  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-7. 垂直切片实现（stage.vertical-slice-implementation）
-目标：以批准合同驱动 TDD 实现和跨仓库协作。
-  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
-  yss skills list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
-目标：完成 fresh verification、发布和回顾。
-  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
-  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
-  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
+本地 Markdown、GitHub Issues、GitLab Issues 三选一，不创建 Git PR、checkpoint、实施合同或固定 Backend 交接。
+新工程示例：
+  yss init --profile spec --root ./demo-spec
+  yss doctor --root ./demo-spec
+  yss skills list --root ./demo-spec --details --json
+GitHub 配置：init/attach 使用 --issue-tracker github --tracker-repository owner/repo。
+GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https://git.example.org --tracker-project group/project。
+平台配置不等于远程发布，发布后才返回实际 Issue 引用。旧 Spec 由人工迁移，新流程不执行旧阶段和实施命令。
 
 ```
 
@@ -495,7 +236,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -815,7 +556,7 @@ YSS 离线入门教程
 ### archive
 
 ```text
-yss 2.8.3 — archive
+yss 3.0.0 — archive
 ──────────────────────
 安全打包、读取或核验 ZIP 资产。
 
@@ -861,7 +602,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive pack
 
 ```text
-yss 2.8.3 — archive pack
+yss 3.0.0 — archive pack
 ──────────────────────
 打包指定项目目录。
 
@@ -907,7 +648,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive unpack
 
 ```text
-yss 2.8.3 — archive unpack
+yss 3.0.0 — archive unpack
 ──────────────────────
 安全解包到新位置。
 
@@ -953,7 +694,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### archive verify
 
 ```text
-yss 2.8.3 — archive verify
+yss 3.0.0 — archive verify
 ──────────────────────
 只读核验归档结构。
 
@@ -997,7 +738,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets
 
 ```text
-yss 2.8.3 — assets
+yss 3.0.0 — assets
 ──────────────────────
 查询或补装 阶段资源和 Skill 闭包。
 
@@ -1052,7 +793,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets ensure
 
 ```text
-yss 2.8.3 — assets ensure
+yss 3.0.0 — assets ensure
 ──────────────────────
 补装指定 阶段资源和 Skill 闭包。
 
@@ -1107,7 +848,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### assets list
 
 ```text
-yss 2.8.3 — assets list
+yss 3.0.0 — assets list
 ──────────────────────
 列出当前 Profile 支持的标识。
 
@@ -1159,7 +900,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### attach
 
 ```text
-yss 2.8.3 — attach
+yss 3.0.0 — attach
 ──────────────────────
 首次接管已有工程的模板受管资产；使用 sync 同步模板。
 
@@ -1174,30 +915,33 @@ yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-att
 yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json
 
 参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --base-bundle <路径>            显式提供完整历史 Bundle 材料；默认离线
-  --bind-cli                      init/attach 预演绑定当前 CLI 与 Bundle，应用时须提供原确认摘要
-  --binding-file <路径>           文件或目录路径
-  --business-domain <领域>        项目业务领域，作为模板变量
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --expected-digest <摘要>        应用已确认计划时提供原确认摘要
-  --full                          init/attach 扩大所选安装方式的资源集合；不切换安装方式
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --installation <方式>           新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
-  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --plan                          只生成计划，使用 --out 保存；不应用项目修改
-  --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
-  --project-name <名称>           项目名称，作为模板变量
-  --resolution-file <文件>        结合 --plan-file 原计划重新规划已决议资产
-  --review-out <新目录>           在项目外导出冲突、基线、合并候选和决议模板
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  --team-size <规模>              团队规模，作为模板变量
-  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --apply                            应用已保存计划或显式恢复；写入前检查冲突
+  --base-bundle <路径>               显式提供完整历史 Bundle 材料；默认离线
+  --bind-cli                         init/attach 预演绑定当前 CLI 与 Bundle，应用时须提供原确认摘要
+  --binding-file <路径>              文件或目录路径
+  --business-domain <领域>           项目业务领域，作为模板变量
+  --diagnostics                      与 --json 同用，在失败 envelope 中附加诊断
+  --expected-digest <摘要>           应用已确认计划时提供原确认摘要
+  --full                             init/attach 扩大所选安装方式的资源集合；不切换安装方式
+  -h, --help                         显示当前命令帮助；不读取项目、不联网、不写入
+  --human                            强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --installation <方式>              新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
+  --issue-tracker <追踪器>           Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                             执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                     计划文件或导出目录；目标须不存在，按命令选择
+  --plan                             只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>                 消费已有计划；写入前核验输入摘要
+  --profile <Profile>                Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>              项目名称，作为模板变量
+  --resolution-file <文件>           结合 --plan-file 原计划重新规划已决议资产
+  --review-out <新目录>              在项目外导出冲突、基线、合并候选和决议模板
+  --root <目录>                      项目根，默认当前目录；仅项目命令
+  --target-dir <目录>                项目根的兼容参数；优先使用 --root
+  --team-size <规模>                 团队规模，作为模板变量
+  --tracker-host <HTTPS实例>         新 Spec GitLab 实例地址
+  --tracker-project <完整路径>       新 Spec GitLab 项目路径
+  --tracker-repository <owner/repo>  新 Spec GitHub Issues 的明确仓库
+  -V, --version                      显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --root <目录>  项目根，默认当前目录；推荐显式指定
@@ -1216,7 +960,7 @@ yss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.js
 输出可审阅计划；应用保存计划时重新核验当前输入。
 
 下一步:
-yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。
+yss doctor --help；skills 查看技能入口，新 Spec 普通需求使用 life；Backend governed 按本端政策查询 lifecycle。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -1226,7 +970,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle
 
 ```text
-yss 2.8.3 — bundle
+yss 3.0.0 — bundle
 ──────────────────────
 读取或导出完整固定 Bundle 与 manifest。
 
@@ -1269,7 +1013,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle export
 
 ```text
-yss 2.8.3 — bundle export
+yss 3.0.0 — bundle export
 ──────────────────────
 导出 Bundle 全部 bytes、mode 和 manifest。
 
@@ -1309,7 +1053,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### bundle inspect
 
 ```text
-yss 2.8.3 — bundle inspect
+yss 3.0.0 — bundle inspect
 ──────────────────────
 检查 Bundle 身份、来源及摘要。
 
@@ -1348,7 +1092,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### capabilities
 
 ```text
-yss 2.8.3 — capabilities
+yss 3.0.0 — capabilities
 ──────────────────────
 查看原生能力、治理接口与发行证据边界。
 
@@ -1385,7 +1129,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### check
 
 ```text
-yss 2.8.3 — check
+yss 3.0.0 — check
 ──────────────────────
 识别实例资产并调用对应 verify 做结构与当前校验。
 
@@ -1430,7 +1174,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### completion
 
 ```text
-yss 2.8.3 — completion
+yss 3.0.0 — completion
 ──────────────────────
 生成 Bash、Zsh、Fish 或 PowerShell 补全脚本。
 
@@ -1476,7 +1220,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion bash
 
 ```text
-yss 2.8.3 — completion bash
+yss 3.0.0 — completion bash
 ──────────────────────
 将 bash 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1515,7 +1259,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion fish
 
 ```text
-yss 2.8.3 — completion fish
+yss 3.0.0 — completion fish
 ──────────────────────
 将 fish 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1552,7 +1296,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion powershell
 
 ```text
-yss 2.8.3 — completion powershell
+yss 3.0.0 — completion powershell
 ──────────────────────
 将 powershell 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1589,7 +1333,7 @@ ARGUMENT；yss help errors <错误码>
 ### completion zsh
 
 ```text
-yss 2.8.3 — completion zsh
+yss 3.0.0 — completion zsh
 ──────────────────────
 将 zsh 补全脚本写到 stdout；不安装、不修改 Shell 配置。
 
@@ -1629,7 +1373,7 @@ ARGUMENT；yss help errors <错误码>
 ### context
 
 ```text
-yss 2.8.3 — context
+yss 3.0.0 — context
 ──────────────────────
 查询或校验唯一 CONTEXT.md 及词汇快照。
 
@@ -1676,7 +1420,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context check
 
 ```text
-yss 2.8.3 — context check
+yss 3.0.0 — context check
 ──────────────────────
 校验词汇结构。
 
@@ -1723,7 +1467,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context query
 
 ```text
-yss 2.8.3 — context query
+yss 3.0.0 — context query
 ──────────────────────
 查询稳定词汇。
 
@@ -1771,7 +1515,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### context verify
 
 ```text
-yss 2.8.3 — context verify
+yss 3.0.0 — context verify
 ──────────────────────
 校验当前词汇和可选快照。
 
@@ -1819,7 +1563,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### contract
 
 ```text
-yss 2.8.3 — contract
+yss 3.0.0 — contract
 ──────────────────────
 校验 contract 的结构或原生领域语义。
 
@@ -1832,7 +1576,7 @@ verify  执行当前领域规则和独立消费者绑定校验。
 view  按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -1866,14 +1610,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract check
 
 ```text
-yss 2.8.3 — contract check
+yss 3.0.0 — contract check
 ──────────────────────
 执行显式 Schema 结构校验。
 
 用法: yss contract check --root <目录> --file <文件> --schema <Schema>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
 
 最小示例:
@@ -1911,14 +1655,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract publish-review
 
 ```text
-yss 2.8.3 — contract publish-review
+yss 3.0.0 — contract publish-review
 ──────────────────────
 事务发布 pending task3/bundle3 审阅草案。
 
 用法: yss contract publish-review --root <目录> --file <准备输入>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 仅新治理实例。输出目录须不存在；不创建批准。实际任务校验失败时由原生事务恢复，不能绕过未完成事务。
 
 最小示例:
@@ -1952,14 +1696,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract verify
 
 ```text
-yss 2.8.3 — contract verify
+yss 3.0.0 — contract verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
 用法: yss contract verify --root <目录> --kind <类型> [--file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -2023,14 +1767,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### contract view
 
 ```text
-yss 2.8.3 — contract view
+yss 3.0.0 — contract view
 ──────────────────────
 按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。
 
 用法: yss contract view --root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。
 
 最小示例:
@@ -2068,7 +1812,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### diff
 
 ```text
-yss 2.8.3 — diff
+yss 3.0.0 — diff
 ──────────────────────
 查看当前文件相对固定模板的差异和同步计划。
 
@@ -2119,7 +1863,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### doctor
 
 ```text
-yss 2.8.3 — doctor
+yss 3.0.0 — doctor
 ──────────────────────
 检查项目身份、受管基线和冲突。
 
@@ -2170,7 +1914,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### evidence
 
 ```text
-yss 2.8.3 — evidence
+yss 3.0.0 — evidence
 ──────────────────────
 校验 evidence 的结构或原生领域语义。
 
@@ -2181,7 +1925,7 @@ check  执行显式 Schema 结构校验。
 verify  执行当前领域规则和独立消费者绑定校验。
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -2215,14 +1959,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence check
 
 ```text
-yss 2.8.3 — evidence check
+yss 3.0.0 — evidence check
 ──────────────────────
 执行显式 Schema 结构校验。
 
 用法: yss evidence check --root <目录> --file <文件> --schema <Schema>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
 
 最小示例:
@@ -2260,14 +2004,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### evidence verify
 
 ```text
-yss 2.8.3 — evidence verify
+yss 3.0.0 — evidence verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
 用法: yss evidence verify --root <目录> --kind <类型> [--file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -2325,7 +2069,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### explain
 
 ```text
-yss 2.8.3 — explain
+yss 3.0.0 — explain
 ──────────────────────
 解释流程术语或生命周期稳定 ID。
 
@@ -2365,7 +2109,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### git
 
 ```text
-yss 2.8.3 — git
+yss 3.0.0 — git
 ──────────────────────
 查看仓库状态、基线、环境、策略与审计；按计划开分支、提交、装钩子、改策略、打本地标签。
 
@@ -2422,7 +2166,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git audit
 
 ```text
-yss 2.8.3 — git audit
+yss 3.0.0 — git audit
 ──────────────────────
 按策略审计提交范围：Ticket trailer、自审、签名、保护分支直接提交。
 
@@ -2467,7 +2211,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git base
 
 ```text
-yss 2.8.3 — git base
+yss 3.0.0 — git base
 ──────────────────────
 解析 HEAD 与默认分支的合并基线，输出完整 SHA。
 
@@ -2510,7 +2254,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git branch
 
 ```text
-yss 2.8.3 — git branch
+yss 3.0.0 — git branch
 ──────────────────────
 branch start：按 Ticket 生成符合策略的分支名并切换。
 
@@ -2569,7 +2313,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git branch start
 
 ```text
-yss 2.8.3 — git branch start
+yss 3.0.0 — git branch start
 ──────────────────────
 branch start：按 Ticket 生成符合策略的分支名并切换。
 
@@ -2625,7 +2369,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git changelog
 
 ```text
-yss 2.8.3 — git changelog
+yss 3.0.0 — git changelog
 ──────────────────────
 按 Ticket 汇总提交范围内的变更。
 
@@ -2670,7 +2414,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git commit
 
 ```text
-yss 2.8.3 — git commit
+yss 3.0.0 — git commit
 ──────────────────────
 只提交明确列出的路径，并追加 Ticket trailer。
 
@@ -2724,7 +2468,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git doctor
 
 ```text
-yss 2.8.3 — git doctor
+yss 3.0.0 — git doctor
 ──────────────────────
 检查 Git 版本、提交身份、远端、历史深度与策略文件。
 
@@ -2766,7 +2510,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git guard
 
 ```text
-yss 2.8.3 — git guard
+yss 3.0.0 — git guard
 ──────────────────────
 事务前检查：未提交修改、进行中的 Git 操作、未完成 yss 事务。
 
@@ -2808,7 +2552,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git hooks
 
 ```text
-yss 2.8.3 — git hooks
+yss 3.0.0 — git hooks
 ──────────────────────
 hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
 
@@ -2859,7 +2603,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git hooks install
 
 ```text
-yss 2.8.3 — git hooks install
+yss 3.0.0 — git hooks install
 ──────────────────────
 hooks install：安装 commit-msg 钩子并设置本地 core.hooksPath。
 
@@ -2907,7 +2651,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git policy
 
 ```text
-yss 2.8.3 — git policy
+yss 3.0.0 — git policy
 ──────────────────────
 显示生效的 Git 策略；policy set 经计划修改一个字段。
 
@@ -2963,7 +2707,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git policy set
 
 ```text
-yss 2.8.3 — git policy set
+yss 3.0.0 — git policy set
 ──────────────────────
 显示生效的 Git 策略；policy set 经计划修改一个字段。
 
@@ -3016,7 +2760,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git push
 
 ```text
-yss 2.8.3 — git push
+yss 3.0.0 — git push
 ──────────────────────
 推送当前分支或一个本地标签；需保存计划并由用户确认远端。
 
@@ -3070,7 +2814,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git release
 
 ```text
-yss 2.8.3 — git release
+yss 3.0.0 — git release
 ──────────────────────
 release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
 
@@ -3125,7 +2869,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git release tag
 
 ```text
-yss 2.8.3 — git release tag
+yss 3.0.0 — git release tag
 ──────────────────────
 release tag：在默认分支的干净 HEAD 上创建本地带注释标签。
 
@@ -3177,7 +2921,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git status
 
 ```text
-yss 2.8.3 — git status
+yss 3.0.0 — git status
 ──────────────────────
 分支、上游差异、改动路径及进行中的合并/变基。
 
@@ -3220,7 +2964,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git submodules
 
 ```text
-yss 2.8.3 — git submodules
+yss 3.0.0 — git submodules
 ──────────────────────
 列出子模块状态及其本地入口文件。
 
@@ -3262,7 +3006,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### git verify-message
 
 ```text
-yss 2.8.3 — git verify-message
+yss 3.0.0 — git verify-message
 ──────────────────────
 校验提交信息文件的 Ticket trailer（commit-msg 钩子调用）。
 
@@ -3305,7 +3049,7 @@ ARGUMENT、ROOT、IDENTITY、INPUT、CONFLICT、CAPABILITY、EXECUTION；yss hel
 ### handoff
 
 ```text
-yss 2.8.3 — handoff
+yss 3.0.0 — handoff
 ──────────────────────
 校验 handoff 的结构或原生领域语义。
 
@@ -3316,7 +3060,7 @@ check  执行显式 Schema 结构校验。
 verify  执行当前领域规则和独立消费者绑定校验。
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -3350,14 +3094,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff check
 
 ```text
-yss 2.8.3 — handoff check
+yss 3.0.0 — handoff check
 ──────────────────────
 执行显式 Schema 结构校验。
 
 用法: yss handoff check --root <目录> --file <文件> --schema <Schema>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 示例文件需按对应 Schema 先创建。结构校验不替代领域 verify。
 
 最小示例:
@@ -3395,14 +3139,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### handoff verify
 
 ```text
-yss 2.8.3 — handoff verify
+yss 3.0.0 — handoff verify
 ──────────────────────
 执行当前领域规则和独立消费者绑定校验。
 
 用法: yss handoff verify --root <目录> --kind <类型> [--file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -3456,16 +3200,16 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### help
 
 ```text
-yss 2.8.3 — Spec / Backend 统一入口
+yss 3.0.0 — Spec / Backend 统一入口
 ──────────────────────
 
 用法: yss [选项] <命令> [参数]
 
 Profile 职责:
-  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。
-  Spec 包含必要产品设计；backend 承担技术设计与专职交付。
+  spec 负责非技术业务规格与必要产品设计，以所选 Issue tracker 供下游消费。
+  backend 承担技术设计、API、实现切片与专职交付；Spec 不执行这些工作。
   旧 Design 保留原记录，当前不提供转为 Spec 的迁移。
-  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。
+  仅实际需审批的动作取得人工批准；旧 Spec 由人工迁移，不自动转换。
 
 快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:
   yss init --profile spec --root ./demo-spec --project-name 演示项目
@@ -3475,13 +3219,17 @@ Profile 职责:
   Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。
   独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。
 
-治理安装的生命周期导航:
-  正式：入口分诊 → Plan（战略规划） → Spec / 功能架构 → 产品设计与业务 Ticket 正式化 → 系统 / 数据架构与工程契约 → 实现切片拆分与合同准入 → 垂直切片实现 → 验证 / 发布 / 复盘
-  固定模板：4efd67df00c9e415ab206970dfdd9c39c3ad6851；来源摘要：113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64
-  日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
+工作流导航:
+  工作流: matt-spec-v1（工作步骤，不新增阶段批准）
+  · 初始化与按需技能就绪
+  · 澄清业务、查证事实与统一词汇
+  · 非技术规格及按风险选择产品设计
+  · 按实际授权和审批发布到所选 Issue tracker，供下游引用
+  固定模板：89b06397c89206ed0014fa995a6de0e14f1bc61e；来源摘要：b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63
+  Backend 日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）
   教程：yss help tutorial governed | yss help tutorial daily
-  先 Spec、再设计、再交付：yss help tutorial spec
-  目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target
+  非技术 Spec 工作流：yss help tutorial spec
+  Backend 目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target
 
 通用选项:
   -h, --help       显示离线帮助
@@ -3937,7 +3685,7 @@ YSS 完整离线教程
 
 快速上手
 新建和接管默认 governed，安装治理身份与基线；独立技能显式选择 --installation skills，其参考资产不启用治理身份。--full 只扩大资源集合，不切换安装方式。
-前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 负责非技术规格和必要产品设计，backend 承担技术设计和交付；仅支持 Spec 和 Backend。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -3945,163 +3693,40 @@ YSS 完整离线教程
   yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+  yss skills list --root ./demo-spec --json
 
 预期结果：计划保存、初始化形成身份与基线；后续查询返回当前输入状态。
-下一步：yss help tutorial governed；符合日常政策时另读 daily。
+下一步：Spec 使用 yss help tutorial spec 与 life；Backend 按本端政策使用 yss help tutorial backend 或 daily。
 失败恢复：目录错误查看 yss help errors IDENTITY；未完成原生事务先 yss recover --root ./demo-spec --json，再在已确认恢复范围内增加 --apply。
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。
 
-正式生命周期（spec）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
-前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
-输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
+Spec 非技术规格工作流
 
-本次目标、停止与续推（Spec 主控）
-当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
+1. 在指定工程开展需求工作；必要初始化与技能缺口由已可发现的 setup 引导处理，已有配置直接复用。
+2. 事实调查、业务决定澄清和术语处理按实际缺口进行；已有讨论足够时直接综合规格。
+3. AI 按风险选择文字、流程、状态或原型，不强制完整设计资产。
+4. 仅实际需人工审批的动作消费真实批准；在授权范围保存/发布到选定 Issue tracker。
+5. 下游通过规格及材料引用消费，承担技术、API、实现切片和代码工作。
 
-三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
-五个可写目标：
-  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
-  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
-  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
-  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
-专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
-
-示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
-{
-  "schema_version": 1,
-  "kind": "lifecycle-progression-target",
-  "feature_id": "feature.example",
-  "checkpoint_ref": ".work/feature/checkpoint.json",
-  "target": "spec-approved",
-  "intent_source": "用户要求先完成 Spec",
-  "consumers": []
-}
-草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
-
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-
-plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
-达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
-
-用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
-设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
-每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
-
-本地或独立专职：
-  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
-  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
-  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
-
-读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
-失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
-详细输入和独立消费者示例见 docs/lifecycle-target.md。
-
-1. 入口分诊（stage.entry-triage）
-目标：确认仓库身份、问题范围和影响面。
-  yss stage query --root ./demo-spec --id stage.entry-triage --json
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-2. Plan（战略规划）（stage.plan）
-目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
-  yss stage query --root ./demo-spec --id stage.plan --json
-  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
-  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
-  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-3. Spec / 功能架构（stage.spec-architecture）
-目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
-  yss stage query --root ./demo-spec --id stage.spec-architecture --json
-  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
-  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
-  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-4. 产品设计与业务 Ticket 正式化（stage.product-design）
-目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
-  yss stage query --root ./demo-spec --id stage.product-design --json
-  yss assets list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
-  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
-目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
-  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
-  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
-  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
-  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
-  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-6. 实现切片拆分与合同准入（stage.ticket-formalization）
-目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
-  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
-  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
-  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
-  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-7. 垂直切片实现（stage.vertical-slice-implementation）
-目标：以批准合同驱动 TDD 实现和跨仓库协作。
-  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
-  yss skills list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
-目标：完成 fresh verification、发布和回顾。
-  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
-  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
-  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
+本地 Markdown、GitHub Issues、GitLab Issues 三选一，不创建 Git PR、checkpoint、实施合同或固定 Backend 交接。
+新工程示例：
+  yss init --profile spec --root ./demo-spec
+  yss doctor --root ./demo-spec
+  yss skills list --root ./demo-spec --details --json
+GitHub 配置：init/attach 使用 --issue-tracker github --tracker-repository owner/repo。
+GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https://git.example.org --tracker-project group/project。
+平台配置不等于远程发布，发布后才返回实际 Issue 引用。旧 Spec 由人工迁移，新流程不执行旧阶段和实施命令。
 
 
-
-日常交付（Spec / Backend，依实例当前政策）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a；日常能力=true
+日常交付（Backend，依实例当前政策；新 Spec 不使用 lifecycle daily）
+来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa；日常能力=true
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
-输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
+输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/harness-orchestrator/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 适用复核 → verify-daily。
 
-  yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
-  yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle route --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle verify-daily --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
 预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及适用复核，再 verify-daily。
@@ -4112,162 +3737,22 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 失败恢复：缺适用复核、过期测试或差异变化时补当前证据；已有正式任务不降级。其他 Profile 以实际政策与能力为准。
 内部测试中的模拟日志和审查记录仅验证协议；公开项目的实际命令、适用复核和批准由对应负责人取得。
 
-Profile spec
-职责：综合研发主控；新正式功能默认完成业务验收，可调整里程碑后续推；日常任务按当前政策分流。
-日常政策启用：true
+Spec 非技术规格工作流
 
-前置条件：独立新目录，或先 attach 接管已有工程；已有任务从最近可信接入点恢复。
-输入材料：项目名称、当前职责对应的合同/交接材料。
+1. 在指定工程开展需求工作；必要初始化与技能缺口由已可发现的 setup 引导处理，已有配置直接复用。
+2. 事实调查、业务决定澄清和术语处理按实际缺口进行；已有讨论足够时直接综合规格。
+3. AI 按风险选择文字、流程、状态或原型，不强制完整设计资产。
+4. 仅实际需人工审批的动作消费真实批准；在授权范围保存/发布到选定 Issue tracker。
+5. 下游通过规格及材料引用消费，承担技术、API、实现切片和代码工作。
 
-  yss init --profile spec --root ./demo-spec --project-name 演示项目
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-  yss assets list --root ./demo-spec --json
-  yss skills list --root ./demo-spec --json
-
-预期结果：仅安装该 Profile 支持的资源，返回实际来源与输入状态。
-下一步：按以下固定 Profile 顺序继续；交接核验见 yss handoff verify --help。
-失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
-
-正式生命周期（spec）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64；profile=36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a；policy=00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a
-前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
-输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
-
-本次目标、停止与续推（Spec 主控）
-当前实例须启用 lifecycle-target-v1 政策；用 capabilities 查看 CLI 能力，并核验当前实例政策，不能仅凭版本号判断。旧原生实例缺能力时显式 sync --plan，审阅后 apply；不会静默补目标或改 checkpoint。此机制用于 governed，daily 仍走原分流政策。
-
-三个完成结论分别核验：本次目标达到、Profile 职责完成、业务整体完成。新正式 Spec 功能默认 business-accepted；短目标达到不等于整体业务完成。已有 plan-to-backend 职责默认 backend-deliverable，仅允许前三目标，不能通过改目标扩大职责。
-五个可写目标：
-  spec-approved：当前 Spec 批准、业务 Ticket 草案和需求/验收覆盖已核验。
-  product-design-completed：适用产品设计审查、验证、批准和业务 Ticket 正式化闭合；产品设计不适用须有当前依据，不生成空原型。
-  backend-deliverable：当前批准合同、适用 API、后端实现、适用复核、构建及契约/部署验证闭合。
-  business-accepted：Spec 主控完成同一业务范围的统一验收。验收完成不自动提交、合并或发布。
-专职工程只读显示 profile-terminal，它是本端职责终点，不是第六个可写目标。
-
-示例：用户要求“先完成 Spec”。先按实际 Tracker/map 登记替换 feature_id、checkpoint_ref 和目录；不要按目录名猜功能身份。创建项目内 .work/feature/tmp/target-input.json，JSON 内容为：
-{
-  "schema_version": 1,
-  "kind": "lifecycle-progression-target",
-  "feature_id": "feature.example",
-  "checkpoint_ref": ".work/feature/checkpoint.json",
-  "target": "spec-approved",
-  "intent_source": "用户要求先完成 Spec",
-  "consumers": []
-}
-草稿路径须已被项目现有忽略规则覆盖，计划放工程外；保留草稿至 apply 完成。输入不能占用 progression-target.json，也不填写批准、完成状态或 ready-for-agent。
-
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/spec-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/spec-target-plan.json --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json
-
-plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，写入仅限目标配置和必要事务记录。查询 target/status 不写入、不启动实现或业务测试。真正推进由 yss-product-lifecycle 及相应负责人完成。
-达到目标后停止本次下游写入，保留 checkpoint 的真实 next_work_unit；next_action.kind=target-reached 表示停点，不将 checkpoint 改成整业务已完成。
-
-用户随后要求“继续完成设计”：修改同一草稿的 target 为 product-design-completed，并更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/design-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/design-target-plan.json --json
-设计后要求完成前后端及业务验收：把 target 改为 business-accepted，更新 intent_source，再保存新计划并应用：
-  yss lifecycle target --root ./demo-spec --checkpoint .work/feature/checkpoint.json --input .work/feature/tmp/target-input.json --plan --out /tmp/business-target-plan.json --json
-  yss lifecycle target --root ./demo-spec --apply --plan-file /tmp/business-target-plan.json --json
-每次改目标后重验已有证据，从首个合法未完成工作单元续推；有效批准和稳定业务 Ticket ID 可复用。真实资产或批准依据变化仍使受影响证据失效。
-
-本地或独立专职：
-  consumers=[]：同一 Spec 主线消费本地批准资产，在已登记实现仓写代码；无需另建三个治理工程或自导自入。前端实现由独立的前端规格与 CLI 维护，不在本主线。
-  外部专职：新政策 consumers 只接受 profile=backend，每项给、绝对 root、同功能 checkpoint_ref，每种最多一个；不能指向主控自身。未来尚未创建的端只能登记意图，未核验当前接收前不会报完成。
-  Spec 内继续产品设计无需交接；显式 Spec→Backend 使用当前战略包、Receipt 和目标 Context 对账。
-  主控只汇总显式绑定的同功能交付；过期 Receipt、版本失配和 Context 冲突阻断受影响完成判定。Context 以既有词汇归一化合同核验。
-
-读结果：progression 给目标、来源、reached 和完成依据；completion.milestone/profile/business 区分本次、本端与整体；coordination 给显式消费者状态；next_action 给承接者、工程、工作单元或等待原因。pending 等待证据，blocked 先处理诊断，not-applicable 须有已核验依据。next_action 不授予执行授权。
-失败恢复：保留原输入和计划；漂移后重新 plan。查询 yss recover / rollback 默认只读，增加 --apply 执行既有保护性恢复/回退；后续修改冲突时停止覆盖。目标不进入批准或交接证据闭包。
-详细输入和独立消费者示例见 docs/lifecycle-target.md。
-
-1. 入口分诊（stage.entry-triage）
-目标：确认仓库身份、问题范围和影响面。
-  yss stage query --root ./demo-spec --id stage.entry-triage --json
-  yss doctor --root ./demo-spec --json
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：yss-project.yaml 合法，影响面和最近可信阶段可解释。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-2. Plan（战略规划）（stage.plan）
-目标：确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。
-  yss stage query --root ./demo-spec --id stage.plan --json
-  yss stage register --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan.json
-  yss stage apply --root ./demo-spec --plan-file docs/stage-plan.json --json
-  工作项 JSON 与 checkpoint 由当前任务准备；重定向保存原始计划，不加 --json envelope。Plan 撰写和批准由对应 Skill/负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-3. Spec / 功能架构（stage.spec-architecture）
-目标：固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。
-  yss stage query --root ./demo-spec --id stage.spec-architecture --json
-  yss stage update --root ./demo-spec --checkpoint .work/feature/checkpoint.json --items docs/work-items.json > ./demo-spec/docs/stage-plan-next.json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.json --json --diagnostics
-  更新计划经审阅后使用 stage apply；Spec 由批准的战略输入承接。
-  同时起草业务 Ticket 草案及 FR/AC 覆盖；业务票不授予实现资格。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-4. 产品设计与业务 Ticket 正式化（stage.product-design）
-目标：按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。
-  yss stage query --root ./demo-spec --id stage.product-design --json
-  yss assets list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅命中产品设计影响时使用原型与设计技能；未命中项按权威条件说明适用性。
-  产品设计校准后完成 work-unit.business-ticket-formalization，再进入技术分析；无产品设计影响时从 Spec 直接进入业务正式化，不生成空原型。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-5. 系统 / 数据架构与工程契约（stage.system-data-engineering）
-目标：消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。
-  yss stage query --root ./demo-spec --id stage.system-data-engineering --json
-  消费已正式化业务 Ticket 和当前批准的 Spec / 设计；工程契约围绕当前已确认交付范围形成。
-  yss contract verify --root ./demo-spec --kind scaffold --file docs/scaffold.json --json --diagnostics
-  yss handoff verify --root ./demo-spec --kind package --package docs/handoff --json
-  API：OAS 3.1 YAML Draft → 锁定工具校验 → 内容审查 → Freeze → 实现与契约测试；由 OpenAPI 技能及负责人完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-6. 实现切片拆分与合同准入（stage.ticket-formalization）
-目标：消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。
-  yss stage query --root ./demo-spec --id stage.ticket-formalization --json
-  yss contract verify --root ./demo-spec --kind slice --file docs/contract.json --checkpoint .work/feature/checkpoint.yaml --json --diagnostics
-  输入为批准且当前的 Slice 合同及其消费证据；校验器不创建批准或设置 ready-for-agent。
-  本阶段承接实现切片拆分与合同准入，工程契约和实现仓库准备须先闭合；业务 Ticket 正式化已在技术分析前完成。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-7. 垂直切片实现（stage.vertical-slice-implementation）
-目标：以批准合同驱动 TDD 实现和跨仓库协作。
-  yss stage query --root ./demo-spec --id stage.vertical-slice-implementation --json
-  yss skills list --root ./demo-spec --json
-  yss lifecycle status --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  仅按批准合同的写范围实现；需要的 Skill 闭包来自当前合同。前端由独立工具链维护，后端优先根 ./mvnw；记录真实测试并由适用复核者审查。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：允许写路径、禁止模式、证据和验证命令全部满足。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
-8. 验证 / 发布 / 复盘（stage.verification-release-retrospective）
-目标：完成 fresh verification、发布和回顾。
-  yss stage query --root ./demo-spec --id stage.verification-release-retrospective --json
-  yss evidence verify --root ./demo-spec --kind verification --file docs/verification.json --json --diagnostics
-  yss project-ci verify --root ./demo-spec --base "<已确认40位SHA>" --runtime-store off --json
-  yss lifecycle verify --root ./demo-spec --checkpoint .work/feature/checkpoint.yaml --json
-  核验消费已有证据；真实发布、推送与外部动作消费相应授权，复盘保留实际结论。
-预期结果：查询/核验当前输入与适用条件。
-下一步条件：所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。
-失败恢复：查看当前报告的逐项诊断，从最近可信阶段补齐受影响材料；yss help errors。
-
+本地 Markdown、GitHub Issues、GitLab Issues 三选一，不创建 Git PR、checkpoint、实施合同或固定 Backend 交接。
+新工程示例：
+  yss init --profile spec --root ./demo-spec
+  yss doctor --root ./demo-spec
+  yss skills list --root ./demo-spec --details --json
+GitHub 配置：init/attach 使用 --issue-tracker github --tracker-repository owner/repo。
+GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https://git.example.org --tracker-project group/project。
+平台配置不等于远程发布，发布后才返回实际 Issue 引用。旧 Spec 由人工迁移，新流程不执行旧阶段和实施命令。
 
 
 Profile backend
@@ -4289,7 +3774,7 @@ Profile backend
 失败恢复：身份、依赖或交接材料不匹配时补当前输入；未支持能力明确返回 UNPORTED。
 
 正式生命周期（backend）
-来源摘要：template=4efd67df00c9e415ab206970dfdd9c39c3ad6851；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
+来源摘要：template=89b06397c89206ed0014fa995a6de0e14f1bc61e；registry=444b2e86880a1bcc59f9c5b300a2226f3db3e950cccdc319f0e1f3f288da37e2；profile=d8f9e55271c6fb31164b9ce591e60f82e4bbd0db097207e319c386faef9d6796；policy=27d57f76d225f95bec883206be0cf42c9dfb5899532326c2e314863b1a5992aa
 前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。
 输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。
 
@@ -4457,7 +3942,7 @@ YSS 离线入门教程
 ### init
 
 ```text
-yss 2.8.3 — init
+yss 3.0.0 — init
 ──────────────────────
 创建固定模板来源的项目实例。
 
@@ -4472,27 +3957,30 @@ yss init --profile spec --root ./demo-spec --project-name 演示项目
 yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan.json
 
 参数:
-  --apply                         应用已保存计划或显式恢复；写入前检查冲突
-  --bind-cli                      init/attach 预演绑定当前 CLI 与 Bundle，应用时须提供原确认摘要
-  --binding-file <路径>           文件或目录路径
-  --business-domain <领域>        项目业务领域，作为模板变量
-  --diagnostics                   与 --json 同用，在失败 envelope 中附加诊断
-  --expected-digest <摘要>        应用已确认计划时提供原确认摘要
-  --full                          init/attach 扩大所选安装方式的资源集合；不切换安装方式
-  -h, --help                      显示当前命令帮助；不读取项目、不联网、不写入
-  --human                         强制中文摘要；与 --json 互斥；管道默认保留原格式
-  --installation <方式>           新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
-  --issue-tracker <追踪器>        Spec Tracker 配置；可选值: local-markdown|github|gitlab
-  --json                          执行结果输出 JSON；帮助始终输出文本
-  --out <新路径>                  计划文件或导出目录；目标须不存在，按命令选择
-  --plan                          只生成计划，使用 --out 保存；不应用项目修改
-  --plan-file <文件>              消费已有计划；写入前核验输入摘要
-  --profile <Profile>             Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
-  --project-name <名称>           项目名称，作为模板变量
-  --root <目录>                   项目根，默认当前目录；仅项目命令
-  --target-dir <目录>             项目根的兼容参数；优先使用 --root
-  --team-size <规模>              团队规模，作为模板变量
-  -V, --version                   显示 CLI 版本及来源；不需要项目
+  --apply                            应用已保存计划或显式恢复；写入前检查冲突
+  --bind-cli                         init/attach 预演绑定当前 CLI 与 Bundle，应用时须提供原确认摘要
+  --binding-file <路径>              文件或目录路径
+  --business-domain <领域>           项目业务领域，作为模板变量
+  --diagnostics                      与 --json 同用，在失败 envelope 中附加诊断
+  --expected-digest <摘要>           应用已确认计划时提供原确认摘要
+  --full                             init/attach 扩大所选安装方式的资源集合；不切换安装方式
+  -h, --help                         显示当前命令帮助；不读取项目、不联网、不写入
+  --human                            强制中文摘要；与 --json 互斥；管道默认保留原格式
+  --installation <方式>              新建或显式迁移的安装方式，已有项目同步保持原方式；可选值: skills|governed
+  --issue-tracker <追踪器>           Spec Tracker 配置；可选值: local-markdown|github|gitlab
+  --json                             执行结果输出 JSON；帮助始终输出文本
+  --out <新路径>                     计划文件或导出目录；目标须不存在，按命令选择
+  --plan                             只生成计划，使用 --out 保存；不应用项目修改
+  --plan-file <文件>                 消费已有计划；写入前核验输入摘要
+  --profile <Profile>                Spec 或 Backend；项目命令可从身份检测；可选值: spec|backend
+  --project-name <名称>              项目名称，作为模板变量
+  --root <目录>                      项目根，默认当前目录；仅项目命令
+  --target-dir <目录>                项目根的兼容参数；优先使用 --root
+  --team-size <规模>                 团队规模，作为模板变量
+  --tracker-host <HTTPS实例>         新 Spec GitLab 实例地址
+  --tracker-project <完整路径>       新 Spec GitLab 项目路径
+  --tracker-repository <owner/repo>  新 Spec GitHub Issues 的明确仓库
+  -V, --version                      显示 CLI 版本及来源；不需要项目
 
 参数说明与条件:
 --profile       必需，选择 Spec 或 Backend
@@ -4510,7 +3998,7 @@ yss init --profile backend --root ./demo-backend --plan --out /tmp/yss-init-plan
 默认 governed 形成治理身份与基线；独立技能显式选择 --installation skills；Spec 普通需求从 yss-product-lifecycle（life）开始；--plan 只生成计划。文件与技能检查不代表工作流或宿主发现已验收。
 
 下一步:
-yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。
+yss doctor --help；skills 查看技能入口，新 Spec 普通需求使用 life；Backend governed 按本端政策查询 lifecycle。
 
 常见错误:
 ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors <错误码>
@@ -4520,7 +4008,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### lifecycle
 
 ```text
-yss 2.8.3 — lifecycle
+yss 3.0.0 — lifecycle
 ──────────────────────
 查询当前生命周期、配置本次推进目标并核验门禁。
 
@@ -4536,7 +4024,7 @@ verify  核验当前 checkpoint 的领域门禁。
 verify-daily  核验同一日常任务的当前差异、测试和适用复核。
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
 
@@ -4574,7 +4062,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle decision
 
 ```text
-yss 2.8.3 — lifecycle decision
+yss 3.0.0 — lifecycle decision
 ──────────────────────
 规划、应用或显式迁移四阶段记录。
 
@@ -4586,7 +4074,7 @@ migrate-plan  保留原件并规划显式四阶段迁移；证据不足保持未
 plan  只读核验阶段输入并生成登记计划。
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 
 
 最小示例:
@@ -4616,14 +4104,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle decision apply
 
 ```text
-yss 2.8.3 — lifecycle decision apply
+yss 3.0.0 — lifecycle decision apply
 ──────────────────────
 复算输入后原子登记阶段记录与 checkpoint。
 
 用法: yss lifecycle decision apply --plan <已保存计划> --root <目录>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 
 
 最小示例:
@@ -4657,14 +4145,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle decision migrate-plan
 
 ```text
-yss 2.8.3 — lifecycle decision migrate-plan
+yss 3.0.0 — lifecycle decision migrate-plan
 ──────────────────────
 保留原件并规划显式四阶段迁移；证据不足保持未批准。
 
 用法: yss lifecycle decision migrate-plan --checkpoint <旧文件> --input <映射> --out <新文件> --root <目录>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 
 
 最小示例:
@@ -4700,14 +4188,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle decision plan
 
 ```text
-yss 2.8.3 — lifecycle decision plan
+yss 3.0.0 — lifecycle decision plan
 ──────────────────────
 只读核验阶段输入并生成登记计划。
 
 用法: yss lifecycle decision plan --checkpoint <文件> --input <阶段记录> --out <新文件> --root <目录>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 
 
 最小示例:
@@ -4743,14 +4231,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle query
 
 ```text
-yss 2.8.3 — lifecycle query
+yss 3.0.0 — lifecycle query
 ──────────────────────
 查询注册表中的稳定 ID。
 
 用法: yss lifecycle query --root <目录> [--id <ID>]
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
 
@@ -4790,14 +4278,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle route
 
 ```text
-yss 2.8.3 — lifecycle route
+yss 3.0.0 — lifecycle route
 ──────────────────────
 只读判定日常或正式交付路径。
 
 用法: yss lifecycle route --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用> [--prepare-inputs]
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
 
 最小示例:
@@ -4840,14 +4328,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle status
 
 ```text
-yss 2.8.3 — lifecycle status
+yss 3.0.0 — lifecycle status
 ──────────────────────
 只读核验 checkpoint、本次目标与显式消费者的当前证据。
 
 用法: yss lifecycle status --root <目录> --checkpoint <文件>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 查询不写入、不启动实现或业务测试。达到短目标仍保留 checkpoint.next_work_unit；next_action 不是执行授权。旧实例未启用目标政策时保留旧行为，须显式 sync 后核验能力。
 
 最小示例:
@@ -4878,7 +4366,7 @@ next_action  承接者、工程、工作单元和等待原因
 返回实际查询或操作结果及适用范围；查询成功不代表阶段批准。
 
 下一步:
-yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。
+新 Spec 使用 yss help tutorial spec；适用 lifecycle 的实例先核验当前政策，达到本次目标后停止下游写入，续推重新 plan/apply 并核验真实 next_work_unit。
 
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
@@ -4888,14 +4376,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle target
 
 ```text
-yss 2.8.3 — lifecycle target
+yss 3.0.0 — lifecycle target
 ──────────────────────
 读取或事务设置 Spec 单功能的本次推进目标。
 
 用法: yss lifecycle target --root <目录> --checkpoint <文件> [--plan --input <JSON> --out <新计划>] 或 --apply --plan-file <原计划>
 
 前置条件:
-当前实例具备 lifecycle-target-v1 政策；Tracker/map 唯一登记当前功能 checkpoint。写目标仅限 Spec，输入 JSON 必须绑定同一 feature/checkpoint。
+新 Spec 工作流不适用；其他当前支持此入口的实例须具备 lifecycle-target-v1 政策，并由 Tracker/map 唯一登记当前功能 checkpoint。写入权限以实例政策和职责为准，输入 JSON 须绑定同一 feature/checkpoint。
 新正式 Spec 默认 business-accepted；plan-to-backend 的职责上限只允许前三目标。仅支持 lifecycle-target-v1 政策的 Spec 主控可写；专职只读 profile-terminal 不是可写枚举。写入仅限 progression-target.json 及必要事务记录，不改 checkpoint、批准、冻结包或 Receipt，不授 ready-for-agent。达到目标后停止本次下游写入，保留真实 next_work_unit；续推修改 JSON target/intent_source，再 plan/apply 并重验，从首个合法未完成工作单元继续。能力缺失的旧原生实例先显式 sync；帮助教程见 yss help tutorial spec。草稿使用已有忽略规则覆盖的功能 tmp 目录，不自动添加 ignore。
 
 最小示例:
@@ -4935,7 +4423,7 @@ consumers  本地推进用 []；独立专职端显式给 profile、绝对 root�
 查询只读返回本次目标、显式消费者及当前证据；plan 保存意图配置计划，apply 重验原计划后仅写目标和必要事务记录，不创建批准或执行实现。
 
 下一步:
-yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。
+新 Spec 使用 yss help tutorial spec；适用 lifecycle 的实例先核验当前政策，达到本次目标后停止下游写入，续推重新 plan/apply 并核验真实 next_work_unit。
 
 常见错误:
 ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED；yss help errors <错误码>
@@ -4945,14 +4433,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify
 
 ```text
-yss 2.8.3 — lifecycle verify
+yss 3.0.0 — lifecycle verify
 ──────────────────────
 核验当前 checkpoint 的领域门禁。
 
 用法: yss lifecycle verify --root <目录> --checkpoint <文件>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 新正式 Spec 默认推进到 business-accepted；先完成 Spec 或设计时，用 target 保存本次目标，后续仍由生命周期 Skill 推进。
 
@@ -4997,14 +4485,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### lifecycle verify-daily
 
 ```text
-yss 2.8.3 — lifecycle verify-daily
+yss 3.0.0 — lifecycle verify-daily
 ──────────────────────
 核验同一日常任务的当前差异、测试和适用复核。
 
 用法: yss lifecycle verify-daily --root <目录> --task <Markdown> --implementation-root <Git根> --base <SHA或引用>
 
 前置条件:
-查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。
+新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。
 只支持对应政策已启用且能力可核验的 Profile 实例；未启用 Profile 或旧 CLI 不支持日常路径。政策启用 standard 时，记录可声明 delivery_path: standard（加一页 Spec-lite 与一次生物人决定），verify-daily 同样核验；已有正式任务不得降级。
 
 最小示例:
@@ -5044,7 +4532,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### mcp
 
 ```text
-yss 2.8.3 — mcp
+yss 3.0.0 — mcp
 ──────────────────────
 以 MCP stdio 服务提供只读治理工具。
 
@@ -5082,7 +4570,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### migrate
 
 ```text
-yss 2.8.3 — migrate
+yss 3.0.0 — migrate
 ──────────────────────
 显式迁移 Spec 或 Backend 的 metadata3 治理实例。
 
@@ -5139,7 +4627,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### profile
 
 ```text
-yss 2.8.3 — profile
+yss 3.0.0 — profile
 ──────────────────────
 准备独立的下游 Profile 工程并登记显式关联。
 
@@ -5190,7 +4678,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### profile prepare
 
 ```text
-yss 2.8.3 — profile prepare
+yss 3.0.0 — profile prepare
 ──────────────────────
 为显式外部 Backend 生成或执行初始化保存计划。
 
@@ -5242,7 +4730,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project
 
 ```text
-yss 2.8.3 — project
+yss 3.0.0 — project
 ──────────────────────
 只读检查安装身份与计划输出。
 
@@ -5283,7 +4771,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project inspect
 
 ```text
-yss 2.8.3 — project inspect
+yss 3.0.0 — project inspect
 ──────────────────────
 检查实际身份、安装方式及未结束事务。
 
@@ -5322,7 +4810,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project verify
 
 ```text
-yss 2.8.3 — project verify
+yss 3.0.0 — project verify
 ──────────────────────
 核查 AI 安装保存计划的实际输出。
 
@@ -5361,7 +4849,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### project-ci
 
 ```text
-yss 2.8.3 — project-ci
+yss 3.0.0 — project-ci
 ──────────────────────
 核验或配置项目 CI。
 
@@ -5410,7 +4898,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci apply
 
 ```text
-yss 2.8.3 — project-ci apply
+yss 3.0.0 — project-ci apply
 ──────────────────────
 应用保存的 CI 安装计划。
 
@@ -5472,7 +4960,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci check
 
 ```text
-yss 2.8.3 — project-ci check
+yss 3.0.0 — project-ci check
 ──────────────────────
 核验完整治理或显式有限 CI。
 
@@ -5535,7 +5023,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci install
 
 ```text
-yss 2.8.3 — project-ci install
+yss 3.0.0 — project-ci install
 ──────────────────────
 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
@@ -5602,7 +5090,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci plan
 
 ```text
-yss 2.8.3 — project-ci plan
+yss 3.0.0 — project-ci plan
 ──────────────────────
 生成 CI 安装计划：默认完整治理，--scope native-go 为有限检查。
 
@@ -5669,7 +5157,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci transition
 
 ```text
-yss 2.8.3 — project-ci transition
+yss 3.0.0 — project-ci transition
 ──────────────────────
 核验工作单元流转条件。
 
@@ -5732,7 +5220,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### project-ci verify
 
 ```text
-yss 2.8.3 — project-ci verify
+yss 3.0.0 — project-ci verify
 ──────────────────────
 按完整 Git 基线核验 CI。
 
@@ -5795,7 +5283,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### reading
 
 ```text
-yss 2.8.3 — reading
+yss 3.0.0 — reading
 ──────────────────────
 只读核验或查询 managed 阅读视图。
 
@@ -5809,7 +5297,7 @@ plan-enable  规划启用 managed 阅读视图：新的阅读策略与首次渲�
 render  渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 阅读视图是来源快照，不授予执行权限；check-views / affected / plan-enable 只读；render / apply-enable 经事务写入阅读目录、清单与 map.md 的受管区。
 
@@ -5844,14 +5332,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading affected
 
 ```text
-yss 2.8.3 — reading affected
+yss 3.0.0 — reading affected
 ──────────────────────
 列出受某个资产变化影响的 managed checkpoint。
 
 用法: yss reading affected --root <目录> --asset <路径> --kind <domain-strategy|stage-decision-package|checkpoint|tracking-migration>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 未启用 managed 策略时返回空集。
 
 最小示例:
@@ -5889,14 +5377,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading apply-enable
 
 ```text
-yss 2.8.3 — reading apply-enable
+yss 3.0.0 — reading apply-enable
 ──────────────────────
 应用已保存的启用计划：同一事务写入阅读策略与全部阅读文件。
 
 用法: yss reading apply-enable --root <目录> <计划文件>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 写入前重新规划并要求计划摘要一致（READING_ENABLE_PLAN_STALE 时重新 plan-enable）；策略与渲染文件同一事务，提交后重新核验，失败整体回滚。已应用且视图当前一致时返回 unchanged。
 
 最小示例:
@@ -5931,14 +5419,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading check-views
 
 ```text
-yss 2.8.3 — reading check-views
+yss 3.0.0 — reading check-views
 ──────────────────────
 只读核验 checkpoint 的阅读视图是否与当前来源一致。
 
 用法: yss reading check-views --root <目录> --checkpoint <文件> [--required]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 status 为 manual（未启用）、current 或 stale；stale 以退出码 1 返回，结果含 blockers 与恢复提示。
 
 最小示例:
@@ -5976,14 +5464,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading plan-enable
 
 ```text
-yss 2.8.3 — reading plan-enable
+yss 3.0.0 — reading plan-enable
 ──────────────────────
 规划启用 managed 阅读视图：新的阅读策略与首次渲染的预览。
 
 用法: yss reading plan-enable --root <目录> --checkpoint <文件> [--output <新文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 只读。计划含 policy_after、将写的全部文件（operations）与 preview，并绑定当前输入摘要；不写任何文件。旧版 Node 计划不能由 apply-enable 应用，须重新生成。
 
 最小示例:
@@ -6021,14 +5509,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### reading render
 
 ```text
-yss 2.8.3 — reading render
+yss 3.0.0 — reading render
 ──────────────────────
 渲染 managed 阅读视图：输出文件、清单与 map.md 的导航受管区。
 
 用法: yss reading render --root <目录> --checkpoint <文件> [--dry-run] 或 --all [--dry-run]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 写入经事务层完成并在提交后重新核验，失败整体回滚，可用 yss recover/rollback 处理中断。来源有阻断诊断、输出或导航被人手改、清单无效或旧版日志残留时拒绝且不写任何文件。清单版本由实例的清单 schema 决定：接受 v2 时写 v2（renderer 为 yss-reading 规则版本，不含 Node 渲染器闭包），否则写与 Node 逐字节相同的 v1；已有 v2 清单不会降级。
 
 最小示例:
@@ -6068,7 +5556,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、READING_STALE、UNPORTED；yss
 ### recover
 
 ```text
-yss 2.8.3 — recover
+yss 3.0.0 — recover
 ──────────────────────
 查询或恢复未完成的项目事务。
 
@@ -6112,7 +5600,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### rollback
 
 ```text
-yss 2.8.3 — rollback
+yss 3.0.0 — rollback
 ──────────────────────
 查询或整体回退最近一次成功项目事务。
 
@@ -6156,7 +5644,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime
 
 ```text
-yss 2.8.3 — runtime
+yss 3.0.0 — runtime
 ──────────────────────
 管理独立运行记录与保护标记。
 
@@ -6209,7 +5697,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime begin
 
 ```text
-yss 2.8.3 — runtime begin
+yss 3.0.0 — runtime begin
 ──────────────────────
 创建运行记录并返回所有权 token。
 
@@ -6258,7 +5746,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime commands
 
 ```text
-yss 2.8.3 — runtime commands
+yss 3.0.0 — runtime commands
 ──────────────────────
 只读查询运行记录。
 
@@ -6303,7 +5791,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime complete
 
 ```text
-yss 2.8.3 — runtime complete
+yss 3.0.0 — runtime complete
 ──────────────────────
 以实际退出码结束运行记录。
 
@@ -6352,7 +5840,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime event
 
 ```text
-yss 2.8.3 — runtime event
+yss 3.0.0 — runtime event
 ──────────────────────
 追加运行事件。
 
@@ -6401,7 +5889,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime events
 
 ```text
-yss 2.8.3 — runtime events
+yss 3.0.0 — runtime events
 ──────────────────────
 只读查询运行记录。
 
@@ -6446,7 +5934,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime inspect
 
 ```text
-yss 2.8.3 — runtime inspect
+yss 3.0.0 — runtime inspect
 ──────────────────────
 只读查询运行记录。
 
@@ -6490,7 +5978,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pin
 
 ```text
-yss 2.8.3 — runtime pin
+yss 3.0.0 — runtime pin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -6537,7 +6025,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime pins
 
 ```text
-yss 2.8.3 — runtime pins
+yss 3.0.0 — runtime pins
 ──────────────────────
 只读查询运行记录。
 
@@ -6582,7 +6070,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime run
 
 ```text
-yss 2.8.3 — runtime run
+yss 3.0.0 — runtime run
 ──────────────────────
 只读查询运行记录。
 
@@ -6627,7 +6115,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### runtime unpin
 
 ```text
-yss 2.8.3 — runtime unpin
+yss 3.0.0 — runtime unpin
 ──────────────────────
 维护运行记录保护标记。
 
@@ -6674,7 +6162,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold
 
 ```text
-yss 2.8.3 — scaffold
+yss 3.0.0 — scaffold
 ──────────────────────
 生成或预演 DDD / MVC 后端工程，查询固定目录和输出。
 
@@ -6744,7 +6232,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold catalog
 
 ```text
-yss 2.8.3 — scaffold catalog
+yss 3.0.0 — scaffold catalog
 ──────────────────────
 读取固定 Bundle 支持的平台、坐标和字段。
 
@@ -6781,7 +6269,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold ddd
 
 ```text
-yss 2.8.3 — scaffold ddd
+yss 3.0.0 — scaffold ddd
 ──────────────────────
 生成 ddd 后端业务空骨架。
 
@@ -6845,7 +6333,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold mvc
 
 ```text
-yss 2.8.3 — scaffold mvc
+yss 3.0.0 — scaffold mvc
 ──────────────────────
 生成 mvc 后端业务空骨架。
 
@@ -6909,7 +6397,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### scaffold verify
 
 ```text
-yss 2.8.3 — scaffold verify
+yss 3.0.0 — scaffold verify
 ──────────────────────
 核查保存计划的实际脚手架输出。
 
@@ -6947,7 +6435,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills
 
 ```text
-yss 2.8.3 — skills
+yss 3.0.0 — skills
 ──────────────────────
 查询或补装 Skill 及其依赖闭包。
 
@@ -7003,7 +6491,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills ensure
 
 ```text
-yss 2.8.3 — skills ensure
+yss 3.0.0 — skills ensure
 ──────────────────────
 补装指定 Skill 及其依赖闭包。
 
@@ -7058,7 +6546,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills list
 
 ```text
-yss 2.8.3 — skills list
+yss 3.0.0 — skills list
 ──────────────────────
 列出当前 Profile 支持的标识；--details 返回注册信息及安装声明。
 
@@ -7110,7 +6598,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### skills resolve
 
 ```text
-yss 2.8.3 — skills resolve
+yss 3.0.0 — skills resolve
 ──────────────────────
 只读核验所选内置技能及命中的上下文依赖。
 
@@ -7155,7 +6643,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### stage
 
 ```text
-yss 2.8.3 — stage
+yss 3.0.0 — stage
 ──────────────────────
 查询、登记或更新既有阶段工作项。
 
@@ -7171,7 +6659,7 @@ status  读取并校验当前阶段工作项。
 update  生成阶段工作项写入计划。
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -7210,14 +6698,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage apply
 
 ```text
-yss 2.8.3 — stage apply
+yss 3.0.0 — stage apply
 ──────────────────────
 事务应用已保存的阶段工作项计划。
 
 用法: yss stage apply --root <目录> --plan-file <文件>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 提交后若该 checkpoint 已启用 managed 阅读视图，会立即渲染并在结果 reading_update 中报告（unchanged/rendered/failed；未启用为 manual）；渲染失败不回滚已提交的阶段写入，按 recovery 提示运行 yss reading render。
 
@@ -7260,14 +6748,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage check
 
 ```text
-yss 2.8.3 — stage check
+yss 3.0.0 — stage check
 ──────────────────────
 读取并校验当前阶段工作项。
 
 用法: yss stage check --root <目录> --checkpoint <文件>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -7307,14 +6795,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage plan
 
 ```text
-yss 2.8.3 — stage plan
+yss 3.0.0 — stage plan
 ──────────────────────
 生成阶段工作项写入计划。
 
 用法: yss stage plan --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
 
 最小示例:
@@ -7361,14 +6849,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage query
 
 ```text
-yss 2.8.3 — stage query
+yss 3.0.0 — stage query
 ──────────────────────
 查询阶段或 checkpoint 中的工作项。
 
 用法: yss stage query --root <目录> [--checkpoint <文件>] [--id <ID>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -7409,14 +6897,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage register
 
 ```text
-yss 2.8.3 — stage register
+yss 3.0.0 — stage register
 ──────────────────────
 生成阶段工作项写入计划。
 
 用法: yss stage register --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
 
 最小示例:
@@ -7463,14 +6951,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage status
 
 ```text
-yss 2.8.3 — stage status
+yss 3.0.0 — stage status
 ──────────────────────
 读取并校验当前阶段工作项。
 
 用法: yss stage status --root <目录> --checkpoint <文件>
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 读取当前项目的治理资产；校验通过不会创建批准或授予实现、发布权限。必要资产、身份和依赖必须已存在，能力缺失返回 UNPORTED。
 
 最小示例:
@@ -7510,14 +6998,14 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### stage update
 
 ```text
-yss 2.8.3 — stage update
+yss 3.0.0 — stage update
 ──────────────────────
 生成阶段工作项写入计划。
 
 用法: yss stage update --root <目录> --checkpoint <文件> --items <JSON文件> [--apply --plan-file <文件>]
 
 前置条件:
-合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。
+新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。
 使用项目本地 stage-tracking 合同；计划保存时不加 --json，应用时核验输入摘要。不创建阶段批准。
 
 最小示例:
@@ -7564,7 +7052,7 @@ ARGUMENT、IDENTITY、INPUT、SCHEMA_VALIDATION、GOVERNED_REQUIRED、UNPORTED�
 ### sync
 
 ```text
-yss 2.8.3 — sync
+yss 3.0.0 — sync
 ──────────────────────
 将项目模板升级到本 CLI 内置固定 Bundle。
 
@@ -7624,7 +7112,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### trace
 
 ```text
-yss 2.8.3 — trace
+yss 3.0.0 — trace
 ──────────────────────
 汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。
 
@@ -7672,7 +7160,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker
 
 ```text
-yss 2.8.3 — tracker
+yss 3.0.0 — tracker
 ──────────────────────
 把本地 Ticket 五态镜像到已链接的 GitHub Issue 标签。
 
@@ -7715,7 +7203,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker link
 
 ```text
-yss 2.8.3 — tracker link
+yss 3.0.0 — tracker link
 ──────────────────────
 在 Ticket 的 Status 行后写入 Tracker-Link；默认只预览。
 
@@ -7759,7 +7247,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker status
 
 ```text
-yss 2.8.3 — tracker status
+yss 3.0.0 — tracker status
 ──────────────────────
 列出本地 Ticket 的五态与链接；--fetch 读取远端标签并报告是否一致。
 
@@ -7799,7 +7287,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### tracker sync
 
 ```text
-yss 2.8.3 — tracker sync
+yss 3.0.0 — tracker sync
 ──────────────────────
 把已链接 Ticket 的五态同步到 Issue 标签：先保存计划，再确认远端后应用。
 
@@ -7848,7 +7336,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### update
 
 ```text
-yss 2.8.3 — update
+yss 3.0.0 — update
 ──────────────────────
 安装、恢复或回退指定本地发行包。
 
@@ -7899,7 +7387,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update apply
 
 ```text
-yss 2.8.3 — update apply
+yss 3.0.0 — update apply
 ──────────────────────
 应用保存的程序安装计划。
 
@@ -7944,7 +7432,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update plan
 
 ```text
-yss 2.8.3 — update plan
+yss 3.0.0 — update plan
 ──────────────────────
 生成离线程序安装计划（默认动作）。
 
@@ -7991,7 +7479,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update recover
 
 ```text
-yss 2.8.3 — update recover
+yss 3.0.0 — update recover
 ──────────────────────
 恢复唯一未完成的程序事务。
 
@@ -8030,7 +7518,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update rollback
 
 ```text
-yss 2.8.3 — update rollback
+yss 3.0.0 — update rollback
 ──────────────────────
 回退最近一次成功程序安装。
 
@@ -8069,7 +7557,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### update status
 
 ```text
-yss 2.8.3 — update status
+yss 3.0.0 — update status
 ──────────────────────
 只读诊断安装一致性及程序事务状态。
 
@@ -8109,7 +7597,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### upgrade
 
 ```text
-yss 2.8.3 — upgrade
+yss 3.0.0 — upgrade
 ──────────────────────
 从 GitHub 下载并事务安装稳定版 CLI。
 
@@ -8153,7 +7641,7 @@ ARGUMENT、NETWORK、ARTIFACT、INSTALLATION、INTERRUPTED、CONCURRENT、VERSIO
 ### verify
 
 ```text
-yss 2.8.3 — verify
+yss 3.0.0 — verify
 ──────────────────────
 核验一个门禁所需的当前 checkpoint 与检查依赖。
 
@@ -8194,7 +7682,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### version
 
 ```text
-yss 2.8.3 — version
+yss 3.0.0 — version
 ──────────────────────
 查看 CLI、协议和固定来源身份。
 
@@ -8231,7 +7719,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml
 
 ```text
-yss 2.8.3 — xml
+yss 3.0.0 — xml
 ──────────────────────
 读取 Maven project XML。
 
@@ -8276,7 +7764,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml inspect
 
 ```text
-yss 2.8.3 — xml inspect
+yss 3.0.0 — xml inspect
 ──────────────────────
 读取 Maven project 结构。
 
@@ -8319,7 +7807,7 @@ ARGUMENT、IDENTITY、PATH、CONFLICT、INPUT_DRIFT、UNPORTED；yss help errors
 ### xml query
 
 ```text
-yss 2.8.3 — xml query
+yss 3.0.0 — xml query
 ──────────────────────
 查询 Maven project 读取结果。
 

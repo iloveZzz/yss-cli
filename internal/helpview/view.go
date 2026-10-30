@@ -49,6 +49,8 @@ func (s *Stage) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type View struct {
+	Workflow        string   `json:"workflow,omitempty"`
+	WorkflowSteps   []string `json:"workflowSteps,omitempty"`
 	SchemaVersion   int      `json:"schemaVersion"`
 	Profile         string   `json:"profile"`
 	TemplateCommit  string   `json:"templateCommit"`
@@ -71,7 +73,7 @@ func Load(profile string) (*View, error) {
 	if e = json.Unmarshal(raw, &v); e != nil {
 		return nil, e
 	}
-	if v.SchemaVersion != 1 || v.Profile != profile || len(v.TemplateCommit) != 40 || len(v.RegistrySHA256) != 64 || len(v.Stages) == 0 {
+	if v.SchemaVersion != 1 || v.Profile != profile || len(v.TemplateCommit) != 40 || !((v.Workflow == "" && len(v.RegistrySHA256) == 64 && len(v.Stages) > 0) || (v.Workflow == "matt-spec-v1" && len(v.PolicySHA256) == 64 && len(v.Stages) == 0 && len(v.WorkflowSteps) > 0)) {
 		return nil, fmt.Errorf("离线生命周期视图来源不完整: %s", profile)
 	}
 	return &v, nil
@@ -83,6 +85,9 @@ func Derive(profile string) (*View, error) {
 	b, e := bundle.Load(profile)
 	if e != nil {
 		return nil, e
+	}
+	if v, handled, err := deriveSpecWorkflow(b); handled {
+		return v, err
 	}
 	read := func(ref string) ([]byte, error) {
 		f, ok := b.Files[ref]

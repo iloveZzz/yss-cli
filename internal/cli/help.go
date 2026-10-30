@@ -122,22 +122,34 @@ func renderHelpFrom(root *cobra.Command, args []string) (string, error) {
 func rootHelp() string { return rootHelpFrom(newRootCommand(nil, io.Discard, io.Discard)) }
 func rootHelpFrom(root *cobra.Command) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "yss %s — Spec / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 综合研发主控；支持目标政策的完整正式功能默认推进业务验收。\n  Spec 包含必要产品设计；backend 承担技术设计与专职交付。\n  旧 Design 保留原记录，当前不提供转为 Spec 的迁移。\n  本次目标、本端职责与整体业务分别核验；旧实例先核对能力并显式同步。\n\n快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:\n", domain.Version)
+	fmt.Fprintf(&out, "yss %s — Spec / Backend 统一入口\n──────────────────────\n\n用法: yss [选项] <命令> [参数]\n\nProfile 职责:\n  spec 负责非技术业务规格与必要产品设计，以所选 Issue tracker 供下游消费。\n  backend 承担技术设计、API、实现切片与专职交付；Spec 不执行这些工作。\n  旧 Design 保留原记录，当前不提供转为 Spec 的迁移。\n  仅实际需审批的动作取得人工批准；旧 Spec 由人工迁移，不自动转换。\n\n快速上手（默认 governed 治理安装；选择一个 Profile，在独立新目录运行）:\n", domain.Version)
 	for _, p := range []string{"spec", "backend"} {
 		fmt.Fprintf(&out, "  yss init --profile %s --root ./demo-%s --project-name 演示项目\n", p, p)
 	}
-	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。\n  独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。\n\n治理安装的生命周期导航:\n")
+	out.WriteString("  yss doctor --root ./demo-spec --human\n  yss skills list --root ./demo-spec --details --json\n  Spec 普通需求从 yss-product-lifecycle（life）开始；显式兼容技能按各自调用权限使用。\n  独立技能使用 --installation skills；--full 只扩大当前安装方式的资源。\n\n工作流导航:\n")
 	if v, e := helpview.Load("spec"); e == nil {
 		names := []string{}
+		if v.Workflow != "" {
+			fmt.Fprintf(&out, "  工作流: %s（工作步骤，不新增阶段批准）\n", v.Workflow)
+			for _, step := range v.WorkflowSteps {
+				fmt.Fprintf(&out, "  · %s\n", step)
+			}
+		}
 		for _, s := range v.Stages {
 			names = append(names, s.Name)
 		}
-		out.WriteString("  正式：" + strings.Join(names, " → ") + "\n")
-		fmt.Fprintf(&out, "  固定模板：%s；来源摘要：%s\n", v.TemplateCommit, v.RegistrySHA256)
+		if len(names) > 0 {
+			out.WriteString("  正式：" + strings.Join(names, " → ") + "\n")
+		}
+		digest := v.RegistrySHA256
+		if v.Workflow != "" {
+			digest = v.PolicySHA256
+		}
+		fmt.Fprintf(&out, "  固定模板：%s；来源摘要：%s\n", v.TemplateCommit, digest)
 	} else {
 		out.WriteString("  生命周期视图待核验：" + e.Error() + "\n")
 	}
-	out.WriteString("  日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）\n  教程：yss help tutorial governed | yss help tutorial daily\n  先 Spec、再设计、再交付：yss help tutorial spec\n  目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target\n\n通用选项:\n  -h, --help       显示离线帮助\n  -V, --version    显示程序及来源\n  --human          强制中文摘要；终端默认中文，管道保持原格式\n  --json           输出机器协议 1；与 --human 互斥\n  --diagnostics    与 --json 同用，失败时附加诊断\n\n命令:\n")
+	out.WriteString("  Backend 日常：需求与验收 → 技术技能 → 实现 → 测试 → 适用复核 → verify-daily（依实例当前政策）\n  教程：yss help tutorial governed | yss help tutorial daily\n  非技术 Spec 工作流：yss help tutorial spec\n  Backend 目标设置与续推：yss lifecycle target --help | yss help examples lifecycle target\n\n通用选项:\n  -h, --help       显示离线帮助\n  -V, --version    显示程序及来源\n  --human          强制中文摘要；终端默认中文，管道保持原格式\n  --json           输出机器协议 1；与 --human 互斥\n  --diagnostics    与 --json 同用，失败时附加诊断\n\n命令:\n")
 	for _, group := range []struct {
 		label string
 		names []string

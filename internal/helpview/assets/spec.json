@@ -1,67 +1,17 @@
 {
+  "workflow": "matt-spec-v1",
+  "workflowSteps": [
+    "初始化与按需技能就绪",
+    "澄清业务、查证事实与统一词汇",
+    "非技术规格及按风险选择产品设计",
+    "按实际授权和审批发布到所选 Issue tracker，供下游引用"
+  ],
   "schemaVersion": 1,
   "profile": "spec",
-  "templateCommit": "4efd67df00c9e415ab206970dfdd9c39c3ad6851",
-  "registrySHA256": "113f776cdc3e532d986e98ebfd6d36a48cc4e6d006bba91e55a33d11c48dfb64",
-  "profileSHA256": "36cfbfc56bd4a62c81c3c34117b269352e046230f610bea21c02988991605c9a",
-  "policySHA256": "00970958d8ec228f9e5c602a20c0871716c5d64163f80eaf74a618fbf5ebc60a",
-  "stages": [
-    {
-      "id": "stage.entry-triage",
-      "name": "入口分诊",
-      "goal": "确认仓库身份、问题范围和影响面。",
-      "exitCriteria": "yss-project.yaml 合法，影响面和最近可信阶段可解释。"
-    },
-    {
-      "id": "stage.plan",
-      "name": "Plan（战略规划）",
-      "goal": "确认目标、业务边界、关键规则、MVP / 非目标、优先级和交接责任，为 Spec 提供战略输入；按影响面探索并复用仍有效的结论。",
-      "exitCriteria": "命中的战略与阶段决策检查通过，用户统一批准当前 Plan；影响业务边界、关键规则或 MVP 的问题已解决，其他未决项有责任人和解决时点；下游可进入 Spec，不代表可实现。"
-    },
-    {
-      "id": "stage.spec-architecture",
-      "name": "Spec / 功能架构",
-      "goal": "固化解决方案和功能边界，同时按用户行为与验收结果起草业务 Ticket。",
-      "exitCriteria": "Spec 基线和功能边界可审查；适用业务 Ticket 草案及 FR/AC 覆盖可读取。"
-    },
-    {
-      "id": "stage.product-design",
-      "name": "产品设计与业务 Ticket 正式化",
-      "goal": "按产品设计影响校准页面流、状态和业务 Ticket；在技术分析前完成适用业务 Ticket 正式化。",
-      "exitCriteria": "命中的设计门禁通过，适用业务 Ticket 正式化及当前审查闭合；无产品设计影响时记录依据，从 Spec 进入业务正式化，不生成空原型。"
-    },
-    {
-      "id": "stage.system-data-engineering",
-      "name": "系统 / 数据架构与工程契约",
-      "goal": "消费已正式化业务 Ticket 和当前批准的 Spec / 设计，围绕当前交付范围固化系统、数据、工程基线及 API 契约。",
-      "exitCriteria": "新建后端已由用户确认 DDD / MVC 与精确 Spring Boot 版本，既有工程已核验并复用登记值；受影响工程契约冻结或记录无 API 影响；required 脚手架证据齐全。"
-    },
-    {
-      "id": "stage.ticket-formalization",
-      "name": "实现切片拆分与合同准入",
-      "goal": "消费当前工程契约与实现仓库准备，将业务 Ticket 细化为可独立验证的切片并复算实施准入。",
-      "exitCriteria": "切片范围窄、依赖清晰、验收与测试 seam 可执行；当前合同、工程与适用 API 条件通过，自动形成实施准入。"
-    },
-    {
-      "id": "stage.vertical-slice-implementation",
-      "name": "垂直切片实现",
-      "goal": "以批准合同驱动 TDD 实现和跨仓库协作。",
-      "exitCriteria": "允许写路径、禁止模式、证据和验证命令全部满足。"
-    },
-    {
-      "id": "stage.verification-release-retrospective",
-      "name": "验证 / 发布 / 复盘",
-      "goal": "完成 fresh verification、发布和回顾。",
-      "exitCriteria": "所有命中门禁通过，人工审查点已完成，checkpoint 可追溯。"
-    }
-  ],
-  "entryWorkUnit": "work-unit.entry-triage",
-  "dailyEnabled": true,
-  "dailySequence": [
-    "requirements-and-acceptance",
-    "yss-technical-skills",
-    "implementation",
-    "tests",
-    "applicable-review-evidence"
-  ]
+  "templateCommit": "89b06397c89206ed0014fa995a6de0e14f1bc61e",
+  "registrySHA256": "",
+  "policySHA256": "b716612248f9fe9ce67212e3ac04d3b1a97b0dcb57d4cb135d8dc12f0e38bc63",
+  "stages": [],
+  "entryWorkUnit": "",
+  "dailyEnabled": false
 }

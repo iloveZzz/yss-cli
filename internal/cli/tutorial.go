@@ -35,7 +35,7 @@ func safeExampleText(s string) string {
 
 func prerequisite(key string) string {
 	if key == "lifecycle target" {
-		return "当前实例具备 lifecycle-target-v1 政策；Tracker/map 唯一登记当前功能 checkpoint。写目标仅限 Spec，输入 JSON 必须绑定同一 feature/checkpoint。"
+		return "新 Spec 工作流不适用；其他当前支持此入口的实例须具备 lifecycle-target-v1 政策，并由 Tracker/map 唯一登记当前功能 checkpoint。写入权限以实例政策和职责为准，输入 JSON 须绑定同一 feature/checkpoint。"
 	}
 	group := strings.Fields(key)[0]
 	switch group {
@@ -50,9 +50,9 @@ func prerequisite(key string) string {
 	case "version", "capabilities", "bundle", "upgrade", "update":
 		return "无需项目身份。安装/恢复操作使用独立工具目录；程序写入按对应保存计划或明确恢复范围执行。"
 	case "contract", "evidence", "handoff", "stage", "reading":
-		return "合法项目身份，以及命令所需的当前合同、checkpoint 或证据；资产来源与消费范围必须可核验。"
+		return "新 Spec 工作流不适用；此入口用于 Backend 及保留消费者的当前合同、checkpoint 或证据。"
 	case "lifecycle":
-		return "查询注册表需项目身份；状态/verify 消费当前 checkpoint；daily 接口需同一任务、已确认实现仓和完整基线。"
+		return "新 Spec 使用技能与 tracker，此入口不适用；Backend 查询/状态和 daily 接口消费本端当前政策及实际输入。"
 	case "explain":
 		return "在 YSS 项目根运行，读取其流程术语表与生命周期注册表；无需 checkpoint。"
 	case "check":
@@ -109,7 +109,7 @@ func expectedResult(key string) string {
 }
 func nextReading(key string) string {
 	if key == "lifecycle target" || key == "lifecycle status" {
-		return "yss help tutorial spec；达到本次目标后停止下游写入，续推重新 plan/apply 目标并由生命周期 Skill 核验真实 next_work_unit。"
+		return "新 Spec 使用 yss help tutorial spec；适用 lifecycle 的实例先核验当前政策，达到本次目标后停止下游写入，续推重新 plan/apply 并核验真实 next_work_unit。"
 	}
 	switch strings.Fields(key)[0] {
 	case "completion":
@@ -117,7 +117,7 @@ func nextReading(key string) string {
 	case "scaffold":
 		return "进入返回的 projectRoot，准备 JDK 与外部 Maven settings 后使用 ./mvnw validate、./mvnw test、./mvnw package；构建结果另行记录。"
 	case "init", "attach":
-		return "yss doctor --help；skills 查看技能入口，Spec 普通需求使用 life；governed 再用 lifecycle 查询当前入口。"
+		return "yss doctor --help；skills 查看技能入口，新 Spec 普通需求使用 life；Backend governed 按本端政策查询 lifecycle。"
 	case "doctor", "diff", "sync", "recover", "rollback":
 		return "根据实际诊断选择计划或恢复入口；应用后再 doctor/diff。"
 	case "contract", "stage", "reading", "evidence", "handoff", "lifecycle", "project-ci":
@@ -197,7 +197,7 @@ func renderTutorial(topic string) (string, error) {
 
 const quickstartTutorial = `快速上手
 新建和接管默认 governed，安装治理身份与基线；独立技能显式选择 --installation skills，其参考资产不启用治理身份。--full 只扩大资源集合，不切换安装方式。
-前置条件：在独立新目录选择一个 Profile；spec 包含需求、必要产品设计和适用后端工作；backend 承担专职交付；仅支持 Spec 和 Backend。新正式 Spec 功能默认推进到业务验收，可按里程碑续推。
+前置条件：在独立新目录选择一个 Profile；spec 负责非技术规格和必要产品设计，backend 承担技术设计和交付；仅支持 Spec 和 Backend。
 输入材料：项目名称与目标目录；已有工程改用 attach 的保存计划。
 
   yss version --json
@@ -205,11 +205,10 @@ const quickstartTutorial = `快速上手
   yss init --profile spec --root ./demo-spec --project-name 演示项目 --plan --out ./demo-spec-init-plan.json
   yss init --profile spec --root ./demo-spec --apply --plan-file ./demo-spec-init-plan.json
   yss doctor --root ./demo-spec --human
-  yss context verify --root ./demo-spec --json
-  yss lifecycle query --root ./demo-spec --id work-unit.entry-triage --json
+  yss skills list --root ./demo-spec --json
 
 预期结果：计划保存、初始化形成身份与基线；后续查询返回当前输入状态。
-下一步：yss help tutorial governed；符合日常政策时另读 daily。
+下一步：Spec 使用 yss help tutorial spec 与 life；Backend 按本端政策使用 yss help tutorial backend 或 daily。
 失败恢复：目录错误查看 yss help errors IDENTITY；未完成原生事务先 yss recover --root ./demo-spec --json，再在已确认恢复范围内增加 --apply。
 计划文件必须是新文件。终端默认中文；管道保留原格式；--human 强制中文；--json --diagnostics 在失败时附加结构化诊断。`
 
@@ -265,20 +264,20 @@ plan 只保存计划；apply 重新核验当前输入并拒绝篡改或漂移，
 `
 
 func dailyTutorial() string {
-	v, e := helpview.Load("spec")
+	v, e := helpview.Load("backend")
 	source := "来源摘要：待核验"
 	if e == nil {
 		source = fmt.Sprintf("来源摘要：template=%s；policy=%s；日常能力=%t", v.TemplateCommit, v.PolicySHA256, v.DailyEnabled)
 	}
-	return `日常交付（Spec / Backend，依实例当前政策）
+	return `日常交付（Backend，依实例当前政策；新 Spec 不使用 lifecycle daily）
 ` + source + `
 前置条件：当前实例明确启用日常政策；同一任务有需求与验收、单一实现仓、已确认完整基线、适用 Skills、实际测试、适用复核和回滚依据。
-输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/yss-product-lifecycle/references/daily-delivery.md。
+输入材料：docs/daily-task.md 的同一 Ticket/PR 证据区；实际实现仓；已确认的40位 SHA。格式消费项目 .agents/skills/harness-orchestrator/references/daily-delivery.md。
 默认一名 Agent 完成专业工作与真实自检；不要求岗位、数字人或运行环境注册。明确用户或已知外部规则需要独立复核时，核验真实不同上下文、相同冻结候选及只读轨迹；自检不生成真人批准。
 顺序：需求与验收 → YSS 技术技能 → 实现 → 测试 → 适用复核 → verify-daily。
 
-  yss lifecycle route --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
-  yss lifecycle verify-daily --root ./demo-spec --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle route --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
+  yss lifecycle verify-daily --root ./demo-backend --task docs/daily-task.md --implementation-root "/实际实现仓" --base "<已确认40位SHA>" --json --diagnostics
 
 预期结果：route 返回 daily、standard、governed 或 needs-info 及原因。
   daily：满足政策，按同一记录实现、实际测试及适用复核，再 verify-daily。
@@ -294,6 +293,9 @@ func governedTutorial(profile string) (string, error) {
 	v, e := helpview.Load(profile)
 	if e != nil {
 		return "", e
+	}
+	if v.Workflow == "matt-spec-v1" {
+		return specWorkflowTutorial(), nil
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "正式生命周期（%s）\n来源摘要：template=%s；registry=%s；profile=%s；policy=%s\n前置条件：合法项目身份，从当前任务最近可信阶段继续；阶段触发与退出条件由该 Profile 固定模板及项目当前资产核验。\n输入材料：当前 checkpoint、已确认战略/Spec/合同和相应证据。路径示例使用新项目 .work；旧项目按 tracker.root 替换。以下需要当前资产的命令在材料齐备后执行。\n\n", profile, v.TemplateCommit, v.RegistrySHA256, registeredDigest(v.ProfileSHA256), registeredDigest(v.PolicySHA256))
@@ -370,6 +372,11 @@ func registeredDigest(value string) string {
 }
 
 func profileTutorial(profile string) (string, error) {
+	if profile == "spec" {
+		if v, err := helpview.Load(profile); err == nil && v.Workflow == "matt-spec-v1" {
+			return specWorkflowTutorial(), nil
+		}
+	}
 
 	v, e := helpview.Load(profile)
 	if e != nil {
@@ -392,3 +399,23 @@ const maintenanceIntroduction = `维护与恢复
 失败恢复：冲突与输入漂移先保留现场，再检查诊断并重新规划。
 
 `
+
+func specWorkflowTutorial() string {
+	return `Spec 非技术规格工作流
+
+1. 在指定工程开展需求工作；必要初始化与技能缺口由已可发现的 setup 引导处理，已有配置直接复用。
+2. 事实调查、业务决定澄清和术语处理按实际缺口进行；已有讨论足够时直接综合规格。
+3. AI 按风险选择文字、流程、状态或原型，不强制完整设计资产。
+4. 仅实际需人工审批的动作消费真实批准；在授权范围保存/发布到选定 Issue tracker。
+5. 下游通过规格及材料引用消费，承担技术、API、实现切片和代码工作。
+
+本地 Markdown、GitHub Issues、GitLab Issues 三选一，不创建 Git PR、checkpoint、实施合同或固定 Backend 交接。
+新工程示例：
+  yss init --profile spec --root ./demo-spec
+  yss doctor --root ./demo-spec
+  yss skills list --root ./demo-spec --details --json
+GitHub 配置：init/attach 使用 --issue-tracker github --tracker-repository owner/repo。
+GitLab 配置：init/attach 使用 --issue-tracker gitlab --tracker-host https://git.example.org --tracker-project group/project。
+平台配置不等于远程发布，发布后才返回实际 Issue 引用。旧 Spec 由人工迁移，新流程不执行旧阶段和实施命令。
+`
+}

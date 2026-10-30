@@ -87,6 +87,9 @@ func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
 			return nil, domain.Fail("IDENTITY", "历史来源绑定未知或路径不合法")
 		}
 	}
+	if _, err := SpecWorkflow(&meta); err != nil {
+		return nil, err
+	}
 	p, e := domain.GetProfile(meta.Profile)
 	if e != nil {
 		return nil, e

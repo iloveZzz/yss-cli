@@ -44,3 +44,22 @@ func TestBundle4RequiresItsOwnCurrentGovernanceTuple(t *testing.T) {
 		})
 	}
 }
+
+func TestSpecWorkflowHasOwnPolicyWithoutStageKernel(t *testing.T) {
+	files := map[string]File{}
+	for ref, value := range map[string]any{
+		"yss-project.yaml": map[string]any{"schema_version": 2, "repository_mode": "project-instance"},
+		".template-spec/process/harness-profile.yaml": map[string]any{"schema_version": 3, "profile_id": "harness.spec-template", "status": "active", "spec_workflow": "matt-spec-v1"},
+		".template-spec/process/spec-workflow.json":   map[string]any{"schemaVersion": 1, "specWorkflow": "matt-spec-v1", "profile": "spec"},
+	} {
+		raw, _ := json.Marshal(value)
+		files[ref] = encodedFile(raw, 0644, "managed")
+	}
+	if err := validateGovernance4(files, "spec"); err != nil {
+		t.Fatal(err)
+	}
+	delete(files, ".template-spec/process/spec-workflow.json")
+	if err := validateGovernance4(files, "spec"); err == nil {
+		t.Fatal("missing source policy accepted")
+	}
+}

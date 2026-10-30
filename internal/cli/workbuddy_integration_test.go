@@ -3,6 +3,8 @@
 package cli
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,9 +48,16 @@ func TestWorkBuddyCLIInstallationClosures(t *testing.T) {
 		result := commandOK(t, root, "init", "--profile", "spec", "--full", "--plan", "--out", filepath.Join(t.TempDir(), "full-plan.json"))
 		check(t, result)
 	})
-	t.Run("assets-ensure-plan", func(t *testing.T) {
-		root := commandProject(t) // Reuse the existing shared initialized fixture.
-		result := commandOK(t, root, "assets", "ensure", "stage.spec-architecture", "--plan", "--out", filepath.Join(t.TempDir(), "assets-plan.json"))
-		check(t, result)
+	t.Run("new-spec-rejects-stage-assets", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "project")
+		commandOK(t, root, "init", "--profile", "spec")
+		plan := filepath.Join(t.TempDir(), "assets-plan.json")
+		code, out, _ := captureCommand(t, context.Background(), []string{"assets", "ensure", "stage.spec-architecture", "--root", root, "--plan", "--out", plan, "--json"}, false)
+		if code == 0 || commandEnvelope(t, out)["code"] != "SPEC_COMMAND_NOT_APPLICABLE" {
+			t.Fatalf("old stage path accepted: %d %s", code, out)
+		}
+		if _, err := os.Stat(plan); !os.IsNotExist(err) {
+			t.Fatal("rejected stage wrote plan")
+		}
 	})
 }

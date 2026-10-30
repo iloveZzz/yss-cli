@@ -317,7 +317,7 @@ func VerifyPlanOutput(ctx context.Context, p *Plan) (*OutputInspection, error) {
 				}
 			}
 		}
-		if !skillsIdentity(id) {
+		if !skillsIdentity(id) && !IsMattSpec(id) {
 			if _, err := governance.RunContext(ctx, "context", "verify", p.Root, nil); err != nil {
 				if ctx.Err() != nil {
 					return nil, domain.Wrap("CANCELLED", ctx.Err())
