@@ -2,6 +2,8 @@ package project
 
 import (
 	"encoding/json"
+	"github.com/iloveZzz/yss-cli/internal/domain"
+	"go.yaml.in/yaml/v3"
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/bundle"
@@ -222,34 +224,32 @@ func (u *upgradePlanner) projectionRetirements() map[string]bundle.MigrationRule
 // whole sync; previously managed files stay retired-preserved unless an
 // explicit upgrade rule proposes their deletion.
 func withoutRetiredSkills(b *bundle.Bundle, skills []string) ([]string, error) {
-	var retired map[string]bool
+	retired, present, err := readSkillRetirement(b)
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return skills, nil
+	}
+	var registry skillRegistry
+	if file, ok := b.Files[skillRegistryRef]; ok {
+		raw, err := file.Render(nil)
+		if err != nil {
+			return nil, err
+		}
+		if err = yaml.Unmarshal(raw, &registry); err != nil {
+			return nil, domain.Wrap("SKILL", err)
+		}
+	}
 	out := make([]string, 0, len(skills))
 	for _, name := range skills {
-		if _, ok := b.SkillRequirements[name]; ok || hasSkillTree(b, name) {
-			out = append(out, name)
-			continue
+		canonical, err := normalizeSkillAlias(&registry, name)
+		if err != nil {
+			return nil, err
 		}
-		if retired == nil {
-			if _, ok := b.Files["scripts/lib/skill-supply-chain.mjs"]; !ok {
-				return skills, nil
-			}
-			var err error
-			if retired, err = retiredSkillIDs(b); err != nil {
-				return nil, err
-			}
-		}
-		if !retired[name] {
-			out = append(out, name)
+		if !retired[canonical] {
+			out = append(out, canonical)
 		}
 	}
 	return out, nil
-}
-
-func hasSkillTree(b *bundle.Bundle, name string) bool {
-	for ref := range b.Files {
-		if strings.HasPrefix(ref, ".agents/skills/"+name+"/") || strings.HasPrefix(ref, ".claude/skills/"+name+"/") {
-			return true
-		}
-	}
-	return false
 }

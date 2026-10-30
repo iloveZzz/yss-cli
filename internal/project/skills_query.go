@@ -22,6 +22,7 @@ import (
 const skillRegistryRef = ".template-spec/agents/yss-skill-registry.yaml"
 
 type skillRegistration struct {
+	Source   string   `yaml:"source"`
 	ID       string   `yaml:"id"`
 	Layer    string   `yaml:"layer"`
 	Maturity string   `yaml:"maturity"`
@@ -221,9 +222,8 @@ func SkillsDetails(id *Identity, b *bundle.Bundle) (any, error) {
 	return map[string]any{"readOnly": true, "verification": "metadata-only", "skills": details}, nil
 }
 
-// Retired IDs come from the fixed registry's declared source, not a CLI copy.
-// shortcut: accepts fixed JSON literal declarations; extend parsing if the source contract changes.
-func retiredSkillIDs(b *bundle.Bundle) (map[string]bool, error) {
+// Compatibility reader for fixed v1 sources; v2 never parses JavaScript.
+func legacyRetiredSkillIDs(b *bundle.Bundle) (map[string]bool, error) {
 	raw, err := b.Files["scripts/lib/skill-supply-chain.mjs"].Render(nil)
 	if err != nil {
 		return nil, err

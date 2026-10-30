@@ -26,23 +26,28 @@ func resolveSkillSelection(b *bundle.Bundle, requested []string, when string) (*
 	if err != nil {
 		return nil, err
 	}
-	registered, aliases := map[string]skillRegistration{}, map[string]string{}
+	registered := map[string]skillRegistration{}
 	for _, s := range r.Skills {
 		registered[s.ID] = s
-		aliases[s.ID] = s.ID
-		for _, alias := range s.Aliases {
-			aliases[alias] = s.ID
-		}
 	}
 	canonical := func(name string) (string, error) {
-		if retired[name] {
-			return "", domain.Fail("SKILL", "skill-retired: "+name)
+		resolved, err := normalizeSkillAlias(r, name)
+		if err != nil {
+			return "", err
 		}
-		resolved, ok := aliases[name]
+		for _, external := range r.External {
+			if external.ID == resolved && external.Source == "cross-repo-reference" {
+				return "", domain.Fail("SKILL", "external-skill-required: 非内置外部引用 "+resolved)
+			}
+		}
+		if retired[resolved] {
+			return "", domain.Fail("SKILL", "skill-retired: "+resolved)
+		}
+		registration, ok := registered[resolved]
 		if !ok {
 			return "", domain.Fail("SKILL", "未知或非内置共享技能: "+name)
 		}
-		if registered[resolved].Maturity == "deprecated" {
+		if registration.Maturity == "deprecated" {
 			return "", domain.Fail("SKILL", "skill-deprecated: "+resolved)
 		}
 		if _, ok := b.Files[".agents/skills/"+resolved+"/SKILL.md"]; !ok {
@@ -277,4 +282,41 @@ func validateSkillsSelection(b *bundle.Bundle, selection, runtimes []string) err
 		}
 	}
 	return nil
+}
+
+// Aliases are one direct edge to a unique local canonical registration.
+func normalizeSkillAlias(r *skillRegistry, name string) (string, error) {
+	targets := []string{}
+	registrations := map[string][]skillRegistration{}
+	for _, skill := range r.Skills {
+		registrations[skill.ID] = append(registrations[skill.ID], skill)
+		for _, alias := range skill.Aliases {
+			if alias == name {
+				targets = append(targets, skill.ID)
+			}
+		}
+	}
+	if len(targets) == 0 {
+		return name, nil
+	}
+	for _, skill := range append(append([]skillRegistration{}, r.External...), r.Platform...) {
+		if skill.ID == name {
+			return "", domain.Fail("SKILL", "alias 冲突: "+name)
+		}
+	}
+	if len(targets) != 1 || len(registrations[name]) != 0 || len(registrations[targets[0]]) != 1 {
+		return "", domain.Fail("SKILL", "alias 冲突: "+name)
+	}
+	target := targets[0]
+	for _, skill := range r.Skills {
+		for _, alias := range skill.Aliases {
+			if alias == target {
+				return "", domain.Fail("SKILL", "alias 链或环: "+name)
+			}
+		}
+	}
+	if registrations[target][0].Maturity == "deprecated" {
+		return "", domain.Fail("SKILL", "skill-deprecated: "+target)
+	}
+	return target, nil
 }
