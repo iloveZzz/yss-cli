@@ -5,7 +5,17 @@ import {createHash} from 'node:crypto';
 import {check} from './lib.mjs';
 
 export const PROFILES = ['spec', 'backend'];
-const SPEC_CORE = ['yss-product-lifecycle', 'setup-yss-harness', 'yss-research', 'grilling', 'domain-modeling', 'yss-stage-decision', 'i-have-adhd', 'code-review'];
+const SPEC_CORE = ['yss-product-lifecycle', 'to-spec', 'grilling', 'domain-modeling', 'i-have-adhd'];
+const SPEC_ON_DEMAND = ['yss-research', 'yss-prototype-stage', 'prototype-review', 'yss-design-system', 'setup-yss-harness'];
+
+function specWorkflow(root, metadata) {
+ check(metadata.distribution.specWorkflow==='matt-spec-v1','governed Spec must declare matt-spec-v1');
+ check(Array.isArray(metadata.distribution.installedStages)&&metadata.distribution.installedStages.length===0,'new Spec must not install legacy stages');
+ for(const ref of ['yss-project.yaml','.template-spec/process/harness-profile.yaml','.template-spec/process/spec-workflow.json','.template-spec/agents/issue-tracker.md','.template-spec/templates/spec-template.md'])check(fs.existsSync(path.join(root,ref)),`new Spec resource missing ${ref}`);
+ for(const ref of ['.template-spec/process/orchestration-contract.yaml','.agents/skills/implement','.agents/skills/yss-implementation-contract-compiler'])check(!fs.existsSync(path.join(root,ref)),`new Spec unexpectedly installs legacy implementation resource ${ref}`);
+ const policy=JSON.parse(fs.readFileSync(path.join(root,'.template-spec/process/spec-workflow.json')));
+ check(policy.schemaVersion===1&&policy.profile==='spec'&&policy.specWorkflow==='matt-spec-v1','new Spec workflow policy must match its declaration');
+}
 
 function specReadiness(session, root, skills) {
  const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
@@ -34,22 +44,31 @@ export function runProfile(session, profile, tempRoot) {
   check(applied.result?.status === 'applied', `init 结果应为 applied，实际 ${applied.result?.status}`);
   const metadata=JSON.parse(fs.readFileSync(path.join(root,'.yss.json')));
   check(metadata.distribution.installation==='governed','default init must record governed');
-  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(root,ref)),`default init missing ${ref}`);
+  check(fs.existsSync(path.join(root,'yss-project.yaml')),'default init missing yss-project.yaml');
+  check(fs.existsSync(path.join(root,'CONTEXT.md'))===(profile==='backend'),'default init Context boundary differs from Profile');
 
   if(profile==='spec') {
-   for(const id of SPEC_CORE)check(metadata.distribution.installedSkills.includes(id),`governed core missing ${id}`);
+   specWorkflow(root,metadata);
+   check(metadata.distribution.installedSkills.length===SPEC_CORE.length&&SPEC_CORE.every(id=>metadata.distribution.installedSkills.includes(id)),'governed Spec must install only its core skills');
    specReadiness(session,root,SPEC_CORE);
   }
 
   const json = '--json';
   session.expectOk(['doctor', '--root', root, json], {label: 'doctor'});
   session.expectOk(['diff', '--root', root, json], {label: 'diff'});
-  session.expectOk(['context', 'verify', '--root', root, json], {label: 'context verify'});
+  if(profile==='backend')session.expectOk(['context', 'verify', '--root', root, json], {label: 'context verify'});
   const skills = session.expectOk(['skills', 'list', '--root', root, json], {label: 'skills list'});
   check(Array.isArray(skills.result) && skills.result.length > 0, 'skills list 应返回非空标识列表');
-  // backend 没有阶段资源，result 为 null；只有 spec 返回登记表。
-  const assets = session.expectOk(['assets', 'list', '--root', root, json], {label: 'assets list'});
-  if (profile === 'spec') check(assets.result && Object.keys(assets.result).length > 0, 'spec 的 assets list 应返回非空登记表');
+  if(profile==='spec') {
+   // 新 Spec 使用技能与 tracker；旧阶段、交接和自动安装方式转换必须明确拒绝。
+   for(const args of [['assets','list'],['lifecycle','status'],['stage','status'],['handoff','check'],['profile','prepare']])session.expectRejected([...args,'--root',root,json],{code:'SPEC_COMMAND_NOT_APPLICABLE',label:`new Spec rejects ${args.join(' ')}`});
+   const stagePlan=path.join(plans,'stage.json');
+   session.expectRejected(['assets','ensure','stage.product-design','--root',root,'--plan','--out',stagePlan,json],{code:'SPEC_COMMAND_NOT_APPLICABLE',label:'new Spec rejects stage ensure'});
+   check(!fs.existsSync(stagePlan),'rejected stage ensure must not write a plan');
+   const migration=path.join(plans,'skills.json');
+   session.expectRejected(['migrate','--root',root,'--installation','skills','--plan','--out',migration,json],{code:'SPEC_MANUAL_MIGRATION_REQUIRED',label:'new Spec cannot automatically migrate to skills'});
+   check(!fs.existsSync(migration),'rejected Spec migration must not write a plan');
+  } else session.expectOk(['assets', 'list', '--root', root, json], {label: 'assets list'});
   const recover = session.expectOk(['recover', '--root', root, json], {label: 'recover'});
   check(recover.result?.transactions?.some(item => item.kind === 'init' && item.phase === 'committed'), 'recover 应列出已提交的 init 事务');
   session.expectOk(['rollback', '--root', root, json], {label: 'rollback（只查询）'});
@@ -68,14 +87,28 @@ export function runProfile(session, profile, tempRoot) {
   fs.mkdirSync(existing);
   const business=path.join(existing,'business.txt');
   fs.writeFileSync(business,'user business');
+  const context=path.join(existing,'CONTEXT.md'), contextBody='# Existing business context\nProject-owned terms and decisions.\n';
+  if(profile==='spec')fs.writeFileSync(context,contextBody,{mode:0o444});
+  const contextMode=profile==='spec'?fs.statSync(context).mode&0o777:null;
   session.expectOk(['attach','--profile',profile,'--root',existing,'--plan','--out',attachPlan,json],{label:'default attach --plan'});
-  check(fs.readdirSync(existing).length===1&&fs.readFileSync(business,'utf8')==='user business','attach planning must preserve existing files');
+  check(fs.readdirSync(existing).length===(profile==='spec'?2:1)&&fs.readFileSync(business,'utf8')==='user business','attach planning must preserve existing files');
+  if(profile==='spec')check(fs.readFileSync(context,'utf8')===contextBody&&(fs.statSync(context).mode&0o777)===contextMode,'attach planning must preserve ordinary Context bytes and mode');
   check(JSON.parse(fs.readFileSync(attachPlan)).installation==='governed','default attach plan must select governed');
   session.expectOk(['attach','--root',existing,'--apply','--plan-file',attachPlan,json],{label:'default attach --apply'});
   const attached=JSON.parse(fs.readFileSync(path.join(existing,'.yss.json')));
   check(attached.distribution.installation==='governed','saved attach plan must preserve governed');
   for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(existing,ref)),`default attach missing ${ref}`);
   check(fs.readFileSync(business,'utf8')==='user business','attach must preserve user bytes');
+  if(profile==='spec') {
+   specWorkflow(existing,attached);
+   check(fs.readFileSync(context,'utf8')===contextBody&&(fs.statSync(context).mode&0o777)===contextMode,'attach must preserve ordinary Context bytes and mode');
+   const ensure=path.join(plans,'optional-skills.json');
+   session.expectOk(['skills','ensure',...SPEC_ON_DEMAND,'--root',existing,'--plan','--out',ensure,json],{label:'Spec optional skills plan'});
+   session.expectOk(['skills','--root',existing,'--apply','--plan-file',ensure,json],{label:'Spec optional skills apply'});
+   specReadiness(session,existing,SPEC_ON_DEMAND);
+   const repeat=session.expectOk(['skills','ensure',...SPEC_ON_DEMAND,'--root',existing,'--plan',json],{label:'Spec optional skills repeat'}).result;
+   check(repeat.changes.length===0,'Spec optional skills ensure must be idempotent');
+  }
 }
 
 export function runSkillsProfile(session, profile, tempRoot) {
@@ -122,21 +155,9 @@ export function runSkillsProfile(session, profile, tempRoot) {
  session.expectRejected(['lifecycle','query','--root',root,'--json'],{label:'ordinary project cannot run formal governance'});
  if(profile==='spec') {
   const migration=path.join(plans,'governed.json');
-  session.expectOk(['migrate','--root',root,'--installation','governed','--plan','--out',migration,'--json']);
-  session.expectOk(['migrate','--root',root,'--apply','--plan-file',migration,'--json']);
-  const stages={
-   'stage.product-design':['yss-prototype-stage','prototype-review','yss-design-system'],
-   'stage.system-data-engineering':['yss-technical-design','yss-implementation-contract-compiler'],
-   'stage.ticket-formalization':['yss-implementation-contract-compiler'],
-  };
-  for(const [stage,skills] of Object.entries(stages)) {
-   const plan=path.join(plans,stage+'.json');
-   session.expectOk(['assets','ensure',stage,'--root',root,'--plan','--out',plan,'--json']);
-   session.expectOk(['assets','ensure','--root',root,'--apply','--plan-file',plan,'--json']);
-   specReadiness(session,root,skills);
-   const repeat=session.expectOk(['assets','ensure',stage,'--root',root,'--plan','--json']).result;
-   check(repeat.changes.length===0,`stage ${stage} must be idempotent`);
-  }
+  session.expectRejected(['migrate','--root',root,'--installation','governed','--plan','--out',migration,'--json'],{code:'SPEC_MANUAL_MIGRATION_REQUIRED',label:'skills cannot automatically migrate to new Spec'});
+  check(!fs.existsSync(migration),'rejected skills migration must not write a plan');
+  check(JSON.parse(fs.readFileSync(path.join(root,'.yss.json'))).distribution.installation==='skills'&&!fs.existsSync(path.join(root,'yss-project.yaml')),'rejected migration must preserve ordinary installation');
  }
 
  if(profile==='spec')for(const installation of ['skills','governed']) {
@@ -144,12 +165,14 @@ export function runSkillsProfile(session, profile, tempRoot) {
   session.expectOk(['init','--root',fullRoot,'--profile','spec','--installation',installation,'--full','--json'],{label:`full ${installation} init`});
   const full=JSON.parse(fs.readFileSync(path.join(fullRoot,'.yss.json')));
   check(full.distribution.installation===installation,'full must preserve selected installation');
-  for(const ref of ['yss-project.yaml','CONTEXT.md'])check(fs.existsSync(path.join(fullRoot,ref))===(installation==='governed'),'full governance identity boundary differs from installation');
+  check(fs.existsSync(path.join(fullRoot,'yss-project.yaml'))===(installation==='governed'),'full governance identity boundary differs from installation');
+  check(!fs.existsSync(path.join(fullRoot,'CONTEXT.md')),'full Spec must not generate legacy Context');
   const supported=session.expectOk(['skills','list','--root',fullRoot,'--json']).result;
   check(supported.every(id=>full.distribution.installedSkills.includes(id)),'full must install all supported Profile skills');
   if(installation==='governed') {
-   const fixed=session.expectOk(['bundle','inspect','--profile','spec','--json']).result;
-   for(const ref of Object.keys(fixed.files))if(!ref.startsWith('.template-source/'))check(fs.existsSync(path.join(fullRoot,ref)),`full governed resource missing ${ref}`);
+   specWorkflow(fullRoot,full);
+   check(supported.length===SPEC_CORE.length+SPEC_ON_DEMAND.length&&[...SPEC_CORE,...SPEC_ON_DEMAND].every(id=>supported.includes(id)),'full governed Spec must expose its core and on-demand skill catalog');
+   for(const ref of ['DESIGN.md','.template-spec/design/tokens/theme.json','scripts/lib/source-context-snapshot.mjs'])check(fs.existsSync(path.join(fullRoot,ref)),`full Spec optional resource missing ${ref}`);
   }
   specReadiness(session,fullRoot,full.distribution.installedSkills);
  }
