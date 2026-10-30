@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,10 +28,13 @@ type routeFixture struct {
 }
 
 var (
-	fixtureOnce sync.Once
-	fixtureDir  string
-	fixture     routeFixture
-	fixtureErr  error
+	fixtureOnce     sync.Once
+	fixtureDir      string
+	fixture         routeFixture
+	fixtureErr      error
+	backendSeedOnce sync.Once
+	backendSeed     string
+	backendSeedErr  error
 )
 
 func TestMain(m *testing.M) {
@@ -70,18 +75,16 @@ func gitIn(dir string, args ...string) (string, error) {
 }
 
 func setupFixture() (routeFixture, error) {
-	dir, err := os.MkdirTemp("", "yss-route-")
-	if err != nil {
-		return routeFixture{}, err
+	backendSeedOnce.Do(setupBackendSeed)
+	if backendSeedErr != nil {
+		return routeFixture{}, backendSeedErr
 	}
-	fixtureDir = dir
-	if dir, err = filepath.EvalSymlinks(dir); err != nil {
-		return routeFixture{}, err
-	}
+	dir := filepath.Dir(backendSeed)
 	f := routeFixture{project: filepath.Join(dir, "proj"), impl: filepath.Join(dir, "impl")}
-	if code, env, err := runYSS("init", "--installation", "governed", "--profile", "backend", "--root", f.project, "--project-name", "Demo"); err != nil || code != 0 {
-		return f, fmt.Errorf("init 失败: code=%d env=%v err=%v", code, env, err)
+	if err := copyBackendSeed(f.project); err != nil {
+		return f, err
 	}
+	var err error
 	if err := os.MkdirAll(f.impl, 0o755); err != nil {
 		return f, err
 	}
@@ -134,6 +137,102 @@ func routeFixtureFor(t *testing.T) routeFixture {
 		t.Fatal(fixtureErr)
 	}
 	return fixture
+}
+
+func setupBackendSeed() {
+	fixtureDir, backendSeedErr = os.MkdirTemp("", "yss-route-")
+	if backendSeedErr != nil {
+		return
+	}
+	dir, err := filepath.EvalSymlinks(fixtureDir)
+	if err != nil {
+		backendSeedErr = err
+		return
+	}
+	backendSeed = filepath.Join(dir, "backend")
+	code, env, err := runYSS("init", "--installation", "governed", "--profile", "backend", "--root", backendSeed, "--project-name", "Demo")
+	if err != nil || code != 0 {
+		backendSeedErr = fmt.Errorf("init 失败: code=%d env=%v err=%v", code, env, err)
+	}
+}
+
+func backendFixtureFor(t *testing.T) string {
+	t.Helper()
+	backendSeedOnce.Do(setupBackendSeed)
+	if backendSeedErr != nil {
+		t.Fatal(backendSeedErr)
+	}
+	return backendSeed
+}
+
+func isolatedBackendFixture(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "backend")
+	backendFixtureFor(t)
+	if err = copyBackendSeed(root); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func copyBackendSeed(root string) error {
+	return copyFixtureTree(backendSeed, root)
+}
+
+func copyFixtureTree(source, root string) error {
+	return filepath.WalkDir(source, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		ref, err := filepath.Rel(source, name)
+		if err != nil {
+			return err
+		}
+		// The seed's initialization archive is bound to its original root.
+		if ref == filepath.Join(".yss", "transactions") && entry.IsDir() {
+			return filepath.SkipDir
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(root, ref)
+		if info.IsDir() {
+			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chmod(target, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("夹具包含非普通文件: %s", ref)
+		}
+		in, err := os.Open(name)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+		if err != nil {
+			in.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, in)
+		closeErr := out.Close()
+		inErr := in.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if inErr != nil {
+			return inErr
+		}
+		return os.Chmod(target, info.Mode().Perm())
+	})
 }
 
 // writeTask 写入一份带 fenced JSON 证据的任务记录；mutate 在序列化前修改证据。

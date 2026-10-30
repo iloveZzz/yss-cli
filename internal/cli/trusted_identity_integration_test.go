@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/governance/kernel"
@@ -14,9 +15,80 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
+func TestCopyFixtureTreePreservesFilesAndRejectsLinks(t *testing.T) {
+	source := t.TempDir()
+	file := filepath.Join(source, "skill", "run.sh")
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("fixture\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, 0755); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(source, ".yss", "transactions", "old-root")
+	if err := os.MkdirAll(filepath.Dir(archive), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archive, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "copy")
+	if err := copyFixtureTree(source, target); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "skill", "run.sh"))
+	if err != nil || string(got) != "fixture\n" {
+		t.Fatalf("复制字节不符: %q %v", got, err)
+	}
+	sourceInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyInfo, err := os.Stat(filepath.Join(target, "skill", "run.sh"))
+	if err != nil || copyInfo.Mode().Perm() != sourceInfo.Mode().Perm() {
+		t.Fatalf("复制权限不符: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".yss", "transactions")); !os.IsNotExist(err) {
+		t.Fatalf("复制了旧根的事务归档: %v", err)
+	}
+	if err := os.Symlink(file, filepath.Join(source, "link")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Logf("当前 Windows 环境不允许创建符号链接: %v", err)
+			return
+		}
+		t.Fatal(err)
+	}
+	if err := copyFixtureTree(source, filepath.Join(t.TempDir(), "linked-copy")); err == nil {
+		t.Fatal("不应复制符号链接")
+	}
+}
+
+func TestBackendFixtureCopiesAreIndependent(t *testing.T) {
+	seed := filepath.Join(backendFixtureFor(t), project.MetadataFile)
+	before, err := os.ReadFile(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy := isolatedBackendFixture(t)
+	if _, err = project.Detect(copy, "backend", false); err != nil {
+		t.Fatalf("复制实例必须保持受信身份: %v", err)
+	}
+	if err = kernel.NewSemanticSession(context.Background(), copy, nil).Authorities(); err != nil {
+		t.Fatalf("复制实例必须允许加载受信政策: %v", err)
+	}
+	if err = os.WriteFile(filepath.Join(copy, project.MetadataFile), []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(seed)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("修改副本影响共享基线: %v", err)
+	}
+}
+
 func TestGovernanceRejectsUntrustedSource(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "backend")
-	commandOK(t, root, "init", "--profile", "backend")
+	root := isolatedBackendFixture(t)
 	if err := kernel.NewSemanticSession(context.Background(), root, nil).Authorities(); err != nil {
 		t.Fatalf("真实 Backend 应可加载政策: %v", err)
 	}
@@ -91,8 +163,13 @@ func TestTrustedSpecPolicyRejectsForgedManagedDigest(t *testing.T) {
 func TestTrustedProfilesRejectRehashedForgeryAndPermitTrackerEdit(t *testing.T) {
 	for _, profile := range []string{"spec", "backend"} {
 		t.Run(profile, func(t *testing.T) {
-			root := filepath.Join(t.TempDir(), "project")
-			commandOK(t, root, "init", "--profile", profile)
+			var root string
+			if profile == "backend" {
+				root = isolatedBackendFixture(t)
+			} else {
+				root = filepath.Join(t.TempDir(), "project")
+				commandOK(t, root, "init", "--profile", profile)
+			}
 			tracker := filepath.Join(root, ".template-spec/agents/issue-tracker.md")
 			if original, err := os.ReadFile(tracker); err == nil {
 				if err = os.WriteFile(tracker, append(original, []byte("\n用户备注\n")...), 0644); err != nil {
