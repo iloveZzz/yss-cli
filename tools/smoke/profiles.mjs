@@ -49,8 +49,9 @@ export function runProfile(session, profile, tempRoot) {
 
   if(profile==='spec') {
    specWorkflow(root,metadata);
-   check(metadata.distribution.installedSkills.length===SPEC_CORE.length&&SPEC_CORE.every(id=>metadata.distribution.installedSkills.includes(id)),'governed Spec must install only its core skills');
-   specReadiness(session,root,SPEC_CORE);
+   const core=[...SPEC_CORE,...(metadata.distribution.installedSkills.includes('handoff')?['handoff']:[])];
+   check(metadata.distribution.installedSkills.length===core.length&&core.every(id=>metadata.distribution.installedSkills.includes(id)),'governed Spec must install only its core skills');
+   specReadiness(session,root,core);
   }
 
   const json = '--json';
@@ -132,6 +133,7 @@ export function runSkillsProfile(session, profile, tempRoot) {
 
  session.expectOk(['doctor','--root',root,'--json'],{label:'skills doctor without governance'});
  const roots=profile==='spec'?['yss-product-lifecycle','grilling','yss-research','domain-modeling','to-spec','i-have-adhd','code-review','implement']:['implement','code-review'];
+ if(metadata.distribution.installedSkills.includes('handoff'))roots.push('handoff');
  check(metadata.distribution.installedSkills.length===roots.length&&roots.every(id=>metadata.distribution.installedSkills.includes(id)),'default skills must match Profile starter roots');
  if(profile==='spec')specReadiness(session,root,roots);
  if(profile==='backend') {
