@@ -225,3 +225,28 @@ func TestSyncRechecksIgnoreRulesBetweenWrites(t *testing.T) {
 		t.Fatalf("ignored target changed: %q %v", got, e)
 	}
 }
+
+func TestSyncDoesNotOverwriteIgnoredExistingControlFile(t *testing.T) {
+	root := t.TempDir()
+	syncTestGit(t, root, "init", "-q")
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".yss/transactions/lock.json\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	syncTestGit(t, root, "add", ".gitignore")
+	syncTestGit(t, root, "commit", "-qm", "base")
+	ref := ".yss/transactions/lock.json"
+	file := filepath.Join(root, filepath.FromSlash(ref))
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("user data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := transaction.ApplySyncWithValidation(context.Background(), root, []transaction.Operation{{Path: "new.txt", Data: []byte("new"), Mode: 0644}}, nil, nil, func(ref string) error { return syncCheckIgnored(context.Background(), root, []string{ref}) }, nil)
+	if err == nil {
+		t.Fatal("sync accepted ignored control file")
+	}
+	if got, e := os.ReadFile(file); e != nil || string(got) != "user data" {
+		t.Fatalf("ignored control file changed: %q %v", got, e)
+	}
+}

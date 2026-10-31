@@ -747,6 +747,10 @@ func result(l loaded, status string) Result {
 }
 
 func acquire(root string) (func(), error) {
+	return acquireWithValidation(root, nil)
+}
+
+func acquireWithValidation(root string, prewrite func(string) error) (func(), error) {
 	if err := ensureParents(root, stateRef+"/lock.json"); err != nil {
 		return nil, err
 	}
@@ -770,6 +774,23 @@ func acquire(root string) (func(), error) {
 	if err != nil {
 		f.Close()
 		return nil, err
+	}
+	if prewrite != nil {
+		ref := stateRef + "/lock.json"
+		diagnostic, e := safefs.Path(root, ref)
+		if e == nil {
+			_, e = os.Lstat(diagnostic)
+			if e == nil {
+				e = fail("CONFLICT", "同步控制文件已存在，须先人工检查: "+ref)
+			} else if os.IsNotExist(e) {
+				e = nil
+			}
+		}
+		if e != nil {
+			unlock()
+			f.Close()
+			return nil, e
+		}
 	}
 	content := encode(lockRecord{PID: os.Getpid(), Host: hostname, Token: token})
 	if err := durable(root, stateRef+"/lock.json", content, 0600); err != nil {
@@ -960,7 +981,7 @@ func applyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	if len(records) == 0 {
 		release, hadState, err = acquireNoOp(root)
 	} else {
-		release, err = acquire(root)
+		release, err = acquireWithValidation(root, prewrite)
 	}
 	if err != nil {
 		return Result{}, err
@@ -1004,6 +1025,11 @@ func applyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 		l := &all[i]
 		if !terminal(l.journal.Phase) {
 			if syncManuallyRestored(root, *l) {
+				if prewrite != nil {
+					if err := prewrite(l.base + "/journal.json"); err != nil {
+						return result(*l, "pending"), err
+					}
+				}
 				if err := update(root, l, "abandoned"); err != nil {
 					return result(*l, "pending"), err
 				}
