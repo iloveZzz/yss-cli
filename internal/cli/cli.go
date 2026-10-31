@@ -202,6 +202,16 @@ func writeOutcome(ctx context.Context, stdout, stderr io.Writer, terminal func(i
 		}
 		fmt.Fprintln(stderr, code+": "+err.Error())
 	}
+	if !o.json && hasReceipt && receipt.Kind == "sync" {
+		if len(receipt.CreatedPaths) > 0 {
+			paths, _ := json.Marshal(receipt.CreatedPaths)
+			fmt.Fprintf(stderr, "可能新增的路径：%s\n", paths)
+		}
+		if len(receipt.NewControlPaths) > 0 {
+			paths, _ := json.Marshal(receipt.NewControlPaths)
+			fmt.Fprintf(stderr, "可能新增的控制路径：%s\n", paths)
+		}
+	}
 	return exit
 }
 func capabilities() map[string]any {

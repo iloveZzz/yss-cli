@@ -102,7 +102,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 			return nil, profile, domain.Fail("PLAN", "计划与命令、项目根或 Profile 不匹配")
 		}
 		r, e := project.ApplyConfirmedContext(ctx, p, o.values["expected-digest"])
-		return installationReceipt(r, p.Installation), p.Profile, e
+		return projectApplyReceipt(r, p.Installation, e), p.Profile, e
 	}
 	detectProfile := profile
 	if command == "migrate" {
@@ -355,7 +355,7 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	}
 	if command == "init" && o.values["plan"] != "true" {
 		r, e := project.ApplyContext(ctx, p)
-		return installationReceipt(r, p.Installation), profile, e
+		return projectApplyReceipt(r, p.Installation, e), profile, e
 	}
 	if o.values["apply"] == "true" {
 		return nil, profile, domain.Fail("PLAN_REQUIRED", "非初始化写入需要 --apply --plan-file <已保存的计划>")
@@ -373,6 +373,13 @@ func installationReceipt(result transaction.Result, installation project.Install
 	out := resultObject(result)
 	out["installation"] = installation
 	return out
+}
+
+func projectApplyReceipt(result transaction.Result, installation project.InstallationKind, err error) any {
+	if err != nil {
+		return result
+	}
+	return installationReceipt(result, installation)
 }
 
 func profileDispatch(ctx context.Context, o options) (any, string, error) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/project"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
@@ -30,6 +31,20 @@ func TestInvokeOptionTerminator(t *testing.T) {
 	raw, code = Invoke(context.Background(), []string{"check", "--root", root, "--", "-example.yaml"})
 	if code != 0 || !json.Valid(raw) || commandEnvelope(t, string(raw))["status"] != "ok" {
 		t.Fatalf("Invoke dash file: %d %s", code, raw)
+	}
+}
+
+func TestSyncFailureReportsPossibleNewPaths(t *testing.T) {
+	for _, mode := range []string{"json", "human", "plain"} {
+		receipt := transaction.Result{Kind: "sync", Status: "pending", CreatedPaths: []string{"new/file"}, NewControlPaths: []string{".yss/transactions/id"}}
+		err := domain.Fail("CONFLICT", "同步失败")
+		inv := &invocation{o: options{args: []string{"sync"}, values: map[string]string{}, json: mode == "json"}, command: "sync", executed: true}
+		inv.result = projectApplyReceipt(receipt, project.InstallationGoverned, err)
+		var out, errOut bytes.Buffer
+		code := writeOutcome(context.Background(), &out, &errOut, func(io.Writer) bool { return mode == "human" }, inv, err)
+		if code == 0 || !strings.Contains(out.String()+errOut.String(), "new/file") || !strings.Contains(out.String()+errOut.String(), ".yss/transactions/id") {
+			t.Fatalf("%s: missing failure paths: %d %s %s", mode, code, out.String(), errOut.String())
+		}
 	}
 }
 
