@@ -36,7 +36,7 @@ func TestSourceIdentityRequiresExactBundleSource(t *testing.T) {
 			}
 			for name, mutate := range map[string]func(*SourceIdentity){
 				"profile":  func(v *SourceIdentity) { v.Profile = "other" },
-				"version":  func(v *SourceIdentity) { v.Version = "5.0.1" },
+				"version":  func(v *SourceIdentity) { v.Version += "-other" },
 				"commit":   func(v *SourceIdentity) { v.Commit = "other" },
 				"snapshot": func(v *SourceIdentity) { v.Snapshot = "other" },
 				"manifest": func(v *SourceIdentity) { v.Manifest = "other" },
