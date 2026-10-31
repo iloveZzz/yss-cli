@@ -78,7 +78,9 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				if e := governance.ValidateReadingTransaction(root, profile, paths); e != nil {
 					return e
 				}
-			case "init", "attach", "sync", "skills", "assets":
+			case "sync":
+				return domain.Fail("KIND", "同步不支持回滚；请手动处理新增文件并用 Git 恢复")
+			case "init", "attach", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "rollback仅支持项目事务")
 			}
@@ -147,7 +149,9 @@ func recoveryCommand(ctx context.Context, o options) (any, string, error) {
 				if e := project.ValidateMigrationRollbackForTransaction(root, summary.TransactionID); e != nil {
 					return e
 				}
-			case "init", "attach", "sync", "skills", "assets":
+			case "sync":
+				return domain.Fail("KIND", "同步不支持恢复；请手动处理新增文件并用 Git 恢复")
+			case "init", "attach", "skills", "assets":
 			default:
 				return domain.Fail("KIND", "recover仅支持项目事务")
 			}

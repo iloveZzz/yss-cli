@@ -13,7 +13,7 @@ func addProgramCommands(root *cobra.Command, inv *invocation) {
 	addFlags(addCommand(root, inv, "upgrade", programCommand), inv, "check to tool-root")
 	update := addCommand(root, inv, "update", programCommand)
 	addFlags(update, inv, "tool-root artifact sha256 plan apply out plan-file")
-	for _, name := range []string{"plan", "apply", "status", "recover", "rollback"} {
+	for _, name := range []string{"plan", "apply", "status"} {
 		cmd := addCommand(update, inv, name, programCommand)
 		addFlags(cmd, inv, "tool-root")
 		if name == "plan" || name == "apply" {
@@ -61,25 +61,17 @@ func programCommand(ctx context.Context, o options) (any, string, error) {
 		if len(o.args) > 1 {
 			action = o.args[1]
 		}
-		if action == "status" || action == "recover" || action == "rollback" {
+		if action == "status" {
 			for k := range o.values {
 				if k != "json" && k != "tool-root" {
-					return nil, "", domain.Fail("ARGUMENT", "程序状态、恢复及回退仅接受 --tool-root 与 --json")
+					return nil, "", domain.Fail("ARGUMENT", "程序状态仅接受 --tool-root 与 --json")
 				}
-			}
-			if action == "recover" {
-				r, e := updater.Recover(ctx, o.values["tool-root"])
-				return r, "", e
-			}
-			if action == "rollback" {
-				r, e := updater.Rollback(ctx, o.values["tool-root"])
-				return r, "", e
 			}
 			r, e := updater.Status(o.values["tool-root"])
 			return r, "", e
 		}
 		if action != "plan" && action != "apply" {
-			return nil, "", domain.Fail("ARGUMENT", "程序升级只支持 plan|apply|status|recover|rollback")
+			return nil, "", domain.Fail("ARGUMENT", "程序升级只支持 plan|apply|status")
 		}
 		if action == "apply" || o.values["apply"] == "true" {
 			if o.values["plan-file"] == "" {

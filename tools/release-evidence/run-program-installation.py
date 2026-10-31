@@ -1,7 +1,7 @@
 import sys,json,hashlib,stat,subprocess,time,datetime,tarfile,argparse,platform,zipfile,re
 from pathlib import Path
 from release_source import repo_version,repo_profiles
-parser=argparse.ArgumentParser(description='Actual native public installation, local-scope 5 cases')
+parser=argparse.ArgumentParser(description='Actual native public installation, local-scope installation and reinstall')
 parser.add_argument('--input',required=True);parser.add_argument('--archive',required=True);parser.add_argument('--out',required=True);parser.add_argument('--platform',required=True);parser.add_argument('--cli-root',required=True)
 parser.add_argument('--published-sha256',help='Independent expected public archive SHA256; additionally run the real online upgrade using its extracted executor')
 options=parser.parse_args()
@@ -38,11 +38,11 @@ def inventory(p):
 def control(rows):return {k:v for k,v in rows.items() if k!='.yss' and not k.startswith('.yss/')}
 def digest(rows):return hashlib.sha256(''.join(k+'\0'+v['sha256']+'\0'+str(v['mode'])+'\n' for k,v in sorted(rows.items())).encode()).hexdigest()
 def write(p,v):p.write_text(json.dumps(v,ensure_ascii=False,indent=2)+'\n')
-coverage=['install-plan-read-only','install-apply','rollback','recover','user-file-preservation']
+coverage=['install-plan-read-only','install-apply','reinstall','user-file-preservation']
 report={'schema_version':1,'kind':'native-program-installation','fixture':False,'status':'running','platform':target_platform,'binary_sha256':sha(binary),'cli_commit':inp['cliCommit'],'cli_version':inp['cliVersion'],'source_lock_sha256':inp['sourceLockSha256'],'candidate_archive':{'path':archive.relative_to(R).as_posix(),'sha256':sha(archive)},'input_drift':False,'unexecuted':coverage.copy(),'required_cases':coverage,'cases':[],'commands':[],'provenance_commands':[],'started_at':now(),'error':None,'inventory_contract':'Whole control inventory excludes durable .yss transaction history. Empty docs and compat directories exist before preview. Raw file modes and bytes are measured.'}
 if options.published_sha256 is not None:
  report['online_commands']=[]
- report['public_upgrade']={'status':'not-started','expected_archive_sha256':options.published_sha256,'required_checks':['public-executor','online-install','installed-identity-receipt-status','rollback-repeat-recover','user-file-preservation'],'checks':[]}
+ report['public_upgrade']={'status':'not-started','expected_archive_sha256':options.published_sha256,'required_checks':['public-executor','online-install','installed-identity-receipt-status','user-file-preservation'],'checks':[]}
 inputs=[binary,archive,input_file,Path(__file__).resolve(),Path(__file__).resolve().with_name('release_source.py')]+[R/v['path'] for v in inp['documents'].values()]
 before={str(p):descriptor(p) for p in inputs};write(out/'inputs-before.json',before)
 def call(args,exe=binary,channel=None,timeout=180):
@@ -109,15 +109,20 @@ try:
  for profile in repo_profiles(C):
   observed=call(['bundle','inspect','--profile',profile,'--json'],tool/binary_name);assert all(observed[k]==v for k,v in inp['bundles'][profile].items())
  passed('install-apply',installed_payload_sha256=digest(actual),transaction_id=applied['transactionId'])
- rb=call(['update','rollback','--tool-root',str(tool),'--json']);assert control(inventory(tool))==baseline
- passed('rollback',whole_inventory_restored=True,transaction_id=rb['transactionId'])
- recovery_before=inventory(tool)
- call(['update','recover','--tool-root',str(tool),'--json']);call(['update','recover','--tool-root',str(tool),'--json'])
- assert inventory(tool)==recovery_before
- passed('recover',repeated_recovery=True,no_overwrite=True)
- business_after={'user-data/readonly.txt':descriptor(user)};assert business==business_after
- passed('user-file-preservation',business_before=business,business_after=business_after)
- write(out/'restored-inventory.json',inventory(tool))
+ reinstall_tool=out/'reinstall-tool';(reinstall_tool/'user-data').mkdir(parents=True)
+ for name in ['docs','compat']:(reinstall_tool/name).mkdir(mode=0o755)
+ reinstall_user=reinstall_tool/'user-data'/'readonly.txt';reinstall_user.write_bytes(b'reinstall user-owned bytes\x00\n');reinstall_user.chmod(0o444)
+ reinstall_business=descriptor(reinstall_user);reinstall_before=inventory(reinstall_tool)
+ reinstall_planfile=out/'reinstall-plan.json'
+ reinstall_plan=call(['update','plan','--tool-root',str(reinstall_tool),'--artifact',str(archive),'--sha256',sha(archive),'--out',str(reinstall_planfile),'--json'])
+ assert json.loads(reinstall_planfile.read_text())==reinstall_plan and inventory(reinstall_tool)==reinstall_before
+ call(['update','apply','--tool-root',str(reinstall_tool),'--plan-file',str(reinstall_planfile),'--json'])
+ reinstalled={ref:descriptor(reinstall_tool/ref) for ref in payload};assert reinstalled==payload
+ passed('reinstall',installed_payload_sha256=digest(reinstalled))
+ business_before={'original':business['user-data/readonly.txt'],'reinstall':reinstall_business}
+ business_after={'original':descriptor(user),'reinstall':descriptor(reinstall_user)};assert business_before==business_after
+ passed('user-file-preservation',business_before=business_before,business_after=business_after)
+ write(out/'reinstalled-inventory.json',inventory(reinstall_tool))
  if options.published_sha256 is not None:
   online=report['public_upgrade'];online['status']='running'
   executor_dir=out/'public-executor';executor_dir.mkdir()
@@ -153,24 +158,13 @@ try:
   installed_inventory=inventory(online_tool);write(out/'online-installed-inventory.json',installed_inventory)
   status=online_call(['update','status','--tool-root',str(online_tool),'--json'])
   assert status['installed'] is True and status['installation']==receipt and status['installationConsistent'] is True
-  assert status['recoveryRequired'] is False and status['projectMigrationPerformed'] is False and status['diagnostic']['consistent'] is True
+  assert status['reinstallRequired'] is False and status['projectMigrationPerformed'] is False and status['diagnostic']['consistent'] is True
   assert inventory(online_tool)==installed_inventory,'update status must be read-only'
   online['checks'].append({'check':'installed-identity-receipt-status','passed':True,'receipt':receipt,'receipt_sha256':sha(receipt_path),'payload_sha256':digest(actual)})
-  rollback=online_call(['update','rollback','--tool-root',str(online_tool),'--json'])
-  assert rollback['status']=='rolled-back' and rollback['transactionId']==installed['transaction']['transactionId']
-  assert control(inventory(online_tool))==online_baseline
-  restored=inventory(online_tool)
-  repeated=online_call(['update','rollback','--tool-root',str(online_tool),'--json']);assert repeated['status']=='unchanged'
-  for _ in range(2):
-   recovered=online_call(['update','recover','--tool-root',str(online_tool),'--json']);assert recovered['status']=='unchanged'
-  assert inventory(online_tool)==restored
-  final_status=online_call(['update','status','--tool-root',str(online_tool),'--json'])
-  assert final_status['installed'] is False and final_status['recoveryRequired'] is False and inventory(online_tool)==restored
-  online['checks'].append({'check':'rollback-repeat-recover','passed':True,'whole_inventory_restored':True,'repeated_rollback':True,'repeated_recover':True})
   assert descriptor(online_user)==online_business and descriptor(user)==business['user-data/readonly.txt']
   online['checks'].append({'check':'user-file-preservation','passed':True,'before':online_business,'after':descriptor(online_user)})
   assert [c['check'] for c in online['checks']]==online['required_checks']
-  write(out/'online-restored-inventory.json',restored);online['status']='passed'
+  online['status']='passed'
  report['status']='passed'
 except Exception as exc:
  report['status']='failed';report['error']=repr(exc)

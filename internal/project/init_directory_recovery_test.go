@@ -19,7 +19,7 @@ func TestInitPlanDirectoryRecover(t *testing.T)  { runInitPlanDirectoryRecovery(
 
 func runInitPlanDirectoryRecovery(t *testing.T, mode string) {
 	t.Helper()
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -53,6 +53,9 @@ func loadForOperation(profile string) (*Bundle, *validationOp, error) {
 	}
 	op := newValidationOp()
 	b, err := embeddedBundles.load(profile, op)
+	if err == nil && (b.TemplateCommit == retiredTemplateCommit || b.SourceState == "committed" && !supportedProduct(b)) {
+		return nil, nil, domain.Fail("BASELINE", "内嵌 Bundle 不属于受支持的模板来源；须重新构建")
+	}
 	return b, op, err
 }
 func (f File) Render(vars map[string]string) ([]byte, error) {

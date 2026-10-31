@@ -3,9 +3,6 @@
 package project
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/iloveZzz/yss-cli/internal/bundle"
@@ -16,123 +13,8 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/trustguard"
 )
 
-func TestSyncRecoveryRejectsUntrustedOriginalPolicy(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, _ := writeInstallationBundleFixtureWithKind(t, b, InstallationGoverned)
-	id, err := Detect(root, "spec", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := SpecWorkflowRef
-	file := filepath.Join(root, ref)
-	valid, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(file, []byte("untrusted"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	before, err := safefs.Describe(root, ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := transaction.Apply(root, "sync", []transaction.Operation{{Path: ref, Before: &before, Data: valid, Mode: 0644}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifyRecoveryCandidatePolicies(root, id, []string{ref}, tx.TransactionID); err == nil {
-		t.Fatal("未经认证的原策略不得恢复")
-	}
-	if got, e := os.ReadFile(file); e != nil || string(got) != string(valid) {
-		t.Fatal("拒绝时不能更改现场")
-	}
-}
-
-func TestSyncRecoveryRejectsUnapprovedPolicyDeletion(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, _ := writeInstallationBundleFixtureWithKind(t, b, InstallationGoverned)
-	id, err := Detect(root, "spec", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ref := SpecWorkflowRef
-	before, err := safefs.Describe(root, ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := transaction.Apply(root, "sync", []transaction.Operation{{Path: ref, Before: &before, Delete: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifyRecoveryCandidatePolicies(root, id, []string{ref}, tx.TransactionID); err == nil {
-		t.Fatal("目标来源没有退役规则时不得放行")
-	}
-	if _, e := os.Lstat(filepath.Join(root, ref)); !os.IsNotExist(e) {
-		t.Fatal("拒绝时不能改写现场")
-	}
-}
-
-func TestSyncRecoveryChecksPendingMetadataState(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, _ := writeInstallationBundleFixtureWithKind(t, b, InstallationGoverned)
-	file := filepath.Join(root, MetadataFile)
-	original, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var meta Metadata
-	if err = json.Unmarshal(original, &meta); err != nil {
-		t.Fatal(err)
-	}
-	meta.CLIVersion = "3.0.1"
-	after, err := json.Marshal(meta)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := domain.Descriptor{Type: "file", Digest: safefs.Digest(original), Mode: 0644}
-	tx, err := transaction.Apply(root, "sync", []transaction.Operation{{Path: MetadataFile, Before: &before, Data: after, Mode: 0644}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal := filepath.Join(tx.BackupPath, "journal.json")
-	raw, err := os.ReadFile(journal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var j map[string]any
-	if err = json.Unmarshal(raw, &j); err != nil {
-		t.Fatal(err)
-	}
-	j["phase"] = "applying"
-	raw, _ = json.Marshal(j)
-	if err = os.WriteFile(journal, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(file, original, 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = syncRecoveryIdentity(root, "backend", tx.TransactionID); err != nil {
-		t.Fatalf("受信原态应允许恢复: %v", err)
-	}
-	if err = os.WriteFile(file, append(original, '\n'), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = syncRecoveryIdentity(root, "backend", tx.TransactionID); err == nil {
-		t.Fatal("漂移的 metadata 不能取得恢复身份")
-	}
-}
-
 func TestSyncRetirementRequiresMatchingBundleRule(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
+	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +44,7 @@ func TestSyncRetirementRequiresMatchingBundleRule(t *testing.T) {
 }
 
 func TestSyncRetirementRenameRequiresTrustedTarget(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
+	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +100,7 @@ func TestSyncRetirementRenameRequiresTrustedTarget(t *testing.T) {
 				if tc.mode {
 					mode = 0755
 				}
-				tx, e := transaction.Apply(root, "sync", []transaction.Operation{{Path: path, Data: content, Mode: mode}})
+				tx, e := transaction.Apply(root, "skills", []transaction.Operation{{Path: path, Data: content, Mode: mode}})
 				if e != nil {
 					t.Fatal(e)
 				}

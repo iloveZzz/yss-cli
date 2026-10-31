@@ -25,7 +25,7 @@ func init() {
 
 	helpTopics["contract view"] = helpTopic{"按当前 Slice 或唯一工作单元阅读；不验证批准、不授予执行权限。", "--root <目录> --kind slice --file <合同> [--view review|task|full] [--unit <ID>] [--json]", projectFlags, "yss contract view --root ./demo-spec --kind slice --file ./slice.yaml --view task --unit work-unit.slice-backend", "默认 review；文本为 Markdown，JSON 只含一份结构化内容。task 必须指定唯一工作单元。", false}
 	helpTopics["attach"] = helpTopic{"首次接管已有工程的模板受管资产；使用 sync 同步模板。", "--root <目录> --profile <Profile> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags + "\n--installation skills|governed  默认 governed；独立技能显式选择 --installation skills\n--full  仅扩大所选安装方式的资源集合，不切换安装方式\n--binding-file <文件>  将插件 binding 纳入同一计划", "yss attach --profile backend --root ./existing-backend --plan --out /tmp/yss-attach-plan.json\nyss attach --root ./existing-backend --apply --plan-file /tmp/yss-attach-plan.json", "保留业务目录、CONTEXT.md 和用户 .github；定制冲突须先处置。", false}
-	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "这是项目模板升级。升级 CLI 程序使用 yss upgrade；不会自动迁移旧 metadata。", false}
+	helpTopics["sync"] = helpTopic{"将项目模板升级到本 CLI 内置固定 Bundle。", "--root <目录> --plan --out <新文件>", projectFlags + "\n" + planFlags + "\n" + upgradeFlags, "yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json\nyss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json", "要求 Git 已提交且工作区干净；忽略目标不能覆盖。失败后核对回执中的可能新增项目和事务控制路径，人工处理后用 Git 恢复已跟踪文件；不提供同步恢复或回滚。升级 CLI 程序使用 yss upgrade。", false}
 	for _, action := range []string{"doctor", "diff"} {
 		summary := "检查项目身份、受管基线和冲突。"
 		if action == "diff" {
@@ -33,8 +33,8 @@ func init() {
 		}
 		helpTopics[action] = helpTopic{summary, "--root <目录> [--profile <Profile>] [--json]", projectFlags, "yss " + action + " --root ./demo-spec --json", "只读。遇到业务定制先查看诊断。", false}
 	}
-	helpTopics["recover"] = helpTopic{"查询或恢复未完成的项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行保护性恢复；默认只查询", "yss recover --root ./demo-spec --json\nyss recover --root ./demo-spec --apply --json", "程序安装事务使用 yss update recover --tool-root <目录>。", false}
-	helpTopics["rollback"] = helpTopic{"查询或整体回退最近一次成功项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行回退；默认只查询", "yss rollback --root ./demo-spec --json\nyss rollback --root ./demo-spec --apply --json", "后续用户修改会阻止覆盖。程序版本回退使用 yss update rollback。", false}
+	helpTopics["recover"] = helpTopic{"查询或恢复未完成的项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行保护性恢复；默认只查询", "yss recover --root ./demo-spec --json\nyss recover --root ./demo-spec --apply --json", "程序升级失败时在新目录重新安装。", false}
+	helpTopics["rollback"] = helpTopic{"查询或整体回退最近一次成功项目事务。", "--root <目录> [--apply]", projectFlags + "\n--apply  执行回退；默认只查询", "yss rollback --root ./demo-spec --json\nyss rollback --root ./demo-spec --apply --json", "后续用户修改会阻止覆盖。程序升级失败时在新目录重新安装。", false}
 	helpTopics["version"] = helpTopic{"查看 CLI、协议和固定来源身份。", "[--json]", "也可使用 yss -V 或 yss --version", "yss version --json", "不需要项目目录。", false}
 	helpTopics["explain"] = helpTopic{"解释流程术语或生命周期稳定 ID。", "<术语或稳定ID> [--root <目录>]", "<术语或稳定ID>  例如 Slice Implementation Contract、gate.plan-approved 或 plan-approved\n--root  项目根，默认当前目录", "yss explain gate.plan-approved\nyss explain 工作单元 --json", "只读当前项目的流程术语表与生命周期注册表；业务术语见根 CONTEXT.md。最多返回 10 条。", true}
 	helpTopics["check"] = helpTopic{"识别实例资产并调用对应 verify 做结构与当前校验。", "<文件>... | --changed [--base <Git引用>] [--checkpoint <文件>] [--root <目录>]", "<文件>  一个或多个项目内 YAML/JSON 资产\n--changed  工作树相对 HEAD 的改动与未跟踪文件\n--base <Git引用>  与 --changed 同用，并入 base..HEAD 的已提交改动\n--checkpoint <文件>  需要当前上下文的资产（如用户决定）使用它", "yss check --changed --root ./demo-spec\nyss check .work/feature/approval.yaml --json", "只聚合现有 verify，不新增校验语义；批准与 checkpoint 使用本地 Schema 做结构检查，execution_authorization=not-evaluated；历史读取须另行显式选择原快照。模板目录与未识别文件列为 skipped，缺上下文列为 not-evaluated，均不算通过。", true}
@@ -47,13 +47,11 @@ func init() {
 	})
 	helpTopics["trace"] = helpTopic{"汇总功能包的需求→验收→切片→验证→提交追溯矩阵与缺口。", "--feature <功能包> [--implementation-root <Git根> --since <引用> [--until <引用>]] [--html <新文件>] [--strict]", "--feature  tracker 根下的功能包名\n--implementation-root / --since / --until  读取实现仓提交，按 Ticket trailer 关联 slice_id\n--html  另写静态矩阵页（项目外的新文件）\n--strict  存在缺口时以 TRACE_GAPS 失败（退出码 1）", "yss trace --root ./demo-spec --feature apply-flow --json\nyss trace --root ./demo-spec --feature apply-flow --implementation-root /repo/app --since main~20 --html /tmp/trace.html", "只读：识别业务票、垂直切片 Ticket 与 Slice 合同，缺口包括无切片/无验证的验收、无 Ticket 或未对应切片的提交、Slice 依据摘要已变化。结论不代表批准、完成或可发布。", false}
 	helpTopics["capabilities"] = helpTopic{"查看原生能力、治理接口与发行证据边界。", "[--json]", "--json  输出机器可读能力清单", "yss capabilities --json", "支持清单不等于某个平台已通过原生发行验收。", false}
-	helpTopics["upgrade"] = helpTopic{"从 GitHub 下载并事务安装稳定版 CLI。", "[--check] [--to <稳定版本>] [--tool-root <目录>] [--json]", "--check  只检查版本，不下载、不写入\n--to <版本>  指定稳定版，如 1.3.0 或 v1.3.0；默认最新稳定版\n--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录", "yss upgrade --check\nyss upgrade\nyss upgrade --to 1.3.0 --tool-root ./tools/yss --json", "固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝。恢复: yss update recover --tool-root <目录>；回退: yss update rollback --tool-root <目录>。1.0.0 首次安装新版使用离线 update，见 yss help tutorial。", false}
-	registerGroup("update", "安装、恢复或回退指定本地发行包。", "--tool-root <目录>", "--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根", "yss update status --tool-root ./tools/yss --json", "保留离线安装接口；每次写入绑定摘要和程序事务。", map[string]helpTopic{
-		"plan":     {"生成离线程序安装计划（默认动作）。", "--artifact <归档> --sha256 <摘要> [--out <新文件>]", "--artifact <文件>  本机平台的 .tar.gz 或 .zip\n--sha256 <摘要>  归档 SHA-256\n--out <新文件>  保存计划到工具目录外；默认只输出计划", "yss update plan --tool-root ./tools/yss --artifact /path/yss.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json", "归档必须来自可信固定来源。", false},
-		"apply":    {"应用保存的程序安装计划。", "--plan-file <文件>", "--plan-file <文件>  必需；读取 update plan 生成的计划", "yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json", "保持文件权限；用户改动及输入漂移会阻止安装。", false},
-		"status":   {"只读诊断安装一致性及程序事务状态。", "[--json]", "仅查询，不写入；展示安装记录、逐文件摘要和权限差异。\ninstallationConsistent 只表示安装检查结果，不授予发行资格。", "yss update status --tool-root ./tools/yss --json", "", false},
-		"recover":  {"恢复唯一未完成的程序事务。", "[--json]", "仅处理 program-update；恢复前核验受管范围", "yss update recover --tool-root ./tools/yss --json", "已发布事务开始恢复后完成还原；未发布的完整程序准备验证空 WAL、范围和当前基线后封存为 sealed。旧完整计划可恢复，缺计划或冲突材料返回 STATE 并保留，不能靠重复执行清除。", false},
-		"rollback": {"回退最近一次成功程序安装。", "[--json]", "仅回退最近成功 program-update", "yss update rollback --tool-root ./tools/yss --json", "后续用户改动会阻止整体回退。", false},
+	helpTopics["upgrade"] = helpTopic{"从 GitHub 下载并事务安装稳定版 CLI。", "[--check] [--to <稳定版本>] [--tool-root <目录>] [--json]", "--check  只检查版本，不下载、不写入\n--to <版本>  指定稳定版，如 1.3.0 或 v1.3.0；默认最新稳定版\n--tool-root <目录>  显式工具目录；默认识别实际运行二进制的受管目录", "yss upgrade --check\nyss upgrade\nyss upgrade --to 1.3.0 --tool-root ./tools/yss --json", "固定来源 iloveZzz/yss-cli。校验失败、降级、冲突或未完成事务均拒绝；升级失败时在新目录重新安装。", false}
+	registerGroup("update", "安装指定本地发行包并查看状态。", "--tool-root <目录>", "--tool-root <目录>  必需；工具目录不能是项目或 Git 仓库根", "yss update status --tool-root ./tools/yss --json", "保留离线安装接口；每次写入绑定摘要和程序事务。", map[string]helpTopic{
+		"plan":   {"生成离线程序安装计划（默认动作）。", "--artifact <归档> --sha256 <摘要> [--out <新文件>]", "--artifact <文件>  本机平台的 .tar.gz 或 .zip\n--sha256 <摘要>  归档 SHA-256\n--out <新文件>  保存计划到工具目录外；默认只输出计划", "yss update plan --tool-root ./tools/yss --artifact /path/yss.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json", "归档必须来自可信固定来源。", false},
+		"apply":  {"应用保存的程序安装计划。", "--plan-file <文件>", "--plan-file <文件>  必需；读取 update plan 生成的计划", "yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json", "保持文件权限；用户改动及输入漂移会阻止安装。", false},
+		"status": {"只读诊断安装一致性及程序事务状态。", "[--json]", "仅查询，不写入；展示安装记录、逐文件摘要和权限差异。\ninstallationConsistent 只表示安装检查结果，不授予发行资格。", "yss update status --tool-root ./tools/yss --json", "", false},
 	})
 	for _, group := range []string{"skills", "assets"} {
 		identifier := "Skill 名称"
@@ -251,7 +249,7 @@ const maintenanceTutorial = `YSS 离线入门教程
 3. 升级项目模板（先检查计划，再应用）
    yss sync --root ./demo-spec --plan --out /tmp/yss-sync-plan.json
    yss sync --root ./demo-spec --apply --plan-file /tmp/yss-sync-plan.json
-   计划文件须不存在；输入或定制冲突变化时重新生成计划。
+   Git 必须有提交且工作区干净；计划文件须不存在。同步失败后核对可能新增项目和事务控制路径，人工处理后用 Git 恢复已跟踪文件。
 
 4. 查询和补装资源
    yss skills list --root ./demo-spec --json
@@ -266,33 +264,13 @@ const maintenanceTutorial = `YSS 离线入门教程
    yss upgrade --to 1.3.0 --tool-root ./tools/yss --json
    自动识别实际运行的受管工具目录；未受管裸二进制须显式选择新工具目录。
 
-   1.0.0 没有 upgrade 命令：首次进入新版从
-   https://github.com/iloveZzz/yss-cli/releases 下载本机包和 checksums.json，
-   读取其中对应归档 SHA-256，再执行现有离线入口：
-   yss update plan --tool-root ./tools/yss --artifact /path/yss_1.3.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
-   yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
-   ./tools/yss/yss version --json
-   将该受管目录的 yss 链接到 PATH 后即可使用 upgrade。
-
-7. 程序恢复和回退
+6. 程序安装状态与失败处理
    yss update status --tool-root ./tools/yss --json
-   yss update recover --tool-root ./tools/yss --json
-   yss update rollback --tool-root ./tools/yss --json
-   自动安装用户应使用 upgrade 输出的 toolRoot，示例目录只是显式安装案例。
-   后续用户修改会阻止覆盖；程序事务与项目 sync 事务分别恢复。
-
-   出现“受管程序文件与安装清单不一致”时：
-   先对错误中实际 toolRoot 执行 update status，查看 diagnostic.files 的
-   expected/actual 摘要、权限以及 recordedVersion/runningVersion。
-   运行版本仅在查询当前执行程序所在目录时比较；其他目录不会混用版本。
-   有未完成程序事务先检查状态与归档，再执行 update recover。
-   没有未完成事务但文件或版本不一致时，保留旧目录，选择不存在的新目录：
+   升级失败时保留旧目录，在不存在的新目录重新安装：
    yss upgrade --tool-root ./tools/yss-clean
    ./tools/yss-clean/yss version --json
    ./tools/yss-clean/yss update status --tool-root ./tools/yss-clean --json
-   确认一致后再将 PATH 入口指向新目录的完整受管安装。
-   离线安装使用第 6 步的 update plan/apply，tool-root 改为新目录。
-   不要只替换 yss 文件、改写安装收据或删除旧归档；回退仍可能因后续修改而拒绝。
+   确认一致后再将 PATH 入口指向新目录。
 
 8. 治理入口
    yss context verify --root ./demo-spec --json

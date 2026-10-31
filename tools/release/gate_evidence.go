@@ -4,38 +4,29 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
-	"strings"
 	"time"
 )
 
 var profiles = []string{"spec", "backend"}
-var legacyCases = []string{"warehouse-fixed-executor-init", "legacy-requires-explicit-migration", "migration-plan-read-only", "migration-apply", "native-doctor", "migration-rollback", "fixed-executor-maintains-restored-instance", "repeat-rollback", "legacy-pending-migration-refusal", "unfinished-fixed-executor-recovery", "modified-after-apply-rollback-refusal", "protection-bytes-and-mode"}
-var realCases = []string{"source-copy-exact", "legacy-doctor-baseline", "legacy-migration-required-refusal", "native-plan-read-only", "migration-apply", "native-doctor", "whole-migration-rollback", "restored-old-doctor", "repeat-rollback", "modified-after-apply-rollback-refusal"}
-var integrationCases = []string{"init", "doctor", "diff", "sync-dry-run", "sync-apply", "migration-plan-read-only", "migration-apply", "idempotency", "rollback", "user-file-preservation"}
+var integrationCases = []string{"init", "doctor", "diff", "sync-dry-run", "sync-apply", "migration-plan-read-only", "migration-apply", "idempotency", "git-baseline", "user-file-preservation"}
+var windowsAbsolutePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 // RequiredGateCoverage is a fixed public contract, not an input-selected subset.
 func RequiredGateCoverage(id string) []string {
 	switch id {
 	case "program-installation":
-		return []string{"install-plan-read-only", "install-apply", "rollback", "recover", "user-file-preservation"}
+		return []string{"install-plan-read-only", "install-apply", "reinstall", "user-file-preservation"}
 	case "scoped-template-consumers":
 		return append([]string(nil), scopedConsumerCases...)
 	case "full-template-integration":
-		return []string{"template.release.complete-candidate", "template.release.committed-sources", "template.release.supported-cli-integrations", "template.release.supported-legacy-recovery"}
+		return []string{"template.release.complete-candidate", "template.release.committed-sources", "template.release.supported-cli-integrations"}
 	case "cli-integration":
 		return []string{"cli.integration.spec", "cli.integration.backend"}
-	case "legacy-recovery":
-		out := []string{}
-		for _, p := range profiles {
-			for _, c := range legacyCases {
-				out = append(out, p+"/"+c)
-			}
-		}
-		return out
-	case "real-project-isolation":
-		return append([]string(nil), realCases...)
+
 	}
 	return nil
 }
@@ -164,17 +155,13 @@ func (r *reader) gateReport(id string, raw []byte) error {
 		return r.scopedTemplateGate(s)
 	case "full-template-integration", "cli-integration":
 		return r.templateGate(s, gate.BinarySHA256)
-	case "legacy-recovery":
-		return r.legacyGate(s, gate.BinarySHA256)
-	case "real-project-isolation":
-		return r.realGate(s, gate.BinarySHA256)
 	}
 	return reject("EVIDENCE", "unknown release gate")
 }
 
 func (r *reader) sourceManifest(o map[string]any, binary string) error {
-	if o["schema_version"] != float64(2) || o["kind"] != "template-release-sources" || o["root_commit"] != r.identity.Bundles["spec"].TemplateCommit || !sameSet(stringsOf(o["families"]), profiles) || len(items(o["entries"])) != 4 {
-		return reject("PROVENANCE", "invalid four-family source manifest")
+	if o["schema_version"] != float64(2) || o["kind"] != "template-release-sources" || o["root_commit"] != r.identity.Bundles["spec"].TemplateCommit || !sameSet(stringsOf(o["families"]), profiles) || len(items(o["entries"])) != len(profiles) {
+		return reject("PROVENANCE", "invalid supported-profile source manifest")
 	}
 	seen := map[string]bool{}
 	for _, v := range items(o["entries"]) {
@@ -182,7 +169,7 @@ func (r *reader) sourceManifest(o map[string]any, binary string) error {
 		p := text(row["family"])
 		b, ok := r.identity.Bundles[p]
 		if !ok || seen[p] || row["namespace"] != "candidate-release" || row["package_name"] != "yss" || row["cli_commit"] != r.identity.CLICommit || row["core_commit"] != r.identity.Bundles["spec"].TemplateCommit || row["template_commit"] != b.TemplateCommit || row["version"] != r.identity.CLIVersion || row["template_version"] != b.TemplateVersion || row["source_contract_version"] != float64(2) || row["protocol_version"] != float64(1) || row["snapshot_hash"] != b.SourceSnapshotHash || row["manifest_hash"] != b.ManifestHash || row["bundle_hash"] != b.BundleHash || row["binary_sha256"] != binary {
-			return reject("PROVENANCE", "four-family native source tuple mismatch")
+			return reject("PROVENANCE", "native source tuple mismatch")
 		}
 		seen[p] = true
 	}
@@ -197,6 +184,72 @@ func rawCommand(row map[string]any, s gateSources) error {
 	}
 	_, err := s.dependency(row["log_sha256"])
 	return err
+}
+
+func nativeSyncCommands(commands []any, binary string) error {
+	root, firstSync, plans, applies := "", len(commands), 0, 0
+	for i, item := range commands {
+		row := object(item)
+		if row["command"] != binary {
+			continue
+		}
+		args := stringsOf(row["args"])
+		if len(args) == 0 {
+			continue
+		}
+		if args[0] == "recover" || args[0] == "rollback" {
+			return reject("EVIDENCE", "sync integration must not run recovery or rollback")
+		}
+		if args[0] != "sync" {
+			continue
+		}
+		if i < firstSync {
+			firstSync = i
+		}
+		found := ""
+		for j, arg := range args {
+			if arg == "--root" && j+1 < len(args) {
+				if found != "" {
+					return reject("EVIDENCE", "sync root repeated")
+				}
+				found = args[j+1]
+			}
+			if arg == "--plan" {
+				plans++
+			}
+			if arg == "--apply" {
+				applies++
+			}
+		}
+		if found == "" || (!filepath.IsAbs(found) && !windowsAbsolutePath.MatchString(found)) || root != "" && root != found {
+			return reject("EVIDENCE", "sync Git root missing or inconsistent")
+		}
+		root = found
+	}
+	if root == "" || plans < 3 || applies < 2 {
+		return reject("EVIDENCE", "sync plans or applications missing")
+	}
+	init, commit := false, false
+	for i, item := range commands {
+		row := object(item)
+		if i >= firstSync || row["cwd"] != root || row["command"] != "git" && row["file"] != "git" {
+			continue
+		}
+		args := stringsOf(row["args"])
+		for len(args) >= 2 && args[0] == "-c" {
+			args = args[2:]
+		}
+		if len(args) > 0 && args[0] == "init" {
+			init = true
+		}
+		if len(args) > 0 && args[0] == "commit" && init {
+			commit = true
+		}
+	}
+	if !init || !commit {
+		return reject("EVIDENCE", "committed Git baseline not observed")
+	}
+	return nil
 }
 func (r *reader) templateGate(s gateSources, binary string) error {
 	o, err := parseObject(s.byKind["template-release-verification"])
@@ -246,8 +299,8 @@ func (r *reader) templateGate(s gateSources, binary string) error {
 		return reject("EVIDENCE", "template release command evidence missing")
 	}
 	artifacts := items(o["artifacts"])
-	if len(artifacts) != 4 {
-		return reject("EVIDENCE", "four actual native artifacts required")
+	if len(artifacts) != len(profiles) {
+		return reject("EVIDENCE", "actual native artifacts for supported profiles required")
 	}
 	seen := map[string]bool{}
 	artifactBins := map[string]string{}
@@ -283,14 +336,14 @@ func (r *reader) templateGate(s gateSources, binary string) error {
 		commands = append(commands, items(art["command_records"])...)
 	}
 	integrations := items(o["cli_integrations"])
-	if len(integrations) != 4 {
-		return reject("EVIDENCE", "four CLI integrations required")
+	if len(integrations) != len(profiles) {
+		return reject("EVIDENCE", "CLI integrations for supported profiles required")
 	}
 	seen = map[string]bool{}
 	for _, v := range integrations {
 		row := object(v)
 		p := text(row["family"])
-		if seen[p] || artifactBins[p] == "" || row["status"] != "passed" || row["migration_fixture"] != "native-managed-upgrade" || row["historical_recovery"] != "separate-required-gate" || !sameSet(stringsOf(row["cases"]), integrationCases) || !absentFailure(row) {
+		if seen[p] || artifactBins[p] == "" || row["status"] != "passed" || row["migration_fixture"] != "native-managed-upgrade" || !sameSet(stringsOf(row["cases"]), integrationCases) || !absentFailure(row) {
 			return reject("EVIDENCE", "CLI integration coverage incomplete")
 		}
 		seen[p] = true
@@ -314,9 +367,6 @@ func (r *reader) templateGate(s gateSources, binary string) error {
 			if key == "bundle" && len(args) > 1 {
 				key += " " + args[1]
 			}
-			if key == "migrate" && len(args) > 1 {
-				key += " " + args[1]
-			}
 			if key == "init" {
 				for _, arg := range args {
 					if arg == "--plan" || arg == "--apply" {
@@ -329,28 +379,16 @@ func (r *reader) templateGate(s gateSources, binary string) error {
 		}
 	}
 	for _, p := range profiles {
-		for _, key := range []string{"init --plan", "init --apply", "doctor", "diff", "sync", "migrate plan", "migrate apply", "migrate rollback", "bundle export"} {
-			min := 1
-			if key == "migrate plan" {
-				min = 2
-			}
-			if counts[p][key] < min || (key == "bundle export" && counts[p][key] != 1) {
+		for _, key := range []string{"init --plan", "init --apply", "doctor", "diff", "sync", "bundle export"} {
+			if counts[p][key] < 1 || (key == "bundle export" && counts[p][key] != 1) {
 				return reject("EVIDENCE", "missing actual %s command for %s", key, p)
 			}
 		}
+		if err := nativeSyncCommands(commands, artifactBins[p]); err != nil {
+			return err
+		}
 	}
-	legacy := object(o["legacy_recovery"])
-	if legacy["binary_sha256"] != binary || legacy["cases"] != float64(len(profiles)*len(legacyCases)) || !sameSet(stringsOf(legacy["families"]), profiles) {
-		return reject("EVIDENCE", "legacy recovery descriptor incomplete")
-	}
-	legacyRaw, err := s.dependency(legacy["sha256"])
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(legacyRaw, s.byKind["native-legacy-recovery-matrix"]) {
-		return reject("EVIDENCE", "legacy recovery descriptor mismatch")
-	}
-	return r.legacyGate(s, binary)
+	return nil
 }
 
 func (r *reader) fullVerification(o map[string]any, s gateSources, binary string) error {
@@ -467,166 +505,6 @@ func (r *reader) fullVerification(o map[string]any, s gateSources, binary string
 		}
 		if !found {
 			return reject("EVIDENCE", "selected Gate result missing")
-		}
-	}
-	return nil
-}
-
-func (r *reader) legacyGate(s gateSources, binary string) error {
-	o, err := parseObject(s.byKind["native-legacy-recovery-matrix"])
-	if err != nil {
-		return err
-	}
-	if o["schema_version"] != float64(1) || o["kind"] != "native-legacy-recovery-matrix" || o["fixture"] != false || o["status"] != "passed" || o["binary_sha256"] != binary || o["input_drift"] != false || !empty(o["unexecuted"]) || !sameSet(stringsOf(o["families"]), profiles) || !sameSet(stringsOf(o["required_cases"]), legacyCases) || !absentFailure(o) {
-		return reject("EVIDENCE", "invalid real historical executor matrix")
-	}
-	pins := map[string]string{}
-	for _, v := range items(o["packages"]) {
-		p := object(v)
-		family := text(p["family"])
-		if pins[family] != "" || r.identity.Bundles[family].TemplateCommit == "" || text(p["version"]) == "" || !commitPattern.MatchString(text(p["cli_commit"])) {
-			return reject("PROVENANCE", "historical fixed package identity missing")
-		}
-		if _, err = s.dependency(p["sha256"]); err != nil {
-			return err
-		}
-		pins[family] = text(p["sha256"])
-	}
-	if len(pins) != len(profiles) {
-		return reject("PROVENANCE", "%d historical packages required", len(profiles))
-	}
-	rows := items(o["cases"])
-	if len(rows) != len(RequiredGateCoverage("legacy-recovery")) {
-		return reject("EVIDENCE", "%d actual historical cases required", len(RequiredGateCoverage("legacy-recovery")))
-	}
-	seen := []string{}
-	codes := map[string]string{"legacy-requires-explicit-migration": "MIGRATION_REQUIRED", "legacy-pending-migration-refusal": "LEGACY_INTERRUPTED", "modified-after-apply-rollback-refusal": "CONCURRENT"}
-	for _, v := range rows {
-		row := object(v)
-		p, c := text(row["family"]), text(row["case"])
-		seen = append(seen, p+"/"+c)
-		exit, ok := row["exit_code"].(float64)
-		expected := codes[c]
-		if !ok || exit != float64(int(exit)) || row["passed"] != true || pins[p] == "" || row["legacy_package_sha256"] != pins[p] || !absentFailure(row) {
-			return reject("EVIDENCE", "historical case provenance or actual exit missing")
-		}
-		if expected != "" {
-			if row["expected_code"] != expected || exit == 0 {
-				return reject("EVIDENCE", "historical typed refusal differs")
-			}
-		} else if exit != 0 || (row["expected_code"] != nil && row["expected_code"] != "OK") {
-			return reject("EVIDENCE", "historical success was replaced by refusal")
-		}
-		if _, err = s.dependency(row["log_sha256"]); err != nil {
-			return err
-		}
-	}
-	if !sameSet(seen, RequiredGateCoverage("legacy-recovery")) {
-		return reject("EVIDENCE", "historical cases missing or duplicate")
-	}
-	return nil
-}
-
-func (r *reader) realGate(s gateSources, binary string) error {
-	o, err := parseObject(s.byKind["native-real-spec-isolated-migration"])
-	if err != nil {
-		return err
-	}
-	binding := object(o["root_binding"])
-	if o["schema_version"] != float64(1) || o["kind"] != "native-real-spec-isolated-migration" || o["fixture"] != false || o["status"] != "passed" || o["binary_sha256"] != binary || o["input_drift"] != false || !empty(o["unexecuted"]) || o["original_project_written"] != false || o["business_delivery_claimed"] != false || text(o["source_project"]) == "" || !sameSet(stringsOf(o["required_cases"]), realCases) || !absentFailure(o) || binding["authorized_by_root"] != true || binding["binary_sha256"] != binary || binding["version"] != r.identity.CLIVersion || binding["source_state"] != "committed" || binding["cli_commit"] != r.identity.CLICommit || text(binding["root_authorization_ref"]) == "" {
-		return reject("EVIDENCE", "invalid actual project isolation provenance")
-	}
-	for p, b := range r.identity.Bundles {
-		if object(binding["template_commits"])[p] != b.TemplateCommit {
-			return reject("PROVENANCE", "real-project bundle binding mismatch")
-		}
-	}
-	rows := items(o["cases"])
-	if len(rows) != 10 {
-		return reject("EVIDENCE", "ten real-project cases required")
-	}
-	seen := []string{}
-	byCase := map[string]map[string]any{}
-	for _, v := range rows {
-		row := object(v)
-		name := text(row["case"])
-		if byCase[name] != nil || row["passed"] != true || !absentFailure(row) {
-			return reject("EVIDENCE", "missing or duplicate actual project case")
-		}
-		byCase[name] = row
-		seen = append(seen, name)
-	}
-	if !sameSet(seen, realCases) {
-		return reject("EVIDENCE", "actual project case scope differs")
-	}
-	for _, name := range []string{"migration-apply", "native-doctor", "whole-migration-rollback"} {
-		if byCase[name]["protected_unchanged"] != true {
-			return reject("EVIDENCE", "real-project protected byte/mode guard missing")
-		}
-	}
-	if byCase["source-copy-exact"]["snapshot_mismatch_preserved"] != true || byCase["native-plan-read-only"]["whole_tree_unchanged"] != true || byCase["whole-migration-rollback"]["whole_inventory_restored"] != true || byCase["repeat-rollback"]["all_inventory_including_history_unchanged"] != true || byCase["restored-old-doctor"]["same_full_public_doctor_report"] != true {
-		return reject("EVIDENCE", "real-project original state recovery incomplete")
-	}
-	for name, code := range map[string]string{"legacy-migration-required-refusal": "MIGRATION_REQUIRED", "modified-after-apply-rollback-refusal": "CONCURRENT"} {
-		row := byCase[name]
-		exit, ok := row["actual_exit_code"].(float64)
-		if row["expected_code"] != code || !ok || exit <= 0 {
-			return reject("EVIDENCE", "actual project typed refusal differs")
-		}
-	}
-	if byCase["modified-after-apply-rollback-refusal"]["whole_inventory_including_history_unchanged"] != true {
-		return reject("EVIDENCE", "actual modified project was partially restored")
-	}
-	commands := items(o["commands"])
-	if len(commands) == 0 {
-		return reject("EVIDENCE", "real project execution missing")
-	}
-	for _, v := range commands {
-		row := object(v)
-		exit, ok := row["actual_exit_code"].(float64)
-		if row["actual_exit_code_observed"] != true || !ok || exit < 0 || row["actual_signal"] != nil || row["timed_out"] != false || !absentFailure(row) {
-			return reject("EVIDENCE", "actual project execution interrupted")
-		}
-		expected := text(row["expected_code"])
-		if expected != "" && ((expected == "OK") != (exit == 0)) {
-			return reject("EVIDENCE", "actual project command result contradicts expected code")
-		}
-		for _, stream := range []string{"stdout_sha256", "stderr_sha256"} {
-			if _, err = s.dependency(row[stream]); err != nil {
-				return err
-			}
-		}
-	}
-	before, err := parseObject(s.byKind["real-original-before"])
-	if err != nil {
-		return err
-	}
-	after, err := parseObject(s.byKind["real-original-after"])
-	if err != nil {
-		return err
-	}
-	restored, err := parseObject(s.byKind["real-whole-restored"])
-	if err != nil {
-		return err
-	}
-	protected, err := parseObject(s.byKind["real-protected-before"])
-	if err != nil {
-		return err
-	}
-	if len(before) == 0 || !reflect.DeepEqual(before, after) {
-		return reject("EVIDENCE", "actual original project inventory changed")
-	}
-	for key, value := range before {
-		if key == ".yss" || key == ".yss/transactions" || strings.HasPrefix(key, ".yss/transactions/") {
-			continue
-		}
-		if !reflect.DeepEqual(value, restored[key]) {
-			return reject("EVIDENCE", "whole actual project inventory did not restore")
-		}
-	}
-	for _, name := range []string{"CONTEXT.md", ".yss-template.json", "yss-project.yaml", ".git/index"} {
-		if !fileDescriptor(protected[name], false) || !reflect.DeepEqual(before[name], protected[name]) {
-			return reject("EVIDENCE", "original metadata/CONTEXT/index protection missing")
 		}
 	}
 	return nil

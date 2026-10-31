@@ -16,7 +16,7 @@ import (
 )
 
 func TestStageAndNativeCIRejectUntrustedSource(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}

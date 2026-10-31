@@ -108,6 +108,7 @@ func TestExplicitSkillsCLI(t *testing.T) {
 	if !reflect.DeepEqual(before, installationInventory(t, root)) {
 		t.Fatal("readiness query wrote project files")
 	}
+	prepareCLISyncGit(t, root)
 	plan := filepath.Join(t.TempDir(), "sync.json")
 	commandOK(t, root, "sync", "--plan", "--out", plan)
 	result := commandOK(t, root, "sync", "--apply", "--plan-file", plan)

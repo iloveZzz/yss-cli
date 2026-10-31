@@ -31,7 +31,7 @@ func TestRollbackValidatorReadsSelectedArchiveAfterRecoveredSuccessor(t *testing
 	for _, same := range []bool{false, true} {
 		t.Run(map[bool]string{false: "different-path", true: "same-path"}[same], func(t *testing.T) {
 			root := t.TempDir()
-			a, err := Apply(root, "sync", []Operation{{Path: "a", Data: []byte("A"), Mode: 0644}})
+			a, err := Apply(root, "skills", []Operation{{Path: "a", Data: []byte("A"), Mode: 0644}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,7 +45,7 @@ func TestRollbackValidatorReadsSelectedArchiveAfterRecoveredSuccessor(t *testing
 				}
 				before = &d
 			}
-			b, err := Apply(root, "sync", []Operation{{Path: ref, Data: []byte("B"), Mode: 0644, Before: before}})
+			b, err := Apply(root, "skills", []Operation{{Path: ref, Data: []byte("B"), Mode: 0644, Before: before}})
 			if err != nil {
 				t.Fatal(err)
 			}

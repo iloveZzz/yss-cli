@@ -392,7 +392,7 @@ func profileTutorial(profile string) (string, error) {
 const maintenanceIntroduction = `维护与恢复
 前置条件：分别确认程序、项目模板及插件绑定的来源与事务范围。
 程序升级：upgrade；模板同步：sync。
-普通 recover/rollback 默认只读，增加 --apply 执行；update recover/rollback 本身写入。
+普通 recover/rollback 默认只读，增加 --apply 执行；程序升级失败后须在新目录重新安装。
 先核对状态及归档，在已确认范围内恢复。已绑定插件使用对应插件 project-upgrade-plan/apply 或 project-migration-plan/apply。
 预期结果：计划、应用与恢复均绑定实际输入；后续用户修改阻止覆盖。
 下一步：核对 doctor/diff 或 update status，保留本次真实验证与恢复材料。

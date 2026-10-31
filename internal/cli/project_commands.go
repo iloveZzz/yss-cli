@@ -86,6 +86,9 @@ func projectCommand(ctx context.Context, o options) (any, string, error) {
 	if o.values["plan"] == "true" && o.values["apply"] == "true" {
 		return nil, profile, domain.Fail("ARGUMENT", "--plan 与 --apply 不能同时使用")
 	}
+	if command == "sync" && o.values["apply"] == "true" && o.values["plan-file"] == "" {
+		return nil, profile, domain.Fail("PLAN_REQUIRED", "应用同步须提供保存计划")
+	}
 
 	if o.values["apply"] == "true" && o.values["plan-file"] != "" {
 		if o.values["installation"] != "" || o.values["binding-file"] != "" || o.values["full"] != "" || o.values["review-out"] != "" || o.values["base-bundle"] != "" || o.values["resolution-file"] != "" {

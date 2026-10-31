@@ -8,7 +8,7 @@ import (
 
 func completeInspection(raw []byte, profile string, lockSchema int) error {
 	var o map[string]any
-	if err := json.Unmarshal(raw, &o); err != nil || !((lockSchema == 2 || lockSchema == 3) && (o["schemaVersion"] == float64(2) || o["schemaVersion"] == float64(3)) || lockSchema == 5 && (o["schemaVersion"] == float64(4) || o["schemaVersion"] == float64(5)) && (profile == "spec" || profile == "backend")) || o["profile"] != profile || len(object(o["manifest"])) == 0 || object(o["distribution"]) == nil || len(object(o["files"])) == 0 || len(stringsOf(o["initialPaths"])) == 0 {
+	if err := json.Unmarshal(raw, &o); err != nil || !(lockSchema == 5 && (o["schemaVersion"] == float64(4) || o["schemaVersion"] == float64(5)) && (profile == "spec" || profile == "backend")) || o["profile"] != profile || len(object(o["manifest"])) == 0 || object(o["distribution"]) == nil || len(object(o["files"])) == 0 || len(stringsOf(o["initialPaths"])) == 0 {
 		return reject("EVIDENCE", "complete public bundle inspect result required")
 	}
 	producer, policy := object(o["producer"]), object(o["sourcePolicy"])

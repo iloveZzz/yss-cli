@@ -18,7 +18,7 @@ import (
 )
 
 func TestMigrationRollbackRequiresTrustedPriorSource(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
+	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestMigrationRollbackRequiresTrustedPriorSource(t *testing.T) {
 }
 
 func TestGovernedMigrationRollbackRequiresWorkflowAndRootIdentity(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
+	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestGovernedMigrationRollbackRequiresWorkflowAndRootIdentity(t *testing.T) 
 }
 
 func TestInstallationMigrationWithHistoryCanRollback(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}

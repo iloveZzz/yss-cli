@@ -428,69 +428,6 @@ func RecoveryIdentity(root, explicit string) (*Identity, error) {
 	return RecoveryIdentityForTransaction(root, explicit, "")
 }
 
-// A sync may install a new policy before its metadata. Bind both endpoints to
-// trusted sources before accepting that mixed state for recovery.
-func syncRecoveryIdentity(root, explicit, transactionID string) (*Identity, error) {
-	status, err := transaction.Status(root)
-	if err != nil {
-		return nil, err
-	}
-	if len(status.Pending) != 1 || (transactionID != "" && status.Pending[0] != transactionID) {
-		return nil, domain.Fail("IDENTITY", "没有唯一的未完成同步事务")
-	}
-	id := status.Pending[0]
-	for _, entry := range status.Transactions {
-		if entry.TransactionID != id {
-			continue
-		}
-		if entry.Kind != "sync" {
-			return nil, domain.Fail("KIND", "混合身份只能用于同步恢复")
-		}
-		if err = ValidateMigrationRollbackForTransaction(root, id); err != nil {
-			return nil, err
-		}
-		archive, err := transaction.OpenCandidateArchive(root, id)
-		if err != nil {
-			return nil, err
-		}
-		original, before, found, err := archive.Original(MetadataFile)
-		if err != nil || !found || before.Type != "file" {
-			return nil, domain.Fail("IDENTITY", "同步原身份不可验证")
-		}
-		raw, after, found, err := archive.Candidate(MetadataFile)
-		if err != nil || !found || after.Type != "file" {
-			return nil, domain.Fail("IDENTITY", "同步目标身份不可验证")
-		}
-		actual, err := safefs.Describe(root, MetadataFile)
-		if err != nil {
-			return nil, err
-		}
-		if actual != before && actual != after {
-			return nil, domain.Fail("CONCURRENT", "同步期间 metadata 发生未登记修改")
-		}
-		meta, err := identitymeta.ValidateNative(root, raw, "")
-		if err != nil {
-			return nil, err
-		}
-		previous, err := identitymeta.ValidateNative(root, original, "")
-		if err != nil || previous.Profile != meta.Profile {
-			return nil, domain.Fail("IDENTITY", "同步前后 Profile 不一致")
-		}
-		if explicit != "" && explicit != meta.Profile {
-			return nil, domain.Fail("IDENTITY", "同步目标与显式 Profile 不匹配")
-		}
-		if err = verifyRecoverySource(root, meta, id); err != nil {
-			return nil, err
-		}
-		p, err := domain.GetProfile(meta.Profile)
-		if err != nil {
-			return nil, err
-		}
-		return &Identity{Root: root, Profile: p, Mode: "project-instance", Native: meta}, nil
-	}
-	return nil, domain.Fail("IDENTITY", "同步事务不存在")
-}
-
 func RecoveryIdentityForTransaction(root, explicit, transactionID string) (*Identity, error) {
 	if err := rejectRemovedDesign(root); err != nil {
 		return nil, err
@@ -538,9 +475,6 @@ func RecoveryIdentityForTransaction(root, explicit, transactionID string) (*Iden
 	}
 	if ok, e := exists(root, MetadataFile); e != nil || ok {
 		if e == nil {
-			if synced, err := syncRecoveryIdentity(root, explicit, transactionID); err == nil {
-				return synced, nil
-			}
 			if migrated, err := migrationRecoveryIdentity(root, explicit, transactionID); err == nil {
 				return migrated, nil
 			}
@@ -702,7 +636,9 @@ func RecoverPreparation(ctx context.Context, root, explicit string, apply bool) 
 			return domain.Fail("PROFILE_REMOVED", "Spec→Design 基线事务已移除")
 		case "lifecycle-target":
 			return governance.ValidateProgressionTransaction(id.Root, id.Profile.Name, paths)
-		case "init", "attach", "sync", "migrate", "skills", "assets", "abandoned-preparation":
+		case "sync":
+			return domain.Fail("KIND", "同步不支持恢复；请检查新增准备材料并手动处理")
+		case "init", "attach", "migrate", "skills", "assets", "abandoned-preparation":
 			return nil
 		default:
 			return domain.Fail("KIND", "未知准备事务 kind，拒绝封存")

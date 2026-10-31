@@ -163,7 +163,7 @@ def prepare(options):
         {'id': '05-package-candidate', 'description': '候选包（stableReady=false，仅供真实安装验证）',
          'argv': ['go', 'run', './tools/package', '--native-candidate-manifest', str(E / 'native-input.json'),
                   '--qualification-scope', SCOPE, '--required-platforms', PLATFORM, str(E / 'candidate')]},
-        {'id': '06-run-program-installation', 'description': '对候选包实际执行离线程序安装五项（plan/apply/rollback/recover/用户文件保护）',
+        {'id': '06-run-program-installation', 'description': '对候选包实际执行离线程序安装四项（plan 只读、apply、新目录重新安装、用户文件保护）',
          'argv': [py, str(T / 'run-observed.py'), str(E / 'program-runner.json'), str(C), json.dumps([str(C)]),
                   py, str(T / 'run-program-installation.py'), '--input', str(E / 'native-input.json'), '--archive', str(candidate),
                   '--out', str(E / 'program-installation'), '--platform', PLATFORM, '--cli-root', str(C)]},

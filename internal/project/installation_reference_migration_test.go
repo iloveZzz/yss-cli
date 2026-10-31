@@ -228,6 +228,7 @@ func TestSkillsMigrationRetainsGroupOnlySourceReferences(t *testing.T) {
 	if !reflect.DeepEqual(stringsOf(id.Native.Distribution["retainedTemplateSourceReferences"]), []string{ref}) {
 		t.Fatal("group reference not retained")
 	}
+	syncTestSnapshot(t, root)
 	sync, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil || !sync.ReadyToApply {
 		t.Fatalf("same bundle sync: %+v %v", sync, err)
@@ -268,6 +269,7 @@ func TestGovernedSyncPlansRetainedReferenceUpdateFromTrustedSource(t *testing.T)
 		item.Initial[ref] = f
 	}
 	target.Installations["skills"] = item
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil || !p.ReadyToApply {
 		t.Fatalf("planner: %+v %v", p, err)
@@ -315,6 +317,7 @@ func TestGovernedSyncProtectsRetainedReferences(t *testing.T) {
 				guarded = filepath.Join(root, ".template-source/process/user.txt")
 			}
 			before, beforeErr := os.ReadFile(guarded)
+			syncTestSnapshot(t, root)
 			sync, err := buildCore(root, "backend", "sync", nil, nil, nil, PlanningOptions{target: b})
 			if scenario == "after-plan" {
 				if err != nil {

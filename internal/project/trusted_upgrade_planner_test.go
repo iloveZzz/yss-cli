@@ -11,7 +11,7 @@ import (
 )
 
 func TestSyncPlansWorkflowChangeFromTrustedBaseline(t *testing.T) {
-	baseline, err := bundle.LoadBaseline("spec")
+	baseline, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestSyncPlansWorkflowChangeFromTrustedBaseline(t *testing.T) {
 	}
 
 	// A synthetic target isolates planner behavior; it is not release or apply evidence.
-	target, err := bundle.LoadBaseline("spec")
+	target, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +37,7 @@ func TestSyncPlansWorkflowChangeFromTrustedBaseline(t *testing.T) {
 	governed := target.Installations["governed"]
 	governed.Initial[SpecWorkflowRef] = file
 	target.Installations["governed"] = governed
+	syncTestSnapshot(t, root)
 	plan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil {
 		t.Fatalf("planner rejected trusted installed source before comparing target: %v", err)

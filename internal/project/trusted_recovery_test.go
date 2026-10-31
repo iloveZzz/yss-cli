@@ -17,7 +17,7 @@ import (
 )
 
 func TestRecoveryIdentityAuthenticatesArchivedProfile(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRecoveryIdentityAuthenticatesArchivedProfile(t *testing.T) {
 }
 
 func TestRecoveryRejectsUnregisteredArchivedPolicy(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestRecoveryRejectsUnregisteredArchivedPolicy(t *testing.T) {
 }
 
 func TestRecoveryDirectoryOperationIsNotPolicyFile(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestRecoveryDirectoryOperationIsNotPolicyFile(t *testing.T) {
 }
 
 func TestRecoveryPolicyDeletionRemainsRejected(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestRecoveryPolicyDeletionRemainsRejected(t *testing.T) {
 }
 
 func TestRecoveryAcceptsTrustedArchivedPolicy(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestRecoveryAcceptsTrustedArchivedPolicy(t *testing.T) {
 }
 
 func TestRecoveryPolicyUsesSelectedTransaction(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}

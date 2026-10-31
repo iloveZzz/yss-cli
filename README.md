@@ -107,11 +107,9 @@ node tools/refresh-source-lock.mjs --source-root /absolute/template-source --pro
 yss update plan --tool-root ./tools/yss --artifact /path/yss.tar.gz --sha256 <SHA-256> --out /path/install-plan.json --json
 yss update apply --tool-root ./tools/yss --plan-file /path/install-plan.json --json
 yss update status --tool-root ./tools/yss --json
-yss update recover --tool-root ./tools/yss --json
-yss update rollback --tool-root ./tools/yss --json
 ```
 
-程序恢复仅消费 `program-update` 事务；回退只针对最近一次成功程序安装，不跨过后来的成功事务。恢复开始还原后会完成保护性还原，避免取消把工具目录留在混合状态；进程被强制结束时可再次执行恢复。用户后来修改的文件会使整体回退停止。程序未发布准备在完整计划、空 WAL、路径范围及当前基线通过校验后封存为 `sealed`；旧版完整计划也可处理。缺计划、写入意图或冲突材料保留并返回 `STATE`，状态查询的 `preparationRecovery` 提供只读诊断。
+程序升级失败时保留现场，在新的工具目录重新安装；程序升级不提供恢复或回退命令。
 
 运行记录使用独立 SQLite 目录。`runtime run/events/commands/pins --id <运行 ID>` 为只读查询；`runtime pin/unpin --id <运行 ID> --token <begin 返回的 token> --reason <原因>` 只变更该运行的保护记录，完成后仍可操作。记录查询和保护标记不表示生命周期批准，也不删除证据文件。
 
@@ -151,7 +149,7 @@ yss assets list --root ./demo-spec --json
 
 安装和项目就绪由 `setup-yss-harness` 技能编排。已发布二进制的 Bundle 标识以 `skills list` 为准；源码更名进入内嵌分发需要后续固定来源发行。
 
-计划输出文件必须不存在。输入变化或定制冲突时，先处理诊断并重新生成计划。
+同步要求 Git 已有提交且工作区干净（含未跟踪文件和子模块），拒绝覆盖被忽略的目标；计划绑定 HEAD。同步失败时核对回执中的 `possibleNewPaths` 和 `possibleNewControlPaths`，人工处理实际新增的文件和目录，再用 Git 恢复已跟踪文件；同步不提供恢复或回滚。计划输出文件必须不存在。输入变化或定制冲突时，先处理诊断并重新生成计划。
 
 升级 CLI 程序：
 
@@ -168,28 +166,7 @@ yss upgrade --tool-root ./tools/yss --json
 
 `--json` 沿用 envelope v1 / protocol v1，`command` 为 `upgrade`，`result` 提供 `status`、`currentVersion`、`targetVersion`、`updateAvailable`、`platform`、`toolRoot`、`releaseUrl`、`archiveSha256` 及实际安装时的 `transaction`。检查状态为 `checked`；安装状态为 `installed` / `upgraded` / `unchanged`。参数错误退出 2；升级拒绝或失败退出 1，错误码包含 `VERSION`、`INSTALLATION`、`STATE`、`CONFLICT`、`ARTIFACT`、`DIGEST`、`NETWORK`、`CANCELLED`。应用期间沿用事务的 `INPUT_DRIFT` 和并发保护。
 
-程序恢复、回退使用结果中的实际 `toolRoot`：
-
-```sh
-yss update status --tool-root ./tools/yss --json
-yss update recover --tool-root ./tools/yss --json
-yss update rollback --tool-root ./tools/yss --json
-```
-
-恢复和回退保留受管文件及权限；后续用户修改会使整体覆盖停止。项目 `sync` 与 CLI 程序安装分别使用自己的事务入口。
-
-## 从 1.0.0 首次安装新版（macOS arm64）
-
-`1.0.0` 没有 `upgrade`。从 [GitHub Release](https://github.com/iloveZzz/yss-cli/releases) 下载 `yss_1.3.0_darwin_arm64.tar.gz` 和 `checksums.json`，读取对应归档的 SHA-256；使用现有入口：
-
-```sh
-yss update plan --tool-root ./tools/yss --artifact /path/yss_1.3.0_darwin_arm64.tar.gz --sha256 <SHA-256> --out /tmp/yss-install-plan.json --json
-yss update apply --tool-root ./tools/yss --plan-file /tmp/yss-install-plan.json --json
-./tools/yss/yss version --json
-```
-
-已有受管安装应将 `--tool-root` 指向原工具目录；首次安装使用空目录。将新目录中的 `yss` 链接到 PATH 后即可直接运行 `yss upgrade`。独立 Node/Python 治理工具按各自职责继续维护。
-
+程序升级失败时保留现有目录，使用新的工具目录重新安装，并在核验后调整 PATH。`yss update status --tool-root <目录> --json` 可只读检查安装状态。
 
 ## 命令帮助与安装一致性诊断
 
@@ -222,14 +199,14 @@ yss -V --json
 原生命令的未知命令、子命令、选项、无效取值或缺少参数值返回 `ARGUMENT`，退出码为 `2`，同时给出帮助入口和适用的拼写建议。比如 `yss upadate` 会建议 `update`，并说明在线程序升级使用 `upgrade`。建议不会自动执行。已有升级错误码和 JSON envelope 版本保持不变；其他治理和兼容消费者保留自身领域校验。
 
 - `yss upgrade`：下载并事务安装稳定版 CLI；`--check` 只查询在线版本。
-- `yss update plan/apply/status/recover/rollback`：离线程序安装、诊断及事务恢复。
+- `yss update plan/apply/status`：离线程序安装与诊断。
 - `yss sync`：将项目模板更新到程序内置固定 Bundle。
 
 `yss update status --tool-root <实际安装目录> --json` 保留原有安装与事务信息，并新增 `installationConsistent` 和 `diagnostic`。诊断包含工具目录、安装记录版本、manifest 版本、逐文件 `expected/actual` 类型/摘要/权限、原因与下一步建议。`runningProgramMatchesRoot` 为 true 时才记录和比较 `runningVersion`；查询其他安装目录不会把当前程序版本当成该目录版本。
 
 查询成功表示获得了状态事实；`installed: true` 表示存在可识别安装记录，不能单独证明文件一致。`installationConsistent: true` 也不授予正式发行资格或项目批准。诊断不会改写安装清单、覆盖文件或自动运行恢复命令。
 
-遇到“受管程序文件与安装清单不一致”时，先查询错误中给出的实际目录。有未完成程序事务，检查状态和归档后使用 `update recover`。没有未完成事务但文件或版本漂移时，保留原目录与归档，选择不存在的新目录安装整个程序包：
+遇到“受管程序文件与安装清单不一致”时，先查询错误中给出的实际目录。保留原目录与归档，选择不存在的新目录安装整个程序包：
 
 ```sh
 # ./tools/yss-clean 必须不存在；下面是新安装目录示例。
@@ -238,7 +215,7 @@ yss upgrade --tool-root ./tools/yss-clean
 ./tools/yss-clean/yss update status --tool-root ./tools/yss-clean --json
 ```
 
-核验一致后再调整 PATH 入口。离线案例见 `yss help tutorial`。只替换二进制、改写旧收据或强制覆盖会破坏来源和回退依据；现有摘要、来源、冲突及事务保护继续生效。
+核验一致后再调整 PATH 入口。离线案例见 `yss help tutorial`。只替换二进制、改写旧收据或强制覆盖会破坏来源依据；现有摘要、来源、冲突及事务保护继续生效。
 
 Backend 支持 `standalone` 本地业务事实与 `upstream` 权威来源两种输入。日常 Ticket 的 `business_input` 记录 `mode`、`side`、`ref`、当前 `digest`、显式 `conflicts: []`。上游审批仍消费真实当前批准，冲突回交权威方；本端分析不扩大另一端代码写范围，本端完成不等于跨端业务验收。高风险与已有正式任务仍走 governed。
 

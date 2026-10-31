@@ -6,12 +6,10 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {createBaselineDelta} from './baseline-delta.mjs';
+import {verifyTrustedRegistry} from './trusted-registry.mjs';
 
 const digest = data => createHash('sha256').update(data).digest('hex');
 const ARCHIVE = 'internal/bundle/assets/bundles.json.gz';
-const BASELINE = 'internal/bundle/assets/baseline-5.0.0.json.gz';
-const DELTA = 'internal/bundle/assets/baseline-delta.json.gz';
 
 export function buildCandidate({root, out}) {
   root = fs.realpathSync(root);
@@ -27,8 +25,6 @@ export function buildCandidate({root, out}) {
     const refs = execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
     // 内嵌归档不入库，但属于编译输入：必须存在且与入库摘要一致，并并入清单。
     if(!refs.includes(ARCHIVE)) refs.push(ARCHIVE);
-    if(!refs.includes(BASELINE)) refs.push(BASELINE);
-    if(!refs.includes(DELTA)) refs.push(DELTA);
     return Object.fromEntries([...new Set(refs)].sort().map(ref => {
       const file=path.join(root,ref);
       if(!fs.existsSync(file)) return [ref,null];
@@ -46,13 +42,8 @@ export function buildCandidate({root, out}) {
     if(!fs.existsSync(path.join(root,ARCHIVE))) throw new Error('内嵌归档缺失，请先运行 node tools/fetch-bundle.mjs');
     receipt.embeddedArchive={path:ARCHIVE,sha256:digest(fs.readFileSync(path.join(root,ARCHIVE))),recordedSha256:recorded};
     if(receipt.embeddedArchive.sha256!==recorded) throw new Error('内嵌归档与入库摘要不一致，请运行 node tools/fetch-bundle.mjs --force');
-    const baselineExpected=fs.readFileSync(path.join(root,BASELINE+'.sha256'),'utf8').trim().split(/\s+/)[0];
-    if(!fs.existsSync(path.join(root,BASELINE))) throw new Error('受信基线归档缺失，请先运行 node tools/fetch-bundle.mjs');
-    receipt.baselineArchive={path:BASELINE,sha256:digest(fs.readFileSync(path.join(root,BASELINE))),recordedSha256:baselineExpected};
-    if(receipt.baselineArchive.sha256!==baselineExpected) throw new Error('受信基线归档与固定摘要不一致');
-    const expectedDelta=createBaselineDelta(fs.readFileSync(path.join(root,ARCHIVE)),fs.readFileSync(path.join(root,BASELINE)));
-    if(!fs.existsSync(path.join(root,DELTA)) || !fs.readFileSync(path.join(root,DELTA)).equals(expectedDelta)) throw new Error('受信基线差量缺失或与固定输入不一致；请运行 node tools/fetch-bundle.mjs');
-    receipt.baselineDelta={path:DELTA,sha256:digest(expectedDelta),bytes:expectedDelta.length};
+    const trusted=verifyTrustedRegistry(root,fs.readFileSync(path.join(root,ARCHIVE)));
+    receipt.trustedSources=trusted.registry.archives.map(entry=>({path:`internal/bundle/assets/trusted/${entry.deltaFile}`,sha256:entry.deltaSha256}));
     receipt.commit=git(['rev-parse','HEAD']);
     receipt.sourceState=git(['status','--porcelain']) ? 'working-tree' : 'committed';
     receipt.inputs=inventory(); receipt.inputDigest=digest(JSON.stringify(receipt.inputs));

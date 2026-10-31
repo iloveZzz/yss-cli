@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -125,12 +126,12 @@ func identityProfiles(identity Identity) []string {
 
 func validIdentity(got, expected Identity) error {
 	names := identityProfiles(expected)
-	if !stableVersion.MatchString(got.CLIVersion) || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != len(names) {
+	if !supportedMajor(got.CLIVersion, 3) || got.CLICommit == "d67bc777198174a92cc3f58e4f26ce9f0daef2d9" || got.ProtocolVersion != 1 || !commitPattern.MatchString(got.CLICommit) || got.SourceState != "committed" || !shaPattern.MatchString(got.SourceLockSHA256) || len(got.Bundles) != len(names) {
 		return reject("PROVENANCE", "incomplete stable source identity")
 	}
 	for _, p := range names {
 		b, ok := got.Bundles[p]
-		if !ok || !commitPattern.MatchString(b.TemplateCommit) || (b.TemplateVersion != "git:"+b.TemplateCommit && !stableVersion.MatchString(b.TemplateVersion)) || b.SourceState != "committed" || !shaPattern.MatchString(b.SourceSnapshotHash) || !shaPattern.MatchString(b.ManifestHash) || !shaPattern.MatchString(b.BundleHash) {
+		if !ok || !commitPattern.MatchString(b.TemplateCommit) || b.TemplateCommit == "1e49127842c358caf552af8ebec58f438a35c5a6" || !supportedMajor(b.TemplateVersion, 5) || b.SourceState != "committed" || !shaPattern.MatchString(b.SourceSnapshotHash) || !shaPattern.MatchString(b.ManifestHash) || !shaPattern.MatchString(b.BundleHash) {
 			return reject("PROVENANCE", "invalid fixed bundle %s", p)
 		}
 	}
@@ -138,6 +139,14 @@ func validIdentity(got, expected Identity) error {
 		return reject("PROVENANCE", "input identity differs from frozen assembler source")
 	}
 	return nil
+}
+
+func supportedMajor(version string, minimum uint64) bool {
+	if !stableVersion.MatchString(version) {
+		return false
+	}
+	major, err := strconv.ParseUint(strings.SplitN(version, ".", 2)[0], 10, 64)
+	return err == nil && major >= minimum
 }
 func passed(status string, exit *int, drift *bool, unexecuted []string) error {
 	if status != "passed" || exit == nil || *exit != 0 || drift == nil || *drift || unexecuted == nil || len(unexecuted) != 0 {
@@ -548,18 +557,14 @@ func assemble(manifestPath, out string, expected Expected, candidate bool) error
 			Tag     string `json:"templateTag"`
 		} `json:"profiles"`
 	}
-	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || (lock.Schema != 2 && lock.Schema != 3 && lock.Schema != 5) || len(lock.Profiles) != len(input.Bundles) || (lock.Schema == 5) != (len(input.Bundles) == 2) {
+	if err = json.Unmarshal(docs["docs/source-lock.json"], &lock); err != nil || lock.Schema != 5 || len(lock.Profiles) != len(input.Bundles) || len(input.Bundles) != 2 {
 		return reject("PROVENANCE", "invalid fixed source lock")
 	}
 	for p, b := range input.Bundles {
 		source := lock.Profiles[p]
-		// Match the Producer's version defaults; tag-to-commit verification stays there.
-		version := "git:" + source.Commit
-		if source.Tag != "" {
-			version = strings.TrimPrefix(source.Tag, "v")
-			if source.Tag != "v"+version || !stableVersion.MatchString(version) {
-				return reject("PROVENANCE", "invalid source-lock template tag %s", p)
-			}
+		version := strings.TrimPrefix(source.Tag, "v")
+		if source.Tag != "v"+version || !supportedMajor(version, 5) {
+			return reject("PROVENANCE", "invalid source-lock template tag %s", p)
 		}
 		if source.Commit != b.TemplateCommit || (source.Version != "" && source.Version != version) || version != b.TemplateVersion {
 			return reject("PROVENANCE", "source-lock template mismatch %s", p)

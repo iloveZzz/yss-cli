@@ -126,8 +126,6 @@
 | `update` | `yss update <子命令> --tool-root <目录>` | `apply`, `artifact`, `diagnostics`, `json`, `help`, `human`, `json`, `json`, `out`, `plan`, `out`, `plan-file`, `sha`, `tool-root`, `version` | 已迁移 |
 | `update apply` | `yss update apply --tool-root <目录> --plan-file <文件>` | `apply`, `artifact`, `diagnostics`, `json`, `help`, `human`, `json`, `json`, `out`, `plan`, `out`, `plan-file`, `sha`, `tool-root`, `version` | 已迁移 |
 | `update plan` | `yss update plan --tool-root <目录> --artifact <归档> --sha256 <摘要> [--out <新文件>]` | `apply`, `artifact`, `diagnostics`, `json`, `help`, `human`, `json`, `json`, `out`, `plan`, `out`, `plan-file`, `sha`, `tool-root`, `version` | 已迁移 |
-| `update recover` | `yss update recover --tool-root <目录> [--json]` | `diagnostics`, `json`, `help`, `human`, `json`, `json`, `tool-root`, `version` | 已迁移 |
-| `update rollback` | `yss update rollback --tool-root <目录> [--json]` | `diagnostics`, `json`, `help`, `human`, `json`, `json`, `tool-root`, `version` | 已迁移 |
 | `update status` | `yss update status --tool-root <目录> [--json]` | `diagnostics`, `json`, `help`, `human`, `json`, `json`, `tool-root`, `version` | 已迁移 |
 | `upgrade` | `yss upgrade [--check] [--to <稳定版本>] [--tool-root <目录>] [--json]` | `check`, `diagnostics`, `json`, `help`, `human`, `json`, `json`, `to`, `tool-root`, `version` | 已迁移 |
 | `verify` | `yss verify --gate <门禁ID> --checkpoint <文件> [--root <目录>]` | `checkpoint`, `diagnostics`, `json`, `gate`, `help`, `human`, `json`, `json`, `root`, `version` | 已迁移 |

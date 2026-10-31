@@ -41,16 +41,9 @@ elif args[0]=='update':
   result={'transactionId':'fixture-transaction','artifact':option('--artifact')}
   Path(option('--out')).write_text(json.dumps(result));emit(result)
  elif command=='apply':install(root);emit({'transactionId':'fixture-transaction'})
- elif command=='rollback':
-  installed=(root/'yss').exists()
-  for name in ('yss','release-manifest.json','installation.json','docs/fixture.txt'):
-   path=root/name
-   if path.exists():path.unlink()
-  emit({'status':'rolled-back' if installed else 'unchanged','transactionId':'fixture-transaction'})
- elif command=='recover':emit({'status':'unchanged'})
  elif command=='status':
   installed=(root/'yss').exists()
-  result={'installed':installed,'recoveryRequired':False}
+  result={'installed':installed,'reinstallRequired':False}
   if installed:result.update(installation=config['receipt'],installationConsistent=True,projectMigrationPerformed=False,diagnostic={'consistent':True})
   emit(result)
  else:raise AssertionError(args)
@@ -169,6 +162,13 @@ class ProgramInstallationTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         report = self.report()
         self.assertEqual(report['status'], 'passed')
+        self.assertEqual(report['required_cases'], ['install-plan-read-only', 'install-apply', 'reinstall', 'user-file-preservation'])
+        commands = report['commands']
+        self.assertEqual([row['args'][2] for row in commands], ['plan', 'apply', 'plan', 'apply'])
+        roots = [row['args'][row['args'].index('--tool-root') + 1] for row in commands]
+        self.assertEqual(roots[0], roots[1])
+        self.assertEqual(roots[2], roots[3])
+        self.assertNotEqual(roots[0], roots[2])
         self.assertFalse(report['input_drift'])
         self.assertEqual(report['unexecuted'], [])
         online = report['public_upgrade']

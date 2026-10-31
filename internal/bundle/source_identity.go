@@ -1,24 +1,6 @@
 package bundle
 
-import (
-	"sync"
-
-	"github.com/iloveZzz/yss-cli/internal/domain"
-)
-
-// LoadBaseline reads the separately fixed, independently validated 5.0 archive.
-var baselineOnce sync.Once
-var baselineRaw []byte
-var baselineErr error
-
-func LoadBaseline(profile string) (*Bundle, error) {
-	baselineOnce.Do(func() { baselineRaw, baselineErr = reconstructBaseline(packedData, baselineDelta, baselineRawDigest) })
-	raw, err := baselineRaw, baselineErr
-	if err != nil {
-		return nil, err
-	}
-	return loadPacked(raw, profile)
-}
+const retiredTemplateCommit = "1e49127842c358caf552af8ebec58f438a35c5a6"
 
 // SourceIdentity is the installed source tuple to compare with a validated Bundle.
 type SourceIdentity struct {
@@ -34,24 +16,11 @@ func LoadTrustedSource(source SourceIdentity) (*Bundle, error) {
 	if supportedProduct(current) && MatchesSource(current, source) {
 		return current, nil
 	}
-	baseline, err := LoadBaseline(source.Profile)
-	if err != nil {
-		return nil, err
-	}
-	return selectTrustedSource(current, baseline, source)
-}
-
-func selectTrustedSource(current, baseline *Bundle, source SourceIdentity) (*Bundle, error) {
-	for _, b := range []*Bundle{current, baseline} {
-		if supportedProduct(b) && MatchesSource(b, source) {
-			return b, nil
-		}
-	}
-	return nil, domain.Fail("BASELINE", "实例来源与当前 Bundle 或受信 5.0 基线不匹配")
+	return loadTrustedArchive(trustedSources, packedData, source)
 }
 
 func supportedProduct(b *Bundle) bool {
-	return b != nil && b.SourceState == "committed" && (VersionRange{Min: "5.0.0"}).Contains(b.TemplateVersion)
+	return b != nil && b.SourceState == "committed" && b.TemplateCommit != retiredTemplateCommit && trustedVersionPattern.MatchString(b.TemplateVersion) && (VersionRange{Min: "5.0.0"}).Contains(b.TemplateVersion)
 }
 
 // MatchesSource only compares identities; the caller must independently trust and validate b.

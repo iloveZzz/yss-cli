@@ -26,7 +26,7 @@ const (
 // Read-only subcommands. Write commands are added only with their plan/apply
 // guards, never by widening this list.
 var queryCommands = map[string]bool{
-	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true, "check-ref-format": true, "ls-files": true, "cat-file": true,
+	"version": true, "rev-parse": true, "status": true, "log": true, "merge-base": true, "check-ref-format": true, "check-ignore": true, "ls-files": true, "cat-file": true,
 	"symbolic-ref": true, "show-ref": true, "config": true, "remote": true, "submodule": true,
 }
 
@@ -61,6 +61,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 // Try runs a query and returns its exit code; a non-zero exit is not an
 // error because several queries (config --get, merge-base) use it as data.
 func (r *Runner) Try(ctx context.Context, args ...string) ([]byte, int, error) {
+	return r.try(ctx, nil, args...)
+}
+
+func (r *Runner) try(ctx context.Context, input []byte, args ...string) ([]byte, int, error) {
 	if len(args) == 0 || !queryCommands[args[0]] {
 		return nil, 0, domain.Fail("CAPABILITY", "不支持的 Git 只读查询")
 	}
@@ -86,6 +90,9 @@ func (r *Runner) Try(ctx context.Context, args ...string) ([]byte, int, error) {
 	cmd := exec.CommandContext(ctx, r.path, append(flags, query...)...)
 	cmd.Dir = r.Root
 	cmd.Env = queryEnv()
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	stdout := &limitedBuffer{limit: outputLimit}
 	stderr := &limitedBuffer{limit: stderrLimit}
 	cmd.Stdout, cmd.Stderr = stdout, stderr

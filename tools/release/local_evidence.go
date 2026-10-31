@@ -101,13 +101,9 @@ func (r *reader) programGate(s gateSources, platform, binary string) error {
 			if row["installed_payload_sha256"] != payload {
 				return reject("EVIDENCE", "installed payload mismatch")
 			}
-		case "rollback":
-			if row["whole_inventory_restored"] != true {
-				return reject("EVIDENCE", "program whole rollback incomplete")
-			}
-		case "recover":
-			if row["repeated_recovery"] != true || row["no_overwrite"] != true {
-				return reject("EVIDENCE", "program repeated recovery protection missing")
+		case "reinstall":
+			if row["installed_payload_sha256"] != payload {
+				return reject("EVIDENCE", "reinstalled payload mismatch")
 			}
 		case "user-file-preservation":
 			before := object(row["business_before"])
@@ -123,10 +119,10 @@ func (r *reader) programGate(s gateSources, platform, binary string) error {
 			return reject("EVIDENCE", "unknown program installation case")
 		}
 	}
-	if len(seen) != 5 {
+	if len(seen) != len(RequiredGateCoverage("program-installation")) {
 		return reject("EVIDENCE", "program installation coverage incomplete")
 	}
-	commands := map[string]bool{}
+	commands := map[string]map[string]bool{"plan": {}, "apply": {}}
 	for _, v := range items(o["commands"]) {
 		row := object(v)
 		if err = localCommand(row, s); err != nil {
@@ -137,8 +133,18 @@ func (r *reader) programGate(s gateSources, platform, binary string) error {
 			return reject("EVIDENCE", "program command is not the public update entry")
 		}
 		switch args[2] {
-		case "plan", "apply", "rollback", "recover", "status":
-			commands[args[2]] = true
+		case "plan", "apply":
+			root := ""
+			for i, arg := range args {
+				if arg == "--tool-root" && i+1 < len(args) {
+					root = args[i+1]
+				}
+			}
+			if root == "" {
+				return reject("EVIDENCE", "program tool root missing")
+			}
+			commands[args[2]][root] = true
+		case "status":
 		default:
 			return reject("EVIDENCE", "unknown public update action")
 		}
@@ -147,10 +153,8 @@ func (r *reader) programGate(s gateSources, platform, binary string) error {
 			return err
 		}
 	}
-	for _, action := range []string{"plan", "apply", "rollback", "recover"} {
-		if !commands[action] {
-			return reject("EVIDENCE", "public update %s was not executed", action)
-		}
+	if len(commands["plan"]) < 2 || !reflect.DeepEqual(commands["plan"], commands["apply"]) {
+		return reject("EVIDENCE", "installation and reinstall require plan and apply for distinct tool roots")
 	}
 	return nil
 }

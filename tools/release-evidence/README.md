@@ -5,9 +5,9 @@
 * 不授予资格，不放宽任何校验，不伪造回执。未执行、取消、失败如实记录；任一步失败立即停止。
 * prepare 脚本不打 tag、不创建 GitHub Release、不 push。实际发布须有届时有效授权，由[正常发布入口](#正常发布入口)执行。
 * 只依赖本仓库文件和命令行参数，不读取 `~/.yss-harness` 等旧路径。程序版本取自 `internal/domain/domain.go`，模板版本与提交取自 `docs/source-lock.json`，均无硬编码。
-* 当前资格范围为 `local-platform-program-install`：darwin/arm64 在固定来源上实际执行 version、来源锁声明的全部现役 bundle inspect 和离线程序安装五项（plan 只读、apply、rollback、recover、用户文件保护）。Windows x64 只构建与打包，`stableReady=false`，不具备在线升级资格。
+* 当前资格范围为 `local-platform-program-install`：darwin/arm64 在固定来源上实际执行 version、来源锁声明的全部现役 bundle inspect 和离线程序安装四项（plan 只读、apply、新目录重新安装、用户文件保护）。Windows x64 只构建与打包，`stableReady=false`，不具备在线升级资格。
 
-SourceLock v2/v3 继续要求 Spec/Design/Backend 三个 Profile；v5 要求 Spec/Backend 两个 Profile 与 Bundle4/Bundle5，集合缺失、额外或混用均拒绝。安装器和装配器按同一固定锁核验，真实安装 case、源码/摘要与平台资格要求不变。旧 CLI 不支持 v5 来源锁时，需下载并核验新包内执行器后引导隔离安装；不声称所有旧版本都可直接自升级。
+SourceLock v5 固定 Spec/Backend 的受支持版本和完整来源；旧版本及重发前同名来源不属于当前资格。安装器和装配器核验实际源码、摘要及平台资格。
 
 ## 前置条件
 
@@ -87,7 +87,7 @@ python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cl
 | `native-receipt.mjs` | 本机原生 receipt：只实际执行 `version` 与来源锁中全部现役 Profile 的 `bundle inspect`，`checks` 为空，不冒充 smoke/recovery/plugin |
 | `prepare-native-input.py` | 绑定二进制、receipt 与七个分发文档，生成 `native-input.json`（资格范围 `local-platform-program-install`） |
 | `run-observed.py` | 外部观察记录器：记录前后源码输入摘要、真实退出码与信号；不改动源码仓库 |
-| `run-program-installation.py` | 对候选包（或带 `--published-sha256` 时对公开包）实际执行安装五项，并逐命令保留日志与摘要 |
+| `run-program-installation.py` | 对候选包（或带 `--published-sha256` 时对公开包）实际执行安装四项，并逐命令保留日志与摘要 |
 | `prepare-gate.py` | 只包装本次实际观察到的 passed 报告，生成 `release-gate.json` 与 `release-input.json` |
 | `extract-release-manifest.py` | 从稳定包原样取出 `release-manifest.json` |
 | `package-windows-artifact.py` | 只构建 windows/amd64 并打包，输出 `build-only-checksums.json`；不签发 receipt，不产生稳定 checksums |

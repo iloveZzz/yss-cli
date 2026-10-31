@@ -247,7 +247,7 @@ func TestWorkBuddyRootMigrationConflicts(t *testing.T) {
 	}
 }
 
-func TestWorkBuddyRootMigrationRollback(t *testing.T) {
+func TestWorkBuddyRootMigrationManualGitRestore(t *testing.T) {
 	id, old, target := workBuddyRootMigrationProject(t)
 	settings := filepath.Join(id.Root, ".codebuddy/settings.json")
 	if err := os.WriteFile(settings, []byte("personal"), 0600); err != nil {
@@ -257,6 +257,10 @@ func TestWorkBuddyRootMigrationRollback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(id.Root, MetadataFile), metadata, 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(id.Root, ".gitignore"), []byte(".yss/transactions/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	syncTestSnapshot(t, id.Root)
 	p, _ := workBuddyMigrationPlan(t, id, old, target, "sync")
 	before, _ := safefs.Describe(id.Root, MetadataFile)
 	changed := []byte("new metadata\n")
@@ -265,14 +269,23 @@ func TestWorkBuddyRootMigrationRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = transaction.ApplyContextWithValidation(context.Background(), id.Root, "sync", ops, p.Inputs, nil, func() error { return errors.New("verification failed") })
+	result, err := transaction.ApplyContextWithValidation(context.Background(), id.Root, "sync", ops, p.Inputs, nil, func() error { return errors.New("verification failed") })
 	if err == nil {
 		t.Fatal("failed validation accepted")
 	}
+	if raw, _ := os.ReadFile(filepath.Join(id.Root, MetadataFile)); string(raw) != string(changed) {
+		t.Fatal("sync unexpectedly restored metadata")
+	}
+	for _, ref := range result.CreatedPaths {
+		if err := os.RemoveAll(filepath.Join(id.Root, ref)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	syncTestGit(t, id.Root, "restore", "--worktree", "--", ".")
 	for ref, file := range old.Files {
 		actual, err := safefs.Describe(id.Root, ref)
 		if err != nil || actual.Digest != file.Digest || actual.Mode != file.Mode {
-			t.Fatalf("rollback lost %s", ref)
+			t.Fatalf("manual Git restore lost %s", ref)
 		}
 	}
 	if raw, _ := os.ReadFile(filepath.Join(id.Root, MetadataFile)); string(raw) != string(metadata) {
@@ -282,7 +295,11 @@ func TestWorkBuddyRootMigrationRollback(t *testing.T) {
 		t.Fatal("user settings changed")
 	}
 	if _, err := os.Lstat(filepath.Join(id.Root, ".workbuddy")); !os.IsNotExist(err) {
-		t.Fatal("new projection directory survived rollback")
+		t.Fatal("new projection directory survived manual cleanup")
+	}
+	status, err := transaction.Status(id.Root)
+	if err != nil || len(status.Pending) != 0 {
+		t.Fatalf("manual cleanup did not settle sync: %+v %v", status, err)
 	}
 }
 

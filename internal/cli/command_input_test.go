@@ -253,8 +253,6 @@ func TestCommandTreeCoverage(t *testing.T) {
 		"update",
 		"update apply",
 		"update plan",
-		"update recover",
-		"update rollback",
 		"update status",
 		"upgrade",
 		"verify",
@@ -275,6 +273,19 @@ func TestCommandTreeCoverage(t *testing.T) {
 		code, out, errOut := captureCommand(t, context.Background(), append(strings.Fields(path), "--help"), false)
 		if code != 0 || out == "" || errOut != "" {
 			t.Errorf("help %s: %d %s %s", path, code, out, errOut)
+		}
+	}
+}
+
+func TestProgramUpdateDoesNotOfferRecoveryOrRollback(t *testing.T) {
+	root := newRootCommand(nil, nil, nil)
+	for _, action := range []string{"recover", "rollback"} {
+		if _, rest := lookupCommand(root, []string{"update", action}); len(rest) == 0 {
+			t.Fatalf("update %s must not be registered", action)
+		}
+		code, out, errOut := captureCommand(t, context.Background(), []string{"update", action, "--json"}, false)
+		if code == 0 || commandEnvelope(t, out)["code"] != "ARGUMENT" {
+			t.Fatalf("update %s must be rejected: %d %s %s", action, code, out, errOut)
 		}
 	}
 }

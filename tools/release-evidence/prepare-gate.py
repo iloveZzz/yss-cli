@@ -19,10 +19,10 @@ def write(p,v):
  assert not p.exists();p.write_text(json.dumps(v,ensure_ascii=False,indent=2)+'\n')
 report_path=Path(o.program_report).resolve();report=load(report_path);obs=load(Path(o.program_execution).resolve())
 assert obs['exit_code']==0 and obs['input_drift'] is False and obs.get('actual_signal') is None
-cases=['install-plan-read-only','install-apply','rollback','recover','user-file-preservation']
+cases=['install-plan-read-only','install-apply','reinstall','user-file-preservation']
 assert report['schema_version']==1 and report['status']=='passed' and report['input_drift'] is False and report['unexecuted']==[]
 assert report['binary_sha256']==binary and report['cli_commit']==identity['cliCommit'] and report['required_cases']==cases
-assert len(report['cases'])==5 and all(x['passed'] for x in report['cases'])
+assert len(report['cases'])==len(cases) and all(x['passed'] for x in report['cases'])
 deps=[R/report['candidate_archive']['path']]
 for row in report['commands']+report['provenance_commands']:
  assert row['actual_exit_code_observed'] and row['actual_exit_code']==0 and row['actual_signal'] is None

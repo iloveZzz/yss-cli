@@ -4,11 +4,21 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 
 ## 私有归档 v2
 
-CLI 嵌入当前 `bundles.json.gz` 和基线差量 `baseline-delta.json.gz`，用于对照当前来源和受信 Template 5.0 基线。当前归档及独立的 `baseline-5.0.0.json.gz` 不进入版本库，仅提交各自的 SHA-256 摘要。`node tools/fetch-bundle.mjs` 根据 `docs/source-lock.json` 和 `docs/template-5.0.0-source-lock.json` 生成并核验两个归档，再生成差量；重建基线还需要本地存在固定 CLI 3.0 提交 `d67bc777198174a92cc3f58e4f26ce9f0daef2d9`，缺失时明确失败。运行时利用当前对象和差量重建完整基线，并核验固定的原始字节摘要。`go:embed` 位于 `internal/bundle/embed_archive.go`；`yss_nobundle` 使用空占位，仅供自举或不依赖 Bundle 的测试，不得用于发行。
+CLI 嵌入当前 `bundles.json.gz` 和已登记的受信历史差量。当前归档不入库，其 SHA-256 由 `bundles.json.gz.sha256` 固定；`node tools/fetch-bundle.mjs` 从 `docs/source-lock.json` 指定的已提交模板来源生成并核验。`internal/bundle/assets/trusted/registry.json` 登记重发后的受信版本、完整模板提交、来源锁、原归档及原始字节摘要和差量摘要；初始发行登记为空。每项差量和来源锁随源码提交，运行时逐项核验后才可匹配实例完整来源身份。重发前的同名提交与更早版本不受支持。
 
-同名模板标签重发后，历史基线仍须使用旧标签身份。重建时从 `docs/template-5.0.0-tag-object.txt` 校验原 annotated tag 对象的 Git 对象 ID 与 SHA-256，在临时 Git 仓恢复旧标签，并由固定生成器校验旧标签和原来源锁；不改调用方模板仓的标签。该对象是历史证据，不表示远端当前标签仍指向旧提交。当前 Bundle 仍按当前来源锁验证其来源。
+新增受信版本时，从该版本真实发行证据取得 Bundle 归档和来源锁的独立 SHA-256，先运行：
 
-默认重建历史基线时，优先只读复用符合当前来源锁且包含旧固定提交的已验证缓存；没有可用缓存时才获取远端提交。
+```sh
+node tools/trusted-registry.mjs add --current /path/current-bundles.json.gz --archive /path/previous-bundles.json.gz --archive-sha <独立归档SHA256> --source-lock /path/previous-source-lock.json --source-lock-sha <独立来源锁SHA256> --out /tmp/yss-trusted-add
+```
+
+输出只供审查；将核对后的 `registry.json`、`<版本>.delta.gz` 和 `<版本>.json` 分别放入 `internal/bundle/assets/trusted/` 与 `docs/trusted-sources/`，经 PR 审核固定。来源锁、归档版本、完整提交、Producer 和政策摘要不一致时拒绝登记。更新当前 Bundle 前先用旧当前归档重建并重新压缩已登记差量：
+
+```sh
+node tools/trusted-registry.mjs refresh --old-current /path/old-bundles.json.gz --new-current /path/new-bundles.json.gz --out /tmp/yss-trusted-refresh
+```
+
+审查并替换生成的登记及差量后，`tools/fetch-bundle.mjs`、`tools/artifacts.mjs` 与 `tools/build-candidate.mjs` 会以新当前归档逐项重建旧来源、核对摘要和身份；不匹配即失败。新归档可先用 `go run -tags yss_nobundle ./tools/bundle` 在仓外生成。`go:embed` 位于 `internal/bundle/embed_archive.go`；`yss_nobundle` 仅用于自举，不得发行。
 
 解压后为：
 

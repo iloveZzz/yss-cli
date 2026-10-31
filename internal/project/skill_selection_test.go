@@ -530,6 +530,7 @@ func checkRenderedTrackerReadiness(t *testing.T, tracker string) {
 		t.Fatalf("rendered reference not ready: %+v %v", result, err)
 	}
 	if tracker == "" {
+		syncTestSnapshot(t, root)
 		syncPlan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 		if err != nil {
 			t.Fatal(err)

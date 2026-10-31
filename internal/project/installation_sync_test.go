@@ -74,6 +74,7 @@ func TestSkillsSyncWithoutGovernanceAssets(t *testing.T) {
 	if !skillsIdentity(id) {
 		t.Fatal("skills identity not retained")
 	}
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +113,7 @@ func TestSkillsSyncPlansNewDefaultsFromTrustedSource(t *testing.T) {
 	item := target.Installations["skills"]
 	item.Distribution["installedSkills"] = append(stringsOf(item.Distribution["installedSkills"]), "prototype")
 	target.Installations["skills"] = item
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil || !p.ReadyToApply {
 		t.Fatalf("planner: %+v %v", p, err)
@@ -168,6 +170,7 @@ func TestSkillsSyncPreservesUserStateWhenSyntheticTargetOmitsSkill(t *testing.T)
 		}
 	}
 	target.Installations["skills"] = item
+	syncTestSnapshot(t, root)
 	_, err = buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err == nil || !strings.Contains(err.Error(), "独立技能引用所有者缺失: implement") {
 		t.Fatalf("incomplete target not rejected: %v", err)
@@ -209,6 +212,7 @@ func TestCanonicalOnlyRuntimeDeclarationPolicy(t *testing.T) {
 func TestSkillsSyncPlanDrift(t *testing.T) {
 	b := trustedBundle(t, "spec")
 	root, _ := writeInstallationBundleFixture(t, b)
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +260,7 @@ func TestSkillsSyncProtectsRealManagedLock(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			syncTestSnapshot(t, root)
 			plan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 			if err == nil && plan.ReadyToApply {
 				t.Fatalf("unsafe sync accepted %s", kind)
@@ -296,6 +301,7 @@ func TestSkillsSyncRejectsSymlinkedRealManagedLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	_, err = buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	var failure *domain.Error
 	if !errors.As(err, &failure) || failure.Code != "PATH" {
@@ -407,6 +413,7 @@ func TestSkillsSyncPreservesCustomRealAgentsFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	plan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
@@ -451,6 +458,7 @@ func TestSkillsSyncRejectsUnknownRealRuntime(t *testing.T) {
 	if err := os.WriteFile(file, changed, 0644); err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	plan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err == nil && plan.ReadyToApply {
 		t.Fatal("sync accepted unknown runtime")
@@ -506,6 +514,7 @@ func TestSkillsSyncPlansNewRequiredDependencyFromTrustedSource(t *testing.T) {
 		item.Initial[skillRegistryRef] = f
 	}
 	target.Installations["skills"] = item
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil || !p.ReadyToApply {
 		t.Fatalf("plan: %+v %v", p, err)
@@ -558,6 +567,7 @@ func TestSkillsSyncPlansNewReferenceWithoutOverwritingUserFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			syncTestSnapshot(t, root)
 			plan, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 			if err != nil {
 				t.Fatal(err)
@@ -619,6 +629,7 @@ func TestSkillsSyncProtectsChangedReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
@@ -687,6 +698,7 @@ func TestSkillsSyncPlansToPreserveRemovedReference(t *testing.T) {
 		item.SkillReferenceGroups[owner] = groups
 	}
 	target.Installations["skills"] = item
+	syncTestSnapshot(t, root)
 	p, err := buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: target})
 	if err != nil || !p.ReadyToApply {
 		t.Fatalf("plan: %+v %v", p, err)
@@ -729,6 +741,7 @@ func TestSkillsSyncPreservesModifiedInstalledRealSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	plan, err = buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err != nil {
 		t.Fatal(err)
@@ -810,6 +823,7 @@ func TestSkillsSyncRejectsMissingRuntimeDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncTestSnapshot(t, root)
 	_, err = buildCore(root, "spec", "sync", nil, nil, nil, PlanningOptions{target: b})
 	if err == nil || !strings.Contains(err.Error(), "运行时声明与来源锁投影范围不一致") {
 		t.Fatalf("missing runtime was not identified: %v", err)

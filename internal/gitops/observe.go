@@ -82,6 +82,28 @@ func (r *Runner) ReadStatus(ctx context.Context) (Status, error) {
 	return s, nil
 }
 
+// IgnoredPaths checks even tracked paths against current ignore rules.
+func (r *Runner) IgnoredPaths(ctx context.Context, refs []string) ([]string, error) {
+	var ignored []string
+	for start := 0; start < len(refs); start += 128 {
+		end := start + 128
+		if end > len(refs) {
+			end = len(refs)
+		}
+		input := []byte(strings.Join(refs[start:end], "\x00") + "\x00")
+		out, code, err := r.try(ctx, input, "check-ignore", "--no-index", "--stdin", "-z")
+		if err != nil && code != 1 {
+			return nil, err
+		}
+		for _, ref := range strings.Split(string(out), "\x00") {
+			if ref != "" {
+				ignored = append(ignored, ref)
+			}
+		}
+	}
+	return ignored, nil
+}
+
 func dot(s string) string {
 	if s == "." {
 		return ""

@@ -547,38 +547,7 @@ func Status(root string) (any, error) {
 	if e != nil {
 		return nil, e
 	}
-	pending := map[string]bool{}
-	for _, id := range txn.Pending {
-		pending[id] = true
-	}
-	foreignKinds := map[string]bool{}
-	matching := 0
-	for _, summary := range txn.Transactions {
-		if !pending[summary.TransactionID] {
-			continue
-		}
-		if summary.Kind == "program-update" {
-			matching++
-		} else {
-			foreignKinds[summary.Kind] = true
-		}
-	}
-	blockedKinds := []string{}
-	for kind := range foreignKinds {
-		blockedKinds = append(blockedKinds, kind)
-	}
-	sort.Strings(blockedKinds)
-	// These are read-only candidate facts, not a promise that current bytes and
-	// archive scope will pass the locked recovery preflight.
-	out := map[string]any{"installed": false, "currentProgramVersion": domain.Version, "projectMigrationPerformed": false, "transaction": txn, "recoverable": len(txn.Pending) == 1 && matching == 1, "recoveryRequired": len(txn.Pending) > 0 || len(txn.Preparations) > 0, "recoveryKindMatches": len(txn.Pending) == 1 && matching == 1, "recoveryPreflightPerformed": false, "recoveryBlockedKinds": blockedKinds}
-	if len(txn.Preparations) > 0 {
-		preview, _, err := transaction.RecoverProgramPreparations(context.Background(), root, false, validateProgramScope)
-		facts := map[string]any{"status": preview.Status, "readOnly": true}
-		if err != nil {
-			facts["status"], facts["message"] = "blocked", err.Error()
-		}
-		out["preparationRecovery"] = facts
-	}
+	out := map[string]any{"installed": false, "currentProgramVersion": domain.Version, "projectMigrationPerformed": false, "transaction": txn, "reinstallRequired": len(txn.Pending) > 0 || len(txn.Preparations) > 0}
 	path, e := safefs.Path(root, receiptRef)
 	if e != nil {
 		return nil, e

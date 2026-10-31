@@ -101,6 +101,7 @@ func TestCLIParentActionScope(t *testing.T) {
 
 func TestCLIProjectPlanGuards(t *testing.T) {
 	root := commandProject(t)
+	prepareCLISyncGit(t, root)
 	planFile := filepath.Join(t.TempDir(), "sync.json")
 	commandOK(t, root, "sync", "--plan", "--out", planFile)
 	commandOK(t, root, "sync", "--apply", "--plan-file", planFile)
@@ -128,7 +129,7 @@ func TestCLIProjectPlanGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, _ = captureCommand(t, context.Background(), []string{"sync", "--root", root, "--apply", "--plan-file", planFile, "--json"}, false)
-	if code != 1 || commandEnvelope(t, out)["code"] != "INPUT_DRIFT" {
+	if code != 1 || commandEnvelope(t, out)["code"] != "CONFLICT" {
 		t.Fatalf("input drift: %d %s", code, out)
 	}
 	after, _ := os.ReadFile(file)

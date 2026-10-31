@@ -75,7 +75,7 @@ func quotedPath(path string) string {
 func diagnosticSteps(root, code string) []string {
 	status := "yss update status --tool-root " + quotedPath(root) + " --json"
 	if code == "STATE" {
-		return []string{status, "存在未完成事务；检查状态后执行 yss update recover --tool-root " + quotedPath(root) + "；仅通过范围与基线校验的准备会被封存。若返回 STATE，保留现场并处理具体冲突，重复执行不会清除未知材料"}
+		return []string{status, "程序升级未完成；保留当前目录，在新的工具目录重新安装 CLI"}
 	}
 	return []string{status, "保留旧目录及归档；选择不存在的新目录安装，例如：", "yss upgrade --tool-root " + quotedPath(root+"-clean"), "使用新目录内的 yss version --json 和 yss update status --tool-root <新目录> --json 核验后，再调整 PATH 入口；完整离线安装案例见 yss help tutorial"}
 }

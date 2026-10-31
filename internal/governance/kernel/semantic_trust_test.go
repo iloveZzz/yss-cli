@@ -15,7 +15,7 @@ import (
 )
 
 func TestTrustedPolicyReadRejectsAbsoluteAndAliasBypass(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestTrustedPolicyReadRejectsAbsoluteAndAliasBypass(t *testing.T) {
 }
 
 func TestReadingPoliciesRequireTrustedBundleBytes(t *testing.T) {
-	b, err := bundle.LoadBaseline("backend")
+	b, err := bundle.Load("backend")
 	if err != nil {
 		t.Fatal(err)
 	}

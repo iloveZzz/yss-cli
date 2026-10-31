@@ -48,6 +48,7 @@ type Plan struct {
 	Command               string                       `json:"command"`
 	Root                  string                       `json:"root"`
 	Profile               string                       `json:"profile"`
+	GitHead               string                       `json:"gitHead,omitempty"`
 	TemplateCommit        string                       `json:"templateCommit"`
 	SnapshotHash          string                       `json:"snapshotHash"`
 	SourceVersion         string                       `json:"sourceVersion,omitempty"`
@@ -67,6 +68,9 @@ func (p *Plan) Public() map[string]any {
 		changes = append(changes, map[string]any{"path": c.Path, "before": c.Before, "after": c.After, "ownership": c.Ownership})
 	}
 	public := map[string]any{"schemaVersion": p.SchemaVersion, "protocolVersion": p.ProtocolVersion, "command": p.Command, "root": p.Root, "profile": p.Profile, "templateCommit": p.TemplateCommit, "snapshotHash": p.SnapshotHash, "changes": changes, "conflicts": p.Conflicts, "preserved": p.Preserved, "digest": p.Digest, "readyToApply": p.ReadyToApply, "assets": p.Assets, "blockers": p.Blockers, "coverage": p.Coverage, "stats": map[string]int{"changed": len(p.Changes), "conflicts": len(p.Conflicts), "preserved": len(p.Preserved)}}
+	if p.GitHead != "" {
+		public["gitHead"] = p.GitHead
+	}
 	if p.Kind != "" {
 		public["kind"], public["cli"], public["bundleHash"] = p.Kind, p.CLI, p.BundleHash
 	}
@@ -133,6 +137,14 @@ func build(root, profile, command string, vars map[string]string, selection []st
 func buildCore(root, profile, command string, vars map[string]string, selection []string, binding *Binding, options PlanningOptions) (*Plan, error) {
 	init := command == "init"
 	attach := command == "attach"
+	var syncHead string
+	if command == "sync" {
+		var err error
+		syncHead, err = syncGitHead(context.Background(), root)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if options.BindCLI && !init && !attach {
 		return nil, domain.Fail("ARGUMENT", "CLI 绑定计划仅支持 init 或 attach")
 	}
@@ -161,6 +173,16 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 		if status, e := transaction.Status(id.Root); e != nil {
 			return nil, e
 		} else if len(status.Pending) > 0 || len(status.Preparations) > 0 {
+			for _, pending := range status.Pending {
+				for _, entry := range status.Transactions {
+					if entry.TransactionID == pending && entry.Kind == "sync" {
+						return nil, domain.Fail("INTERRUPTED", "同步未完成；核对失败回执中的可能新增路径，人工处理后用 Git 恢复已跟踪文件")
+					}
+				}
+			}
+			if len(status.Preparations) > 0 {
+				return nil, domain.Fail("INTERRUPTED", "存在未发布的事务准备；只读检查事务状态和新增控制路径，保留无法确认归属的文件")
+			}
 			return nil, domain.Fail("INTERRUPTED", "存在未完成事务；执行 yss recover --root "+id.Root+" --apply")
 		}
 	}
@@ -178,6 +200,12 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	if !init && !attach && id.Native == nil && command != "diff" && command != "doctor" {
 		return nil, domain.Fail("IDENTITY", "缺少可核验的受信实例 metadata")
+	}
+	if id.Native != nil && (command == "sync" || command == "migrate" || command == "skills" || command == "assets") {
+		meta := id.Native
+		if _, e := bundle.LoadTrustedSource(bundle.SourceIdentity{Profile: meta.Profile, Version: meta.TemplateVersion, Commit: meta.TemplateCommit, Snapshot: meta.SnapshotHash, Manifest: meta.ManifestHash, Bundle: meta.BundleHash, State: meta.TemplateSourceState}); e != nil {
+			return nil, e
+		}
 	}
 	b := options.target
 	if b == nil {
@@ -293,7 +321,7 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 			return nil, err
 		}
 	}
-	p := &Plan{InstallationMigration: installationMigration, RetainedSourceDigest: retainedDigest, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
+	p := &Plan{InstallationMigration: installationMigration, RetainedSourceDigest: retainedDigest, SchemaVersion: 2, ProtocolVersion: domain.ProtocolVersion, Command: command, Root: id.Root, Profile: id.Profile.Name, GitHead: syncHead, TemplateCommit: b.TemplateCommit, SnapshotHash: b.SnapshotHash, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}, Inputs: map[string]domain.Descriptor{}, Variables: vars, Selection: selection}
 	if b.SchemaVersion >= 4 {
 		p.SchemaVersion = 3
 	}
@@ -466,6 +494,15 @@ func buildCore(root, profile, command string, vars map[string]string, selection 
 	}
 	addSystemAsset(p, MetadataFile, before, after, "generated")
 	p.AssetScope = union(p.AssetScope, []string{MetadataFile})
+	if command == "sync" {
+		refs := make([]string, len(p.Changes))
+		for i, change := range p.Changes {
+			refs[i] = change.Path
+		}
+		if err := syncCheckIgnored(context.Background(), p.Root, refs); err != nil {
+			return nil, err
+		}
+	}
 	if e := finalizePlan(p); e != nil {
 		return nil, e
 	}
@@ -569,7 +606,13 @@ func ApplyContext(ctx context.Context, p *Plan) (transaction.Result, error) {
 	if err != nil {
 		return transaction.Result{}, err
 	}
-	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, a.ops, p.Inputs, a.materials, func() error { return verifyAppliedPlan(ctx, p, a.bundle) })
+	validate := func() error { return verifyAppliedPlan(ctx, p, a.bundle) }
+	if p.Command == "sync" {
+		return transaction.ApplySyncWithValidation(ctx, p.Root, a.ops, p.Inputs, a.materials, func(ref string) error {
+			return syncCheckIgnored(ctx, p.Root, []string{ref})
+		}, validate)
+	}
+	return transaction.ApplyContextWithValidation(ctx, p.Root, p.Command, a.ops, p.Inputs, a.materials, validate)
 }
 
 func ApplyConfirmedContext(ctx context.Context, p *Plan, expectedDigest string) (transaction.Result, error) {
@@ -645,6 +688,18 @@ func prepareApplication(ctx context.Context, p *Plan) (*applicationInputs, error
 	}
 	if p.Digest != planDigest(p) {
 		return nil, domain.Fail("PLAN", "计划摘要不合法")
+	}
+	if p.Command == "sync" {
+		if p.GitHead == "" {
+			return nil, domain.Fail("PLAN_VERSION", "同步计划缺少 Git 基线；须重新生成")
+		}
+		head, err := syncGitHead(ctx, p.Root)
+		if err != nil {
+			return nil, err
+		}
+		if head != p.GitHead {
+			return nil, domain.Fail("INPUT_DRIFT", "同步计划的 Git 提交已变化；须重新生成")
+		}
 	}
 	if p.GovernanceMigration != nil {
 		return nil, domain.Fail("MIGRATION_UNSUPPORTED", "旧治理迁移计划已停止；原件保留")

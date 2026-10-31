@@ -123,4 +123,4 @@ yss rollback --root ./spec --json
 yss rollback --root ./spec --apply --json
 ```
 
-普通 `recover`、`rollback` 默认只读查询，增加 `--apply` 执行保护性恢复或最近成功事务的整体回退；须先确认实际事务范围，后续用户修改会阻止覆盖。它们与程序事务的 `update recover/rollback`、迁移事务的 `migrate recover/rollback` 是不同入口。
+普通 `recover`、`rollback` 默认只读查询，增加 `--apply` 执行保护性恢复或最近成功事务的整体回退；须先确认实际事务范围，后续用户修改会阻止覆盖。程序升级失败时在新目录重新安装。迁移事务使用各自入口。

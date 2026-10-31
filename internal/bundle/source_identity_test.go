@@ -4,40 +4,22 @@ package bundle
 
 import "testing"
 
-func TestLoadBaselineHasReleasedTemplateSources(t *testing.T) {
+func TestEmbeddedBundleHasSupportedTemplateSource(t *testing.T) {
 	for _, profile := range []string{"spec", "backend"} {
-		b, err := LoadBaseline(profile)
+		b, err := Load(profile)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b.Profile != profile || b.TemplateVersion != "5.0.0" || b.TemplateCommit != "1e49127842c358caf552af8ebec58f438a35c5a6" || b.SourceState != "committed" {
-			t.Fatalf("意外的基线来源: %+v", b)
+		if b.Profile != profile || !supportedProduct(b) {
+			t.Fatalf("不受支持的当前来源: %+v", b)
 		}
 	}
 }
 
-func TestTrustedSourceAllowsPriorBaselineForSync(t *testing.T) {
-	baseline, err := LoadBaseline("spec")
-	if err != nil {
-		t.Fatal(err)
-	}
-	current := cloneBundle(baseline)
-	current.TemplateVersion = "5.1.0"
-	current.TemplateCommit = "different"
-	source := SourceIdentity{Profile: baseline.Profile, Version: baseline.TemplateVersion, Commit: baseline.TemplateCommit, Snapshot: baseline.SnapshotHash, Manifest: baseline.ManifestHash, Bundle: baseline.BundleHash, State: baseline.SourceState}
-	selected, err := selectTrustedSource(current, baseline, source)
-	if err != nil || selected != baseline {
-		t.Fatalf("当前 Bundle 更新后仍应接受受信 5.0 基线: %v", err)
-	}
-	source.Bundle = "untrusted"
-	if _, err := selectTrustedSource(current, baseline, source); err == nil {
-		t.Fatal("自报未知 Bundle 不得取得受信来源")
-	}
-	old := cloneBundle(baseline)
-	old.TemplateVersion = "4.9.0"
-	oldSource := SourceIdentity{Profile: old.Profile, Version: old.TemplateVersion, Commit: old.TemplateCommit, Snapshot: old.SnapshotHash, Manifest: old.ManifestHash, Bundle: old.BundleHash, State: old.SourceState}
-	if _, err := selectTrustedSource(old, baseline, oldSource); err == nil {
-		t.Fatal("即使当前归档声明旧模板，也不得将其当作受信产品")
+func TestRetiredSameVersionTemplateSourceIsRejected(t *testing.T) {
+	old := &Bundle{Profile: "spec", TemplateVersion: "5.0.0", TemplateCommit: retiredTemplateCommit, SourceState: "committed"}
+	if supportedProduct(old) {
+		t.Fatal("重发前同名模板提交不得取得受信身份")
 	}
 }
 

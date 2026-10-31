@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -35,6 +36,8 @@ type Operation struct {
 }
 
 type Result struct {
+	CreatedPaths       []string  `json:"possibleNewPaths,omitempty"`
+	NewControlPaths    []string  `json:"possibleNewControlPaths,omitempty"`
 	FileApplication    string    `json:"fileApplication,omitempty"`
 	Verification       string    `json:"verification,omitempty"`
 	Status             string    `json:"status"`
@@ -570,9 +573,12 @@ func load(root, id string) (loaded, error) {
 		return l, fail("STATE", "事务身份或计划摘要不匹配: "+id)
 	}
 	switch l.journal.Phase {
-	case "prepared", "applying", "committed", "recovering", "recovered", "rolling-back", "rolled-back":
+	case "prepared", "applying", "committed", "recovering", "recovered", "rolling-back", "rolled-back", "abandoned":
 	default:
 		return l, fail("STATE", "未知事务阶段")
+	}
+	if l.journal.Phase == "abandoned" && l.plan.Kind != "sync" {
+		return l, fail("STATE", "只有同步事务可以由人工还原后关闭")
 	}
 	if err := validatePlan(root, id, l.plan); err != nil {
 		return l, err
@@ -722,7 +728,19 @@ func scan(root string) ([]loaded, []string, error) {
 	return all, preparations, nil
 }
 func terminal(phase string) bool {
-	return phase == "committed" || phase == "recovered" || phase == "rolled-back"
+	return phase == "committed" || phase == "recovered" || phase == "rolled-back" || phase == "abandoned"
+}
+
+func syncManuallyRestored(root string, l loaded) bool {
+	if l.plan.Kind != "sync" || terminal(l.journal.Phase) {
+		return false
+	}
+	for _, r := range l.plan.Operations {
+		if assertCurrent(root, r, r.Before) != nil {
+			return false
+		}
+	}
+	return checkGuards(root, l.plan.Guards, nil) == nil
 }
 func result(l loaded, status string) Result {
 	return Result{Status: status, TransactionID: l.plan.ID, Kind: l.plan.Kind, PlanDigest: l.journal.PlanDigest, BackupPath: filepath.Join(l.plan.Root, filepath.FromSlash(l.base)), Operations: len(l.plan.Operations)}
@@ -878,9 +896,21 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 }
 
 // Validation runs under the transaction lock after postconditions, before
-// commit. Failure uses the same whole-transaction restoration as a write failure.
+// commit. Program updates leave failed state for a fresh installation.
 // Archive artifacts never become writable project operations.
 func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, validate func() error) (Result, error) {
+	return applyContextWithValidation(ctx, root, kind, ops, guards, artifacts, nil, validate)
+}
+
+// ApplySyncWithValidation rechecks each sync target under the transaction lock.
+func ApplySyncWithValidation(ctx context.Context, root string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, prewrite func(string) error, validate func() error) (Result, error) {
+	if prewrite == nil {
+		return Result{}, fail("PLAN", "同步需要目标路径校验")
+	}
+	return applyContextWithValidation(ctx, root, "sync", ops, guards, artifacts, prewrite, validate)
+}
+
+func applyContextWithValidation(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, prewrite func(string) error, validate func() error) (out Result, returnErr error) {
 	if ctx == nil {
 		return Result{}, fail("PLAN", "取消上下文不可为空")
 	}
@@ -895,6 +925,28 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 		return Result{}, err
 	}
 	root = absolute
+	if kind == "sync" {
+		before, e := syncControlInventory(root)
+		if e != nil {
+			return Result{}, e
+		}
+		defer func() {
+			if returnErr == nil {
+				return
+			}
+			after, e := syncControlInventory(root)
+			if e != nil {
+				returnErr = fmt.Errorf("%w; 无法列出同步新增控制路径: %v", returnErr, e)
+				return
+			}
+			for ref := range after {
+				if !before[ref] {
+					out.NewControlPaths = append(out.NewControlPaths, ref)
+				}
+			}
+			sort.Strings(out.NewControlPaths)
+		}()
+	}
 	records, err := normalize(root, ops)
 	if err != nil {
 		return Result{}, err
@@ -948,9 +1000,16 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	if preparationHeaderRequired(kind) && len(preparations) > 0 {
 		return Result{Status: "preparing", Preparations: preparations}, fail("INTERRUPTED", "存在未发布准备事务，先使用对应家族的恢复入口")
 	}
-	for _, l := range all {
+	for i := range all {
+		l := &all[i]
 		if !terminal(l.journal.Phase) {
-			return result(l, "pending"), domain.Explain(fail("INTERRUPTED", "存在未完成事务，先 recover"), "NATIVE_TRANSACTION_PENDING", "存在尚未完成的原生事务；先检查事务状态与恢复材料。", map[string]any{"root": root, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
+			if syncManuallyRestored(root, *l) {
+				if err := update(root, l, "abandoned"); err != nil {
+					return result(*l, "pending"), err
+				}
+				continue
+			}
+			return result(*l, "pending"), domain.Explain(fail("INTERRUPTED", "存在未完成事务，先检查事务状态"), "NATIVE_TRANSACTION_PENDING", "存在尚未完成的原生事务；同步请人工恢复 Git 基线，其他事务按状态处理。", map[string]any{"root": root, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
 		}
 	}
 	for _, r := range records {
@@ -1094,6 +1153,30 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 		}
 	}
 	verificationStatus := "not-run"
+	possibleNew := []string{}
+	if kind == "sync" {
+		paths := map[string]bool{}
+		for _, record := range records {
+			if record.Before.Type == "missing" {
+				paths[record.Path] = true
+			}
+			for dir := path.Dir(record.Path); dir != "."; dir = path.Dir(dir) {
+				p, e := safefs.Path(root, dir)
+				if e != nil {
+					return result(l, "pending"), e
+				}
+				if _, e = os.Lstat(p); os.IsNotExist(e) {
+					paths[dir] = true
+				} else if e != nil {
+					return result(l, "pending"), e
+				}
+			}
+		}
+		for ref := range paths {
+			possibleNew = append(possibleNew, ref)
+		}
+		sort.Strings(possibleNew)
+	}
 	var validation func() error
 	if validate != nil {
 		validation = func() error {
@@ -1105,8 +1188,19 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 			return nil
 		}
 	}
-	appliedErr := apply(ctx, root, &l, validation)
+	appliedErr := apply(ctx, root, &l, prewrite, validation)
 	if appliedErr != nil {
+		if kind == "sync" {
+			r := result(l, "pending")
+			r.FileApplication, r.Verification, r.CreatedPaths = "incomplete", verificationStatus, possibleNew
+			return r, fmt.Errorf("%w; 同步未完成，请核对可能新增的路径并手动处理，再用 Git 恢复已跟踪文件", appliedErr)
+		}
+		if kind == "program-update" {
+			r := result(l, "pending")
+			r.FileApplication = "incomplete"
+			r.Verification = verificationStatus
+			return r, fmt.Errorf("%w; 程序升级未完成，请在新目录重新安装", appliedErr)
+		}
 		restoreResult, restoreErr := restore(root, &l, false)
 		if restoreErr != nil {
 			r := result(l, "blocked")
@@ -1130,7 +1224,37 @@ func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	return r, nil
 }
 
-func apply(ctx context.Context, root string, l *loaded, validate func() error) (applyErr error) {
+func syncControlInventory(root string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, ref := range []string{".yss", stateRef} {
+		p, err := safefs.Path(root, ref)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = os.Lstat(p); err == nil {
+			out[ref] = true
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	p, err := safefs.Path(root, stateRef)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(p)
+	if os.IsNotExist(err) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		out[stateRef+"/"+entry.Name()] = true
+	}
+	return out, nil
+}
+
+func apply(ctx context.Context, root string, l *loaded, prewrite func(string) error, validate func() error) (applyErr error) {
 	dirty := map[string]bool{}
 	defer func() {
 		if err := flushDirectories(dirty); applyErr == nil {
@@ -1174,6 +1298,11 @@ func apply(ctx context.Context, root string, l *loaded, validate func() error) (
 		}
 		if err := assertCurrent(root, r, r.Before); err != nil {
 			return err
+		}
+		if prewrite != nil {
+			if err := prewrite(r.Path); err != nil {
+				return err
+			}
 		}
 		if err := replace(root, l.base, i, r, r.After, "apply", dirty); err != nil {
 			return err
@@ -1415,6 +1544,9 @@ func replace(root, base string, i int, r record, wanted domain.Descriptor, role 
 }
 
 func restore(root string, l *loaded, rollback bool) (restoreResult Result, restoreErr error) {
+	if l.plan.Kind == "sync" {
+		return result(*l, "blocked"), fail("KIND", "同步不支持恢复或回滚；请手动处理新增文件并用 Git 恢复")
+	}
 	dirty := map[string]bool{}
 	defer func() {
 		if err := flushDirectories(dirty); restoreErr == nil {
@@ -1800,7 +1932,7 @@ func Status(root string) (Result, error) {
 	}
 	for _, l := range all {
 		out.Transactions = append(out.Transactions, Summary{TransactionID: l.plan.ID, Kind: l.plan.Kind, Phase: l.journal.Phase, PlanDigest: l.journal.PlanDigest, Operations: len(l.plan.Operations), CreatedAt: l.plan.CreatedAt, Sequence: l.plan.Sequence})
-		if !terminal(l.journal.Phase) {
+		if !terminal(l.journal.Phase) && !syncManuallyRestored(root, l) {
 			out.Pending = append(out.Pending, l.plan.ID)
 		}
 	}

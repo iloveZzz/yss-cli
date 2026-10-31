@@ -358,7 +358,7 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 		return result, nil
 	}
 	if order < 0 {
-		return result, fail("VERSION", "目标版本低于当前安装，拒绝降级；回退请使用 yss update rollback --tool-root <目录>")
+		return result, fail("VERSION", "目标版本低于当前安装，拒绝降级；如需其他版本，请在新目录重新安装")
 	}
 	if installed != nil && order == 0 && installed.receipt.StableReady && installed.receipt.ArchiveDigest == release.artifact.SHA256 && installed.manifest.CLICommit == release.proof.CLICommit && installed.manifest.BinarySHA256 == release.artifact.BinarySHA256 {
 		result.Status = "unchanged"

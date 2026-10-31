@@ -10,8 +10,6 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/domain"
 )
 
-const baselineRawDigest = "271b9b9b46017f636d0cd4f6ffb9b85b098568b5c2369789f89bfb52ce82baca"
-
 var baselineObjectKey = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 func reconstructBaseline(currentGzip, deltaGzip []byte, expected string) ([]byte, error) {
@@ -68,7 +66,7 @@ func reconstructBaseline(currentGzip, deltaGzip []byte, expected string) ([]byte
 	}
 	out.WriteString("}}")
 	if fmt.Sprintf("%x", sha256.Sum256(out.Bytes())) != expected {
-		return nil, domain.Fail("BUNDLE", "受信 5.0 基线摘要不匹配")
+		return nil, domain.Fail("BUNDLE", "受信基线摘要不匹配")
 	}
 	return out.Bytes(), nil
 }

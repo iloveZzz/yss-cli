@@ -12,7 +12,7 @@ import (
 )
 
 func TestPolicyMustMatchTrustedBundleAndObservedBytes(t *testing.T) {
-	b, err := bundle.LoadBaseline("spec")
+	b, err := bundle.Load("spec")
 	if err != nil {
 		t.Fatal(err)
 	}
