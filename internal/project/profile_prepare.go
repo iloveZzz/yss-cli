@@ -504,7 +504,7 @@ func preflightProfileTarget(ctx context.Context, target ProfileTargetPlan, regis
 		if err != nil {
 			return false, err
 		}
-		if d != change.After {
+		if !domain.SameDescriptor(d, change.After) {
 			return false, domain.Fail("INPUT_DRIFT", "已初始化目标与保存计划不同: "+change.Path)
 		}
 	}

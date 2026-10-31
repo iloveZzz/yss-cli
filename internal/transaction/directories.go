@@ -73,7 +73,7 @@ func preflightCreatedDirectories(root string, l loaded, n int) error {
 		if e != nil {
 			return e
 		}
-		if current != wanted {
+		if !same(current, wanted) {
 			return fail("RECOVERY_FAILED", "源目录或权限已有后续修改: "+ref)
 		}
 	}

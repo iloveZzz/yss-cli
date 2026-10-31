@@ -244,7 +244,7 @@ type lockRecord struct {
 
 func fail(code, message string) error { return domain.Fail(code, message) }
 func same(a, b domain.Descriptor) bool {
-	return a.Type == b.Type && a.Digest == b.Digest && a.Mode == b.Mode
+	return domain.SameDescriptor(a, b)
 }
 func identifier() (string, error) {
 	b := make([]byte, 16)
@@ -1489,7 +1489,7 @@ func tempCheck(root, base string, i int, r record, role string, d domain.Descrip
 	if actual.Type == "missing" {
 		return nil
 	}
-	if d.Type == "directory" && actual.Type == "directory" && (actual.Mode == d.Mode || actual.Mode == 0700) {
+	if d.Type == "directory" && actual.Type == "directory" && (same(actual, d) || same(actual, domain.Descriptor{Type: "directory", Mode: 0700})) {
 		p, e := safefs.Path(root, ref)
 		if e != nil {
 			return e

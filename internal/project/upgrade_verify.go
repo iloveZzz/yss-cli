@@ -25,7 +25,7 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 		if e != nil {
 			return e
 		}
-		if actual != c.After {
+		if !domain.SameDescriptor(actual, c.After) {
 			return domain.Fail("VERIFY", "应用后描述不匹配: "+c.Path)
 		}
 	}
@@ -80,7 +80,7 @@ func verifyAppliedPlan(ctx context.Context, p *Plan, b *bundle.Bundle) error {
 		if e != nil {
 			return e
 		}
-		if actual != want {
+		if !domain.SameDescriptor(actual, want) {
 			return domain.Fail("VERIFY", "资产后置条件不匹配: "+a.Path)
 		}
 	}

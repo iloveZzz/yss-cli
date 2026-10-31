@@ -16,3 +16,26 @@ func fileModeForOS(mode uint32, platform string) uint32 {
 	}
 	return mode & 0777
 }
+
+// Windows reports directory permissions through the read-only attribute.
+func directoryModeForOS(mode uint32, platform string) uint32 {
+	if platform == "windows" {
+		if mode&0200 != 0 {
+			return 0777
+		}
+		return 0555
+	}
+	return mode & 0777
+}
+
+// SameDescriptor retains existing on-disk transaction descriptors while
+// comparing only directory permission bits observable on the current OS.
+func SameDescriptor(a, b Descriptor) bool { return sameDescriptorForOS(a, b, runtime.GOOS) }
+
+func sameDescriptorForOS(a, b Descriptor, platform string) bool {
+	if a.Type == "directory" && b.Type == "directory" {
+		a.Mode = directoryModeForOS(a.Mode, platform)
+		b.Mode = directoryModeForOS(b.Mode, platform)
+	}
+	return a == b
+}
