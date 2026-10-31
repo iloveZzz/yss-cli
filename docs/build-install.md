@@ -107,7 +107,9 @@ yss upgrade
 yss upgrade --to 3.0.2 --tool-root /absolute/yss --dry-run
 ```
 
-在线来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 GitLab Release。每次先按完整路径解析项目，再核验正数 ID、完整路径与 Web URL，ID 仅采用本次完整身份核验结果，不复用旧实例的 37/38 等映射；URL 中的数值 ID 必须匹配本次已核验 ID。显式设置 `YSS_GITLAB_CA_FILE` 为受信 CA PEM 文件，`YSS_GITLAB_TOKEN` 由安全环境提供；不把 token 放进 URL、命令参数、日志或产物。仅在 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确为 `https://gitlab.yss.test:9443` 时使用 `CI_JOB_TOKEN`，不自动选用 CI 凭据。
+在线来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 GitLab Release。每次先按完整路径解析项目，再核验正数 ID、完整路径与 Web URL，ID 仅采用本次完整身份核验结果，不复用旧实例的 37/38 等映射；URL 中的数值 ID 必须匹配本次已核验 ID。显式设置 `YSS_GITLAB_CA_FILE` 为受信 CA PEM 文件，`YSS_GITLAB_TOKEN` 由安全环境提供；不把 token 放进 URL、命令参数、日志或产物。在线升级需要具备项目详情、Release 与资产读取权限的受限 PAT。代码保留 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确匹配时的显式 Job Token 模式，但当前 GitLab 不向 Job Token 开放项目详情 API；该模式在项目核验 HTTP 404 时会返回 `NOT_READY` 并停止，不能据此宣称支持在线升级。不自动选择其他凭据，不向日常 CI 注入 PAT。
+
+日常 CI 只用 `CI_JOB_TOKEN` 访问受支持的固定 `/api/v4/job` 核验本作业项目、job ID 与提交 SHA；跨仓 Git 读取使用固定规范 HTTPS 项目路径、显式 CA、限定凭据助手，并禁用私有来源代理和重定向，不请求不受支持的项目详情 API。这个 CI 读取通道不改变在线升级器的项目身份核验合同。
 
 只向固定项目内已核验的 Release 和资产地址发送鉴权；拒绝 HTTP、跨域、其他项目、任意来源覆盖及 GitHub fallback。无来源或 Release（HTTP 404）明确返回未就绪，不自动创建发行或标签。dry-run 读取发行元数据、`SHA256SUMS`，并以 HEAD 核对资产长度，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
 
