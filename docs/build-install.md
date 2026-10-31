@@ -17,6 +17,10 @@ CGO_ENABLED=0 go build -trimpath -o /outside/yss ./cmd/yss
 
 生成器直接读取模板工作树，包含清单允许的已跟踪文件和未忽略的新文件；使用实际 HEAD、工作树状态及内容摘要记录来源。修改过的工作树记录为 `working-tree`，不能写成已提交来源。`docs/template-release.json` 保持既有标签值；本地生成不要求编造新正式标签。Bundle 归档不入库，不能把使用 `yss_nobundle` 构建的空资产程序当作发行包。
 
+模板清单、当前运行 CLI 的内嵌 Bundle、项目 `.yss.json` 分别记录源码输入、程序资产和实例安装基线。修改模板文件不会改变现有程序；重建程序也不会自动同步项目。新生成器要求两个 Profile 的 project/skills 清单都声明 `skillDependencies`，退役说明由清单的 `retiredSkills` 提供；已发行旧程序不保证支持这些新输入字段。生成失败时停止构建，不复用残留归档。
+
+本地验证可使用仓外临时目录分别执行 Spec/Backend 的 project/skills 初始化、接入、补装与切换；每次先比较 dry-run 前后文件树，再核对实际文件和 metadata。迁移验证应由真实旧 CLI 创建旧实例，并以独立副本检查未修改退役文件删除、任一平台副本修改时整体冲突、user-owned 和无管理记录文件保留。事务归档绑定绝对安装根；临时复制已完成的安装数据时不能把旧根的事务现场冒充新根现场，真实待恢复实例须原位保留。
+
 如需其他平台，显式设置 `GOOS`、`GOARCH`，Windows 输出名为 `yss.exe`。例如：
 
 ```sh
@@ -47,7 +51,7 @@ manifest 字段如下；摘要均为实际字节的 SHA-256：
 下面是 macOS ARM64 的最小包示例。需有 `jq`、`shasum`、`tar`；它们只用于手工打包，发行 CLI 不依赖它们。`version` 必须按刚构建程序的实际输出填写；`source_state` 按 `git status --short` 的实际结果填写，不能把有修改的源码标为 committed。`/outside/package-darwin-arm64` 须不存在：
 
 ```sh
-version=3.0.2
+version=3.0.3
 target_os=darwin
 target_arch=arm64
 cli_commit=$(git rev-parse HEAD)
@@ -70,7 +74,7 @@ Linux 的步骤相同，替换平台、原生或交叉编译的二进制与暂�
 
 ```sh
 cd /outside/package-windows-amd64
-zip /outside/yss_3.0.2_windows_amd64.zip yss.exe release-manifest.json
+zip /outside/yss_3.0.3_windows_amd64.zip yss.exe release-manifest.json
 ```
 
 Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一平台的值。使用 `zip` 打包前将暂存程序权限设为 0755；避免加密、符号链接、目录项、绝对路径或 `../`。归档及总解压载荷均限制在 256 MiB 内。
@@ -81,7 +85,7 @@ Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一�
 
 ```sh
 cd /outside
-shasum -a 256 yss_3.0.2_*.tar.gz yss_3.0.2_*.zip > SHA256SUMS
+shasum -a 256 yss_3.0.3_*.tar.gz yss_3.0.3_*.zip > SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -90,9 +94,9 @@ shasum -a 256 -c SHA256SUMS
 首次切换到本版，由 Agent 使用刚构建或已可信取得的新 CLI 执行完整包安装。旧 CLI 的在线升级器可能要求旧格式，不能保证识别 schema 2。不要只覆盖旧可执行文件或手改旧安装收据；选择新的工具目录并用新 CLI 生成安装记录：
 
 ```sh
-/outside/yss upgrade --artifact /outside/yss_3.0.2_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.3_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss --dry-run
-/outside/yss upgrade --artifact /outside/yss_3.0.2_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.3_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss
 /absolute/new-yss/yss version
 ```
@@ -104,19 +108,25 @@ shasum -a 256 -c SHA256SUMS
 ```sh
 yss upgrade --dry-run
 yss upgrade
-yss upgrade --to 3.0.2 --tool-root /absolute/yss --dry-run
+yss upgrade --to 3.0.3 --tool-root /absolute/yss --dry-run
 ```
 
-在线来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 GitLab Release。每次先按完整路径解析项目，再核验正数 ID、完整路径与 Web URL，ID 仅采用本次完整身份核验结果，不复用旧实例的 37/38 等映射；URL 中的数值 ID 必须匹配本次已核验 ID。显式设置 `YSS_GITLAB_CA_FILE` 为受信 CA PEM 文件，`YSS_GITLAB_TOKEN` 由安全环境提供；不把 token 放进 URL、命令参数、日志或产物。在线升级需要具备项目详情、Release 与资产读取权限的受限 PAT。代码保留 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确匹配时的显式 Job Token 模式，但当前 GitLab 不向 Job Token 开放项目详情 API；该模式在项目核验 HTTP 404 时会返回 `NOT_READY` 并停止，不能据此宣称支持在线升级。不自动选择其他凭据，不向日常 CI 注入 PAT。
+在线默认使用 [GitHub 正式 Release](https://github.com/iloveZzz/yss-cli/releases)，对应固定仓库 `iloveZzz/yss-cli`。`--source github` 可显式选择默认源；公开读取无需 GitLab CA 或鉴权，不读取或转发 GitLab token。按 GitHub [Releases API](https://docs.github.com/en/rest/releases/releases) 核对非草稿、非预发布、版本与仓库，下载 URL 必须属于同仓同版本；只允许 GitHub 资产 CDN 重定向，并保留长度、摘要、包格式与所有权检查。
 
-日常 CI 只用 `CI_JOB_TOKEN` 访问受支持的固定 `/api/v4/job` 核验本作业项目、job ID 与提交 SHA；跨仓 Git 读取使用固定规范 HTTPS 项目路径、显式 CA、限定凭据助手，并禁用私有来源代理和重定向，不请求不受支持的项目详情 API。这个 CI 读取通道不改变在线升级器的项目身份核验合同。
+需要次级来源时使用 `yss upgrade --source gitlab --to <版本> --tool-root <目录>`；该选项只适用于在线升级，不与 `--artifact` 混用。GitLab 来源仍固定为 `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 Release。每次先按完整路径解析项目，再核验正数 ID、完整路径与 Web URL，ID 仅采用本次完整身份核验结果，不复用旧实例的 37/38 等映射；URL 中的数值 ID 必须匹配本次已核验 ID。显式设置 `YSS_GITLAB_CA_FILE` 为受信 CA PEM 文件，`YSS_GITLAB_TOKEN` 由安全环境提供；不把 token 放进 URL、命令参数、日志或产物。在线升级需要具备项目详情、Release 与资产读取权限的受限 PAT。代码保留 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确匹配时的显式 Job Token 模式，但当前 GitLab 不向 Job Token 开放项目详情 API；该模式在项目核验 HTTP 404 时会返回 `NOT_READY` 并停止，不能据此宣称支持在线升级。不自动选择其他凭据，不向日常 CI 注入 PAT。
 
-只向固定项目内已核验的 Release 和资产地址发送鉴权；拒绝 HTTP、跨域、其他项目、任意来源覆盖及 GitHub fallback。无来源或 Release（HTTP 404）明确返回未就绪，不自动创建发行或标签。dry-run 读取发行元数据、`SHA256SUMS`，并以 HEAD 核对资产长度，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
+次级 GitLab CI 只用 `CI_JOB_TOKEN` 和显式 CA 访问受支持的固定 `/api/v4/job` 核验本作业项目、job ID 与提交 SHA；跨仓源码默认从 GitHub 的固定公开仓库与版本标签读取，禁用 Git 重定向，不向 GitHub 发送 GitLab 凭据，也不请求不受支持的 GitLab 项目详情 API。这个 CI 读取通道不改变在线升级器的项目身份核验合同。
+
+选择 GitLab 时，只向固定项目内已核验的 Release 和资产地址发送鉴权；拒绝 HTTP、跨域、其他项目、任意来源覆盖及 GitHub fallback。无来源或 Release（HTTP 404）明确返回未就绪，不自动创建发行或标签。dry-run 读取发行元数据、`SHA256SUMS`，并以 HEAD 核对资产长度，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
 
 ## 获得授权后手动发布
 
-当前 GitLab 尚无正式 Release 时，在线安装与升级不可用；本地构建仅为开发构建。发行操作需要单独的真实授权，不从构建或 CI 成功推导发布授权，不自动创建标签，不改写 `docs/template-release.json` 或已有发布标签。
+所选平台尚无正式 Release 时，该来源在线安装与升级不可用，不自动改投另一平台；本地构建仅为开发构建。发行操作需要单独的真实授权，不从构建或 CI 成功推导发布授权，不自动创建标签，不改写 `docs/template-release.json` 或已有发布标签。
 
-授权发布时，在固定 `yss/yss-cli` 项目核验动态项目 ID、完整路径与 Web URL 后，用 GitLab Release API 上传实际 schema 2 归档与统一 `SHA256SUMS`。资产链接只使用同源、同项目的上传文件路径 `/yss/yss-cli/uploads/<32位十六进制>/<文件名>` 或 Generic Package 路径 `/api/v4/projects/<已核验ID>/packages/generic/yss/v<版本>/<文件名>`；可提供同一版本的 `direct_asset_url`（`/yss/yss-cli/-/releases/v<版本>/downloads/<文件名>`）。资产服务须支持 HEAD 并提供准确 `Content-Length`，否则在线升级会拒绝。所有请求显式验证私有 CA，不关闭 TLS，凭据只通过安全环境与请求头传递。已有同名资产先读取并取得替换授权，不默认覆盖。
+授权发布默认面向 GitHub `iloveZzz/yss-cli`。核对已有标签、版本、源码提交、schema 2 归档与统一 `SHA256SUMS` 后，使用已连接 GitHub 工具或 `gh release` 上传；通过 `--repo iloveZzz/yss-cli` 固定目标，使用 `--verify-tag` 避免隐式创建标签，不在未授权时覆盖同名资产。只有用户明确选择 GitLab 才在次级平台发布，不自动双发。
+
+选择 GitLab 发布时，在固定 `yss/yss-cli` 项目核验动态项目 ID、完整路径与 Web URL 后，用 GitLab Release API 上传实际 schema 2 归档与统一 `SHA256SUMS`。资产链接只使用同源、同项目的上传文件路径 `/yss/yss-cli/uploads/<32位十六进制>/<文件名>` 或 Generic Package 路径 `/api/v4/projects/<已核验ID>/packages/generic/yss/v<版本>/<文件名>`；可提供同一版本的 `direct_asset_url`（`/yss/yss-cli/-/releases/v<版本>/downloads/<文件名>`）。资产服务须支持 HEAD 并提供准确 `Content-Length`，否则在线升级会拒绝。所有请求显式验证私有 CA，不关闭 TLS，凭据只通过安全环境与请求头传递。已有同名资产先读取并取得替换授权，不默认覆盖。
 
 从已核验正式 Release 手动取包时，先固定版本、平台、实际资产 URL 与摘要，在仓外新目录保存并校验 `SHA256SUMS`，再使用新 CLI 的离线 `upgrade` 安装。不要执行不明来源或未核验的程序。发行说明写实际支持与未验证范围；交叉编译、CI 运行、原生平台运行和正式发行分别报告。
+
+GitHub 默认和 `upgrade --source` 自 CLI 3.0.3 起提供；先核对实际安装版本的帮助，不能假定尚未更新的旧二进制已支持。切换本地 Git remote 或模板源不会更新已安装程序。

@@ -234,6 +234,7 @@ func newRoot(inv *invocation, stdout, stderr io.Writer) *cobra.Command {
 		r, e := (updater.UpgradeClient{}).Run(ctx, *upgradeOptions)
 		return r, "", e
 	})
+	upgrade.Flags().StringVar(&upgradeOptions.Source, "source", "", "在线发行来源: github（默认）或 gitlab")
 	upgrade.Flags().StringVar(&upgradeOptions.To, "to", "", "目标版本")
 	upgrade.Flags().StringVar(&upgradeOptions.ToolRoot, "tool-root", "", "程序安装目录")
 	upgrade.Flags().StringVar(&upgradeOptions.Artifact, "artifact", "", "本地发行归档")

@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -20,12 +19,14 @@ import (
 )
 
 type InstallationPolicy struct {
-	Skills          []string            `json:"skills"`
-	Files           []string            `json:"files"`
-	Entries         map[string]string   `json:"entries,omitempty"`
-	SkillReferences map[string][]string `json:"skillReferences,omitempty"`
+	Skills            []string            `json:"skills"`
+	Files             []string            `json:"files"`
+	Entries           map[string]string   `json:"entries,omitempty"`
+	SkillReferences   map[string][]string `json:"skillReferences,omitempty"`
+	SkillDependencies map[string][]string `json:"skillDependencies"`
 }
 type Policy struct {
+	RetiredSkills map[string]RetiredSkill       `json:"retiredSkills,omitempty"`
 	SchemaVersion int                           `json:"schemaVersion"`
 	Profile       string                        `json:"profile"`
 	Manifest      map[string]any                `json:"manifest"`
@@ -220,11 +221,36 @@ func BuildRoot(ctx context.Context, root string) (map[string]*Bundle, error) {
 		if state == "working-tree" {
 			version = "worktree:" + snapshot
 		}
-		b := &Bundle{SchemaVersion: 6, Profile: profile, TemplateVersion: version, TemplateCommit: commit, SourceState: state, SnapshotHash: snapshot, ManifestHash: safefs.Digest(manifestRaw), SourcePolicy: PolicyProvenance{Path: policyRef, Digest: policyFile.Digest, Kind: state}, Producer: Provenance{Version: "bundle6", SourceState: state}, Manifest: policy.Manifest, Files: files, Initial: map[string]File{}, Installations: map[string]Installation{}, SkillRequirements: map[string]Requirement{}}
+		b := &Bundle{RetiredSkills: policy.RetiredSkills, SchemaVersion: 6, Profile: profile, TemplateVersion: version, TemplateCommit: commit, SourceState: state, SnapshotHash: snapshot, ManifestHash: safefs.Digest(manifestRaw), SourcePolicy: PolicyProvenance{Path: policyRef, Digest: policyFile.Digest, Kind: state}, Producer: Provenance{Version: "bundle6", SourceState: state}, Manifest: policy.Manifest, Files: files, Initial: map[string]File{}, Installations: map[string]Installation{}, SkillRequirements: map[string]Requirement{}}
+		if err = validateRetirements(b); err != nil {
+			return nil, fmt.Errorf("%s: %w", policyRef, err)
+		}
 		for _, kind := range []string{"project", "skills"} {
 			cfg, ok := policy.Installations[kind]
 			if !ok {
 				return nil, fmt.Errorf("缺少安装清单 %s", kind)
+			}
+			if cfg.SkillDependencies == nil {
+				return nil, fmt.Errorf("%s %s 必须显式提供 skillDependencies 对象", policyRef, kind)
+			}
+			requirements := map[string]Requirement{}
+			for ref := range files {
+				if strings.HasPrefix(ref, ".agents/skills/") && strings.Count(ref, "/") == 3 && strings.HasSuffix(ref, "/SKILL.md") {
+					requirements[strings.Split(ref, "/")[2]] = Requirement{}
+				}
+			}
+			for skill, refs := range cfg.SkillReferences {
+				req := requirements[skill]
+				req.Paths = sortedKeys(stringSet(refs))
+				requirements[skill] = req
+			}
+			for skill, deps := range cfg.SkillDependencies {
+				req := requirements[skill]
+				req.Skills = sortedKeys(stringSet(deps))
+				requirements[skill] = req
+			}
+			if err = validateRequirements(files, requirements); err != nil {
+				return nil, fmt.Errorf("%s %s: %w", policyRef, kind, err)
 			}
 			initial := map[string]File{}
 			for _, ref := range cfg.Files {
@@ -234,24 +260,14 @@ func BuildRoot(ctx context.Context, root string) (map[string]*Bundle, error) {
 				}
 				initial[ref] = f
 			}
-			for _, skill := range cfg.Skills {
-				found := false
-				for ref, f := range files {
-					if skillPath(ref, skill) {
-						initial[ref] = f
-						found = true
-					}
-				}
-				if !found {
-					return nil, fmt.Errorf("安装技能缺失 %s", skill)
-				}
-				for _, ref := range cfg.SkillReferences[skill] {
-					f, ok := files[ref]
-					if !ok {
-						return nil, fmt.Errorf("技能引用缺失 %s", ref)
-					}
-					initial[ref] = f
-				}
+			selection := *b
+			selection.SkillRequirements = requirements
+			selected, e := selection.SkillFiles(cfg.Skills)
+			if e != nil {
+				return nil, fmt.Errorf("%s %s: %w", policyRef, kind, e)
+			}
+			for ref, f := range selected {
+				initial[ref] = f
 			}
 
 			for target, entry := range cfg.Entries {
@@ -276,44 +292,14 @@ func BuildRoot(ctx context.Context, root string) (map[string]*Bundle, error) {
 			}
 			sort.Strings(skills)
 			d := map[string]any{"installation": kind, "installedSkills": skills, "runtimes": []string{}}
-			b.Installations[kind] = Installation{Initial: initial, Distribution: d, SkillReferences: cfg.SkillReferences}
+			b.Installations[kind] = Installation{Initial: initial, Distribution: d, SkillReferences: cfg.SkillReferences, SkillRequirements: requirements}
 			if kind == "project" {
 				b.Initial = initial
 				b.Distribution = d
 			}
-			for skill, refs := range cfg.SkillReferences {
-				b.SkillRequirements[skill] = Requirement{Paths: refs}
+			if kind == "project" {
+				b.SkillRequirements = copyRequirements(requirements)
 			}
-		}
-		for skill, req := range b.SkillRequirements {
-			deps := map[string]bool{}
-			prefix := ".agents/skills/" + skill + "/"
-			for ref, f := range files {
-				if strings.HasPrefix(ref, prefix) && strings.HasSuffix(ref, ".md") {
-					raw, _ := base64.StdEncoding.DecodeString(f.Data)
-					for _, match := range skillDependency.FindAllSubmatch(raw, -1) {
-						dep := string(match[1])
-						if dep != skill {
-							if _, ok := files[".agents/skills/"+dep+"/SKILL.md"]; ok {
-								deps[dep] = true
-							}
-						}
-					}
-				}
-			}
-			req.Skills = sortedKeys(deps)
-			b.SkillRequirements[skill] = req
-		}
-		for kind, item := range b.Installations {
-			names := stringsFrom(item.Distribution["installedSkills"])
-			selected, e := b.SkillFiles(names)
-			if e != nil {
-				return nil, e
-			}
-			for ref, f := range selected {
-				item.Initial[ref] = f
-			}
-			b.Installations[kind] = item
 		}
 		b.BundleHash = Hash(b)
 		if err = validate(b); err != nil {
@@ -518,5 +504,3 @@ func blobHash(data []byte) string {
 	h.Write(data)
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
-
-var skillDependency = regexp.MustCompile(`\.agents/skills/([a-z0-9][a-z0-9-]*)`)

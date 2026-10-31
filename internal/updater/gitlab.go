@@ -18,7 +18,7 @@ import (
 
 const gitlabOrigin = "https://gitlab.yss.test:9443"
 const gitlabProject = "yss/yss-cli"
-const releaseBase = gitlabOrigin + "/" + gitlabProject + "/-/releases/"
+const gitlabReleaseBase = gitlabOrigin + "/" + gitlabProject + "/-/releases/"
 
 // Only exact approved URLs receive credentials, including after a redirect.
 type gitlabSource struct {
@@ -114,9 +114,6 @@ func (s *gitlabSource) request(ctx context.Context, method, address string) (*ht
 	}
 	return resp, nil
 }
-func (s *gitlabSource) get(ctx context.Context, address string) (*http.Response, error) {
-	return s.request(ctx, http.MethodGet, address)
-}
 
 func (s *gitlabSource) identify(ctx context.Context) error {
 	var project struct {
@@ -124,7 +121,7 @@ func (s *gitlabSource) identify(ctx context.Context) error {
 		Path string `json:"path_with_namespace"`
 		URL  string `json:"web_url"`
 	}
-	if err := s.metadata(ctx, gitlabOrigin+"/api/v4/projects/"+url.PathEscape(gitlabProject), &project); err != nil {
+	if err := releaseMetadata(ctx, s, gitlabOrigin+"/api/v4/projects/"+url.PathEscape(gitlabProject), &project); err != nil {
 		return err
 	}
 	if project.ID <= 0 || project.Path != gitlabProject || project.URL != gitlabOrigin+"/"+gitlabProject {
@@ -139,8 +136,8 @@ func (s *gitlabSource) api() string {
 
 var uploadPath = regexp.MustCompile(`^/yss/yss-cli/uploads/[a-f0-9]{32}/[A-Za-z0-9_.-]+$`)
 
-func (s *gitlabSource) asset(r gitlabRelease, name string) (gitlabAsset, error) {
-	var found gitlabAsset
+func (s *gitlabSource) asset(r gitlabRelease, name string) (releaseAsset, error) {
+	var found releaseAsset
 	for _, asset := range r.Assets.Links {
 		if asset.Name != name {
 			continue
@@ -148,7 +145,7 @@ func (s *gitlabSource) asset(r gitlabRelease, name string) (gitlabAsset, error) 
 		if found.Name != "" {
 			return found, fail("ARTIFACT", "发行资产名称重复: "+name)
 		}
-		direct := releaseBase + r.Tag + "/downloads/" + url.PathEscape(name)
+		direct := gitlabReleaseBase + r.Tag + "/downloads/" + url.PathEscape(name)
 		u, err := url.Parse(asset.URL)
 		if err != nil || u.Scheme != "https" || u.Host != "gitlab.yss.test:9443" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" {
 			return found, fail("ARTIFACT", "发行资产 URL 不属于固定 GitLab 项目")
