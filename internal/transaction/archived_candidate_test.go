@@ -18,7 +18,7 @@ func TestArchivedCandidateBindsBytesAndMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, desc, found, err := ArchivedCandidate(root, "policy.yaml")
-	if err != nil || !found || string(got) != string(data) || desc.Type != "file" || desc.Digest != safefs.Digest(data) || desc.Mode != 0755 {
+	if err != nil || !found || string(got) != string(data) || desc.Type != "file" || desc.Digest != safefs.Digest(data) || desc.Mode != domain.FileMode(0755) {
 		t.Fatalf("归档字节和模式必须绑定: %q %#v %v %v", got, desc, found, err)
 	}
 	_, _, found, err = ArchivedCandidate(root, "absent.yaml")
