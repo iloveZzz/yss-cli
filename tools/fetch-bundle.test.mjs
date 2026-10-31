@@ -1,12 +1,33 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, realpathSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, realpathSync, rmSync, chmodSync} from 'node:fs';
 import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {findManagedSource} from './fetch-bundle.mjs';
+
+test('Git 报告同一仓库根的不同路径表示时可复用，子目录仍拒绝', {skip: process.platform === 'win32'}, t => {
+  const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-source-root-'));
+  t.after(() => rmSync(root, {recursive:true, force:true}));
+  const repo = path.join(root, 'repo'); mkdirSync(repo);
+  const run = (cwd,args) => {const r=spawnSync('git',args,{cwd,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+  run(repo,['init','--quiet']);
+  run(repo,['config','user.email','test@example.org']);run(repo,['config','user.name','Test']);
+  writeFileSync(path.join(repo,'file'),'fixture');run(repo,['add','file']);run(repo,['commit','--quiet','-m','fixture']);
+  const commit=run(repo,['rev-parse','HEAD']);mkdirSync(path.join(repo,'nested'));
+  const lockBytes=Buffer.from('fixture'), hash=createHash('sha256').update(lockBytes).digest('hex');
+  const cache=path.join(root,'cache');mkdirSync(cache);
+  const candidate=path.join(cache,`template-source-${hash}-test`);run(root,['clone','--quiet',repo,candidate]);mkdirSync(path.join(candidate,'nested'));
+  writeFileSync(candidate+'.ready',hash);
+  const realGit=spawnSync('which',['git'],{encoding:'utf8'}).stdout.trim(), bin=path.join(root,'bin');mkdirSync(bin);
+  const wrapper=path.join(bin,'git');
+  writeFileSync(wrapper,`#!/bin/sh\nif [ "$1" = rev-parse ] && [ "$2" = --show-toplevel ]; then "${realGit}" "$@" | sed 's|$|/.|'; else exec "${realGit}" "$@"; fi\n`);chmodSync(wrapper,0o755);
+  const original=process.env.PATH;process.env.PATH=bin+path.delimiter+original;t.after(()=>{process.env.PATH=original;});
+  assert.equal(findManagedSource(cache,lockBytes,{profiles:{spec:{templateCommit:commit,sourcePath:'.'}}}),candidate);
+  assert.equal(findManagedSource(cache,lockBytes,{profiles:{spec:{templateCommit:commit,sourcePath:'nested'}}}),undefined);
+});
 
 test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', async t => {
   const root = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'yss-source-cache-'));

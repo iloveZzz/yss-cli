@@ -55,7 +55,7 @@ function ensureSources(sourceRoot, lock, readOnly = false) {
       if (!COMMIT.test(item.templateCommit)) throw new Error(`需要完整的固定提交: ${profile}`);
       const repo = path.resolve(sourceRoot, item.sourcePath);
       if (path.relative(sourceRoot, repo).split(path.sep).includes('..')) throw new Error('sourcePath 越出 source-root');
-      if (!fs.existsSync(repo) || git(repo, ['rev-parse', '--show-toplevel']) !== fs.realpathSync(repo)) {
+      if (!fs.existsSync(repo) || fs.realpathSync(git(repo, ['rev-parse', '--show-toplevel'])) !== fs.realpathSync(repo)) {
         throw new Error(`来源仓库未初始化: ${repo}（子仓来源需自行初始化）`);
       }
       if (!hasCommit(repo, item.templateCommit)) {
