@@ -1,4 +1,4 @@
-// 当前 Spec/Backend 实例各走一遍 init → 查询类命令 → sync → 回退。
+// 当前 Spec/Backend 实例各走一遍 init → Git 基线 → 查询类命令 → sync。
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -7,6 +7,13 @@ import {check} from './lib.mjs';
 export const PROFILES = ['spec', 'backend'];
 const SPEC_CORE = ['yss-product-lifecycle', 'to-spec', 'grilling', 'domain-modeling', 'i-have-adhd'];
 const SPEC_ON_DEMAND = ['yss-research', 'yss-prototype-stage', 'prototype-review', 'yss-design-system', 'setup-yss-harness'];
+
+function commitGitBaseline(session, root) {
+  for (const args of [['init','-q'],['add','-A'],['commit','-qm','smoke baseline']]) {
+    const result = session.git(args, {cwd:root});
+    check(result.status === 0, `git ${args.join(' ')} 失败: ${result.stderr.trim()}`);
+  }
+}
 
 function specWorkflow(root, metadata) {
  check(metadata.distribution.specWorkflow==='matt-spec-v1','governed Spec must declare matt-spec-v1');
@@ -74,6 +81,7 @@ export function runProfile(session, profile, tempRoot) {
   check(recover.result?.transactions?.some(item => item.kind === 'init' && item.phase === 'committed'), 'recover 应列出已提交的 init 事务');
   session.expectOk(['rollback', '--root', root, json], {label: 'rollback（只查询）'});
 
+  commitGitBaseline(session, root);
   const syncPlan = path.join(plans, 'sync.json');
   session.expectOk(['sync', '--root', root, '--plan', '--out', syncPlan, json], {label: 'sync --plan'});
   const synced = session.expectOk(['sync', '--root', root, '--apply', '--plan-file', syncPlan, json], {label: 'sync --apply'});
@@ -150,6 +158,7 @@ export function runSkillsProfile(session, profile, tempRoot) {
   }
  }
 
+ commitGitBaseline(session, root);
  const sync=path.join(plans,'sync.json');
  session.expectOk(['sync','--root',root,'--plan','--out',sync,'--json']);
  const result=session.expectOk(['sync','--root',root,'--apply','--plan-file',sync,'--json']);
