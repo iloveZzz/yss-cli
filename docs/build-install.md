@@ -47,7 +47,7 @@ manifest 字段如下；摘要均为实际字节的 SHA-256：
 下面是 macOS ARM64 的最小包示例。需有 `jq`、`shasum`、`tar`；它们只用于手工打包，发行 CLI 不依赖它们。`version` 必须按刚构建程序的实际输出填写；`source_state` 按 `git status --short` 的实际结果填写，不能把有修改的源码标为 committed。`/outside/package-darwin-arm64` 须不存在：
 
 ```sh
-version=4.0.0
+version=3.0.1
 target_os=darwin
 target_arch=arm64
 cli_commit=$(git rev-parse HEAD)
@@ -70,7 +70,7 @@ Linux 的步骤相同，替换平台、原生或交叉编译的二进制与暂�
 
 ```sh
 cd /outside/package-windows-amd64
-zip /outside/yss_4.0.0_windows_amd64.zip yss.exe release-manifest.json
+zip /outside/yss_3.0.1_windows_amd64.zip yss.exe release-manifest.json
 ```
 
 Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一平台的值。使用 `zip` 打包前将暂存程序权限设为 0755；避免加密、符号链接、目录项、绝对路径或 `../`。归档及总解压载荷均限制在 256 MiB 内。
@@ -81,7 +81,7 @@ Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一�
 
 ```sh
 cd /outside
-shasum -a 256 yss_4.0.0_*.tar.gz yss_4.0.0_*.zip > SHA256SUMS
+shasum -a 256 yss_3.0.1_*.tar.gz yss_3.0.1_*.zip > SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -90,9 +90,9 @@ shasum -a 256 -c SHA256SUMS
 首次切换到本版，由 Agent 使用刚构建或已可信取得的新 CLI 执行完整包安装。旧 CLI 的在线升级器可能要求旧格式，不能保证识别 schema 2。不要只覆盖旧可执行文件或手改旧安装收据；选择新的工具目录并用新 CLI 生成安装记录：
 
 ```sh
-/outside/yss upgrade --artifact /outside/yss_4.0.0_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.1_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss --dry-run
-/outside/yss upgrade --artifact /outside/yss_4.0.0_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.1_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss
 /absolute/new-yss/yss version
 ```
@@ -104,7 +104,7 @@ shasum -a 256 -c SHA256SUMS
 ```sh
 yss upgrade --dry-run
 yss upgrade
-yss upgrade --to 4.0.0 --tool-root /absolute/yss --dry-run
+yss upgrade --to 3.0.1 --tool-root /absolute/yss --dry-run
 ```
 
 在线来源固定为 `iloveZzz/yss-cli` 的正式 GitHub Release；仅接收可信 GitHub 下载来源。dry-run 只读发行元数据与 SHA256SUMS，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
@@ -114,18 +114,18 @@ yss upgrade --to 4.0.0 --tool-root /absolute/yss --dry-run
 先确认当前源码版本、实际来源和待上传归档。只有获得本次发布及标签授权后才执行对应 `gh` 动作；不自动修改 `docs/template-release.json`，不伪造模板标签。下面命令中的版本必须与真实源码和归档一致：
 
 ```sh
-gh release create v4.0.0 --repo iloveZzz/yss-cli --target <已授权的实际CLI提交> \
-  --title 'v4.0.0' --notes-file /outside/release-notes.md \
-  /outside/yss_4.0.0_darwin_arm64.tar.gz /outside/SHA256SUMS
+gh release create v3.0.1 --repo iloveZzz/yss-cli --target <已授权的实际CLI提交> \
+  --title 'v3.0.1' --notes-file /outside/release-notes.md \
+  /outside/yss_3.0.1_darwin_arm64.tar.gz /outside/SHA256SUMS
 ```
 
-若该 Release 已存在，先查看已有资产并确认本次上传授权，使用 `gh release upload v4.0.0 --repo iloveZzz/yss-cli <实际新资产路径>`；不默认覆盖同名资产，不改写已发布版本。补充平台时，清单须包含该 Release 的全部归档，更新同名清单前须确认替换授权。发行说明写实际支持与未验证范围，不把编译结果写成资格通过。
+若该 Release 已存在，先查看已有资产并确认本次上传授权，使用 `gh release upload v3.0.1 --repo iloveZzz/yss-cli <实际新资产路径>`；不默认覆盖同名资产，不改写已发布版本。补充平台时，清单须包含该 Release 的全部归档，更新同名清单前须确认替换授权。发行说明写实际支持与未验证范围，不把编译结果写成资格通过。
 
 从正式 Release 取包也可由 Agent 手动完成，保存到新目录后校验：
 
 ```sh
-gh release download v4.0.0 --repo iloveZzz/yss-cli --dir /outside/download-v4.0.0 \
-  --pattern yss_4.0.0_darwin_arm64.tar.gz --pattern SHA256SUMS
+gh release download v3.0.1 --repo iloveZzz/yss-cli --dir /outside/download-v3.0.1 \
+  --pattern yss_3.0.1_darwin_arm64.tar.gz --pattern SHA256SUMS
 ```
 
 核验 SHA256SUMS 中所选归档的实际摘要，再用新 CLI 的离线 upgrade 安装。不要执行来自不明地址、未核验的裸程序。
