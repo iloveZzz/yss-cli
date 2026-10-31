@@ -50,11 +50,10 @@ jobs:
           submodules: false
       - name: Produce embedded bundle archive (not stored in git)
         run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
-      - name: Compile production packages and record candidate
+      - name: Build candidate and record provenance
         env:
           CGO_ENABLED: 0
         run: |
-          go build ./...
           node tools/build-candidate.mjs --out "$RUNNER_TEMP/yss-candidate"
       - name: Check gofmt and go vet
         run: |
@@ -87,8 +86,7 @@ jobs:
           CGO_ENABLED: 0
           YSS_TEST_REQUIRE_SKILL_REFERENCES: 1
         run: |
-          go build -o "$RUNNER_TEMP/yss-smoke/yss" ./cmd/yss
-          node tools/smoke/main.mjs --bin "$RUNNER_TEMP/yss-smoke/yss"
+          node tools/smoke/main.mjs --bin "$RUNNER_TEMP/yss-candidate/yss"
       - name: Rebuild and compare all generated artifacts
         run: node tools/artifacts.mjs check --scope all --source-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-artifacts"
       - uses: actions/upload-artifact@v4
