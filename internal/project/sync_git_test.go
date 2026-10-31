@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -248,5 +249,36 @@ func TestSyncDoesNotOverwriteIgnoredExistingControlFile(t *testing.T) {
 	}
 	if got, e := os.ReadFile(file); e != nil || string(got) != "user data" {
 		t.Fatalf("ignored control file changed: %q %v", got, e)
+	}
+}
+
+func TestSyncDoesNotRewriteIgnoredPreviousJournal(t *testing.T) {
+	root := t.TempDir()
+	syncTestGit(t, root, "init", "-q")
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".yss/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	syncTestGit(t, root, "add", ".gitignore")
+	syncTestGit(t, root, "commit", "-qm", "base")
+	check := func(ref string) error { return syncCheckIgnored(context.Background(), root, []string{ref}) }
+	first, err := transaction.ApplySyncWithValidation(context.Background(), root, []transaction.Operation{{Path: "first", Data: []byte("new"), Mode: 0644}}, nil, nil, check, func() error { return errors.New("failed") })
+	if err == nil {
+		t.Fatal("expected failed sync")
+	}
+	if err := os.Remove(filepath.Join(root, "first")); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(first.BackupPath, "journal.json")
+	before, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = transaction.ApplySyncWithValidation(context.Background(), root, []transaction.Operation{{Path: "second", Data: []byte("new"), Mode: 0644}}, nil, nil, check, nil)
+	if err == nil {
+		t.Fatal("sync accepted ignored previous journal")
+	}
+	after, err := os.ReadFile(journal)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("ignored journal changed: %v", err)
 	}
 }
