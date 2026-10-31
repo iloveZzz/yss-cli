@@ -5,10 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,8 +18,6 @@ import (
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
-const githubAPI = "https://api.github.com/repos/iloveZzz/yss-cli/releases/"
-const releaseBase = "https://github.com/iloveZzz/yss-cli/releases/"
 const metadataLimit = 256 << 10
 
 // UpgradeClient's optional fields are OS/network seams. The production CLI
@@ -52,18 +48,23 @@ type UpgradeResult struct {
 	Transaction     *transaction.Result `json:"transaction,omitempty"`
 }
 
-type githubAsset struct {
-	Name string `json:"name"`
-	URL  string `json:"browser_download_url"`
-	Size int64  `json:"size"`
+type gitlabAsset struct {
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	DirectURL string `json:"direct_asset_url"`
+	Size      int64  `json:"-"`
 }
-
-type githubRelease struct {
-	Tag        string        `json:"tag_name"`
-	Draft      bool          `json:"draft"`
-	Prerelease bool          `json:"prerelease"`
-	URL        string        `json:"html_url"`
-	Assets     []githubAsset `json:"assets"`
+type gitlabRelease struct {
+	Tag        string `json:"tag_name"`
+	Upcoming   bool   `json:"upcoming_release"`
+	ReleasedAt string `json:"released_at"`
+	Links      struct {
+		Self string `json:"self"`
+	} `json:"_links"`
+	Assets struct {
+		Links []gitlabAsset `json:"links"`
+	} `json:"assets"`
+	URL string `json:"-"`
 }
 
 type onlineArtifact struct {
@@ -72,10 +73,11 @@ type onlineArtifact struct {
 	Bytes   int64
 }
 type onlineRelease struct {
-	githubRelease
+	gitlabRelease
 	version  string
 	artifact onlineArtifact
-	asset    githubAsset
+	asset    gitlabAsset
+	source   *gitlabSource
 }
 
 func stableVersion(raw string) (string, error) {
@@ -89,57 +91,7 @@ func stableVersion(raw string) (string, error) {
 	return version, nil
 }
 
-func (c UpgradeClient) client() *http.Client {
-	client := http.Client{Timeout: 5 * time.Minute}
-	if c.HTTPClient != nil {
-		client = *c.HTTPClient
-	}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return fail("NETWORK", "发行下载重定向次数超限")
-		}
-		allowed := map[string]bool{"api.github.com": true, "github.com": true, "release-assets.githubusercontent.com": true, "objects.githubusercontent.com": true, "github-releases.githubusercontent.com": true}
-		if req.URL.Scheme != "https" || !allowed[req.URL.Hostname()] || req.URL.User != nil {
-			return fail("NETWORK", "拒绝发行下载重定向到未知来源")
-		}
-		return nil
-	}
-	return &client
-}
-
-func (c UpgradeClient) get(ctx context.Context, address string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
-	if err != nil {
-		return nil, domain.Explain(domain.Wrap("NETWORK", err), "RELEASE_REQUEST_INVALID", "固定发行来源请求无法构建。", map[string]any{"source": address, "phase": "request"})
-	}
-	req.Header.Set("User-Agent", "yss/"+domain.Version)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := c.client().Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, domain.Wrap("CANCELLED", ctx.Err())
-		}
-		return nil, domain.Explain(domain.Wrap("NETWORK", err), "RELEASE_REQUEST_FAILED", "连接固定发行来源失败。", map[string]any{"source": address, "phase": "request"})
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		detail := map[string]any{"source": address, "phase": "request", "httpStatus": resp.StatusCode}
-		// Only bounded numeric limits and a GitHub request ID are safe to retain; never copy bodies or arbitrary headers.
-		for header, key := range map[string]string{"X-RateLimit-Limit": "githubRateLimit", "X-RateLimit-Remaining": "githubRateRemaining", "X-RateLimit-Reset": "githubRateReset", "Retry-After": "retryAfter"} {
-			value := resp.Header.Get(header)
-			if value != "" && len(value) <= 20 && strings.Trim(value, "0123456789") == "" {
-				detail[key] = value
-			}
-		}
-		if value := resp.Header.Get("X-GitHub-Request-Id"); value != "" && len(value) <= 128 && strings.Trim(value, "0123456789abcdefABCDEF:") == "" {
-			detail["githubRequestId"] = value
-		}
-		return nil, domain.Explain(fail("NETWORK", fmt.Sprintf("GitHub 返回 HTTP %d；检查网络、版本是否发布或稍后重试", resp.StatusCode)), "RELEASE_HTTP_STATUS", "固定发行来源返回了非成功 HTTP 状态。", detail)
-	}
-	return resp, nil
-}
-
-func (c UpgradeClient) metadata(ctx context.Context, address string, v any, strict bool) error {
+func (c *gitlabSource) metadata(ctx context.Context, address string, v any) error {
 	r, err := c.get(ctx, address)
 	if err != nil {
 		return err
@@ -150,7 +102,7 @@ func (c UpgradeClient) metadata(ctx context.Context, address string, v any, stri
 		if ctx.Err() != nil {
 			return domain.Wrap("CANCELLED", ctx.Err())
 		}
-		return domain.Wrap("NETWORK", err)
+		return fail("NETWORK", "读取固定 GitLab 发行数据失败")
 	}
 	if len(b) > metadataLimit {
 		return fail("ARTIFACT", "发行 metadata 超过 256 KiB")
@@ -159,68 +111,62 @@ func (c UpgradeClient) metadata(ctx context.Context, address string, v any, stri
 		return fail("ARTIFACT", "发行 metadata 必须为单个 JSON 文档")
 	}
 	if _, err = schema.Parse(b); err != nil {
-		return domain.Wrap("ARTIFACT", err)
+		return fail("ARTIFACT", "发行 metadata JSON 结构不合法")
 	}
-	if strict {
-		return parseJSON(b, v)
+	if err = json.Unmarshal(b, v); err != nil {
+		return fail("ARTIFACT", "发行 metadata 字段类型不合法")
 	}
-	return json.Unmarshal(b, v)
-}
-
-func assetFor(r githubRelease, name string) (githubAsset, error) {
-	var found githubAsset
-	for _, asset := range r.Assets {
-		if asset.Name != name {
-			continue
-		}
-		if found.Name != "" {
-			return found, fail("ARTIFACT", "发行资产名称重复: "+name)
-		}
-		if asset.URL != releaseBase+"download/"+r.Tag+"/"+url.PathEscape(name) {
-			return found, fail("ARTIFACT", "发行资产 URL 不属于固定仓库和版本: "+name)
-		}
-		found = asset
-	}
-	if found.Name == "" {
-		return found, fail("ARTIFACT", "发行缺少资产: "+name)
-	}
-	return found, nil
+	return nil
 }
 
 func (c UpgradeClient) resolve(ctx context.Context, target string) (onlineRelease, error) {
 	var selected onlineRelease
-	endpoint := githubAPI + "latest"
+	source, err := c.gitlab()
+	if err != nil {
+		return selected, err
+	}
+	if err = source.identify(ctx); err != nil {
+		return selected, err
+	}
+	endpoint := source.api() + "/releases/permalink/latest"
 	if target != "" {
 		v, err := stableVersion(target)
 		if err != nil {
 			return selected, err
 		}
 		target = v
-		endpoint = githubAPI + "tags/v" + v
+		endpoint = source.api() + "/releases/v" + v
 	}
-	if err := c.metadata(ctx, endpoint, &selected.githubRelease, false); err != nil {
+	source.allowed[endpoint] = true
+	if err = source.metadata(ctx, endpoint, &selected.gitlabRelease); err != nil {
 		return selected, err
 	}
-	r := selected.githubRelease
+	r := selected.gitlabRelease
 	version, err := stableVersion(r.Tag)
 	if err != nil {
-		return selected, err
+		return selected, fail("ARTIFACT", "发行版本不是有效稳定 SemVer")
 	}
-	if r.Tag != "v"+version || r.Draft || r.Prerelease || r.URL != releaseBase+"tag/"+r.Tag || target != "" && version != target {
+	released, err := time.Parse(time.RFC3339, r.ReleasedAt)
+	if err != nil || released.After(time.Now()) || r.Upcoming || r.Tag != "v"+version || r.Links.Self != releaseBase+r.Tag || target != "" && version != target {
 		return selected, fail("ARTIFACT", "发行版本、来源或稳定版状态不一致")
 	}
-	checksum, err := assetFor(r, "SHA256SUMS")
+	selected.URL = r.Links.Self
+	selected.source = source
+	checksum, err := source.asset(r, "SHA256SUMS")
 	if err != nil {
 		return selected, err
 	}
-	response, err := c.get(ctx, checksum.URL)
+	response, err := source.get(ctx, checksum.URL)
 	if err != nil {
 		return selected, err
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, metadataLimit+1))
 	if err != nil {
-		return selected, err
+		if ctx.Err() != nil {
+			return selected, domain.Wrap("CANCELLED", ctx.Err())
+		}
+		return selected, fail("NETWORK", "读取固定 GitLab checksum 失败")
 	}
 	if len(data) > metadataLimit {
 		return selected, fail("ARTIFACT", "SHA256SUMS 超限")
@@ -248,10 +194,16 @@ func (c UpgradeClient) resolve(ctx context.Context, target string) (onlineReleas
 	if sums[name] == "" {
 		return selected, fail("ARTIFACT", "SHA256SUMS 缺少当前平台发行包")
 	}
-	selected.asset, err = assetFor(r, name)
+	selected.asset, err = source.asset(r, name)
 	if err != nil {
 		return selected, err
 	}
+	responseSize, err := source.request(ctx, http.MethodHead, selected.asset.URL)
+	if err != nil {
+		return selected, err
+	}
+	selected.asset.Size = responseSize.ContentLength
+	responseSize.Body.Close()
 	if selected.asset.Size <= 0 || selected.asset.Size > maxArchive {
 		return selected, fail("ARTIFACT", "发行资产大小不合法")
 	}
@@ -388,7 +340,7 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 }
 
 func (c UpgradeClient) download(ctx context.Context, release onlineRelease, path string) error {
-	r, err := c.get(ctx, release.asset.URL)
+	r, err := release.source.get(ctx, release.asset.URL)
 	if err != nil {
 		return err
 	}
@@ -407,7 +359,7 @@ func (c UpgradeClient) download(ctx context.Context, release onlineRelease, path
 		if ctx.Err() != nil {
 			return domain.Wrap("CANCELLED", ctx.Err())
 		}
-		return domain.Wrap("NETWORK", err)
+		return fail("NETWORK", "读取固定 GitLab 发行数据失败")
 	}
 	if n != release.artifact.Bytes {
 		return fail("ARTIFACT", "发行下载实际长度与校验清单不一致")
