@@ -52,147 +52,6 @@ type Result struct {
 	Transactions       []Summary `json:"transactions,omitempty"`
 }
 
-// IntentMaterial is a verified transaction file, never lifecycle evidence.
-type IntentMaterial struct {
-	Ref        string            `json:"ref"`
-	Descriptor domain.Descriptor `json:"descriptor"`
-}
-
-// LifecycleTargetMaterials reads only the exact target's terminal intent archive.
-func LifecycleTargetMaterials(root, configRef string) ([]IntentMaterial, error) {
-	root, err := safeRoot(root, false)
-	if err != nil {
-		return nil, err
-	}
-	if filepath.Base(configRef) != "progression-target.json" {
-		return nil, fail("STATE", "目标材料需要精确意图配置引用")
-	}
-	if err = guard(root, configRef); err != nil {
-		return nil, err
-	}
-	all, preparations, err := scan(root)
-	if err != nil {
-		return nil, err
-	}
-	if len(preparations) != 0 {
-		return nil, fail("INTERRUPTED", "未发布事务不能作为意图材料")
-	}
-	out := []IntentMaterial{}
-	for _, l := range all {
-		if l.plan.Kind != "lifecycle-target" {
-			continue
-		}
-		matches := false
-		for _, op := range l.plan.Operations {
-			matches = matches || op.Path == configRef
-		}
-		if !matches {
-			continue
-		}
-		if !terminal(l.journal.Phase) {
-			return nil, fail("INTERRUPTED", "目标事务尚未完成")
-		}
-		if len(l.plan.Operations) != 1 || len(l.plan.Artifacts) != 0 {
-			return nil, fail("STATE", "目标事务只能修改指定意图，不能携带额外操作或归档证据")
-		}
-		op := l.plan.Operations[0]
-		if (op.Before.Type != "file" && op.Before.Type != "missing") || op.After.Type != "file" {
-			return nil, fail("STATE", "目标事务仅支持原文件或缺失配置到文件")
-		}
-		count, err := attempted(root, l)
-		if err != nil {
-			return nil, err
-		}
-		wal, err := read(root, l.base+"/intent.wal")
-		if err != nil {
-			return nil, err
-		}
-		var complete []byte
-		for i := 0; i < count; i++ {
-			complete = append(complete, encode(intent{SchemaVersion: 1, Index: i})...)
-		}
-		if !bytes.Equal(wal, complete) || l.journal.Phase == "rolled-back" && count != 1 {
-			return nil, fail("STATE", "终态目标事务 WAL 不完整或含未知内容")
-		}
-		journalBytes, err := read(root, l.base+"/journal.json")
-		if err != nil {
-			return nil, err
-		}
-		wanted := map[string]string{"plan.json": l.journal.PlanDigest, "journal.json": safefs.Digest(journalBytes), "intent.wal": safefs.Digest(wal)}
-		for _, d := range []domain.Descriptor{op.Before, op.After} {
-			if d.Type == "file" {
-				if _, err := blob(root, l.base, 0, d, false); err != nil {
-					return nil, err
-				}
-				wanted["objects/"+d.Digest] = d.Digest
-			}
-		}
-		// The existing inventory verifies links/types. Check root names as well:
-		// preparationInventory intentionally omits preparation seal files.
-		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(l.base)))
-		if err != nil {
-			return nil, err
-		}
-		for _, entry := range entries {
-			if entry.Name() != "objects" && wanted[entry.Name()] == "" {
-				return nil, fail("STATE", "目标事务含未知材料: "+entry.Name())
-			}
-		}
-		files, dirs, err := preparationInventory(root, l.base)
-		if err != nil {
-			return nil, err
-		}
-		if len(files) != len(wanted) || len(dirs) != 2 || dirs["."] == 0 || dirs["objects"] == 0 {
-			return nil, fail("STATE", "目标事务材料库存不完整")
-		}
-		for ref, d := range files {
-			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(l.base+"/"+ref)))
-			if err != nil {
-				return nil, err
-			}
-			if wanted[ref] != d.Digest || domain.FileMode(d.Mode) != domain.FileMode(0600) || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-				return nil, fail("STATE", "目标事务材料路径或模式不匹配: "+ref)
-			}
-			d.Mode = domain.FileMode(d.Mode)
-			out = append(out, IntentMaterial{Ref: l.base + "/" + ref, Descriptor: d})
-		}
-		current, err := load(root, l.plan.ID)
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(encode(current.plan), encode(l.plan)) || current.journal != l.journal {
-			return nil, fail("CONCURRENT", "目标事务读取期间身份或终态变化")
-		}
-	}
-	if len(out) != 0 {
-		// acquire leaves this exact empty mutex after a successful transaction.
-		// It is not a license to omit other global transaction control files.
-		ref := stateRef + "/.lock"
-		raw, err := read(root, ref)
-		if err != nil {
-			return nil, err
-		}
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(ref)))
-		if err != nil {
-			return nil, err
-		}
-		want := domain.Descriptor{Type: "file", Digest: safefs.Digest(nil), Mode: domain.FileMode(0600)}
-		if len(raw) != 0 || !info.Mode().IsRegular() || domain.FileMode(uint32(info.Mode().Perm())) != want.Mode || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-			return nil, fail("STATE", "目标事务 mutex 必须是原协议模式的空普通文件")
-		}
-		current, err := safefs.Describe(root, ref)
-		if err != nil {
-			return nil, err
-		}
-		if !same(current, want) {
-			return nil, fail("CONCURRENT", "目标事务 mutex 读取期间变化")
-		}
-		out = append(out, IntentMaterial{Ref: ref, Descriptor: current})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
-	return out, nil
-}
-
 type Summary struct {
 	Profile       string `json:"profile,omitempty"`
 	TransactionID string `json:"transactionId"`
@@ -902,16 +761,6 @@ func acquireNoOp(root string) (func(), bool, error) {
 	return release, true, nil
 }
 
-// Apply uses an immutable plan, byte archives, and an fsynced intent WAL.
-func Apply(root, kind string, ops []Operation) (Result, error) {
-	return ApplyContext(context.Background(), root, kind, ops)
-}
-func ApplyContext(ctx context.Context, root, kind string, ops []Operation) (Result, error) {
-	return ApplyContextWithGuards(ctx, root, kind, ops, nil)
-}
-func ApplyWithGuards(root, kind string, ops []Operation, guards map[string]domain.Descriptor) (Result, error) {
-	return ApplyContextWithGuards(context.Background(), root, kind, ops, guards)
-}
 func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor) (Result, error) {
 	return ApplyContextWithValidation(ctx, root, kind, ops, guards, nil, nil)
 }
@@ -921,14 +770,6 @@ func ApplyContextWithGuards(ctx context.Context, root, kind string, ops []Operat
 // Archive artifacts never become writable project operations.
 func ApplyContextWithValidation(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, validate func() error) (Result, error) {
 	return applyContextWithValidation(ctx, root, kind, ops, guards, artifacts, nil, validate)
-}
-
-// ApplySyncWithValidation rechecks each sync target under the transaction lock.
-func ApplySyncWithValidation(ctx context.Context, root string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, prewrite func(string) error, validate func() error) (Result, error) {
-	if prewrite == nil {
-		return Result{}, fail("PLAN", "同步需要目标路径校验")
-	}
-	return applyContextWithValidation(ctx, root, "sync", ops, guards, artifacts, prewrite, validate)
 }
 
 func applyContextWithValidation(ctx context.Context, root, kind string, ops []Operation, guards map[string]domain.Descriptor, artifacts []Artifact, prewrite func(string) error, validate func() error) (out Result, returnErr error) {
@@ -1024,6 +865,9 @@ func applyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	for i := range all {
 		l := &all[i]
 		if !terminal(l.journal.Phase) {
+			if retiredDisjoint(*l, records) {
+				continue
+			}
 			if syncManuallyRestored(root, *l) {
 				if prewrite != nil {
 					if err := prewrite(l.base + "/journal.json"); err != nil {
@@ -1035,7 +879,7 @@ func applyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 				}
 				continue
 			}
-			return result(*l, "pending"), domain.Explain(fail("INTERRUPTED", "存在未完成事务，先检查事务状态"), "NATIVE_TRANSACTION_PENDING", "存在尚未完成的原生事务；同步请人工恢复 Git 基线，其他事务按状态处理。", map[string]any{"root": root, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
+			return result(*l, "pending"), domain.Explain(fail("INTERRUPTED", "存在未完成事务，先检查事务状态"), "NATIVE_TRANSACTION_PENDING", "存在尚未完成的文件事务；使用 doctor 查看或 recover 安全恢复。", map[string]any{"root": root, "transaction": l.journal.ID, "transactionKind": l.plan.Kind})
 		}
 	}
 	for _, r := range records {
@@ -1216,11 +1060,7 @@ func applyContextWithValidation(ctx context.Context, root, kind string, ops []Op
 	}
 	appliedErr := apply(ctx, root, &l, prewrite, validation)
 	if appliedErr != nil {
-		if kind == "sync" {
-			r := result(l, "pending")
-			r.FileApplication, r.Verification, r.CreatedPaths = "incomplete", verificationStatus, possibleNew
-			return r, fmt.Errorf("%w; 同步未完成，请核对可能新增的路径并手动处理，再用 Git 恢复已跟踪文件", appliedErr)
-		}
+
 		if kind == "program-update" {
 			r := result(l, "pending")
 			r.FileApplication = "incomplete"
@@ -1570,9 +1410,7 @@ func replace(root, base string, i int, r record, wanted domain.Descriptor, role 
 }
 
 func restore(root string, l *loaded, rollback bool) (restoreResult Result, restoreErr error) {
-	if l.plan.Kind == "sync" {
-		return result(*l, "blocked"), fail("KIND", "同步不支持恢复或回滚；请手动处理新增文件并用 Git 恢复")
-	}
+
 	dirty := map[string]bool{}
 	defer func() {
 		if err := flushDirectories(dirty); restoreErr == nil {
@@ -1666,279 +1504,6 @@ func restore(root string, l *loaded, rollback bool) (restoreResult Result, resto
 	return result(*l, status), nil
 }
 
-func Recover(root string) (Result, error) {
-	root, err := safeRoot(root, false)
-	if err != nil {
-		return Result{}, err
-	}
-	all, _, err := scan(root)
-	if err != nil {
-		return Result{}, err
-	}
-	pending := []loaded{}
-	for _, l := range all {
-		if !terminal(l.journal.Phase) {
-			pending = append(pending, l)
-		}
-	}
-	if len(pending) == 0 {
-		return Result{Status: "unchanged"}, nil
-	}
-	if len(pending) != 1 {
-		return Result{}, fail("STATE", "多个未完成事务，不能猜测恢复顺序")
-	}
-	release, err := acquire(root)
-	if err != nil {
-		return Result{}, err
-	}
-	defer release()
-	l, err := load(root, pending[0].plan.ID)
-	if err != nil {
-		return Result{}, err
-	}
-	if terminal(l.journal.Phase) {
-		return result(l, "unchanged"), nil
-	}
-	return restore(root, &l, l.journal.Phase == "rolling-back")
-}
-
-func Rollback(root string) (Result, error) {
-	return rollbackWithValidator(context.Background(), root, "", nil)
-}
-
-// RollbackKind applies only to the latest committed (or already rolled-back)
-// transaction of the requested kind. It never searches past a later success.
-func RollbackKind(root, wantKind string) (Result, error) {
-	if strings.TrimSpace(wantKind) == "" || strings.ContainsAny(wantKind, "\r\n\x00") {
-		return Result{}, fail("KIND", "回退必须指定非空事务 kind")
-	}
-	return rollbackWithValidator(context.Background(), root, wantKind, nil)
-}
-
-func rollbackWithValidator(ctx context.Context, root, wantKind string, validate ScopeValidator) (Result, error) {
-	if ctx == nil {
-		return Result{}, fail("ARGUMENT", "回退必须提供 context")
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
-	}
-	root, err := safeRoot(root, false)
-	if err != nil {
-		return Result{}, err
-	}
-	all, _, err := scan(root)
-	if err != nil {
-		return Result{}, err
-	}
-	if len(all) == 0 {
-		if wantKind != "" {
-			return Result{}, fail("KIND", "没有可匹配的成功事务: "+wantKind)
-		}
-		return Result{Status: "unchanged"}, nil
-	}
-	if err = ctx.Err(); err != nil {
-		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
-	}
-	release, err := acquire(root)
-	if err != nil {
-		return Result{}, err
-	}
-	defer release()
-	if err = ctx.Err(); err != nil {
-		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
-	}
-	all, _, err = scan(root)
-	if err != nil {
-		return Result{}, err
-	}
-	for _, l := range all {
-		if !terminal(l.journal.Phase) {
-			return result(l, "pending"), fail("INTERRUPTED", "先 recover 未完成事务")
-		}
-	}
-	// Only the most recent committed application is eligible, never an older one
-	// after its successor has already been rolled back.
-	var latest *loaded
-	for i := len(all) - 1; i >= 0; i-- {
-		if all[i].journal.Phase == "committed" || all[i].journal.Phase == "rolled-back" {
-			latest = &all[i]
-			break
-		}
-	}
-	if wantKind != "" && (latest == nil || latest.plan.Kind != wantKind) {
-		actual := "无成功事务"
-		if latest != nil {
-			actual = latest.plan.Kind
-		}
-		return Result{Status: "blocked"}, fail("KIND", "最新成功事务 kind="+actual+"，不能作为 "+wantKind+" 回退")
-	}
-	if latest != nil {
-		if err = validateArchiveScope(*latest, validate); err != nil {
-			return result(*latest, "blocked"), err
-		}
-	}
-	if err = ctx.Err(); err != nil {
-		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
-	}
-	if latest == nil || latest.journal.Phase == "rolled-back" {
-		return Result{Status: "unchanged"}, nil
-	}
-	for _, r := range latest.plan.Operations {
-		if err := assertCurrent(root, r, r.After); err != nil {
-			return result(*latest, "blocked"), err
-		}
-	}
-	if err = ctx.Err(); err != nil {
-		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
-	}
-	return restore(root, latest, true)
-}
-
-// ArchivedFile reads candidate bytes from a verified immutable transaction
-// archive. A unique pending transaction takes precedence over the latest
-// committed transaction. It creates no state and never reads target file bytes.
-func ArchivedFile(root, ref string) ([]byte, error) {
-	b, d, found, err := ArchivedCandidate(root, ref)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, fail("ARCHIVE", "事务没有登记候选路径: "+ref)
-	}
-	if d.Type != "file" {
-		return nil, fail("ARCHIVE", "归档路径没有候选文件: "+ref)
-	}
-	return b, nil
-}
-
-// ArchivedCandidate returns the verified plan descriptor from the selected
-// archive, and verified bytes when it is a file. Directory and deletion
-// candidates have no bytes. found=false means the plan did not write ref.
-func ArchivedCandidate(root, ref string) ([]byte, domain.Descriptor, bool, error) {
-	root, err := safeRoot(root, false)
-	if err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	if err := safefs.ValidateRef(ref); err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	all, _, err := scan(root)
-	if err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	pending := []loaded{}
-	for _, l := range all {
-		if !terminal(l.journal.Phase) {
-			pending = append(pending, l)
-		}
-	}
-	if len(pending) > 1 {
-		return nil, domain.Descriptor{}, false, fail("AMBIGUOUS", "多个未完成事务，不能猜测候选归档")
-	}
-	var selected *loaded
-	if len(pending) == 1 {
-		selected = &pending[0]
-	} else {
-		// A restored init has no installed identity. Its most recent verified
-		// archive still identifies repeated recovery; never search past a later
-		// rolled-back transaction into an older candidate.
-		if len(all) > 0 {
-			selected = &all[len(all)-1]
-		}
-	}
-	if selected == nil {
-		return nil, domain.Descriptor{}, false, fail("ARCHIVE", "没有可读取的候选事务归档")
-	}
-	return archivedCandidate(root, *selected, ref)
-}
-
-// ArchivedCandidateByID reads the exact archive selected by a transaction
-// validator; the caller must bind id to its lock-held Summary.
-func ArchivedCandidateByID(root, id, ref string) ([]byte, domain.Descriptor, bool, error) {
-	archive, err := OpenCandidateArchive(root, id)
-	if err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	return archive.Candidate(ref)
-}
-
-// CandidateArchive is a verified immutable transaction plan view. Callers
-// validating recovery must keep the transaction lock while using it.
-type CandidateArchive struct {
-	root     string
-	selected loaded
-}
-
-func (a *CandidateArchive) Kind() string { return a.selected.plan.Kind }
-
-func OpenCandidateArchive(root, id string) (*CandidateArchive, error) {
-	root, err := safeRoot(root, false)
-	if err != nil {
-		return nil, err
-	}
-	selected, err := load(root, id)
-	if err != nil {
-		return nil, err
-	}
-	return &CandidateArchive{root: root, selected: selected}, nil
-}
-
-func (a *CandidateArchive) Candidate(ref string) ([]byte, domain.Descriptor, bool, error) {
-	if err := safefs.ValidateRef(ref); err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	return archivedCandidate(a.root, a.selected, ref)
-}
-
-// Paths returns the exact operation paths from this verified archive.
-func (a *CandidateArchive) Paths() []string {
-	paths := make([]string, 0, len(a.selected.plan.Operations))
-	for _, op := range a.selected.plan.Operations {
-		paths = append(paths, op.Path)
-	}
-	return paths
-}
-
-// Original returns the lock-selected transaction's validated pre-operation
-// bytes and descriptor, or found=false if the operation did not touch ref.
-func (a *CandidateArchive) Original(ref string) ([]byte, domain.Descriptor, bool, error) {
-	if err := safefs.ValidateRef(ref); err != nil {
-		return nil, domain.Descriptor{}, false, err
-	}
-	for i, r := range a.selected.plan.Operations {
-		if r.Path != ref {
-			continue
-		}
-		if r.Before.Type != "file" {
-			return nil, r.Before, true, nil
-		}
-		b, err := blob(a.root, a.selected.base, i, r.Before, true)
-		if err != nil {
-			return nil, domain.Descriptor{}, false, err
-		}
-		return b, r.Before, true, nil
-	}
-	return nil, domain.Descriptor{}, false, nil
-}
-
-func archivedCandidate(root string, selected loaded, ref string) ([]byte, domain.Descriptor, bool, error) {
-	for i, r := range selected.plan.Operations {
-		if r.Path != ref {
-			continue
-		}
-		if r.After.Type != "file" {
-			return nil, r.After, true, nil
-		}
-		b, err := blob(root, selected.base, i, r.After, false)
-		if err != nil {
-			return nil, domain.Descriptor{}, false, err
-		}
-		return b, r.After, true, nil
-	}
-	return nil, domain.Descriptor{}, false, nil
-}
-
-// Status reads journals only; it creates no directory and acquires no write lock.
 func Status(root string) (Result, error) {
 	root, err := safeRoot(root, false)
 	if err != nil {

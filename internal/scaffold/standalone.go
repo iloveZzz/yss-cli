@@ -16,10 +16,7 @@ var (
 	standaloneName   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	standalonePkg    = regexp.MustCompile(`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$`)
 	javaDigits       = regexp.MustCompile(`^\d+$`)
-	verificationCmds = []string{"./mvnw validate", "./mvnw test", "./mvnw package"}
 )
-
-func commandList() []any { return stringsToAny(verificationCmds) }
 
 // standaloneModules are the modules of an independent skeleton.
 func standaloneModules(family string) []string {
@@ -31,6 +28,9 @@ func standaloneModules(family string) []string {
 
 // referenceExample mirrors referenceExample(enabled) in scaffold-reference-example.mjs.
 func referenceExample(src Source, enabled bool) (*OMap, error) {
+	if !enabled {
+		return newMap("enabled", false), nil
+	}
 	digest, err := referenceTemplateDigest(src)
 	if err != nil {
 		return nil, err
@@ -69,9 +69,6 @@ func referenceTemplateDigest(src Source) (string, error) {
 func standaloneConfiguration(src Source, o *Options, family string, example bool) (*OMap, *OMap, error) {
 	if !standaloneName.MatchString(o.ProjectName) || !standalonePkg.MatchString(o.BasePackage) {
 		return nil, nil, fail("独立生成必须提供合法项目名和 Java 包名")
-	}
-	if o.hasContract() {
-		return nil, nil, fail("--standalone 不得携带合同或批准参数；已有合同须走正式治理路径")
 	}
 	required := []struct{ name, value string }{
 		{"platformProfile", o.PlatformProfile}, {"springBootVersion", o.SpringBootVersion}, {"javaVersion", o.JavaVersion},
@@ -116,7 +113,7 @@ func standaloneConfiguration(src Source, o *Options, family string, example bool
 	if ddd {
 		architectureProfile, generatorSkill, architecture = "target-domain-model", dddSkill, "target-domain-model"
 	}
-	profiles := newMap("architecture", architecture, "persistence", "mybatis-plus", "verification_database", "h2", "production_database", "not-bound", "repository", "yss-internal")
+	profiles := newMap("architecture", architecture, "persistence", "mybatis-plus", "production_database", "not-bound", "repository", "yss-internal")
 	if ddd {
 		profiles.Set("dto_placement", "web")
 	}
@@ -164,23 +161,13 @@ func standaloneManifest(configuration, generated *OMap, render *RenderContext) *
 			manifest.Set(key, mustGet(source, key))
 		}
 	}
-	reference := asMap(mustGet(configuration, "reference_example"))
-	status := "not-applicable"
-	if reference != nil && mustGet(reference, "enabled") == true {
-		status = "not-executed"
-	}
 	manifest.Set("schema_version", 2)
 	manifest.Set("kind", "standalone-backend-scaffold")
 	manifest.Set("generation_mode", standaloneMode)
 	manifest.Set("completion_level", "generated")
-	manifest.Set("platform_verification", "unverified")
 	manifest.Set("maven_coordinates_source", "user-supplied")
 	manifest.Set("generation_input", configuration)
 	manifest.Set("input_digest", platformDigest(configuration))
-	manifest.Set("reference_verification", newMap("status", status, "commands", []any{}))
-	manifest.Set("verification_commands", commandList())
-	manifest.Set("verification", newMap("status", "not-executed", "commands", []any{}))
-	manifest.Set("readiness", newMap("lifecycle_approved", false, "ready_for_agent", false))
 	manifest.Set("generated_at", render.GeneratedAt)
 	return manifest
 }

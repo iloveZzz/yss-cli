@@ -1,10 +1,7 @@
 /bin/
 /dist/
-/coverage.out
 /yss-bin
 /yss-bin.exe
 /yss-cli
 /internal/bundle/assets/bundles.json.gz
 /internal/bundle/assets/bundles.json.gz.*.tmp
-/internal/bundle/assets/baseline-5.0.0.json.gz
-/internal/bundle/assets/baseline-5.0.0.json.gz.*.tmp

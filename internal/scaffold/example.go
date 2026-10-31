@@ -10,7 +10,6 @@ import (
 
 var (
 	placeholderPattern = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
-	h2TestScope        = regexp.MustCompile(`(<artifactId>h2</artifactId>\s*)<scope>test</scope>`)
 )
 
 // wireProfile reads the fields the reference example needs from the OpenAPI wire
@@ -179,10 +178,6 @@ func renderReferenceExample(src Source, t *Tree, spec exampleSpec) error {
 		text := strings.Replace(string(t.Data(webPom)), "</dependencies>", "<dependency><groupId>com.yss.cloud</groupId><artifactId>yss-component-exception</artifactId></dependency></dependencies>", 1)
 		t.Put(webPom, []byte(text))
 	}
-	runPom := referenceRoot + "/" + vars["run_module"] + "/pom.xml"
-	if !t.Has(runPom) {
-		return failf("参考示例缺少文件: %s", runPom)
-	}
-	t.Put(runPom, []byte(h2TestScope.ReplaceAllString(string(t.Data(runPom)), "${1}<scope>runtime</scope>")))
+
 	return nil
 }

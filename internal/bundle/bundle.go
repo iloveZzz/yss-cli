@@ -2,12 +2,16 @@ package bundle
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/iloveZzz/yss-cli/internal/domain"
-	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"github.com/iloveZzz/yss-cli/internal/schema"
+	"fmt"
+	"io"
+	"maps"
+	"regexp"
 	"strings"
+
+	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
 type File struct {
@@ -16,249 +20,311 @@ type File struct {
 	Mode      uint32 `json:"mode"`
 	Ownership string `json:"ownership"`
 }
+type Requirement struct {
+	Paths  []string `json:"paths"`
+	Skills []string `json:"skills,omitempty"`
+}
+type Installation struct {
+	Initial         map[string]File     `json:"initial"`
+	Distribution    map[string]any      `json:"distribution"`
+	SkillReferences map[string][]string `json:"skillReferences,omitempty"`
+}
+type Provenance struct {
+	Version     string `json:"version"`
+	Commit      string `json:"commit,omitempty"`
+	SourceState string `json:"sourceState"`
+}
+type PolicyProvenance struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+	Kind   string `json:"kind"`
+}
 type Bundle struct {
-	Installations     map[string]Installation `json:"installations,omitempty"`
-	NativeTransforms  []NativeTransform       `json:"nativeTransforms,omitempty"`
-	Upgrade           *UpgradePolicy          `json:"upgradePolicy,omitempty"`
-	Legacy            LegacyLineage           `json:"legacy,omitempty"`
 	SchemaVersion     int                     `json:"schemaVersion"`
-	TemplateVersion   string                  `json:"templateVersion,omitempty"`
-	LegacyCLICommit   string                  `json:"legacyCLICommit,omitempty"`
-	BundleHash        string                  `json:"bundleHash,omitempty"`
-	Producer          Provenance              `json:"producer,omitempty"`
-	SourcePolicy      PolicyProvenance        `json:"sourcePolicy,omitempty"`
 	Profile           string                  `json:"profile"`
-	LegacyVersion     string                  `json:"legacyVersion"`
-	CLICommit         string                  `json:"cliCommit,omitempty"`
+	TemplateVersion   string                  `json:"templateVersion"`
 	TemplateCommit    string                  `json:"templateCommit"`
 	SourceState       string                  `json:"sourceState"`
 	SnapshotHash      string                  `json:"sourceSnapshotHash"`
 	ManifestHash      string                  `json:"manifestHash"`
-	Distribution      map[string]any          `json:"distribution"`
+	BundleHash        string                  `json:"bundleHash"`
+	Producer          Provenance              `json:"producer"`
+	SourcePolicy      PolicyProvenance        `json:"sourcePolicy"`
 	Manifest          map[string]any          `json:"manifest"`
-	Initial           map[string]File         `json:"initial"`
+	Distribution      map[string]any          `json:"distribution"`
 	Files             map[string]File         `json:"files"`
-	StageRequirements map[string]Requirement  `json:"stageRequirements"`
+	Initial           map[string]File         `json:"initial"`
+	Installations     map[string]Installation `json:"installations"`
 	SkillRequirements map[string]Requirement  `json:"skillRequirements"`
 }
 
-func Load(profile string) (*Bundle, error) {
-	b, _, err := loadForOperation(profile)
-	return b, err
-}
+// Bound archive reads to limit memory use, independently of release/package size policy.
+const MaxArchiveBytes = 256 << 20
+const maxSnapshotBytes = 256 << 20
 
-func loadForOperation(profile string) (*Bundle, *validationOp, error) {
-	if _, err := domain.GetProfile(profile); err != nil {
-		return nil, nil, err
-	}
-	op := newValidationOp()
-	b, err := embeddedBundles.load(profile, op)
-	if err == nil && (b.TemplateCommit == retiredTemplateCommit || b.SourceState == "committed" && !supportedProduct(b)) {
-		return nil, nil, domain.Fail("BASELINE", "内嵌 Bundle 不属于受支持的模板来源；须重新构建")
-	}
-	return b, op, err
-}
+var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
+
 func (f File) Render(vars map[string]string) ([]byte, error) {
-	b, err := base64.StdEncoding.DecodeString(f.Data)
+	raw, err := base64.StdEncoding.DecodeString(f.Data)
 	if err != nil {
 		return nil, err
 	}
-	return renderDecoded(b, vars), nil
-}
-
-func renderDecoded(b []byte, vars map[string]string) []byte {
-	if bytes.IndexByte(b, 0) >= 0 {
-		return b
+	if safefs.Digest(raw) != f.Digest {
+		return nil, fmt.Errorf("文件摘要不一致")
 	}
-	text := string(b)
+	if bytes.IndexByte(raw, 0) >= 0 {
+		return raw, nil
+	}
+	text := string(raw)
 	for k, token := range map[string]string{"projectName": "__YSS_PROJECT_NAME__", "businessDomain": "__YSS_BUSINESS_DOMAIN__", "teamSize": "__YSS_TEAM_SIZE__"} {
-		text = strings.ReplaceAll(text, token, vars[k])
+		if value, ok := vars[k]; ok {
+			text = strings.ReplaceAll(text, token, value)
+		}
 	}
-	return []byte(text)
+	return []byte(text), nil
 }
-
-func validate(out *Bundle, profile string) error {
-	return validateWith(out, profile, newValidationOp())
+func Hash(b *Bundle) string {
+	copy := *b
+	copy.BundleHash = ""
+	raw, _ := json.Marshal(copy)
+	return safefs.Digest(raw)
 }
-
-func validateWith(out *Bundle, profile string, op *validationOp) error {
-	if (out.SchemaVersion < 1 || out.SchemaVersion > 5) || out.Profile != profile || (out.SourceState != "committed" && !(out.SourceState == "working-tree" && out.Producer.SourceState == "working-tree" && out.SourcePolicy.Kind == "working-tree" && strings.HasPrefix(out.TemplateVersion, "worktree:") && fullCommit.MatchString(strings.TrimPrefix(out.TemplateVersion, "worktree:")))) {
-		return domain.Fail("BUNDLE", "快照身份或来源不合法")
+func validate(b *Bundle) error {
+	if b == nil || b.SchemaVersion != 6 || (b.Profile != "spec" && b.Profile != "backend") || !commitPattern.MatchString(b.TemplateCommit) || b.TemplateVersion == "" || (b.SourceState != "committed" && b.SourceState != "working-tree") {
+		return fmt.Errorf("Bundle 身份不合法")
 	}
-	if out.SchemaVersion >= 4 && profile != "spec" && profile != "backend" {
-		return domain.Fail("BUNDLE", "Bundle4 仅支持 Spec/Backend")
+	if !digestPattern.MatchString(b.SnapshotHash) || !digestPattern.MatchString(b.ManifestHash) || !digestPattern.MatchString(b.SourcePolicy.Digest) || b.BundleHash != Hash(b) {
+		return fmt.Errorf("Bundle 来源或摘要不一致")
 	}
-	if out.Initial == nil {
-		out.Initial = out.Files
+	if b.SourcePolicy.Kind != b.SourceState || b.Producer.SourceState != b.SourceState {
+		return fmt.Errorf("Bundle 来源状态不一致")
 	}
-	var paths safefs.PathSet
-	for _, files := range []map[string]File{out.Files, out.Initial} {
+	if b.SourceState == "working-tree" && b.TemplateVersion != "worktree:"+b.SnapshotHash {
+		return fmt.Errorf("工作树版本不匹配")
+	}
+	manifest, _ := json.Marshal(b.Manifest)
+	if safefs.Digest(manifest) != b.ManifestHash {
+		return fmt.Errorf("清单摘要不一致")
+	}
+	snapshot, _ := json.Marshal(b.Files)
+	if safefs.Digest(snapshot) != b.SnapshotHash {
+		return fmt.Errorf("源码快照摘要不一致")
+	}
+	if len(b.Installations) != 2 {
+		return fmt.Errorf("Bundle 必须包含 project/skills 安装")
+	}
+	for _, kind := range []string{"project", "skills"} {
+		i, ok := b.Installations[kind]
+		if !ok || i.Initial == nil || i.Distribution["installation"] != kind {
+			return fmt.Errorf("缺少安装集合 %s", kind)
+		}
+	}
+	sets := []map[string]File{b.Files, b.Initial}
+	for _, i := range b.Installations {
+		sets = append(sets, i.Initial)
+	}
+	for _, files := range sets {
+		var paths safefs.PathSet
 		for ref, f := range files {
 			if err := paths.Add(ref); err != nil {
 				return err
 			}
-			_, err := op.content(f)
-			if err != nil {
-				return domain.Fail("BUNDLE", "快照摘要不一致: "+ref)
-			}
-			if !stringSet([]string{"managed", "managed-customizable", "generated", "user-owned", "protected"})[f.Ownership] {
-				return domain.Fail("BUNDLE", "快照ownership不合法: "+ref)
-			}
 			if f.Mode != 0644 && f.Mode != 0755 {
-				return domain.Fail("BUNDLE", "快照权限不合法: "+ref)
+				return fmt.Errorf("不合法权限 %s", ref)
+			}
+			switch f.Ownership {
+			case "managed", "managed-customizable", "generated", "user-owned", "protected":
+			default:
+				return fmt.Errorf("不合法 ownership %s", ref)
+			}
+			if _, err := f.Render(nil); err != nil {
+				return fmt.Errorf("%s: %w", ref, err)
 			}
 		}
 	}
-	for ref := range out.Initial {
-		if _, ok := out.Files[ref]; !ok {
-			return domain.Fail("BUNDLE", "初始化不属于完整快照: "+ref)
-		}
-	}
-	if out.SchemaVersion >= 4 {
-		for _, files := range []map[string]File{out.Files, out.Initial} {
-			if err := validateGovernance4(files, profile); err != nil {
-				return err
+	for _, i := range b.Installations {
+		for skill, refs := range i.SkillReferences {
+			if strings.Contains(skill, "/") {
+				return fmt.Errorf("技能名称不合法 %s", skill)
 			}
-		}
-	}
-	if out.SchemaVersion == 5 {
-		if len(out.Installations) != 2 {
-			return domain.Fail("BUNDLE", "Bundle5 requires two installation sets")
-		}
-		for _, kind := range []string{"skills", "governed"} {
-			view, err := out.ForInstallation(kind)
-			if err != nil {
-				return err
+			if _, ok := b.Files[".agents/skills/"+skill+"/SKILL.md"]; !ok {
+				return fmt.Errorf("技能不存在 %s", skill)
 			}
-			if view.Distribution["installation"] != kind {
-				return domain.Fail("BUNDLE", "installation identity mismatch")
-			}
-			for ref, f := range view.Initial {
-				if err := safefs.ValidateRef(ref); err != nil {
-					return err
+			for _, ref := range refs {
+				if _, ok := b.Files[ref]; !ok {
+					return fmt.Errorf("技能引用不存在 %s", ref)
 				}
-				if f.Mode != 0644 && f.Mode != 0755 {
-					return domain.Fail("BUNDLE", "installation mode invalid")
-				}
-			}
-		}
-	}
-	if out.SchemaVersion >= 2 {
-		if out.TemplateVersion == "" || !fullCommit.MatchString(out.TemplateCommit) || out.SourcePolicy.Digest == "" {
-			return domain.Fail("BUNDLE", "v2来源身份缺失")
-		}
-	}
-	if out.SchemaVersion >= 3 && out.Upgrade == nil {
-		return domain.Fail("BUNDLE", "Bundle v3 缺少升级政策")
-	}
-	if out.Upgrade != nil {
-		if err := out.Upgrade.Validate(out); err != nil {
-			return err
-		}
-	}
-	if err := validateNativeTransforms(out); err != nil {
-		return err
-	}
-	for _, req := range out.StageRequirements {
-		for _, p := range req.Paths {
-			if _, ok := out.Files[p]; !ok {
-				return domain.Fail("BUNDLE", "阶段快照缺文件: "+p)
-			}
-		}
-	}
-	for _, req := range out.SkillRequirements {
-		for _, p := range req.Paths {
-			if _, ok := out.Files[p]; !ok {
-				return domain.Fail("BUNDLE", "Skill快照缺文件: "+p)
 			}
 		}
 	}
 	return nil
 }
+func Load(profile string) (*Bundle, error) {
+	if len(packedData) == 0 {
+		return nil, fmt.Errorf("没有内嵌模板，请运行 tools/bundle")
+	}
+	if len(packedData) > MaxArchiveBytes {
+		return nil, fmt.Errorf("Bundle 超过限制")
+	}
+	z, err := gzip.NewReader(bytes.NewReader(packedData))
+	if err != nil {
+		return nil, err
+	}
+	defer z.Close()
+	raw, err := io.ReadAll(io.LimitReader(z, maxSnapshotBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxSnapshotBytes {
+		return nil, fmt.Errorf("Bundle 解压后超过限制")
+	}
+	bundles, err := unpack(raw)
+	if err != nil {
+		return nil, err
+	}
+	b := bundles[profile]
+	if err = validate(b); err != nil {
+		return nil, err
+	}
+	if b.Profile != profile {
+		return nil, fmt.Errorf("Bundle profile 不匹配")
+	}
+	return b, nil
+}
+func (b *Bundle) ForInstallation(kind string) (*Bundle, error) {
+	if kind != "project" && kind != "skills" {
+		return nil, fmt.Errorf("未知安装方式 %s", kind)
+	}
+	i, ok := b.Installations[kind]
+	if !ok {
+		return nil, fmt.Errorf("缺少安装集合 %s", kind)
+	}
+	view := *b
+	view.Initial = maps.Clone(i.Initial)
+	view.Files = maps.Clone(b.Files)
+	view.Distribution = maps.Clone(i.Distribution)
+	return &view, nil
+}
+func (i Installation) ReferencesForSkill(skill string) ([]string, error) {
+	return append([]string(nil), i.SkillReferences[skill]...), nil
+}
+func (i Installation) ReferenceOwners() []string { return sortedKeys(i.SkillReferences) }
 
-func validateGovernance4(files map[string]File, profile string) error {
-	read := func(ref string) ([]byte, error) {
-		f, ok := files[ref]
-		if !ok {
-			return nil, domain.Fail("BUNDLE", "Bundle4 缺少身份或政策: "+ref)
+func skillPath(ref, skill string) bool {
+	parts := strings.Split(ref, "/")
+	return len(parts) >= 4 && parts[1] == "skills" && parts[2] == skill && strings.HasPrefix(parts[0], ".")
+}
+func (b *Bundle) SkillFiles(names []string) (map[string]File, error) {
+	out := map[string]File{}
+	seen := map[string]bool{}
+	var add func(string) error
+	add = func(name string) error {
+		if seen[name] {
+			return nil
 		}
-		return base64.StdEncoding.DecodeString(f.Data)
-	}
-	doc := func(ref string) (map[string]any, error) {
-		raw, err := read(ref)
-		if err != nil {
-			return nil, err
+		seen[name] = true
+		if _, ok := b.Files[".agents/skills/"+name+"/SKILL.md"]; !ok {
+			return fmt.Errorf("未知技能 %s", name)
 		}
-		value, err := schema.Parse(raw)
-		if err != nil {
-			return nil, err
+		for ref, f := range b.Files {
+			if skillPath(ref, name) {
+				out[ref] = f
+			}
 		}
-		m, ok := value.(map[string]any)
-		if !ok {
-			return nil, domain.Fail("BUNDLE", "Bundle4 身份必须为对象")
+		req := b.SkillRequirements[name]
+		for _, ref := range req.Paths {
+			f, ok := b.Files[ref]
+			if !ok {
+				return fmt.Errorf("技能引用缺失 %s", ref)
+			}
+			out[ref] = f
 		}
-		return m, nil
-	}
-	identity, err := doc("yss-project.yaml")
-	if err != nil {
-		return err
-	}
-	harness, err := doc(".template-spec/process/harness-profile.yaml")
-	if err != nil {
-		return err
-	}
-	p, err := domain.GetProfile(profile)
-	if err != nil {
-		return err
-	}
-	capabilities, _ := harness["required_capabilities"].([]any)
-	if len(identity) != 2 || identity["schema_version"] != json.Number("2") || identity["repository_mode"] != "project-instance" || harness["schema_version"] != json.Number("3") || harness["profile_id"] != p.ID || harness["status"] != "active" {
-		return domain.Fail("BUNDLE", "Bundle4 必须使用当前 identity2/Profile3 精确组合")
-	}
-	if workflow, present := harness["spec_workflow"]; present {
-		if profile != "spec" || workflow != "matt-spec-v1" {
-			return domain.Fail("BUNDLE", "未知 Spec 工作流 Profile")
-		}
-		policy, err := doc(".template-spec/process/spec-workflow.json")
-		if err != nil {
-			return err
-		}
-		if len(policy) != 3 || policy["schemaVersion"] != json.Number("1") || policy["specWorkflow"] != workflow || policy["profile"] != "spec" {
-			return domain.Fail("BUNDLE", "Spec 工作流来源政策不匹配")
+		for _, dep := range req.Skills {
+			if err := add(dep); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
-	policy, _, _, err := schema.LoadOrchestration(read, schema.OrchestrationRef)
-	if err != nil {
-		return err
-	}
-	stage, stageEnabled := policy["stage_gates"].(map[string]any)
-	expected := map[string]bool{"role-independent-governance-v1": true}
-	if stageEnabled {
-		if profile != "spec" || stage["capability"] != "stage-gates-v1" || stage["schema_version"] != json.Number("1") {
-			return domain.Fail("BUNDLE", "四阶段政策只能显式用于 Spec")
+	for _, name := range names {
+		if err := add(name); err != nil {
+			return nil, err
 		}
-		expected["stage-gates-v1"] = true
 	}
-	if len(capabilities) != len(expected) {
-		return domain.Fail("BUNDLE", "Bundle4 Profile 能力与当前政策不匹配")
+	return out, nil
+}
+
+type archive struct {
+	SchemaVersion int                `json:"schemaVersion"`
+	Profiles      map[string]*Bundle `json:"profiles"`
+	Objects       map[string]string  `json:"objects"`
+}
+
+func mapFiles(b *Bundle, fn func(File) (File, error)) error {
+	sets := []map[string]File{b.Files, b.Initial}
+	for _, i := range b.Installations {
+		sets = append(sets, i.Initial)
 	}
-	for _, value := range capabilities {
-		cap, ok := value.(string)
-		if !ok || !expected[cap] {
-			return domain.Fail("BUNDLE", "Bundle4 包含未知或重复能力")
+	for _, files := range sets {
+		for ref, f := range files {
+			v, err := fn(f)
+			if err != nil {
+				return err
+			}
+			files[ref] = v
 		}
-		delete(expected, cap)
-	}
-	versions, _ := policy["governance_versions"].(map[string]any)
-	if policy["schema_version"] != json.Number("2") || versions["required_capability"] != "role-independent-governance-v1" {
-		return domain.Fail("BUNDLE", "Bundle4 必须提供明确的新治理政策2")
 	}
 	return nil
 }
-
-type Requirement struct {
-	Paths             []string `json:"paths"`
-	Skills            []string `json:"skills"`
-	UnsupportedReason string   `json:"unsupportedReason,omitempty"`
+func pack(bundles map[string]*Bundle) ([]byte, error) {
+	raw, err := json.Marshal(bundles)
+	if err != nil {
+		return nil, err
+	}
+	var copies map[string]*Bundle
+	if err = json.Unmarshal(raw, &copies); err != nil {
+		return nil, err
+	}
+	a := archive{SchemaVersion: 6, Profiles: copies, Objects: map[string]string{}}
+	for _, b := range copies {
+		err = mapFiles(b, func(f File) (File, error) {
+			if previous, ok := a.Objects[f.Digest]; ok && previous != f.Data {
+				return f, fmt.Errorf("内容摘要冲突")
+			}
+			a.Objects[f.Digest] = f.Data
+			f.Data = ""
+			return f, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(a)
+}
+func unpack(raw []byte) (map[string]*Bundle, error) {
+	var a archive
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, err
+	}
+	if a.SchemaVersion != 6 {
+		return nil, fmt.Errorf("归档版本不支持")
+	}
+	for _, b := range a.Profiles {
+		if b == nil {
+			return nil, fmt.Errorf("空 Bundle")
+		}
+		err := mapFiles(b, func(f File) (File, error) {
+			data, ok := a.Objects[f.Digest]
+			if !ok || f.Data != "" {
+				return f, fmt.Errorf("缺少内容对象")
+			}
+			f.Data = data
+			return f, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return a.Profiles, nil
 }

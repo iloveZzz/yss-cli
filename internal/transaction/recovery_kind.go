@@ -24,29 +24,6 @@ func validateArchiveScope(l loaded, validate ScopeValidator) error {
 	return validate(summary, paths)
 }
 
-// RecoverKind restores a unique pending transaction only if its family matches.
-func RecoverKind(root, wantKind string) (Result, error) {
-	return RecoverKindContext(context.Background(), root, wantKind)
-}
-
-// RecoverKindContext checks cancellation before acquisition and again under the
-// exclusive transaction lock. Once restoration begins it finishes the durable
-// restore; abandoning it midway on cancellation would leave a partial rollback.
-// The initial scan is only a no-write fast path. Selection and kind validation
-// are repeated under the lock, never trusted from an earlier Status result.
-func RecoverKindContext(ctx context.Context, root, wantKind string) (Result, error) {
-	return RecoverKindContextWithValidator(ctx, root, wantKind, nil)
-}
-
-// RecoverKindContextWithValidator additionally validates application scope under
-// the same lock as selection, family validation, drift checks and restoration.
-func RecoverKindContextWithValidator(ctx context.Context, root, wantKind string, validate ScopeValidator) (Result, error) {
-	if strings.TrimSpace(wantKind) == "" || strings.ContainsAny(wantKind, "\r\n\x00") {
-		return Result{}, fail("KIND", "恢复必须指定非空事务 kind")
-	}
-	return recoverWithValidator(ctx, root, wantKind, validate)
-}
-
 // RecoverContextWithValidator selects the unique pending transaction and checks
 // caller scope under the exclusive lock before restoring it.
 func RecoverContextWithValidator(ctx context.Context, root string, validate ScopeValidator) (Result, error) {
@@ -119,22 +96,4 @@ func recoverWithValidator(ctx context.Context, root, wantKind string, validate S
 		return Result{Status: "cancelled"}, domain.Wrap("CANCELLED", err)
 	}
 	return restore(root, l, l.journal.Phase == "rolling-back")
-}
-
-// RollbackKindContextWithValidator uses the generic rollback selection core; it
-// never searches past a later committed or already rolled-back transaction.
-func RollbackKindContextWithValidator(ctx context.Context, root, wantKind string, validate ScopeValidator) (Result, error) {
-	if strings.TrimSpace(root) == "" {
-		return Result{}, fail("ARGUMENT", "回退必须显式指定 root")
-	}
-	if strings.TrimSpace(wantKind) == "" || strings.ContainsAny(wantKind, "\r\n\x00") {
-		return Result{}, fail("KIND", "回退必须指定非空事务 kind")
-	}
-	return rollbackWithValidator(ctx, root, wantKind, validate)
-}
-
-// RollbackContextWithValidator restores the latest transaction, with the caller's
-// allowed family and identity scope checked while holding the exclusive lock.
-func RollbackContextWithValidator(ctx context.Context, root string, validate ScopeValidator) (Result, error) {
-	return rollbackWithValidator(ctx, root, "", validate)
 }
