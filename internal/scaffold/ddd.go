@@ -10,7 +10,7 @@ const (
 	dddAssets    = dddSkillRoot + "/assets"
 )
 
-var userOwnedGlobs = []any{"**/src/main/java/**", "**/src/test/java/**", "db/**"}
+var userOwnedGlobs = []any{"**/src/main/java/**", "db/**"}
 
 // dddGen carries the resolved inputs of one DDD generation.
 type dddGen struct {
@@ -21,17 +21,13 @@ type dddGen struct {
 	author, date  string
 	appClass      string
 	mainSource    string
-	contract      *OMap // standalone configuration or approved scaffold contract
+	configuration *OMap // generation configuration
 	platform      *OMap
 	coordinates   *OMap
-	coordinateSrc string
-	profiles      *OMap
-	formal        *formalState
-	standalone    bool
 }
 
 func newDDDGen(src Source, o *Options) *dddGen {
-	g := &dddGen{src: src, o: o, name: o.ProjectName, basePackage: o.BasePackage, standalone: !o.hasContract()}
+	g := &dddGen{src: src, o: o, name: o.ProjectName, basePackage: o.BasePackage}
 	g.author = o.renderContext.Author
 	g.date = o.renderContext.Date
 	g.setNames()
@@ -61,7 +57,7 @@ func renderDDD(ctx context.Context, src Source, o *Options) (*renderedProject, e
 	if err := guardTarget(o); err != nil {
 		return nil, err
 	}
-	if err := g.validateContractMetadata(ctx); err != nil {
+	if err := g.configure(ctx); err != nil {
 		return nil, err
 	}
 	tree := newTree()
@@ -87,20 +83,10 @@ func renderDDD(ctx context.Context, src Source, o *Options) (*renderedProject, e
 
 // validateDDDOptions mirrors the argument checks of parseArgs in the DDD generator.
 func validateDDDOptions(o *Options) error {
-	contract := o.hasContract()
-	if o.Standalone && contract {
-		return fail("--standalone 不得携带合同或批准参数；已有合同须走正式治理路径")
-	}
-	if contract && o.platformSupplied() {
-		return fail("正式模式消费合同平台，不接受独立平台参数")
-	}
 	for _, item := range []struct{ flag, value string }{{"--project-name", o.ProjectName}, {"--base-package", o.BasePackage}, {"--output-dir", o.OutputDir}} {
 		if item.value == "" {
 			return failf("缺少必填参数: %s", item.flag)
 		}
-	}
-	if contract && o.ContractFile == "" {
-		return fail("缺少必填参数: --contract-file")
 	}
 	if !standaloneName.MatchString(o.ProjectName) {
 		return fail("项目名称必须是 kebab-case 格式 (例如: user-service)")
@@ -108,21 +94,10 @@ func validateDDDOptions(o *Options) error {
 	if !standalonePkg.MatchString(o.BasePackage) {
 		return fail("包名格式不正确 (例如: com.yss.user)")
 	}
-	if o.ContractVersion != "" && !positiveInteger(o.ContractVersion) {
-		return fail("--contract-version(必须为正整数)")
-	}
 	if o.Force {
 		return fail("unsupported: initialize-only 脚手架禁止 --force，也不承担旧项目迁移或模板升级")
 	}
 	return nil
-}
-
-func positiveInteger(text string) bool {
-	if !javaDigits.MatchString(text) {
-		return false
-	}
-	trimmed := strings.TrimLeft(text, "0")
-	return trimmed != ""
 }
 
 func (g *dddGen) templateVars() *OMap {
@@ -171,7 +146,6 @@ func (g *dddGen) renderMechanical(t *Tree, prefix string) error {
 		root := joinPath(prefix, g.name+"-"+module)
 		t.Mkdir(root + "/src/main/java/" + pkg)
 		t.Mkdir(root + "/src/main/resources")
-		t.Mkdir(root + "/src/test/java/" + pkg)
 	}
 	t.Mkdir(joinPath(prefix, g.name+"-adapter/"+g.name+"-web/src/main/java/"+pkg+"/rest"))
 	t.Mkdir(joinPath(prefix, "db"))
@@ -199,13 +173,6 @@ func (g *dddGen) renderMechanical(t *Tree, prefix string) error {
 		return err
 	}
 	t.Put(joinPath(prefix, g.mainSource), main)
-	t.Put(joinPath(prefix, g.name+"-bootstrap/src/test/java/"+pkg+"/PlatformIntegrationTest.java"), []byte(platformSmokeTest(g.basePackage, g.platform, nil)))
-
-	rules, err := g.renderTemplate(dddAssets + "/templates/java/architecture-rules-test.java.template")
-	if err != nil {
-		return err
-	}
-	t.Put(joinPath(prefix, g.name+"-bootstrap/src/test/java/"+pkg+"/ArchitectureRulesTest.java"), rules)
 
 	resources := g.name + "-bootstrap/src/main/resources/"
 	for _, item := range [][2]string{{"application.yml.template", "application.yml"}, {"logback-spring.xml.template", "logback-spring.xml"}} {
@@ -216,12 +183,9 @@ func (g *dddGen) renderMechanical(t *Tree, prefix string) error {
 		t.Put(joinPath(prefix, resources+item[1]), data)
 	}
 	t.Put(joinPath(prefix, resources+"application-scaffold-local.yml"), []byte(localDatabaseConfiguration(g.name)))
-	t.Put(joinPath(prefix, g.name+"-bootstrap/src/test/resources/application-scaffold-test.yml"), []byte(localDatabaseConfiguration(g.name+"_test")))
 
-	readme := "# {{project_name}}\n\n平台：Spring Boot {{boot_version}} / Java {{java_version}}。\n\n## 模块说明\n\n- {{project_name}}-domain\n- {{project_name}}-application\n- {{project_name}}-infrastructure\n- {{project_name}}-adapter\n- {{project_name}}-bootstrap\n\n可基于骨架继续开发业务 API、领域模型、数据结构和权限行为。接入正式 Harness 治理后，按当前批准的 Slice Implementation Contract 和对应 YSS skill 逐切片实现。\n\n## 快速开始\n\n```bash\ncd {{project_name}}\n./mvnw clean compile\n./mvnw -Pscaffold-local spring-boot:run -pl {{project_name}}-bootstrap -Dspring-boot.run.profiles=scaffold-local\n```\n"
-	if g.standalone {
-		readme = "按工程输入直接生成的开发脚手架；构建尚未验证。\n\n" + readme
-	}
+	readme := "# {{project_name}}\n\n平台：Spring Boot {{boot_version}} / Java {{java_version}}。\n\n## 模块说明\n\n- {{project_name}}-domain\n- {{project_name}}-application\n- {{project_name}}-infrastructure\n- {{project_name}}-adapter\n- {{project_name}}-bootstrap\n\n可基于骨架继续开发业务 API、领域模型、数据结构和权限行为。\n\n## 快速开始\n\n```bash\ncd {{project_name}}\n./mvnw clean compile\n./mvnw -Pscaffold-local spring-boot:run -pl {{project_name}}-bootstrap -Dspring-boot.run.profiles=scaffold-local\n```\n"
+	readme = "按工程输入直接生成的开发脚手架；构建尚未验证。\n\n" + readme
 	t.Put(joinPath(prefix, "README.md"), []byte(g.render(readme)))
 
 	return copyWrapper(g.src, t, prefix, false)

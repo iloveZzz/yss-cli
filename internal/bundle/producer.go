@@ -1,578 +1,401 @@
 package bundle
 
 import (
-	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"embed"
+	"crypto/sha1"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
-// Transitional declaration policies, never legacy executable code or file snapshots.
-//
-//go:embed rules/*.json
-var rules embed.FS
-
-type Provenance struct {
-	Version     string `json:"version"`
-	Commit      string `json:"commit,omitempty"`
-	SourceState string `json:"sourceState"`
-}
-type LegacyLineage struct {
-	Version      string `json:"version,omitempty"`
-	CLICommit    string `json:"cliCommit,omitempty"`
-	SnapshotHash string `json:"sourceSnapshotHash,omitempty"`
-	ManifestHash string `json:"manifestHash,omitempty"`
-}
-type PolicyProvenance struct {
-	Path   string `json:"path"`
-	Digest string `json:"digest"`
-	Kind   string `json:"kind"`
-}
-type Source struct {
-	BundleVersion int          `json:"-"`
-	State         string       `json:"sourceState,omitempty"`
-	Tree          string       `json:"sourceTree,omitempty"`
-	SkillsSource  *SkillSource `json:"skillsSource,omitempty"`
-	// OverlayPaths 非空时，该 Profile 由同一仓库同一提交的内核目录与这些覆盖层目录依次组合而成
-	// （后面的覆盖前面的）；为空时沿用整仓来源（子模块形态）。两者不能同时使用 SkillsSource。
-	OverlayPaths    []string      `json:"overlayPaths,omitempty"`
-	Profile         string        `json:"profile"`
-	Root            string        `json:"-"`
-	SourcePath      string        `json:"sourcePath"`
-	Commit          string        `json:"templateCommit"`
-	TemplateVersion string        `json:"templateVersion"`
-	TemplateTag     string        `json:"templateTag,omitempty"`
-	PolicyPath      string        `json:"policyPath"`
-	PolicyHash      string        `json:"policyHash"`
-	Legacy          LegacyLineage `json:"legacy"`
-	Producer        Provenance    `json:"-"`
-}
-type SourceLock struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Producer      Provenance        `json:"producer"`
-	Profiles      map[string]Source `json:"profiles"`
-}
-type Entries struct {
-	Files    []string `json:"files,omitempty"`
-	Scripts  []string `json:"scripts,omitempty"`
-	Prefixes []string `json:"prefixes,omitempty"`
-	Skills   []string `json:"skills,omitempty"`
+type InstallationPolicy struct {
+	Skills          []string            `json:"skills"`
+	Files           []string            `json:"files"`
+	Entries         map[string]string   `json:"entries,omitempty"`
+	SkillReferences map[string][]string `json:"skillReferences,omitempty"`
 }
 type Policy struct {
-	Installations map[string]InstallationPolicy `json:"installations,omitempty"`
-	Upgrade       *UpgradePolicy                `json:"upgradePolicy,omitempty"`
 	SchemaVersion int                           `json:"schemaVersion"`
 	Profile       string                        `json:"profile"`
 	Manifest      map[string]any                `json:"manifest"`
-	Common        Entries                       `json:"common,omitempty"`
-	Stages        map[string]Entries            `json:"stages,omitempty"`
-	OmitPaths     []string                      `json:"omitPaths,omitempty"`
+	Installations map[string]InstallationPolicy `json:"installations"`
 }
-type sourceFile struct {
-	data []byte
-	mode uint32
-}
-
-var fullCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
-
-// sourceObject pins an immutable object without treating an uncommitted tree as a commit.
-func sourceObject(ctx context.Context, s Source) (string, string, error) {
-	state := s.State
-	if state == "" {
-		state = "committed"
-	}
-	if !fullCommit.MatchString(s.Commit) {
-		return "", "", fmt.Errorf("templateCommit requires a full Git commit")
-	}
-	kind, err := git(ctx, s.Root, "cat-file", "-t", s.Commit)
-	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
-		return "", "", fmt.Errorf("templateCommit must name a Git commit")
-	}
-	if state == "committed" && s.Tree == "" {
-		return s.Commit, state, nil
-	}
-	if state != "working-tree" || !fullCommit.MatchString(s.Tree) {
-		return "", "", fmt.Errorf("working-tree source requires an immutable sourceTree")
-	}
-	kind, err = git(ctx, s.Root, "cat-file", "-t", s.Tree)
-	if err != nil || strings.TrimSpace(string(kind)) != "tree" {
-		return "", "", fmt.Errorf("sourceTree must name a Git tree")
-	}
-	return s.Tree, state, nil
+type StorageReport struct {
+	StorageFormatVersion int    `json:"storageFormatVersion"`
+	Filename             string `json:"filename"`
+	SHA256               string `json:"sha256"`
+	CompressedBytes      int    `json:"compressedBytes"`
+	JSONBytes            int    `json:"jsonBytes"`
 }
 
-// Build reads only the named Git object tree. Dirty checkout bytes and legacy CLI
-// directories cannot influence it. The policy digest is a required source lock.
-func Build(ctx context.Context, s Source) (*Bundle, error) {
-	if _, e := domain.GetProfile(s.Profile); e != nil {
-		return nil, e
+func git(ctx context.Context, root string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git %v: %w", args, err)
 	}
-	if !fullCommit.MatchString(s.Commit) {
-		return nil, fmt.Errorf("templateCommit requires a full 40 character Git SHA")
-	}
-	if s.PolicyHash == "" {
-		return nil, fmt.Errorf("policyHash is required")
-	}
-	if e := ctx.Err(); e != nil {
-		return nil, e
-	}
-	root, e := filepath.Abs(s.Root)
-	if e != nil {
-		return nil, e
-	}
-	object, state, err := sourceObject(ctx, s)
+	return out, nil
+}
+func BuildRoot(ctx context.Context, root string) (map[string]*Bundle, error) {
+	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	if state == "working-tree" && (s.Producer.SourceState != "working-tree" || s.TemplateVersion != "worktree:"+object) {
-		return nil, fmt.Errorf("working-tree producer/version provenance mismatch")
+	head, err := git(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
 	}
-	if e := verifyTemplateTag(ctx, root, &s); e != nil {
-		return nil, e
+	commit := strings.TrimSpace(string(head))
+	if !commitPattern.MatchString(commit) {
+		return nil, fmt.Errorf("模板提交不合法")
 	}
-	if s.PolicyPath == "" {
-		s.PolicyPath = ".template-source/distribution/bundle-profile.json"
+	status, err := git(ctx, root, "status", "--porcelain", "--untracked-files=normal")
+	if err != nil {
+		return nil, err
 	}
-	var policyBytes []byte
-	kind := state
-	if strings.HasPrefix(s.PolicyPath, "builtin:") {
-		if s.PolicyPath != "builtin:"+s.Profile {
-			return nil, fmt.Errorf("policy profile mismatch")
+	state := "committed"
+	if len(status) > 0 {
+		state = "working-tree"
+	}
+	listed, err := git(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	committed, err := git(ctx, root, "ls-tree", "-rz", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	blobs := map[string]string{}
+	modes := map[string]string{}
+	for _, entry := range strings.Split(string(committed), "\x00") {
+		parts := strings.SplitN(entry, "\t", 2)
+		if len(parts) == 2 {
+			fields := strings.Fields(parts[0])
+			if len(fields) == 3 {
+				blobs[parts[1]] = fields[2]
+				modes[parts[1]] = fields[0]
+			}
 		}
-		policyBytes, e = rules.ReadFile("rules/" + s.Profile + ".json")
-		kind = "bootstrap"
-	} else {
-		if e = safefs.ValidateRef(s.PolicyPath); e != nil {
-			return nil, e
-		}
-		entry, err := git(ctx, root, "ls-tree", object, "--", s.PolicyPath)
-		if err != nil {
-			return nil, err
-		}
-		fields := strings.Fields(string(entry))
-		if len(fields) < 3 || fields[0] != "100644" || fields[1] != "blob" {
-			return nil, fmt.Errorf("policy must be a committed regular JSON file")
-		}
-		policyBytes, e = git(ctx, root, "show", object+":"+s.PolicyPath)
 	}
-	if e != nil {
-		return nil, e
+	source := map[string]File{}
+	links := map[string]string{}
+	if _, err = safefs.Path(root, ".bundle-source-check"); err != nil {
+		return nil, err
 	}
-	if safefs.Digest(policyBytes) != s.PolicyHash {
-		return nil, fmt.Errorf("policyHash drift: %s", s.Profile)
-	}
-	var policy Policy
-	if e = json.Unmarshal(policyBytes, &policy); e != nil {
-		return nil, e
-	}
-	if policy.SchemaVersion != 1 || policy.Profile != s.Profile || policy.Manifest == nil {
-		return nil, fmt.Errorf("invalid bundle policy")
-	}
-	if e = validatePolicy(policy); e != nil {
-		return nil, e
-	}
-	if len(s.OverlayPaths) > 0 && s.SkillsSource != nil {
-		return nil, fmt.Errorf("overlayPaths 与 skillsSource 不能同时使用")
-	}
-	var raw map[string]sourceFile
-	if len(s.OverlayPaths) > 0 {
-		raw, e = readOverlaySource(ctx, root, object, s.OverlayPaths, policy.Manifest)
-	} else {
-		raw, e = readGitFiles(ctx, root, object, policy.Manifest)
-	}
-	if e != nil {
-		return nil, e
-	}
-	if len(raw) == 0 {
-		return nil, fmt.Errorf("empty template source")
-	}
-	if s.SkillsSource != nil {
-		provenance, err := composeCommittedSkills(ctx, s, raw)
-		if err != nil {
-			return nil, err
-		}
-		policy.Manifest["skillComposition"] = provenance
-	}
-	if s.TemplateVersion == "" {
-		s.TemplateVersion = "git:" + s.Commit
-	}
-	if s.Producer.Version == "" {
-		s.Producer = Provenance{Version: "bundle-producer-v3", SourceState: "unspecified"}
-	}
-	manifestBytes, _ := json.Marshal(policy.Manifest)
-	version := s.BundleVersion
-	if version == 0 {
-		version = 3
-	}
-	b := &Bundle{SchemaVersion: version, Upgrade: policy.Upgrade, Profile: s.Profile, TemplateVersion: s.TemplateVersion, LegacyVersion: s.Legacy.Version, LegacyCLICommit: s.Legacy.CLICommit, Legacy: s.Legacy, TemplateCommit: s.Commit, SourceState: state, ManifestHash: safefs.Digest(manifestBytes), Manifest: policy.Manifest, SourcePolicy: PolicyProvenance{Path: s.PolicyPath, Digest: s.PolicyHash, Kind: kind}, Producer: s.Producer, Files: map[string]File{}, Initial: map[string]File{}}
-	if b.Upgrade == nil {
-		b.Upgrade = DefaultUpgradePolicy()
-	}
-	snapshot := map[string]File{}
-	for ref, f := range raw {
-		snapshot[ref] = encodedFile(f.data, f.mode, "")
-	}
-	encoded, _ := json.Marshal(snapshot)
-	b.SnapshotHash = safefs.Digest(encoded)
-	transforms, e := nativeUpgradeSource(raw, b.SchemaVersion)
-	if e != nil {
-		return nil, e
-	}
-	layoutTransforms, e := nativeWorkLayoutSource(raw)
-	if e != nil {
-		return nil, e
-	}
-	transforms = append(transforms, layoutTransforms...)
-	renderSet := stringSet(stringsFrom(policy.Manifest["renderPaths"]))
-	for ref, f := range raw {
-		if !includedByManifest(ref, policy.Manifest, true) {
+	for _, ref := range strings.Split(string(listed), "\x00") {
+		if ref == "" {
 			continue
 		}
-		data, e := prepareSource(s.Profile, ref, f.data)
+		if err = safefs.ValidateRef(ref); err != nil {
+			return nil, err
+		}
+		p := filepath.Join(root, filepath.FromSlash(ref))
+		st, e := os.Lstat(p)
+		if os.IsNotExist(e) {
+			continue
+		}
 		if e != nil {
 			return nil, e
 		}
-		if renderSet[ref] {
-			// Full spec still targets a project-instance with selected runtimes.
-			// Preserve all assets; only the lock stays complete so the consumer
-			// can derive its exact installed Skill/runtime selection dynamically.
-			selectedInstance := s.Profile == "spec" && ref != "skills-lock.json"
-			data, e = renderSource(s.Profile, ref, data, selectedInstance, nil)
+		if st.IsDir() {
+			continue
+		}
+		resolved, e := filepath.EvalSymlinks(p)
+		if e != nil {
+			return nil, e
+		}
+		if resolved != p {
+			rel, e := filepath.Rel(root, resolved)
 			if e != nil {
 				return nil, e
 			}
+			rel = filepath.ToSlash(rel)
+			parts := strings.Split(ref, "/")
+			if len(parts) < 3 || parts[1] != "skills" || !stringSet([]string{".codex", ".cursor", ".pi", ".claude", ".workbuddy"})[parts[0]] || rel != ".agents/skills/"+strings.Join(parts[2:], "/") {
+				return nil, fmt.Errorf("不安全技能投影 %s", ref)
+			}
+			if state == "committed" {
+				link, e := os.Readlink(p)
+				if e != nil {
+					state = "working-tree"
+				} else if blobHash([]byte(link)) != blobs[ref] {
+					state = "working-tree"
+				}
+			}
+			st, e = os.Stat(resolved)
+			if e != nil {
+				return nil, e
+			}
+			if st.IsDir() {
+				links[ref] = rel
+				continue
+			}
+			p = resolved
 		}
-		b.Files[ref] = encodedFile(nativeGuidance(s.Profile, ref, data), f.mode, ownership(s.Profile, ref, policy.Manifest))
-	}
-	for _, t := range transforms {
-		if f, included := b.Files[t.Path]; included {
-			t.OutputDigest = f.Digest
-			b.NativeTransforms = append(b.NativeTransforms, t)
+
+		if !st.Mode().IsRegular() {
+			return nil, fmt.Errorf("不支持文件类型 %s", ref)
 		}
-	}
-	if e = bindBuiltSkillLock(b.Files); e != nil {
-		return nil, e
-	}
-	if s.Profile != "spec" {
-		b.Distribution, e = FullSkillDistribution(b.Files)
+		data, e := os.ReadFile(p)
 		if e != nil {
 			return nil, e
 		}
-		for ref, f := range b.Files {
-			b.Initial[ref] = f
+		if state == "committed" && resolved == filepath.Join(root, filepath.FromSlash(ref)) && blobHash(data) != blobs[ref] {
+			state = "working-tree"
 		}
-	} else {
-		if e = buildSelective(b, raw, policy, renderSet); e != nil {
-			return nil, e
+		mode := uint32(0644)
+		if st.Mode().Perm()&0111 != 0 {
+			mode = 0755
 		}
-		if f, exists := b.Files["skills-lock.json"]; exists {
-			data, err := base64.StdEncoding.DecodeString(f.Data)
-			if err != nil {
-				return nil, err
+		if state == "committed" && resolved == filepath.Join(root, filepath.FromSlash(ref)) && ((mode == 0755 && modes[ref] != "100755") || (mode == 0644 && modes[ref] != "100644")) {
+			state = "working-tree"
+		}
+		source[ref] = encodedFile(data, mode, "managed")
+	}
+	for target, canonical := range links {
+		for ref, f := range source {
+			if beneath(ref, canonical) {
+				source[target+strings.TrimPrefix(ref, canonical)] = f
 			}
-			data, err = SelectedSourceLock(data, stringsFrom(b.Distribution["installedSkills"]), stringsFrom(b.Distribution["runtimes"]))
-			if err != nil {
-				return nil, err
+		}
+	}
+	bundles := map[string]*Bundle{}
+	for _, profile := range []string{"spec", "backend"} {
+		prefix := ""
+		if profile == "backend" {
+			prefix = "profiles/backend/"
+		}
+		policyRef := prefix + ".template-source/distribution/bundle-profile.json"
+		policyFile, ok := source[policyRef]
+		if !ok {
+			return nil, fmt.Errorf("缺少分发清单 %s", policyRef)
+		}
+		raw, _ := base64.StdEncoding.DecodeString(policyFile.Data)
+		var policy Policy
+		if err = json.Unmarshal(raw, &policy); err != nil {
+			return nil, err
+		}
+		if policy.Profile != profile || policy.SchemaVersion != 6 {
+			return nil, fmt.Errorf("清单身份不合法 %s", policyRef)
+		}
+		files := map[string]File{}
+		add := func(ref string, f File) {
+			if includedByManifest(ref, policy.Manifest, false) {
+				f.Ownership = ownership(profile, ref, policy.Manifest)
+				files[ref] = f
 			}
-			b.Initial["skills-lock.json"] = encodedFile(data, f.Mode, f.Ownership)
 		}
-		if e = bindBuiltSkillLock(b.Initial); e != nil {
-			return nil, e
-		}
-	}
-	if version >= 4 {
-		for _, files := range []map[string]File{b.Files, b.Initial} {
-			f, ok := files["yss-project.yaml"]
-			if !ok {
-				return nil, fmt.Errorf("Bundle4 缺少根身份")
+		for ref, f := range source {
+			if profile == "spec" {
+				add(ref, f)
+			} else if inKernelScope(ref) || strings.HasPrefix(ref, ".template-source/") {
+				add(ref, f)
 			}
-			files["yss-project.yaml"] = encodedFile([]byte("schema_version: 2\nrepository_mode: project-instance\n"), f.Mode, f.Ownership)
 		}
-	}
-	if e = buildInstallations(ctx, b, policy, s, root, object); e != nil {
-		return nil, e
-	}
-	if e = validate(b, s.Profile); e != nil {
-		return nil, e
-	}
-	b.BundleHash = contentHash(b)
-	return b, nil
-}
-func SourceProfiles(lock SourceLock) ([]string, error) {
-	profiles := []string{"spec", "backend"}
-	if lock.SchemaVersion != 5 || len(lock.Profiles) != len(profiles) {
-		return nil, fmt.Errorf("source lock v5 requires exactly Spec/Backend")
-	}
-	for _, profile := range profiles {
-		if source, ok := lock.Profiles[profile]; !ok || source.Profile != profile {
-			return nil, fmt.Errorf("source lock profile missing: %s", profile)
+		if profile == "backend" {
+			for _, overlay := range []string{"profiles/_specialist/", prefix} {
+				for ref, f := range source {
+					if strings.HasPrefix(ref, overlay) {
+						add(strings.TrimPrefix(ref, overlay), f)
+					}
+				}
+			}
 		}
-	}
-	return profiles, nil
-}
 
-func BuildLock(ctx context.Context, lock SourceLock) (map[string]*Bundle, error) {
-	profiles, err := SourceProfiles(lock)
+		manifestRaw, _ := json.Marshal(policy.Manifest)
+		snapshotRaw, _ := json.Marshal(files)
+		snapshot := safefs.Digest(snapshotRaw)
+		version := "snapshot:" + snapshot
+		if state == "working-tree" {
+			version = "worktree:" + snapshot
+		}
+		b := &Bundle{SchemaVersion: 6, Profile: profile, TemplateVersion: version, TemplateCommit: commit, SourceState: state, SnapshotHash: snapshot, ManifestHash: safefs.Digest(manifestRaw), SourcePolicy: PolicyProvenance{Path: policyRef, Digest: policyFile.Digest, Kind: state}, Producer: Provenance{Version: "bundle6", SourceState: state}, Manifest: policy.Manifest, Files: files, Initial: map[string]File{}, Installations: map[string]Installation{}, SkillRequirements: map[string]Requirement{}}
+		for _, kind := range []string{"project", "skills"} {
+			cfg, ok := policy.Installations[kind]
+			if !ok {
+				return nil, fmt.Errorf("缺少安装清单 %s", kind)
+			}
+			initial := map[string]File{}
+			for _, ref := range cfg.Files {
+				f, ok := files[ref]
+				if !ok {
+					return nil, fmt.Errorf("安装资源缺失 %s", ref)
+				}
+				initial[ref] = f
+			}
+			for _, skill := range cfg.Skills {
+				found := false
+				for ref, f := range files {
+					if skillPath(ref, skill) {
+						initial[ref] = f
+						found = true
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("安装技能缺失 %s", skill)
+				}
+				for _, ref := range cfg.SkillReferences[skill] {
+					f, ok := files[ref]
+					if !ok {
+						return nil, fmt.Errorf("技能引用缺失 %s", ref)
+					}
+					initial[ref] = f
+				}
+			}
+
+			for target, entry := range cfg.Entries {
+				if err = safefs.ValidateRef(target); err != nil {
+					return nil, err
+				}
+				f, ok := source[prefix+entry]
+				if !ok {
+					f, ok = source[entry]
+				}
+				if !ok {
+					return nil, fmt.Errorf("入口缺失 %s", entry)
+				}
+				f.Ownership = "managed-customizable"
+				initial[target] = f
+			}
+			skills := []string{}
+			for ref := range initial {
+				if strings.HasPrefix(ref, ".agents/skills/") && strings.HasSuffix(ref, "/SKILL.md") && strings.Count(ref, "/") == 3 {
+					skills = append(skills, strings.Split(ref, "/")[2])
+				}
+			}
+			sort.Strings(skills)
+			d := map[string]any{"installation": kind, "installedSkills": skills, "runtimes": []string{}}
+			b.Installations[kind] = Installation{Initial: initial, Distribution: d, SkillReferences: cfg.SkillReferences}
+			if kind == "project" {
+				b.Initial = initial
+				b.Distribution = d
+			}
+			for skill, refs := range cfg.SkillReferences {
+				b.SkillRequirements[skill] = Requirement{Paths: refs}
+			}
+		}
+		for skill, req := range b.SkillRequirements {
+			deps := map[string]bool{}
+			prefix := ".agents/skills/" + skill + "/"
+			for ref, f := range files {
+				if strings.HasPrefix(ref, prefix) && strings.HasSuffix(ref, ".md") {
+					raw, _ := base64.StdEncoding.DecodeString(f.Data)
+					for _, match := range skillDependency.FindAllSubmatch(raw, -1) {
+						dep := string(match[1])
+						if dep != skill {
+							if _, ok := files[".agents/skills/"+dep+"/SKILL.md"]; ok {
+								deps[dep] = true
+							}
+						}
+					}
+				}
+			}
+			req.Skills = sortedKeys(deps)
+			b.SkillRequirements[skill] = req
+		}
+		for kind, item := range b.Installations {
+			names := stringsFrom(item.Distribution["installedSkills"])
+			selected, e := b.SkillFiles(names)
+			if e != nil {
+				return nil, e
+			}
+			for ref, f := range selected {
+				item.Initial[ref] = f
+			}
+			b.Installations[kind] = item
+		}
+		b.BundleHash = Hash(b)
+		if err = validate(b); err != nil {
+			return nil, err
+		}
+		bundles[profile] = b
+	}
+	return bundles, nil
+}
+func inKernelScope(ref string) bool {
+	for _, p := range []string{".agents/skills", ".template-spec/process", ".template-spec/templates"} {
+		if beneath(ref, p) {
+			return true
+		}
+	}
+	return false
+}
+func WriteBuilt(out string, bundles map[string]*Bundle) (*StorageReport, error) {
+	for _, b := range bundles {
+		if err := validate(b); err != nil {
+			return nil, err
+		}
+	}
+	raw, err := pack(bundles)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]*Bundle{}
-	for _, profile := range profiles {
-		s, ok := lock.Profiles[profile]
-		if !ok || s.Profile != profile {
-			return nil, fmt.Errorf("source lock profile missing: %s", profile)
-		}
-		if lock.SchemaVersion == 2 && s.SkillsSource != nil {
-			return nil, fmt.Errorf("skill composition requires source lock v3")
-		}
-		if lock.SchemaVersion >= 3 && profile == "backend" && s.SkillsSource == nil && len(s.OverlayPaths) == 0 {
-			return nil, fmt.Errorf("%s: source lock v3 requires skillsSource", profile)
-		}
-		if lock.SchemaVersion < 4 && (s.State != "" || s.Tree != "" || s.SkillsSource != nil && (s.SkillsSource.State != "" || s.SkillsSource.Tree != "")) {
-			return nil, fmt.Errorf("worktree objects require source lock v4")
-		}
-		if lock.SchemaVersion == 4 && (s.State != "working-tree" || lock.Producer.SourceState != "working-tree" || s.SkillsSource != nil && s.SkillsSource.State != "working-tree") {
-			return nil, fmt.Errorf("source lock v4 is local working-tree only")
-		}
-		if lock.SchemaVersion == 5 {
-			s.BundleVersion = 4
-			if s.State == "working-tree" && lock.Producer.SourceState != "working-tree" {
-				return nil, fmt.Errorf("worktree source requires actual worktree producer")
-			}
-		}
-		s.Producer = lock.Producer
-		b, e := Build(ctx, s)
-		if e != nil {
-			return nil, fmt.Errorf("%s: %w", profile, e)
-		}
-		out[profile] = b
+	roundtrip, err := unpack(raw)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	for _, b := range roundtrip {
+		if err = validate(b); err != nil {
+			return nil, err
+		}
+	}
+	if len(raw) > maxSnapshotBytes {
+		return nil, fmt.Errorf("模板超过限制")
+	}
+	var buf bytes.Buffer
+	z, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	z.Header.OS = 255
+	if _, err = z.Write(raw); err != nil {
+		return nil, err
+	}
+	if err = z.Close(); err != nil {
+		return nil, err
+	}
+	if buf.Len() > MaxArchiveBytes {
+		return nil, fmt.Errorf("模板归档超过限制")
+	}
+	if err = os.MkdirAll(out, 0755); err != nil {
+		return nil, err
+	}
+	target, err := safefs.Path(out, "bundles.json.gz")
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(out, ".bundle-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err = tmp.Write(buf.Bytes()); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	if err = tmp.Close(); err != nil {
+		return nil, err
+	}
+	if err = os.Rename(tmp.Name(), target); err != nil {
+		return nil, err
+	}
+	return &StorageReport{StorageFormatVersion: 6, Filename: "bundles.json.gz", SHA256: safefs.Digest(buf.Bytes()), CompressedBytes: buf.Len(), JSONBytes: len(raw)}, nil
 }
-
-// WriteBuilt verifies and atomically replaces one deterministic shared archive.
-func WriteBuilt(out string, bundles map[string]*Bundle) (*StorageReport, error) {
-	data, report, e := packBundles(bundles)
-	if e != nil {
-		return nil, e
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	if _, e := safefs.Path(out, "probe"); e != nil {
-		return nil, e
-	}
-	if e := os.MkdirAll(out, 0755); e != nil {
-		return nil, e
-	}
-	file, e := safefs.Path(out, report.Filename)
-	if e != nil {
-		return nil, e
-	}
-	temp, e := os.CreateTemp(out, ".bundle-")
-	if e != nil {
-		return nil, e
-	}
-	name := temp.Name()
-	defer os.Remove(name)
-	if _, e = temp.Write(data); e == nil {
-		e = temp.Chmod(0644)
-	}
-	if ce := temp.Close(); e == nil {
-		e = ce
-	}
-	if e == nil {
-		e = os.Rename(name, file)
-	}
-	if e != nil {
-		return nil, e
-	}
-	return report, nil
-}
-func git(ctx context.Context, root string, args ...string) ([]byte, error) {
-	c := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
-	var errout bytes.Buffer
-	c.Stderr = &errout
-	o, e := c.Output()
-	if e != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), e, errout.String())
-	}
-	return o, nil
-}
-func readGitFiles(ctx context.Context, root, commit string, manifest map[string]any) (map[string]sourceFile, error) {
-	out, e := readGitFilesUnder(ctx, root, commit, "", func(ref string) bool { return includedByManifest(ref, manifest, false) })
-	if e != nil {
-		return nil, e
-	}
-	if e = expandProjectionLinks(out); e != nil {
-		return nil, e
-	}
-	return out, nil
-}
-
-// readGitFilesUnder reads the Git tree below prefix ("" means the whole tree) and reports every file
-// under its prefix-relative path. include decides on the relative path before any entry is validated,
-// so excluded entries never influence the result.
-func readGitFilesUnder(ctx context.Context, root, commit, prefix string, include func(string) bool) (map[string]sourceFile, error) {
-	listing, e := git(ctx, root, "ls-tree", "-rz", "--full-tree", commit)
-	if e != nil {
-		return nil, e
-	}
-	type obj struct {
-		ref, id string
-		mode    uint32
-	}
-	objects := []obj{}
-	for _, record := range bytes.Split(listing, []byte{0}) {
-		if len(record) == 0 {
-			continue
-		}
-		pair := bytes.SplitN(record, []byte{'\t'}, 2)
-		if len(pair) != 2 {
-			return nil, fmt.Errorf("invalid git tree")
-		}
-		header := strings.Fields(string(pair[0]))
-		ref := string(pair[1])
-		if prefix != "" {
-			if !strings.HasPrefix(ref, prefix+"/") {
-				continue
-			}
-			ref = strings.TrimPrefix(ref, prefix+"/")
-		}
-		if !include(ref) {
-			continue
-		}
-		if e = safefs.ValidateRef(ref); e != nil {
-			return nil, e
-		}
-		if len(header) != 3 || header[1] != "blob" || (header[0] != "100644" && header[0] != "100755" && !(header[0] == "120000" && projectionLink(ref))) {
-			return nil, fmt.Errorf("unsupported source entry: %s", ref)
-		}
-		mode := uint32(0644)
-		if header[0] == "120000" {
-			mode = 0
-		}
-		if header[0] == "100755" {
-			mode = 0755
-		}
-		objects = append(objects, obj{ref, header[2], mode})
-	}
-	var input strings.Builder
-	for _, o := range objects {
-		input.WriteString(o.id)
-		input.WriteByte('\n')
-	}
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch")
-	cmd.Stdin = strings.NewReader(input.String())
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, e := cmd.StdoutPipe()
-	if e != nil {
-		return nil, e
-	}
-	if e = cmd.Start(); e != nil {
-		return nil, e
-	}
-	r := bufio.NewReader(stdout)
-	out := map[string]sourceFile{}
-	var readErr error
-	var total int64
-	for _, o := range objects {
-		line, e := r.ReadString('\n')
-		if e != nil {
-			readErr = e
-			break
-		}
-		h := strings.Fields(line)
-		if len(h) != 3 || h[0] != o.id || h[1] != "blob" {
-			readErr = fmt.Errorf("invalid Git blob header")
-			break
-		}
-		size, e := strconv.ParseInt(h[2], 10, 64)
-		if e != nil || size < 0 || size > 64*1024*1024 {
-			readErr = fmt.Errorf("source file size invalid: %s", o.ref)
-			break
-		}
-		total += size
-		if total > 512*1024*1024 {
-			readErr = fmt.Errorf("template source exceeds limit")
-			break
-		}
-		b := make([]byte, int(size))
-		if _, e = io.ReadFull(r, b); e != nil {
-			readErr = e
-			break
-		}
-		if x, e := r.ReadByte(); e != nil || x != '\n' {
-			readErr = fmt.Errorf("invalid Git blob delimiter")
-			break
-		}
-		out[o.ref] = sourceFile{b, o.mode}
-	}
-	if readErr != nil {
-		cmd.Process.Kill()
-	}
-	e = cmd.Wait()
-	if readErr != nil {
-		return nil, readErr
-	}
-	if e != nil {
-		return nil, fmt.Errorf("git cat-file: %w: %s", e, stderr.String())
-	}
-	return out, nil
-}
-
-// expandProjectionLinks replaces every Skill projection link by a copy of the canonical tree it names.
-func expandProjectionLinks(out map[string]sourceFile) error {
-	for _, ref := range sortedKeys(out) {
-		f := out[ref]
-		if f.mode != 0 {
-			continue
-		}
-		target := path.Clean(path.Join(path.Dir(ref), string(f.data)))
-		name := strings.Split(ref, "/")[2]
-		if target != ".agents/skills/"+name {
-			return fmt.Errorf("unsafe Skill projection: %s", ref)
-		}
-		count := 0
-		for _, source := range sortedKeys(out) {
-			if strings.HasPrefix(source, target+"/") {
-				original := out[source]
-				if original.mode == 0 {
-					return fmt.Errorf("nested projection symlink")
-				}
-				destination := ref + strings.TrimPrefix(source, target)
-				if _, exists := out[destination]; exists {
-					return fmt.Errorf("Skill projection collision")
-				}
-				out[destination] = original
-				count++
-			}
-		}
-		if count == 0 {
-			return fmt.Errorf("missing canonical Skill projection: %s", ref)
-		}
-		delete(out, ref)
-	}
-	return nil
-}
-func projectionLink(ref string) bool {
-	p := strings.Split(ref, "/")
-	return len(p) == 3 && (p[0] == ".claude" || p[0] == ".codex" || p[0] == ".cursor" || p[0] == ".pi") && p[1] == "skills" && !strings.HasPrefix(p[2], ".")
+	sort.Strings(keys)
+	return keys
 }
 func stringsFrom(v any) []string {
 	switch a := v.(type) {
@@ -646,7 +469,7 @@ func encodedFile(data []byte, mode uint32, own string) File {
 	return File{Data: base64.StdEncoding.EncodeToString(data), Digest: safefs.Digest(data), Mode: mode, Ownership: own}
 }
 func ownership(profile, ref string, m map[string]any) string {
-	if profile == "spec" {
+	if _, ok := m["ownershipPolicy"]; ok {
 		policy, _ := m["ownershipPolicy"].(map[string]any)
 		if rules, ok := policy["rules"].([]any); ok {
 			for _, item := range rules {
@@ -688,64 +511,12 @@ func matchesOwnership(ref, p string) bool {
 	}
 	return ref == p
 }
-func contentHash(b *Bundle) string {
-	clone := *b
-	clone.BundleHash = ""
-	h := sha256.New()
-	if err := writeBundleJSON(h, &clone); err != nil {
-		return safefs.Digest(nil)
-	}
-	return hex.EncodeToString(h.Sum(nil))
+
+func blobHash(data []byte) string {
+	h := sha1.New()
+	fmt.Fprintf(h, "blob %d\x00", len(data))
+	h.Write(data)
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func sortedKeys[V any](m map[string]V) []string {
-	a := make([]string, 0, len(m))
-	for k := range m {
-		a = append(a, k)
-	}
-	sort.Strings(a)
-	return a
-}
-
-func validatePolicy(p Policy) error {
-	if len(stringsFrom(p.Manifest["allowRootEntries"]))+len(stringsFrom(p.Manifest["allowRootFiles"])) == 0 {
-		return fmt.Errorf("policy must explicitly select distribution roots")
-	}
-	for _, key := range []string{"allowRootEntries", "allowRootFiles", "allowFiles", "excludeRootEntries", "excludeRootFiles", "excludePaths", "renderPaths", "exampleDocPaths", "initExcludeRootEntries", "initExcludeRootFiles", "initExcludePaths", "instanceForbiddenPaths"} {
-		for _, ref := range stringsFrom(p.Manifest[key]) {
-			if ref == ".git" {
-				continue
-			}
-			if e := safefs.ValidateRef(ref); e != nil {
-				return fmt.Errorf("policy %s: %w", key, e)
-			}
-		}
-	}
-	if ownership, ok := p.Manifest["ownershipPolicy"].(map[string]any); ok {
-		types := stringSet([]string{"managed", "managed-customizable", "generated", "user-owned", "protected"})
-		if !types[fmt.Sprint(ownership["default"])] {
-			return fmt.Errorf("ownership default invalid")
-		}
-		seen := map[string]bool{}
-		if rules, ok := ownership["rules"].([]any); ok {
-			for _, v := range rules {
-				r, ok := v.(map[string]any)
-				if !ok {
-					return fmt.Errorf("ownership rule invalid")
-				}
-				pattern, _ := r["pattern"].(string)
-				base := strings.TrimSuffix(strings.TrimSuffix(pattern, "/**"), "/*")
-				if base != ".git" {
-					if e := safefs.ValidateRef(base); e != nil {
-						return e
-					}
-				}
-				if seen[pattern] || !types[fmt.Sprint(r["ownership"])] {
-					return fmt.Errorf("ownership rule conflict")
-				}
-				seen[pattern] = true
-			}
-		}
-	}
-	return nil
-}
+var skillDependency = regexp.MustCompile(`\.agents/skills/([a-z0-9][a-z0-9-]*)`)

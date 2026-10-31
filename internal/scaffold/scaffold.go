@@ -37,30 +37,14 @@ type Options struct {
 	ParentVersion        string `json:"parentVersion,omitempty"`
 	YssComponentsVersion string `json:"yssComponentsVersion,omitempty"`
 
-	ContractFile     string `json:"contractFile,omitempty"`
-	ContractID       string `json:"contractId,omitempty"`
-	ContractVersion  string `json:"contractVersion,omitempty"`
-	ApprovalRef      string `json:"approvalRef,omitempty"`
-	CompilerDraftRef string `json:"compilerDraftRef,omitempty"`
-	PersistedRef     string `json:"persistedRef,omitempty"`
-
-	// Standalone is the explicit --standalone switch; it conflicts with contract input.
-	Standalone bool `json:"standalone"`
-	// WithExample selects the reference example; nil keeps the generator default
-	// (on for standalone input, taken from the contract in the formal path).
 	WithExample *bool `json:"withExample"`
 	Force       bool  `json:"force,omitempty"`
+	DryRun      bool  `json:"dryRun,omitempty"`
 
 	// Source overrides the embedded Spec Bundle (nil uses BundleSource).
 	Source Source `json:"-"`
 
-	// PlatformCatalog replaces the Bundle's platform catalog and AllowCandidate
-	// accepts platform combinations that are not qualified (the manifest then
-	// records platform_verification=candidate). They exist for maintenance
-	// parity runs; the CLI never sets them.
-	PlatformCatalog []byte `json:"-"`
-	AllowCandidate  bool   `json:"-"`
-	renderContext   *RenderContext
+	renderContext *RenderContext
 }
 
 // Result describes a generated project.
@@ -68,20 +52,9 @@ type Result struct {
 	ProjectRoot  string
 	ManifestPath string
 	Manifest     *OMap
+	Files        []string
+	DryRun       bool
 	Modules      []string
-}
-
-func (o *Options) hasContract() bool {
-	for _, value := range []string{o.ContractFile, o.ContractID, o.ContractVersion, o.ApprovalRef, o.CompilerDraftRef, o.PersistedRef} {
-		if value != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func (o *Options) platformSupplied() bool {
-	return o.PlatformProfile != "" || o.SpringBootVersion != "" || o.JavaVersion != ""
 }
 
 func (o *Options) example() bool { return o.WithExample == nil || *o.WithExample }
@@ -106,6 +79,9 @@ func Run(ctx context.Context, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.DryRun {
+		return &Result{ProjectRoot: filepath.Join(o.OutputDir, o.ProjectName), Manifest: rendered.manifest, Modules: rendered.modules, Files: rendered.tree.Paths(), DryRun: true}, nil
+	}
 	return publishRendered(ctx, &o, rendered)
 }
 
@@ -117,13 +93,7 @@ func normalizeOptions(o *Options) error {
 		}
 		o.OutputDir = abs
 	}
-	if o.ContractFile != "" {
-		abs, err := filepath.Abs(o.ContractFile)
-		if err != nil {
-			return err
-		}
-		o.ContractFile = abs
-	}
+
 	return nil
 }
 
@@ -197,7 +167,7 @@ func publishRendered(ctx context.Context, o *Options, rendered *renderedProject)
 	if err != nil {
 		return nil, err
 	}
-	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: rendered.manifest, Modules: rendered.modules}, nil
+	return &Result{ProjectRoot: root, ManifestPath: filepath.Join(root, filepath.FromSlash(manifestRef)), Manifest: rendered.manifest, Modules: rendered.modules, Files: rendered.tree.Paths()}, nil
 }
 
 // stage creates the output directory and an owner-only staging directory next to

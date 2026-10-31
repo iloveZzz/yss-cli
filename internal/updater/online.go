@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +33,9 @@ type UpgradeClient struct {
 
 type UpgradeRequest struct {
 	Check    bool
+	DryRun   bool
+	Artifact string
+	SHA256   string
 	To       string
 	ToolRoot string
 }
@@ -65,36 +67,13 @@ type githubRelease struct {
 }
 
 type onlineArtifact struct {
-	Platform              string `json:"platform"`
-	Archive               string `json:"archive"`
-	SHA256                string `json:"sha256"`
-	Bytes                 int64  `json:"bytes"`
-	Compiled              bool   `json:"compiled"`
-	NativeRuntimeVerified bool   `json:"nativeRuntimeVerified"`
-	BinarySHA256          string `json:"binarySha256"`
-	NativeReceiptSHA256   string `json:"nativeReceiptSha256"`
+	Archive string
+	SHA256  string
+	Bytes   int64
 }
-
-type onlineProof struct {
-	SchemaVersion       int              `json:"schemaVersion"`
-	Version             string           `json:"version"`
-	CLICommit           string           `json:"cliCommit"`
-	SourceState         string           `json:"sourceState"`
-	StableReady         bool             `json:"stableReady"`
-	Pending             []string         `json:"pending"`
-	SourceLockSHA256    string           `json:"sourceLockSha256"`
-	ReleaseGateSHA256   string           `json:"releaseGateSha256"`
-	InputManifestSHA256 string           `json:"inputManifestSha256"`
-	QualificationScope  string           `json:"qualificationScope"`
-	RequiredPlatforms   []string         `json:"requiredPlatforms"`
-	SupportedPlatforms  []string         `json:"supportedPlatforms"`
-	Bundles             json.RawMessage  `json:"bundles"`
-	Artifacts           []onlineArtifact `json:"artifacts"`
-}
-
 type onlineRelease struct {
 	githubRelease
-	proof    onlineProof
+	version  string
 	artifact onlineArtifact
 	asset    githubAsset
 }
@@ -230,53 +209,54 @@ func (c UpgradeClient) resolve(ctx context.Context, target string) (onlineReleas
 	if r.Tag != "v"+version || r.Draft || r.Prerelease || r.URL != releaseBase+"tag/"+r.Tag || target != "" && version != target {
 		return selected, fail("ARTIFACT", "发行版本、来源或稳定版状态不一致")
 	}
-	checksum, err := assetFor(r, "checksums.json")
+	checksum, err := assetFor(r, "SHA256SUMS")
 	if err != nil {
 		return selected, err
 	}
-	if err = c.metadata(ctx, checksum.URL, &selected.proof, true); err != nil {
+	response, err := c.get(ctx, checksum.URL)
+	if err != nil {
 		return selected, err
 	}
-	p := selected.proof
-	if p.SchemaVersion != 2 || p.Version != version || p.SourceState != "committed" || !p.StableReady || p.Pending == nil || len(p.Pending) != 0 || !commitPattern.MatchString(p.CLICommit) || !digestPattern.MatchString(p.SourceLockSHA256) || !digestPattern.MatchString(p.ReleaseGateSHA256) {
-		return selected, fail("ARTIFACT", "发行校验清单未满足固定稳定版资格")
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, metadataLimit+1))
+	if err != nil {
+		return selected, err
 	}
-	platform := runtime.GOOS + "/" + runtime.GOARCH
-	qualified := false
-	seen := map[string]bool{}
-	for _, platformRef := range p.RequiredPlatforms {
-		if seen[platformRef] {
-			return selected, fail("ARTIFACT", "发行验收平台重复")
-		}
-		seen[platformRef] = true
-		qualified = qualified || platformRef == platform
-	}
-	if !qualified {
-		return selected, fail("ARTIFACT", "当前平台未列入稳定发行验收范围: "+platform)
+	if len(data) > metadataLimit {
+		return selected, fail("ARTIFACT", "SHA256SUMS 超限")
 	}
 	ext := ".tar.gz"
 	if runtime.GOOS == "windows" {
 		ext = ".zip"
 	}
 	name := "yss_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ext
-	count := 0
-	for _, a := range p.Artifacts {
-		if a.Platform == platform {
-			selected.artifact = a
-			count++
+	sums := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
 		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !digestPattern.MatchString(fields[0]) {
+			return selected, fail("ARTIFACT", "SHA256SUMS 格式不合法")
+		}
+		ref := strings.TrimPrefix(fields[1], "*")
+		if _, ok := sums[ref]; ok {
+			return selected, fail("ARTIFACT", "SHA256SUMS 文件重复")
+		}
+		sums[ref] = fields[0]
 	}
-	a := selected.artifact
-	if count != 1 || a.Archive != name || a.Bytes <= 0 || a.Bytes > maxArchive || a.Compiled || !a.NativeRuntimeVerified || !digestPattern.MatchString(a.SHA256) || !digestPattern.MatchString(a.BinarySHA256) || !digestPattern.MatchString(a.NativeReceiptSHA256) {
-		return selected, fail("ARTIFACT", "当前平台缺少唯一、已验收且摘要完整的发行包: "+platform)
+	if sums[name] == "" {
+		return selected, fail("ARTIFACT", "SHA256SUMS 缺少当前平台发行包")
 	}
 	selected.asset, err = assetFor(r, name)
 	if err != nil {
 		return selected, err
 	}
-	if selected.asset.Size != 0 && selected.asset.Size != a.Bytes {
-		return selected, fail("ARTIFACT", "发行资产长度与校验清单不一致")
+	if selected.asset.Size <= 0 || selected.asset.Size > maxArchive {
+		return selected, fail("ARTIFACT", "发行资产大小不合法")
 	}
+	selected.version = version
+	selected.artifact = onlineArtifact{name, sums[name], selected.asset.Size}
 	return selected, nil
 }
 
@@ -285,14 +265,13 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 	if err := cancellation(ctx); err != nil {
 		return result, err
 	}
-	if request.To != "" {
-		if _, err := stableVersion(request.To); err != nil {
-			return result, err
-		}
+	if (request.Artifact == "") != (request.SHA256 == "") {
+		return result, fail("ARGUMENT", "离线升级须同时提供 --artifact 和 --sha256")
 	}
 	result.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	result.CurrentVersion = domain.Version
-	automatic := request.ToolRoot == "" && !request.Check
+	readOnly := request.Check || request.DryRun
+	automatic := request.ToolRoot == ""
 	if automatic {
 		executable := c.Executable
 		if executable == nil {
@@ -300,51 +279,61 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 		}
 		path, err := executable()
 		if err != nil {
-			return result, domain.Wrap("INSTALLATION", err)
+			return result, err
 		}
 		path, err = filepath.EvalSymlinks(path)
 		if err != nil {
-			return result, domain.Wrap("INSTALLATION", err)
+			return result, err
 		}
 		if filepath.Base(path) != fileName() {
-			return result, fail("INSTALLATION", "未识别受管 yss 入口；运行 yss help tutorial 查看安装方法，或显式使用 --tool-root <新目录>")
+			return result, fail("INSTALLATION", "未识别 yss 入口；请显式指定 --tool-root")
 		}
 		request.ToolRoot = filepath.Dir(path)
 	}
-	var installed *installedProgram
-	if request.ToolRoot != "" {
-		var err error
-		result.ToolRoot, err = toolRootPath(request.ToolRoot)
-		if err != nil {
-			return result, err
-		}
-		installed, _, err = inspectInstallation(result.ToolRoot, !request.Check, c.Executable)
-		if err != nil {
-			if automatic {
-				var diagnosticError *installationError
-				var conflict *domain.Error
-				if errors.As(err, &diagnosticError) && errors.As(err, &conflict) && conflict.Code == "CONFLICT" && diagnosticError.diagnostic.RecordedVersion == "" && diagnosticError.diagnostic.Status == "inconsistent" {
-					diagnosticError.cause = fail("INSTALLATION", "实际运行目录缺少有效安装收据；请选择新的工具目录安装")
-				}
-			}
-			return result, err
-		}
-		if installed == nil {
-			if automatic {
-				return result, fail("INSTALLATION", "实际运行目录缺少安装收据；运行 yss help tutorial 查看安装方法，或显式使用 --tool-root <新目录>")
-			}
-			result.CurrentVersion = ""
-		} else {
-			result.CurrentVersion = installed.receipt.CLIVersion
-		}
-	}
-	release, err := c.resolve(ctx, request.To)
+	var err error
+	result.ToolRoot, err = toolRootPath(request.ToolRoot)
 	if err != nil {
 		return result, err
 	}
-	result.TargetVersion = release.proof.Version
-	result.ReleaseURL = release.URL
-	result.ArchiveSHA256 = release.artifact.SHA256
+	installed, _, err := inspectInstallation(result.ToolRoot, true, c.Executable)
+	if err != nil {
+		return result, err
+	}
+	if installed == nil {
+		if automatic {
+			return result, fail("INSTALLATION", "运行目录缺少有效安装记录；请显式选择新的 --tool-root")
+		}
+		result.CurrentVersion = ""
+	} else {
+		result.CurrentVersion = installed.receipt.CLIVersion
+	}
+	var release onlineRelease
+	var plan *Plan
+	if request.Artifact != "" {
+		plan, err = Build(result.ToolRoot, request.Artifact, request.SHA256)
+		if err != nil {
+			return result, err
+		}
+		result.TargetVersion = plan.Manifest.CLIVersion
+		result.ArchiveSHA256 = request.SHA256
+		if request.To != "" {
+			target, e := stableVersion(request.To)
+			if e != nil {
+				return result, e
+			}
+			if target != result.TargetVersion {
+				return result, fail("VERSION", "离线发行包版本与 --to 不匹配")
+			}
+		}
+	} else {
+		release, err = c.resolve(ctx, request.To)
+		if err != nil {
+			return result, err
+		}
+		result.TargetVersion = release.version
+		result.ReleaseURL = release.URL
+		result.ArchiveSHA256 = release.artifact.SHA256
+	}
 	order := 1
 	if result.CurrentVersion != "" {
 		order, err = compareVersions(result.TargetVersion, result.CurrentVersion)
@@ -353,36 +342,34 @@ func (c UpgradeClient) Run(ctx context.Context, request UpgradeRequest) (Upgrade
 		}
 	}
 	result.UpdateAvailable = order > 0
-	if request.Check {
+	if order < 0 {
+		return result, fail("VERSION", "目标版本低于当前安装，拒绝降级")
+	}
+	if readOnly {
 		result.Status = "checked"
 		return result, nil
 	}
-	if order < 0 {
-		return result, fail("VERSION", "目标版本低于当前安装，拒绝降级；如需其他版本，请在新目录重新安装")
-	}
-	if installed != nil && order == 0 && installed.receipt.StableReady && installed.receipt.ArchiveDigest == release.artifact.SHA256 && installed.manifest.CLICommit == release.proof.CLICommit && installed.manifest.BinarySHA256 == release.artifact.BinarySHA256 {
+	if installed != nil && order == 0 && installed.receipt.ArchiveDigest == result.ArchiveSHA256 {
 		result.Status = "unchanged"
 		return result, nil
 	}
-	if err = cancellation(ctx); err != nil {
-		return result, err
-	}
-	tmp, err := os.MkdirTemp("", "yss-upgrade-")
-	if err != nil {
-		return result, err
-	}
-	defer os.RemoveAll(tmp)
-	archivePath := filepath.Join(tmp, release.artifact.Archive)
-	if err = c.download(ctx, release, archivePath); err != nil {
-		return result, err
-	}
-	plan, err := Build(result.ToolRoot, archivePath, release.artifact.SHA256)
-	if err != nil {
-		return result, err
-	}
-	m, p, a := plan.Manifest, release.proof, release.artifact
-	if !m.StableReady || m.SourceState != "committed" || m.RuntimeVerification != "passed" || m.CLIVersion != p.Version || m.CLICommit != p.CLICommit || m.Platform != result.Platform || m.BinarySHA256 != a.BinarySHA256 || m.SourceLockSHA256 != p.SourceLockSHA256 || m.NativeReceiptSHA256 != a.NativeReceiptSHA256 || m.ReleaseGateSHA256 != p.ReleaseGateSHA256 {
-		return result, fail("ARTIFACT", "包内来源与在线发行校验清单不一致")
+	if plan == nil {
+		tmp, e := os.MkdirTemp("", "yss-upgrade-")
+		if e != nil {
+			return result, e
+		}
+		defer os.RemoveAll(tmp)
+		path := filepath.Join(tmp, release.artifact.Archive)
+		if err = c.download(ctx, release, path); err != nil {
+			return result, err
+		}
+		plan, err = Build(result.ToolRoot, path, release.artifact.SHA256)
+		if err != nil {
+			return result, err
+		}
+		if plan.Manifest.CLIVersion != result.TargetVersion {
+			return result, fail("VERSION", "发行包版本与在线发行不匹配")
+		}
 	}
 	if err = cancellation(ctx); err != nil {
 		return result, err

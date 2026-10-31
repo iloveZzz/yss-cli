@@ -1,74 +1,17 @@
-# 兼容与验收边界
+# 安装类型与兼容范围
 
-呈现接口：终端默认中文，非终端维持原结果；`--human` 强制中文，`--json` 保持版本 1 envelope 和领域 result，二者互斥。`--diagnostics` 必须同 `--json` 使用，仅在失败时添加可选顶层 `diagnostic`（schemaVersion=1）。新呈现参数由入口消费，不传给治理校验或事务执行器。历史别名保留冻结协议；帮助优先处理并始终输出离线文本。
+现役 Profile 只有 `spec` 和 `backend`。每个 Profile 提供 `project`、`skills` 两种安装类型；新安装默认 `project`，已有工程沿用保存值，`sync --installation project|skills` 可显式切换。切换仍核验受管文件的原内容，用户修改或未知文件不会被强制覆盖。
 
-程序版本与协议见实际二进制来源；本地候选不代表正式发行。当前仅支持 Spec/Backend，实例必须能与当前内嵌 Bundle 或登记的重发后受信 Bundle 逐项对照；版本号或自报摘要不足以证明来源。旧产品及无法证明来源的实例明确拒绝并保留文件，同步失败时由用户处理新增路径并用 Git 恢复已跟踪文件。创建实例的 CLI 版本或 Schema 号单独不能决定模板来源。新建和接管默认 `governed`，独立技能显式选择 `--installation skills`；项目保存计划须符合当前合同。
-
-历史离线帮助中旧 Design 转 Spec 的提示不能扩大本页声明的迁移范围；当前 Design 输入不受支持。新建和接管默认安装 governed，已有 skills 实例仍须显式迁移才能启用治理。
-
-新版 Bundle 的 `skills` 安装包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖，这些文件本身不启用治理身份或阶段能力；已有实例经审阅并应用 `sync` 计划补齐受管资源。
-
-`attach` 仅接管没有 YSS metadata 的已有工程；受支持的原生实例使用 `sync`，已识别旧实例不当作普通工程接管。`attach`、`sync` 和安装方式转换共用资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；同步校验失败保留现场并由用户按路径清单和 Git 人工处理，其他适用事务保留既有保护。现有 Context、Tracker、业务与批准资产保留。
-
-迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要，可再绑定 Bundle 摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本只读取 metadata 中记录的语义化 `templateVersion`；缺失或不是合法语义化版本时，版本区间规则不适用，计划的 `notices` 如实报告，不从提交或旧版本对照表推测。精确来源可选 `from.templateVersion`，接受语义化版本或与 `templateCommit` 对应的 `git:<完整提交>`，并额外核对实例登记值；静态重叠判断中，语义化版本按区间判断，git 版本不匹配版本区间，未声明版本的精确来源仍按可能重叠处理。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。处于活动技能树内的旧合同仍会因新来源锁不兼容而阻断升级，不能把保留当作放行。`--review-out` 的 `conflicts.json` 一并列出这些删除项。
-
-Bundle 生产器按固定 Git 对象取源；`native-upgrade-v3` 兼容生成器使用 CLI 中已审查的输入，为旧快照提供 v3 metadata 读取脚本和升级指引。Bundle4 及后续版本保留固定模板的 Skill 与升级协议说明，不用历史内嵌文案覆盖；必要 metadata 消费脚本转换继续执行。Bundle1/2/3 保持原说明兼容转换。`nativeTransforms` 记录源字节与输出摘要，归档保留两者；原模板提交及快照摘要仍指向旧固定来源，生成器来源另由 producer 记录。当前工作树 producer 只能交付 implementation-ready，不能作为 committed-source 发行证据。
-
-已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
-
-Context 的 check/verify 对合法 schema v1 template-source 支持只读校验并返回可复用 context_snapshot；实例身份检测保持原边界，模板源携带实例 metadata 会被拒绝。当前 Spec/Backend 的 JS 消费者只负责固定二进制传输和 envelope/摘要校验；历史 Design 不属于当前支持范围。
-
-当前治理 verify、完整 project-ci、Stage 写入、离线程序安装与 JS native transport 的边界见 porting-status.md。两个插件迁至固定二进制与公开 Bundle 接口；必要 Node/Python 治理工具继续独立维护。旧成功 JSON、私有 JS API 和停用参数仅按实际消费者迁移，不全量仿制；停用项明确拒绝并提供替代命令。独立 Go Bundle 生产不再调用旧 Node 私有导出模块。
-
-Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索、JSON重复键、YAML重复键/alias/多文档拒绝。现实Schema的Python正则字符类使用固定Unicode15兼容区间；未支持的高级语法返回SCHEMA_REGEX_INCOMPATIBLE，不静默放宽。当前Python基线缺可选date-time检查器，Go会拒绝其原本误接受的无时区时间；这是显式严格化，尚不能标为完全等价。JSON/YAML非法UTF和不成对surrogate被拒绝。
-
-恢复：原字节、类型、权限与计划摘要持久保存；WAL先于目标写入。后续用户修改导致恢复或整体回滚拒绝，避免覆盖。Git index、业务目录和嵌套Git仓库不属于模板写范围。重发前的历史事务不属于当前支持范围；发现历史中断时保留现场并停止受影响写入。
-
-可支持的平台 CI 使用GitHub官方提供的runner标签，见[官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。流水线准备好不等于已经执行；本地交叉编译不能替代原生运行、取消、权限和恢复验证。
-
-稳定版条件按 [退役合同](cli-retirement.md) 验收：必要能力和现役消费者闭合、本次明确发行平台实际运行通过、固定提交上本次受影响的 CLI、插件和安装契约通过。每份发行资产的 stableReady 结论由其发行 manifest、本次发行平台原生收据和明示范围的门禁摘要共同给出；源码版本和交叉编译不能代替这些证据。提交、推送、tag 和发布分别按授权执行。
-
-2.1.0 的发行目标为 darwin/arm64 与 windows/amd64。macOS 归档与目标须位于同一支持原子克隆的 APFS 卷。macOS 从已校验的归档文件描述符原子克隆完整临时文件，再设置权限与同步；目标存在、来源或目标链接及摘要变化仍拒绝，安装文件与归档不共享可修改的 inode。不支持克隆或跨卷返回 UNPORTED，不退回普通复制；无法据此保证不受支持文件系统上的旧事务可恢复。旧版本已留下的未知或零字节事务临时文件仍保留并阻断。按本次明确授权，Mac ARM64 保留实际原生、安装与恢复验收；Windows x64 仅交付同源构建包及独立摘要，不执行该平台运行验收。Windows 包标记 stableReady=false、nativeRuntimeVerified=false，下载核验后解压使用；现有在线升级资格检查保持，Windows 不列入本次 requiredPlatforms。Linux 不在本版本发行目标内。
-
-本次资格范围为 local-platform-impacted-consumers；无关全仓回归及可复用重复检查按用户调整裁剪，未执行项不作完整模板通过声明。
-
-
-## Cobra 命令层
-
-命令、参数、帮助及补全从每次调用新建的 Cobra 命令树产生。版本、JSON envelope（outputVersion=1、protocolVersion=1）、退出码、中文终端与管道呈现、MCP 白名单和保存计划保护继续沿用原合同。严格布尔仅接受小写 true/false；semantic、scaffold、upgrade 拒绝重复参数，其他命令保留后值覆盖。未提供、显式空值与 false 继续分别处理。
-
-新增 `--` 结束选项解析。例如 `yss check --root <项目> -- -example.yaml`；终止符后的 `--help`、`--json`、`-V` 都是位置参数，不能成为新子命令，也不放宽数量和路径范围。Invoke 将其强制 JSON 选项插在终止符之前；MCP 输入仍拒绝以短横线开头的值。
-
-`yss completion bash|zsh|fish|powershell` 向 stdout 生成脚本，安装位置与 Shell 配置由用户选择；CLI 不自动安装。Bash 的交互补全需要 bash-completion 提供 `_get_comp_words_by_ref` 等辅助；脚本生成不自动安装这些依赖。补全提供命令、选项、静态枚举和路径类型，不读取 Ticket、项目业务资产或网络。普通值默认禁用文件回退。帮助、补全脚本与隐藏补全协议仍输出原始文本/协议，不附加业务 envelope。
-
-四种脚本可生成不等于四种 Shell 都已运行验证；实际平台与执行结果见当前候选记录。首期测试继续使用 Go 标准库，不引入 Testify。
-
-治理版本边界：
-
-| 组合 | 当前行为 |
-| --- | --- |
-| Bundle5 + metadata5 + 项目保存计划 v4 | 当前新建 Spec/Backend；默认 governed，显式 skills 安装独立技能；治理内按适用检查与真实自检执行，独立复核取决于当前要求 |
-| 可与内嵌受信 Bundle 对照的 Template 5.x | 以来源及受管策略实际字节判断；安装方式转换须显式执行 |
-| 旧产品或无法对照的来源 | 不作为当前实例迁移或写入；保留文件，使用匹配原版本工具诊断 |
-| 新政策 Handoff5 / package2 | 显式 context2、approval3 和任务来源快照；重算 Git 对象、基线、候选与执行事实，源仓不可用时仍只读验包；目标先对账，不授予实现资格 |
-| 缺失或漂移的原政策快照 | 明确拒绝，不回退到当前政策或当前批准资格 |
-| 旧 CLI + 新身份 | 拒绝不支持的 schema/字段；以实际退出和文件未变作为错配证据 |
-
-新实例不分发岗位/数字人注册表；真实用户决定、当前合同范围、原始摘要、实际执行和未知外部规则边界继续生效。旧 SourceLock、原始政策和审批字节不用于取得新资格。程序升级、项目迁移及发布分别授权。
-
-## 独立技能安装（新安装合同）
-
-Bundle5 / metadata5 / plan4 支持一次性的 `skills` 或 `governed` 安装选择。新建和接管默认 governed；显式 skills 安装中，Spec 默认包含 life 路由、澄清、研究、领域、规格草稿、中文写作、审查与显式实现入口，Backend 默认开发与审查入口。具体集合由固定 Bundle 政策决定，to-spec 和 implement 保持用户显式调用。独立 ensure 仅选择技能内闭包；条件依赖继续先 resolve --when，再显式 ensure missing 集合，不新增 ensure --when。已有独立项目仅在显式 sync 保存/应用计划时采纳目标默认，程序升级本身不写项目；文件、元数据、锁和有效投影同时更新，旧锁或运行时异常仍拒绝。旧来源 Bundle3/4 保持 governed，不能凭新参数假定旧来源已经包含普通入口。
+当前项目 metadata 为 schema 6。已有 metadata 3、4、5 通过本次 `sync` 读取并迁移到 6；旧安装类型按兼容映射处理。迁移先做 dry-run，确认涉及目录与文件，再运行实际同步。旧插件绑定已经退役，不重新执行绑定或恢复插件专属命令。
 
 ```sh
-yss init --root /path/to/new-project --profile spec --installation skills --plan --out /outside/project/init-plan.json --json
-yss init --root /path/to/new-project --apply --plan-file /outside/project/init-plan.json --json
+yss doctor --root /absolute/project
+yss sync --root /absolute/project --dry-run
+yss sync --root /absolute/project
 ```
 
-`init`、`attach` 可选择安装方式，受信来源的实例可用 `migrate --installation skills|governed` 显式转换安装方式。`sync` 保持现有安装方式，不接受该参数。应用只消费保存计划，不能另加 installation 改写选择。正式 `profile prepare` 继续生成 governed 目标。`--full` 只扩展当前安装方式的技能，不切换是否治理。
+程序包使用 `release-manifest.json` schema 2。新升级器不接受 schema 1 作为待安装归档；已安装的旧收据与 manifest 仅按必要字段读取，以核验原有文件所有权和完整性。首次切换到本版由 Agent 按 [安装说明](build-install.md) 安装完整包；旧 CLI 在线升级器对新格式不保证兼容。
 
-安装诊断分别呈现文件对齐、已安装技能完整性和工作流验收。`doctor.readiness.skills` 只核验当前 Spec metadata5 已声明的技能及运行时，`workflow` 保持 `not-evaluated`；其他 Profile / 历史代际不新增技能核验义务。`skills resolve` 按 `result.status` 判断 ready / missing / blocked，退出 0 只表示查询完成；Claude 与 WorkBuddy 的投影检查不证明宿主已发现技能。
+Bundle 生成器记录实际模板 HEAD、工作树状态及内容摘要；不以固定标签替代实际工作树来源。项目同步只消费已内嵌的 Bundle，不在运行时猜测或拉取模板最新版。`docs/template-release.json` 保留既有标签，不表示该标签包含当前未发布改动。
 
-普通技能由宿主按 SKILL.md 名称与描述发现，不要求先 route、resolve-ready、tracker setup 或创建 checkpoint。`skills resolve` 仍是原受管就绪验证，不是通用本地技能发现器。正式操作在 skills 工程返回未启用治理；真实工程测试、授权范围、分发完整性与写入冲突检查保留。
-
-迁移计划保留原任务、批准、checkpoint 及用户文件；活动或无法核验的正式绑定拒绝转换。规划后输入变化需要重新规划。该安装合同已进入 CLI 2.7.3 的固定发行 Bundle；已有项目仍以自身 metadata、安装方式和已应用计划为准，升级程序不会自动转换项目。
+CLI 不提供阶段门禁、批准、合同审查、插件运行服务或保存计划。模板中的业务内容与技能按实际源资产分发；CLI 不替用户做批准、提交、推送或发布。路径、摘要、权限、事务与文件保护属于安装安全边界，继续保留。

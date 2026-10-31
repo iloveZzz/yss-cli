@@ -185,8 +185,6 @@ func readPreparationHeader(root, ref, id string) (*preparationHeader, error) {
 	return &h, nil
 }
 
-// VerifyEmptyPreparationRoot rejects every target asset and unknown runtime root.
-func VerifyEmptyPreparationRoot(root string) error { return emptyPreparationRoot(root) }
 func emptyPreparationRoot(root string) error {
 	entries, e := os.ReadDir(root)
 	if e != nil {
@@ -494,34 +492,6 @@ func preparationSeals(root string) ([]preparationSeal, error) {
 	return seals, nil
 }
 
-// SealedInitialization verifies immutable, explicitly-profiled empty init seals.
-// It grants no permission to overwrite any target, business file or user state.
-func SealedInitialization(root, profile string) (bool, error) {
-	root, e := safeRoot(root, false)
-	if e != nil {
-		return false, e
-	}
-	seals, e := preparationSeals(root)
-	if e != nil {
-		return false, e
-	}
-	if len(seals) == 0 {
-		return false, nil
-	}
-	for _, s := range seals {
-		if s.Profile != profile || !s.InitialEmpty || s.Kind != "init" {
-			return false, fail("IDENTITY", "封存准备不能作为本 Profile 空初始化历史")
-		}
-	}
-	if e := emptyPreparationRoot(root); e != nil {
-		return false, e
-	}
-	return true, nil
-}
-
-// RecoverPreparations preserves an unpublished preparation under its exclusive
-// writer lock. Preview is strictly read-only. All current Before/Guards and the
-// caller's project identity/scope are checked again under the lock before seal.
 func RecoverPreparations(ctx context.Context, root, profile string, apply bool, validate ScopeValidator) (Result, bool, error) {
 	return recoverPreparations(ctx, root, profile, "", apply, validate)
 }
@@ -582,6 +552,9 @@ func recoverPreparations(ctx context.Context, root, profile, wantKind string, ap
 			c, e := loadPreparation(root, id)
 			if e != nil {
 				return out, nil, e
+			}
+			if wantKind == "" && c.plan != nil && c.plan.Kind == "program-update" {
+				return out, nil, fail("KIND", "程序准备必须使用程序恢复入口")
 			}
 			if wantKind != "" && (c.plan == nil || c.plan.Kind != wantKind) {
 				return out, nil, fail("STATE", "程序准备缺少完整 program-update 计划；保留现场，不自动清除")

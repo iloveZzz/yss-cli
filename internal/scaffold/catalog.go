@@ -36,9 +36,7 @@ type CatalogPlatform struct {
 	YssComponentsVersion string   `json:"yssComponentsVersion,omitempty"`
 	Architectures        []string `json:"architectures"`
 	StandaloneAllowed    bool     `json:"standaloneAllowed"`
-	Verification         string   `json:"verification"`
 	Blockers             []string `json:"blockers"`
-	VerificationBlockers []string `json:"verificationBlockers"`
 }
 
 type CatalogView struct {
@@ -52,8 +50,7 @@ type CatalogView struct {
 	Fields        []CatalogField    `json:"fields"`
 }
 
-// DescribeCatalog describes the same fixed Bundle and standalone validation the
-// generator uses. Qualification is reported separately from generation access.
+// DescribeCatalog describes the bundled generation inputs and supported platforms.
 func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 	if ctx == nil {
 		return nil, domain.Fail("ARGUMENT", "取消上下文不可为空")
@@ -63,7 +60,7 @@ func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 	}
 	view := &CatalogView{Kind: "scaffold-catalog", SchemaVersion: 1, Bundles: []BundleBinding{}, Platforms: []CatalogPlatform{},
 		Profiles:      []CatalogChoice{{ID: "spec", Description: "规格及适用后端职责"}, {ID: "backend", Description: "后端交付职责"}},
-		Installations: []CatalogChoice{{ID: "skills", Description: "安装规则、技能及其资源闭包"}, {ID: "governed", Description: "安装技能、治理身份与治理资产", Default: true}},
+		Installations: []CatalogChoice{{ID: "project", Description: "安装项目入口、资料和技能", Default: true}, {ID: "skills", Description: "安装规则、技能及其资源闭包"}},
 		Architectures: []CatalogChoice{{ID: "ddd", Description: "领域驱动多模块后端"}, {ID: "mvc", Description: "分层 MVC 多模块后端"}}}
 	var src Source
 	for _, profile := range view.Profiles {
@@ -73,11 +70,6 @@ func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 		b, err := bundle.Load(profile.ID)
 		if err != nil {
 			return nil, err
-		}
-		for _, mode := range view.Installations {
-			if _, err := b.ForInstallation(mode.ID); err != nil {
-				return nil, domain.Wrap("CAPABILITY", err)
-			}
 		}
 		view.Bundles = append(view.Bundles, BundleBinding{Profile: b.Profile, SchemaVersion: b.SchemaVersion, BundleHash: bundle.Hash(b),
 			TemplateVersion: b.TemplateVersion, TemplateCommit: b.TemplateCommit, SourceState: b.SourceState, SnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash})
@@ -99,15 +91,11 @@ func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 				continue
 			}
 			matched = true
-			view.Platforms = append(view.Platforms, describeCatalogPlatform(src, catalog, profile, entry))
+			view.Platforms = append(view.Platforms, describeCatalogPlatform(src, profile, entry))
 		}
 		if !matched {
 			platform := catalogPlatformBase(profile)
 			platform.Blockers = append(platform.Blockers, "固定目录未提供该平台的完整 YSS Parent/BOM 坐标组合")
-			platform.VerificationBlockers = stringList(mustGet(profile, "candidate_blockers"))
-			if platform.VerificationBlockers == nil {
-				platform.VerificationBlockers = []string{}
-			}
 			view.Platforms = append(view.Platforms, platform)
 		}
 	}
@@ -122,11 +110,11 @@ func DescribeCatalog(ctx context.Context) (*CatalogView, error) {
 func catalogPlatformBase(profile *OMap) CatalogPlatform {
 	return CatalogPlatform{ID: fieldString(profile, "id") + "@" + fieldString(profile, "spring_boot_version"),
 		PlatformProfile: fieldString(profile, "id"), SpringBootVersion: fieldString(profile, "spring_boot_version"),
-		JavaVersion: strconv.Itoa(intField(profile, "java_version")), Architectures: []string{}, Verification: "unverified",
-		Blockers: []string{}, VerificationBlockers: []string{}}
+		JavaVersion: strconv.Itoa(intField(profile, "java_version")), Architectures: []string{},
+		Blockers: []string{}}
 }
 
-func describeCatalogPlatform(src Source, catalog *Catalog, profile, entry *OMap) CatalogPlatform {
+func describeCatalogPlatform(src Source, profile, entry *OMap) CatalogPlatform {
 	platform := catalogPlatformBase(profile)
 	platform.ID = fieldString(entry, "id")
 	parent := asMap(mustGet(entry, "parent"))
@@ -143,7 +131,7 @@ func describeCatalogPlatform(src Source, catalog *Catalog, profile, entry *OMap)
 	options := Options{ProjectName: "catalog-probe", BasePackage: "com.yss.catalog", GroupID: "com.yss", ProjectVersion: "0.0.0",
 		PlatformProfile: platform.PlatformProfile, SpringBootVersion: platform.SpringBootVersion, JavaVersion: platform.JavaVersion,
 		ParentGroupID: platform.ParentGroupID, ParentArtifactID: platform.ParentArtifactID, ParentVersion: platform.ParentVersion,
-		YssComponentsVersion: platform.YssComponentsVersion, Standalone: true, WithExample: &withoutExample}
+		YssComponentsVersion: platform.YssComponentsVersion, WithExample: &withoutExample}
 	for _, family := range []struct{ architecture, family string }{{"ddd", "domain-driven"}, {"mvc", "layered-mvc"}} {
 		if _, _, err := standaloneConfiguration(src, &options, family.family, false); err != nil {
 			platform.Blockers = append(platform.Blockers, family.architecture+": "+err.Error())
@@ -152,17 +140,7 @@ func describeCatalogPlatform(src Source, catalog *Catalog, profile, entry *OMap)
 		}
 	}
 	platform.StandaloneAllowed = len(platform.Blockers) == 0 && len(platform.Architectures) > 0
-	if mustGet(entry, "status") == "verified" {
-		if _, err := resolveBackendPlatform(src, catalog, platformBinding(profile, entry), true); err != nil {
-			platform.VerificationBlockers = append(platform.VerificationBlockers, err.Error())
-		} else {
-			platform.Verification = "verified"
-		}
-	} else {
-		platform.VerificationBlockers = append(platform.VerificationBlockers, "固定组合尚未具备完整平台验证资格")
-		platform.VerificationBlockers = append(platform.VerificationBlockers, stringList(mustGet(profile, "candidate_blockers"))...)
-	}
-	platform.VerificationBlockers = append(platform.VerificationBlockers, stringList(mustGet(entry, "blockers"))...)
+
 	return platform
 }
 
@@ -175,7 +153,7 @@ func describeCatalogFields(platforms []CatalogPlatform) []CatalogField {
 	}
 	fields := []CatalogField{
 		{ID: "profile", Flag: "--profile", Required: true, Choices: []string{"spec", "backend"}, Operations: []string{"init", "attach"}, Description: "AI 工作资产职责"},
-		{ID: "installation", Flag: "--installation", Choices: []string{"skills", "governed"}, Operations: []string{"init", "attach"}, Description: "默认 governed；独立技能显式选择 skills"},
+		{ID: "installation", Flag: "--installation", Choices: []string{"project", "skills"}, Operations: []string{"init", "attach"}, Description: "安装规则和技能"},
 		{ID: "root", Flag: "--root", Required: true, Choices: []string{}, Operations: []string{"init", "attach"}, Description: "AI 安装的实际目标根目录"},
 		{ID: "architecture", Argument: "<ddd|mvc>", Required: true, Choices: []string{"ddd", "mvc"}, Operations: []string{"scaffold"}, Description: "scaffold 的位置参数"},
 	}

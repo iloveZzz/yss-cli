@@ -2,23 +2,18 @@ package scaffold
 
 import "context"
 
-func (g *dddGen) validateContractMetadata(ctx context.Context) error {
-	if g.standalone {
-		configuration, platform, err := standaloneConfiguration(g.src, g.o, "domain-driven", g.o.example())
-		if err != nil {
-			return err
-		}
-		g.contract, g.platform = configuration, platform
-		g.coordinates = asMap(mustGet(configuration, "maven_coordinates"))
-		g.coordinateSrc = "user-supplied"
-		g.profiles = asMap(mustGet(configuration, "profiles"))
-		return nil
+func (g *dddGen) configure(ctx context.Context) error {
+	configuration, platform, err := standaloneConfiguration(g.src, g.o, "domain-driven", g.o.example())
+	if err != nil {
+		return err
 	}
-	return g.validateFormalContract(ctx)
+	g.configuration, g.platform = configuration, platform
+	g.coordinates = asMap(mustGet(configuration, "maven_coordinates"))
+	return nil
 }
 
 func (g *dddGen) referenceEnabled() bool {
-	reference := asMap(mustGet(g.contract, "reference_example"))
+	reference := asMap(mustGet(g.configuration, "reference_example"))
 	return reference != nil && mustGet(reference, "enabled") == true
 }
 
@@ -41,7 +36,7 @@ func (g *dddGen) renderExample(t *Tree) error {
 }
 
 func (g *dddGen) manifest(t *Tree) (*OMap, error) {
-	fingerprint, err := platformSourceFingerprint(g.src, asString(mustGet(g.contract, "architecture_family")))
+	fingerprint, err := platformSourceFingerprint(g.src, asString(mustGet(g.configuration, "architecture_family")))
 	if err != nil {
 		return nil, err
 	}
@@ -52,15 +47,12 @@ func (g *dddGen) manifest(t *Tree) (*OMap, error) {
 	files := generatedFiles(t, false)
 	generator := newMap("id", dddSkill, "template_digest", templateDigest)
 	ownership := newMap("generated_files", files, "user_owned_globs", userOwnedGlobs)
-	if g.standalone {
-		return standaloneManifest(g.contract, newMap(
-			"source_fingerprint", fingerprint,
-			"generated_tree_digest", generatedTreeDigest(t),
-			"bootstrap_main_class", g.basePackage+"."+g.appClass,
-			"bootstrap_main_source", g.mainSource,
-			"generator", generator,
-			"ownership", ownership,
-		), g.o.renderContext), nil
-	}
-	return g.formalManifest(t, fingerprint, generator, ownership)
+	return standaloneManifest(g.configuration, newMap(
+		"source_fingerprint", fingerprint,
+		"generated_tree_digest", generatedTreeDigest(t),
+		"bootstrap_main_class", g.basePackage+"."+g.appClass,
+		"bootstrap_main_source", g.mainSource,
+		"generator", generator,
+		"ownership", ownership,
+	), g.o.renderContext), nil
 }

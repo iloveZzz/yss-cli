@@ -1,13 +1,15 @@
-// Package identitymeta validates the shared native metadata contract without
-// opening assets. Callers provide bytes from their own observed reading view.
+// Package identitymeta reads installation records without imposing a workflow.
 package identitymeta
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
-	"regexp"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 )
 
 type Managed struct {
@@ -17,9 +19,6 @@ type Managed struct {
 	Source      *BaselineSource   `json:"baselineSource,omitempty"`
 	Disposition *Disposition      `json:"disposition,omitempty"`
 }
-
-// BaselineSource distinguishes canonical template material from bytes accepted
-// in a project. Unknown historical material is explicitly unavailable.
 type BaselineSource struct {
 	Kind           string `json:"kind"`
 	TemplateCommit string `json:"templateCommit,omitempty"`
@@ -36,108 +35,85 @@ type Disposition struct {
 	RuleID  string            `json:"ruleId,omitempty"`
 }
 type Metadata struct {
-	GovernanceHistory   *GovernanceHistory `json:"governanceHistory,omitempty"`
-	BundleSchemaVersion int                `json:"bundleSchemaVersion,omitempty"`
-	BundleHash          string             `json:"bundleHash,omitempty"`
-	CLICommit           string             `json:"cliCommit,omitempty"`
-	CLISourceState      string             `json:"cliSourceState,omitempty"`
-	TemplateSourceState string             `json:"templateSourceState"`
 	SchemaVersion       int                `json:"schemaVersion"`
+	BundleSchemaVersion int                `json:"bundleSchemaVersion"`
 	Profile             string             `json:"profile"`
 	ProfileID           string             `json:"profileId"`
 	ProtocolVersion     int                `json:"protocolVersion"`
 	CLIVersion          string             `json:"cliVersion"`
+	CLICommit           string             `json:"cliCommit,omitempty"`
+	CLISourceState      string             `json:"cliSourceState,omitempty"`
 	TemplateVersion     string             `json:"templateVersion"`
-	LegacyCLIVersion    string             `json:"legacyCliVersion"`
 	TemplateCommit      string             `json:"templateCommit"`
+	TemplateSourceState string             `json:"templateSourceState"`
 	SnapshotHash        string             `json:"snapshotHash"`
 	ManifestHash        string             `json:"manifestHash"`
+	BundleHash          string             `json:"bundleHash"`
 	Managed             map[string]Managed `json:"managedFiles"`
 	BaselineDigest      string             `json:"baselineDigest"`
 	Variables           map[string]string  `json:"variables"`
 	Distribution        map[string]any     `json:"distribution"`
 }
 
-var digestPattern = regexp.MustCompile("^[a-f0-9]{64}$")
+var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-// Local candidate provenance never qualifies a package for release.
-func ValidTemplateSource(meta *Metadata) bool {
-	return meta.TemplateSourceState == "committed" || meta.SchemaVersion >= 3 && meta.TemplateSourceState == "working-tree" && meta.CLISourceState == "working-tree" && regexp.MustCompile(`^worktree:[a-f0-9]{40}$`).MatchString(meta.TemplateVersion)
-}
-
-func ValidateNative(root string, b []byte, found string) (*Metadata, error) {
-	var meta Metadata
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if e := decoder.Decode(&meta); e != nil {
-		return nil, e
+func ValidateNative(root string, raw []byte, found string) (*Metadata, error) {
+	if !json.Valid(raw) {
+		return nil, domain.Fail("IDENTITY", "安装记录不是 JSON")
 	}
-	if (meta.SchemaVersion != 3 && meta.SchemaVersion != 4 && meta.SchemaVersion != 5) || meta.ProtocolVersion != domain.ProtocolVersion {
-		return nil, domain.Explain(domain.Fail("IDENTITY", "未知统一 CLI metadata 或协议版本"), "METADATA_SCHEMA_UNSUPPORTED", "当前执行器不支持该实例的元数据或协议版本。", map[string]any{"root": root, "metadataSchema": meta.SchemaVersion, "instanceProtocol": meta.ProtocolVersion, "instanceCLI": meta.CLIVersion, "templateCommit": meta.TemplateCommit})
-	}
-	if meta.SchemaVersion == 5 && meta.Distribution["installation"] != "skills" && meta.Distribution["installation"] != "governed" {
-		return nil, domain.Fail("IDENTITY", "metadata5 requires an explicit installation")
-	}
-	if meta.SchemaVersion < 5 && meta.Distribution["installation"] != nil && meta.Distribution["installation"] != "governed" {
-		return nil, domain.Fail("IDENTITY", "legacy metadata cannot select skills installation")
-	}
-	if meta.GovernanceHistory != nil {
-		h := meta.GovernanceHistory
-		if meta.SchemaVersion < 4 || !digestPattern.MatchString(h.Digest) || h.Ref != ".template-spec/compatibility/governance-history/"+h.Digest+"/manifest.json" {
-			return nil, domain.Fail("IDENTITY", "历史来源绑定未知或路径不合法")
-		}
-	}
-	if _, err := SpecWorkflow(&meta); err != nil {
+	if _, err := schema.Parse(raw); err != nil {
 		return nil, err
 	}
-	p, e := domain.GetProfile(meta.Profile)
-	if e != nil {
-		return nil, e
+	var m Metadata
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
 	}
-	if meta.SchemaVersion >= 4 && meta.Profile != "spec" && meta.Profile != "backend" {
-		return nil, domain.Fail("IDENTITY", "metadata4 仅支持 Spec/Backend")
+	if m.SchemaVersion < 3 || m.SchemaVersion > 6 || m.ProtocolVersion != domain.ProtocolVersion {
+		return nil, domain.Fail("IDENTITY", "不支持的安装记录版本；保留现有文件")
 	}
-	if p.ID != meta.ProfileID || (found != "" && found != meta.Profile) {
-		return nil, domain.Explain(domain.Fail("IDENTITY", "统一 metadata 与旧家族身份矛盾"), "PROFILE_IDENTITY_CONFLICT", "统一元数据与 Profile 合同或旧家族身份不一致。", map[string]any{"root": root, "profile": meta.Profile, "legacyProfile": found})
+	p, err := domain.GetProfile(m.Profile)
+	if err != nil {
+		return nil, err
 	}
-	if !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.TemplateCommit) || !digestPattern.MatchString(meta.SnapshotHash) || !digestPattern.MatchString(meta.ManifestHash) || !ValidTemplateSource(&meta) {
-		return nil, domain.Fail("BASELINE", "统一 metadata 模板来源、快照或清单摘要缺失或不合法")
+	if m.ProfileID != p.ID || found != "" && found != m.Profile {
+		return nil, domain.Fail("IDENTITY", "项目 Profile 与安装记录不一致")
 	}
-	semver := regexp.MustCompile("^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$")
-	if !semver.MatchString(meta.CLIVersion) || !(semver.MatchString(meta.TemplateVersion) || meta.SchemaVersion >= 2 && meta.TemplateVersion == "git:"+meta.TemplateCommit || meta.TemplateSourceState == "working-tree" && ValidTemplateSource(&meta)) || !semver.MatchString(meta.LegacyCLIVersion) || meta.Variables == nil || meta.Distribution == nil {
-		return nil, domain.Fail("BASELINE", "统一 metadata 版本、变量或分发合同缺失")
+	if m.Managed == nil || m.Variables == nil || m.Distribution == nil {
+		return nil, domain.Fail("IDENTITY", "安装记录缺少文件基线或安装范围")
 	}
-	if meta.SchemaVersion >= 2 {
-		if meta.BundleSchemaVersion != meta.SchemaVersion || !digestPattern.MatchString(meta.BundleHash) || (meta.CLICommit != "" && !regexp.MustCompile("^[a-f0-9]{40}$").MatchString(meta.CLICommit)) || (meta.CLISourceState != "committed" && meta.CLISourceState != "working-tree" && meta.CLISourceState != "unknown") || meta.CLISourceState == "committed" && meta.CLICommit == "" {
-			return nil, domain.Fail("BASELINE", "native v2 Bundle/CLI provenance invalid")
+	kind, _ := m.Distribution["installation"].(string)
+	if m.SchemaVersion < 6 && (kind == "governed" || kind == "") {
+		kind = "project"
+	}
+	if kind != "project" && kind != "skills" {
+		return nil, domain.Fail("IDENTITY", "未知安装范围")
+	}
+	b, err := json.Marshal(m.Managed)
+	if err != nil || !digestPattern.MatchString(m.BaselineDigest) || safefs.Digest(b) != m.BaselineDigest {
+		return nil, domain.Fail("BASELINE", "安装文件基线摘要不一致")
+	}
+	var paths safefs.PathSet
+	for ref, f := range m.Managed {
+		if err := paths.Add(ref); err != nil {
+			return nil, err
 		}
-	}
-	if meta.Managed == nil || !digestPattern.MatchString(meta.BaselineDigest) {
-		return nil, domain.Fail("BASELINE", "统一 CLI 基线缺失")
-	}
-	b, e = json.Marshal(meta.Managed)
-	if e != nil || safefs.Digest(b) != meta.BaselineDigest {
-		return nil, domain.Fail("BASELINE", "统一 CLI 基线摘要不一致")
-	}
-	for ref, m := range meta.Managed {
-		if _, e := safefs.Path(root, ref); e != nil {
-			return nil, e
+		if strings.EqualFold(ref, domain.MetadataFile) || strings.EqualFold(strings.SplitN(ref, "/", 2)[0], ".yss") {
+			return nil, domain.Fail("BASELINE", "安装清单不可管理自身状态")
 		}
-		modeValid := m.Applied.Mode == 0644 || m.Applied.Mode == 0755 || meta.SchemaVersion >= 3 && m.Applied.Mode <= 0777
-		if m.Applied.Type != "file" || !digestPattern.MatchString(m.Applied.Digest) || m.Baseline.Type != "file" || !digestPattern.MatchString(m.Baseline.Digest) || !modeValid {
-			return nil, domain.Fail("BASELINE", "未知文件基线: "+ref)
+		if _, err := safefs.Path(root, ref); err != nil {
+			return nil, err
 		}
-		if meta.SchemaVersion >= 3 {
-			if m.Source == nil || (m.Source.Kind != "bundle" && m.Source.Kind != "unavailable") {
-				return nil, domain.Fail("BASELINE", "缺少基线来源: "+ref)
-			}
-			if m.Source.Kind == "bundle" && (!regexp.MustCompile("^[a-f0-9]{40}$").MatchString(m.Source.TemplateCommit) || !digestPattern.MatchString(m.Source.SnapshotHash) || !digestPattern.MatchString(m.Source.BundleHash) || !digestPattern.MatchString(m.Source.TemplateDigest) || m.Source.Path != ref || (m.Source.Variant != "initial" && m.Source.Variant != "full" && m.Source.Variant != "generated")) {
-				return nil, domain.Fail("BASELINE", "基线来源不合法: "+ref)
-			}
-			if m.Disposition != nil && (m.Disposition.Choice != "keep-local" && m.Disposition.Choice != "use-merged" || m.Disposition.Applied != m.Applied || m.Disposition.Target != m.Baseline) {
-				return nil, domain.Fail("BASELINE", "保留决定与基线矛盾: "+ref)
+		for _, d := range []domain.Descriptor{f.Applied, f.Baseline} {
+			if d.Type != "file" || !digestPattern.MatchString(d.Digest) || d.Mode > 0777 {
+				return nil, domain.Fail("BASELINE", fmt.Sprintf("无效文件基线: %s", ref))
 			}
 		}
+		switch f.Ownership {
+		case "managed", "managed-customizable", "generated", "user-owned", "protected":
+		default:
+			return nil, domain.Fail("BASELINE", "未知文件归属: "+ref)
+		}
 	}
-	return &meta, nil
+	m.Distribution["installation"] = kind
+	return &m, nil
 }

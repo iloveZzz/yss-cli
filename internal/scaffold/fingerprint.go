@@ -61,35 +61,20 @@ func sortedMap(entries map[string]*OMap) *OMap {
 	return out
 }
 
-// platformSourceFingerprint binds the generator and verifier sources, as
-// platformSourceFingerprint(family) in backend-platform-provenance.mjs does.
+// platformSourceFingerprint records the template assets used for generation.
 func platformSourceFingerprint(src Source, family string) (*OMap, error) {
-	base := skillRoot("domain-driven")
-	refs := []string{base + "/scripts/generate_scaffold.mjs", base + "/assets"}
-	if family != "domain-driven" {
-		if family != "layered-mvc" {
-			return nil, fail("platform-provenance: unknown architecture")
-		}
-		base = skillRoot(family)
-		refs = []string{base + "/scripts/generate_scaffold.mjs", base + "/assets", skillRoot("domain-driven") + "/assets/wrapper"}
+	refs := []string{skillRoot(family) + "/SKILL.md", wireRef}
+	if family == "domain-driven" {
+		refs = append(refs, dddAssets)
 	}
-	refs = append(refs, "scripts/lib/backend-platform.mjs", "scripts/lib/scaffold-local-database.mjs", "scripts/lib/standalone-backend-scaffold.mjs", "scripts/lib/scaffold-reference-example.mjs", wireRef)
 	if family == "layered-mvc" {
-		refs = append(refs, skillRoot("domain-driven")+"/assets/reference")
+		refs = append(refs, dddAssets+"/wrapper", referenceAssets)
 	}
 	generator, err := sourceFileMap(src, refs)
 	if err != nil {
 		return nil, err
 	}
-	verifier, err := sourceFileMap(src, []string{"scripts/lib/backend-platform-provenance.mjs", "scripts/lib/backend-platform-verification.mjs", "scripts/lib/command-runner.mjs", "scripts/vendor/xml.mjs", skillRoot("domain-driven") + "/scripts/run_scaffold_verification.mjs"})
-	if err != nil {
-		return nil, err
-	}
-	return newMap(
-		"schema_version", 1,
-		"generator_digest", platformDigest(JSON(generator, "")),
-		"verifier_digest", platformDigest(JSON(verifier, "")),
-	), nil
+	return newMap("schema_version", 1, "generator_digest", platformDigest(JSON(generator, ""))), nil
 }
 
 // generatedTreeDigest hashes the generated files' digests and executable bits.

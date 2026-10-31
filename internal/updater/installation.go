@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
+	"github.com/iloveZzz/yss-cli/internal/schema"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
 )
 
@@ -73,11 +75,11 @@ func quotedPath(path string) string {
 	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 func diagnosticSteps(root, code string) []string {
-	status := "yss update status --tool-root " + quotedPath(root) + " --json"
+	status := "yss upgrade --dry-run --tool-root " + quotedPath(root) + " --json"
 	if code == "STATE" {
 		return []string{status, "程序升级未完成；保留当前目录，在新的工具目录重新安装 CLI"}
 	}
-	return []string{status, "保留旧目录及归档；选择不存在的新目录安装，例如：", "yss upgrade --tool-root " + quotedPath(root+"-clean"), "使用新目录内的 yss version --json 和 yss update status --tool-root <新目录> --json 核验后，再调整 PATH 入口；完整离线安装案例见 yss help tutorial"}
+	return []string{status, "保留旧目录及归档；选择不存在的新目录安装，例如：", "yss upgrade --tool-root " + quotedPath(root+"-clean"), "使用新目录内的 yss version --json 和 yss upgrade --dry-run --tool-root <新目录> --json 核验后，再调整 PATH 入口；完整离线安装案例见 yss help tutorial"}
 }
 
 // The same strict, read-only inspection supplies online preflight, offline
@@ -162,13 +164,13 @@ func inspectInstallation(root string, requireSettled bool, executable func() (st
 		return reject(err)
 	}
 	var installed installedProgram
-	if err = parseJSON(b, &installed.receipt); err != nil {
+	if err = parseInstalledJSON(b, &installed.receipt); err != nil {
 		return reject(err)
 	}
 	r := installed.receipt
 	report.RecordedVersion = r.CLIVersion
-	if r.SchemaVersion != 1 || r.ProtocolVersion != domain.ProtocolVersion || r.Platform != runtime.GOOS+"/"+runtime.GOARCH || !digestPattern.MatchString(r.ArchiveDigest) || r.SourceState != "committed" && r.SourceState != "working-tree" || r.StableReady && r.SourceState != "committed" {
-		return reject(fail("ARTIFACT", "未知程序安装合同"))
+	if (r.SchemaVersion != 1 && r.SchemaVersion != 2) || r.Platform != runtime.GOOS+"/"+runtime.GOARCH || !digestPattern.MatchString(r.ArchiveDigest) {
+		return reject(fail("ARTIFACT", "未知程序安装记录"))
 	}
 	if _, err = versionParts(r.CLIVersion); err != nil {
 		return reject(err)
@@ -188,7 +190,7 @@ func inspectInstallation(root string, requireSettled bool, executable func() (st
 	if err != nil {
 		return reject(err)
 	}
-	if err = parseJSON(b, &installed.manifest); err != nil {
+	if err = parseInstalledJSON(b, &installed.manifest); err != nil {
 		return reject(err)
 	}
 	m := installed.manifest
@@ -196,13 +198,14 @@ func inspectInstallation(root string, requireSettled bool, executable func() (st
 		report.Issues = append(report.Issues, "运行版本与安装记录版本不同")
 	}
 	report.ManifestVersion = m.CLIVersion
-	if m.SchemaVersion != 1 || m.CLIVersion != r.CLIVersion || m.Platform != r.Platform || m.ProtocolVersion != r.ProtocolVersion || m.SourceState != r.SourceState || m.StableReady != r.StableReady || m.CGO || m.StableReady && m.RuntimeVerification != "passed" {
-		return reject(fail("ARTIFACT", "安装收据与 manifest 身份不一致"))
+	if (m.SchemaVersion != 1 && m.SchemaVersion != 2) || m.CLIVersion != r.CLIVersion || m.Platform != r.Platform {
+		return reject(fail("ARTIFACT", "安装记录与 manifest 身份不一致"))
 	}
-	for _, ref := range []string{fileName(), "README.md", "docs/source-lock.json", "docs/compatibility.md"} {
-		if _, ok := m.Files[ref]; !ok {
-			return reject(fail("ARTIFACT", "安装 manifest 缺少核心文件: "+ref))
-		}
+	if _, ok := m.Files[fileName()]; !ok {
+		return reject(fail("ARTIFACT", "安装 manifest 缺少程序"))
+	}
+	if m.SchemaVersion == 2 && (!digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest) {
+		return reject(fail("DIGEST", "安装程序摘要与 manifest 不一致"))
 	}
 	refs := []string{}
 	for ref := range m.Files {
@@ -212,7 +215,7 @@ func inspectInstallation(root string, requireSettled bool, executable func() (st
 	drift := false
 	for _, ref := range refs {
 		want := m.Files[ref]
-		if !expectedFiles()[ref] || ref == "release-manifest.json" || want.Type != "file" || !digestPattern.MatchString(want.Digest) || want.Mode != 0644 && want.Mode != 0755 || ref == fileName() && want.Mode != 0755 {
+		if !validPayloadRef(ref) || ref == "release-manifest.json" || want.Type != "file" || !digestPattern.MatchString(want.Digest) || want.Mode != 0644 && want.Mode != 0755 || ref == fileName() && want.Mode != 0755 {
 			return reject(fail("ARTIFACT", "安装 manifest 描述不合法: "+ref))
 		}
 		want.Mode = domain.FileMode(want.Mode)
@@ -241,22 +244,8 @@ func inspectInstallation(root string, requireSettled bool, executable func() (st
 	if drift {
 		return reject(fail("CONFLICT", "受管程序文件与安装清单不一致"))
 	}
-	lockPath, err := safefs.Path(root, "docs/source-lock.json")
-	if err != nil {
-		return reject(err)
-	}
-	lock, err := os.ReadFile(lockPath)
-	if err != nil {
-		return reject(err)
-	}
-	if err = validateProvenance(m, lock); err != nil {
-		return reject(err)
-	}
-	if err = validateStableProof(m, lock, b); err != nil {
-		return reject(err)
-	}
-	if report.RunningProgramMatchesRoot && (r.CLIVersion != domain.Version || domain.BuildSourceState == "committed" && m.CLICommit != domain.BuildCommit) {
-		return reject(fail("INSTALLATION", "安装身份与实际运行 CLI 不一致"))
+	if report.RunningProgramMatchesRoot && r.CLIVersion != domain.Version {
+		return reject(fail("INSTALLATION", "运行版本与安装记录版本不同"))
 	}
 	report.Consistent = true
 	report.Status = "consistent"
@@ -282,4 +271,15 @@ func installationConflict(root string, cause error) error {
 		report.NextSteps = diagnosticSteps(root, "CONFLICT")
 	}
 	return &installationError{cause, report}
+}
+
+// Old installation records may retain retired metadata; duplicate keys remain invalid.
+func parseInstalledJSON(data []byte, target any) error {
+	if !json.Valid(data) {
+		return fail("ARTIFACT", "安装记录必须是单个 JSON 文档")
+	}
+	if _, err := schema.Parse(data); err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
 }

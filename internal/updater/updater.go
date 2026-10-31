@@ -10,14 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 
-	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
@@ -28,23 +26,15 @@ const maxArchive = 256 << 20
 const receiptRef = "installation.json"
 
 type Manifest struct {
-	SchemaVersion       int                           `json:"schemaVersion"`
-	CLIVersion          string                        `json:"cliVersion"`
-	ProtocolVersion     int                           `json:"protocolVersion"`
-	Platform            string                        `json:"platform"`
-	CGO                 bool                          `json:"cgo"`
-	SourceState         string                        `json:"sourceState"`
-	CLICommit           string                        `json:"cliCommit,omitempty"`
-	Bundles             map[string]*bundle.Inspection `json:"bundles,omitempty"`
-	BinarySHA256        string                        `json:"binarySha256,omitempty"`
-	SourceLockSHA256    string                        `json:"sourceLockSha256,omitempty"`
-	RequiredPlatforms   []string                      `json:"requiredPlatforms,omitempty"`
-	SupportedPlatforms  []string                      `json:"supportedPlatforms,omitempty"`
-	NativeReceiptSHA256 string                        `json:"nativeReceiptSha256,omitempty"`
-	ReleaseGateSHA256   string                        `json:"releaseGateSha256,omitempty"`
-	StableReady         bool                          `json:"stableReady"`
-	RuntimeVerification string                        `json:"runtimeVerification"`
-	Files               map[string]domain.Descriptor  `json:"files"`
+	SchemaVersion int                          `json:"schemaVersion"`
+	CLIVersion    string                       `json:"cliVersion"`
+	Platform      string                       `json:"platform"`
+	SourceState   string                       `json:"sourceState,omitempty"`
+	CLICommit     string                       `json:"cliCommit,omitempty"`
+	Bundles       json.RawMessage              `json:"bundles,omitempty"`
+	Source        json.RawMessage              `json:"source,omitempty"`
+	BinarySHA256  string                       `json:"binarySha256"`
+	Files         map[string]domain.Descriptor `json:"files"`
 }
 type Plan struct {
 	SchemaVersion int                          `json:"schemaVersion"`
@@ -57,13 +47,10 @@ type Plan struct {
 	Digest        string                       `json:"digest"`
 }
 type receipt struct {
-	SchemaVersion   int    `json:"schemaVersion"`
-	CLIVersion      string `json:"cliVersion"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	Platform        string `json:"platform"`
-	ArchiveDigest   string `json:"archiveDigest"`
-	SourceState     string `json:"sourceState"`
-	StableReady     bool   `json:"stableReady"`
+	SchemaVersion int    `json:"schemaVersion"`
+	CLIVersion    string `json:"cliVersion"`
+	Platform      string `json:"platform"`
+	ArchiveDigest string `json:"archiveDigest"`
 }
 
 func fail(code, message string) error { return domain.Fail(code, message) }
@@ -95,132 +82,20 @@ func expectedFiles() map[string]bool {
 	return map[string]bool{fileName(): true, "README.md": true, "docs/source-lock.json": true, "docs/compatibility.md": true, "docs/porting-status.md": true, "docs/native-governance.md": true, "docs/cli-retirement.md": true, "compat/README.md": true, "release-manifest.json": true}
 }
 
-var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-// Stable proof hashes bind the assembler's externally retained evidence. They
-// do not authorize publication, and those external reports are not in a pack.
-func validateStableProof(m Manifest, sourceLock, manifest []byte) error {
-	var fields map[string]json.RawMessage
-	if e := json.Unmarshal(manifest, &fields); e != nil {
-		return e
+func validPayloadRef(ref string) bool {
+	if safefs.ValidateRef(ref) != nil || ref == receiptRef || ref == "yss-project.yaml" {
+		return false
 	}
-	present := m.StableReady
-	for _, key := range []string{"sourceLockSha256", "requiredPlatforms", "supportedPlatforms", "nativeReceiptSha256", "releaseGateSha256"} {
-		_, ok := fields[key]
-		present = present || ok
-	}
-	if !present {
-		return nil // Pinned early alpha archives omit this entire group.
-	}
-	if !digestPattern.MatchString(m.SourceLockSHA256) || m.SourceLockSHA256 != safefs.Digest(sourceLock) || m.SourceLockSHA256 != m.Files["docs/source-lock.json"].Digest || !digestPattern.MatchString(m.NativeReceiptSHA256) || !digestPattern.MatchString(m.ReleaseGateSHA256) {
-		return fail("ARTIFACT", "稳定发行证明摘要不完整或来源锁不匹配")
-	}
-	if !commitPattern.MatchString(m.CLICommit) || m.Bundles == nil || !digestPattern.MatchString(m.BinarySHA256) {
-		return fail("ARTIFACT", "稳定发行证明缺少完整程序来源")
-	}
-	known := map[string]bool{"darwin/amd64": true, "darwin/arm64": true, "linux/amd64": true, "linux/arm64": true, "windows/amd64": true, "windows/arm64": true}
-	sets := []map[string]bool{{}, {}}
-	for index, values := range [][]string{m.RequiredPlatforms, m.SupportedPlatforms} {
-		if len(values) == 0 {
-			return fail("ARTIFACT", "稳定发行平台范围缺失")
-		}
-		for _, value := range values {
-			if !known[value] || sets[index][value] {
-				return fail("ARTIFACT", "稳定发行平台范围含未知或重复项")
-			}
-			sets[index][value] = true
+	for _, part := range strings.Split(ref, "/") {
+		if strings.HasPrefix(part, ".") {
+			return false
 		}
 	}
-	if len(sets[1]) != len(known) || !sets[0][m.Platform] {
-		return fail("ARTIFACT", "稳定发行支持清单不完整或目标不在必要平台范围")
-	}
-	for value := range sets[0] {
-		if !sets[1][value] {
-			return fail("ARTIFACT", "稳定发行必要平台未受支持")
-		}
-	}
-	return nil
+	return true
 }
 
-// Early pinned alpha archives omit provenance. New archives carry the complete
-// group, bound to their binary descriptor and their included source lock.
-func validateProvenance(m Manifest, sourceLock []byte) error {
-	if m.CLICommit == "" && m.Bundles == nil && m.BinarySHA256 == "" {
-		var marker struct {
-			SchemaVersion int `json:"schemaVersion"`
-		}
-		if e := json.Unmarshal(sourceLock, &marker); e == nil && marker.SchemaVersion >= 2 {
-			return fail("ARTIFACT", "现代来源锁缺少发行包来源字段")
-		}
-		return nil
-	}
-	if !commitPattern.MatchString(m.CLICommit) || !digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest {
-		return fail("ARTIFACT", "发行包程序来源、二进制摘要或 Profile 集不完整")
-	}
-	var lock bundle.SourceLock
-	if e := parseJSON(sourceLock, &lock); e != nil {
-		return e
-	}
-	if (lock.SchemaVersion != 2 && lock.SchemaVersion != 3 && lock.SchemaVersion != 5) || lock.Producer.Version == "" || lock.Producer.SourceState != "committed" || !commitPattern.MatchString(lock.Producer.Commit) {
-		return fail("ARTIFACT", "发行包缺少固定来源锁")
-	}
-	profiles, err := bundle.SourceProfiles(lock)
-	if err != nil || len(m.Bundles) != len(profiles) {
-		return fail("ARTIFACT", "发行包 Profile 集与来源锁不一致")
-	}
-	for _, profile := range profiles {
-		i := m.Bundles[profile]
-		s, ok := lock.Profiles[profile]
-		// Match the committed Producer/assembler defaults; tag-to-commit proof stays with the Producer.
-		version := "git:" + s.Commit
-		if s.TemplateTag != "" {
-			var err error
-			version, err = stableVersion(s.TemplateTag)
-			if err != nil || s.TemplateTag != "v"+version {
-				return fail("ARTIFACT", "发行包模板 tag 不合法: "+profile)
-			}
-		}
-		if s.TemplateVersion != "" && s.TemplateVersion != version {
-			return fail("ARTIFACT", "发行包模板版本与来源 tag/commit 不一致: "+profile)
-		}
-		if (s.State != "" && !(lock.SchemaVersion == 5 && s.State == "committed")) || s.Tree != "" || (s.SourcePath != "." && safefs.ValidateRef(s.SourcePath) != nil) {
-			return fail("ARTIFACT", "发行包固定来源路径或状态不合法: "+profile)
-		}
-		policyKind := "committed"
-		if strings.HasPrefix(s.PolicyPath, "builtin:") {
-			policyKind = "bootstrap"
-		}
-		validSchema := i != nil && (i.SchemaVersion == 2 || i.SchemaVersion == 3)
-		if lock.SchemaVersion == 5 {
-			validSchema = i != nil && (i.SchemaVersion == 4 || i.SchemaVersion == 5)
-		}
-		if !ok || !validSchema || i.Profile != profile || s.Profile != profile || i.SourceState != "committed" || !commitPattern.MatchString(i.TemplateCommit) || i.TemplateCommit != s.Commit || i.TemplateVersion != version || i.Producer != lock.Producer || i.Legacy != s.Legacy || i.LegacyVersion != s.Legacy.Version || i.LegacyCLICommit != s.Legacy.CLICommit || i.SourcePolicy.Kind != policyKind || i.SourcePolicy.Path == "" || i.SourcePolicy.Path != s.PolicyPath || i.SourcePolicy.Digest != s.PolicyHash {
-			return fail("ARTIFACT", "发行包 Profile 来源与锁不一致: "+profile)
-		}
-		// Reuse the Producer's path rules without reopening source repositories.
-		seenOverlays := map[string]bool{}
-		for _, overlay := range s.OverlayPaths {
-			if bundle.ValidateOverlayPath(overlay) != nil || seenOverlays[overlay] {
-				return fail("ARTIFACT", "发行包覆盖层路径不合法或重复: "+profile)
-			}
-			seenOverlays[overlay] = true
-		}
-		if shared := s.SkillsSource; shared != nil {
-			if (lock.SchemaVersion != 3 && lock.SchemaVersion != 5) || profile != "backend" || len(s.OverlayPaths) != 0 || shared.State != "" || shared.Tree != "" || (shared.SourcePath != "." && safefs.ValidateRef(shared.SourcePath) != nil) || !commitPattern.MatchString(shared.Commit) || shared.ConfigurationPath != ".template-source/profile-skill-sync.json" || !digestPattern.MatchString(shared.ConfigurationHash) {
-				return fail("ARTIFACT", "发行包共享 Skill 来源不完整或与覆盖层冲突: "+profile)
-			}
-		} else if lock.SchemaVersion >= 3 && profile == "backend" && len(s.OverlayPaths) == 0 {
-			return fail("ARTIFACT", "发行包来源锁缺少共享 Skill 或覆盖层来源: "+profile)
-		}
-		for _, hash := range []string{i.SnapshotHash, i.ManifestHash, i.BundleHash, i.SourcePolicy.Digest} {
-			if !digestPattern.MatchString(hash) {
-				return fail("ARTIFACT", "发行包 Profile 来源摘要不完整: "+profile)
-			}
-		}
-	}
-	return nil
-}
 func archive(path, want string) (map[string][]byte, Manifest, error) {
 	files := map[string][]byte{}
 	var m Manifest
@@ -246,11 +121,10 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	if len(want) != 64 || safefs.Digest(b) != want {
 		return nil, m, fail("DIGEST", "发行包 SHA-256 不匹配")
 	}
-	allowed := expectedFiles()
 	seen := map[string]bool{}
 	total := int64(0)
 	add := func(ref string, size int64, r io.Reader) error {
-		if !allowed[ref] || seen[strings.ToLower(ref)] || size < 0 || size > maxArchive || total+size > maxArchive {
+		if !validPayloadRef(ref) || seen[strings.ToLower(ref)] || size < 0 || size > maxArchive || total+size > maxArchive {
 			return fail("ARTIFACT", "发行包含未知、重复或超限路径: "+ref)
 		}
 		seen[strings.ToLower(ref)] = true
@@ -322,24 +196,17 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	} else {
 		return nil, m, fail("ARTIFACT", "仅接受 .tar.gz 或 .zip 原生发行包")
 	}
-	// Schema v1 core files remain required; registered newer documentation files
-	// are registered optional additions so pinned early alpha archives remain readable.
-	for _, ref := range []string{fileName(), "README.md", "docs/source-lock.json", "docs/compatibility.md", "release-manifest.json"} {
-		if _, ok := files[ref]; !ok {
-			return nil, m, fail("ARTIFACT", "发行包缺少: "+ref)
-		}
+	if files[fileName()] == nil || files["release-manifest.json"] == nil {
+		return nil, m, fail("ARTIFACT", "发行包缺少程序或 manifest")
 	}
 	if e = parseJSON(files["release-manifest.json"], &m); e != nil {
 		return nil, m, e
 	}
-	if m.SchemaVersion != 1 || m.ProtocolVersion != domain.ProtocolVersion || m.CGO || m.Platform != runtime.GOOS+"/"+runtime.GOARCH {
-		return nil, m, fail("PLATFORM", "发行包 schema、协议、cgo 或目标平台不匹配")
+	if m.SchemaVersion != 2 || m.Platform != runtime.GOOS+"/"+runtime.GOARCH {
+		return nil, m, fail("PLATFORM", "发行包 schema 或平台不匹配")
 	}
-	if m.CLIVersion == "" || m.SourceState != "committed" && m.SourceState != "working-tree" || len(m.Files) != len(files)-1 {
-		return nil, m, fail("ARTIFACT", "发行包来源或文件清单不完整")
-	}
-	if m.StableReady && (m.SourceState != "committed" || m.RuntimeVerification != "passed") {
-		return nil, m, fail("ARTIFACT", "稳定发行标记缺少固定提交或实际运行验证")
+	if len(m.Files) != len(files)-1 || !digestPattern.MatchString(m.BinarySHA256) || m.BinarySHA256 != m.Files[fileName()].Digest {
+		return nil, m, fail("ARTIFACT", "发行包文件清单或程序摘要不完整")
 	}
 	if _, e = versionParts(m.CLIVersion); e != nil {
 		return nil, m, e
@@ -352,12 +219,6 @@ func archive(path, want string) (map[string][]byte, Manifest, error) {
 	}
 	if m.Files[fileName()].Mode != 0755 {
 		return nil, m, fail("ARTIFACT", "原生程序必须标记为可执行文件")
-	}
-	if e = validateProvenance(m, files["docs/source-lock.json"]); e != nil {
-		return nil, m, e
-	}
-	if e = validateStableProof(m, files["docs/source-lock.json"], files["release-manifest.json"]); e != nil {
-		return nil, m, e
 	}
 	return files, m, nil
 }
@@ -390,114 +251,36 @@ func Build(toolRoot, archivePath, sha string) (*Plan, error) {
 		}
 		p.Inputs[ref] = d
 	}
-	if p.Inputs[receiptRef].Type == "file" {
-		data, e := os.ReadFile(filepath.Join(root, receiptRef))
-		if e != nil {
-			return nil, e
-		}
-		var current receipt
-		if e = parseJSON(data, &current); e != nil {
-			return nil, e
-		}
-		if current.SchemaVersion != 1 || current.Platform != m.Platform || current.ProtocolVersion != domain.ProtocolVersion {
-			return nil, fail("ARTIFACT", "未知程序安装合同")
-		}
-		order, e := compareVersions(m.CLIVersion, current.CLIVersion)
+	installed, _, e := inspectInstallation(root, true, nil)
+	if e != nil {
+		return nil, e
+	}
+	if installed != nil {
+		order, e := compareVersions(m.CLIVersion, installed.receipt.CLIVersion)
 		if e != nil {
 			return nil, e
 		}
 		if order < 0 {
-			return nil, fail("VERSION", "程序升级不允许降级；恢复须使用归档的整体回退")
+			return nil, fail("VERSION", "程序升级不允许降级")
 		}
-		oldData, e := os.ReadFile(filepath.Join(root, "release-manifest.json"))
-		if e != nil {
-			return nil, e
-		}
-		var old Manifest
-		if e = parseJSON(oldData, &old); e != nil {
-			return nil, e
-		}
-		if old.SchemaVersion != 1 || old.ProtocolVersion != domain.ProtocolVersion || old.CGO || old.SourceState != current.SourceState || old.StableReady != current.StableReady || old.Platform != current.Platform || old.CLIVersion != current.CLIVersion || len(old.Files) > len(m.Files) {
-			return nil, fail("ARTIFACT", "现有程序来源清单与安装记录不匹配")
-		}
-		for _, ref := range []string{fileName(), "README.md", "docs/source-lock.json", "docs/compatibility.md"} {
-			if _, ok := old.Files[ref]; !ok {
-				return nil, fail("ARTIFACT", "现有来源清单缺少核心文件: "+ref)
-			}
-		}
-		for ref, want := range old.Files {
-			if !expectedFiles()[ref] || ref == "release-manifest.json" || want.Type != "file" || want.Mode != 0644 && want.Mode != 0755 || len(want.Digest) != 64 || strings.Trim(want.Digest, "0123456789abcdef") != "" || ref == fileName() && want.Mode != 0755 {
-				return nil, fail("ARTIFACT", "现有来源清单包含未知路径或非法描述: "+ref)
-			}
-			if _, ok := m.Files[ref]; !ok {
-				return nil, fail("ARTIFACT", "程序升级未授权移除旧受管文件: "+ref)
-			}
+		for ref, want := range installed.manifest.Files {
 			want.Mode = domain.FileMode(want.Mode)
-			got, ok := p.Inputs[ref]
-			if !ok || got != want {
-				return nil, installationConflict(root, fail("CONFLICT", "受管程序文件与安装清单不一致: "+ref))
-			}
+			p.Inputs[ref] = want
 		}
 		for ref := range m.Files {
-			if _, owned := old.Files[ref]; !owned && p.Inputs[ref].Type != "missing" {
-				return nil, installationConflict(root, fail("CONFLICT", "新增程序文件拒绝覆盖已有内容: "+ref))
+			if _, owned := installed.manifest.Files[ref]; !owned && p.Inputs[ref].Type != "missing" {
+				return nil, fail("CONFLICT", "拒绝覆盖非受管文件: "+ref)
 			}
 		}
 	} else {
 		for ref, d := range p.Inputs {
 			if d.Type != "missing" {
-				return nil, installationConflict(root, fail("CONFLICT", "首次安装拒绝覆盖已有文件: "+ref))
+				return nil, fail("CONFLICT", "首次安装拒绝覆盖已有文件: "+ref)
 			}
 		}
 	}
 	p.Digest = digest(p)
 	return p, nil
-}
-func ReadPlan(file string) (*Plan, error) {
-	b, e := os.ReadFile(file)
-	if e != nil {
-		return nil, e
-	}
-	var p Plan
-	if e = parseJSON(b, &p); e != nil {
-		return nil, e
-	}
-	if p.SchemaVersion != 1 || p.Command != "update" || p.Digest != digest(&p) {
-		return nil, fail("PLAN", "程序安装计划摘要或版本不合法")
-	}
-	return &p, nil
-}
-func SavePlan(p *Plan, file string) error {
-	path, e := filepath.Abs(file)
-	if e != nil {
-		return e
-	}
-	parent, e := filepath.EvalSymlinks(filepath.Dir(path))
-	if e != nil {
-		return e
-	}
-	path = filepath.Join(parent, filepath.Base(path))
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
-		if strings.EqualFold(part, ".git") {
-			return fail("PROTECTED", "计划输出禁止 Git 内部目录")
-		}
-	}
-	rel, e := filepath.Rel(p.ToolRoot, path)
-	if e != nil {
-		return e
-	}
-	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fail("PROTECTED", "程序升级计划须保存到工具目录外")
-	}
-	f, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if e != nil {
-		return e
-	}
-	defer f.Close()
-	if _, e = f.Write(encode(p)); e != nil {
-		return e
-	}
-	return f.Sync()
 }
 func Apply(ctx context.Context, p *Plan) (transaction.Result, error) {
 	if p.Digest != digest(p) {
@@ -514,7 +297,7 @@ func Apply(ctx context.Context, p *Plan) (transaction.Result, error) {
 	if e != nil {
 		return transaction.Result{}, e
 	}
-	files[receiptRef] = encode(receipt{1, p.Manifest.CLIVersion, p.Manifest.ProtocolVersion, p.Manifest.Platform, p.ArchiveDigest, p.Manifest.SourceState, p.Manifest.StableReady})
+	files[receiptRef] = encode(receipt{2, p.Manifest.CLIVersion, p.Manifest.Platform, p.ArchiveDigest})
 	refs := []string{}
 	for ref := range files {
 		refs = append(refs, ref)
@@ -536,6 +319,16 @@ func Apply(ctx context.Context, p *Plan) (transaction.Result, error) {
 		}
 		ops = append(ops, transaction.Operation{Path: ref, Data: files[ref], Mode: mode, Before: &before})
 	}
+	for ref, before := range p.Inputs {
+		if ref == receiptRef || ref == "yss-project.yaml" {
+			continue
+		}
+		if _, ok := files[ref]; !ok && before.Type == "file" {
+			before := before
+			ops = append(ops, transaction.Operation{Path: ref, Delete: true, Before: &before})
+		}
+	}
+	sort.Slice(ops, func(i, j int) bool { return ops[i].Path < ops[j].Path })
 	return transaction.ApplyContextWithGuards(ctx, p.ToolRoot, "program-update", ops, p.Inputs)
 }
 func Status(root string) (any, error) {
@@ -543,39 +336,6 @@ func Status(root string) (any, error) {
 	if e != nil {
 		return nil, e
 	}
-	txn, e := transaction.Status(root)
-	if e != nil {
-		return nil, e
-	}
-	out := map[string]any{"installed": false, "currentProgramVersion": domain.Version, "projectMigrationPerformed": false, "transaction": txn, "reinstallRequired": len(txn.Pending) > 0 || len(txn.Preparations) > 0}
-	path, e := safefs.Path(root, receiptRef)
-	if e != nil {
-		return nil, e
-	}
-	b, e := os.ReadFile(path)
-	if os.IsNotExist(e) {
-		_, diagnostic, _ := inspectInstallation(root, false, nil)
-		out["diagnostic"] = diagnostic
-		out["installationConsistent"] = diagnostic.Consistent
-		return out, nil
-	}
-	if e != nil {
-		return nil, e
-	}
-	var r receipt
-	if e = parseJSON(b, &r); e != nil {
-		return nil, e
-	}
-	if r.SchemaVersion != 1 || r.ProtocolVersion != domain.ProtocolVersion || r.Platform != runtime.GOOS+"/"+runtime.GOARCH || r.SourceState != "committed" && r.SourceState != "working-tree" || r.StableReady && r.SourceState != "committed" {
-		return nil, fail("ARTIFACT", "未知程序安装合同")
-	}
-	if _, e = versionParts(r.CLIVersion); e != nil {
-		return nil, e
-	}
-	out["installed"] = true
-	out["installation"] = r
-	_, diagnostic, _ := inspectInstallation(root, false, nil)
-	out["diagnostic"] = diagnostic
-	out["installationConsistent"] = diagnostic.Consistent
-	return out, nil
+	_, report, e := inspectInstallation(root, false, nil)
+	return report, e
 }

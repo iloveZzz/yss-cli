@@ -114,8 +114,6 @@ func fieldString(m *OMap, key string) string {
 	return jsString(value)
 }
 
-func stringField(m *OMap, key string) string { return fieldString(m, key) }
-
 func intField(m *OMap, key string) int {
 	n, _ := strconv.Atoi(fieldString(m, key))
 	return n
@@ -156,7 +154,6 @@ func platformTemplateVars(profile *OMap) *OMap {
 		"java_version", javaVersion,
 		"java_range", javaRange,
 		"web_starter", fieldString(profile, "web_starter"),
-		"web_test_starter", fieldString(profile, "web_test_starter"),
 		"aop_starter", fieldString(profile, "aop_starter"),
 		"swagger_artifact", fieldString(profile, "swagger_artifact"),
 	)

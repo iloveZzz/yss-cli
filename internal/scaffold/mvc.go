@@ -5,51 +5,17 @@ import (
 	"strings"
 )
 
-var (
-	mvcModuleOrder  = []string{"server", "service", "repository", "adapter", "client", "feign-client"}
-	mvcCoreModules  = []string{"server", "service", "repository"}
-	mvcCapabilities = map[string][]string{
-		"external-integration": {"adapter"},
-		"published-client":     {"client"},
-		"feign-client":         {"client", "feign-client"},
-	}
-)
-
 // mvcGen carries the resolved inputs of one layered MVC generation.
 type mvcGen struct {
-	src      Source
-	o        *Options
-	contract *OMap // standalone configuration or approved scaffold contract
-	platform *OMap
-	modules  []string
-	formal   *formalState
+	src           Source
+	o             *Options
+	configuration *OMap // generation configuration
+	platform      *OMap
+	modules       []string
 }
 
 func xmlEscape(value string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(value)
-}
-
-func orderedModules(requested []string) ([]string, error) {
-	set := map[string]bool{}
-	for _, module := range mvcCoreModules {
-		set[module] = true
-	}
-	for _, capability := range requested {
-		modules, ok := mvcCapabilities[capability]
-		if !ok {
-			return nil, failf("unsupported MVC capability: %s", capability)
-		}
-		for _, module := range modules {
-			set[module] = true
-		}
-	}
-	var out []string
-	for _, module := range mvcModuleOrder {
-		if set[module] {
-			out = append(out, module)
-		}
-	}
-	return out, nil
 }
 
 // put stores a text file, adding the trailing newline the generator guarantees.
@@ -65,19 +31,16 @@ func renderMVC(ctx context.Context, src Source, o *Options) (*renderedProject, e
 		return nil, err
 	}
 	g := &mvcGen{src: src, o: o}
-	if err := g.preflight(); err != nil {
-		return nil, err
-	}
 	if err := guardTarget(o); err != nil {
 		return nil, err
 	}
-	if err := g.validateContract(ctx); err != nil {
+	if err := g.configure(ctx); err != nil {
 		return nil, err
 	}
 	tree := newTree()
-	name := fieldString(g.contract, "project_name")
-	base := fieldString(g.contract, "base_package")
-	if err := g.renderMechanical(tree, "", g.contract); err != nil {
+	name := fieldString(g.configuration, "project_name")
+	base := fieldString(g.configuration, "base_package")
+	if err := g.renderMechanical(tree, "", g.configuration); err != nil {
 		return nil, err
 	}
 	if err := renderReferenceExample(g.src, tree, exampleSpec{
@@ -85,10 +48,10 @@ func renderMVC(ctx context.Context, src Source, o *Options) (*renderedProject, e
 		family:      "layered-mvc",
 		projectName: name,
 		basePackage: base,
-		projectVer:  fieldString(asMap(mustGet(g.contract, "maven_coordinates")), "project_version"),
+		projectVer:  fieldString(asMap(mustGet(g.configuration, "maven_coordinates")), "project_version"),
 		platform:    g.platform,
 		renderModule: func(prefix, project, sampleBase string) error {
-			config := g.contract.Clone()
+			config := g.configuration.Clone()
 			config.Set("project_name", project)
 			config.Set("base_package", sampleBase)
 			config.Set("module_profile", newMap(
@@ -116,33 +79,14 @@ func renderMVC(ctx context.Context, src Source, o *Options) (*renderedProject, e
 }
 
 func (g *mvcGen) referenceEnabled() bool {
-	reference := asMap(mustGet(g.contract, "reference_example"))
+	reference := asMap(mustGet(g.configuration, "reference_example"))
 	return reference != nil && mustGet(reference, "enabled") == true
 }
 
 // validateMVCOptions mirrors the argument checks of parseArgs in the MVC generator.
 func validateMVCOptions(o *Options) error {
-	contract := o.hasContract()
-	if o.Standalone && contract {
-		return fail("--standalone 不得携带合同或批准参数；已有合同须走正式治理路径")
-	}
-	if contract && o.platformSupplied() {
-		return fail("正式模式消费合同平台，不接受独立平台参数")
-	}
-	required := []struct{ key, value string }{
-		{"projectName", o.ProjectName}, {"basePackage", o.BasePackage}, {"outputDir", o.OutputDir},
-		{"contractFile", o.ContractFile}, {"contractId", o.ContractID}, {"contractVersion", o.ContractVersion},
-		{"approvalRef", o.ApprovalRef}, {"compilerDraftRef", o.CompilerDraftRef}, {"persistedRef", o.PersistedRef},
-		{"groupId", o.GroupID}, {"projectVersion", o.ProjectVersion}, {"parentGroupId", o.ParentGroupID},
-		{"parentArtifactId", o.ParentArtifactID}, {"parentVersion", o.ParentVersion}, {"yssComponentsVersion", o.YssComponentsVersion},
-	}
-	for i, item := range required {
-		if !contract && i >= 3 && i < 9 {
-			continue
-		}
-		if item.value == "" {
-			return failf("缺少必填参数: %s", item.key)
-		}
+	if err := validateDDDOptions(o); err != nil {
+		return err
 	}
 	if !standaloneName.MatchString(o.ProjectName) {
 		return fail("--project-name 必须是 kebab-case")
@@ -150,27 +94,21 @@ func validateMVCOptions(o *Options) error {
 	if !standalonePkg.MatchString(o.BasePackage) {
 		return fail("--base-package 不是合法 Java 包名")
 	}
-	if contract && !positiveInteger(o.ContractVersion) {
-		return fail("--contract-version 必须为正整数")
-	}
 	if o.Force {
 		return fail("unsupported: initialize-only 脚手架禁止 --force")
 	}
 	return nil
 }
 
-func (g *mvcGen) validateContract(ctx context.Context) error {
+func (g *mvcGen) configure(ctx context.Context) error {
 	o := g.o
-	if !o.hasContract() {
-		configuration, platform, err := standaloneConfiguration(g.src, o, "layered-mvc", o.example())
-		if err != nil {
-			return err
-		}
-		g.contract, g.platform = configuration, platform
-		g.modules = stringList(mustGet(asMap(mustGet(configuration, "module_profile")), "resolved_modules"))
-		return nil
+	configuration, platform, err := standaloneConfiguration(g.src, o, "layered-mvc", o.example())
+	if err != nil {
+		return err
 	}
-	return g.validateFormalContract(ctx)
+	g.configuration, g.platform = configuration, platform
+	g.modules = stringList(mustGet(asMap(mustGet(configuration, "module_profile")), "resolved_modules"))
+	return nil
 }
 
 // dependency renders one <dependency> element.
@@ -183,10 +121,6 @@ func dependency(groupID, artifactID, version, scope string) string {
 		out += "<scope>" + scope + "</scope>"
 	}
 	return out + "</dependency>"
-}
-
-func importPom(groupID, artifactID, version string) string {
-	return strings.Replace(dependency(groupID, artifactID, version, "import"), "</dependency>", "<type>pom</type></dependency>", 1)
 }
 
 func modulePom(name string, coordinates *OMap, module string, modules []string, platform *OMap) string {
@@ -205,22 +139,18 @@ func modulePom(name string, coordinates *OMap, module string, modules []string, 
 	var dependencies []string
 	switch module {
 	case "server":
-		dependencies = append(dependencies, own("service"), dependency("org.springframework.boot", fieldString(platform, "web_starter"), "", ""), dependency("org.springframework.boot", "spring-boot-starter-validation", "", ""), dependency("org.springframework.boot", "spring-boot-starter-test", "", "test"), dependency("com.tngtech.archunit", "archunit-junit5", version("archunit"), "test"))
-		dependencies = append(dependencies, dependency("org.projectlombok", "lombok", version("lombok"), "test"))
-		if fieldString(platform, "web_test_starter") != "spring-boot-starter-test" {
-			dependencies = append(dependencies, dependency("org.springframework.boot", fieldString(platform, "web_test_starter"), "", "test"))
-		}
+		dependencies = append(dependencies, own("service"), dependency("org.springframework.boot", fieldString(platform, "web_starter"), "", ""), dependency("org.springframework.boot", "spring-boot-starter-validation", "", ""))
 		if has("client") {
 			dependencies = append(dependencies, own("client"))
 		}
-		dependencies = append(dependencies, dependency("com.h2database", "h2", "", "test"), dependency("org.mapstruct", "mapstruct", version("mapstruct"), ""), dependency("com.yss.cloud", "yss-component-dto", "", ""))
+		dependencies = append(dependencies, dependency("org.mapstruct", "mapstruct", version("mapstruct"), ""), dependency("com.yss.cloud", "yss-component-dto", "", ""))
 	case "service":
-		dependencies = append(dependencies, own("repository"), dependency("org.springframework", "spring-tx", "", ""), dependency("com.yss.cloud", "yss-component-dto", "", ""), dependency("org.springframework.boot", "spring-boot-starter-test", "", "test"))
+		dependencies = append(dependencies, own("repository"), dependency("org.springframework", "spring-tx", "", ""), dependency("com.yss.cloud", "yss-component-dto", "", ""))
 		if has("adapter") {
 			dependencies = append(dependencies, own("adapter"))
 		}
 	case "repository":
-		dependencies = append(dependencies, dependency("com.yss.cloud", "yss-component-mybatis-plus-starter", "", ""), dependency("org.mapstruct", "mapstruct", version("mapstruct"), ""), dependency("org.springframework.boot", "spring-boot-starter-test", "", "test"), dependency("com.h2database", "h2", "", "test"))
+		dependencies = append(dependencies, dependency("com.yss.cloud", "yss-component-mybatis-plus-starter", "", ""), dependency("org.mapstruct", "mapstruct", version("mapstruct"), ""))
 	case "adapter":
 		dependencies = append(dependencies, dependency("org.springframework", "spring-context", "", ""))
 		if has("feign-client") {
@@ -242,12 +172,12 @@ func modulePom(name string, coordinates *OMap, module string, modules []string, 
 	return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><modelVersion>4.0.0</modelVersion><parent><groupId>" + xmlEscape(groupID) + "</groupId><artifactId>" + xmlEscape(name) + "</artifactId><version>" + xmlEscape(fieldString(coordinates, "project_version")) + "</version></parent><artifactId>" + xmlEscape(name) + "-" + module + "</artifactId><dependencies>" + strings.Join(dependencies, "") + "</dependencies>" + plugin + "</project>"
 }
 
-// renderMechanical writes the MVC skeleton of contract below prefix of the tree.
-func (g *mvcGen) renderMechanical(t *Tree, prefix string, contract *OMap) error {
-	name := fieldString(contract, "project_name")
-	base := fieldString(contract, "base_package")
-	coordinates := asMap(mustGet(contract, "maven_coordinates"))
-	profile := asMap(mustGet(contract, "module_profile"))
+// renderMechanical writes the MVC skeleton of configuration below prefix of the tree.
+func (g *mvcGen) renderMechanical(t *Tree, prefix string, configuration *OMap) error {
+	name := fieldString(configuration, "project_name")
+	base := fieldString(configuration, "base_package")
+	coordinates := asMap(mustGet(configuration, "maven_coordinates"))
+	profile := asMap(mustGet(configuration, "module_profile"))
 	modules := stringList(mustGet(profile, "resolved_modules"))
 	pkg := strings.ReplaceAll(base, ".", "/")
 	at := func(rel string) string { return joinPath(prefix, rel) }
@@ -264,14 +194,6 @@ func (g *mvcGen) renderMechanical(t *Tree, prefix string, contract *OMap) error 
 	put(t, at(server+"/src/main/java/"+pkg+"/"+application+".java"), "package "+base+";\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n/** Mechanical Spring Boot entrypoint. */\n@SpringBootApplication\npublic class "+application+" {\n    public static void main(String[] args) {\n        SpringApplication.run("+application+".class, args);\n    }\n}")
 	put(t, at(server+"/src/main/resources/application.yml"), "spring:\n  application:\n    name: "+name)
 	put(t, at(server+"/src/main/resources/application-scaffold-local.yml"), localDatabaseConfiguration(name))
-	put(t, at(server+"/src/test/resources/application-scaffold-test.yml"), localDatabaseConfiguration(name+"_test"))
-	put(t, at(server+"/src/test/java/"+pkg+"/"+application+"Test.java"), "package "+base+";\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.test.context.ActiveProfiles;\n\n@SpringBootTest\n@ActiveProfiles(\"scaffold-test\")\nclass "+application+"Test {\n    @Test\n    void contextLoads() {\n    }\n}")
-	rules, err := g.src.Read(mvcSkillRoot + "/assets/templates/architecture-rules-test.java.template")
-	if err != nil {
-		return err
-	}
-	put(t, at(server+"/src/test/java/"+pkg+"/architecture/LayeredMvcArchitectureTest.java"), strings.ReplaceAll(string(rules), "{{base_package}}", base))
-	put(t, at(server+"/src/test/java/"+pkg+"/PlatformIntegrationTest.java"), platformSmokeTest(base, g.platform, stringList(mustGet(profile, "requested_capabilities"))))
 	return copyWrapper(g.src, t, prefix, true)
 }
 
