@@ -127,7 +127,7 @@ func (s *gitlabSource) identify(ctx context.Context) error {
 	if err := s.metadata(ctx, gitlabOrigin+"/api/v4/projects/"+url.PathEscape(gitlabProject), &project); err != nil {
 		return err
 	}
-	if project.ID <= 0 || project.ID == 37 || project.ID == 38 || project.Path != gitlabProject || project.URL != gitlabOrigin+"/"+gitlabProject {
+	if project.ID <= 0 || project.Path != gitlabProject || project.URL != gitlabOrigin+"/"+gitlabProject {
 		return fail("ARTIFACT", "GitLab 项目 ID、完整路径或 Web URL 不匹配")
 	}
 	s.projectID = project.ID
