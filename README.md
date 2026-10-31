@@ -24,7 +24,7 @@ yss upgrade --dry-run
 yss upgrade
 ```
 
-程序升级与项目同步是两件事：`upgrade` 更新 CLI，`sync` 将内嵌模板同步到项目。在线升级来自固定 GitHub 仓库的正式 Release，校验标准 `SHA256SUMS`、manifest schema 2、归档与载荷摘要及目标平台。离线升级使用 `--artifact <归档> --sha256 <摘要>`。首次切换到本版应由 Agent 按[构建、打包与安装](docs/build-install.md)安装，旧 CLI 的在线升级器不保证识别新包。
+程序升级与项目同步是两件事：`upgrade` 更新 CLI，`sync` 将内嵌模板同步到项目。在线升级来自固定私有 GitLab `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 Release（显式 CA 与鉴权，缺少发行时报未就绪，不回退其他来源），校验标准 `SHA256SUMS`、manifest schema 2、归档与载荷摘要及目标平台。离线升级使用 `--artifact <归档> --sha256 <摘要>`。首次切换到本版应由 Agent 按[构建、打包与安装](docs/build-install.md)安装，旧 CLI 的在线升级器不保证识别新包。
 
 从模板工作树直接构建，无 Node/Python 包装脚本：
 

@@ -107,25 +107,14 @@ yss upgrade
 yss upgrade --to 3.0.2 --tool-root /absolute/yss --dry-run
 ```
 
-在线来源固定为 `iloveZzz/yss-cli` 的正式 GitHub Release；仅接收可信 GitHub 下载来源。dry-run 只读发行元数据与 SHA256SUMS，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
+在线来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 GitLab Release。每次先按完整路径解析项目，再核验正数 ID、完整路径与 Web URL，拒绝退役 ID 37/38。显式设置 `YSS_GITLAB_CA_FILE` 为受信 CA PEM 文件，`YSS_GITLAB_TOKEN` 由安全环境提供；不把 token 放进 URL、命令参数、日志或产物。仅在 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确为 `https://gitlab.yss.test:9443` 时使用 `CI_JOB_TOKEN`，不自动选用 CI 凭据。
+
+只向固定项目内已核验的 Release 和资产地址发送鉴权；拒绝 HTTP、跨域、其他项目、任意来源覆盖及 GitHub fallback。无来源或 Release（HTTP 404）明确返回未就绪，不自动创建发行或标签。dry-run 读取发行元数据、`SHA256SUMS`，并以 HEAD 核对资产长度，不下载归档、不写目录。离线 dry-run 读取本地包核验。`--to`、包内版本和目标平台须一致；拒绝降级。升级失败保留现场，优先选择新的工具目录重新安装。
 
 ## 获得授权后手动发布
 
-先确认当前源码版本、实际来源和待上传归档。只有获得本次发布及标签授权后才执行对应 `gh` 动作；不自动修改 `docs/template-release.json`，不伪造模板标签。下面命令中的版本必须与真实源码和归档一致：
+当前 GitLab 尚无正式 Release 时，在线安装与升级不可用；本地构建仅为开发构建。发行操作需要单独的真实授权，不从构建或 CI 成功推导发布授权，不自动创建标签，不改写 `docs/template-release.json` 或已有发布标签。
 
-```sh
-gh release create v3.0.2 --repo iloveZzz/yss-cli --target <已授权的实际CLI提交> \
-  --title 'v3.0.2' --notes-file /outside/release-notes.md \
-  /outside/yss_3.0.2_darwin_arm64.tar.gz /outside/SHA256SUMS
-```
+授权发布时，在固定 `yss/yss-cli` 项目核验动态项目 ID、完整路径与 Web URL 后，用 GitLab Release API 上传实际 schema 2 归档与统一 `SHA256SUMS`。资产链接只使用同源、同项目的上传文件路径 `/yss/yss-cli/uploads/<32位十六进制>/<文件名>` 或 Generic Package 路径 `/api/v4/projects/<已核验ID>/packages/generic/yss/v<版本>/<文件名>`；可提供同一版本的 `direct_asset_url`（`/yss/yss-cli/-/releases/v<版本>/downloads/<文件名>`）。资产服务须支持 HEAD 并提供准确 `Content-Length`，否则在线升级会拒绝。所有请求显式验证私有 CA，不关闭 TLS，凭据只通过安全环境与请求头传递。已有同名资产先读取并取得替换授权，不默认覆盖。
 
-若该 Release 已存在，先查看已有资产并确认本次上传授权，使用 `gh release upload v3.0.2 --repo iloveZzz/yss-cli <实际新资产路径>`；不默认覆盖同名资产，不改写已发布版本。补充平台时，清单须包含该 Release 的全部归档，更新同名清单前须确认替换授权。发行说明写实际支持与未验证范围，不把编译结果写成资格通过。
-
-从正式 Release 取包也可由 Agent 手动完成，保存到新目录后校验：
-
-```sh
-gh release download v3.0.2 --repo iloveZzz/yss-cli --dir /outside/download-v3.0.2 \
-  --pattern yss_3.0.2_darwin_arm64.tar.gz --pattern SHA256SUMS
-```
-
-核验 SHA256SUMS 中所选归档的实际摘要，再用新 CLI 的离线 upgrade 安装。不要执行来自不明地址、未核验的裸程序。
+从已核验正式 Release 手动取包时，先固定版本、平台、实际资产 URL 与摘要，在仓外新目录保存并校验 `SHA256SUMS`，再使用新 CLI 的离线 `upgrade` 安装。不要执行不明来源或未核验的程序。发行说明写实际支持与未验证范围；交叉编译、CI 运行、原生平台运行和正式发行分别报告。

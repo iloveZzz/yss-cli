@@ -38,6 +38,6 @@ yss upgrade --tool-root /absolute/new-yss
 yss upgrade --artifact /absolute/yss_VERSION_OS_ARCH.tar.gz --sha256 <64位摘要> --tool-root /absolute/new-yss --dry-run
 ```
 
-在线 dry-run 读取发行元数据与 checksum 文本，不下载归档、不写安装目录；离线 dry-run 读取并核验本地归档。`--to` 接受稳定版本号及 `v` 前缀；离线指定时必须与包内版本一致。升级拒绝降级，拒绝覆盖用户修改的受管文件。显式工具目录可用于首次安装；默认目录取实际运行程序所在目录，必须存在可识别安装记录。
+在线固定来源为私有 GitLab `https://gitlab.yss.test:9443/yss/yss-cli`；需显式 `YSS_GITLAB_CA_FILE` 与 `YSS_GITLAB_TOKEN`，CI Job Token 仅在 `YSS_GITLAB_CI_AUTH=1` 且 `CI_SERVER_URL` 精确匹配时启用。来源或 Release 缺失报告未就绪，不回退 GitHub。在线 dry-run 读取发行元数据与 checksum 文本并 HEAD 核对资产长度，不下载归档、不写安装目录；离线 dry-run 读取并核验本地归档。`--to` 接受稳定版本号及 `v` 前缀；离线指定时必须与包内版本一致。升级拒绝降级，拒绝覆盖用户修改的受管文件。显式工具目录可用于首次安装；默认目录取实际运行程序所在目录，必须存在可识别安装记录。
 
 旧 `update`、`bundle`、`completion`、`context`、`lifecycle`、`contract`、`profile`、`handoff`、`runtime`、`tracker`、`mcp`、`check`、`verify`、`trace`、`git` 等入口退役。`--plan`、`--apply`、`--out`、`--plan-file` 不再用于保存或执行项目计划。未知命令与退役参数返回错误，不自动转译或执行。
