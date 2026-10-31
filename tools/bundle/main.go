@@ -21,12 +21,12 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("bundle", flag.ContinueOnError)
 	sourceRoot := f.String("source-root", "", "root containing the Spec/Backend template source")
-	lockPath := f.String("lock", "docs/source-lock.json", "source lock v5 (Spec/Backend, committed or local working-tree)")
+	lockPath := f.String("lock", os.Getenv("YSS_SOURCE_SNAPSHOT"), "build-local source snapshot (or explicit working-tree snapshot)")
 	out := f.String("out", "internal/bundle/assets", "output shared embedded archive directory")
 	if e := f.Parse(args); e != nil {
 		return e
 	}
-	if f.NArg() != 0 || *sourceRoot == "" {
+	if f.NArg() != 0 || *sourceRoot == "" || *lockPath == "" {
 		return fmt.Errorf("usage: go run ./tools/bundle --source-root ROOT --lock LOCK --out OUT")
 	}
 	raw, e := os.ReadFile(*lockPath)
