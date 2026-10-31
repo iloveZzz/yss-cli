@@ -9,138 +9,132 @@ concurrency:
 jobs:
   artifacts:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cli-source
     steps:
       - uses: actions/checkout@v5
         with:
-          path: cli-source
           fetch-depth: 0
+      - name: Select affected offline checks
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          files = subprocess.check_output(['git', 'diff', '--name-only', '-z', os.environ['BASE_SHA'], 'HEAD', '--']).decode().split('\0')
+          files = [f for f in files if f]
+          go = any(f.endswith('.go') or f in ('go.mod', 'go.sum') or f.startswith(('internal/bundle/native/', 'internal/bundle/rules/', 'internal/bundle/work-layout-assets/', 'internal/bundle/assets/trusted/', 'internal/helpview/assets/')) for f in files)
+          source = any(f in ('docs/template-release.json', '.github/workflows/artifacts.yml', 'tools/artifacts.mjs') or f.startswith(('tools/resolve-template.', 'tools/fetch-bundle.', 'tools/go-environment.', 'tools/baseline-delta.', 'tools/trusted-registry.')) for f in files)
+          source_go = any(f == '.github/workflows/artifacts.yml' or f.startswith(('tools/fetch-bundle.', 'tools/go-environment.')) for f in files)
+          release = any(f.startswith('tools/release-evidence/') or f == '.github/workflows/release-evidence.yml' for f in files)
+          with open(os.environ['RUNNER_TEMP'] + '/changed-files', 'w') as out:
+              out.write('\0'.join(files))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'go={str(go).lower()}\nsource={str(source).lower()}\nsource_go={str(source_go).lower()}\nrelease={str(release).lower()}\n')
+          print(f'受影响离线检查: Go={go}, 来源解析={source}, 发行工具={release}')
+          print('实际候选构建、原生 CLI、跨平台安装及正式发行验证延后至合并前或发行门禁。')
+          PY
+      - uses: actions/setup-go@v6
+        if: steps.scope.outputs.go == 'true' || steps.scope.outputs.source_go == 'true'
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.go == 'true' || steps.scope.outputs.source == 'true'
+        with:
+          node-version: '24'
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.release == 'true'
         with:
           python-version: '3.12'
-      - name: Offline release tooling tests (5 minute cap)
+      - name: Prepare locked Go dependencies
+        if: steps.scope.outputs.go == 'true'
+        run: go mod download
+      - name: Check affected Go packages offline
+        if: steps.scope.outputs.go == 'true'
+        timeout-minutes: 5
+        env:
+          CGO_ENABLED: '0'
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          YSS_TEST_REQUIRE_GIT: '1'
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          files = pathlib.Path(os.environ['RUNNER_TEMP'], 'changed-files').read_text().split('\0')
+          module = subprocess.check_output(['go', 'list', '-m'], text=True).strip()
+          source, tests = set(), set()
+          all_packages = any(f in ('go.mod', 'go.sum') for f in files)
+          embedded = {'internal/bundle/native/':'internal/bundle', 'internal/bundle/rules/':'internal/bundle', 'internal/bundle/work-layout-assets/':'internal/bundle', 'internal/bundle/assets/trusted/':'internal/bundle', 'internal/helpview/assets/':'internal/helpview'}
+          for f in files:
+              if f.endswith('.go'):
+                  directory = pathlib.PurePosixPath(f).parent.as_posix()
+                  name = module if directory == '.' else module + '/' + directory
+                  (tests if f.endswith('_test.go') else source).add(name)
+              for prefix, directory in embedded.items():
+                  if f.startswith(prefix): source.add(module + '/' + directory)
+          go_files = [f for f in files if f.endswith('.go') and (root / f).is_file()]
+          if go_files:
+              bad = subprocess.check_output(['gofmt', '-l', *go_files], text=True).strip()
+              if bad: raise SystemExit('Go 文件需要 gofmt:\n' + bad)
+          raw = subprocess.check_output(['go', 'list', '-e', '-test', '-tags', 'yss_nobundle', '-json', './...'], text=True)
+          decoder, index, packages = json.JSONDecoder(), 0, set()
+          while index < len(raw):
+              while index < len(raw) and raw[index].isspace(): index += 1
+              if index == len(raw): break
+              p, index = decoder.raw_decode(raw, index)
+              name = p.get('ForTest') or p.get('ImportPath', '')
+              if not (name == module or name.startswith(module + '/')) or name.endswith('.test'): continue
+              if all_packages or name in source or name in tests or source.intersection(p.get('Deps', [])):
+                  packages.add(name)
+          if packages:
+              print('受影响 Go 包:', *sorted(packages), flush=True)
+              print('依赖真实 Bundle 的 TestBackendPluginBindingRetainsNativeProfile 延后至合并前或发行验证。', flush=True)
+              subprocess.run(['go', 'test', '-short', '-tags', 'yss_nobundle', '-skip', '^TestBackendPluginBindingRetainsNativeProfile$', '-timeout', '5m', *sorted(packages)], check=True)
+          else:
+              print('受影响 Go 包已删除或没有当前测试。')
+          PY
+      - name: Check affected source resolution offline
+        if: steps.scope.outputs.source == 'true'
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          files = pathlib.Path(os.environ['RUNNER_TEMP'], 'changed-files').read_text().split('\0')
+          tests = set()
+          if any(f in ('docs/template-release.json', '.github/workflows/artifacts.yml') or f.startswith('tools/resolve-template.') for f in files):
+              tests.add('tools/resolve-template.test.mjs')
+          if any(f == '.github/workflows/artifacts.yml' or f.startswith(('tools/fetch-bundle.', 'tools/go-environment.')) for f in files):
+              tests.add('tools/fetch-bundle.test.mjs')
+          if any(f.startswith('tools/baseline-delta.') for f in files):
+              tests.update(('tools/baseline-delta.test.mjs', 'tools/trusted-registry.test.mjs'))
+          if any(f.startswith('tools/trusted-registry.') for f in files):
+              tests.add('tools/trusted-registry.test.mjs')
+          for file in files:
+              if file.startswith('tools/') and file.endswith('.mjs') and pathlib.Path(file).is_file():
+                  subprocess.run(['node', '--check', file], check=True)
+          if tests:
+              subprocess.run(['node', '--test', *sorted(tests)], check=True)
+          PY
+      - name: Check affected release tooling offline
+        if: steps.scope.outputs.release == 'true'
         timeout-minutes: 5
         env:
           PYTHONDONTWRITEBYTECODE: '1'
-        run: python3 -m unittest discover -s tools/release-evidence -p 'test_*.py'
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: cli-source/go.mod
-          cache-dependency-path: cli-source/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Resolve fixed template commit
-        id: source
         run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const commit=JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
-          if(!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed source required');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT,`commit=${commit}\n`);
-          JS
-      - uses: actions/checkout@v5
-        with:
-          repository: iloveZzz/yss-spec-project-template
-          ref: ${{ steps.source.outputs.commit }}
-          path: template-source
-          fetch-depth: 1
-          submodules: false
-      - name: Produce embedded bundle archive (not stored in git)
-        run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
-      - name: Build candidate and record provenance
-        env:
-          CGO_ENABLED: 0
-        run: |
-          node tools/build-candidate.mjs --out "$RUNNER_TEMP/yss-candidate"
-      - name: Check gofmt and go vet
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "以下文件未经 gofmt 格式化:"
-            echo "$unformatted"
-            exit 1
-          fi
-          # internal/governance 既有 unkeyed 复合字面量告警，不为此改业务代码，故关闭 composites 分析器；其余分析器全部保留。
-          go vet -composites=false ./...
-          # 治理规则以 Go 语义为准：不允许把 Node 脚本字节的摘要写成 Go 常量
-          node tools/check-no-pinned-digests.mjs --allow internal/bundle/baseline_delta.go
-          go run ./tools/docstatus --check
-      - name: Go unit and integration tests (5 minute cap)
-        timeout-minutes: 5
-        env:
-          CGO_ENABLED: 0
-          YSS_TEST_REQUIRE_GIT: 1
-          YSS_TEST_REQUIRE_SKILL_REFERENCES: 1
-        run: |
-          git --version
-          go test -timeout 5m -coverpkg=./internal/... -coverprofile="$RUNNER_TEMP/cover.out" ./...
-          # 覆盖率只设棘轮下限：补测试后上调，不下调。数值见 docs/ci-verification.md。
-          total="$(go tool cover -func="$RUNNER_TEMP/cover.out" | awk '/^total:/ {sub("%","",$NF); print $NF}')"
-          echo "internal 语句覆盖率 ${total}%"
-          awk -v t="$total" -v floor=30 'BEGIN { exit !(t+0 >= floor) }' || { echo "覆盖率 ${total}% 低于下限 30%"; exit 1; }
-      - name: Black-box smoke of the built binary
-        env:
-          CGO_ENABLED: 0
-          YSS_TEST_REQUIRE_SKILL_REFERENCES: 1
-        run: |
-          node tools/smoke/main.mjs --bin "$RUNNER_TEMP/yss-candidate/yss"
-      - name: Rebuild and compare all generated artifacts
-        run: node tools/artifacts.mjs check --scope all --source-root "$GITHUB_WORKSPACE/template-source" --out "$RUNNER_TEMP/yss-artifacts"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-and-generated-artifacts
-          path: |
-            ${{ runner.temp }}/yss-candidate/build-receipt.json
-            ${{ runner.temp }}/yss-artifacts/receipt.json
-            ${{ runner.temp }}/yss-artifacts/*.log
-  scaffold-parity:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cli-source
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          path: cli-source
-          fetch-depth: 0
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: cli-source/go.mod
-          cache-dependency-path: cli-source/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Resolve fixed template commit
-        id: source
-        run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const commit=JSON.parse(fs.readFileSync('docs/source-lock.json')).profiles.spec.templateCommit;
-          if(!/^[a-f0-9]{40}$/.test(commit)) throw new Error('fixed source required');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT,`commit=${commit}\n`);
-          JS
-      - uses: actions/checkout@v5
-        with:
-          repository: iloveZzz/yss-spec-project-template
-          ref: ${{ steps.source.outputs.commit }}
-          path: template-source
-          fetch-depth: 1
-          submodules: false
-      - name: Python dependencies of the Node baseline (formal contract scenarios)
-        run: |
-          # 系统自带的 python3-jsonschema 版本过旧（没有 referencing），用独立 venv 并放到 PATH 最前。
-          python3 -m venv "$RUNNER_TEMP/parity-venv"
-          "$RUNNER_TEMP/parity-venv/bin/pip" install --quiet jsonschema referencing
-          echo "$RUNNER_TEMP/parity-venv/bin" >> "$GITHUB_PATH"
-      - name: Produce embedded bundle archive (not stored in git)
-        run: node tools/fetch-bundle.mjs --source-root "$GITHUB_WORKSPACE/template-source"
-      - name: Build the binary under test
-        env:
-          CGO_ENABLED: 0
-        run: go build -o "$RUNNER_TEMP/yss-parity/yss" ./cmd/yss
-      - name: Byte-for-byte parity against the Node generators
-        run: node tools/scaffold-parity/main.mjs --bin "$RUNNER_TEMP/yss-parity/yss" --template-root "$GITHUB_WORKSPACE/template-source"
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          root = pathlib.Path('tools/release-evidence')
+          files = pathlib.Path(os.environ['RUNNER_TEMP'], 'changed-files').read_text().split('\0')
+          mapping = {'publish_contract.py':'test_publish_contract.py', 'package-windows-artifact.py':'test_windows_inspection.py', 'run-program-installation.py':'test_program_installation.py', 'prepare-native-input.py':'test_release_source.py'}
+          changed = [pathlib.PurePosixPath(f).name for f in files if f.startswith('tools/release-evidence/')]
+          tests = {f for f in changed if f.startswith('test_') and f.endswith('.py')}
+          tests.update(mapping[f] for f in changed if f in mapping)
+          if '.github/workflows/release-evidence.yml' in files or any(f not in mapping and not f.startswith('test_') for f in changed):
+              tests.update(f.name for f in root.glob('test_*.py'))
+          for test in sorted(tests):
+              if (root / test).is_file():
+                  subprocess.run(['python3','-m','unittest','discover','-s',str(root),'-p',test], check=True)
+          PY

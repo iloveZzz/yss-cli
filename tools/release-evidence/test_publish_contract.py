@@ -42,8 +42,10 @@ class Fixture:
         self.git('config', 'user.email', 'fixture@example.invalid')
         self.lock = {'schemaVersion': 5, 'producer': dict(version='bundle-producer-v4', commit='1'*40, sourceState='committed'),
                      'profiles': {p: {'profile': p, 'templateCommit': 'a' * 40,
-                     'templateVersion': '7.8.9', 'policyPath': p+'/policy.json', 'policyHash': '2'*64} for p in ('spec', 'backend')}}
+                     'templateVersion': '7.8.9', 'templateTag': 'v7.8.9', 'policyPath': p+'/policy.json', 'policyHash': '2'*64} for p in ('spec', 'backend')}}
+        put(self.root, '.gitignore', b'docs/source-lock.json\n')
         put(self.root, 'docs/source-lock.json', self.lock)
+        put(self.root, 'docs/template-release.json', {'tag': 'v7.8.9'})
         for name in contract.DOCUMENTS:
             if name != 'docs/source-lock.json':
                 put(self.root, name, b'fixture document\n')
@@ -131,6 +133,7 @@ class Fixture:
                                   head_repository=dict(id=12, full_name=self.repo)),
             'publisher_workflow': dict(id=21, path='.github/workflows/publish-release.yml'),
             'tag': dict(object=dict(type='commit', sha=self.source)),
+            'template_tag': dict(object=dict(type='commit', sha='a'*40)),
             'run': dict(id=123, head_sha=self.source, status='completed', conclusion='success', workflow_id=20,
                         event='workflow_dispatch', path='.github/workflows/release-evidence.yml',
                         repository=dict(id=12, full_name=self.repo), head_repository=dict(id=12, full_name=self.repo)),
@@ -174,6 +177,8 @@ class Fixture:
 
     def api(self, endpoint):
         prefix = 'repos/' + self.repo
+        if endpoint.startswith('repos/iloveZzz/yss-spec-project-template/git/ref/tags/'):
+            return copy.deepcopy(self.data['template_tag'])
         if endpoint == prefix:
             return copy.deepcopy(self.data['repository'])
         if '/git/ref/' in endpoint or '/git/tags/' in endpoint:
@@ -221,6 +226,16 @@ class PublishContractTest(unittest.TestCase):
             self.fail(f'verified Actions publisher rejected installation token user roles: {error}')
         self.assertEqual(facts['operationsCommit'], self.f.operations)
         self.assertEqual(len(facts['expectedAssets']), 8)
+
+    def test_publish_source_needs_no_repository_source_lock(self):
+        (self.f.root / 'docs/source-lock.json').unlink()
+        self.assertEqual(self.f.check()['sourceCommit'], self.f.source)
+
+    def test_template_release_tag_must_match_generated_snapshot(self):
+        self.assertEqual(self.f.check()['sourceCommit'], self.f.source)
+        self.f.data['template_tag']['object']['sha'] = 'f' * 40
+        with self.assertRaises(ValueError):
+            self.f.check()
 
     def test_actual_publisher_identity_is_required_even_with_user_push_access(self):
         self.f.data['repository']['permissions']['push'] = True
@@ -508,6 +523,8 @@ if endpoint.endswith('/zip'):
     state_path.write_text(json.dumps(state))
     sys.stdout.buffer.write(pathlib.Path(state['archive']).read_bytes())
     sys.exit(0)
+if endpoint.startswith('repos/iloveZzz/yss-spec-project-template/git/ref/tags/'):
+    done(data['template_tag'])
 if '/git/ref/' in endpoint:
     state['tagReads'] += 1
     value = data['tag']

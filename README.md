@@ -45,7 +45,7 @@ yss scaffold mvc --project-name order-service --base-package com.yss.orders \
 
 JSON 返回 `projectRoot`、`manifestPath`、生成状态和 Bundle 来源；仅生成成功时 `verification.status=not-executed`。准备 JDK 和外部 Maven settings 后，从生成工程根运行 `./mvnw validate`、`./mvnw test`、`./mvnw package`，构建结果与生成结果分别记录。CLI 不复制用户仓库凭据，也不自动执行构建。正式合同模式的合同、架构决定、用户决定和设计前置校验由内置治理核心完成，不再需要 Python3、`jsonschema`、`referencing`。
 
-内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库：克隆后先运行 `node tools/fetch-bundle.mjs`，它按 `docs/source-lock.json` 的固定模板提交取得模板源码（按来源锁摘要隔离缓存于 `~/.cache/yss-cli/`，已有模板仓时可用 `--source-root` 复用）、生成归档，并校验其 SHA-256 与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；归档已最新时直接返回。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
+内嵌 Bundle 归档（`internal/bundle/assets/bundles.json.gz`）不进入版本库。`docs/template-release.json` 指定模板发行标签；构建前用 `tools/resolve-template.mjs` 从公开标签生成一次仓外来源记录，设置 `YSS_SOURCE_SNAPSHOT` 后运行 `node tools/fetch-bundle.mjs`。归档摘要须与已提交的 `internal/bundle/assets/bundles.json.gz.sha256` 一致；同一次构建复用同一来源记录。缺少归档直接 `go build` 会报 `pattern assets/bundles.json.gz: no matching files found`。
 
 默认缓存只有通过来源校验后才会复用；准备失败的目录保留供排查，错误信息给出其路径，重试会使用新的隔离目录。
 
@@ -82,24 +82,17 @@ yss handoff export --root ./spec --kind spec-baseline --checkpoint .work/feature
 初始化和 Spec 导入分别保存计划、分别执行事务。接入后由 Backend 主控建立自己的 checkpoint，绑定接收记录、完成目标 Context 对账，再核验进入条件；源 checkpoint 只作为只读证据。联合执行先预检全部目标，再登记关联并依次初始化，失败保留成功工程，按原保存计划重试；源关联回退不回退下游工程。登记和导入都是最新事务，迁移回退不能跨过它们，也不能在撤销关联后跳过该屏障。
 
 ```sh
-# 归档不存在时必须带 -tags yss_nobundle 自举编译；日常请用 node tools/fetch-bundle.mjs（含摘要校验）
-go run -tags yss_nobundle ./tools/bundle --source-root /absolute/template-source --lock docs/source-lock.json --out internal/bundle/assets
+# 模板仓须检出 docs/template-release.json 指定的正式标签
+node tools/resolve-template.mjs --source-root /absolute/template-source --out /absolute/new-source-snapshot.json
+export YSS_SOURCE_SNAPSHOT=/absolute/new-source-snapshot.json
+node tools/fetch-bundle.mjs --source-root /absolute/template-source
 yss bundle inspect --profile spec --json
 yss bundle export --profile spec --out /absolute/new-bundle-directory --json
 ```
 
-模板前进后刷新来源锁用脚本，不要手改 `docs/source-lock.json`：
+模板升级时更新 `docs/template-release.json` 的发行标签，并从该标签重新生成归档和派生帮助。来源记录在构建时生成，不作为第二份需要维护的版本配置；发行包仍携带兼容记录供已有升级器读取。预发布候选可用 `--candidate-commit <完整SHA>` 生成独立记录，不能作为正式标签已验证的证据。
 
-```sh
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z            # 预演，不写文件
-node tools/refresh-source-lock.mjs --source-root /absolute/template-source --profile spec --tag vX.Y.Z --regenerate # 写锁并按上面的顺序重新生成、校验
-```
-
-**发布流程里的一步**：模板发布 tag（`vX.Y.Z`）之后，发布 CLI 时用 `--tag` 把所选模板钉到该 tag。锁里记录 `templateTag`、tag 指向的 `templateCommit`、不带 `v` 的 `templateVersion`；打包时校验三者一致，tag 指向别的提交、tag 不存在、预发布 tag、`templateVersion` 与 tag 不符都拒绝。实例因此记录语义化的模板版本。Bundle 只在这一步重新生成：模板的普通提交不需要重钉，也不需要刷新 CLI。已经钉在 tag 上的来源不再接受按 HEAD 刷新。
-
-还没有发布模板 tag 的来源，仍可不带 `--tag` 刷新到模板当前 HEAD：目标必须是已提交且已推送的 HEAD，且是原锁定提交的后代，否则拒绝；锁里的 `templateVersion` 保持 `git:<提交>`。脚本只改所选模板自己的 `templateCommit`、`templateVersion`、`templateTag`、`policyHash`。Backend 的 `skillsSource` 默认不会被改，只给出提示；传 `--skills-source` 才会把它刷新成各 Profile 已提交的 `profile-skills-source.json` 记录的提交与配置哈希（打包器要求二者一致，且提交必须已推送）。
-
-当前 SourceLock5 固定两个 Profile 的模板来源；新建使用 Bundle5、metadata5 与项目保存计划 v4。历史来源和 metadata 按各自兼容边界读取，旧项目保存计划须重新生成；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
+构建来源记录为两个 Profile 保存本次标签解析结果；新建使用 Bundle5、metadata5 与项目保存计划 v4。历史来源和 metadata 按各自兼容边界读取，旧项目保存计划须重新生成；运行协议与 JSON envelope 保持 v1。两个插件消费固定二进制及公开 Bundle；binding、身份与受管文件进入同一保存计划和事务。详见 [兼容边界](docs/compatibility.md) 和 [退役合同](docs/cli-retirement.md)。
 
 离线程序安装与项目迁移分开，先生成计划，再显式应用：
 

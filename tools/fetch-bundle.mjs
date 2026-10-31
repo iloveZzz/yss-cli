@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 按 docs/source-lock.json 的固定模板提交生成内嵌归档 internal/bundle/assets/bundles.json.gz。
+// 按本次 YSS_SOURCE_SNAPSHOT 解析出的模板提交生成内嵌归档 internal/bundle/assets/bundles.json.gz。
 // 归档不进入版本库：编译 CLI 前先运行本脚本；结果必须与已提交的 bundles.json.gz.sha256 一致。
 //   node tools/fetch-bundle.mjs [--source-root DIR] [--force]
 // --source-root 缺省为 $XDG_CACHE_HOME/yss-cli/template-source-<来源锁摘要>（或 ~/.cache/yss-cli/），
@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {gunzipSync} from 'node:zlib';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {fixedGoEnvironment} from './go-environment.mjs';
@@ -25,6 +26,17 @@ export function expectedDigest(file = DIGEST) {
   const digest = text.split(/\s+/)[0];
   if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`摘要文件格式错误: ${DIGEST}`);
   return digest;
+}
+
+function archiveMatchesSnapshot(archive, lock) {
+  try {
+    const stored = JSON.parse(gunzipSync(fs.readFileSync(archive),{maxOutputLength:512*1024*1024}));
+    const names = Object.keys(lock.profiles).sort();
+    return JSON.stringify(Object.keys(stored.profiles).sort()) === JSON.stringify(names) && names.every(name => {
+      const p=stored.profiles[name], s=lock.profiles[name];
+      return p.templateCommit===s.templateCommit && p.templateVersion===s.templateVersion && p.sourceState===s.sourceState && p.sourcePolicy?.path===s.policyPath && p.sourcePolicy?.digest===s.policyHash && JSON.stringify(p.producer)===JSON.stringify(lock.producer) && JSON.stringify(p.legacy)===JSON.stringify(s.legacy);
+    });
+  } catch {return false}
 }
 
 function hasCommit(repo, commit) {
@@ -102,18 +114,23 @@ function prepareManagedSource(lockBytes, lock) {
 }
 
 export function fetchBundle({sourceRoot, force = false}) {
-  const archive = ARCHIVE, digest = DIGEST, lockFile = 'docs/source-lock.json';
-  const expected = expectedDigest(digest);
-  if (!force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected) return {status: 'up-to-date', sha256: expected};
-  const lockBytes = fs.readFileSync(path.join(root, lockFile));
+  const archive = ARCHIVE, digest = DIGEST, lockFile = process.env.YSS_SOURCE_SNAPSHOT;
+  if (!lockFile || !path.isAbsolute(lockFile)) throw new Error('YSS_SOURCE_SNAPSHOT 必须指向本次构建的绝对路径来源快照');
+  const lockBytes = fs.readFileSync(lockFile);
   const lock = JSON.parse(lockBytes.toString('utf8'));
+  const expected = expectedDigest(digest);
+  // Explicit source roots are checked even if a previous archive is present.
+  if (!sourceRoot && !force && fs.existsSync(archive) && sha(fs.readFileSync(archive)) === expected && archiveMatchesSnapshot(archive,lock)) return {status: 'up-to-date', sha256: expected};
   if (sourceRoot != null) sourceRoot = path.resolve(sourceRoot);
   else sourceRoot = prepareManagedSource(lockBytes, lock);
   const stage = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'yss-bundle-'));
   try {
     // -tags yss_nobundle：生成工具自举编译，不需要归档已存在。
     ensureSources(sourceRoot, lock);
-    execFileSync('go', ['run', '-tags', 'yss_nobundle', './tools/bundle', '--source-root', sourceRoot, '--lock', path.join(root, lockFile), '--out', stage], {cwd: root, env: fixedGoEnvironment(), stdio: ['ignore', 'inherit', 'inherit']});
+    const frozenLock = path.join(stage, 'source-lock.json');
+    fs.writeFileSync(frozenLock, lockBytes);
+    execFileSync('go', ['run', '-tags', 'yss_nobundle', './tools/bundle', '--source-root', sourceRoot, '--lock', frozenLock, '--out', stage], {cwd: root, env: fixedGoEnvironment(), stdio: ['ignore', 'inherit', 'inherit']});
+    if (!fs.readFileSync(lockFile).equals(lockBytes)) throw new Error('构建期间来源快照发生变化');
     const built = path.join(stage, 'bundles.json.gz');
     const actual = sha(fs.readFileSync(built));
     if (actual !== expected) {

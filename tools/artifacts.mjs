@@ -104,7 +104,13 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     const candidates = {};
     if (scope === 'all') {
       sourceRoot = fs.realpathSync(sourceRoot);
-      const lock = JSON.parse(fs.readFileSync(path.join(root,'docs/source-lock.json'),'utf8'));
+      const lockPath = process.env.YSS_SOURCE_SNAPSHOT;
+      if (!lockPath || !path.isAbsolute(lockPath)) throw new Error('YSS_SOURCE_SNAPSHOT requires an absolute build snapshot');
+      const lockBytes = fs.readFileSync(lockPath);
+      const lock = JSON.parse(lockBytes.toString('utf8'));
+      receipt.sourceMode = Object.values(lock.profiles).every(source => source.templateTag) ? 'release-tag' : 'pr-candidate';
+      if (receipt.sourceMode === 'pr-candidate') receipt.releaseEvidence = false;
+      receipt.sourceSnapshotSha256 = sha(lockBytes);
       for (const [profile,source] of Object.entries(lock.profiles)) {
         for (const item of [source,source.skillsSource].filter(Boolean)) {
           if (!/^[a-f0-9]{40}$/.test(item.templateCommit)) throw new Error(`fixed source commit required: ${profile}`);
@@ -117,7 +123,10 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
         }
       }
       const archiveDir = path.join(stage,'bundle');
-      run('go',['run','./tools/bundle','--source-root',sourceRoot,'--lock','docs/source-lock.json','--out',archiveDir]);
+      const frozenLock = path.join(stage,'source-lock.json');
+      fs.writeFileSync(frozenLock,lockBytes);
+      run('go',['run','./tools/bundle','--source-root',sourceRoot,'--lock',frozenLock,'--out',archiveDir]);
+      if (!fs.readFileSync(lockPath).equals(lockBytes)) throw new Error('source snapshot changed during build');
       candidates[ARCHIVE] = path.join(archiveDir,'bundles.json.gz');
       overlay.Replace[path.join(root,ARCHIVE)] = candidates[ARCHIVE];
       candidates[DIGEST] = path.join(archiveDir,'bundles.json.gz.sha256');
@@ -177,7 +186,7 @@ export function runArtifacts({root = repositoryRoot, mode, scope, sourceRoot, ou
     if (!equal(before,inputs())) throw new Error('generator inputs changed during publication');
     checkTargets();
     checkPackageInputs(root,env,{...inputs(),...expectedTargets},generatorPackages);
-    receipt.status = mode === 'check' ? 'checked' : 'generated'; save();
+    receipt.status = receipt.sourceMode === 'pr-candidate' ? `candidate-${mode === 'check' ? 'checked' : 'generated'}` : mode === 'check' ? 'checked' : 'generated'; save();
     return receipt;
   } catch (error) {
     receipt.status = 'failed'; receipt.error = error.message; save(); throw error;

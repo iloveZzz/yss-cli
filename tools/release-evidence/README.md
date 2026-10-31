@@ -4,7 +4,7 @@
 
 * 不授予资格，不放宽任何校验，不伪造回执。未执行、取消、失败如实记录；任一步失败立即停止。
 * prepare 脚本不打 tag、不创建 GitHub Release、不 push。实际发布须有届时有效授权，由[正常发布入口](#正常发布入口)执行。
-* 只依赖本仓库文件和命令行参数，不读取 `~/.yss-harness` 等旧路径。程序版本取自 `internal/domain/domain.go`，模板版本与提交取自 `docs/source-lock.json`，均无硬编码。
+* 只依赖本仓库文件和命令行参数，不读取 `~/.yss-harness` 等旧路径。程序版本取自 `internal/domain/domain.go`，模板版本与提交取自本次标签解析生成的 `YSS_SOURCE_SNAPSHOT`，均无硬编码。
 * 当前资格范围为 `local-platform-program-install`：darwin/arm64 在固定来源上实际执行 version、来源锁声明的全部现役 bundle inspect 和离线程序安装四项（plan 只读、apply、新目录重新安装、用户文件保护）。Windows x64 只构建与打包，`stableReady=false`，不具备在线升级资格。
 
 SourceLock v5 固定 Spec/Backend 的受支持版本和完整来源；旧版本及重发前同名来源不属于当前资格。安装器和装配器核验实际源码、摘要及平台资格。
@@ -13,7 +13,7 @@ SourceLock v5 固定 Spec/Backend 的受支持版本和完整来源；旧版本�
 
 * 真实的 darwin/arm64 运行机（不得以交叉编译代替）。
 * Go（版本须与 `go.mod` 完全一致，`build-candidate` 会核对）、Node 24 或更高、Python 3、Git。
-* **已提交且干净**的源码：`git status --porcelain --untracked-files=all` 为空。发版提交必须已经包含新的 `Version`、`docs/source-lock.json` 以及本目录脚本；运行期间不得再改动仓库。
+* **已提交且干净**的源码：`git status --porcelain --untracked-files=all` 为空。发版提交必须已经包含新的 `Version`、`docs/template-release.json` 以及本目录脚本；运行期间不得再改动仓库。
 * 内嵌 Bundle 归档（不入库）：先运行 `node tools/fetch-bundle.mjs`。总控脚本会替你执行这一步；复用已有模板仓时给总控脚本加 `--template-source-root`。
 * **证据目录必须在仓库之外，且必须全新**（不存在）。脚本会拒绝已存在的目录和仓库内的目录。
 
@@ -77,7 +77,7 @@ python3 tools/release-evidence/check-outputs.py --evidence-dir "$EVIDENCE" --cli
 python3 tools/release-evidence/collect-upload.py --evidence-dir "$EVIDENCE" --cli-root "$PWD"
 ```
 
-手动执行时没有总控脚本的失败即停和记录，须自己保证上一步成功再执行下一步，并保留各命令的输出。`--cli-commit`、`--template-commit`、`--template-version` 三个参数缺省取自仓库 HEAD 与 `docs/source-lock.json`；显式传入时必须与仓库一致，否则脚本拒绝。
+手动执行时没有总控脚本的失败即停和记录，须自己保证上一步成功再执行下一步，并保留各命令的输出。`--cli-commit`、`--template-commit`、`--template-version` 三个参数缺省取自仓库 HEAD 与本次来源记录；显式传入时必须与仓库一致，否则脚本拒绝。
 
 ## 脚本一览
 

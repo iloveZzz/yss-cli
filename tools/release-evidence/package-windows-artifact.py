@@ -12,7 +12,7 @@ import subprocess
 import time
 import zipfile
 
-from release_source import repo_version, template_identity, repo_profiles
+from release_source import source_document, repo_version, template_identity, repo_profiles
 
 DOCS = ['docs/source-lock.json', 'docs/compatibility.md', 'docs/porting-status.md',
         'docs/native-governance.md', 'docs/cli-retirement.md', 'compat/README.md', 'README.md']
@@ -43,7 +43,7 @@ def main():
     for name in ['cli-root', 'source-manifest', 'source-manifest-sha256', 'out']:
         parser.add_argument('--' + name, required=True)
     for name in ['cli-commit', 'template-commit', 'template-version']:
-        parser.add_argument('--' + name, help='缺省取自仓库 HEAD / docs/source-lock.json；显式传入时必须一致')
+        parser.add_argument('--' + name, help='缺省取自仓库 HEAD / YSS_SOURCE_SNAPSHOT；显式传入时必须一致')
     args = parser.parse_args()
     C = Path(args.cli_root).absolute()
     require(C == C.resolve() and C.is_dir(), 'canonical CLI checkout required')
@@ -76,7 +76,7 @@ def main():
             source['protocolVersion'] == 1 and source['cliCommit'] == args.cli_commit and
             source['sourceState'] == 'committed' and source['platform'] == 'darwin/arm64',
             'same-C Mac source manifest required; its runtime status grants no Windows qualification')
-    files = {ref: ordinary(C / ref) for ref in DOCS}
+    files = {ref: ordinary(source_document(C, ref)) for ref in DOCS}
     for ref, content in files.items():
         require(source['files'][ref] == {'type': 'file', 'digest': sha(content), 'mode': 0o644},
                 'source manifest document differs from C: ' + ref)
@@ -174,6 +174,8 @@ def main():
                     (0o755 if ref == 'yss.exe' else 0o644), 'archive bytes or mode mismatch')
     clean()
     require(ordinary(source_path) == source_bytes and ordinary(embedded_path) == embedded, 'source input drift')
+    for ref in DOCS:
+        require(ordinary(source_document(C, ref)) == files[ref], 'source document drift: ' + ref)
     for ref, facts in receipt['inputs'].items():
         p = C / ref
         require(facts and sha(ordinary(p)) == facts['sha256'] and bool(p.stat().st_mode & 0o111) == facts['executable'],

@@ -8,7 +8,7 @@
 
 | 项 | 说明 |
 | --- | --- |
-| 事实源 | 模板仓固定提交（`docs/source-lock.json` 的 `templateCommit`，当前 `981f7399ef6c77b515045a588e708be70af5fab3`）中的 `.agents/skills/yss-ddd-scaffold-generator`、`.agents/skills/yss-layered-mvc-scaffold-generator` 及其 `scripts/lib/*.mjs` 导入闭包 |
+| 事实源 | 本次来源记录中 `templateCommit` 指定的模板仓提交中的 `.agents/skills/yss-ddd-scaffold-generator`、`.agents/skills/yss-layered-mvc-scaffold-generator` 及其 `scripts/lib/*.mjs` 导入闭包 |
 | 基准实现 | 上述 Node 生成器；模板仓脚本保持不动，仅用于 `tools/scaffold-parity/` 对拍 |
 | 资产来源 | 内嵌 Spec Bundle（§8），不新增第二份副本 |
 | 目标 | 成功路径输出与 Node 逐字节一致（文件集合、内容、权限、符号链接、空目录），失败路径同样拒绝且不留产物 |

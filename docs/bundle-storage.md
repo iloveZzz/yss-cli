@@ -4,7 +4,7 @@ CLI 在一个可执行文件中保留 Spec、Backend 的完整离线模板。当
 
 ## 私有归档 v2
 
-CLI 嵌入当前 `bundles.json.gz` 和已登记的受信历史差量。当前归档不入库，其 SHA-256 由 `bundles.json.gz.sha256` 固定；`node tools/fetch-bundle.mjs` 从 `docs/source-lock.json` 指定的已提交模板来源生成并核验。`internal/bundle/assets/trusted/registry.json` 登记重发后的受信版本、完整模板提交、来源锁、原归档及原始字节摘要和差量摘要；初始发行登记为空。每项差量和来源锁随源码提交，运行时逐项核验后才可匹配实例完整来源身份。重发前的同名提交与更早版本不受支持。
+CLI 嵌入当前 `bundles.json.gz` 和已登记的受信历史差量。当前归档不入库，其 SHA-256 由 `bundles.json.gz.sha256` 固定；`node tools/fetch-bundle.mjs` 根据发行标签解析得到的 `YSS_SOURCE_SNAPSHOT` 来源记录生成并核验。`internal/bundle/assets/trusted/registry.json` 登记重发后的受信版本、完整模板提交、来源锁、原归档及原始字节摘要和差量摘要；初始发行登记为空。每项差量和来源锁随源码提交，运行时逐项核验后才可匹配实例完整来源身份。重发前的同名提交与更早版本不受支持。
 
 新增受信版本时，从该版本真实发行证据取得 Bundle 归档和来源锁的独立 SHA-256，先运行：
 
@@ -47,6 +47,8 @@ node tools/trusted-registry.mjs refresh --old-current /path/old-bundles.json.gz 
 在源码仓运行：
 
 ```sh
+node tools/resolve-template.mjs --source-root /absolute/template-source --out /absolute/new-source-snapshot.json
+export YSS_SOURCE_SNAPSHOT=/absolute/new-source-snapshot.json
 node tools/fetch-bundle.mjs --source-root /absolute/template-source
 go run ./tools/package /absolute/new-package-directory
 ```
@@ -77,7 +79,7 @@ go run ./tools/package /absolute/new-package-directory
 
 `node tools/artifacts.mjs check --scope derived --out <仓库外新证据目录>` 检查当前归档派生的两个现役帮助视图与完整帮助；不证明归档与来源锁一致。
 
-`node tools/artifacts.mjs check --scope all --source-root <固定来源仓根> --out <仓库外新证据目录>` 从 `docs/source-lock.json` 的 Git 提交重建全部产物，再逐字节比较。将 `check` 改成 `generate` 才会写回产物。来源不齐时明确失败，不回退到最新 HEAD。
+`node tools/artifacts.mjs check --scope all --source-root <固定来源仓根> --out <仓库外新证据目录>` 从 `YSS_SOURCE_SNAPSHOT` 记录的 Git 提交重建全部产物，再逐字节比较。将 `check` 改成 `generate` 才会写回产物。来源不齐时明确失败，不回退到最新 HEAD。
 
 工具固定子进程 umask 为 0022，先在证据目录生成候选，再通过 Go overlay 重新编译下一层工具，使 `go:embed` 读取候选。帮助固定包含 `--reference`。检查归档 10,000,000 B 预算和公开快照 128 MiB 上限（包括最后一个换行）。普通文件的非执行权限差异不构成内容漂移；发布前仍核对完整目标身份，以发现并发编辑。
 

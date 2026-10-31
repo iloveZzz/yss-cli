@@ -33,9 +33,9 @@ function parseArgs(argv) {
   return options;
 }
 
-// 基准必须是 docs/source-lock.json 固定的模板提交，且工作区干净；否则对拍结论无意义。
+// 基准必须是本次来源快照固定的模板提交，且工作区干净；否则对拍结论无意义。
 function verifyTemplate(templateRoot) {
-  const lock = JSON.parse(fs.readFileSync(path.join(repoRoot, 'docs/source-lock.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(process.env.YSS_SOURCE_SNAPSHOT, 'utf8'));
   const expected = lock.profiles.spec.templateCommit;
   const head = git(templateRoot, ['rev-parse', 'HEAD']);
   if (head !== expected) throw new ParityFailure(`模板仓提交 ${head} 不是固定提交 ${expected}`);

@@ -6,7 +6,7 @@ Windows 仅构建包 stableReady=false 且未声称原生运行；各归档摘�
 """
 import argparse, hashlib, json, subprocess, sys, zipfile
 from pathlib import Path
-from release_source import repo_version
+from release_source import source_document, repo_version
 
 SCOPE = 'local-platform-program-install'
 parser = argparse.ArgumentParser(description=__doc__)
@@ -18,7 +18,7 @@ sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
 load = lambda ref: json.loads((E / ref).read_text())
 version = repo_version(C)
 commit = subprocess.check_output(['git', '-C', str(C), 'rev-parse', 'HEAD'], text=True).strip()
-lock_sha = sha(C / 'docs/source-lock.json')
+lock_sha = sha(source_document(C, 'docs/source-lock.json'))
 checks = []
 
 

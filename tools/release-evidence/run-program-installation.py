@@ -1,6 +1,6 @@
 import sys,json,hashlib,stat,subprocess,time,datetime,tarfile,argparse,platform,zipfile,re
 from pathlib import Path
-from release_source import repo_version,repo_profiles
+from release_source import source_document,repo_version,repo_profiles
 parser=argparse.ArgumentParser(description='Actual native public installation, local-scope installation and reinstall')
 parser.add_argument('--input',required=True);parser.add_argument('--archive',required=True);parser.add_argument('--out',required=True);parser.add_argument('--platform',required=True);parser.add_argument('--cli-root',required=True)
 parser.add_argument('--published-sha256',help='Independent expected public archive SHA256; additionally run the real online upgrade using its extracted executor')
@@ -13,7 +13,7 @@ inp=json.loads(input_file.read_text());target_platform=options.platform
 C=Path(options.cli_root).resolve()
 assert subprocess.check_output(['git','-C',str(C),'rev-parse','HEAD'],text=True).strip()==inp['cliCommit']
 assert subprocess.check_output(['git','-C',str(C),'status','--porcelain=v1','--untracked-files=all'],text=True)==''
-assert all(hashlib.sha256((C/ref).read_bytes()).hexdigest()==value['sha256'] for ref,value in inp['documents'].items())
+assert all(hashlib.sha256(source_document(C,ref).read_bytes()).hexdigest()==value['sha256'] for ref,value in inp['documents'].items())
 actual_platform=('windows' if sys.platform=='win32' else sys.platform)+'/'+{'arm64':'arm64','aarch64':'arm64','AMD64':'amd64','x86_64':'amd64'}.get(platform.machine(),platform.machine())
 assert target_platform in ['darwin/arm64','windows/amd64'] and actual_platform==target_platform,'real matching runner required'
 assert inp['cliVersion']==repo_version(C) and inp['sourceState']=='committed' and set(inp['bundles'])==set(repo_profiles(C))

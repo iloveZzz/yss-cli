@@ -1,29 +1,19 @@
 package main
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func TestTemplateSourceLabel(t *testing.T) {
-	commit := strings.Repeat("a", 40)
+func TestTemplateTag(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		source templateSource
-		ok     bool
+		tag string
+		ok  bool
 	}{
-		{"released", templateSource{Tag: "v3.5.10", Commit: commit}, true},
-		{"committed", templateSource{Commit: commit, Version: "git:" + commit, State: "committed"}, true},
-		{"unversioned", templateSource{Commit: commit}, false},
-		{"wrong-version", templateSource{Commit: commit, Version: "git:" + strings.Repeat("b", 40), State: "committed"}, false},
-		{"working-tree", templateSource{Commit: commit, Version: "git:" + commit, State: "working-tree"}, false},
-		{"bad-commit", templateSource{Commit: strings.Repeat("x", 40), Version: "git:" + strings.Repeat("x", 40), State: "committed"}, false},
+		{"v3.5.10", true},
+		{"v3.5.10-rc1", false},
+		{"3.5.10", false},
+		{"v03.5.10", false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, e := templateLabel(tc.source)
-			if (e == nil) != tc.ok {
-				t.Fatalf("source label: %v", e)
-			}
-		})
+		if got := validTemplateTag(tc.tag); got != tc.ok {
+			t.Fatalf("tag %q: %v", tc.tag, got)
+		}
 	}
 }

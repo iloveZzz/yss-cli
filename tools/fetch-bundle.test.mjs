@@ -47,7 +47,7 @@ test('新来源锁隔离旧默认缓存，显式来源的冲突仍被拒绝', as
   writeFileSync(path.join(cli, 'docs/source-lock.json'), JSON.stringify({profiles:{spec:{templateCommit:newCommit, sourcePath:'.', templateTag:'v5.0.0'}}}));
   const module = pathToFileURL(path.join(cli, 'tools/fetch-bundle.mjs')).href;
   const script = `import {fetchBundle} from ${JSON.stringify(module)}; console.log(JSON.stringify(fetchBundle({force:true})))`;
-  const env = {...process.env, XDG_CACHE_HOME:path.join(root, 'cache'), GIT_CONFIG_COUNT:'1', GIT_CONFIG_KEY_0:`url.${pathToFileURL(source).href}.insteadOf`, GIT_CONFIG_VALUE_0:'https://github.com/iloveZzz/yss-spec-project-template.git'};
+  const env = {...process.env, YSS_SOURCE_SNAPSHOT:path.join(cli,'docs/source-lock.json'), XDG_CACHE_HOME:path.join(root, 'cache'), GIT_CONFIG_COUNT:'1', GIT_CONFIG_KEY_0:`url.${pathToFileURL(source).href}.insteadOf`, GIT_CONFIG_VALUE_0:'https://github.com/iloveZzz/yss-spec-project-template.git'};
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {encoding:'utf8', env});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, 'generated');

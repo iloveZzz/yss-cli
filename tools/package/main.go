@@ -92,7 +92,9 @@ func main() {
 		must(release.CheckBinarySize(int64(len(content))))
 		files := map[string][]byte{name: content}
 		for _, ref := range []string{"docs/source-lock.json", "docs/compatibility.md", "docs/porting-status.md", "docs/native-governance.md", "docs/cli-retirement.md", "compat/README.md", "README.md"} {
-			b, e := os.ReadFile(ref)
+			docPath, e := sourceDocumentPath(ref)
+			must(e)
+			b, e := os.ReadFile(docPath)
 			must(e)
 			files[ref] = b
 		}
@@ -201,7 +203,11 @@ func packageNative(input, out, basisFile string, platforms []string, scope strin
 		expected.Bundles[profile] = release.BundleIdentity{TemplateVersion: b.TemplateVersion, TemplateCommit: b.TemplateCommit, SourceState: b.SourceState, SourceSnapshotHash: b.SnapshotHash, ManifestHash: b.ManifestHash, BundleHash: b.BundleHash}
 	}
 	for _, ref := range release.Documents {
-		b, err := os.ReadFile(ref)
+		docPath, err := sourceDocumentPath(ref)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(docPath)
 		if err != nil {
 			return err
 		}
@@ -258,6 +264,16 @@ func packageNative(input, out, basisFile string, platforms []string, scope strin
 	}
 	if !bytes.Equal(current, revision) || len(status) != 0 {
 		return &release.Error{Code: "INPUT_DRIFT", Detail: "source changed during assembly; do not publish output"}
+	}
+	for _, ref := range release.Documents {
+		docPath, docErr := sourceDocumentPath(ref)
+		if docErr != nil {
+			return docErr
+		}
+		currentDoc, docErr := os.ReadFile(docPath)
+		if docErr != nil || !bytes.Equal(currentDoc, expected.Documents[ref]) {
+			return &release.Error{Code: "INPUT_DRIFT", Detail: "source document changed during assembly"}
+		}
 	}
 	currentBasis := basisBytes
 	if basisFile != "" {
@@ -335,8 +351,29 @@ func sortedFiles(files map[string][]byte) []string {
 	return refs
 }
 
+func sourceDocumentPath(ref string) (string, error) {
+	if ref != "docs/source-lock.json" || os.Getenv("YSS_SOURCE_SNAPSHOT") == "" {
+		return ref, nil
+	}
+	p := os.Getenv("YSS_SOURCE_SNAPSHOT")
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("YSS_SOURCE_SNAPSHOT must be an absolute file")
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil || resolved != p {
+		return "", fmt.Errorf("YSS_SOURCE_SNAPSHOT must be a canonical file")
+	}
+	info, err := os.Lstat(p)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("YSS_SOURCE_SNAPSHOT must be an ordinary file")
+	}
+	return p, nil
+}
+
 func sourceProfiles() []string {
-	raw, err := os.ReadFile("docs/source-lock.json")
+	docPath, err := sourceDocumentPath("docs/source-lock.json")
+	must(err)
+	raw, err := os.ReadFile(docPath)
 	must(err)
 	var lock bundle.SourceLock
 	must(json.Unmarshal(raw, &lock))

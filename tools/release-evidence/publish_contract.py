@@ -174,18 +174,27 @@ def expected_assets(evidence, tag):
     return expected
 
 
-def local_evidence(root, evidence, tag, source):
+def local_evidence(root, evidence, tag, source, api):
     version = tag[1:]
     version_file = git(root, 'show', source + ':internal/domain/domain.go').decode()
     found = re.search(r'^const Version = "([^"]+)"$', version_file, re.M)
     require(found and found[1] == version, 'source version differs from tag')
-    lock_bytes = git(root, 'show', source + ':docs/source-lock.json')
+    config = json.loads(git(root, 'show', source + ':docs/template-release.json'))
+    template_tag = config.get('tag')
+    require(set(config) == {'tag'} and re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', template_tag or ''), 'stable template release tag required')
+    inp = load(evidence, 'release-input.json')
+    lock_doc = inp['documents']['docs/source-lock.json']
+    lock_bytes = ordinary(evidence, lock_doc['path'])
+    require(sha(lock_bytes) == lock_doc['sha256'], 'generated source snapshot digest differs')
     lock = json.loads(lock_bytes)
     require(lock['schemaVersion'] in (2, 3, 5), 'unsupported source-lock')
     profiles = {'spec', 'backend'} if lock['schemaVersion'] == 5 else {'spec', 'design', 'backend'}
     require(set(lock['profiles']) == profiles, 'source-lock profile set differs')
     require(len({p['templateCommit'] for p in lock['profiles'].values()}) == 1 and
             len({p['templateVersion'] for p in lock['profiles'].values()}) == 1, 'template identity must be consistent across profiles')
+    require(all(p.get('templateTag') == template_tag and p['templateVersion'] == template_tag[1:] for p in lock['profiles'].values()), 'snapshot must bind the declared template release')
+    require(remote_source(api, 'repos/iloveZzz/yss-spec-project-template', template_tag) ==
+            next(iter(lock['profiles'].values()))['templateCommit'], 'published template tag differs from source snapshot')
     checks = load(evidence, 'release-final/checksums.json')
     require(checks['version'] == version and checks['cliCommit'] == source and
             checks['sourceLockSha256'] == sha(lock_bytes) and checks['sourceState'] == 'committed', 'release source identity differs')
@@ -205,7 +214,6 @@ def local_evidence(root, evidence, tag, source):
             [s['id'] for s in log['steps']] == list(PREPARE_STEPS) and
             all(s['status'] == 'passed' and s.get('exitCode', 0) == 0 for s in log['steps']) and
             log['preflight']['cliCommit'] == source and log['preflight']['version'] == version, 'complete same-source prepare required')
-    inp = load(evidence, 'release-input.json')
     native = load(evidence, 'native-input.json')
     receipt = load(evidence, 'native-darwin-arm64/native-receipt.json')
     gate = load(evidence, 'release-gates/release-gate.json')
@@ -253,7 +261,7 @@ def local_evidence(root, evidence, tag, source):
     for name in DOCUMENTS:
         doc = inp['documents'][name]
         require(doc == native['documents'][name] and sha(ordinary(evidence, doc['path'])) == doc['sha256'] and
-                ordinary(evidence, doc['path']) == git(root, 'show', source + ':' + name), 'input document differs: ' + name)
+                ordinary(evidence, doc['path']) == (lock_bytes if name == 'docs/source-lock.json' else git(root, 'show', source + ':' + name)), 'input document differs: ' + name)
     require(len(checks['artifacts']) == 1, 'single Mac artifact required')
     mac = checks['artifacts'][0]
     require(mac['platform'] == 'darwin/arm64' and mac['nativeRuntimeVerified'] is True and
@@ -297,7 +305,7 @@ def check(root, evidence, tag, run_id, notes_commit, env, api, *, published=Fals
     require(git(root, 'show', operations + ':' + ref) == notes and ordinary(root, ref) == notes and
             source.encode() in notes, 'exact committed notes or full source differs')
     artifact = remote_evidence(api, prefix, run_id, source)
-    assets = local_evidence(root, evidence, tag, source)
+    assets = local_evidence(root, evidence, tag, source, api)
     if not published:
         no_release(api, prefix, tag)
     evidence_digests = {p.relative_to(evidence).as_posix(): sha(ordinary(evidence, p.relative_to(evidence).as_posix()))

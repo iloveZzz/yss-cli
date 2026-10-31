@@ -11,10 +11,12 @@ const { values } = parseArgs({ options: { binary: { type: 'string' }, out: { typ
 assert.ok(values.binary && values.out && values['cli-root'] && values['artifact-prefix']);
 const cliRoot = fs.realpathSync(values['cli-root']);
 const git = (...args) => { const r = spawnSync('git', ['--no-optional-locks', '-C', cliRoot, ...args], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
-// 版本、模板提交与模板版本缺省取自仓库自身（domain.go 与 docs/source-lock.json）；显式传入时必须与仓库一致。
+// 版本、模板提交与模板版本缺省取自仓库自身（domain.go 与 YSS_SOURCE_SNAPSHOT）；显式传入时必须与仓库一致。
 const repoVersion = fs.readFileSync(path.join(cliRoot, 'internal/domain/domain.go'), 'utf8').match(/^const Version = "([^"]+)"$/m)?.[1];
 assert.ok(repoVersion, 'internal/domain/domain.go 中找不到 const Version');
-const sourceLock = JSON.parse(fs.readFileSync(path.join(cliRoot, 'docs/source-lock.json'), 'utf8'));
+const lockPath = process.env.YSS_SOURCE_SNAPSHOT || path.join(cliRoot, 'docs/source-lock.json');
+assert.ok(path.isAbsolute(lockPath) && fs.realpathSync(lockPath) === lockPath && fs.lstatSync(lockPath).isFile(), 'canonical source snapshot required');
+const sourceLock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 assert.ok([2, 3, 5].includes(sourceLock.schemaVersion), 'unsupported committed source-lock schema');
 const profiles = sourceLock.schemaVersion === 5 ? ['spec', 'backend'] : ['spec', 'design', 'backend'];
 assert.deepEqual(Object.keys(sourceLock.profiles).sort(), [...profiles].sort());
@@ -59,7 +61,7 @@ try {
   assert.equal(value.result.cliCommit, values.commit); assert.equal(value.result.sourceState, 'committed'); assert.equal(value.result.version, expectedVersion);
   const versionFile = path.join(out, 'native-version.json'); fs.writeFileSync(versionFile, version.output);
   Object.assign(receipt, { cliVersion: value.result.version, protocolVersion: value.result.protocolVersion, version: descriptor(versionFile), versionCommand: version.row });
-  const lockFile = path.join(cliRoot, 'docs/source-lock.json'), lock = sourceLock;
+  const lockFile = lockPath, lock = sourceLock;
   receipt.sourceLockSha256 = hash(fs.readFileSync(lockFile));
   const gitSource = values['template-version'].startsWith('git:');
   for (const source of Object.values(lock.profiles)) {

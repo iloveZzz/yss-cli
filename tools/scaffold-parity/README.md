@@ -5,17 +5,19 @@
 ## 用法
 
 ```sh
+node tools/resolve-template.mjs --source-root /仓库外/模板仓 --out /仓库外/来源记录.json
+export YSS_SOURCE_SNAPSHOT=/仓库外/来源记录.json
 node tools/fetch-bundle.mjs                       # 内嵌归档不入库，编译前先生成
 CGO_ENABLED=0 go build -o /仓库外/路径/yss ./cmd/yss
 node tools/scaffold-parity/main.mjs \
   --bin /仓库外/路径/yss \
-  --template-root /仓库外/模板仓   # 必须是 docs/source-lock.json 固定提交的干净检出
+  --template-root /仓库外/模板仓   # 必须是本次来源记录固定提交的干净检出
 ```
 
 | 选项 | 说明 |
 | --- | --- |
 | `--bin` | 被测 `yss` 二进制 |
-| `--template-root` | 模板仓检出；HEAD 必须等于 `docs/source-lock.json` 的 `profiles.spec.templateCommit`，且已跟踪文件无改动 |
+| `--template-root` | 模板仓检出；HEAD 必须等于 `YSS_SOURCE_SNAPSHOT` 的 `profiles.spec.templateCommit`，且已跟踪文件无改动 |
 | `--only a,b` | 只运行 id 等于或以其开头的场景，如 `--only formal-,ddd-example` |
 | `--list` | 列出场景和期望后退出 |
 | `--verbose` | 对双方拒绝的场景打印两侧拒绝原因，便于确认拒绝出自预期原因 |

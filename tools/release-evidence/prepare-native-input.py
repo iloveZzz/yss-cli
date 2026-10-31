@@ -1,10 +1,10 @@
 # 由固定 v1.3.6 证据输入准备器改写；不授予任何资格。版本与模板身份取自仓库，不硬编码。
 import argparse,json,hashlib,shutil,subprocess,re
 from pathlib import Path
-from release_source import repo_version,template_identity,repo_profiles
+from release_source import source_document,repo_version,template_identity,repo_profiles
 parser=argparse.ArgumentParser()
 parser.add_argument('--cli-root',required=True);parser.add_argument('--evidence-root',required=True)
-for name in ['cli-commit','template-commit','template-version']:parser.add_argument('--'+name,help='缺省取自仓库 HEAD / docs/source-lock.json；显式传入时必须一致')
+for name in ['cli-commit','template-commit','template-version']:parser.add_argument('--'+name,help='缺省取自仓库 HEAD / YSS_SOURCE_SNAPSHOT；显式传入时必须一致')
 parser.add_argument('--artifact',nargs=3,action='append',required=True,metavar=('PLATFORM','BINARY_REF','RECEIPT_REF'))
 parser.add_argument('--output-name',default='native-input.json')
 options=parser.parse_args();C=Path(options.cli_root).resolve();R=Path(options.evidence_root).resolve();assert R.is_dir()
@@ -37,7 +37,7 @@ for platform,binary_ref,receipt_ref in options.artifact:
  artifacts.append({'platform':platform,'binary':{'path':binary_ref,'sha256':sha(binary)},'receipt':{'path':receipt_ref,'sha256':sha(receipt)}})
 inp={'schemaVersion':1,**identity,'documents':{},'requiredPlatforms':sorted(seen),'qualificationScope':'local-platform-program-install','artifacts':artifacts,'releaseGate':{'path':'','sha256':''}}
 for ref in ['docs/source-lock.json','docs/compatibility.md','docs/porting-status.md','docs/native-governance.md','docs/cli-retirement.md','compat/README.md','README.md']:
- source=C/ref;assert source.is_file() and not source.is_symlink();p=R/'input-documents'/ref;p.parent.mkdir(parents=True,exist_ok=True)
+ source=source_document(C,ref);assert source.is_file() and not source.is_symlink();p=R/'input-documents'/ref;p.parent.mkdir(parents=True,exist_ok=True)
  if p.exists():assert not p.is_symlink() and p.read_bytes()==source.read_bytes()
  else:shutil.copyfile(source,p);p.chmod(0o644)
  inp['documents'][ref]={'path':p.relative_to(R).as_posix(),'sha256':sha(p)}

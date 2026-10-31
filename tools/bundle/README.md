@@ -1,12 +1,12 @@
 # 固定模板源码 Bundle Producer
 
-日常使用 `node tools/fetch-bundle.mjs`（取得源码、生成、校验摘要）。直接运行时：`go run -tags yss_nobundle ./tools/bundle --source-root <固定模板仓根> --lock docs/source-lock.json --out internal/bundle/assets`（`yss_nobundle` 让工具在归档不存在时也能编译）。归档不入库，仅入库其摘要 `bundles.json.gz.sha256`。
+先用 `node tools/resolve-template.mjs --source-root <模板仓> --out <仓外新文件>` 从 `docs/template-release.json` 的发行标签生成本次来源记录，并设置 `YSS_SOURCE_SNAPSHOT` 指向该文件。日常使用 `node tools/fetch-bundle.mjs` 生成并校验摘要；直接运行可用 `go run -tags yss_nobundle ./tools/bundle --source-root <模板仓> --lock "$YSS_SOURCE_SNAPSHOT" --out internal/bundle/assets`。归档不入库，仅入库其摘要 `bundles.json.gz.sha256`。
 
 生成单个 `bundles.json.gz`，私有存储格式 v2 将 Spec/Backend 的 `files`、`initial`、`installations.*.initial` 与 `NativeTransforms.Source` 内容汇入共享对象池；每个路径继续保存摘要、权限、ownership 和来源信息。读取器继续校验并支持历史 v1 内联安装内容。构建工具的摘要输出单独使用 schema v4，`profiles` 保留各逻辑 Bundle 身份，`storage` 记录格式版本、文件名、SHA-256、压缩字节数、JSON 字节数和唯一对象数。公开导出仍为完整 Bundle v5，不接受私有归档作为 `--base-bundle` 输入。详见 [内部存储合同](../../docs/bundle-storage.md)。
 
 Producer 只读取 `templateCommit` 指定的完整 Git commit 对象，不读取 dirty worktree 内容，也不加载四个旧 CLI 的 JS 模块。分发政策默认位于每个模板的 `.template-source/distribution/bundle-profile.json`，必须在同一固定提交内，并以 `policyHash` 锁定原始政策 bytes。迁移期间可用 `policyPath: builtin:<profile>` 与显式摘要；输出诚实标识 `sourcePolicy.kind: bootstrap`。这只支持本地迁移验证，最终固定源应锁定模板内的政策。
 
-当前 Source lock 使用 `schemaVersion: 5`；`profiles` 仅包含 `spec`、`backend`。每项包含 `profile`、相对于 `--source-root` 的 `sourcePath`、`templateCommit`、独立 `templateVersion`（默认 `git:<templateCommit>`）、`policyPath`、`policyHash`。`legacy` 记录原 CLI 的版本、提交和原摘要，仅用于历史谱系。`producer` 记录生产工具版本及来源；统一 CLI 的 runtime build commit 由二进制 build provenance 提供，不反嵌根 CLI 的下一提交，也不与根模板的 yss-cli gitlink 形成循环。
+构建生成的兼容来源记录使用 `schemaVersion: 5`；`profiles` 仅包含 `spec`、`backend`。每项包含 `profile`、相对于 `--source-root` 的 `sourcePath`、`templateCommit`、独立 `templateVersion`（默认 `git:<templateCommit>`）、`policyPath`、`policyHash`。`legacy` 记录原 CLI 的版本、提交和原摘要，仅用于历史谱系。`producer` 记录生产工具版本及来源；统一 CLI 的 runtime build commit 由二进制 build provenance 提供，不反嵌根 CLI 的下一提交，也不与根模板的 yss-cli gitlink 形成循环。
 
 政策是声明式入口规则：`manifest` 定义允许根、排除项、渲染入口和 ownership；Spec 的 `common` 与 `stages` 定义资产入口。模块 imports、Schema refs 与 Skill 资源引用通过 Go 计算闭包。允许根下新增已提交文件会进入下一个完整 bundle，无需冻结全文件名清单。仅将 `.codex/.cursor/.pi/skills/<name>` 指向同名 `.agents/skills/<name>` 的安全 Git 投影展开为普通文件；其他源符号链及不可移植路径拒绝。
 
