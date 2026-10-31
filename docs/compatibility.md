@@ -8,7 +8,7 @@
 
 新版 Bundle 的 `skills` 安装包含已选技能引用所需的 `.template-spec`、`.template-source` 文件及其依赖，这些文件本身不启用治理身份或阶段能力；已有实例经审阅并应用 `sync` 计划补齐受管资源。
 
-`attach` 仅接管没有 YSS metadata 的已有工程；受支持的原生实例使用 `sync`，已识别旧实例不当作普通工程接管。`attach`、`sync` 和安装方式转换共用资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；原生校验失败整体还原。现有 Context、Tracker、业务与批准资产保留。
+`attach` 仅接管没有 YSS metadata 的已有工程；受支持的原生实例使用 `sync`，已识别旧实例不当作普通工程接管。`attach`、`sync` 和安装方式转换共用资产规划；显式 `--base-bundle` 读取离线材料，`--review-out` 导出候选，`--resolution-file` 结合原保存计划重建决议。三方候选须经过决议；固定来源和生成资产不接受任意合并。应用回执分别给出 `fileApplication` 与 `verification`；同步校验失败保留现场并由用户按路径清单和 Git 人工处理，其他适用事务保留既有保护。现有 Context、Tracker、业务与批准资产保留。
 
 迁移规则的适用来源二选一：精确来源（模板 commit 与快照摘要，可再绑定 Bundle 摘要），或模板版本区间（`from.versions`，`min` 含、`max` 不含，语义化版本）。实例的模板版本只读取 metadata 中记录的语义化 `templateVersion`；缺失或不是合法语义化版本时，版本区间规则不适用，计划的 `notices` 如实报告，不从提交或旧版本对照表推测。精确来源可选 `from.templateVersion`，接受语义化版本或与 `templateCommit` 对应的 `git:<完整提交>`，并额外核对实例登记值；静态重叠判断中，语义化版本按区间判断，git 版本不匹配版本区间，未声明版本的精确来源仍按可能重叠处理。规则提议的 `delete` 在计划里带 `resolutionOptions`：用 `--resolution-file` 选择 `keep-local` 即拒绝删除，文件原样保留，同一条规则下登记过的保留决定在之后的计划里继续生效；不选则按计划删除。处于活动技能树内的旧合同仍会因新来源锁不兼容而阻断升级，不能把保留当作放行。`--review-out` 的 `conflicts.json` 一并列出这些删除项。
 
@@ -16,13 +16,13 @@ Bundle 生产器按固定 Git 对象取源；`native-upgrade-v3` 兼容生成器
 
 已实现的原生范围：Profile 身份识别、离线快照、初始化、只读差异、接管/同步/迁移计划、计划应用、文件事务、恢复与整体回滚、Skill/阶段资产补装基础、Context 校验与摘要、注册表查询、Schema结构检查、安全ZIP/XML以及SQLite运行记录。
 
-Context 的 check/verify 对合法 schema v1 template-source 支持只读校验并返回可复用 context_snapshot；实例身份检测保持原边界，模板源携带实例 metadata 会被拒绝。当前 Spec/Backend 的 JS 消费者只负责固定二进制传输和 envelope/摘要校验；历史 Design 由匹配的旧执行器按原协议读取。
+Context 的 check/verify 对合法 schema v1 template-source 支持只读校验并返回可复用 context_snapshot；实例身份检测保持原边界，模板源携带实例 metadata 会被拒绝。当前 Spec/Backend 的 JS 消费者只负责固定二进制传输和 envelope/摘要校验；历史 Design 不属于当前支持范围。
 
 当前治理 verify、完整 project-ci、Stage 写入、离线程序安装与 JS native transport 的边界见 porting-status.md。两个插件迁至固定二进制与公开 Bundle 接口；必要 Node/Python 治理工具继续独立维护。旧成功 JSON、私有 JS API 和停用参数仅按实际消费者迁移，不全量仿制；停用项明确拒绝并提供替代命令。独立 Go Bundle 生产不再调用旧 Node 私有导出模块。
 
 Schema：默认2020-12与format断言、本地闭包引用、禁止网络检索、JSON重复键、YAML重复键/alias/多文档拒绝。现实Schema的Python正则字符类使用固定Unicode15兼容区间；未支持的高级语法返回SCHEMA_REGEX_INCOMPATIBLE，不静默放宽。当前Python基线缺可选date-time检查器，Go会拒绝其原本误接受的无时区时间；这是显式严格化，尚不能标为完全等价。JSON/YAML非法UTF和不成对surrogate被拒绝。
 
-恢复：原字节、类型、权限与计划摘要持久保存；WAL先于目标写入。后续用户修改导致恢复或整体回滚拒绝，避免覆盖。Git index、业务目录和嵌套Git仓库不属于模板写范围。原有CLI的历史事务格式不能由新事务格式冒充；历史中断首先走旧CLI恢复。
+恢复：原字节、类型、权限与计划摘要持久保存；WAL先于目标写入。后续用户修改导致恢复或整体回滚拒绝，避免覆盖。Git index、业务目录和嵌套Git仓库不属于模板写范围。重发前的历史事务不属于当前支持范围；发现历史中断时保留现场并停止受影响写入。
 
 可支持的平台 CI 使用GitHub官方提供的runner标签，见[官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。流水线准备好不等于已经执行；本地交叉编译不能替代原生运行、取消、权限和恢复验证。
 
