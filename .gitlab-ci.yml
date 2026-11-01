@@ -75,7 +75,7 @@ build-check:
       PYCODE
       git init "$work/source"
       git -C "$work/source" remote add origin https://github.com/iloveZzz/yss-spec-project-template.git
-      git -C "$work/source" fetch --depth 1 origin refs/tags/v5.0.4
+      git -C "$work/source" fetch --depth 1 origin refs/tags/v5.0.5
       git -C "$work/source" checkout --detach FETCH_HEAD
       git -C "$work/source" rev-parse HEAD > "$work/source-commit.txt"
       go run -tags yss_nobundle ./tools/bundle --source-root "$work/source" --out internal/bundle/assets > "$work/bundle.json"
