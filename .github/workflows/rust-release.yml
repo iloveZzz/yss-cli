@@ -45,7 +45,9 @@ jobs:
           Write-Host "Template $tag at $templateCommit"
 
           cargo run --locked --bin yss-bundle -- --source-root $template --out assets/bundle.tar.gz
+          $env:RUSTFLAGS = '-C target-feature=+crt-static'
           cargo build --locked --release --bin yss --target $env:YSS_TARGET
+          Remove-Item Env:RUSTFLAGS
           $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
           $version = ($metadata.packages | Where-Object name -eq 'yss-cli').version
           New-Item -ItemType Directory dist -Force | Out-Null

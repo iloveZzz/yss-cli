@@ -182,8 +182,10 @@ macos-x86_64:
       $ErrorActionPreference = 'Stop'
       if (((rustc --version) -split ' ')[1] -ne '1.99.1') { throw 'Rust version mismatch' }
       if ((rustc -vV | Select-String '^host: ').ToString().Substring(6) -ne $env:YSS_TARGET) { throw 'Native host mismatch' }
+      $env:RUSTFLAGS = '-C target-feature=+crt-static'
       cargo build --locked --release --bin yss --target $env:YSS_TARGET
       if ($LASTEXITCODE) { throw 'Build failed' }
+      Remove-Item Env:RUSTFLAGS
       $program = Join-Path $pwd "target/$env:YSS_TARGET/release/yss.exe"
       $work = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
       New-Item -Type Directory $work,dist,ci-report -Force | Out-Null
