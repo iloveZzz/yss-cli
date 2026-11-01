@@ -1,0 +1,70 @@
+name: Rust Windows release build
+
+on:
+  push:
+    branches: [codex/rust-cli, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x86_64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+      YSS_TARGET: x86_64-pc-windows-msvc
+    steps:
+      - name: Preserve source line endings
+        run: git config --global core.autocrlf false
+
+      - name: Check out the triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target $env:YSS_TARGET
+
+      - name: Build and statically verify the Windows package
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $tag = (Get-Content docs/template-release.json -Raw | ConvertFrom-Json).tag
+          if ($tag -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid template release tag' }
+          $template = Join-Path $env:RUNNER_TEMP 'yss-template'
+          git -c core.symlinks=true clone --depth 1 --single-branch --branch $tag -- https://github.com/iloveZzz/yss-spec-project-template.git $template
+          $templateCommit = (git -C $template rev-parse HEAD).Trim()
+          $tagCommit = (git -C $template rev-parse "refs/tags/${tag}^{commit}").Trim()
+          if ($templateCommit -ne $tagCommit) { throw 'Template tag and checkout differ' }
+          Write-Host "Template $tag at $templateCommit"
+
+          cargo run --locked --bin yss-bundle -- --source-root $template --out assets/bundle.tar.gz
+          $env:RUSTFLAGS = '-C target-feature=+crt-static'
+          cargo build --locked --release --bin yss --target $env:YSS_TARGET
+          Remove-Item Env:RUSTFLAGS
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq 'yss-cli').version
+          New-Item -ItemType Directory dist -Force | Out-Null
+          $archive = "dist/yss_${version}_${env:YSS_TARGET}.zip"
+          $package = cargo run --locked --bin yss-bundle -- package --binary "target/$env:YSS_TARGET/release/yss.exe" --version $version --target $env:YSS_TARGET --out $archive | ConvertFrom-Json
+          if ($package.manifest.build.source.commit -ne $env:GITHUB_SHA -or $package.manifest.build.source.state -ne 'committed') { throw 'Package source is not the triggering commit' }
+          $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($package.sha256 -ne $digest) { throw 'Archive digest mismatch' }
+          "$digest  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding ascii dist/SHA256SUMS
+
+      - name: Upload the package and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: yss-x86_64-pc-windows-msvc
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
