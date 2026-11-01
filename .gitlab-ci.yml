@@ -5,16 +5,24 @@ workflow:
       when: never
     - when: always
 
+stages: [bundle, build]
 default:
-  image: docker.io/library/golang:1.27.1-trixie@sha256:8f58fd67ea075142d947a60e0caa4317746a55118d312f027793d382c7741734
+  image: docker.io/library/rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137
   tags: [yss-linux]
-
 variables:
   GIT_DEPTH: "0"
   YSS_GITLAB_CA_FILE: /etc/gitlab-runner/certs/gitlab.yss.test.crt
   YSS_GITLAB_CI_AUTH: "1"
+  # Set YSS_TEMPLATE_COMMIT explicitly after committing the paired template changes.
+  # The historical tag in docs/template-release.json is not silently retargeted.
+cache:
+  key:
+    prefix: rust-1.99.1-$CI_JOB_NAME
+    files: [Cargo.lock, rust-toolchain.toml]
+  paths: [target/]
 
-build-check:
+bundle-source:
+  stage: bundle
   script:
     - |
       set -eu
@@ -23,11 +31,14 @@ build-check:
       test "$YSS_GITLAB_CA_FILE" = /etc/gitlab-runner/certs/gitlab.yss.test.crt
       test -s "$YSS_GITLAB_CA_FILE"
       test -n "$CI_JOB_TOKEN"
-      go version
+      rustc --version
       git --version
-      test "$(go env GOVERSION)" = go1.27.1
+      test "$(rustc --version | cut -d ' ' -f 2)" = 1.99.1
       git_version=$(git --version | cut -d ' ' -f 3)
       test "$(printf '%s\n' 2.44.0 "$git_version" | sort -V | head -n 1)" = 2.44.0
+      test "${YSS_TEMPLATE_COMMIT:-}" != "" || { echo "Set YSS_TEMPLATE_COMMIT to an actual committed Rust-ready template revision"; exit 1; }
+      case "$YSS_TEMPLATE_COMMIT" in *[!0-9a-f]*|?????????????????????????????????????????*) exit 1;; esac
+      test "${#YSS_TEMPLATE_COMMIT}" = 40
       work=$(mktemp -d)
       trap 'rm -rf "$work"' EXIT
       export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
@@ -80,28 +91,142 @@ build-check:
       PYCODE
       git init "$work/source"
       git -C "$work/source" remote add origin https://gitlab.yss.test:9443/yss/yss-spec-project-template.git
-      git -C "$work/source" fetch --depth 1 origin refs/tags/v5.0.2
+      git -C "$work/source" fetch --depth 1 origin "$YSS_TEMPLATE_COMMIT"
       git -C "$work/source" checkout --detach FETCH_HEAD
-      git -C "$work/source" rev-parse HEAD > "$work/source-commit.txt"
-      go run -tags yss_nobundle ./tools/bundle --source-root "$work/source" --out internal/bundle/assets > "$work/bundle.json"
-      test -z "$(gofmt -l $(git ls-files '*.go'))"
-      CGO_ENABLED=0 go build -trimpath -o "$work/yss" ./cmd/yss
-      CGO_ENABLED=0 go vet ./...
-      "$work/yss" version
-      "$work/yss" help > "$work/help.txt"
-      "$work/yss" scaffold catalog > "$work/catalog.json"
-      "$work/yss" init --root "$work/preview" --profile spec --installation skills --dry-run > "$work/preview.json"
-      test ! -e "$work/preview"
-      "$work/yss" init --root "$work/project" --profile spec --installation skills > "$work/init.json"
-      "$work/yss" skills list --root "$work/project" > "$work/skills.json"
-      "$work/yss" sync --root "$work/project" --dry-run > "$work/sync.json"
-      "$work/yss" doctor --root "$work/project" > "$work/doctor.json"
-      "$work/yss" init --root "$work/backend" --profile backend --installation skills --dry-run > "$work/backend-preview.json"
-      test ! -e "$work/backend"
-      mkdir -p "$CI_PROJECT_DIR/ci-report"
-      cp "$work/source-commit.txt" "$work/bundle.json" "$work/help.txt" "$work/catalog.json" "$work/preview.json" "$work/init.json" "$work/skills.json" "$work/sync.json" "$work/doctor.json" "$work/backend-preview.json" "$CI_PROJECT_DIR/ci-report/"
-      printf '%s\n' 'build + actual Linux CLI paths only; no persistent tests, native Windows or formal release verified' > "$CI_PROJECT_DIR/ci-report/scope.txt"
+      test "$(git -C "$work/source" rev-parse HEAD)" = "$YSS_TEMPLATE_COMMIT"
+      mkdir -p ci-report assets
+      cargo run --locked --bin yss-bundle -- --source-root "$work/source" --out assets/bundle.tar.gz > ci-report/bundle.json
+      cargo fmt --all -- --check
+      cargo clippy --locked --all-targets -- -D warnings
+      printf '%s\n' "$YSS_TEMPLATE_COMMIT" > ci-report/template-commit.txt
+      printf '%s\n' 'Each native job proves only its own target. Missing runner variables leave those targets unverified. No Release is published.' > ci-report/scope.txt
   artifacts:
-    when: always
-    paths: [ci-report/]
+    paths: [assets/bundle.tar.gz, ci-report/]
     expire_in: 7 days
+
+.native-posix:
+  stage: build
+  needs: [bundle-source]
+  script:
+    - |
+      set -eu
+      test "$(rustc --version | cut -d ' ' -f 2)" = 1.99.1
+      test "$(rustc -vV | sed -n 's/^host: //p')" = "$YSS_NATIVE_HOST"
+      if [ "$YSS_TARGET" = aarch64-unknown-linux-musl ] || [ "$YSS_TARGET" = x86_64-unknown-linux-musl ]; then
+        apt-get update -qq
+        apt-get install -y --no-install-recommends musl-tools
+        export CC=musl-gcc
+        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+        export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+      fi
+      rustup target add "$YSS_TARGET"
+      cargo build --locked --release --bin yss --target "$YSS_TARGET"
+      program="$CI_PROJECT_DIR/target/$YSS_TARGET/release/yss"
+      work=$(mktemp -d)
+      work=$(cd "$work" && pwd -P)
+      trap 'rm -rf "$work"' EXIT
+      mkdir -p dist ci-report
+      "$program" version --json > ci-report/version.json
+      "$program" help --json > ci-report/help.json
+      "$program" scaffold catalog --json > ci-report/catalog.json
+      "$program" init --root "$work/preview" --profile spec --installation skills --dry-run --json > ci-report/preview.json
+      test ! -e "$work/preview"
+      "$program" init --root "$work/project" --profile spec --installation skills --json > ci-report/init.json
+      "$program" sync --root "$work/project" --json > ci-report/sync.json
+      "$program" doctor --root "$work/project" --json > ci-report/doctor.json
+      version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml)
+      archive="dist/yss_${version}_${YSS_TARGET}.tar.gz"
+      cargo run --locked --bin yss-bundle -- package --binary "$program" --version "$version" --target "$YSS_TARGET" --out "$archive" > ci-report/package.json
+      if command -v sha256sum >/dev/null; then digest=$(sha256sum "$archive" | cut -d ' ' -f 1); else digest=$(shasum -a 256 "$archive" | cut -d ' ' -f 1); fi
+      printf '%s  %s\n' "$digest" "$(basename "$archive")" > dist/SHA256SUMS
+      "$program" upgrade --artifact "$CI_PROJECT_DIR/$archive" --sha256 "$digest" --tool-root "$work/tool" --dry-run --json > ci-report/upgrade.json
+      test ! -e "$work/tool"
+      uname -a > ci-report/native-environment.txt
+  artifacts:
+    paths: [dist/, ci-report/]
+    expire_in: 7 days
+
+linux-arm64:
+  extends: .native-posix
+  variables:
+    YSS_NATIVE_HOST: aarch64-unknown-linux-gnu
+    YSS_TARGET: aarch64-unknown-linux-musl
+
+linux-x86_64:
+  extends: .native-posix
+  tags: ['$YSS_RUNNER_LINUX_X86_64']
+  rules:
+    - if: '$YSS_RUNNER_LINUX_X86_64'
+  variables:
+    YSS_NATIVE_HOST: x86_64-unknown-linux-gnu
+    YSS_TARGET: x86_64-unknown-linux-musl
+
+macos-arm64:
+  extends: .native-posix
+  tags: ['$YSS_RUNNER_MACOS_ARM64']
+  rules:
+    - if: '$YSS_RUNNER_MACOS_ARM64'
+  variables:
+    YSS_NATIVE_HOST: aarch64-apple-darwin
+    YSS_TARGET: aarch64-apple-darwin
+
+macos-x86_64:
+  extends: .native-posix
+  tags: ['$YSS_RUNNER_MACOS_X86_64']
+  rules:
+    - if: '$YSS_RUNNER_MACOS_X86_64'
+  variables:
+    YSS_NATIVE_HOST: x86_64-apple-darwin
+    YSS_TARGET: x86_64-apple-darwin
+
+.native-windows:
+  stage: build
+  needs: [bundle-source]
+  script:
+    - |
+      $ErrorActionPreference = 'Stop'
+      if (((rustc --version) -split ' ')[1] -ne '1.99.1') { throw 'Rust version mismatch' }
+      if ((rustc -vV | Select-String '^host: ').ToString().Substring(6) -ne $env:YSS_TARGET) { throw 'Native host mismatch' }
+      cargo build --locked --release --bin yss --target $env:YSS_TARGET
+      if ($LASTEXITCODE) { throw 'Build failed' }
+      $program = Join-Path $pwd "target/$env:YSS_TARGET/release/yss.exe"
+      $work = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
+      New-Item -Type Directory $work,dist,ci-report -Force | Out-Null
+      try {
+        & $program version --json | Set-Content ci-report/version.json
+        if ($LASTEXITCODE) { throw 'Version failed' }
+        & $program scaffold catalog --json | Set-Content ci-report/catalog.json
+        if ($LASTEXITCODE) { throw 'Catalog failed' }
+        & $program init --root "$work/project" --profile spec --installation skills --json | Set-Content ci-report/init.json
+        if ($LASTEXITCODE) { throw 'Init failed' }
+        & $program sync --root "$work/project" --json | Set-Content ci-report/sync.json
+        if ($LASTEXITCODE) { throw 'Sync failed' }
+        $version = [regex]::Match((Get-Content Cargo.toml -Raw),'(?m)^version = "([^"]+)"$').Groups[1].Value
+        $archive = "dist/yss_${version}_$env:YSS_TARGET.zip"
+        cargo run --locked --bin yss-bundle -- package --binary $program --version $version --target $env:YSS_TARGET --out $archive | Set-Content ci-report/package.json
+        if ($LASTEXITCODE) { throw 'Package failed' }
+        $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$digest  $([IO.Path]::GetFileName($archive))" | Set-Content -Encoding ascii dist/SHA256SUMS
+        & $program upgrade --artifact (Join-Path $pwd $archive) --sha256 $digest --tool-root "$work/tool" --dry-run --json | Set-Content ci-report/upgrade.json
+        if ($LASTEXITCODE -or (Test-Path "$work/tool")) { throw 'Offline preview failed' }
+        [Environment]::OSVersion.ToString() | Set-Content ci-report/native-environment.txt
+      } finally { Remove-Item -Recurse -Force $work }
+  artifacts:
+    paths: [dist/, ci-report/]
+    expire_in: 7 days
+
+windows-x86_64:
+  extends: .native-windows
+  tags: ['$YSS_RUNNER_WINDOWS_X86_64']
+  rules:
+    - if: '$YSS_RUNNER_WINDOWS_X86_64'
+  variables:
+    YSS_TARGET: x86_64-pc-windows-msvc
+
+windows-arm64:
+  extends: .native-windows
+  tags: ['$YSS_RUNNER_WINDOWS_ARM64']
+  rules:
+    - if: '$YSS_RUNNER_WINDOWS_ARM64'
+  variables:
+    YSS_TARGET: aarch64-pc-windows-msvc

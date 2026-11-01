@@ -1,6 +1,6 @@
 # 当前文档
 
-现役入口是 [README](../README.md)、[命令说明](cli-help.md)、[构建与安装](build-install.md)、[兼容范围](compatibility.md)、[技能操作](skills-discovery.md) 和 [脚手架](scaffold-go.md)。
+现役入口是 [README](../README.md)、[命令说明](cli-help.md)、[构建与安装](build-install.md)、[兼容范围](compatibility.md)、[技能操作](skills-discovery.md) 和 [脚手架](scaffold.md)。
 
 `template-release.json` 保留既有固定标签记录；本地 Bundle 生成器读取指定模板工作树的真实内容，不伪造该标签的新版发行状态。
 

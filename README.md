@@ -1,43 +1,31 @@
-# yss
+# YSS CLI
 
-yss 是用于安装项目模板、按需补装技能和生成 Java 后端骨架的 Go CLI。现役 Profile 为 `spec`、`backend`；新项目默认 `--installation project`，仅安装技能时选择 `skills`。
+YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java 空骨架和更新自身。用户运行时分发单个 `yss`（Windows 为 `yss.exe`），无需 Go、Bun、Node 或 Python。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-```sh
-yss init --root ./demo --profile spec --dry-run
-yss init --root ./demo --profile spec
-yss doctor --root ./demo
-yss skills list --root ./demo
-yss sync --root ./demo --dry-run
-yss sync --root ./demo
+当前是 `4.0.0-dev` 开发实现，尚未正式发布。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend` 是两种 Profile；`project`/`skills` 是项目内的两种安装范围。
+
+```text
+yss init --root /absolute/new-project --profile spec --installation skills
+yss attach --root /absolute/existing-project --profile backend --installation skills
+yss skills list --root /absolute/project
+yss skills ensure yss-validation --root /absolute/project
+yss sync --root /absolute/project --dry-run
+yss sync --root /absolute/project
+yss doctor --root /absolute/project
+yss recover --root /absolute/project
 ```
 
-已有工程使用 `attach --root <目录> --profile spec|backend`。`init`、`attach` 均须提供 root 和 profile；覆盖冲突会停止写入。既有项目沿用已保存的安装类型，`sync --installation project|skills` 可显式切换。写入命令的 `--dry-run` 只预览本次改动，不保存待应用计划；确认后重新运行原命令并去掉该参数。
+写命令直接执行；`--dry-run` 只预览，不创建根目录、锁、缓存或保存计划。未知文件不接管，即使内容相同；受管文件本地修改与来源修改冲突时整次拒绝。事务中断后先 `recover`，已提交事务只重试安全清理。
 
-当前命令只有：`init`、`attach`、`sync`、`skills list|ensure`、`scaffold ddd|mvc|catalog`、`upgrade`、`doctor`、`recover`、`version`、`help`。`--version` 与 `--help` 提供版本和帮助。旧生命周期、批准、合同、插件绑定、保存计划及 `update` 等命令已经退役，调用会失败；不提供隐式兼容执行。
-
-```sh
-yss help
-yss skills ensure --help
-yss scaffold catalog
-yss scaffold mvc --help
-yss upgrade --dry-run
-yss upgrade
+```text
+cargo run --locked --bin yss-bundle -- --source-root /absolute/template --out assets/bundle.tar.gz
+cargo build --locked --release --bin yss
 ```
 
-程序升级与项目同步是两件事：`upgrade` 更新 CLI，`sync` 将内嵌模板同步到项目。在线升级来自固定私有 GitLab `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 Release（显式 CA 与鉴权，缺少发行时报未就绪，不回退其他来源），校验标准 `SHA256SUMS`、manifest schema 2、归档与载荷摘要及目标平台。离线升级使用 `--artifact <归档> --sha256 <摘要>`。首次切换到本版应由 Agent 按[构建、打包与安装](docs/build-install.md)安装，旧 CLI 的在线升级器不保证识别新包。
+Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容并随程序内嵌，必须先生成。只分发用户程序，内部 `yss-bundle` 用于构建和打包。
 
-从模板工作树直接构建，无 Node/Python 包装脚本：
-
-```sh
-go run -tags yss_nobundle ./tools/bundle --source-root /path/to/yss-spec-project-template --out internal/bundle/assets
-CGO_ENABLED=0 go build -trimpath -o /outside/yss ./cmd/yss
-```
-
-Go 版本按 `go.mod` 准备。生成的 Bundle 不进入版本库；`yss_nobundle` 仅用于生成器自举，不能用于发行 CLI。程序不要求阶段门禁、批准包、checkpoint 或持久测试套件；业务输入校验、路径保护、摘要、文件所有权及事务并发保护继续生效。未运行的构建或验证不宣称成功。
-
-- [命令与日常操作](docs/cli-help.md)
-- [构建、打包、安装与手动发布](docs/build-install.md)
-- [安装类型与兼容范围](docs/compatibility.md)
-- [技能查询与补装](docs/skills-discovery.md)
-- [后端脚手架](docs/scaffold-go.md)
-- [文档目录与历史资料](docs/README.md)
+- [命令与输出](docs/cli-help.md)
+- [构建、发行包与安装](docs/build-install.md)
+- [格式与平台范围](docs/compatibility.md)
+- [技能选择与所有权](docs/skills-discovery.md)
+- [DDD/MVC 脚手架](docs/scaffold.md)
