@@ -304,6 +304,7 @@ fn pack_zip(entries: &BTreeMap<RelPath, Entry>) -> Result<Vec<u8>> {
                 path.as_str(),
                 zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Deflated)
+                    .system(zip::System::Unix)
                     .unix_permissions(entry.mode),
             )
             .map_err(|_| invalid("ZIP 创建失败"))?;
