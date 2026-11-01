@@ -13,9 +13,13 @@ yss skills ensure --root ./demo <技能ID>
 
 完整项目安装使用 `--installation project`；仅需技能使用 `skills`。已有项目可通过 `sync --installation project|skills --dry-run` 先预览切换。旧 `skills query|resolve` 与插件绑定不再使用。
 
-当前模板的 Spec `project` 与 `skills` 默认安装相同的 16 项：`setup-yss-harness`、`yss-product-lifecycle`、`yss-research`、`yss-stage-decision`、`grilling`、`domain-modeling`、`wayfinder`、`to-spec`、`yss-design-system`、`prototype`、`prototype-review`、`to-tickets`、`triage`、`llm-wiki`、`i-have-adhd`、`handoff`。`implement`、`code-review` 仍可查询和按需补装。Backend 默认仍为安装、实现、代码审查与 handoff 四项。
+当前模板的 Spec `project` 与 `skills` 默认安装相同的 16 项：`setup-yss-harness`、`yss-product-lifecycle`、`yss-research`、`yss-stage-decision`、`grilling`、`domain-modeling`、`wayfinder`、`to-spec`、`yss-design-system`、`prototype`、`prototype-review`、`to-tickets`、`triage`、`llm-wiki`、`i-have-adhd`、`handoff`。`implement`、`code-review` 仍可查询和按需补装。Backend 的 `project` / `skills` 均默认安装 41 项，可用库共 53 项，另有 12 项按需补装。
 
 完整 Spec 交付规格、产品原型及说明，技术设计与实现由研发承担。研究与竞品方法统一在 `yss-research`，产品设计和 UI 原型统一在 `yss-design-system`；`competitive-intelligence` 和 `yss-prototype-stage` 已从新技能库删除，不提供别名或迁移入口。预装不改变显式调用和外部动作授权。
+
+Backend 承接 Spec 的规则、验收和产品原型说明，按需完成实现 Slice 拆分、架构/技术/详细设计、脚手架、开发与测试。`implement` 组织当前研发任务，`to-tickets` 细化 Slice，`yss-technical-design` 统一设计深度，`yss-backend-testing` 负责一般测试；DDD 建模才使用 `yss-tactical-design`，MVC 保留既有 Service 边界。普通补测不强制 TDD，局部修复不要求完整文档链。
+
+完整 Backend 交付包括有源码依据的构建部署手册，优先维护已有 README/运维说明，结构参考 `.template-spec/templates/build-deploy-guide-template.md`。部署当前只交付说明，不执行部署或创建 CI/CD、云资源。预装和方法选择不授予提交、推送、交接、部署或索引维护权限。
 
 实际集合来自二进制内嵌 Bundle；修改模板后必须重新打包构建才会进入新程序，已有发行程序不自动获得该集合。文件安装成功不等于宿主已经重新加载或执行技能。
 
