@@ -2,7 +2,12 @@ use super::super::FileIdentity;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, Metadata, MetadataExt, OpenOptions, OpenOptionsExt};
 use std::{fs::File, io, mem, os::windows::io::AsRawHandle};
+use windows_sys::Wdk::Storage::FileSystem::{
+    FILE_RENAME_INFORMATION, FileRenameInformation, NtSetInformationFile,
+};
+use windows_sys::Win32::Foundation::RtlNtStatusToDosError;
 use windows_sys::Win32::Storage::FileSystem::*;
+use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
 pub const REPLACE_REQUIRES_BACKUP: bool = true;
 pub fn exchange(_from: &Dir, _name: &str, _to: &Dir, _target: &str) -> io::Result<()> {
@@ -86,26 +91,26 @@ fn rename(from: &Dir, name: &str, to: &Dir, target: &str, replace: bool) -> io::
         return Err(io::Error::other("reparse point rejected"));
     }
     let target: Vec<u16> = target.encode_utf16().collect();
-    let bytes = mem::offset_of!(FILE_RENAME_INFO, FileName) + target.len() * 2;
+    let bytes = mem::size_of::<FILE_RENAME_INFORMATION>() + target.len() * 2;
     let mut storage = vec![0usize; bytes.div_ceil(mem::size_of::<usize>())];
-    // Aligned storage owns the variable-length Windows structure for this synchronous call.
+    let mut status_block = IO_STATUS_BLOCK::default();
+    // The NT call keeps the target relative to the held directory handle.
     unsafe {
-        let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+        let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
         (*info).Anonymous.ReplaceIfExists = replace;
         (*info).RootDirectory = to.as_raw_handle();
         (*info).FileNameLength = (target.len() * 2) as u32;
         std::ptr::copy_nonoverlapping(target.as_ptr(), (*info).FileName.as_mut_ptr(), target.len());
-        if SetFileInformationByHandle(
+        let status = NtSetInformationFile(
             file.as_raw_handle(),
-            FileRenameInfo,
+            &mut status_block,
             info.cast(),
             bytes as u32,
-        ) == 0
-        {
-            let error = io::Error::last_os_error();
-            return Err(io::Error::new(
-                error.kind(),
-                format!("SetFileInformationByHandle(FileRenameInfo): {error}"),
+            FileRenameInformation,
+        );
+        if status < 0 {
+            return Err(io::Error::from_raw_os_error(
+                RtlNtStatusToDosError(status) as i32
             ));
         }
     }
