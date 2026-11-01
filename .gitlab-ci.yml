@@ -13,8 +13,8 @@ variables:
   GIT_DEPTH: "0"
   YSS_GITLAB_CA_FILE: /etc/gitlab-runner/certs/gitlab.yss.test.crt
   YSS_GITLAB_CI_AUTH: "1"
-  # Set YSS_TEMPLATE_COMMIT explicitly after committing the paired template changes.
-  # The historical tag in docs/template-release.json is not silently retargeted.
+  YSS_TEMPLATE_COMMIT: "776ededabbf9da6b89990a4cbd88262818f1b3cc"
+  # The historical tag in docs/template-release.json is not retargeted.
 cache:
   key:
     prefix: rust-1.99.1-$CI_JOB_NAME
@@ -42,13 +42,8 @@ bundle-source:
       work=$(mktemp -d)
       trap 'rm -rf "$work"' EXIT
       export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
-      export GIT_CONFIG_COUNT=5
-      export GIT_CONFIG_KEY_0=credential.https://gitlab.yss.test:9443/yss/yss-spec-project-template.git.helper
-      export GIT_CONFIG_VALUE_0='!f() { test "$1" != get || printf "%s\n" "username=gitlab-ci-token" "password=$CI_JOB_TOKEN"; }; f'
-      export GIT_CONFIG_KEY_1=http.https://gitlab.yss.test:9443/.sslCAInfo GIT_CONFIG_VALUE_1="$YSS_GITLAB_CA_FILE"
-      export GIT_CONFIG_KEY_2=http.https://gitlab.yss.test:9443/.followRedirects GIT_CONFIG_VALUE_2=false
-      export GIT_CONFIG_KEY_3=credential.useHttpPath GIT_CONFIG_VALUE_3=true
-      export GIT_CONFIG_KEY_4=http.https://gitlab.yss.test:9443/.proxy GIT_CONFIG_VALUE_4=
+      export GIT_CONFIG_COUNT=1
+      export GIT_CONFIG_KEY_0=http.followRedirects GIT_CONFIG_VALUE_0=false
       python3 -I - <<'PYCODE'
       import json, os, re, ssl, urllib.request
       origin = "https://gitlab.yss.test:9443"
@@ -90,7 +85,7 @@ bundle-source:
           raise SystemExit("Fixed GitLab job identity/CA/auth not ready; no fallback") from None
       PYCODE
       git init "$work/source"
-      git -C "$work/source" remote add origin https://gitlab.yss.test:9443/yss/yss-spec-project-template.git
+      git -C "$work/source" remote add origin https://github.com/iloveZzz/yss-spec-project-template.git
       git -C "$work/source" fetch --depth 1 origin "$YSS_TEMPLATE_COMMIT"
       git -C "$work/source" checkout --detach FETCH_HEAD
       test "$(git -C "$work/source" rev-parse HEAD)" = "$YSS_TEMPLATE_COMMIT"

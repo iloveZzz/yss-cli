@@ -224,9 +224,9 @@ Unix 文件与必要目录项均同步。Windows 验证文件刷新、命名操�
 
 ## 10. 程序升级、发行与 Windows 可执行文件
 
-固定来源继续为 `https://gitlab.yss.test:9443/yss/yss-cli`，显式 CA 与令牌，不增加来源覆盖选项或 GitHub fallback。正式版本与精确 target 共同选择资产。GitLab 项目 ID 每次按完整身份核验取得，不硬编码。
+合并时按用户确认保留 GitHub 主线选源行为：默认 GitHub 固定仓库 `iloveZzz/yss-cli`，公开请求无凭据，`--source gitlab` 显式选择固定 GitLab 来源 `https://gitlab.yss.test:9443/yss/yss-cli`。GitLab 使用显式 CA 与令牌；不提供任意来源覆盖或自动跨源回退，离线包不与 `--source` 混用。正式版本与精确 target 共同选择资产。GitLab 项目 ID 每次按完整身份核验取得，不硬编码。
 
-网络客户端仅信任配置的 CA，保留主机校验；只向本次核验的同源、同项目资产 URL 发送凭据，重定向逐跳重新核验。错误输出不携带任意远程 URL 或令牌。在线 upgrade 使用受限 PAT；CI Job Token 仅用于既有受支持 CI 来源通道，不把未验证的在线 Job Token 模式列为支持。
+GitHub 客户端使用系统信任与单独的无鉴权请求，只允许同仓同版本资产地址重定向到 GitHub 资产 CDN。GitLab 客户端仅信任配置的 CA，保留主机校验；只向本次核验的同源、同项目资产 URL 发送凭据，重定向逐跳重新核验。错误输出不携带任意远程 URL 或令牌。在线 upgrade 使用受限 PAT；CI Job Token 仅用于既有受支持 CI 来源通道，不把未验证的在线 Job Token 模式列为支持。
 
 在线 dry-run 读取元数据、SHA256SUMS 与 HEAD，不下载归档或写安装目录；离线 dry-run 读取本地归档完成校验。实际安装在确认安装根、版本及现有所有权后下载，边读边限制长度；校验完整归档、逐文件摘要、目标平台和载荷清单，再交事务模块。无正式 Release 返回 not-ready，不自动创建发行。
 

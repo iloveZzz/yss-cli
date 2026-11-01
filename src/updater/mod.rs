@@ -13,6 +13,7 @@ pub use installation::{ToolDoctorReport, doctor};
 use serde::Serialize;
 use std::path::PathBuf;
 pub struct UpgradeRequest {
+    pub source: Option<crate::network::ReleaseSource>,
     pub to: Option<String>,
     pub tool_root: Option<PathBuf>,
     pub artifact: Option<PathBuf>,
@@ -49,6 +50,12 @@ pub fn prepare(
     cancel: &Cancellation,
 ) -> Result<UpgradePlan> {
     cancel.check()?;
+    if request.source.is_some() && request.artifact.is_some() {
+        return Err(YssError::new(
+            ErrorCode::Argument,
+            "--source 仅用于在线升级",
+        ));
+    }
     let requested = request
         .to
         .as_deref()
@@ -63,9 +70,8 @@ pub fn prepare(
     let (artifact, sha) = match (&request.artifact, &request.sha256) {
         (Some(a), Some(s)) => (a, s),
         (None, None) => {
-            let auth = crate::network::GitlabAuth::from_environment()?;
-            let remote =
-                crate::network::resolve_release(requested.as_ref(), &build.target, &auth, cancel)?;
+            let client = crate::network::ReleaseClient::new(request.source.unwrap_or_default())?;
+            let remote = client.resolve(requested.as_ref(), &build.target, cancel)?;
             let current = state.receipt.as_ref().map(|r| r.build.version.clone());
             let mut status = "planned";
             if let Some(installed) = &state.receipt {
@@ -104,12 +110,12 @@ pub fn prepare(
                     },
                 });
             }
-            let bytes = crate::network::download(&remote, &auth, cancel)?;
+            let bytes = client.download(&remote, cancel)?;
             let verified = release::verify(&bytes, remote.sha256(), &build.target)?;
             if release::version(&verified.manifest().build.version, false)? != *remote.version() {
                 return Err(YssError::new(
                     ErrorCode::VersionConflict,
-                    "包内版本与 GitLab 正式发行不同",
+                    "包内版本与所选来源的正式发行不同",
                 ));
             }
             return finish_plan(state, verified, remote.sha256().clone(), build, false);

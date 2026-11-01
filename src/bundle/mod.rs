@@ -10,7 +10,7 @@ use crate::{
 };
 pub use build::{BundleBuildReport, build};
 use manifest::{Manifest, ProfileBundle};
-pub use selection::Selection;
+pub use selection::{Selection, skill_for_path};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct Bundle {
@@ -67,6 +67,26 @@ impl Bundle {
         for profile in [Profile::Spec, Profile::Backend] {
             let bundle = self.profile(profile)?;
             let available = bundle.skills();
+            for (name, retired) in &bundle.retired_skills {
+                if !name
+                    .bytes()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+                    || !name
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+                    || available.contains(name)
+                    || retired.reason.trim().is_empty()
+                    || retired.replacements.iter().any(|replacement| {
+                        !available.contains(replacement)
+                            || bundle.retired_skills.contains_key(replacement)
+                    })
+                {
+                    return Err(
+                        YssError::new(ErrorCode::InvalidInput, "退役技能声明不合法").at(name)
+                    );
+                }
+            }
             if bundle.installations.len() != 2 || available.is_empty() {
                 return Err(YssError::new(
                     ErrorCode::InvalidInput,

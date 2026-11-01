@@ -161,6 +161,8 @@ pub struct ScaffoldArgs {
 }
 #[derive(Args)]
 pub struct UpgradeArgs {
+    #[arg(long, value_enum, conflicts_with = "artifact")]
+    pub source: Option<crate::network::ReleaseSource>,
     #[arg(long)]
     pub to: Option<String>,
     #[arg(long)]
@@ -271,6 +273,7 @@ fn dispatch<'a>(
         )?)),
         Command::Upgrade(args) => {
             let request = crate::updater::UpgradeRequest {
+                source: args.source,
                 to: args.to,
                 tool_root: args.tool_root,
                 artifact: args.artifact,

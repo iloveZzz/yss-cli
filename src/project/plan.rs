@@ -1,6 +1,7 @@
 use super::{
-    Action, PathChange, ProjectPlan, ProjectReport, ProjectRequest, available_explicit,
+    Action, PathChange, ProjectPlan, ProjectReport, ProjectRequest,
     state::{self, ManagedFile, ProjectState, STATE_PATH},
+    unavailable_skills,
 };
 use crate::{
     bundle::Bundle,
@@ -135,6 +136,19 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
         }
         let available = profile_bundle.skills();
         for name in skills {
+            if let Some(retired) = profile_bundle.retired_skills.get(name) {
+                return Err(YssError::new(
+                    ErrorCode::SkillRetired,
+                    format!(
+                        "技能已退役：{}；替代建议：{}（未自动安装）",
+                        retired.reason,
+                        retired.replacements.join(", ")
+                    ),
+                )
+                .at(name)
+                .context("reason", &retired.reason)
+                .context("replacements", retired.replacements.join(", ")));
+            }
             if !available.contains(name) {
                 return Err(YssError::new(
                     ErrorCode::InvalidInput,
@@ -145,7 +159,12 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
         }
         explicit.extend(skills.iter().cloned());
     }
-    let (available, diagnostics) = available_explicit(profile_bundle, &explicit);
+    let available = explicit
+        .intersection(&profile_bundle.skills())
+        .cloned()
+        .collect();
+    let diagnostics =
+        unavailable_skills(profile_bundle, &explicit, previous.as_ref(), root.as_ref())?;
     let selection = bundle.select(profile, installation, &available)?;
     let mut vars = previous
         .as_ref()
@@ -307,16 +326,28 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
         }
     }
     if !conflicts.is_empty() {
-        return Err(
-            YssError::new(ErrorCode::Conflict, "本地内容与模板变更冲突；未写入文件").context(
+        let mut message = "本地内容与模板变更冲突；未写入文件".to_owned();
+        for diagnostic in &report.diagnostics {
+            message.push_str(&format!(
+                "\n{}：{}；替代建议：{}",
+                diagnostic.skill,
+                diagnostic.reason,
+                diagnostic.replacements.join(", ")
+            ));
+        }
+        return Err(YssError::new(ErrorCode::Conflict, message)
+            .context(
                 "paths",
                 conflicts
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join("\n"),
-            ),
-        );
+            )
+            .context(
+                "diagnostics",
+                String::from_utf8_lossy(&codec::encode_json(&report.diagnostics)?),
+            ));
     }
     let state = ProjectState {
         format: "yss.project".into(),

@@ -9,6 +9,7 @@ pub enum ErrorCode {
     Argument,
     UnsupportedFormat,
     InvalidInput,
+    SkillRetired,
     Conflict,
     UnsafePath,
     Locked,

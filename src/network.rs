@@ -1,3 +1,4 @@
+mod github;
 use crate::{
     cancel::Cancellation,
     codec::{self, Limits},
@@ -21,6 +22,49 @@ use std::{
 const ORIGIN: &str = "https://gitlab.yss.test:9443";
 const PROJECT: &str = "yss/yss-cli";
 const PROJECT_LOOKUP: &str = "https://gitlab.yss.test:9443/api/v4/projects/yss%2Fyss-cli";
+#[derive(Clone, Copy, Default, clap::ValueEnum)]
+pub enum ReleaseSource {
+    #[default]
+    Github,
+    Gitlab,
+}
+pub enum ReleaseClient {
+    Github(Client),
+    Gitlab(GitlabAuth),
+}
+impl ReleaseClient {
+    pub fn new(source: ReleaseSource) -> Result<Self> {
+        match source {
+            ReleaseSource::Github => Ok(Self::Github(github::client()?)),
+            ReleaseSource::Gitlab => Ok(Self::Gitlab(GitlabAuth::from_environment()?)),
+        }
+    }
+    pub fn resolve(
+        &self,
+        version: Option<&semver::Version>,
+        target: &str,
+        cancel: &Cancellation,
+    ) -> Result<RemoteRelease> {
+        match self {
+            Self::Github(client) => run(
+                cancel,
+                Duration::from_secs(90),
+                github::resolve(client, version, target, cancel),
+            ),
+            Self::Gitlab(auth) => resolve_release(version, target, auth, cancel),
+        }
+    }
+    pub fn download(&self, remote: &RemoteRelease, cancel: &Cancellation) -> Result<Vec<u8>> {
+        match self {
+            Self::Github(client) => run(
+                cancel,
+                Duration::from_secs(180),
+                github::download(client, remote, cancel),
+            ),
+            Self::Gitlab(auth) => download(remote, auth, cancel),
+        }
+    }
+}
 fn network(message: &str) -> YssError {
     YssError::new(ErrorCode::Network, message)
 }
@@ -401,8 +445,24 @@ async fn resolve(
     let url = asset(&item, &name, project.id, &mut allowed)?;
     let response = request(auth, Method::GET, &checksum, &allowed, cancel).await?;
     let (bytes, _) = collect(response, MAX_MANIFEST, None, cancel).await?;
+    let sha256 = checksum_for(&bytes, &name)?;
+    let response = request(auth, Method::HEAD, &url, &allowed, cancel).await?;
+    let size = response_length(&response)?.ok_or_else(|| network("发行资产 HEAD 未提供长度"))?;
+    if size == 0 || size > MAX_ASSET {
+        return Err(network("发行资产长度不合法"));
+    }
+    Ok(RemoteRelease {
+        version: selected,
+        target: target.into(),
+        url,
+        sha256,
+        size,
+        allowed,
+    })
+}
+fn checksum_for(bytes: &[u8], name: &str) -> Result<Sha256> {
     let mut sums = BTreeMap::new();
-    for line in std::str::from_utf8(&bytes)
+    for line in std::str::from_utf8(bytes)
         .map_err(|_| invalid("SHA256SUMS 不是 UTF-8"))?
         .lines()
         .filter(|s| !s.trim().is_empty())
@@ -421,22 +481,8 @@ async fn resolve(
             return Err(invalid("SHA256SUMS 名称重复或不合法"));
         }
     }
-    let sha256 = sums
-        .remove(&name)
-        .ok_or_else(|| invalid("SHA256SUMS 缺少当前平台包"))?;
-    let response = request(auth, Method::HEAD, &url, &allowed, cancel).await?;
-    let size = response_length(&response)?.ok_or_else(|| network("发行资产 HEAD 未提供长度"))?;
-    if size == 0 || size > MAX_ASSET {
-        return Err(network("发行资产长度不合法"));
-    }
-    Ok(RemoteRelease {
-        version: selected,
-        target: target.into(),
-        url,
-        sha256,
-        size,
-        allowed,
-    })
+    sums.remove(name)
+        .ok_or_else(|| invalid("SHA256SUMS 缺少当前平台包"))
 }
 pub fn download(
     release: &RemoteRelease,
