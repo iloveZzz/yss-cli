@@ -102,7 +102,11 @@ fn rename(from: &Dir, name: &str, to: &Dir, target: &str, replace: bool) -> io::
             bytes as u32,
         ) == 0
         {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            return Err(io::Error::new(
+                error.kind(),
+                format!("SetFileInformationByHandle(FileRenameInfo): {error}"),
+            ));
         }
     }
     Ok(())

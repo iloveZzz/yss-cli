@@ -61,8 +61,9 @@ impl YssError {
 
 impl From<std::io::Error> for YssError {
     fn from(value: std::io::Error) -> Self {
-        let error =
-            Self::new(ErrorCode::Io, "文件操作失败").context("kind", format!("{:?}", value.kind()));
+        let error = Self::new(ErrorCode::Io, "文件操作失败")
+            .context("kind", format!("{:?}", value.kind()))
+            .context("detail", value.to_string());
         match value.raw_os_error() {
             Some(code) => error.context("osCode", code),
             None => error,
