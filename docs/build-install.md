@@ -51,7 +51,7 @@ manifest 字段如下；摘要均为实际字节的 SHA-256：
 下面是 macOS ARM64 的最小包示例。需有 `jq`、`shasum`、`tar`；它们只用于手工打包，发行 CLI 不依赖它们。`version` 必须按刚构建程序的实际输出填写；`source_state` 按 `git status --short` 的实际结果填写，不能把有修改的源码标为 committed。`/outside/package-darwin-arm64` 须不存在：
 
 ```sh
-version=3.0.3
+version=3.0.4
 target_os=darwin
 target_arch=arm64
 cli_commit=$(git rev-parse HEAD)
@@ -74,7 +74,7 @@ Linux 的步骤相同，替换平台、原生或交叉编译的二进制与暂�
 
 ```sh
 cd /outside/package-windows-amd64
-zip /outside/yss_3.0.3_windows_amd64.zip yss.exe release-manifest.json
+zip /outside/yss_3.0.4_windows_amd64.zip yss.exe release-manifest.json
 ```
 
 Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一平台的值。使用 `zip` 打包前将暂存程序权限设为 0755；避免加密、符号链接、目录项、绝对路径或 `../`。归档及总解压载荷均限制在 256 MiB 内。
@@ -85,7 +85,7 @@ Windows 包里的二进制摘要必须来自该 `yss.exe`，不能复用另一�
 
 ```sh
 cd /outside
-shasum -a 256 yss_3.0.3_*.tar.gz yss_3.0.3_*.zip > SHA256SUMS
+shasum -a 256 yss_3.0.4_*.tar.gz yss_3.0.4_*.zip > SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -94,9 +94,9 @@ shasum -a 256 -c SHA256SUMS
 首次切换到本版，由 Agent 使用刚构建或已可信取得的新 CLI 执行完整包安装。旧 CLI 的在线升级器可能要求旧格式，不能保证识别 schema 2。不要只覆盖旧可执行文件或手改旧安装收据；选择新的工具目录并用新 CLI 生成安装记录：
 
 ```sh
-/outside/yss upgrade --artifact /outside/yss_3.0.3_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.4_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss --dry-run
-/outside/yss upgrade --artifact /outside/yss_3.0.3_darwin_arm64.tar.gz \
+/outside/yss upgrade --artifact /outside/yss_3.0.4_darwin_arm64.tar.gz \
   --sha256 <SHA256SUMS中的该归档摘要> --tool-root /absolute/new-yss
 /absolute/new-yss/yss version
 ```
@@ -108,7 +108,7 @@ shasum -a 256 -c SHA256SUMS
 ```sh
 yss upgrade --dry-run
 yss upgrade
-yss upgrade --to 3.0.3 --tool-root /absolute/yss --dry-run
+yss upgrade --to 3.0.4 --tool-root /absolute/yss --dry-run
 ```
 
 在线默认使用 [GitHub 正式 Release](https://github.com/iloveZzz/yss-cli/releases)，对应固定仓库 `iloveZzz/yss-cli`。`--source github` 可显式选择默认源；公开读取无需 GitLab CA 或鉴权，不读取或转发 GitLab token。按 GitHub [Releases API](https://docs.github.com/en/rest/releases/releases) 核对非草稿、非预发布、版本与仓库，下载 URL 必须属于同仓同版本；只允许 GitHub 资产 CDN 重定向，并保留长度、摘要、包格式与所有权检查。
