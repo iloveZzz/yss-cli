@@ -12,4 +12,4 @@ DDD 包含 domain、application、infrastructure、adapter/web、bootstrap；MVC
 
 实际生成要求输出父目录已存在。目标 `<output-dir>/<project-name>` 必须不存在，包括拒绝已有空目录；全树校验后同父目录暂存发布。`--dry-run` 不创建输出父目录。生成不会自动执行 Git 或 Maven。
 
-构建时从生成工程根运行 `./mvnw -DskipTests package`；Windows 使用 `mvnw.cmd`，并准备匹配的 JDK 和 Maven 私服环境。临时开发验证已使用 JDK 17.0.16、Boot 3.5.16、YSS 3.2.0-SNAPSHOT，DDD/MVC 均构建成功；其他组合仍需单独验证。固定作者与 UTC 时间的渲染结果可重复，实际生成仅采集一次时间。
+构建时从生成工程根运行 `./mvnw -DskipTests package`；Windows 使用 `mvnw.cmd`，并准备匹配的 JDK 和 Maven 私服环境。CLI 3.1.0 的临时开发验证曾使用 JDK 17.0.16、Boot 3.5.16、YSS 3.2.0-SNAPSHOT，DDD/MVC 均构建成功；其他版本或组合仍需单独验证。固定作者与 UTC 时间的渲染结果可重复，实际生成仅采集一次时间。

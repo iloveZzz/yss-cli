@@ -48,7 +48,7 @@ GitLab 次级来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli`，需要
 
 所有已有根的更新共用安装锁和事务日志，收据最后写入。未提交事务完整预检后回滚，用户在中断后修改的未知状态会产生冲突；已提交事务不会回滚。`recover --dry-run` 只读。
 
-Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当前进程仍可能是旧版本，磁盘目标与清理状态分别报告。旧 exe 仍被占用时可提交并报告 cleanup pending，之后执行 recover 重试清理。若中断导致主入口暂缺，使用从已核验归档取得的独立新程序执行 `recover --root <工具根>`。本次 Windows 发行按用户要求仅构建和静态校验，不运行 `yss.exe`；原生中断、运行中替换和恢复行为仍未验证。
+Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当前进程仍可能是旧版本，磁盘目标与清理状态分别报告。旧 exe 仍被占用时可提交并报告 cleanup pending，之后执行 recover 重试清理。若中断导致主入口暂缺，使用从已核验归档取得的独立新程序执行 `recover --root <工具根>`。GitHub Windows 工作流仅构建和静态校验，不运行 `yss.exe`；每次发行的原生运行验证范围以其发行说明为准。
 
 ## CI 与平台证据
 
@@ -60,9 +60,13 @@ CLI `3.1.1` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-
 
 现有 `yss-linux` 作业按 ARM64 原生主机校验。其他原生作业使用实际注册 runner 的变量 `YSS_RUNNER_LINUX_X86_64`、`YSS_RUNNER_MACOS_ARM64`、`YSS_RUNNER_MACOS_X86_64`、`YSS_RUNNER_WINDOWS_ARM64`、`YSS_RUNNER_WINDOWS_X86_64`；变量缺失意味着对应目标未验证，不代表整个矩阵完成。CI artifacts 不自动发布为正式 Release。
 
-本机 macOS ARM64 已执行项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建已通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消。Linux ARM64 musl 已在原生 ARM64 容器完成构建及 init/sync/doctor，修复了 cap-std 的 O_PATH 目录句柄无法 fsync 的问题。Windows 运行验证按本次范围不执行；Linux x86_64、macOS Intel、Windows ARM64 未验证。
+## 3.1.0 及此前的历史平台验证
 
-## 本机体积与运行实测
+以下记录属于 3.1.0 及此前开发阶段，不代表 3.1.1 已重新执行相同验证。当时在 macOS ARM64 执行了项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消。Linux ARM64 musl 在原生 ARM64 容器完成构建及 init/sync/doctor，修复了 cap-std 的 O_PATH 目录句柄无法 fsync 的问题。当时未执行 Windows 运行验证；Linux x86_64、macOS Intel、Windows ARM64 未验证。
+
+## 历史源码快照的体积与运行实测
+
+以下结果来自历史源码快照，不代表 3.1.1 的构建或运行结果。
 
 同一 Rust 1.99.1、aarch64-apple-darwin、源码快照及 2,097,919 字节 Bundle，thin LTO、单 codegen unit、移除符号。下表为优化级别比较，时间是本机热启动中位数（version 30 次，catalog 7 次），包含进程启动；不能外推其他平台。
 
