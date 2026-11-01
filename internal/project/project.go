@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/iloveZzz/yss-cli/internal/bundle"
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/gitscope"
 	"github.com/iloveZzz/yss-cli/internal/identitymeta"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/transaction"
@@ -29,15 +29,23 @@ type Change struct {
 	Before domain.Descriptor `json:"before"`
 	After  domain.Descriptor `json:"after"`
 }
+type UnavailableSkill struct {
+	ID           string   `json:"id"`
+	State        string   `json:"state"`
+	Paths        []string `json:"paths"`
+	Replacements []string `json:"replacements"`
+	Reason       string   `json:"reason"`
+}
 type Result struct {
-	Root         string              `json:"root"`
-	Profile      string              `json:"profile"`
-	Installation string              `json:"installation"`
-	Status       string              `json:"status"`
-	Changes      []Change            `json:"changes"`
-	Conflicts    []string            `json:"conflicts"`
-	Preserved    []string            `json:"preserved"`
-	Transaction  *transaction.Result `json:"transaction,omitempty"`
+	UnavailableSkills []UnavailableSkill  `json:"unavailableSkills"`
+	Root              string              `json:"root"`
+	Profile           string              `json:"profile"`
+	Installation      string              `json:"installation"`
+	Status            string              `json:"status"`
+	Changes           []Change            `json:"changes"`
+	Conflicts         []string            `json:"conflicts"`
+	Preserved         []string            `json:"preserved"`
+	Transaction       *transaction.Result `json:"transaction,omitempty"`
 }
 type installation struct {
 	root, profile, kind string
@@ -100,21 +108,8 @@ func detect(o Options, allowAbsent bool) (*installation, error) {
 	return i, nil
 }
 
-func protect(root, ref string) error {
-	if _, err := safefs.Path(root, ref); err != nil {
-		return err
-	}
-	for parent := path.Dir(ref); parent != "."; parent = path.Dir(parent) {
-		// The target path was checked above; inspect the Git marker without following it.
-		p := filepath.Join(root, filepath.FromSlash(parent), ".git")
-		if _, err := os.Lstat(p); err == nil {
-			return domain.Fail("PROTECTED", "目标位于独立仓库或子模块: "+ref)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
+func protect(root, ref string) error { return gitscope.Check(root, ref) }
+
 func userOwned(ref, ownership string) bool {
 	if ownership == "user-owned" || ownership == "protected" {
 		return true
@@ -131,7 +126,7 @@ func describe(data []byte, mode uint32) domain.Descriptor {
 }
 
 func Run(ctx context.Context, command string, o Options) (Result, error) {
-	out := Result{Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}}
+	out := Result{UnavailableSkills: []UnavailableSkill{}, Changes: []Change{}, Conflicts: []string{}, Preserved: []string{}}
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}
@@ -207,6 +202,10 @@ func Run(ctx context.Context, command string, o Options) (Result, error) {
 		for ref, m := range i.meta.Managed {
 			managed[ref] = m
 		}
+	}
+	out.UnavailableSkills, err = unavailableSkills(i.root, b, managed)
+	if err != nil {
+		return out, err
 	}
 	guards := map[string]domain.Descriptor{domain.MetadataFile: i.before}
 	ops := []transaction.Operation{}
@@ -387,7 +386,72 @@ func Skills(o Options) (any, error) {
 		}
 		installed[name] = d.Type == "file"
 	}
-	return map[string]any{"profile": i.profile, "skills": names, "installed": installed}, nil
+	unavailable, err := unavailableSkills(i.root, b, i.meta.Managed)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"profile": i.profile, "skills": names, "installed": installed, "unavailableSkills": unavailable}, nil
+}
+
+func unavailableSkills(root string, b *bundle.Bundle, managed map[string]identitymeta.Managed) ([]UnavailableSkill, error) {
+	roots := map[string]bool{}
+	paths := map[string]map[string]bool{}
+	identify := func(ref string) (string, string) {
+		parts := strings.Split(ref, "/")
+		if len(parts) < 4 || !strings.HasPrefix(parts[0], ".") || parts[1] != "skills" {
+			return "", ""
+		}
+		return parts[0] + "/skills", parts[2]
+	}
+	add := func(id, ref string) {
+		if paths[id] == nil {
+			paths[id] = map[string]bool{}
+		}
+		paths[id][ref] = true
+	}
+	for ref := range b.Files {
+		if platform, _ := identify(ref); platform != "" {
+			roots[platform] = true
+		}
+	}
+	for ref := range managed {
+		platform, id := identify(ref)
+		if platform == "" {
+			continue
+		}
+		roots[platform] = true
+		if _, available := b.Files[".agents/skills/"+id+"/SKILL.md"]; !available {
+			add(id, ref)
+		}
+	}
+	for id := range b.RetiredSkills {
+		for platform := range roots {
+			ref := platform + "/" + id + "/SKILL.md"
+			current, err := safefs.Describe(root, ref)
+			if err != nil {
+				return nil, err
+			}
+			if current.Type != "missing" {
+				add(id, ref)
+			}
+		}
+	}
+	out := []UnavailableSkill{}
+	for id, refs := range paths {
+		item := UnavailableSkill{ID: id, State: "unavailable", Paths: []string{}, Replacements: []string{}, Reason: "当前运行 CLI 的内嵌 Bundle 不再提供此技能。"}
+		for ref := range refs {
+			item.Paths = append(item.Paths, ref)
+		}
+		sort.Strings(item.Paths)
+		if retired, ok := b.RetiredSkills[id]; ok {
+			item.State, item.Reason = "retired", retired.Reason
+			item.Replacements = append(item.Replacements, retired.Replacements...)
+			sort.Strings(item.Replacements)
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 func Doctor(ctx context.Context, o Options) (any, error) {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/iloveZzz/yss-cli/internal/domain"
+	"github.com/iloveZzz/yss-cli/internal/gitscope"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 	"github.com/iloveZzz/yss-cli/internal/schema"
 )
@@ -164,6 +165,12 @@ func safeRoot(root string, create bool) (string, error) {
 			return "", e
 		}
 	}
+	if err := gitscope.Check(absolute, ""); err != nil {
+		return "", err
+	}
+	if err := gitscope.Check(absolute, stateRef+"/.lock"); err != nil {
+		return "", err
+	}
 	if create {
 		if err := os.MkdirAll(absolute, 0755); err != nil {
 			return "", err
@@ -176,24 +183,7 @@ func guard(root, ref string) error {
 	if strings.EqualFold(strings.SplitN(ref, "/", 2)[0], ".yss") {
 		return fail("PROTECTED", "事务不能覆盖自己的状态目录: "+ref)
 	}
-	if _, err := safefs.Path(root, ref); err != nil {
-		return err
-	}
-	parent := filepath.Dir(filepath.FromSlash(ref))
-	for parent != "." {
-		p, e := safefs.Path(root, filepath.ToSlash(filepath.Join(parent, ".git")))
-		if e != nil {
-			// safefs intentionally rejects .git; inspect this marker without dereferencing it.
-			p = filepath.Join(root, parent, ".git")
-		}
-		if _, e := os.Lstat(p); e == nil {
-			return fail("PROTECTED", "拒绝嵌套 Git 仓库: "+ref)
-		} else if !os.IsNotExist(e) {
-			return e
-		}
-		parent = filepath.Dir(parent)
-	}
-	return nil
+	return gitscope.Check(root, ref)
 }
 
 func normalize(root string, ops []Operation) ([]record, error) {
@@ -299,6 +289,9 @@ func syncDirectory(directory string) error {
 }
 
 func ensureParents(root, ref string) error {
+	if err := gitscope.Check(root, ref); err != nil {
+		return err
+	}
 	p, err := safefs.Path(root, ref)
 	if err != nil {
 		return err
@@ -360,7 +353,7 @@ func durable(root, ref string, b []byte, mode uint32) error {
 	if err != nil {
 		return err
 	}
-	if _, err = safefs.Path(root, ref); err != nil {
+	if err = gitscope.Check(root, ref); err != nil {
 		return err
 	}
 	if err = os.Rename(temp, p); err != nil {

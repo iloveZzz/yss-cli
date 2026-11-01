@@ -1,5 +1,7 @@
 # yss
 
+源码、Issue 和 PR 默认在 [GitHub](https://github.com/iloveZzz/yss-cli) 管理；本地 `origin` 为主远端，GitLab 保留为显式选择的次级协作入口。提交、推送和发布使用对应授权，不自动双向同步。
+
 yss 是用于安装项目模板、按需补装技能和生成 Java 后端骨架的 Go CLI。现役 Profile 为 `spec`、`backend`；新项目默认 `--installation project`，仅安装技能时选择 `skills`。
 
 ```sh
@@ -24,7 +26,7 @@ yss upgrade --dry-run
 yss upgrade
 ```
 
-程序升级与项目同步是两件事：`upgrade` 更新 CLI，`sync` 将内嵌模板同步到项目。在线升级来自固定私有 GitLab `https://gitlab.yss.test:9443/yss/yss-cli` 的正式 Release（显式 CA 与鉴权，缺少发行时报未就绪，不回退其他来源），校验标准 `SHA256SUMS`、manifest schema 2、归档与载荷摘要及目标平台。离线升级使用 `--artifact <归档> --sha256 <摘要>`。首次切换到本版应由 Agent 按[构建、打包与安装](docs/build-install.md)安装，旧 CLI 的在线升级器不保证识别新包。
+程序升级与项目同步是两件事：`upgrade` 更新 CLI，`sync` 将内嵌模板同步到项目。在线升级默认来自固定 GitHub 仓库 `iloveZzz/yss-cli` 的正式 Release；显式 `--source gitlab` 才使用私有 GitLab `https://gitlab.yss.test:9443/yss/yss-cli`（需显式 CA 与鉴权）。所选来源不可用时报告错误，不自动跨平台回退；两种来源均校验标准 `SHA256SUMS`、manifest schema 2、归档与载荷摘要及目标平台。离线升级使用 `--artifact <归档> --sha256 <摘要>`。首次切换到本版应由 Agent 按[构建、打包与安装](docs/build-install.md)安装，旧 CLI 的在线升级器不保证识别新包。
 
 从模板工作树直接构建，无 Node/Python 包装脚本：
 

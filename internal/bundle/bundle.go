@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/iloveZzz/yss-cli/internal/domain"
 	"github.com/iloveZzz/yss-cli/internal/safefs"
 )
 
@@ -20,14 +21,19 @@ type File struct {
 	Mode      uint32 `json:"mode"`
 	Ownership string `json:"ownership"`
 }
+type RetiredSkill struct {
+	Replacements []string `json:"replacements"`
+	Reason       string   `json:"reason"`
+}
 type Requirement struct {
 	Paths  []string `json:"paths"`
 	Skills []string `json:"skills,omitempty"`
 }
 type Installation struct {
-	Initial         map[string]File     `json:"initial"`
-	Distribution    map[string]any      `json:"distribution"`
-	SkillReferences map[string][]string `json:"skillReferences,omitempty"`
+	Initial           map[string]File        `json:"initial"`
+	Distribution      map[string]any         `json:"distribution"`
+	SkillReferences   map[string][]string    `json:"skillReferences,omitempty"`
+	SkillRequirements map[string]Requirement `json:"skillRequirements,omitempty"`
 }
 type Provenance struct {
 	Version     string `json:"version"`
@@ -40,6 +46,7 @@ type PolicyProvenance struct {
 	Kind   string `json:"kind"`
 }
 type Bundle struct {
+	RetiredSkills     map[string]RetiredSkill `json:"retiredSkills,omitempty"`
 	SchemaVersion     int                     `json:"schemaVersion"`
 	Profile           string                  `json:"profile"`
 	TemplateVersion   string                  `json:"templateVersion"`
@@ -63,6 +70,7 @@ const MaxArchiveBytes = 256 << 20
 const maxSnapshotBytes = 256 << 20
 
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
 func (f File) Render(vars map[string]string) ([]byte, error) {
@@ -144,6 +152,11 @@ func validate(b *Bundle) error {
 		}
 	}
 	for _, i := range b.Installations {
+		if i.SkillRequirements != nil {
+			if err := validateRequirements(b.Files, i.SkillRequirements); err != nil {
+				return err
+			}
+		}
 		for skill, refs := range i.SkillReferences {
 			if strings.Contains(skill, "/") {
 				return fmt.Errorf("技能名称不合法 %s", skill)
@@ -155,6 +168,24 @@ func validate(b *Bundle) error {
 				if _, ok := b.Files[ref]; !ok {
 					return fmt.Errorf("技能引用不存在 %s", ref)
 				}
+			}
+		}
+	}
+	return validateRetirements(b)
+}
+func validateRetirements(b *Bundle) error {
+	for _, skill := range sortedKeys(b.RetiredSkills) {
+		retired := b.RetiredSkills[skill]
+		_, current := b.Files[".agents/skills/"+skill+"/SKILL.md"]
+		if !skillNamePattern.MatchString(skill) || current || strings.TrimSpace(retired.Reason) == "" {
+			return fmt.Errorf("退役技能声明无效 %s", skill)
+		}
+		for _, replacement := range retired.Replacements {
+			if _, ok := b.Files[".agents/skills/"+replacement+"/SKILL.md"]; !ok || !skillNamePattern.MatchString(replacement) {
+				return fmt.Errorf("退役技能 %s 的替代技能不存在 %s", skill, replacement)
+			}
+			if _, retired := b.RetiredSkills[replacement]; retired {
+				return fmt.Errorf("退役技能 %s 不能引用退役替代 %s", skill, replacement)
 			}
 		}
 	}
@@ -204,7 +235,84 @@ func (b *Bundle) ForInstallation(kind string) (*Bundle, error) {
 	view.Initial = maps.Clone(i.Initial)
 	view.Files = maps.Clone(b.Files)
 	view.Distribution = maps.Clone(i.Distribution)
+	for key, value := range view.Distribution {
+		switch a := value.(type) {
+		case []string:
+			view.Distribution[key] = append([]string(nil), a...)
+		case []any:
+			view.Distribution[key] = append([]any(nil), a...)
+		}
+	}
+	view.SkillRequirements = copyRequirements(i.SkillRequirements)
+	if i.SkillRequirements == nil {
+		view.SkillRequirements = copyRequirements(b.SkillRequirements)
+		for skill, req := range view.SkillRequirements {
+			req.Paths = append([]string(nil), i.SkillReferences[skill]...)
+			view.SkillRequirements[skill] = req
+		}
+		for skill, refs := range i.SkillReferences {
+			req := view.SkillRequirements[skill]
+			req.Paths = append([]string(nil), refs...)
+			view.SkillRequirements[skill] = req
+		}
+	}
 	return &view, nil
+}
+func copyRequirements(input map[string]Requirement) map[string]Requirement {
+	out := make(map[string]Requirement, len(input))
+	for skill, req := range input {
+		out[skill] = Requirement{Paths: append([]string(nil), req.Paths...), Skills: append([]string(nil), req.Skills...)}
+	}
+	return out
+}
+func validateRequirements(files map[string]File, requirements map[string]Requirement) error {
+	exists := func(skill string) bool {
+		_, ok := files[".agents/skills/"+skill+"/SKILL.md"]
+		return skillNamePattern.MatchString(skill) && ok
+	}
+	for _, skill := range sortedKeys(requirements) {
+		if !exists(skill) {
+			return fmt.Errorf("技能不存在或名称不合法 %s", skill)
+		}
+		req := requirements[skill]
+		for _, ref := range req.Paths {
+			if err := safefs.ValidateRef(ref); err != nil {
+				return fmt.Errorf("技能 %s 引用 %s: %w", skill, ref, err)
+			}
+			if _, ok := files[ref]; !ok {
+				return fmt.Errorf("技能 %s 引用不存在 %s", skill, ref)
+			}
+		}
+		for _, dep := range req.Skills {
+			if !exists(dep) {
+				return fmt.Errorf("技能 %s 依赖不存在或名称不合法 %s", skill, dep)
+			}
+		}
+	}
+	state := map[string]int{}
+	var visit func(string, []string) error
+	visit = func(skill string, chain []string) error {
+		if state[skill] == 1 {
+			return fmt.Errorf("技能依赖环 %s", strings.Join(append(chain, skill), " -> "))
+		}
+		if state[skill] == 2 {
+			return nil
+		}
+		state[skill] = 1
+		for _, dep := range requirements[skill].Skills {
+			if err := visit(dep, append(chain, skill)); err != nil {
+				return err
+			}
+		}
+		state[skill] = 2
+		return nil
+	}
+	for _, skill := range sortedKeys(requirements) {
+		if err := visit(skill, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (i Installation) ReferencesForSkill(skill string) ([]string, error) {
 	return append([]string(nil), i.SkillReferences[skill]...), nil
@@ -224,6 +332,13 @@ func (b *Bundle) SkillFiles(names []string) (map[string]File, error) {
 			return nil
 		}
 		seen[name] = true
+		if retired, ok := b.RetiredSkills[name]; ok {
+			message := "技能 " + name + " 已退役: " + retired.Reason
+			if len(retired.Replacements) > 0 {
+				message += " 替代技能: " + strings.Join(retired.Replacements, ", ")
+			}
+			return domain.Fail("SKILL_RETIRED", message)
+		}
 		if _, ok := b.Files[".agents/skills/"+name+"/SKILL.md"]; !ok {
 			return fmt.Errorf("未知技能 %s", name)
 		}
