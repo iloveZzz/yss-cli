@@ -11,34 +11,58 @@ use std::{ffi::OsString, io::Write, path::PathBuf};
 #[derive(Parser)]
 #[command(
     name = "yss",
-    about = "YSS 项目、技能与 Java 工程工具",
+    about = "安装项目模板、管理技能并生成 Java 工程",
+    after_help = "常用示例：\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n写入命令直接执行；添加 --dry-run 可先预览。",
     disable_version_flag = true
 )]
 pub struct Cli {
-    #[arg(long,global=true,action=clap::ArgAction::Set,num_args=0..=1,default_missing_value="true",default_value="false",require_equals=true)]
+    #[arg(long,global=true,action=clap::ArgAction::Set,num_args=0..=1,default_missing_value="true",default_value="false",require_equals=true,help="以统一 JSON 信封输出结果")]
     pub json: bool,
-    #[arg(short = 'V', long, global = true)]
+    #[arg(
+        short = 'V',
+        long,
+        global = true,
+        help = "显示版本与构建来源；建议单独运行 yss --version"
+    )]
     pub version: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
 #[derive(Subcommand)]
 pub enum Command {
-    #[command(about = "初始化空项目目录")]
+    #[command(
+        about = "初始化新目录或空项目目录",
+        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n确认预览后去掉 --dry-run 执行；已有项目使用 yss attach。"
+    )]
     Init(InstallArgs),
-    #[command(about = "将 YSS 安装到已有项目")]
+    #[command(
+        about = "将 YSS 接入已有普通项目",
+        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --dry-run\n\n已接入 YSS 的项目使用 yss sync。"
+    )]
     Attach(InstallArgs),
-    #[command(about = "同步已有 Rust 安装")]
+    #[command(
+        about = "同步已接入项目的内嵌模板与技能",
+        after_help = "示例：\n  yss sync --root ./my-project --dry-run\n  yss sync --root ./my-project --installation skills --dry-run"
+    )]
     Sync(SyncArgs),
-    #[command(about = "查看或安装技能", subcommand)]
+    #[command(about = "查看或补装项目内的受管技能", subcommand)]
     Skills(SkillsCommand),
-    #[command(about = "生成业务空白 Java 工程", subcommand)]
+    #[command(about = "查看平台或生成业务空白 Java 工程", subcommand)]
     Scaffold(ScaffoldCommand),
-    #[command(about = "检查安装与本地差异")]
+    #[command(
+        about = "检查项目或 CLI 安装及本地差异",
+        after_help = "示例：\n  yss doctor --root ./my-project"
+    )]
     Doctor(RootArgs),
-    #[command(about = "恢复未完成事务")]
+    #[command(
+        about = "恢复未完成事务或重试已提交事务的清理",
+        after_help = "示例：\n  yss recover --root ./my-project --dry-run"
+    )]
     Recover(RecoverArgs),
-    #[command(about = "安装或升级 Rust CLI")]
+    #[command(
+        about = "在线或离线安装、升级 Rust CLI",
+        after_help = "示例（替换尖括号内的值）：\n  yss upgrade --to <版本> --tool-root <工具目录> --dry-run\n  yss upgrade --artifact <归档> --sha256 <摘要> --tool-root <工具目录> --dry-run\n\n程序升级与项目同步分别执行；在线预览仍会访问发行信息。"
+    )]
     Upgrade(UpgradeArgs),
     #[command(about = "显示版本与构建来源")]
     Version,
@@ -63,115 +87,159 @@ impl Command {
 }
 #[derive(Args)]
 pub struct Variables {
-    #[arg(long)]
+    #[arg(long, help = "模板中的项目名；新安装默认使用目录名")]
     pub project_name: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "模板中的业务领域；新安装默认为待补充")]
     pub business_domain: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "模板中的团队规模；新安装默认为待补充")]
     pub team_size: Option<String>,
 }
 #[derive(Args)]
 pub struct InstallArgs {
-    #[arg(long)]
+    #[arg(long, help = "目标项目目录；init 要求新目录或空目录")]
     pub root: PathBuf,
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "项目类型：spec 业务规格与产品设计；backend 后端研发"
+    )]
     pub profile: Profile,
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "安装范围：project 含项目资料；skills 安装技能及必要资源（默认 project）"
+    )]
     pub installation: Option<InstallationKind>,
-    #[arg(long)]
+    #[arg(long, help = "仅预览，不写入目标或保存计划")]
     pub dry_run: bool,
     #[command(flatten)]
     pub vars: Variables,
 }
 #[derive(Args)]
 pub struct SyncArgs {
-    #[arg(long, default_value = ".")]
+    #[arg(long, default_value = ".", help = "已接入的项目目录")]
     pub root: PathBuf,
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, help = "校验已安装的项目类型；不能切换 profile")]
     pub profile: Option<Profile>,
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, help = "切换安装范围；省略时沿用原范围")]
     pub installation: Option<InstallationKind>,
-    #[arg(long)]
+    #[arg(long, help = "仅预览，不写入目标或保存计划")]
     pub dry_run: bool,
     #[command(flatten)]
     pub vars: Variables,
 }
 #[derive(Args)]
 pub struct RootArgs {
-    #[arg(long, default_value = ".")]
+    #[arg(
+        long,
+        default_value = ".",
+        help = "受管项目目录；doctor 也接受 CLI 工具目录"
+    )]
     pub root: PathBuf,
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, help = "校验项目类型；须与已安装 profile 一致")]
     pub profile: Option<Profile>,
 }
 #[derive(Args)]
 pub struct RecoverArgs {
-    #[arg(long, default_value = ".")]
+    #[arg(long, default_value = ".", help = "需要恢复的项目或 CLI 工具目录")]
     pub root: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "仅预览恢复，不修改文件")]
     pub dry_run: bool,
 }
 #[derive(Subcommand)]
 pub enum SkillsCommand {
+    #[command(
+        about = "列出可用技能及其安装状态",
+        after_help = "示例：\n  yss skills list --root ./my-project"
+    )]
     List(RootArgs),
+    #[command(
+        about = "补装指定技能及其依赖资源",
+        after_help = "示例：\n  yss skills ensure setup-yss-harness --root ./my-project --dry-run"
+    )]
     Ensure(EnsureArgs),
 }
 #[derive(Args)]
 pub struct EnsureArgs {
     #[command(flatten)]
     pub root: RootArgs,
-    #[arg(long)]
+    #[arg(long, help = "仅预览，不写入目标或保存计划")]
     pub dry_run: bool,
-    #[arg(required=true,num_args=1..)]
+    #[arg(required=true,num_args=1..,help="一个或多个技能名称；可用名称由 skills list 查看")]
     pub skills: Vec<String>,
 }
 #[derive(Subcommand)]
 pub enum ScaffoldCommand {
+    #[command(about = "查看可选平台、版本与配方")]
     Catalog,
+    #[command(
+        about = "生成 DDD 分层 Java 空工程",
+        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。"
+    )]
     Ddd(ScaffoldArgs),
+    #[command(
+        about = "生成 MVC 分层 Java 空工程",
+        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。"
+    )]
     Mvc(ScaffoldArgs),
 }
 #[derive(Args)]
 pub struct ScaffoldArgs {
-    #[arg(long)]
+    #[arg(long, help = "工程名称，使用小写 kebab-case")]
     pub project_name: String,
-    #[arg(long)]
+    #[arg(long, help = "Java 基础包名，例如 com.example.demo")]
     pub base_package: String,
-    #[arg(long)]
+    #[arg(long, help = "输出父目录；实际生成时须已存在")]
     pub output_dir: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "平台标识，使用 scaffold catalog 查看")]
     pub platform_profile: String,
-    #[arg(long)]
+    #[arg(long, help = "与平台匹配的精确 Spring Boot 版本")]
     pub spring_boot_version: String,
-    #[arg(long)]
+    #[arg(long, help = "与平台匹配的 Java 主版本，例如 17")]
     pub java_version: String,
-    #[arg(long)]
+    #[arg(long, help = "生成工程的 Maven groupId")]
     pub group_id: String,
-    #[arg(long)]
+    #[arg(long, help = "生成工程的 Maven 版本")]
     pub project_version: String,
-    #[arg(long)]
+    #[arg(long, help = "父 POM 的 Maven groupId")]
     pub parent_group_id: String,
-    #[arg(long)]
+    #[arg(long, help = "父 POM 的 Maven artifactId")]
     pub parent_artifact_id: String,
-    #[arg(long)]
+    #[arg(long, help = "父 POM 的精确版本")]
     pub parent_version: String,
-    #[arg(long)]
+    #[arg(long, help = "YSS 组件 BOM 的精确版本")]
     pub yss_components_version: String,
-    #[arg(long)]
+    #[arg(long, help = "仅预览，不创建工程或保存计划")]
     pub dry_run: bool,
 }
 #[derive(Args)]
 pub struct UpgradeArgs {
-    #[arg(long, value_enum, conflicts_with = "artifact")]
+    #[arg(
+        long,
+        value_enum,
+        conflicts_with = "artifact",
+        help = "在线发行来源；默认 github，不能与 --artifact 同用"
+    )]
     pub source: Option<crate::network::ReleaseSource>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "指定正式版本；在线省略时查询 latest 并校验正式版，离线指定时须与归档一致"
+    )]
     pub to: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "CLI 工具目录；省略时须有 Rust 安装收据，初装须显式指定新目录或空目录"
+    )]
     pub tool_root: Option<PathBuf>,
-    #[arg(long, requires = "sha256")]
+    #[arg(long, requires = "sha256", help = "离线发行归档；须同时提供 --sha256")]
     pub artifact: Option<PathBuf>,
-    #[arg(long, requires = "artifact")]
+    #[arg(
+        long,
+        requires = "artifact",
+        help = "离线归档的 64 位小写 SHA-256；须同时提供 --artifact"
+    )]
     pub sha256: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "仅预览，不安装；在线预览仍访问发行信息")]
     pub dry_run: bool,
 }
 

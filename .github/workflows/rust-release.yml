@@ -17,6 +17,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: 1.99.1
       YSS_TARGET: x86_64-pc-windows-msvc
+      YSS_TEMPLATE_COMMIT: d7a4efdd0e03d03a96a0f457cb53f4a4a78fa095
     steps:
       - name: Preserve source line endings
         run: git config --global core.autocrlf false
@@ -35,14 +36,15 @@ jobs:
       - name: Build and statically verify the Windows package
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          $tag = (Get-Content docs/template-release.json -Raw | ConvertFrom-Json).tag
-          if ($tag -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid template release tag' }
+          if ($env:YSS_TEMPLATE_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid template commit' }
           $template = Join-Path $env:RUNNER_TEMP 'yss-template'
-          git -c core.symlinks=true clone --depth 1 --single-branch --branch $tag -- https://github.com/iloveZzz/yss-spec-project-template.git $template
+          git init $template
+          git -C $template remote add origin https://github.com/iloveZzz/yss-spec-project-template.git
+          git -C $template fetch --depth 1 origin $env:YSS_TEMPLATE_COMMIT
+          git -C $template -c core.symlinks=true checkout --detach FETCH_HEAD
           $templateCommit = (git -C $template rev-parse HEAD).Trim()
-          $tagCommit = (git -C $template rev-parse "refs/tags/${tag}^{commit}").Trim()
-          if ($templateCommit -ne $tagCommit) { throw 'Template tag and checkout differ' }
-          Write-Host "Template $tag at $templateCommit"
+          if ($templateCommit -cne $env:YSS_TEMPLATE_COMMIT) { throw 'Template commit and checkout differ' }
+          Write-Host "Template commit $templateCommit"
 
           cargo run --locked --bin yss-bundle -- --source-root $template --out assets/bundle.tar.gz
           $env:RUSTFLAGS = '-C target-feature=+crt-static'
