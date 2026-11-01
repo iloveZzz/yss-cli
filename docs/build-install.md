@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前是 Rust `4.0.0-dev` 开发实现，尚未创建正式 Rust Release。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前版本为纯 Rust CLI `3.1.0`，对应 Template `5.1.0`。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
 
 ## 本地构建
 
@@ -18,8 +18,8 @@ Bundle 缺失时用户程序编译失败；内部 Bundle 工具可先独立构�
 ## 打包
 
 ```text
-cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 4.0.0-dev --target aarch64-apple-darwin --out /absolute/dist/yss_4.0.0-dev_aarch64-apple-darwin.tar.gz
-shasum -a 256 /absolute/dist/yss_4.0.0-dev_aarch64-apple-darwin.tar.gz
+cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.1.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.1.0_aarch64-apple-darwin.tar.gz
+shasum -a 256 /absolute/dist/yss_3.1.0_aarch64-apple-darwin.tar.gz
 ```
 
 输出父目录应存在，已有归档不会被覆盖。内部工具读取实际 ELF/Mach-O/PE 程序的专用构建记录，核对目标架构、版本、Bundle 和源码来源，不能通过参数伪造来源或执行外平台程序。压缩包只包含程序与 `release-manifest.json`；Windows 使用 ZIP。以真实归档生成统一 SHA256SUMS，完整归档和逐条载荷均校验 SHA-256、长度、路径与模式。
@@ -48,17 +48,19 @@ GitLab 次级来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli`，需要
 
 所有已有根的更新共用安装锁和事务日志，收据最后写入。未提交事务完整预检后回滚，用户在中断后修改的未知状态会产生冲突；已提交事务不会回滚。`recover --dry-run` 只读。
 
-Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当前进程仍可能是旧版本，磁盘目标与清理状态分别报告。旧 exe 仍被占用时可提交并报告 cleanup pending，之后执行 recover 重试清理。若中断导致主入口暂缺，使用从已核验归档取得的独立新程序执行 `recover --root <工具根>`。Windows 原生中断与运行中替换尚未验证，不能据交叉检查宣称可正式发行。
+Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当前进程仍可能是旧版本，磁盘目标与清理状态分别报告。旧 exe 仍被占用时可提交并报告 cleanup pending，之后执行 recover 重试清理。若中断导致主入口暂缺，使用从已核验归档取得的独立新程序执行 `recover --root <工具根>`。本次 Windows 发行按用户要求仅构建和静态校验，不运行 `yss.exe`；原生中断、运行中替换和恢复行为仍未验证。
 
 ## CI 与平台证据
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-CI 的 `YSS_TEMPLATE_COMMIT` 固定为配套 Rust 技能提交 `776ededabbf9da6b89990a4cbd88262818f1b3cc`；需要覆盖时必须使用真实完整提交。`docs/template-release.json` 保留 GitHub 主线既有 v5.0.5 标签；本次不新建标签或正式 Release。
+CI 的 `YSS_TEMPLATE_COMMIT` 固定为 Template `v5.1.0` 的实际提交 `959a7a46b9304a55186c8e7e6f4191cc1f7cf5e3`，与 `docs/template-release.json` 对齐；需要覆盖时必须使用真实完整提交。
+
+CLI `3.1.0` 仅发布 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和模板标签构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 
 现有 `yss-linux` 作业按 ARM64 原生主机校验。其他原生作业使用实际注册 runner 的变量 `YSS_RUNNER_LINUX_X86_64`、`YSS_RUNNER_MACOS_ARM64`、`YSS_RUNNER_MACOS_X86_64`、`YSS_RUNNER_WINDOWS_ARM64`、`YSS_RUNNER_WINDOWS_X86_64`；变量缺失意味着对应目标未验证，不代表整个矩阵完成。CI artifacts 不自动发布为正式 Release。
 
-本机 macOS ARM64 已执行项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建已通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消，未验证真实 GitLab 在线发行。Windows 原生函数已交叉类型检查，完整 Windows 构建当前受本机缺少 Windows SDK 头文件阻挡；原生 Windows/Linux x86_64/macOS Intel 结果仍需各自环境提供。
+本机 macOS ARM64 已执行项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建已通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消。Linux ARM64 musl 已在原生 ARM64 容器完成构建及 init/sync/doctor，修复了 cap-std 的 O_PATH 目录句柄无法 fsync 的问题。Windows 运行验证按本次范围不执行；Linux x86_64、macOS Intel、Windows ARM64 未验证。
 
 ## 本机体积与运行实测
 
@@ -72,7 +74,7 @@ CI 的 `YSS_TEMPLATE_COMMIT` 固定为配套 Rust 技能提交 `776ededabbf9da6b
 
 最终采用 `3`：catalog 用时约为 `z` 的一半，裸程序增加约 0.36 MiB，仍低于 15 MiB 目标。表中包摘要会随真实来源记录改变；最终交付包以 dist/SHA256SUMS 和对应清单为准。`cargo tree -e features` 已检查，代码段用系统 size 工具读取；未执行 cargo-bloat、machete、deny，不据此声称完成依赖安全审计。
 
-实际宿主 macOS 27.0.1 ARM64。Mach-O 声明 minOS 11.0，未在 macOS 11 实机验证；动态依赖为系统库/Framework。Windows x64 平台原语类型检查通过；完整 Windows 程序受本机缺少 SDK 头文件阻挡。已拉取的 Linux 构建镜像可启动，但 OrbStack 后续停止，未完成 Linux 程序构建或运行。
+实际宿主 macOS 27.0.1 ARM64。Mach-O 声明 minOS 11.0，未在 macOS 11 实机验证；动态依赖为系统库/Framework。Windows x64 平台原语类型检查已通过，完整 MSVC 构建由 GitHub 的 Windows runner 执行，不在 macOS 上交叉链接。
 
 先前体积比较使用的开发包 `yss_4.0.0-dev_aarch64-apple-darwin.tar.gz`：裸程序 6,870,928 字节（6.55 MiB），压缩包 4,385,600 字节（4.18 MiB）。归档 SHA-256：`826b5c64761a8d8c00f58cffc942cd5c710218a12cc2acd5e685cb16b3ea3476`。该记录属于体积比较时的源码快照，不是当前提交的发行结果；新构建以实际清单及摘要为准。
 

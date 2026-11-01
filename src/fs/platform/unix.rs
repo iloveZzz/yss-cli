@@ -24,7 +24,14 @@ pub fn set_mode(file: &File, mode: u32) -> io::Result<()> {
     file.set_permissions(std::fs::Permissions::from_mode(mode))
 }
 pub fn sync_dir(dir: &Dir) -> io::Result<()> {
-    dir.try_clone()?.into_std_file().sync_all()
+    // Linux cap-std directory handles use O_PATH, which cannot be fsynced.
+    let file = rustix::fs::openat(
+        dir,
+        ".",
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    rustix::fs::fsync(&file).map_err(Into::into)
 }
 pub fn rename_no_replace(from: &Dir, name: &str, to: &Dir, target: &str) -> io::Result<()> {
     rustix::fs::renameat_with(from, name, to, target, rustix::fs::RenameFlags::NOREPLACE)

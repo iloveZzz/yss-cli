@@ -1,6 +1,6 @@
 # 命令与输出
 
-以下适用于 Rust `4.0.0-dev`，以当前程序 `yss help` 与各子命令 `--help` 为准。`--json` 为全局选项，`--version`/`-V` 等价于 `version`。
+以下适用于 Rust `3.1.0`，以当前程序 `yss help` 与各子命令 `--help` 为准。`--json` 为全局选项，`--version`/`-V` 等价于 `version`。
 
 | 命令 | 输入与行为 |
 | --- | --- |
