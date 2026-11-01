@@ -34,7 +34,7 @@ yss doctor --root ./demo
 ```sh
 yss upgrade --dry-run
 yss upgrade --source gitlab --dry-run
-yss upgrade --to 3.0.3 --dry-run
+yss upgrade --to 3.0.4 --dry-run
 yss upgrade --tool-root /absolute/new-yss
 yss upgrade --artifact /absolute/yss_VERSION_OS_ARCH.tar.gz --sha256 <64位摘要> --tool-root /absolute/new-yss --dry-run
 ```
