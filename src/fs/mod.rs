@@ -469,11 +469,12 @@ impl Root {
         if source_state == FileSnapshot::Dangerous || source_state == FileSnapshot::Missing {
             return Err(unsafe_path("发布源不是普通对象").at(from));
         }
-        if replace {
-            platform::rename_replace(&source.dir, &source.name, &target.dir, &target.name)?;
+        let renamed = if replace {
+            platform::rename_replace(&source.dir, &source.name, &target.dir, &target.name)
         } else {
-            platform::rename_no_replace(&source.dir, &source.name, &target.dir, &target.name)?;
-        }
+            platform::rename_no_replace(&source.dir, &source.name, &target.dir, &target.name)
+        };
+        renamed.map_err(|e| io_at(e, to).context("systemOperation", "rename"))?;
         platform::sync_dir(&source.dir)?;
         platform::sync_dir(&target.dir)?;
         self.revalidate_parent(&source)?;

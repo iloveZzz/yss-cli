@@ -267,7 +267,8 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
         policy_bytes.insert(path, bytes);
         policies.insert(profile, policy);
     }
-    let before = source_snapshot(&root, &policies)?;
+    let before =
+        source_snapshot(&root, &policies).map_err(|e| e.context("operation", "read-template"))?;
     for (path, bytes) in policy_bytes {
         if before.files.get(&path).is_none_or(|f| f.bytes != bytes) {
             return Err(YssError::new(
@@ -405,7 +406,8 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
     }
     let bytes = archive::pack(&entries)?;
     super::load(&bytes)?;
-    let after = source_snapshot(&root, &policies)?;
+    let after = source_snapshot(&root, &policies)
+        .map_err(|e| e.context("operation", "recheck-template"))?;
     root.revalidate()?;
     if before.digest != after.digest
         || before.commit != after.commit
@@ -417,7 +419,8 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
             "模板输入在构建期间改变；未写出 Bundle",
         ));
     }
-    write_artifact(out, &bytes)?;
+    write_artifact(out, &bytes)
+        .map_err(|e| e.at(out.display()).context("operation", "publish-bundle"))?;
     Ok(BundleBuildReport {
         path: out.display().to_string(),
         sha256: Sha256::of(&bytes),
