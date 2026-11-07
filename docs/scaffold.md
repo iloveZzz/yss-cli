@@ -16,7 +16,7 @@ DDD 包含 domain、application、infrastructure、adapter/web、bootstrap；MVC
 
 ## Frontend
 
-当前开发源码新增此入口，尚未随新版发行；不要把 CLI 3.2.0 的 Profile 安装能力当作 scaffold 支持，先查看实际帮助：
+CLI 3.3.0 新增此入口；CLI 3.2.0 只支持 Frontend Profile 安装，不包含生成命令，先查看实际帮助：
 
 ```sh
 yss scaffold frontend --help

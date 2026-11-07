@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.2.0` 源码，正式产物以 GitHub Release 为准。`3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.3.0` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -11,6 +11,7 @@
 | 更新项目内资源 | `sync` | 已接入 YSS 的项目 |
 | 查看或补装技能 | `skills list` / `skills ensure` | 已接入 YSS 的项目 |
 | 新建 Java 后端骨架 | `scaffold catalog` / `scaffold ddd` / `scaffold mvc` | 全新的工程目录 |
+| 新建 Vue 前端骨架 | `scaffold frontend` | 已有父目录下全新的工程目录 |
 | 排查差异或恢复 | `doctor` / `recover` | 受管项目目录或 CLI 工具目录 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
@@ -143,4 +144,4 @@ yss recover --root <项目或工具目录> --dry-run
 
 遇到不支持的参数先核对版本和帮助；遇到文件、路径或摘要冲突时保留现场。旧插件、`plan/apply` 和通用回滚接口不属于该版本的命令范围。
 
-当前开发源码新增 `yss scaffold frontend --project-name my-frontend --output-dir .`；此命令尚未随新版发行，先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](scaffold.md)。
+CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](scaffold.md)。
