@@ -13,7 +13,7 @@ variables:
   GIT_DEPTH: "0"
   YSS_GITLAB_CA_FILE: /etc/gitlab-runner/certs/gitlab.yss.test.crt
   YSS_GITLAB_CI_AUTH: "1"
-  YSS_TEMPLATE_COMMIT: "3df1f846ec68fd4ab3a78d33815025d392c1e9b2"
+  YSS_TEMPLATE_COMMIT: "c506055ec86dee866cf4b5d976f69ecbbeeef792"
   # Functional template source with Frontend starter; verify overrides before using artifacts.
 cache:
   key:
