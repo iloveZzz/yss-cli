@@ -16,6 +16,7 @@ pub const MAX_MANIFEST: u64 = 8 * 1024 * 1024;
 pub enum Profile {
     Spec,
     Backend,
+    Frontend,
 }
 #[derive(
     Debug,

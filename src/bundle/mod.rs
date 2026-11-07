@@ -45,7 +45,7 @@ impl Bundle {
             self.manifest.format_version,
             "yss.bundle",
         )?;
-        if self.manifest.profiles.len() != 2
+        if self.manifest.profiles.len() != 3
             || !matches!(
                 self.manifest.source.state.as_str(),
                 "committed" | "working-tree"
@@ -64,7 +64,7 @@ impl Bundle {
             ));
         }
         let mut used = BTreeSet::new();
-        for profile in [Profile::Spec, Profile::Backend] {
+        for profile in [Profile::Spec, Profile::Backend, Profile::Frontend] {
             let bundle = self.profile(profile)?;
             let available = bundle.skills();
             for (name, retired) in &bundle.retired_skills {

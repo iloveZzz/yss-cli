@@ -1,6 +1,6 @@
 # 技能选择与所有权
 
-`spec` 与 `backend` 各自从 Bundle 读取安装范围、默认技能、依赖与资源。`project` 安装技能及必要项目文档；`skills` 安装技能、宿主入口和必要引用资源。两者都是项目目录内的受管安装，不是全局技能安装。
+`spec`、`backend` 与 `frontend` 各自从 Bundle 读取安装范围、默认技能、依赖与资源。`3.2.0` 源码新增 `frontend` Profile，此前的 `3.1.4` 构建不支持；正式产物以 GitHub Release 为准。`project` 安装技能及必要项目文档；`skills` 安装技能、宿主入口和必要引用资源。两者都是项目目录内的受管安装，不是全局技能安装。
 
 ```text
 yss skills list --root /absolute/project --json
