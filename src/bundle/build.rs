@@ -45,6 +45,7 @@ fn prefix(profile: Profile) -> &'static str {
     match profile {
         Profile::Spec => "",
         Profile::Backend => "profiles/backend/",
+        Profile::Frontend => "profiles/frontend/",
     }
 }
 fn kernel(path: &str) -> bool {
@@ -57,7 +58,7 @@ fn kernel(path: &str) -> bool {
     .any(|p| manifest::beneath(path, p))
 }
 fn admitted(path: &str, policies: &BTreeMap<Profile, SourcePolicy>) -> bool {
-    for profile in [Profile::Spec, Profile::Backend] {
+    for profile in [Profile::Spec, Profile::Backend, Profile::Frontend] {
         let path = path.strip_prefix(prefix(profile)).unwrap_or(path);
         let path = path.strip_prefix("profiles/_specialist/").unwrap_or(path);
         if policies[&profile].manifest.includes(path) {
@@ -66,10 +67,12 @@ fn admitted(path: &str, policies: &BTreeMap<Profile, SourcePolicy>) -> bool {
     }
     false
 }
-fn policy_paths() -> [RelPath; 2] {
+fn policy_paths() -> [RelPath; 3] {
     [
         RelPath::new(".template-source/distribution/bundle-profile.json").unwrap(),
         RelPath::new("profiles/backend/.template-source/distribution/bundle-profile.json").unwrap(),
+        RelPath::new("profiles/frontend/.template-source/distribution/bundle-profile.json")
+            .unwrap(),
     ]
 }
 fn source_snapshot(root: &Root, policies: &BTreeMap<Profile, SourcePolicy>) -> Result<Snapshot> {
@@ -250,7 +253,7 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
     let root = Root::open(source_root)?;
     let mut policies = BTreeMap::new();
     let mut policy_bytes = BTreeMap::new();
-    for (profile, path) in [Profile::Spec, Profile::Backend]
+    for (profile, path) in [Profile::Spec, Profile::Backend, Profile::Frontend]
         .into_iter()
         .zip(policy_paths())
     {
@@ -298,8 +301,8 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
                 selected.insert(path.clone(), file);
             }
         }
-        if *profile == Profile::Backend {
-            for overlay in ["profiles/_specialist/", "profiles/backend/"] {
+        if *profile != Profile::Spec {
+            for overlay in ["profiles/_specialist/", prefix(*profile)] {
                 for (path, file) in &before.files {
                     if let Some(path) = path.as_str().strip_prefix(overlay)
                         && policy.manifest.includes(path)

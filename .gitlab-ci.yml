@@ -13,8 +13,8 @@ variables:
   GIT_DEPTH: "0"
   YSS_GITLAB_CA_FILE: /etc/gitlab-runner/certs/gitlab.yss.test.crt
   YSS_GITLAB_CI_AUTH: "1"
-  YSS_TEMPLATE_COMMIT: "447d51be9b8eb9f19c51b5170a4a541922adc5fe"
-  # Default template source for CLI 3.1.4; verify any override before using artifacts.
+  YSS_TEMPLATE_COMMIT: "31b88c84534eb608a01770a33e8858b3c01aa267"
+  # Default template source for CLI 3.2.0; verify any override before using artifacts.
 cache:
   key:
     prefix: rust-1.99.1-$CI_JOB_NAME

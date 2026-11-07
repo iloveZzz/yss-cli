@@ -101,7 +101,7 @@ pub struct InstallArgs {
     #[arg(
         long,
         value_enum,
-        help = "项目类型：spec 业务规格与产品设计；backend 后端研发"
+        help = "项目类型：spec 业务规格与产品设计；backend 后端研发；frontend 前端研发"
     )]
     pub profile: Profile,
     #[arg(

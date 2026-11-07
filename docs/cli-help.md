@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI 3.1.4。先运行 `yss version` 和 `yss --help`；其他版本的命令、参数和内嵌模板以该版本的实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.2.0` 源码，正式产物以 GitHub Release 为准。`3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -24,6 +24,7 @@
 | --- | --- | --- |
 | `--profile` | `spec` | 业务规格与产品设计 |
 | `--profile` | `backend` | Java 后端研发 |
+| `--profile` | `frontend` | Vue 3 前端研发 |
 | `--installation` | `project` | 技能与必要项目资料；新安装默认值 |
 | `--installation` | `skills` | 技能、宿主入口及必要引用资源；仍属于项目内安装，不是全局安装 |
 
@@ -48,7 +49,7 @@ yss attach --root ./existing-service --profile backend --installation skills
 | 参数 | 说明 |
 | --- | --- |
 | `--root <目录>` | `init`、`attach` 必填；`sync`、`skills` 和 `doctor` 默认当前目录 `.`。`recover` 也默认 `.` |
-| `--profile spec\|backend` | `init`、`attach` 必填；`sync`、`skills list`、`skills ensure` 和项目 `doctor` 可选，指定时须与已安装类型一致，不能用于切换类型 |
+| `--profile spec\|backend\|frontend` | `init`、`attach` 必填；`sync`、`skills list`、`skills ensure` 和项目 `doctor` 可选，指定时须与已安装类型一致，不能用于切换类型 |
 | `--installation project\|skills` | `init`、`attach` 新安装默认 `project`；`sync` 默认沿用原范围，显式指定时切换范围 |
 | `--project-name <名称>` | `init`、`attach`、`sync` 的模板变量；新安装默认使用目标目录名 |
 | `--business-domain <领域>` | 同上，模板中的业务领域；新安装默认 `待补充` |
