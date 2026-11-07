@@ -202,21 +202,21 @@ pub fn exact_version(value: &str) -> bool {
             .all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
         && suffix.is_none_or(|s| !s.is_empty() && s.as_bytes()[0].is_ascii_alphanumeric())
 }
-pub(super) fn validate(bundle: &Bundle, input: &super::ScaffoldInputs) -> Result<Platform> {
-    if input.project_name.len() > 128
-        || !input.project_name.split('-').all(|p| {
+pub(super) fn validate_project_name(name: &str) -> Result<()> {
+    if name.len() > 128
+        || !name.split('-').all(|p| {
             !p.is_empty()
                 && p.bytes()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         })
-        || !input
-            .project_name
-            .as_bytes()
-            .first()
-            .is_some_and(u8::is_ascii_lowercase)
+        || !name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
     {
         return Err(invalid("工程名必须为 kebab-case"));
     }
+    Ok(())
+}
+pub(super) fn validate(bundle: &Bundle, input: &super::ScaffoldInputs) -> Result<Platform> {
+    validate_project_name(&input.project_name)?;
     let reserved = [
         "class",
         "interface",

@@ -11,7 +11,7 @@ use std::{ffi::OsString, io::Write, path::PathBuf};
 #[derive(Parser)]
 #[command(
     name = "yss",
-    about = "安装项目模板、管理技能并生成 Java 工程",
+    about = "安装项目模板、管理技能并生成 Java / Vue 工程",
     after_help = "常用示例：\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n写入命令直接执行；添加 --dry-run 可先预览。",
     disable_version_flag = true
 )]
@@ -47,7 +47,7 @@ pub enum Command {
     Sync(SyncArgs),
     #[command(about = "查看或补装项目内的受管技能", subcommand)]
     Skills(SkillsCommand),
-    #[command(about = "查看平台或生成业务空白 Java 工程", subcommand)]
+    #[command(about = "查看平台或生成 Java / Vue 工程", subcommand)]
     Scaffold(ScaffoldCommand),
     #[command(
         about = "检查项目或 CLI 安装及本地差异",
@@ -78,6 +78,7 @@ impl Command {
             Self::Scaffold(ScaffoldCommand::Catalog) => "scaffold catalog",
             Self::Scaffold(ScaffoldCommand::Ddd(_)) => "scaffold ddd",
             Self::Scaffold(ScaffoldCommand::Mvc(_)) => "scaffold mvc",
+            Self::Scaffold(ScaffoldCommand::Frontend(_)) => "scaffold frontend",
             Self::Doctor(_) => "doctor",
             Self::Recover(_) => "recover",
             Self::Upgrade(_) => "upgrade",
@@ -170,6 +171,11 @@ pub struct EnsureArgs {
 }
 #[derive(Subcommand)]
 pub enum ScaffoldCommand {
+    #[command(
+        about = "生成最小 Vue 3 前端工程；不安装依赖",
+        after_help = "示例：\n  yss scaffold frontend --project-name my-frontend --output-dir . --dry-run\n\n输出父目录必须已存在，目标工程必须不存在。去掉 --dry-run 生成源码；运行需另行 pnpm install。"
+    )]
+    Frontend(FrontendScaffoldArgs),
     #[command(about = "查看可选平台、版本与配方")]
     Catalog,
     #[command(
@@ -182,6 +188,15 @@ pub enum ScaffoldCommand {
         after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。"
     )]
     Mvc(ScaffoldArgs),
+}
+#[derive(Args)]
+pub struct FrontendScaffoldArgs {
+    #[arg(long, help = "工程名称，使用小写 kebab-case")]
+    pub project_name: String,
+    #[arg(long, help = "已存在的输出父目录，预览也必须存在")]
+    pub output_dir: PathBuf,
+    #[arg(long, help = "仅预览，不创建工程或保存计划")]
+    pub dry_run: bool,
 }
 #[derive(Args)]
 pub struct ScaffoldArgs {
@@ -250,6 +265,7 @@ enum Report<'a> {
     Version(&'a BuildInfo),
     Catalog(crate::scaffold::CatalogReport),
     Scaffold(crate::scaffold::ScaffoldReport),
+    FrontendScaffold(crate::scaffold::frontend::FrontendReport),
     Upgrade(Box<crate::updater::UpgradeReport>),
     ToolDoctor(Box<crate::updater::ToolDoctorReport>),
     Project(Box<crate::project::ProjectReport>),
@@ -269,6 +285,19 @@ fn dispatch<'a>(
         Command::Version => Ok(Report::Version(build)),
         Command::Scaffold(ScaffoldCommand::Catalog) => Ok(Report::Catalog(
             crate::scaffold::catalog(&crate::bundle::load(bundle)?)?,
+        )),
+        Command::Scaffold(ScaffoldCommand::Frontend(args)) => Ok(Report::FrontendScaffold(
+            crate::scaffold::frontend::generate(
+                &crate::bundle::load(bundle)?,
+                &crate::scaffold::frontend::FrontendRequest {
+                    input: crate::scaffold::frontend::FrontendInputs {
+                        project_name: args.project_name,
+                    },
+                    output_dir: args.output_dir,
+                    dry_run: args.dry_run,
+                },
+                cancel,
+            )?,
         )),
         Command::Scaffold(ScaffoldCommand::Ddd(args)) => {
             scaffold_report(args, crate::scaffold::Architecture::Ddd, bundle, cancel)

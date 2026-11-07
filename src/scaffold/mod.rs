@@ -1,5 +1,6 @@
 mod context;
 mod ddd;
+pub mod frontend;
 mod mvc;
 use crate::{
     bundle::Bundle,
@@ -57,6 +58,7 @@ pub struct ScaffoldReport {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogReport {
+    pub frontend: frontend::FrontendCatalog,
     pub source: SourceProvenance,
     pub platforms: Vec<PlatformChoice>,
     pub required_flags: Vec<&'static str>,
@@ -123,6 +125,7 @@ pub fn catalog(bundle: &Bundle) -> Result<CatalogReport> {
         })
         .collect();
     Ok(CatalogReport {
+        frontend: frontend::catalog(bundle)?,
         source: bundle.manifest.source.clone(),
         platforms,
         required_flags: vec![

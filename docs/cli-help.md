@@ -142,3 +142,5 @@ yss recover --root <项目或工具目录> --dry-run
 常见错误码：`ARGUMENT`、`UNSUPPORTED_FORMAT`、`INVALID_INPUT`、`SKILL_RETIRED`、`CONFLICT`、`UNSAFE_PATH`、`LOCKED`、`CONCURRENT_CHANGE`、`RECOVERY_REQUIRED`、`CANCELLED`、`NETWORK`、`NOT_READY`、`DIGEST_MISMATCH`、`UNSUPPORTED_PLATFORM`、`VERSION_CONFLICT`、`IO`。网络错误不会回显令牌、任意远程 URL 或远程错误正文。
 
 遇到不支持的参数先核对版本和帮助；遇到文件、路径或摘要冲突时保留现场。旧插件、`plan/apply` 和通用回滚接口不属于该版本的命令范围。
+
+当前开发源码新增 `yss scaffold frontend --project-name my-frontend --output-dir .`；此命令尚未随新版发行，先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](scaffold.md)。
