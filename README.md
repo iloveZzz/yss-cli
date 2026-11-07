@@ -35,4 +35,4 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 - [技能选择与所有权](docs/skills-discovery.md)
 - [Java / Frontend 脚手架](docs/scaffold.md)
 
-`3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，内嵌 Template `5.3.0`；先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](docs/scaffold.md)。
+`3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，内嵌 Template `5.3.1`；先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](docs/scaffold.md)。

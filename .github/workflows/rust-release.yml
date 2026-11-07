@@ -17,7 +17,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: 1.99.1
       YSS_TARGET: x86_64-pc-windows-msvc
-      YSS_TEMPLATE_COMMIT: af28884924e74492378d21c9bd4c8bd18e33e99d
+      YSS_TEMPLATE_COMMIT: 9887d0d9915a9edcf9679dca16a236cef0fd5efa
     steps:
       - name: Preserve source line endings
         run: git config --global core.autocrlf false
