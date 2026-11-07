@@ -475,14 +475,21 @@ impl Root {
             platform::rename_no_replace(&source.dir, &source.name, &target.dir, &target.name)
         };
         renamed.map_err(|e| io_at(e, to).context("systemOperation", "rename"))?;
-        platform::sync_dir(&source.dir)?;
-        platform::sync_dir(&target.dir)?;
-        self.revalidate_parent(&source)?;
-        self.revalidate_parent(&target)?;
-        if self.inspect(to)?.identity() != source_state.identity() {
-            return Err(drift().at(to));
-        }
-        Ok(())
+        (|| {
+            platform::sync_dir(&source.dir)?;
+            platform::sync_dir(&target.dir)?;
+            self.revalidate_parent(&source)?;
+            self.revalidate_parent(&target)?;
+            if self.inspect(to)?.identity() != source_state.identity() {
+                return Err(drift().at(to));
+            }
+            Ok(())
+        })()
+        .map_err(|e: YssError| {
+            e.context("renameApplied", "true")
+                .context("from", from)
+                .context("to", to)
+        })
     }
     pub fn remove(&self, path: &RelPath, expected: &FileSnapshot) -> Result<()> {
         let parent = self

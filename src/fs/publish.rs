@@ -39,8 +39,29 @@ pub fn publish_new_tree(
         );
     }
     let staging = RelPath::new(format!(".yss-stage-{}", unique_id()?))?;
-    let identity = root.create_dir(&staging)?;
+    let staging_path = parent.join(staging.as_str());
+    let describe = |error: YssError, phase: &str, cleanup: &str| {
+        error
+            .context("phase", phase)
+            .context("targetPath", target.display())
+            .context("stagingPath", staging_path.display())
+            .context("cleanup", cleanup)
+    };
+    let identity = root.create_dir(&staging).map_err(|mut error| {
+        let cleanup = if matches!(root.inspect(&staging), Ok(FileSnapshot::Missing)) {
+            "not-needed"
+        } else {
+            error.message.push_str(&format!(
+                "；暂存状态未确认，保留路径 {}",
+                staging_path.display()
+            ));
+            error.path = Some(staging_path.display().to_string());
+            "retained"
+        };
+        describe(error, "staging", cleanup)
+    })?;
     let mut owned = Vec::new();
+    let mut phase = "staging";
     let result = (|| {
         let mut directories: BTreeSet<RelPath> = tree.directories.clone();
         for path in tree.files.keys().chain(tree.directories.iter()) {
@@ -68,6 +89,16 @@ pub fn publish_new_tree(
             }
         }
         cancel.check()?;
+        if root.inspect(&staging)?
+            != (FileSnapshot::Directory {
+                identity: identity.clone(),
+            })
+        {
+            return Err(
+                YssError::new(ErrorCode::ConcurrentChange, "暂存目录在发布前改变").at(&staging),
+            );
+        }
+        phase = "publishing";
         root.rename(&staging, &name, &FileSnapshot::Missing, false)?;
         Ok(PublishReport {
             root: target.display().to_string(),
@@ -75,11 +106,38 @@ pub fn publish_new_tree(
             directories: directories.len(),
         })
     })();
-    if result.is_err() {
-        for (path, expected) in owned.iter().rev() {
-            let _ = root.remove(path, expected);
+    result.map_err(|mut error| {
+        if error.context.get("renameApplied").map(String::as_str) == Some("true") {
+            error.message.push_str(&format!(
+                "；目标已发布，后续校验或同步失败：{}",
+                target.display()
+            ));
+            error.path = Some(target.display().to_string());
+            return describe(error, "published", "not-needed");
         }
-        let _ = root.remove(&staging, &FileSnapshot::Directory { identity });
-    }
-    result
+        let mut cleanup_errors = Vec::new();
+        for (path, expected) in owned.iter().rev() {
+            if let Err(e) = root.remove(path, expected) {
+                cleanup_errors.push(format!("{path}: {}", e.message));
+            }
+        }
+        if let Err(e) = root.remove(&staging, &FileSnapshot::Directory { identity }) {
+            cleanup_errors.push(format!("{staging}: {}", e.message));
+        }
+        let cleanup = match root.inspect(&staging) {
+            Ok(FileSnapshot::Missing) => "removed",
+            Ok(_) if !cleanup_errors.is_empty() => "failed",
+            _ => "retained",
+        };
+        if cleanup != "removed" {
+            error
+                .message
+                .push_str(&format!("；临时内容保留：{}", staging_path.display()));
+            error.path = Some(staging_path.display().to_string());
+        }
+        if !cleanup_errors.is_empty() {
+            error = error.context("cleanupErrors", cleanup_errors.join("; "));
+        }
+        describe(error, phase, cleanup)
+    })
 }
