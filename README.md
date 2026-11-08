@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。用户运行时分发单个 `yss`（Windows 为 `yss.exe`），无需 Go、Bun、Node 或 Python。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.3.2`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.3.3`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
 
 `3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板。此前的 `3.1.4` 构建仅支持 `spec`/`backend`，模板文档更新不会改变已安装程序；使用前查看实际 `yss help init`。
 
@@ -37,4 +37,4 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，内嵌 Template `5.3.1`；先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](docs/scaffold.md)。
 
-`3.3.2` 更新内嵌 Template 为 `5.3.3`，补齐三个现有前端技能的官方 shadcn-vue 组件复用方法，以及最小 Vue starter 的 `components.json`；CLI 命令和依赖保持不变。公开技能与 CLI Bundle 使用各自真实来源记录。
+`3.3.3` 更新内嵌 Template 为 `5.3.4`，分发三个 Profile 的技能地图及六个安装入口导航，明确 Spec 的 handoff 交接职责，并完善第三方问题、Agent 文档事实来源与前端边界检查方法。默认技能仍为 Spec 16 项、Backend 41 项、Frontend 13 项，CLI 命令和依赖保持不变。公开技能与 CLI Bundle 使用各自真实来源记录。

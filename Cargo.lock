@@ -1984,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "yss-cli"
-version = "3.3.2"
+version = "3.3.3"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
