@@ -47,7 +47,7 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 ## 个人 Spec 工作台（CLI 3.4.0）
 
-内嵌 Template 5.4.0，完善 Spec 交付模板、交互说明、状态矩阵及教学示例；三个 Profile 均可取得所需设计模板。
+内嵌 Template 5.4.1，完善 Spec 交付模板、交互说明、状态矩阵及教学示例；三个 Profile 均可取得所需设计模板。
 
 ```text
 yss workbench
