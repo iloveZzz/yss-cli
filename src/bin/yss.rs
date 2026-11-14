@@ -4,6 +4,12 @@ use yss::{
     model::BuildInfo,
     output::{self, OutputEnvelope},
 };
+#[derive(rust_embed::RustEmbed)]
+#[folder = "ui/dist/"]
+struct WorkbenchAssets;
+fn workbench_asset(path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
+    WorkbenchAssets::get(path).map(|file| file.data)
+}
 const BUNDLE: &[u8] = include_bytes!("../../assets/bundle.tar.gz");
 #[used]
 #[cfg_attr(target_os = "macos", unsafe(link_section = "__DATA,__yssbuild"))]
@@ -45,5 +51,6 @@ fn main() {
         &cancel,
         &mut io::stdout(),
         &mut io::stderr(),
+        workbench_asset,
     ));
 }

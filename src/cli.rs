@@ -30,6 +30,8 @@ pub struct Cli {
 }
 #[derive(Subcommand)]
 pub enum Command {
+    #[command(about = "启动个人本地 Spec 工作台，或读取快照")]
+    Workbench(WorkbenchArgs),
     #[command(
         about = "初始化新目录或空项目目录",
         after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n确认预览后去掉 --dry-run 执行；已有项目使用 yss attach。"
@@ -70,6 +72,12 @@ pub enum Command {
 impl Command {
     fn name(&self) -> &'static str {
         match self {
+            Self::Workbench(args) => match &args.command {
+                None => "workbench",
+                Some(WorkbenchCommand::Snapshot) => "workbench.snapshot",
+                Some(WorkbenchCommand::Query(_)) => "workbench.query",
+                Some(WorkbenchCommand::Lifecycle { .. }) => "workbench.lifecycle",
+            },
             Self::Init(_) => "init",
             Self::Attach(_) => "attach",
             Self::Sync(_) => "sync",
@@ -85,6 +93,60 @@ impl Command {
             Self::Version => "version",
         }
     }
+}
+#[derive(Args)]
+pub struct WorkbenchArgs {
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "监听 127.0.0.1 的端口，0 由系统分配"
+    )]
+    pub port: u16,
+    #[arg(long, help = "仅输出链接，不自动打开浏览器")]
+    pub no_open: bool,
+    #[arg(
+        long,
+        global = true,
+        help = "独立个人数据目录（绝对路径，不能位于 Git 工作树或项目内）"
+    )]
+    pub data_dir: Option<PathBuf>,
+    #[command(subcommand)]
+    pub command: Option<WorkbenchCommand>,
+}
+#[derive(Subcommand)]
+pub enum WorkbenchCommand {
+    #[command(about = "只读输出个人状态与来源健康；可配合 --json")]
+    Snapshot,
+    #[command(about = "只读筛选已纳管的 Spec 或任务")]
+    Query(WorkbenchQueryArgs),
+    #[command(about = "只读查看 Spec 八阶段、任务与实际历史")]
+    Lifecycle {
+        #[arg(long)]
+        spec: String,
+    },
+}
+#[derive(Args)]
+pub struct WorkbenchQueryArgs {
+    #[arg(long, value_enum, default_value = "spec")]
+    pub entity: crate::workbench::model::WorkEntity,
+    #[arg(long, default_value = "")]
+    pub q: String,
+    #[arg(long = "project")]
+    pub project_ids: Vec<String>,
+    #[arg(long = "spec")]
+    pub spec_ids: Vec<String>,
+    #[arg(long = "stage", value_enum)]
+    pub stages: Vec<crate::workbench::model::Stage>,
+    #[arg(long = "status", value_enum)]
+    pub statuses: Vec<crate::workbench::model::Status>,
+    #[arg(long, value_enum, default_value = "active")]
+    pub activity: crate::workbench::model::ActivityScope,
+    #[arg(long)]
+    pub include_closed: bool,
+    #[arg(long = "source-problems")]
+    pub source_problems_only: bool,
+    #[arg(long, value_enum, default_value = "updatedDesc")]
+    pub sort: crate::workbench::model::WorkSort,
 }
 #[derive(Args)]
 pub struct Variables {
@@ -261,6 +323,9 @@ pub struct UpgradeArgs {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum Report<'a> {
+    Workbench(crate::workbench::model::Snapshot),
+    WorkbenchQuery(crate::workbench::model::QueryResult),
+    WorkbenchLifecycle(crate::workbench::model::LifecycleView),
     Help { help: String },
     Version(&'a BuildInfo),
     Catalog(crate::scaffold::CatalogReport),
@@ -282,6 +347,36 @@ fn dispatch<'a>(
 ) -> Result<Report<'a>> {
     cancel.check()?;
     match command {
+        Command::Workbench(args) => {
+            let path = crate::workbench::store::resolve_data_dir(args.data_dir.as_deref())?;
+            let snapshot = crate::workbench::service::snapshot(
+                &crate::workbench::store::read_state(&path)?,
+                cancel,
+            )?;
+            match args.command {
+                Some(WorkbenchCommand::Query(q)) => {
+                    Ok(Report::WorkbenchQuery(crate::workbench::query::query(
+                        &snapshot,
+                        &crate::workbench::model::WorkQuery {
+                            entity: q.entity,
+                            q: q.q,
+                            project_ids: q.project_ids,
+                            spec_ids: q.spec_ids,
+                            stages: q.stages,
+                            statuses: q.statuses,
+                            activity: q.activity,
+                            include_closed: q.include_closed,
+                            source_problems_only: q.source_problems_only,
+                            sort: q.sort,
+                        },
+                    )?))
+                }
+                Some(WorkbenchCommand::Lifecycle { spec }) => Ok(Report::WorkbenchLifecycle(
+                    crate::workbench::lifecycle::build_lifecycle(&snapshot, &spec)?,
+                )),
+                _ => Ok(Report::Workbench(snapshot)),
+            }
+        }
         Command::Version => Ok(Report::Version(build)),
         Command::Scaffold(ScaffoldCommand::Catalog) => Ok(Report::Catalog(
             crate::scaffold::catalog(&crate::bundle::load(bundle)?)?,
@@ -457,6 +552,7 @@ pub fn run(
     cancel: &Cancellation,
     out: &mut dyn Write,
     err: &mut dyn Write,
+    assets: crate::workbench::server::AssetLoader,
 ) -> i32 {
     let json = args
         .iter()
@@ -485,7 +581,38 @@ pub fn run(
         Ok(cli) => match cli.command {
             Some(command) => {
                 let name = command.name();
-                (name, dispatch(command, bundle_bytes, build, cancel))
+                if let Command::Workbench(ref args) = command
+                    && args.command.is_none()
+                {
+                    let result = if json {
+                        Err(YssError::new(
+                            ErrorCode::Argument,
+                            "持续服务不支持 --json；请使用 workbench snapshot --json",
+                        ))
+                    } else {
+                        crate::workbench::store::resolve_data_dir(args.data_dir.as_deref())
+                            .and_then(|data_dir| {
+                                crate::workbench::server::serve(
+                                    crate::workbench::server::ServeOptions {
+                                        data_dir,
+                                        port: args.port,
+                                        open_browser: !args.no_open,
+                                    },
+                                    assets,
+                                    cancel,
+                                    err,
+                                )
+                            })
+                    };
+                    (
+                        name,
+                        result.map(|()| Report::Help {
+                            help: String::new(),
+                        }),
+                    )
+                } else {
+                    (name, dispatch(command, bundle_bytes, build, cancel))
+                }
             }
             None => (
                 "help",

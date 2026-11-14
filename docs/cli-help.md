@@ -13,6 +13,8 @@
 | 新建 Java 后端骨架 | `scaffold catalog` / `scaffold ddd` / `scaffold mvc` | 全新的工程目录 |
 | 新建 Vue 前端骨架 | `scaffold frontend` | 已有父目录下全新的工程目录 |
 | 排查差异或恢复 | `doctor` / `recover` | 受管项目目录或 CLI 工具目录 |
+| 本机 Spec 与任务可视化 | `workbench` | 个人数据目录，项目来源只读 |
+| 查询任务和生命周期 | `workbench snapshot` / `query` / `lifecycle` | 已纳管记录 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
 `yss help <命令>` 或 `yss <命令> --help` 查看命令帮助，例如 `yss skills ensure --help`。写入命令默认执行；支持预览的命令可加 `--dry-run`，查看结果后重新运行并去掉该参数。预览不创建目标、锁或可保存的执行计划；在线升级预览仍会访问发行信息。
@@ -145,3 +147,18 @@ yss recover --root <项目或工具目录> --dry-run
 遇到不支持的参数先核对版本和帮助；遇到文件、路径或摘要冲突时保留现场。旧插件、`plan/apply` 和通用回滚接口不属于该版本的命令范围。
 
 CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](scaffold.md)。
+
+## 个人 Spec 工作台（当前源码新增）
+
+`yss workbench` 启动本机浏览器工作台；`--no-open` 只打印入口，`--port 0` 自动分配端口，`--data-dir <绝对路径>` 指定个人数据目录。服务本身不接受 `--json`。旧版已安装程序不会自动获得这些命令。
+
+```sh
+yss workbench snapshot --json
+yss workbench query --entity task --stage verification --json
+yss workbench query --entity spec --activity all --include-closed --json
+yss workbench lifecycle --spec <SpecID> --json
+```
+
+`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。所有子命令只读、不创建缺失目录。参数完整枚举以 `yss workbench query --help` 为准。
+
+数据格式 v2 可只读打开 v1，首次有效写入前备份原字节；旧程序不能直接读取 v2。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。

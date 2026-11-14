@@ -1,0 +1,12 @@
+/* Tesla Light workspace: compact controls, neutral surfaces, clear blue actions. */
+:root {
+ --brand-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+ --brand-color-text: #25272b; --brand-color-text-secondary: #62666c;
+ --brand-color-bg-layout: #f7f8fa; --brand-color-bg-container: #fff; --brand-color-bg-elevated: #fff;
+ --brand-color-fill-secondary: #f0f2f5; --brand-color-error-active: #bd3037;
+ --brand-border-radius: 8px; --brand-border-radius-lg: 12px; --brand-border-radius-sm: 6px;
+ --yss-color-primary-control: #3e6ae1; --yss-color-primary-control-hover: #345cc9; --yss-color-primary-control-active: #2c51b5; --yss-color-on-primary: #fff;
+ --yss-colors-primary-bg: #edf2ff; --yss-colors-border: #e4e6eb; --yss-colors-border-control: #cbd0da;
+ --yss-colors-text-title: #171a20; --yss-colors-error-text: #bd3037;
+ --sidebar-width: 224px; --header-height: 56px;
+}

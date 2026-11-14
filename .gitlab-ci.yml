@@ -5,7 +5,7 @@ workflow:
       when: never
     - when: always
 
-stages: [bundle, build]
+stages: [ui, bundle, build]
 default:
   image: docker.io/library/rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137
   tags: [yss-linux]
@@ -21,8 +21,23 @@ cache:
     files: [Cargo.lock, rust-toolchain.toml]
   paths: [target/]
 
+workbench-ui:
+  stage: ui
+  image: node:24.14.1-bookworm-slim
+  cache: []
+  script:
+    - npm install --global pnpm@10.15.0
+    - pnpm --dir ui install --frozen-lockfile
+    - pnpm --dir ui typecheck
+    - pnpm --dir ui lint
+    - pnpm --dir ui build
+  artifacts:
+    paths: [ui/dist/]
+    expire_in: 7 days
+
 bundle-source:
   stage: bundle
+  needs: [workbench-ui]
   script:
     - |
       set -eu
@@ -101,7 +116,7 @@ bundle-source:
 
 .native-posix:
   stage: build
-  needs: [bundle-source]
+  needs: [bundle-source, workbench-ui]
   script:
     - |
       set -eu
@@ -176,7 +191,7 @@ macos-x86_64:
 
 .native-windows:
   stage: build
-  needs: [bundle-source]
+  needs: [bundle-source, workbench-ui]
   script:
     - |
       $ErrorActionPreference = 'Stop'

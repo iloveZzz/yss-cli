@@ -1,0 +1,16 @@
+<script setup lang="ts">
+import { computed,shallowRef,useId } from 'vue'
+import { useWorkbench } from '@/hooks/useWorkbench'
+import { errorMessage,type WorkQuery,type Layout,type GroupBy,type SavedView } from '@/services/workbench'
+import ModalDialog from '@/components/ModalDialog.vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+const props=defineProps<{query:WorkQuery;layout:Layout;groupBy:GroupBy;viewId?:string}>();const emit=defineEmits<{apply:[view:SavedView];removed:[]}>()
+const {snapshot,submit,saving}=useWorkbench();const id=useId();const open=shallowRef(false);const name=shallowRef('');const error=shallowRef('');const editing=shallowRef<string|null>(null);const removing=shallowRef(false)
+const current=computed(()=>snapshot.value?.savedViews.find(v=>v.id===props.viewId));let revision=0;let submittedQuery:WorkQuery;let submittedLayout:Layout;let submittedGroup:GroupBy
+function begin(update:boolean){revision=snapshot.value?.revision??0;submittedQuery=structuredClone(props.query);submittedLayout=props.layout;submittedGroup=props.groupBy;editing.value=update?current.value?.id??null:null;name.value=update?current.value?.name??'':'';error.value='';removing.value=false;open.value=true}
+function remove(){revision=snapshot.value?.revision??0;editing.value=current.value?.id??null;error.value='';removing.value=true;open.value=true}
+async function save(){try{if(removing.value&&editing.value){await submit({kind:'removeView',viewId:editing.value},revision);emit('removed')}else{const result=await submit({kind:'saveView',viewId:editing.value,name:name.value,query:submittedQuery,layout:submittedLayout,groupBy:submittedGroup},revision);const view=snapshot.value?.savedViews.find(v=>v.id===result.viewId);if(view)emit('apply',view)}open.value=false}catch(e){error.value=errorMessage(e)}}
+function select(event:Event){const view=snapshot.value?.savedViews.find(v=>v.id===(event.target as HTMLSelectElement).value);if(view)emit('apply',view)}
+</script>
+<template><div class="inline-actions saved-views"><label :for="id+'views'">保存的视图</label><select :id="id+'views'" :value="viewId??''" @change="select"><option value="">临时查询</option><option v-for="view in snapshot?.savedViews??[]" :key="view.id" :value="view.id">{{view.name}}</option></select><Button variant="outline" :disabled="saving" @click="begin(false)">保存视图</Button><Button v-if="current" variant="ghost" :disabled="saving" @click="begin(true)">更新视图</Button><Button v-if="current" variant="ghost" :disabled="saving" @click="remove">移除视图</Button><span v-if="current" class="muted">筛选变化仅临时生效，点击更新才会保存。</span></div><ModalDialog v-model="open" :title="removing?'移除保存的视图':'保存当前视图'" :busy="saving"><form class="form-stack" @submit.prevent="save"><p v-if="removing">仅移除这条查询收藏，保留所有 Spec、任务和历史。</p><template v-else><label :for="id+'name'">视图名称</label><Input :id="id+'name'" v-model="name" required maxlength="80" /><p class="muted">保存当前查询、列表／看板布局及分组方式。</p></template><p v-if="error" class="notice error" role="alert">{{error}} 请关闭后基于最新数据重试。</p><div class="form-actions"><Button type="button" variant="outline" :disabled="saving" @click="open=false">取消</Button><Button :disabled="saving">{{removing?'确认移除':'确认保存'}}</Button></div></form></ModalDialog></template>

@@ -28,6 +28,20 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Set up Node for embedded workbench assets
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.14.1
+
+      - name: Build the workbench UI
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm install --global pnpm@10.15.0
+          pnpm --dir ui install --frozen-lockfile
+          pnpm --dir ui typecheck
+          pnpm --dir ui lint
+          pnpm --dir ui build
+
       - name: Install the pinned Rust toolchain
         run: |
           $PSNativeCommandUseErrorActionPreference = $true

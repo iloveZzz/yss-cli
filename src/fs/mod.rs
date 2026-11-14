@@ -65,7 +65,7 @@ pub struct Root {
     pub identity: RootIdentity,
     dir: Dir,
     boundary: git::Boundary,
-    lock_identity: Option<FileIdentity>,
+    lock_identity: Option<(RelPath, FileIdentity)>,
 }
 struct Parent {
     dir: Dir,
@@ -260,25 +260,29 @@ impl Root {
         if platform::identity_dir(&walk_absolute(&self.path, false)?)? != self.identity {
             return Err(drift());
         }
-        if let Some(identity) = &self.lock_identity {
-            let lock = RelPath::new(".yss/lock")?;
-            let parent = self.parent(&lock)?.ok_or_else(|| drift().at(&lock))?;
+        if let Some((lock, identity)) = &self.lock_identity {
+            let parent = self.parent(lock)?.ok_or_else(|| drift().at(lock))?;
             let metadata = parent.dir.symlink_metadata(&parent.name)?;
             plain(&metadata)?;
             if !metadata.is_file() || platform::identity_at(&parent.dir, &parent.name)? != *identity
             {
-                return Err(drift().at(&lock));
+                return Err(drift().at(lock));
             }
         }
         self.boundary.revalidate()
     }
     fn parent(&self, path: &RelPath) -> Result<Option<Parent>> {
+        self.parent_checked(path, true)
+    }
+    fn parent_checked(&self, path: &RelPath, check_aliases: bool) -> Result<Option<Parent>> {
         self.boundary.check(path)?;
         let mut dir = self.dir.try_clone()?;
         let mut components = path.as_str().split('/').peekable();
         let mut parent = String::new();
         while let Some(name) = components.next() {
-            aliases(&dir, name)?;
+            if check_aliases {
+                aliases(&dir, name)?;
+            }
             if components.peek().is_none() {
                 return Ok(Some(Parent {
                     identity: platform::identity_dir(&dir)?,
@@ -325,8 +329,11 @@ impl Root {
         aliases(&current, &parent.name)
     }
     pub(crate) fn open_dir(&self, path: &RelPath) -> Result<Dir> {
+        self.open_dir_checked(path, true)
+    }
+    fn open_dir_checked(&self, path: &RelPath, check_aliases: bool) -> Result<Dir> {
         let parent = self
-            .parent(path)?
+            .parent_checked(path, check_aliases)?
             .ok_or_else(|| unsafe_path("父目录不存在"))?;
         let metadata = parent.dir.symlink_metadata(&parent.name)?;
         plain(&metadata)?;
@@ -373,6 +380,73 @@ impl Root {
             return Err(drift().at(path));
         }
         Ok(checked)
+    }
+    // Read-only traversal avoids repeated whole-directory alias scans; writes retain them.
+    pub(crate) fn source_read(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
+        let parent = self
+            .parent_checked(path, false)?
+            .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
+        let file = read_in_dir(&parent.dir, &parent.name, limit)?;
+        if self
+            .parent_checked(path, false)?
+            .is_none_or(|p| p.identity != parent.identity)
+        {
+            return Err(drift());
+        }
+        Ok(file)
+    }
+    pub(crate) fn source_metadata(&self, path: &RelPath) -> Result<Metadata> {
+        let parent = self
+            .parent_checked(path, false)?
+            .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
+        let metadata = parent.dir.symlink_metadata(&parent.name)?;
+        plain(&metadata)?;
+        if metadata.is_file() {
+            let before = platform::identity_at(&parent.dir, &parent.name)?;
+            let mut options = OpenOptions::new();
+            options.read(true).follow(FollowSymlinks::No);
+            let file = parent.dir.open_with(&parent.name, &options)?;
+            if platform::identity_file(&file)? != before {
+                return Err(drift());
+            }
+        }
+        Ok(metadata)
+    }
+    pub(crate) fn source_entries(
+        &self,
+        path: Option<&RelPath>,
+        budget: &mut usize,
+        cancel: &crate::cancel::Cancellation,
+    ) -> Result<(Vec<(String, Metadata)>, bool)> {
+        let dir = match path {
+            Some(p) => self.open_dir_checked(p, false)?,
+            None => self.dir.try_clone()?,
+        };
+        let mut entries = Vec::new();
+        let mut complete = true;
+        for entry in dir.entries()?.take(*budget) {
+            cancel.check()?;
+            *budget -= 1;
+            let entry = entry?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| unsafe_path("目录包含非 UTF-8 名称"))?;
+            let metadata = dir.symlink_metadata(&name)?;
+            entries.push((name, metadata));
+        }
+        let current = match path {
+            Some(p) => self.open_dir_checked(p, false)?,
+            None => self.dir.try_clone()?,
+        };
+        if platform::identity_dir(&current)? != platform::identity_dir(&dir)? {
+            return Err(drift());
+        }
+        if *budget == 0 {
+            complete = false;
+        }
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok((entries, complete))
     }
     pub fn list(&self, path: Option<&RelPath>) -> Result<Vec<String>> {
         let dir = if let Some(path) = path {
@@ -516,7 +590,7 @@ pub fn read_checked(root: &Path, path: &RelPath, limit: u64) -> Result<CheckedFi
 }
 
 pub fn lock_root(path: &Path) -> Result<RootLock> {
-    let mut root = Root::open(path)?;
+    let root = Root::open(path)?;
     let control = RelPath::new(".yss")?;
     let created = match root.inspect(&control)? {
         FileSnapshot::Missing => {
@@ -529,9 +603,16 @@ pub fn lock_root(path: &Path) -> Result<RootLock> {
         }
         _ => return Err(unsafe_path("YSS 控制目录不安全")),
     };
-    let lock = RelPath::new(".yss/lock")?;
+    acquire_lock(root, &RelPath::new(".yss/lock")?, !created)
+}
+
+pub(crate) fn lock_file(root: Root, path: &RelPath) -> Result<RootLock> {
+    acquire_lock(root, path, true)
+}
+
+fn acquire_lock(mut root: Root, lock: &RelPath, allow_existing: bool) -> Result<RootLock> {
     let parent = root
-        .parent(&lock)?
+        .parent(lock)?
         .ok_or_else(|| unsafe_path("控制目录不存在"))?;
     root.revalidate_parent(&parent)?;
     let mut options = OpenOptions::new();
@@ -540,20 +621,20 @@ pub fn lock_root(path: &Path) -> Result<RootLock> {
         .write(true)
         .create_new(true)
         .follow(FollowSymlinks::No);
-    let file = match parent.dir.open_with("lock", &options) {
+    let file = match parent.dir.open_with(&parent.name, &options) {
         Ok(mut file) => {
             file.write_all(b"yss.lock/1\n")?;
             file.sync_all()?;
             platform::sync_dir(&parent.dir)?;
             file
         }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && !created => {
-            if root.read_checked(&lock, 64)?.bytes != b"yss.lock/1\n" {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && allow_existing => {
+            if root.read_checked(lock, 64)?.bytes != b"yss.lock/1\n" {
                 return Err(unsafe_path("未知锁文件"));
             }
             let mut options = OpenOptions::new();
             options.read(true).write(true).follow(FollowSymlinks::No);
-            parent.dir.open_with("lock", &options)?
+            parent.dir.open_with(&parent.name, &options)?
         }
         Err(e) => return Err(e.into()),
     };
@@ -568,7 +649,7 @@ pub fn lock_root(path: &Path) -> Result<RootLock> {
     if magic != b"yss.lock/1\n" {
         return Err(unsafe_path("锁文件已改变"));
     }
-    root.lock_identity = Some(locked_identity);
+    root.lock_identity = Some((lock.clone(), locked_identity));
     root.revalidate_parent(&parent)?;
     Ok(RootLock { root, _file: file })
 }

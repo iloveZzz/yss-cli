@@ -7,6 +7,10 @@
 模板源必须是明确的 Git 工作树，生成器读取实际文件；支持未提交的修改和删除，记录 HEAD、工作树状态、内容摘要。源在生成过程中发生变化会拒绝本次构建；不要把旧标签指向工作树。
 
 ```text
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui typecheck
+pnpm --dir ui lint
+pnpm --dir ui build
 cargo run --locked --bin yss-bundle -- --source-root /absolute/yss-spec-project-template --out assets/bundle.tar.gz
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
@@ -83,3 +87,5 @@ CLI `3.3.3` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-
 先前体积比较使用的开发包 `yss_4.0.0-dev_aarch64-apple-darwin.tar.gz`：裸程序 6,870,928 字节（6.55 MiB），压缩包 4,385,600 字节（4.18 MiB）。归档 SHA-256：`826b5c64761a8d8c00f58cffc942cd5c710218a12cc2acd5e685cb16b3ea3476`。该记录属于体积比较时的源码快照，不是当前提交的发行结果；新构建以实际清单及摘要为准。
 
 在空 PATH 下已实际执行 help/version/catalog、init/attach/sync/skills/doctor/recover、DDD/MVC 生成、离线预览/初装/重复升级。输入和目标使用非 Git 临时目录，未调用 Go/Bun/Node/Python；涉及 Git 工作树的保护性操作仍需系统 Git，缺失时拒绝继续。Rust 程序本身不会启动解释器来完成这些流程；Maven 编译所需 JDK/Maven 环境另算。
+
+源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。

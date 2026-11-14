@@ -1,0 +1,39 @@
+<script lang="ts">
+interface DisplayState { limit:number; columns:Record<string,number>; scrollTop:number; scrollLeft:number }
+const displays=new Map<string,DisplayState>()
+</script>
+<script setup lang="ts">
+import { computed,reactive,shallowRef,watch,nextTick } from 'vue'
+import { useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import WorkItemRows from '@/components/WorkItemRows.vue'
+import { useWorkbench } from '@/hooks/useWorkbench'
+import { stages,statuses,isClosed,type Stage,type Status } from '@/services/workbench'
+import { useSpecFilters } from './hooks/useSpecFilters'
+import { useWorkItems } from './hooks/useWorkItems'
+import SpecBoard from './components/SpecBoard.vue'
+import SavedViews from './components/SavedViews.vue'
+import { encodeWorkQuery } from './schemas/filter'
+const {snapshot}=useWorkbench();const {filters,layout,groupBy,viewId,update,apply,clear}=useSpecFilters();const router=useRouter()
+const {result,loading,error,refresh}=useWorkItems(filters)
+const displayKey=computed(()=>JSON.stringify([filters.value,layout.value,groupBy.value]))
+const display=computed(()=>{let value=displays.get(displayKey.value);if(!value){value=reactive({limit:50,columns:{},scrollTop:0,scrollLeft:0});displays.set(displayKey.value,value)}return value})
+const restorePosition=shallowRef(true)
+function rememberPosition(){display.value.scrollTop=window.scrollY}
+onBeforeRouteLeave(rememberPosition);onBeforeRouteUpdate(rememberPosition)
+watch(displayKey,()=>{restorePosition.value=true})
+watch(result,async()=>{if(!restorePosition.value)return;const key=displayKey.value;await nextTick();if(key===displayKey.value){window.scrollTo({top:display.value.scrollTop,behavior:'instant'});restorePosition.value=false}},{flush:'post'})
+const projects=computed(()=>snapshot.value?.projects??[])
+const missingScope=computed(()=>filters.value.projectIds.some(id=>!projects.value.some(p=>p.record.id===id))||filters.value.specIds.some(id=>!snapshot.value?.specs.some(s=>s.record.id===id)))
+function toggle(key:'projectIds'|'stages'|'statuses',value:string,checked:boolean){const values=checked?[...filters.value[key],value]:filters.value[key].filter(v=>v!==value);if(key==='projectIds')update({projectIds:values});else if(key==='stages')update({stages:values as Stage[]});else update({statuses:values as Status[]})}
+const coverage=computed(()=>{
+ const ss=(snapshot.value?.specs??[]).filter(s=>(!filters.value.projectIds.length||filters.value.projectIds.includes(s.record.projectId))&&(!filters.value.specIds.length||filters.value.specIds.includes(s.record.id)))
+ const enabled=(id:string)=>{const s=ss.find(s=>s.record.id===id);return !!s?.record.active&&projects.value.some(p=>p.record.id===s.record.projectId&&p.record.active)}
+ const entries=filters.value.entity==='spec'?ss.map(s=>({active:enabled(s.record.id),status:s.record.status})):(snapshot.value?.tasks??[]).filter(t=>ss.some(s=>s.record.id===t.record.specId)).map(t=>({active:enabled(t.record.specId)&&t.record.active,status:t.record.status}))
+ return {total:entries.length,inactive:entries.filter(e=>!e.active).length,closed:entries.filter(e=>e.active&&isClosed(e.status)).length}
+})
+function all(){update({activity:'all',includeClosed:true,statuses:[]})}
+function removed(){void router.replace({query:encodeWorkQuery(filters.value,layout.value,groupBy.value)})}
+</script>
+<template><div class="page-heading"><div><h1>全部 Spec 与任务</h1><p class="muted">已纳管项目中的个人工作；源文件、任务状态和阶段记录分别保留。</p></div><RouterLink to="/projects" class="text-link">关联更多 Spec ↗</RouterLink></div><div class="toolbar"><div class="segmented" aria-label="工作项类型"><button :aria-pressed="filters.entity==='spec'" @click="update({entity:'spec'})">Spec</button><button :aria-pressed="filters.entity==='task'" @click="update({entity:'task'})">任务</button></div><span class="muted">当前项目范围已纳管 {{coverage.total}} 项 · 启用且已关闭 {{coverage.closed}} · 停用 {{coverage.inactive}}</span><Button variant="ghost" @click="all">查看全部记录</Button></div><SavedViews :query="filters" :layout="layout" :group-by="groupBy" :view-id="viewId" @apply="apply" @removed="removed" /><section class="filter-bar work-filters" aria-label="筛选工作项"><Input :model-value="filters.q" aria-label="搜索工作项" placeholder="搜索标题、项目、路径、下一步、阻塞或备注…" class="search-input" @update:model-value="update({q:String($event)})" /><details class="filter-menu"><summary>项目 {{filters.projectIds.length||'全部'}}</summary><div class="filter-options"><label v-for="p in projects" :key="p.record.id" class="check-label"><input type="checkbox" :checked="filters.projectIds.includes(p.record.id)" @change="toggle('projectIds',p.record.id,($event.target as HTMLInputElement).checked)">{{p.record.name}}{{p.record.active?'':'（停用）'}}</label></div></details><details class="filter-menu"><summary>阶段 {{filters.stages.length||'全部'}}</summary><div class="filter-options"><label v-for="(label,key) in stages" :key="key" class="check-label"><input type="checkbox" :checked="filters.stages.includes(key)" @change="toggle('stages',key,($event.target as HTMLInputElement).checked)">{{label}}</label></div></details><details class="filter-menu"><summary>状态 {{filters.statuses.length||'全部'}}</summary><div class="filter-options"><label v-for="(label,key) in statuses" :key="key" class="check-label"><input type="checkbox" :checked="filters.statuses.includes(key)" @change="toggle('statuses',key,($event.target as HTMLInputElement).checked)">{{label}}</label></div></details><select aria-label="启用范围" :value="filters.activity" @change="update({activity:($event.target as HTMLSelectElement).value as 'active'|'inactive'|'all'})"><option value="active">启用记录</option><option value="inactive">停用记录</option><option value="all">全部记录</option></select><Button variant="ghost" @click="clear">清除筛选</Button></section><div class="toolbar"><span>{{result?.total??0}} 项结果{{loading?' · 刷新中':''}}</span><label class="check-label"><input type="checkbox" :checked="filters.includeClosed" @change="update({includeClosed:($event.target as HTMLInputElement).checked})">显示已完成／已取消</label><label class="check-label"><input type="checkbox" :checked="filters.sourceProblemsOnly" @change="update({sourceProblemsOnly:($event.target as HTMLInputElement).checked})">仅来源异常</label><select aria-label="排序" :value="filters.sort" @change="update({sort:($event.target as HTMLSelectElement).value as 'updatedDesc'|'titleAsc'})"><option value="updatedDesc">最近更新</option><option value="titleAsc">标题顺序</option></select><div class="segmented" aria-label="显示方式"><button :aria-pressed="layout==='list'" @click="update({},{layout:'list'})">列表</button><button :aria-pressed="layout==='board'" @click="update({},{layout:'board'})">看板</button></div><select v-if="layout==='board'" aria-label="看板分组" :value="groupBy" @change="update({},{groupBy:($event.target as HTMLSelectElement).value as 'status'|'stage'})"><option value="status">按状态</option><option value="stage">按阶段</option></select></div><p v-if="missingScope" class="notice warning">筛选引用的项目或 Spec 不存在，结果保持为空。请清除对应条件。</p><p v-if="error" role="alert" class="notice error">{{error}} 保留上次查询结果。<Button variant="outline" @click="refresh">重试</Button></p><p v-else-if="loading && result" class="muted view-note">正在载入新结果，以下暂为上次查询。</p><template v-if="result"><section v-if="layout==='list'" class="panel"><WorkItemRows :items="result.items.slice(0,display.limit)" /><div v-if="result.total>display.limit" class="load-more"><Button variant="outline" @click="display.limit+=50">加载更多（已显示 {{Math.min(display.limit,result.total)}} / {{result.total}}）</Button></div></section><SpecBoard v-else v-model:limits="display.columns" v-model:scroll-left="display.scrollLeft" :items="result.items" :group-by="groupBy" :revision="result.revision" /></template><p v-if="!filters.includeClosed" class="muted view-note">已隐藏已完成与已取消记录；未登记目录和未接入平台不在当前覆盖范围。</p></template>

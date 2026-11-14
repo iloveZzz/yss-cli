@@ -23,6 +23,10 @@ yss sync --root ./my-project --dry-run
 初始化、已有项目接入、技能、脚手架、升级及参数示例见[命令与输出](docs/cli-help.md)。写命令直接执行；`--dry-run` 只预览，不创建根目录、锁、缓存或保存计划。未知文件不接管，即使内容相同；受管文件本地修改与来源修改冲突时整次拒绝。事务中断后先 `recover`，已提交事务只重试安全清理。
 
 ```text
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui typecheck
+pnpm --dir ui lint
+pnpm --dir ui build
 cargo run --locked --bin yss-bundle -- --source-root /absolute/template --out assets/bundle.tar.gz
 cargo build --locked --release --bin yss
 ```
@@ -38,3 +42,15 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，内嵌 Template `5.3.1`；先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](docs/scaffold.md)。
 
 `3.3.3` 更新内嵌 Template 为 `5.3.4`，分发三个 Profile 的技能地图及六个安装入口导航，明确 Spec 的 handoff 交接职责，并完善第三方问题、Agent 文档事实来源与前端边界检查方法。默认技能仍为 Spec 16 项、Backend 41 项、Frontend 13 项，CLI 命令和依赖保持不变。公开技能与 CLI Bundle 使用各自真实来源记录。
+
+源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
+
+## 个人 Spec 工作台（当前源码新增，尚未发行）
+
+```text
+yss workbench
+yss workbench --no-open
+yss workbench snapshot --json
+```
+
+登记本机项目、选择 Markdown Spec，录入具体任务，查看从调研到交付的八阶段生命周期。列表、状态／阶段看板、收藏视图和 CLI 共用查询；任务、Spec 和阶段进度独立维护。项目文件只读，标记独立保存到个人数据目录。详细边界、恢复与参数见[工作台说明](docs/workbench.md)。旧版已安装 CLI 不因源码更新自动获得新命令。

@@ -6,3 +6,5 @@
 /target/
 /assets/bundle.tar.gz
 /assets/bundle.tar.gz.*.tmp
+
+/ui/.yss/

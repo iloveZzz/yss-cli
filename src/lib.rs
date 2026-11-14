@@ -13,3 +13,4 @@ pub mod transaction;
 pub mod updater;
 
 pub mod network;
+pub mod workbench;

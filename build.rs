@@ -56,15 +56,16 @@ fn main() {
         "rust-toolchain.toml".to_owned(),
         "build.rs".to_owned(),
     ];
-    fn walk(dir: &Path, paths: &mut Vec<String>) {
+    fn walk(dir: &Path, paths: &mut Vec<String>, rust_only: bool) {
         for entry in fs::read_dir(dir).expect("cannot list build sources") {
             let entry = entry.expect("cannot read source entry");
             let path = entry.path();
             let kind = entry.file_type().expect("cannot inspect source entry");
             assert!(!kind.is_symlink(), "build sources cannot contain links");
             if kind.is_dir() {
-                walk(&path, paths);
-            } else if kind.is_file() && path.extension().is_some_and(|v| v == "rs") {
+                walk(&path, paths, rust_only);
+            } else if kind.is_file() && (!rust_only || path.extension().is_some_and(|v| v == "rs"))
+            {
                 paths.push(
                     path.to_str()
                         .expect("source path is not UTF-8")
@@ -73,7 +74,42 @@ fn main() {
             }
         }
     }
-    walk(Path::new("src"), &mut paths);
+    walk(Path::new("src"), &mut paths, true);
+    for path in [
+        "ui/package.json",
+        "ui/pnpm-lock.yaml",
+        "ui/pnpm-workspace.yaml",
+        "ui/index.html",
+        "ui/vite.config.ts",
+        "ui/tsconfig.json",
+        "ui/eslint.config.mjs",
+        "ui/components.json",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+        if Path::new(path).exists() {
+            assert!(
+                !fs::symlink_metadata(path)
+                    .expect("UI source metadata")
+                    .file_type()
+                    .is_symlink(),
+                "UI sources cannot contain links"
+            );
+            paths.push(path.to_owned());
+        }
+    }
+    for path in ["ui/src", "ui/public", "ui/dist"] {
+        println!("cargo:rerun-if-changed={path}");
+        if Path::new(path).exists() {
+            assert!(
+                !fs::symlink_metadata(path)
+                    .expect("UI source metadata")
+                    .file_type()
+                    .is_symlink(),
+                "UI sources cannot contain links"
+            );
+            walk(Path::new(path), &mut paths, false);
+        }
+    }
     paths.sort();
     let mut hash = Sha256::new();
     for path in paths {
