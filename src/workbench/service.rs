@@ -21,7 +21,7 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         cancel.check()?;
         let root = Root::open(Path::new(&project.root_path));
         projects.push(ProjectView {
-            source_directories: ["docs/specs", "specs", ".work"]
+            source_directories: ["docs/spec", "docs/specs", "specs", ".work"]
                 .into_iter()
                 .filter(|path| {
                     root.as_ref().is_ok_and(|root| {
@@ -37,7 +37,7 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         });
         for s in state.specs.iter().filter(|s| s.project_id == project.id) {
             cancel.check()?;
-            specs.push(sources::spec_view(s, &root));
+            specs.push(sources::spec_view(state, s, &root));
             for task in state.tasks.iter().filter(|t| t.spec_id == s.id) {
                 cancel.check()?;
                 tasks.push(TaskView {
@@ -72,7 +72,7 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         saved_views: state.saved_views.clone(),
     })
 }
-fn project_root(path: &str, data: &Path) -> Result<String> {
+pub(super) fn project_root(path: &str, data: &Path) -> Result<String> {
     if !Path::new(path).is_absolute() {
         return Err(invalid("项目根必须是绝对目录"));
     }
@@ -184,6 +184,7 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             state.revision
         };
         return Ok(MutationResult {
+            response_id: None,
             revision,
             project_id: None,
             spec_id: None,
@@ -195,6 +196,7 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
         super::query::remove_view(&mut state, view_id)?;
         let revision = store.commit(request.expected_revision, state)?;
         return Ok(MutationResult {
+            response_id: None,
             revision,
             project_id: None,
             spec_id: None,
@@ -204,9 +206,61 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
     }
     let project_id;
     let mut spec_id = None;
+    let mut response_id = None;
     let mut task_ids = vec![];
     let mut delta = BTreeMap::new();
     match super::tasks::expand_action(&state, request.action)? {
+        Action::RespondQuestion {
+            spec_id: id,
+            question_id,
+            question_digest,
+            response_kind,
+            answer,
+            reason,
+            impact,
+            excluded_scope,
+            review_at,
+            review_when,
+            review_utc_offset_minutes,
+        } => {
+            project_id = sources::spec(&state, &id)?.project_id.clone();
+            super::content::respond(
+                &mut state,
+                QuestionResponse {
+                    id: String::new(),
+                    spec_id: id.clone(),
+                    question_id,
+                    kind: response_kind,
+                    answer,
+                    reason,
+                    impact,
+                    excluded_scope,
+                    review_at,
+                    review_when,
+                    review_utc_offset_minutes,
+                    question_digest,
+                    created_at: String::new(),
+                },
+                &at,
+            )?;
+            response_id = state.question_responses.last().map(|r| r.id.clone());
+            spec_id = Some(id);
+        }
+        Action::ConfirmContent {
+            spec_id: id,
+            scope,
+            artifact_digest,
+        } => {
+            project_id = sources::spec(&state, &id)?.project_id.clone();
+            super::content::confirm(&mut state, &id, scope, artifact_digest, &at)?;
+            spec_id = Some(id);
+        }
+        Action::RefreshSpec { spec_id: id } => {
+            project_id = sources::spec(&state, &id)?.project_id.clone();
+            super::registration::refresh(&mut state, &id, &at)?;
+            spec_id = Some(id);
+        }
+
         Action::SaveView { .. } | Action::RemoveView { .. } => {
             return Err(invalid("无法解析视图动作"));
         }
@@ -313,8 +367,9 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             if !project.active {
                 return Err(invalid("请先恢复项目"));
             }
-            check_source_unique(&state, &id, &source_path, "")?;
             let root = Root::open(Path::new(&project.root_path))?;
+            let source_path = super::registration::main_source(&root, &source_path)?;
+            check_source_unique(&state, &id, &source_path, "")?;
             let text = sources::text(&root, &source_path)?;
             root.revalidate()?;
             let record = SpecRecord {
@@ -328,6 +383,8 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
                 blocker: String::new(),
                 notes: String::new(),
                 resources: vec![],
+                source_resource_targets: vec![],
+                inferred_resources: vec![],
                 active: true,
                 created_at: at.clone(),
                 updated_at: at.clone(),
@@ -337,6 +394,7 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             spec_id = Some(record.id.clone());
             delta = changes(None, &record)?;
             state.specs.push(record);
+            super::registration::refresh(&mut state, spec_id.as_deref().expect("new spec"), &at)?;
         }
         Action::EditSpec {
             spec_id: id,
@@ -415,6 +473,7 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
         state.revision
     };
     Ok(MutationResult {
+        response_id,
         revision,
         project_id: Some(project_id),
         spec_id,

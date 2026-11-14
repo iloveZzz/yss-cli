@@ -77,6 +77,9 @@ impl Command {
                 Some(WorkbenchCommand::Snapshot) => "workbench.snapshot",
                 Some(WorkbenchCommand::Query(_)) => "workbench.query",
                 Some(WorkbenchCommand::Lifecycle { .. }) => "workbench.lifecycle",
+                Some(WorkbenchCommand::Register { .. }) => "workbench.register",
+                Some(WorkbenchCommand::Request { .. }) => "workbench.request",
+                Some(WorkbenchCommand::Respond(_)) => "workbench.respond",
             },
             Self::Init(_) => "init",
             Self::Attach(_) => "attach",
@@ -115,6 +118,20 @@ pub struct WorkbenchArgs {
 }
 #[derive(Subcommand)]
 pub enum WorkbenchCommand {
+    #[command(about = "登记或刷新一个主 Spec 及关联产物，保留个人备注与历史")]
+    Register {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        source: String,
+    },
+    #[command(about = "只读生成包含问题答复的 Agent 续办要求")]
+    Request {
+        #[arg(long)]
+        spec_id: String,
+    },
+    #[command(about = "保存用户已明确给出的答复或延期；答复不等于解决")]
+    Respond(WorkbenchResponseArgs),
     #[command(about = "只读输出个人状态与来源健康；可配合 --json")]
     Snapshot,
     #[command(about = "只读筛选已纳管的 Spec 或任务")]
@@ -124,6 +141,31 @@ pub enum WorkbenchCommand {
         #[arg(long)]
         spec: String,
     },
+}
+#[derive(Args)]
+pub struct WorkbenchResponseArgs {
+    #[arg(long)]
+    pub spec_id: String,
+    #[arg(long)]
+    pub question_id: String,
+    #[arg(long, help = "当前问题摘要，见 snapshot 或 request")]
+    pub question_digest: String,
+    #[arg(long = "kind", value_enum, default_value = "answer")]
+    pub response_kind: crate::workbench::model::ResponseKind,
+    #[arg(long, default_value = "")]
+    pub answer: String,
+    #[arg(long, default_value = "")]
+    pub reason: String,
+    #[arg(long, default_value = "")]
+    pub impact: String,
+    #[arg(long, default_value = "")]
+    pub excluded_scope: String,
+    #[arg(long, default_value = "")]
+    pub review_at: String,
+    #[arg(long, default_value = "")]
+    pub review_when: String,
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+    pub review_utc_offset_minutes: i16,
 }
 #[derive(Args)]
 pub struct WorkbenchQueryArgs {
@@ -324,8 +366,10 @@ pub struct UpgradeArgs {
 #[serde(untagged)]
 enum Report<'a> {
     Workbench(crate::workbench::model::Snapshot),
+    WorkbenchMutation(crate::workbench::model::MutationResult),
+    WorkbenchRequest(crate::workbench::model::AgentRequest),
     WorkbenchQuery(crate::workbench::model::QueryResult),
-    WorkbenchLifecycle(crate::workbench::model::LifecycleView),
+    WorkbenchLifecycle(Box<crate::workbench::model::LifecycleView>),
     Help { help: String },
     Version(&'a BuildInfo),
     Catalog(crate::scaffold::CatalogReport),
@@ -349,6 +393,67 @@ fn dispatch<'a>(
     match command {
         Command::Workbench(args) => {
             let path = crate::workbench::store::resolve_data_dir(args.data_dir.as_deref())?;
+            match &args.command {
+                Some(WorkbenchCommand::Register { root, source }) => {
+                    let root = crate::fs::absolute(root)?;
+                    let root = root.to_str().ok_or_else(|| {
+                        YssError::new(ErrorCode::InvalidInput, "项目路径不是 UTF-8")
+                    })?;
+                    if let Some(result) =
+                        crate::workbench::session::register_if_running(&path, root, source)?
+                    {
+                        return Ok(Report::WorkbenchMutation(result));
+                    }
+                    let mut store = crate::workbench::store::Store::open(&path)?;
+                    let revision = store.state().revision;
+                    return Ok(Report::WorkbenchMutation(
+                        crate::workbench::registration::register(
+                            &mut store, root, source, revision,
+                        )?,
+                    ));
+                }
+                Some(WorkbenchCommand::Request { spec_id }) => {
+                    return Ok(Report::WorkbenchRequest(
+                        crate::workbench::content::agent_request(
+                            &crate::workbench::store::read_state(&path)?,
+                            spec_id,
+                            &path,
+                        )?,
+                    ));
+                }
+                Some(WorkbenchCommand::Respond(r)) => {
+                    let action = crate::workbench::model::Action::RespondQuestion {
+                        spec_id: r.spec_id.clone(),
+                        question_id: r.question_id.clone(),
+                        question_digest: r.question_digest.clone(),
+                        response_kind: r.response_kind,
+                        answer: r.answer.clone(),
+                        reason: r.reason.clone(),
+                        impact: r.impact.clone(),
+                        excluded_scope: r.excluded_scope.clone(),
+                        review_at: r.review_at.clone(),
+                        review_when: r.review_when.clone(),
+                        review_utc_offset_minutes: r.review_utc_offset_minutes,
+                    };
+                    if let Some(result) =
+                        crate::workbench::session::mutate_if_running(&path, action.clone())?
+                    {
+                        return Ok(Report::WorkbenchMutation(result));
+                    }
+                    let mut store = crate::workbench::store::Store::open(&path)?;
+                    let expected_revision = store.state().revision;
+                    return Ok(Report::WorkbenchMutation(
+                        crate::workbench::service::mutate(
+                            &mut store,
+                            crate::workbench::model::MutationRequest {
+                                expected_revision,
+                                action,
+                            },
+                        )?,
+                    ));
+                }
+                _ => {}
+            }
             let snapshot = crate::workbench::service::snapshot(
                 &crate::workbench::store::read_state(&path)?,
                 cancel,
@@ -371,9 +476,11 @@ fn dispatch<'a>(
                         },
                     )?))
                 }
-                Some(WorkbenchCommand::Lifecycle { spec }) => Ok(Report::WorkbenchLifecycle(
-                    crate::workbench::lifecycle::build_lifecycle(&snapshot, &spec)?,
-                )),
+                Some(WorkbenchCommand::Lifecycle { spec }) => {
+                    Ok(Report::WorkbenchLifecycle(Box::new(
+                        crate::workbench::lifecycle::build_lifecycle(&snapshot, &spec)?,
+                    )))
+                }
                 _ => Ok(Report::Workbench(snapshot)),
             }
         }

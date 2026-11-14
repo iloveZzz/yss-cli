@@ -102,6 +102,10 @@ pub struct SpecRecord {
     pub created_at: String,
     pub updated_at: String,
     pub last_visited_at: Option<String>,
+    #[serde(default)]
+    pub source_resource_targets: Vec<String>,
+    #[serde(default)]
+    pub inferred_resources: Vec<ResourceRef>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -131,11 +135,15 @@ pub struct WorkbenchState {
     pub tasks: Vec<TaskRecord>,
     pub stage_records: Vec<StageRecord>,
     pub saved_views: Vec<SavedView>,
+    #[serde(default)]
+    pub question_responses: Vec<QuestionResponse>,
+    #[serde(default)]
+    pub confirmations: Vec<ConfirmationRecord>,
 }
 impl Default for WorkbenchState {
     fn default() -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 3,
             revision: 0,
             projects: vec![],
             specs: vec![],
@@ -143,6 +151,8 @@ impl Default for WorkbenchState {
             tasks: vec![],
             stage_records: vec![],
             saved_views: vec![],
+            question_responses: vec![],
+            confirmations: vec![],
         }
     }
 }
@@ -323,6 +333,7 @@ pub struct ProjectView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpecView {
+    pub content: ContentView,
     pub record: SpecRecord,
     pub source_health: SourceHealth,
     pub source_message: Option<String>,
@@ -398,6 +409,7 @@ pub struct DiscoverResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceDocument {
+    pub source_path: String,
     pub spec_id: String,
     pub text: String,
     pub digest: String,
@@ -412,6 +424,8 @@ pub struct MutationRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MutationResult {
+    #[serde(default)]
+    pub response_id: Option<String>,
     pub revision: u64,
     pub project_id: Option<String>,
     pub spec_id: Option<String>,
@@ -426,6 +440,28 @@ pub struct MutationResult {
     deny_unknown_fields
 )]
 pub enum Action {
+    RespondQuestion {
+        spec_id: String,
+        question_id: String,
+        question_digest: String,
+        response_kind: ResponseKind,
+        answer: String,
+        reason: String,
+        impact: String,
+        excluded_scope: String,
+        review_at: String,
+        review_when: String,
+        #[serde(default)]
+        review_utc_offset_minutes: i16,
+    },
+    ConfirmContent {
+        spec_id: String,
+        scope: String,
+        artifact_digest: String,
+    },
+    RefreshSpec {
+        spec_id: String,
+    },
     SaveView {
         view_id: Option<String>,
         name: String,
@@ -491,4 +527,132 @@ pub enum Action {
     VisitSpec {
         spec_id: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentStatus {
+    Unmarked,
+    Draft,
+    Ready,
+    Confirmed,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceContentStatus {
+    #[default]
+    Draft,
+    Ready,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionKind {
+    Research,
+    Decision,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionStatus {
+    Open,
+    Resolved,
+    Deferred,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpecMetadata {
+    pub schema_version: u32,
+    pub scope: String,
+    #[serde(default)]
+    pub content_status: SourceContentStatus,
+    #[serde(default)]
+    pub resources: Vec<ResourceRef>,
+    #[serde(default)]
+    pub questions: Vec<SpecQuestion>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpecQuestion {
+    pub id: String,
+    pub title: String,
+    pub kind: QuestionKind,
+    pub impact: String,
+    pub recommendation: String,
+    pub blocking: bool,
+    pub affected_scope: String,
+    pub status: QuestionStatus,
+    #[serde(default)]
+    pub resolution: String,
+    #[serde(default)]
+    pub applied_decision_id: Option<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "camelCase")]
+pub enum ResponseKind {
+    Answer,
+    Defer,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuestionResponse {
+    pub id: String,
+    pub spec_id: String,
+    pub question_id: String,
+    pub kind: ResponseKind,
+    pub answer: String,
+    pub reason: String,
+    pub impact: String,
+    pub excluded_scope: String,
+    pub review_at: String,
+    pub review_when: String,
+    #[serde(default)]
+    pub review_utc_offset_minutes: i16,
+    pub question_digest: String,
+    pub created_at: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConfirmationRecord {
+    pub id: String,
+    pub spec_id: String,
+    pub scope: String,
+    pub artifact_digest: String,
+    pub created_at: String,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionState {
+    Open,
+    PendingWriteback,
+    Resolved,
+    Deferred,
+    Overdue,
+    NeedsReview,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionView {
+    pub question: SpecQuestion,
+    pub digest: String,
+    pub state: QuestionState,
+    pub response: Option<QuestionResponse>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentView {
+    pub status: ContentStatus,
+    pub scope: String,
+    pub artifact_digest: Option<String>,
+    pub metadata_error: Option<String>,
+    pub questions: Vec<QuestionView>,
+    pub confirmations: Vec<ConfirmationRecord>,
+    pub can_confirm: bool,
+    pub blockers: Vec<String>,
+    pub needs_reconfirmation: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRequest {
+    pub spec_id: String,
+    pub text: String,
+    pub read_at: String,
 }

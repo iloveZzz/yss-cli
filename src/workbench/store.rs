@@ -102,7 +102,7 @@ fn prepare_dir(path: &Path) -> Result<PathBuf> {
 }
 
 fn validate(state: &WorkbenchState) -> Result<()> {
-    if state.schema_version != 2 {
+    if state.schema_version != 3 {
         return Err(invalid("不支持的工作台数据版本；原文件已保留"));
     }
     if state.revision > 9_007_199_254_740_991 {
@@ -143,6 +143,29 @@ fn validate(state: &WorkbenchState) -> Result<()> {
         }
         super::service::validate_resources(&spec.resources)
             .map_err(|_| invalid("Spec 资源无效"))?;
+        super::service::validate_resources(&spec.inferred_resources)
+            .map_err(|_| invalid("Spec 推断资源无效"))?;
+    }
+    for response in &state.question_responses {
+        if !valid_id(&response.id)
+            || !ids.insert(&response.id)
+            || !state.specs.iter().any(|s| s.id == response.spec_id)
+            || response.question_id.trim().is_empty()
+            || response.question_digest.len() != 64
+        {
+            return Err(invalid("问题回复记录无效"));
+        }
+        super::content::validate_response(response)?;
+    }
+    for confirmation in &state.confirmations {
+        if !valid_id(&confirmation.id)
+            || !ids.insert(&confirmation.id)
+            || !state.specs.iter().any(|s| s.id == confirmation.spec_id)
+            || confirmation.scope.trim().is_empty()
+            || confirmation.artifact_digest.len() != 64
+        {
+            return Err(invalid("内容确认记录无效"));
+        }
     }
     for task in &state.tasks {
         if !valid_id(&task.id)
@@ -285,12 +308,11 @@ impl Store {
         if self.file != FileSnapshot::Missing {
             let original = root.read_checked(&state_path()?, MAX_STATE)?;
             let value: serde_json::Value = codec::decode_json(&original.bytes, state_limits())?;
-            if value
+            if let Some(version @ (1 | 2)) = value
                 .get("schemaVersion")
                 .and_then(serde_json::Value::as_u64)
-                == Some(1)
             {
-                backup_v1(root, &original.bytes)?;
+                backup_previous(root, &original.bytes, version)?;
                 if root.read_checked(&state_path()?, MAX_STATE)?.snapshot != self.file {
                     return Err(YssError::new(
                         ErrorCode::ConcurrentChange,
@@ -342,9 +364,12 @@ impl Store {
     }
 }
 
-fn backup_v1(root: &Root, bytes: &[u8]) -> Result<()> {
+fn backup_previous(root: &Root, bytes: &[u8], version: u64) -> Result<()> {
     use sha2::{Digest, Sha256};
-    let path = RelPath::new(format!("state.v1-backup-{:x}.json", Sha256::digest(bytes)))?;
+    let path = RelPath::new(format!(
+        "state.v{version}-backup-{:x}.json",
+        Sha256::digest(bytes)
+    ))?;
     match root.read_checked(&path, MAX_STATE) {
         Ok(existing) if existing.bytes == bytes => return Ok(()),
         Ok(_) => return Err(invalid("已有升级备份内容不同；未覆盖")),

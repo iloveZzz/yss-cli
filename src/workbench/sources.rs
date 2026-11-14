@@ -65,8 +65,7 @@ fn modified(root: &Root, path: &str) -> Option<String> {
 }
 pub fn title(text: &str, path: &str) -> String {
     text.lines()
-        .find(|l| !l.trim().is_empty())
-        .and_then(|l| l.strip_prefix("# "))
+        .find_map(|l| l.strip_prefix("# "))
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
@@ -86,6 +85,7 @@ pub fn read_source(state: &WorkbenchState, spec_id: &str) -> Result<SourceDocume
     root.revalidate()?;
     Ok(SourceDocument {
         spec_id: s.id.clone(),
+        source_path: s.source_path.clone(),
         digest: Sha256::of(text.as_bytes()).as_str().into(),
         text,
         read_at: now(),
@@ -105,17 +105,22 @@ fn health(error: &YssError) -> SourceHealth {
         SourceHealth::Unreadable
     }
 }
-pub fn spec_view(s: &SpecRecord, root: &Result<Root>) -> SpecView {
+pub fn spec_view(state: &WorkbenchState, s: &SpecRecord, root: &Result<Root>) -> SpecView {
     let read = match root {
         Ok(root) => text(root, &s.source_path),
         Err(e) => Err(e.clone()),
     };
-    let (source_health, source_message) = match read {
+    let (source_health, source_message) = match &read {
         Ok(_) => (SourceHealth::Available, None),
-        Err(e) => (health(&e), Some(e.message)),
+        Err(e) => (health(e), Some(e.message.clone())),
     };
-    let resources = resource_views(&s.resources, root);
+    let meta = read
+        .as_ref()
+        .ok()
+        .and_then(|text| super::content::metadata(text).ok().flatten());
+    let resources = resource_views(&super::content::merged_resources(s, meta.as_ref()), root);
     SpecView {
+        content: super::content::view(state, s, root),
         record: s.clone(),
         source_health,
         source_message,
@@ -246,6 +251,11 @@ pub fn discover(
                     stack.push((Some(rel), depth + 1));
                 }
             } else if name.to_ascii_lowercase().ends_with(".md") {
+                if super::registration::main_source(&root, rel.as_str())
+                    .is_ok_and(|main| main != rel.as_str())
+                {
+                    continue;
+                }
                 match text(&root, rel.as_str()) {
                     Ok(content) => result.candidates.push(Candidate {
                         source_path: rel.as_str().into(),

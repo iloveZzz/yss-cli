@@ -69,7 +69,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ("referrer-policy", "no-referrer"),
         (
             "content-security-policy",
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src http://127.0.0.1:*",
         ),
     ] {
         response.headers_mut().insert(
@@ -161,6 +161,27 @@ async fn dispatch(server: Server, request: Request) -> Response {
         let decode_error = |e: YssError| {
             YssError::new(ErrorCode::InvalidInput, "请求内容不合法").context("detail", e.message)
         };
+        if method == axum::http::Method::POST && path == "/api/register" {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Register {
+                expected_revision: u64,
+                root_path: String,
+                source_path: String,
+            }
+            let request: Register = codec::decode_json(&bytes, limits).map_err(decode_error)?;
+            let mut store = server
+                .store
+                .lock()
+                .map_err(|_| YssError::new(ErrorCode::Io, "数据锁失效，请重启"))?;
+            return serde_json::to_value(super::registration::register(
+                &mut store,
+                &request.root_path,
+                &request.source_path,
+                request.expected_revision,
+            )?)
+            .map_err(|_| YssError::new(ErrorCode::Io, "响应编码失败"));
+        }
         if method == axum::http::Method::POST && path == "/api/commands" {
             let request: MutationRequest =
                 codec::decode_json(&bytes, limits).map_err(decode_error)?;
@@ -177,7 +198,72 @@ async fn dispatch(server: Server, request: Request) -> Response {
             .map_err(|_| YssError::new(ErrorCode::Io, "数据锁失效，请重启"))?
             .state()
             .clone();
-        let value = if method == axum::http::Method::GET && path == "/api/snapshot" {
+        let value = if method == axum::http::Method::POST && path == "/api/document" {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Document {
+                spec_id: String,
+                path: String,
+            }
+            let request: Document = codec::decode_json(&bytes, limits).map_err(decode_error)?;
+            serde_json::to_value(super::registration::read_document(
+                &state,
+                &request.spec_id,
+                &request.path,
+            )?)
+        } else if method == axum::http::Method::POST
+            && path.starts_with("/api/specs/")
+            && path.ends_with("/preview")
+        {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Preview {
+                target: String,
+            }
+            let request: Preview = codec::decode_json(&bytes, limits).map_err(decode_error)?;
+            let id = &path[11..path.len() - 8];
+            let spec = super::sources::spec(&state, id)?;
+            let project = super::sources::project(&state, &spec.project_id)?;
+            let source = super::sources::read_source(&state, id)?;
+            let meta = super::content::metadata(&source.text)?;
+            if !super::content::merged_resources(spec, meta.as_ref())
+                .iter()
+                .any(|r| {
+                    r.kind == ResourceKind::Prototype
+                        && r.target_type == TargetType::Local
+                        && r.target == request.target
+                })
+            {
+                return Err(super::sources::invalid("只能预览此 Spec 已关联的本地原型"));
+            }
+            serde_json::to_value(super::preview::start(
+                &project.root_path,
+                &request.target,
+                &server.origin,
+                &server.cancel,
+            )?)
+        } else if method == axum::http::Method::GET
+            && path.starts_with("/api/specs/")
+            && path.ends_with("/content")
+        {
+            serde_json::to_value(super::content::read_view(
+                &state,
+                &path[11..path.len() - 8],
+            )?)
+        } else if method == axum::http::Method::GET
+            && path.starts_with("/api/specs/")
+            && path.ends_with("/request")
+        {
+            serde_json::to_value(super::content::agent_request(
+                &state,
+                &path[11..path.len() - 8],
+                server
+                    .store
+                    .lock()
+                    .map_err(|_| YssError::new(ErrorCode::Io, "数据锁失效，请重启"))?
+                    .data_dir(),
+            )?)
+        } else if method == axum::http::Method::GET && path == "/api/snapshot" {
             serde_json::to_value(service::snapshot(&state, &server.cancel)?)
         } else if method == axum::http::Method::POST && path == "/api/query" {
             let query: WorkQuery = codec::decode_json(&bytes, limits).map_err(decode_error)?;
@@ -228,6 +314,7 @@ pub fn serve(
     err: &mut dyn Write,
 ) -> Result<()> {
     let store = Store::open(&resolve_data_dir(Some(&options.data_dir))?)?;
+    let canonical_data_dir = store.data_dir().to_owned();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -237,6 +324,7 @@ pub fn serve(
         let host = listener.local_addr()?.to_string();
         let origin = format!("http://{host}");
         let token = format!("{}{}", crate::fs::unique_id()?, crate::fs::unique_id()?);
+        let _session = super::session::publish(&canonical_data_dir, &origin, &token)?;
         let url = format!("{origin}/#token={token}");
         writeln!(
             err,

@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码版本为纯 Rust CLI `3.4.0`，新增个人 Spec 工作台、任务看板、统一查询及全生命周期展示；`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前源码为纯 Rust CLI `3.4.1`，补齐 Spec 关联阅读、隔离原型预览、问题答复与延期、范围版本确认；实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
 
 ## 本地构建
 
@@ -22,8 +22,8 @@ Bundle 缺失时用户程序编译失败；内部 Bundle 工具可先独立构�
 ## 打包
 
 ```text
-cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.4.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.4.0_aarch64-apple-darwin.tar.gz
-shasum -a 256 /absolute/dist/yss_3.4.0_aarch64-apple-darwin.tar.gz
+cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.4.1 --target aarch64-apple-darwin --out /absolute/dist/yss_3.4.1_aarch64-apple-darwin.tar.gz
+shasum -a 256 /absolute/dist/yss_3.4.1_aarch64-apple-darwin.tar.gz
 ```
 
 输出父目录应存在，已有归档不会被覆盖。内部工具读取实际 ELF/Mach-O/PE 程序的专用构建记录，核对目标架构、版本、Bundle 和源码来源，不能通过参数伪造来源或执行外平台程序。压缩包只包含程序与 `release-manifest.json`；Windows 使用 ZIP。以真实归档生成统一 SHA256SUMS，完整归档和逐条载荷均校验 SHA-256、长度、路径与模式。
@@ -60,7 +60,7 @@ CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875
 
 CLI 3.4.0 的 GitHub 构建固定使用模板提交 `a4981d20ab992ae62693262cb4791e1628140877`（Template `v5.4.1`）；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 记录已发行 Template `v5.4.1`，历史标签保持原指向。
 
-CLI `3.4.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
+CLI `3.4.1` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 
 现有 `yss-linux` 作业按 ARM64 原生主机校验。其他原生作业使用实际注册 runner 的变量 `YSS_RUNNER_LINUX_X86_64`、`YSS_RUNNER_MACOS_ARM64`、`YSS_RUNNER_MACOS_X86_64`、`YSS_RUNNER_WINDOWS_ARM64`、`YSS_RUNNER_WINDOWS_X86_64`；变量缺失意味着对应目标未验证，不代表整个矩阵完成。CI artifacts 不自动发布为正式 Release。
 

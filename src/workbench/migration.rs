@@ -117,7 +117,18 @@ impl Default for WorkbenchState {
 pub fn decode_state(bytes: &[u8], limits: Limits) -> Result<model::WorkbenchState> {
     let mut value: Value = codec::decode_json(bytes, limits)?;
     match value.get("schemaVersion").and_then(Value::as_u64) {
+        Some(3) => {
+            serde_json::from_value(value).map_err(|e| invalid(&format!("工作台数据无效：{e}")))
+        }
         Some(2) => {
+            let obj = value
+                .as_object_mut()
+                .ok_or_else(|| invalid("工作台数据不是对象"))?;
+            obj.insert("schemaVersion".into(), Value::from(3));
+            obj.entry("questionResponses")
+                .or_insert_with(|| Value::Array(vec![]));
+            obj.entry("confirmations")
+                .or_insert_with(|| Value::Array(vec![]));
             serde_json::from_value(value).map_err(|e| invalid(&format!("工作台数据无效：{e}")))
         }
         Some(1) => {
@@ -126,8 +137,14 @@ pub fn decode_state(bytes: &[u8], limits: Limits) -> Result<model::WorkbenchStat
             let obj = value
                 .as_object_mut()
                 .ok_or_else(|| invalid("工作台数据不是对象"))?;
-            obj.insert("schemaVersion".into(), Value::from(2));
-            for key in ["tasks", "stageRecords", "savedViews"] {
+            obj.insert("schemaVersion".into(), Value::from(3));
+            for key in [
+                "tasks",
+                "stageRecords",
+                "savedViews",
+                "questionResponses",
+                "confirmations",
+            ] {
                 obj.insert(key.into(), Value::Array(vec![]));
             }
             for event in obj

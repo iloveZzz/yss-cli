@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.4.0` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.4.1` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -159,6 +159,25 @@ yss workbench query --entity spec --activity all --include-closed --json
 yss workbench lifecycle --spec <SpecID> --json
 ```
 
-`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。所有子命令只读、不创建缺失目录。参数完整枚举以 `yss workbench query --help` 为准。
+`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录；register/respond 写入个人数据。参数完整枚举以 `yss workbench query --help` 为准。
 
-数据格式 v2 可只读打开 v1，首次有效写入前备份原字节；旧程序不能直接读取 v2。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
+当前源码数据格式 v3 可只读打开 v1/v2，首次有效写入前备份原字节；旧程序不能直接读取 v3。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
+
+### 主 Spec、问题回复与确认（3.4.1 起）
+
+```text
+yss workbench register --root /absolute/project --source docs/spec/topic/spec.md --json
+yss workbench request --spec-id <SpecID> --json
+yss workbench respond --spec-id <SpecID> --question-id OQ-01 --question-digest <SHA256> --kind answer --answer "用户已明确给出的答复" --json
+yss workbench respond --spec-id <SpecID> --question-id OQ-02 --question-digest <SHA256> --kind defer --reason "等待外部方案" --impact "本期不提供导入" --excluded-scope "批量导入" --review-at 2026-12-01 --review-utc-offset-minutes 480 --json
+```
+
+上述示例使用默认个人数据目录；若工作台以 `--data-dir` 启动，所有查询和写入命令都须沿用相同目录，例如 `yss workbench --data-dir /absolute/personal-data register ...`。Agent 应直接沿用工作台生成的更新要求中的目录，不另选默认库。
+
+`register` 复用已登记项目和主 Spec，保留现有主 Spec 的启用状态，并更新正文元数据中的资源。仅同目录且没有独立 `yss-spec` 元数据的 `interaction.md` 可自动合并为附属文档并停用旧记录；其他参考规格保留独立记录，个人备注、任务、确认和历史不删除。登记文档有独立 `yss-spec` 元数据时保留自身来源；否则同目录有 `spec.md` 时以它为主来源，发现目录包括 `docs/spec`。未提供元数据时可从相对 Markdown 链接及同目录 `interaction.md` 识别资源。
+
+`respond` 只能记录用户真实答复或已同意的延期，不能代作业务决定；要求当前问题摘要，返回 `result.responseId`。延期须有原因、影响、排除范围，以及 `--review-at YYYY-MM-DD` 或 `--review-when 条件`；日期按 `--review-utc-offset-minutes`（默认 UTC）解释，关键问题须完整排除其受影响范围。`request` 的 `result.text` 含主文件、资源、最新回复 ID 与摘要，供 Agent 实际回写正文、AC、交互和原型后引用。答复不等于解决。
+
+运行中的工作台通过个人目录中私有 `session.json` 调用既有本地鉴权接口写入，保持单进程锁与 revision 校验；服务未运行才直接打开 Store。不要分享该会话文件。内容确认仅由工作台用户明确操作，绑定范围和产物摘要，不能从个人 Status=done 推断。
+
+这些能力从 3.4.1 起提供，未升级的旧版不会自动拥有；先以实际 `yss workbench --help` 核对。

@@ -491,6 +491,11 @@ impl Root {
             .write(true)
             .create_new(true)
             .follow(FollowSymlinks::No);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
         let file = parent.dir.open_with(&parent.name, &options)?;
         let owned = platform::identity_file(&file)?;
         let mut file = file.into_std();

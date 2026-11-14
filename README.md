@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。用户运行时分发单个 `yss`（Windows 为 `yss.exe`），无需 Go、Bun、Node 或 Python。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.4.0`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.4.1`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
 
 `3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板。此前的 `3.1.4` 构建仅支持 `spec`/`backend`，模板文档更新不会改变已安装程序；使用前查看实际 `yss help init`。
 
@@ -45,14 +45,17 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
 
-## 个人 Spec 工作台（CLI 3.4.0）
+## 个人 Spec 工作台（CLI 3.4.1）
 
-内嵌 Template 5.4.1，完善 Spec 交付模板、交互说明、状态矩阵及教学示例；三个 Profile 均可取得所需设计模板。
+配套 Template 5.4.2，补齐主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认；三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
 
 ```text
 yss workbench
 yss workbench --no-open
 yss workbench snapshot --json
+yss workbench register --root /absolute/project --source docs/spec/users/spec.md --json
 ```
 
 登记本机项目、选择 Markdown Spec，录入具体任务，查看从调研到交付的八阶段生命周期。列表、状态／阶段看板、收藏视图和 CLI 共用查询；任务、Spec 和阶段进度独立维护。项目文件只读，标记独立保存到个人数据目录。详细边界、恢复与参数见[工作台说明](docs/workbench.md)。旧版已安装 CLI 不因源码更新自动获得新命令。
+
+回答问题后显示待回写，由 Agent 更新规格与原型；明确确认当前范围和版本后才显示已确认，延期内容保留排除范围与复查条件。v1/v2 数据首次有效写入前备份原始字节并升级到 v3，旧版程序不能读取 v3。

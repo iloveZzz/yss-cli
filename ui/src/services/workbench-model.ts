@@ -8,14 +8,14 @@ export interface ProjectRecord { id: string; name: string; rootPath: string; act
 export interface ResourceRef { kind: 'supplement' | 'prototype' | 'interaction' | 'other'; label: string; targetType: 'local' | 'web'; target: string }
 export interface SpecRecord { id: string; projectId: string; sourcePath: string; title: string; stage: Stage; status: Status; nextAction: string; blocker: string; notes: string; resources: ResourceRef[]; active: boolean; createdAt: string; updatedAt: string; lastVisitedAt: string | null }
 export interface ProjectView { sourceDirectories: string[]; record: ProjectRecord; available: boolean; message: string | null }
-export interface SpecView { record: SpecRecord; sourceHealth: Health; sourceMessage: string | null; sourceModifiedAt: string | null; resources: { record: ResourceRef; health: Health | 'external'; message: string | null }[] }
+export interface SpecView { content: ContentView; record: SpecRecord; sourceHealth: Health; sourceMessage: string | null; sourceModifiedAt: string | null; resources: { record: ResourceRef; health: Health | 'external'; message: string | null }[] }
 export interface ChangeEvent { id: string; projectId: string; specId: string | null; taskId: string | null; lifecycleStage: Stage | null; at: string; changes: Record<string, { before: unknown; after: unknown }> }
 export interface Snapshot { revision: number; readAt: string; projects: ProjectView[]; specs: SpecView[]; history: ChangeEvent[]; tasks: TaskView[]; stageRecords: StageRecord[]; savedViews: SavedView[] }
 export interface Candidate { sourcePath: string; title: string; modifiedAt: string | null; alreadyRegistered: boolean }
 export interface DiscoverResult { candidates: Candidate[]; warnings: string[]; complete: boolean }
 export interface SourceDocument { specId: string; text: string; digest: string; readAt: string }
 export type EditSpec = Pick<SpecRecord, 'sourcePath' | 'title' | 'stage' | 'status' | 'nextAction' | 'blocker' | 'notes' | 'resources' | 'active'>
-export type Action = { kind: 'addProject'; rootPath: string; name?: string } | { kind: 'updateProject'; projectId: string; name: string; rootPath: string; active: boolean } | { kind: 'addSpec'; projectId: string; sourcePath: string } | ({ kind: 'editSpec'; specId: string } & EditSpec) | { kind: 'visitSpec'; specId: string } | {kind:'addTasks'; specId:string; drafts:TaskDraft[]} | {kind:'editTask';taskId:string;edit:TaskEdit} | ({kind:'setStageRecord'} & Omit<StageRecord,'updatedAt'>) | {kind:'setWorkStatus';entity:WorkEntity;id:string;status:Status;blocker:string} | {kind:'setWorkStage';entity:WorkEntity;id:string;stage:Stage} | {kind:'saveView';viewId:string|null;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy} | {kind:'removeView';viewId:string}
+export type Action = RespondQuestionAction | { kind: 'refreshSpec'; specId: string } | { kind: 'confirmContent'; specId: string; scope: string; artifactDigest: string } | { kind: 'addProject'; rootPath: string; name?: string } | { kind: 'updateProject'; projectId: string; name: string; rootPath: string; active: boolean } | { kind: 'addSpec'; projectId: string; sourcePath: string } | ({ kind: 'editSpec'; specId: string } & EditSpec) | { kind: 'visitSpec'; specId: string } | {kind:'addTasks'; specId:string; drafts:TaskDraft[]} | {kind:'editTask';taskId:string;edit:TaskEdit} | ({kind:'setStageRecord'} & Omit<StageRecord,'updatedAt'>) | {kind:'setWorkStatus';entity:WorkEntity;id:string;status:Status;blocker:string} | {kind:'setWorkStage';entity:WorkEntity;id:string;stage:Stage} | {kind:'saveView';viewId:string|null;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy} | {kind:'removeView';viewId:string}
 export interface MutationRequest { expectedRevision: number; action: Action }
 export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null }
 
@@ -37,3 +37,14 @@ export interface QueryResult {revision:number;readAt:string;total:number;items:W
 export type TaskCounts = Record<Status | 'total',number>
 export interface LifecycleView {revision:number;spec:SpecView;stages:{stage:Stage;record:StageRecord|null;taskCounts:TaskCounts}[];tasks:TaskView[];events:ChangeEvent[]}
 export function defaultWorkQuery():WorkQuery {return {entity:'spec',q:'',projectIds:[],specIds:[],stages:[],statuses:[],activity:'active',includeClosed:false,sourceProblemsOnly:false,sort:'updatedDesc'}}
+
+export const contentStatuses = { unmarked: '未标记', draft: '草稿', ready: '可确认', confirmed: '已确认' } as const
+export type ContentStatus = keyof typeof contentStatuses
+export interface ContentQuestion { id: string; title: string; kind: 'research' | 'decision'; impact: string; recommendation: string; blocking: boolean; affectedScope: string; status: 'open' | 'resolved' | 'deferred'; resolution: string; appliedDecisionId: string | null }
+export interface QuestionResponse { id: string; specId: string; questionId: string; kind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string; questionDigest: string; createdAt: string }
+export interface QuestionView { question: ContentQuestion; digest: string; state: 'open' | 'pendingWriteback' | 'resolved' | 'deferred' | 'overdue' | 'needsReview'; response: QuestionResponse | null }
+export interface ConfirmationRecord { id: string; specId: string; scope: string; artifactDigest: string; createdAt: string }
+export interface ContentView { status: ContentStatus; scope: string; artifactDigest: string | null; metadataError: string | null; questions: QuestionView[]; confirmations: ConfirmationRecord[]; canConfirm: boolean; blockers: string[]; needsReconfirmation: boolean }
+export interface RespondQuestionAction { kind: 'respondQuestion'; specId: string; questionId: string; questionDigest: string; responseKind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string }
+export interface ProjectDocument extends SourceDocument { sourcePath: string }
+export interface AgentRequest { specId: string; text: string; readAt: string }

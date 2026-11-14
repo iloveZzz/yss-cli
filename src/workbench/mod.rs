@@ -1,10 +1,14 @@
+pub mod content;
 pub mod history;
 pub mod lifecycle;
 pub mod migration;
 pub mod model;
+pub mod preview;
 pub mod query;
+pub mod registration;
 pub mod server;
 pub mod service;
+pub mod session;
 pub mod sources;
 pub mod store;
 pub mod tasks;

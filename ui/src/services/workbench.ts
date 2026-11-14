@@ -1,6 +1,6 @@
 import { shallowRef } from 'vue'
 export * from './workbench-model'
-import type { MutationRequest, MutationResult, DiscoverResult, SourceDocument, Snapshot, Status, SpecView, SpecRecord, EditSpec, WorkQuery, QueryResult, LifecycleView } from './workbench-model'
+import type { MutationRequest, MutationResult, DiscoverResult, SourceDocument, Snapshot, Status, SpecView, SpecRecord, EditSpec, WorkQuery, QueryResult, LifecycleView, ProjectDocument, AgentRequest } from './workbench-model'
 export const expired = shallowRef(false)
 let token = sessionStorage.getItem('workbench.token') ?? ''
 function consumeToken() {
@@ -51,3 +51,7 @@ export async function loadLifecycle(specId:string, signal?:AbortSignal):Promise<
  if(!Number.isSafeInteger(result.revision)||!Array.isArray(result.stages)||!Array.isArray(result.tasks)||!Array.isArray(result.events)) throw new Error('生命周期响应格式不合法')
  return result
 }
+
+export const loadDocument = (specId: string, path: string, signal?: AbortSignal) => request<ProjectDocument>('/api/document', { specId, path }, signal)
+export const loadAgentRequest = (specId: string, signal?: AbortSignal) => request<AgentRequest>(`/api/specs/${encodeURIComponent(specId)}/request`, undefined, signal)
+export const preparePreview = (specId: string, target: string, signal?: AbortSignal) => request<{ url: string; message: string }>(`/api/specs/${encodeURIComponent(specId)}/preview`, { target }, signal)
