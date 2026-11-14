@@ -53,6 +53,7 @@ fn kernel(path: &str) -> bool {
         ".agents/skills",
         ".template-spec/process",
         ".template-spec/templates",
+        ".template-spec/design/templates",
     ]
     .iter()
     .any(|p| manifest::beneath(path, p))
