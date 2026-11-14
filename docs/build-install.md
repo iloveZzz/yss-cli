@@ -58,7 +58,7 @@ Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-CLI 3.4.0 的 GitHub 构建固定使用模板提交 `aa7607eb912b3ce910046c900018cb4590cea49c`（Template `v5.3.4`）；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 记录已发行 Template `v5.3.4`，历史标签保持原指向。
+CLI 3.4.0 的 GitHub 构建固定使用模板提交 `ebf87b462be600499620e8948fec3c20ce6b62b8`（Template `v5.4.0`）；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 记录已发行 Template `v5.4.0`，历史标签保持原指向。
 
 CLI `3.4.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 
