@@ -148,7 +148,7 @@ yss recover --root <项目或工具目录> --dry-run
 
 CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-dir .`，先核对实际 `yss scaffold frontend --help`。它生成最小 Vue 工程，不安装依赖；`init/attach --profile frontend` 仍只安装技能及资料。生成与运行边界见 [脚手架说明](scaffold.md)。
 
-## 个人 Spec 工作台（当前源码新增）
+## 个人 Spec 工作台
 
 `yss workbench` 启动本机浏览器工作台；`--no-open` 只打印入口，`--port 0` 自动分配端口，`--data-dir <绝对路径>` 指定个人数据目录。服务本身不接受 `--json`。旧版已安装程序不会自动获得这些命令。
 
@@ -161,7 +161,7 @@ yss workbench lifecycle --spec <SpecID> --json
 
 `query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录；register/respond 写入个人数据。参数完整枚举以 `yss workbench query --help` 为准。
 
-当前源码数据格式 v3 可只读打开 v1/v2，首次有效写入前备份原字节；旧程序不能直接读取 v3。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
+当前源码使用 SQLite 保存个人数据。旧 JSON v1/v2/v3 的纯查询保持只读；首次启动新版工作台或执行写入命令时先备份原字节并迁移，即使该业务操作最后没有状态变化也会完成迁移。迁移后 `state.json` 仅为存储标记，旧版程序不能读写同一数据目录。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
 
 ### 主 Spec、问题回复与确认（3.4.1 起）
 
