@@ -166,7 +166,7 @@ yss workbench lifecycle --spec <SpecID> --json
 ### 主 Spec、问题回复与确认（3.4.1 起）
 
 ```text
-yss workbench register --root /absolute/project --source docs/spec/topic/spec.md --json
+yss workbench register --root /absolute/project --source docs/spec/2026-11-14-user-batch-import/2026-11-14-user-batch-import-spec.md --json
 yss workbench request --spec-id <SpecID> --json
 yss workbench respond --spec-id <SpecID> --question-id OQ-01 --question-digest <SHA256> --kind answer --answer "用户已明确给出的答复" --json
 yss workbench respond --spec-id <SpecID> --question-id OQ-02 --question-digest <SHA256> --kind defer --reason "等待外部方案" --impact "本期不提供导入" --excluded-scope "批量导入" --review-at 2026-12-01 --review-utc-offset-minutes 480 --json
@@ -174,7 +174,9 @@ yss workbench respond --spec-id <SpecID> --question-id OQ-02 --question-digest <
 
 上述示例使用默认个人数据目录；若工作台以 `--data-dir` 启动，所有查询和写入命令都须沿用相同目录，例如 `yss workbench --data-dir /absolute/personal-data register ...`。Agent 应直接沿用工作台生成的更新要求中的目录，不另选默认库。
 
-`register` 复用已登记项目和主 Spec，保留现有主 Spec 的启用状态，并更新正文元数据中的资源。仅同目录且没有独立 `yss-spec` 元数据的 `interaction.md` 可自动合并为附属文档并停用旧记录；其他参考规格保留独立记录，个人备注、任务、确认和历史不删除。登记文档有独立 `yss-spec` 元数据时保留自身来源；否则同目录有 `spec.md` 时以它为主来源，发现目录包括 `docs/spec`。未提供元数据时可从相对 Markdown 链接及同目录 `interaction.md` 识别资源。
+`register` 按项目与主文件路径复用登记，保留启用状态并更新来源资源。新需求无约定时用固定创建日期与具体英文主题组成 key，主文件为 `docs/spec/<key>/<key>-spec.md`；旧 `docs/spec/topic/spec.md` 等合法路径继续支持。本次源码只归并无自身元数据的同目录同 key `-interaction.md` / `-design.md`，且要求主文档 resources 明确本地引用，kind 分别为 interaction / supplement 或 other。旧 `interaction.md → spec.md` 保留无元数据推断；旧主文件有元数据时须明确引用该本地路径，兼容原 kind。自身有有效元数据的文件、其他参考资料不因被引用而归并。个人资源和正文链接不代表新附件归属；旧无元数据文件仍可据链接推断阅读资源。
+
+发现扫描遇识别错误会告警并跳过该候选；主文件 register/refresh 停用符合归属条件的旧附件记录，刷新附件本身不合并，个人备注、答复、确认和历史不删除。改名先核实新路径未被启用/停用记录占用，更新文件与资源链接，再编辑原 Spec 的主路径，最后 register 新路径并核对原 ID；不新增登记后再合并。编辑改路径指向已归属附件会拒绝。路径变化会使旧确认不再匹配，历史仍保留；详情见[工作台说明](workbench.md)。这些识别规则是本次源码行为，不能仅凭帮助中有同名命令就推断旧安装版本支持。
 
 `respond` 只能记录用户真实答复或已同意的延期，不能代作业务决定；要求当前问题摘要，返回 `result.responseId`。延期须有原因、影响、排除范围，以及 `--review-at YYYY-MM-DD` 或 `--review-when 条件`；日期按 `--review-utc-offset-minutes`（默认 UTC）解释，关键问题须完整排除其受影响范围。`request` 的 `result.text` 含主文件、资源、最新回复 ID 与摘要，供 Agent 实际回写正文、AC、交互和原型后引用。答复不等于解决。
 

@@ -251,10 +251,17 @@ pub fn discover(
                     stack.push((Some(rel), depth + 1));
                 }
             } else if name.to_ascii_lowercase().ends_with(".md") {
-                if super::registration::main_source(&root, rel.as_str())
-                    .is_ok_and(|main| main != rel.as_str())
-                {
-                    continue;
+                match super::registration::main_source(&root, rel.as_str()) {
+                    Ok(main) if fs::alias_key(&main) != fs::alias_key(rel.as_str()) => continue,
+                    Ok(_) => {}
+                    Err(error) => {
+                        if error.code == ErrorCode::Cancelled {
+                            return Err(error);
+                        }
+                        result.complete = false;
+                        result.warnings.push(format!("{}：{}", rel, error.message));
+                        continue;
+                    }
                 }
                 match text(&root, rel.as_str()) {
                     Ok(content) => result.candidates.push(Candidate {

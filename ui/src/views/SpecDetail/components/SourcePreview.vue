@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { loadSource, loadDocument, errorMessage, dateLabel, type SourceDocument } from '@/services/workbench'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { renderMarkdown, resolveDocumentLink } from '../schemas/markdown'
-const props = defineProps<{ specId: string; sourcePath: string; documentPath?: string; fragment?: string }>()
+const props = defineProps<{ specId: string; sourcePath: string; documentPath?: string; fragment?: string; embedded?: boolean }>()
 const emit = defineEmits<{ navigate: [path: string, fragment: string] }>()
 const { snapshot } = useWorkbench()
 const source = shallowRef<SourceDocument>(); const error = shallowRef(''); const loading = shallowRef(false); const retry = shallowRef(0)
@@ -42,15 +42,20 @@ function followLink(event: MouseEvent) {
 }
 </script>
 <template>
-  <section class="panel preview">
-    <div class="section-heading"><h2>{{ documentPath ? '关联文档' : '主规格' }}</h2><div class="segmented" role="group" aria-label="正文显示方式"><Button variant="ghost" :aria-pressed="mode === 'preview'" @click="mode = 'preview'">预览</Button><Button variant="ghost" :aria-pressed="mode === 'source'" @click="mode = 'source'">Markdown 原文</Button></div></div>
-    <p class="path-text">{{ currentPath }}</p>
+  <section class="panel preview" :class="{ 'preview-embedded': embedded }">
+    <div class="section-heading"><h2 v-if="!embedded">{{ documentPath ? '关联文档' : '主规格' }}</h2><div class="segmented" role="group" aria-label="正文显示方式"><Button variant="ghost" :aria-pressed="mode === 'preview'" @click="mode = 'preview'">预览</Button><Button variant="ghost" :aria-pressed="mode === 'source'" @click="mode = 'source'">Markdown 原文</Button></div></div>
+    <p v-if="!embedded" class="path-text">{{ currentPath }}</p>
     <p v-if="loading" class="muted">正在读取来源…</p>
     <div v-if="error" class="notice warning" role="alert">{{ error }}<p v-if="source">保留已读取内容：{{ dateLabel(source.readAt) }}</p><Button variant="outline" :disabled="loading" @click="retry++">重新读取</Button></div>
     <!-- Only markdown-it output with raw HTML, images and unsafe links disabled. -->
     <article v-if="source && mode === 'preview'" ref="article" class="markdown" @click="followLink" v-html="html" />
     <pre v-else-if="source" class="source-text">{{ source.text }}</pre>
     <p v-else-if="!loading && !error" class="empty">暂无正文</p>
-    <p class="preview-note">相对链接在工作台内打开；外部链接在新窗口打开。图片不会自动加载。</p>
+    <p v-if="!embedded" class="preview-note">相对链接在工作台内打开；外部链接在新窗口打开。图片不会自动加载。</p>
   </section>
 </template>
+<style scoped>
+.preview-embedded { max-width: 1080px; margin: 0 auto; padding: 24px; border: 0; border-radius: 0; box-shadow: none; }
+.preview-embedded .section-heading { justify-content: flex-end; }
+@media (width < 720px) { .preview-embedded { padding: 16px; } }
+</style>

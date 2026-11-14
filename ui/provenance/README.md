@@ -9,3 +9,5 @@ DESIGN 与 `src/styles/tokens.css` 来自 YSS 模板的共享标准亮色主题�
 依赖及其许可证通过包管理器安装。请求与 OpenAPI 按任务选用，不内置于最小工程。
 
 `components.json` 为 YSS 编写的工程配置，描述上述现有源码，不是上游复制文件，不加入 `copied-files.json`。后续按需取得的新组件在目标应用中记录其固定来源、原始摘要与实际适配；不能把本文件或旧清单当成其已安装/验证记录。
+
+`src/components/SingleSelect.vue` 为本工程组合组件，直接使用锁定依赖 `reka-ui@2.11.0` 的 Select primitives，未复制新的上游源码。沿用现有 YSS tokens，统一触发器与弹出菜单样式，并将原生 `dialog` 内的菜单留在其 top layer 容器；不加入 `copied-files.json`。

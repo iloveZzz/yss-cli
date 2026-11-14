@@ -1,6 +1,6 @@
 import { shallowRef } from 'vue'
 export * from './workbench-model'
-import type { MutationRequest, MutationResult, DiscoverResult, SourceDocument, Snapshot, Status, SpecView, SpecRecord, EditSpec, WorkQuery, QueryResult, LifecycleView, ProjectDocument, AgentRequest } from './workbench-model'
+import type { MutationRequest, MutationResult, DiscoverResult, SourceDocument, Snapshot, Status, SpecView, SpecRecord, EditSpec, WorkQuery, QueryResult, LifecycleView, ProjectDocument } from './workbench-model'
 export const expired = shallowRef(false)
 let token = sessionStorage.getItem('workbench.token') ?? ''
 function consumeToken() {
@@ -53,5 +53,4 @@ export async function loadLifecycle(specId:string, signal?:AbortSignal):Promise<
 }
 
 export const loadDocument = (specId: string, path: string, signal?: AbortSignal) => request<ProjectDocument>('/api/document', { specId, path }, signal)
-export const loadAgentRequest = (specId: string, signal?: AbortSignal) => request<AgentRequest>(`/api/specs/${encodeURIComponent(specId)}/request`, undefined, signal)
 export const preparePreview = (specId: string, target: string, signal?: AbortSignal) => request<{ url: string; message: string }>(`/api/specs/${encodeURIComponent(specId)}/preview`, { target }, signal)

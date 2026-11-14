@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
@@ -37,7 +38,7 @@ async function save() {
     <form v-if="item" class="form-stack" @submit.prevent="save">
       <p class="preserve-lines">{{ item.question.title }}</p>
       <fieldset :disabled="saving" class="plain-fieldset form-stack">
-        <label :for="`${id}-kind`">处理方式<select :id="`${id}-kind`" v-model="form.responseKind"><option value="answer">{{ item.question.kind === 'research' ? '补充依据' : '答复问题' }}</option><option value="defer">延期处理</option></select></label>
+        <label :for="`${id}-kind`">处理方式<SingleSelect :id="`${id}-kind`" :model-value="form.responseKind" :options="[{value:'answer',label:item.question.kind==='research'?'补充依据':'答复问题'},{value:'defer',label:'延期处理'}]" aria-label="处理方式" :disabled="saving" @update:model-value="form.responseKind=$event as 'answer'|'defer'" /></label>
         <template v-if="form.responseKind === 'answer'"><label :for="`${id}-answer`">{{ item.question.kind === 'research' ? '补充依据与来源' : '我的答复' }}<textarea :id="`${id}-answer`" v-model="form.answer" rows="5" required :aria-describedby="`${id}-hint`" /></label><Button v-if="item.question.recommendation" type="button" variant="outline" @click="form.answer = item.question.recommendation">采用推荐答案</Button></template>
         <template v-else>
           <label :for="`${id}-reason`">延期原因<textarea :id="`${id}-reason`" v-model="form.reason" rows="2" required /></label>

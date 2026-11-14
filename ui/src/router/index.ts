@@ -12,4 +12,12 @@ export const router = createRouter({ history: createWebHashHistory(), routes: [
   { path: '/:pathMatch(.*)*', redirect: '/workbench' },
 ], scrollBehavior(to, _from, saved) { return saved ?? { top: positions.get(to.fullPath) ?? 0 } } })
 
-router.beforeEach((_to, from) => { positions.set(from.fullPath, window.scrollY) })
+router.beforeEach((to, from) => {
+ positions.set(from.fullPath, window.scrollY)
+ const query = { ...to.query }
+ let changed = false
+ if ('entity' in query && query.entity !== 'spec') { query.entity = 'spec'; changed = true }
+ if ('taskId' in query) { delete query.taskId; changed = true }
+ if ((Array.isArray(query.tab) ? query.tab : [query.tab]).includes('tasks')) { delete query.tab; changed = true }
+ if (changed) return { path: to.path, query, hash: to.hash, replace: true }
+})

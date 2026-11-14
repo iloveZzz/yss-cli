@@ -5,7 +5,7 @@ export function useWorkActions() {
  const {submit,saving}=useWorkbench();const open=shallowRef(false);const blocker=shallowRef('');const error=shallowRef('');const notice=shallowRef('')
  let pending:{item:WorkItem;revision:number}|undefined
  async function move(item:WorkItem,dimension:'status'|'stage',value:Status|Stage,expectedRevision:number){
-  error.value='';notice.value='';if(item[dimension]===value||saving.value)return
+  error.value='';notice.value='';if(item.entity!=='spec'||item[dimension]===value||saving.value)return
   if(dimension==='status' && value==='blocked'){pending={item,revision:expectedRevision};blocker.value=item.blocker;open.value=true;return}
   try{await submit(dimension==='status'?{kind:'setWorkStatus',entity:item.entity,id:item.id,status:value as Status,blocker:item.blocker}:{kind:'setWorkStage',entity:item.entity,id:item.id,stage:value as Stage},expectedRevision);notice.value='已移动；若卡片不再显示，表示它已不符合当前筛选。'}catch(e){error.value=errorMessage(e)}
  }

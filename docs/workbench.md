@@ -33,7 +33,13 @@ yss workbench --data-dir /absolute/personal-data
 
 ## 主 Spec 与内容确认
 
-一个主 `spec.md` 关联业务正文、交互说明与原型，草稿始终可阅读。`register` 是可重复的登记/刷新入口，保留现有主 Spec 的启用状态；只有同目录且没有独立 `yss-spec` 元数据的 `interaction.md` 可自动合并并停用旧记录，个人备注和历史保留。引用其他独立规格不会将其停用。来源元数据管理的资源会随刷新新增、移除或改路径，个人手工资源保留；主文件中的单个 JSON 注释块维护产物和问题：
+一个主 Spec 关联业务正文、交互说明与原型，草稿始终可阅读。无项目既有约定时，新需求默认 `docs/spec/<YYYY-MM-DD-topic>/<YYYY-MM-DD-topic>-spec.md`；分文件交互说明使用同目录同前缀 `-interaction.md`，可选独立产品设计说明使用 `-design.md`，新独立原型放 `prototypes/<YYYY-MM-DD-topic>/`。日期固定为首次创建日期，topic 为具体英文 kebab-case；同需求续改复用，独立新范围另建，同名先核对不覆盖。旧 `docs/spec/topic/spec.md`、`interaction.md` 及其他合法 Markdown 路径仍可用，不自动迁移。
+
+`register` 是可重复的登记/刷新入口，保留现有主 Spec 的启用状态。本次源码只将同目录同前缀、无自身元数据且被主文档 `resources` 明确本地引用的交互说明（kind=interaction）或设计说明（kind=supplement/other）归主。旧 `interaction.md → spec.md` 保留无元数据推断；有元数据的旧主文档须明确引用该本地路径，兼容其既有资源 kind。自身有效 `yss-spec` 元数据始终独立，普通参考文档、不同前缀/目录、仅个人资源或正文链接不构成新附件归属。发现扫描只读；主文件 register/refresh 才停用符合条件的旧附件记录，单独刷新附件不合并，个人备注、答复和历史保留。识别失败在发现结果中告警并标记不完整，不作为可登记候选；坏附件不会导致合法主文件刷新时被误停用。
+
+已登记文件需要改名时，先核实原数据目录、Spec ID 及新路径未被任何启用/停用记录占用。安全改名并更新正文链接、来源和个人资源后，通过原 Spec 的“主规格相对路径”编辑保存，再 register 新路径，核对仍为原 ID。编辑指向已归属附件的路径会拒绝；普通标记编辑不受影响。不能先登记新路径再合并，也不能靠停用释放路径。路径参与摘要，纯改名后旧确认只留历史，须重新核对确认；中断时修复原记录，不创建补偿 Spec。本次源码能力不等于已发行或已安装版本能力，须用实际程序验证。
+
+来源元数据管理的资源会随刷新新增、移除或改路径，个人手工资源保留；主文件中的单个 JSON 注释块维护产物和问题。以下旧路径示例仍兼容：
 
 ```markdown
 <!-- yss-spec {"schemaVersion":1,"scope":"用户新增与编辑","contentStatus":"draft","resources":[{"kind":"interaction","label":"交互说明","targetType":"local","target":"docs/spec/users/interaction.md"},{"kind":"prototype","label":"可操作原型","targetType":"local","target":"prototypes/users/dist/index.html"}],"questions":[{"id":"OQ-01","title":"谁可以停用用户？","kind":"decision","impact":"决定停用入口权限","recommendation":"仅管理员","blocking":true,"affectedScope":"停用用户","status":"open","resolution":"","appliedDecisionId":null}]} -->

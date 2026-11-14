@@ -8,4 +8,7 @@ const id = useId()
 watch([open, dialog], () => { if (open.value && !dialog.value?.open) dialog.value?.showModal(); else if (!open.value) dialog.value?.close() })
 async function close() { if (!props.busy && (!props.beforeClose || await props.beforeClose())) open.value = false }
 </script>
-<template><dialog ref="dialog" :aria-labelledby="id" @close="open = false" @cancel.prevent="close"><header class="dialog-header"><h2 :id="id">{{ title }}</h2><Button type="button" variant="ghost" :disabled="busy" aria-label="关闭对话框" @click="close">×</Button></header><slot /></dialog></template>
+<template><dialog ref="dialog" :aria-labelledby="id" @close="open = false" @cancel.prevent="close"><header class="dialog-header"><h2 :id="id">{{ title }}</h2><div class="dialog-actions"><slot name="actions" /><Button type="button" variant="ghost" :disabled="busy" aria-label="关闭对话框" title="关闭" @click="close">×</Button></div></header><slot /></dialog></template>
+<style scoped>
+.dialog-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+</style>

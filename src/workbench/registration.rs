@@ -107,19 +107,67 @@ fn inferred(root: &Root, source: &str, text: &str) -> Vec<ResourceRef> {
     }
     resources
 }
+fn attachment_main(source: &str) -> Option<String> {
+    let path = Path::new(source);
+    let name = path.file_name()?.to_str()?;
+    let lower = name.to_ascii_lowercase();
+    let main = if lower == "interaction.md" {
+        "spec.md".into()
+    } else {
+        let suffix = ["-interaction.md", "-design.md"]
+            .into_iter()
+            .find(|suffix| lower.ends_with(suffix))?;
+        let key = &name[..name.len() - suffix.len()];
+        if key.is_empty() {
+            return None;
+        }
+        format!("{key}-spec.md")
+    };
+    // 文件名是路径，不作为 Markdown URL 解码其中的百分号。
+    path.with_file_name(main).to_str().map(str::to_owned)
+}
 pub fn main_source(root: &Root, source: &str) -> Result<String> {
     if content::metadata(&sources::text(root, source)?)?.is_some() {
         return Ok(source.into());
     }
-    let sibling = local_link(source, "spec.md")?;
-    if root
-        .source_metadata(&RelPath::new(&sibling)?)
-        .is_ok_and(|m| m.is_file())
-    {
-        Ok(sibling)
-    } else {
-        Ok(source.into())
-    }
+    let Some(sibling) = attachment_main(source) else {
+        return Ok(source.into());
+    };
+    let text = match sources::text(root, &sibling) {
+        Ok(text) => text,
+        Err(error)
+            if error
+                .context
+                .get("kind")
+                .is_some_and(|kind| kind == "NotFound") =>
+        {
+            return Ok(source.into());
+        }
+        Err(error) => return Err(error),
+    };
+    let name = Path::new(source)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let legacy = name == "interaction.md";
+    let owns_source = match content::metadata(&text)? {
+        None => legacy,
+        Some(meta) => meta.resources.iter().any(|resource| {
+            resource.target_type == TargetType::Local
+                && fs::alias_key(&resource.target) == fs::alias_key(source)
+                && (legacy
+                    || if name.ends_with("-interaction.md") {
+                        resource.kind == ResourceKind::Interaction
+                    } else {
+                        matches!(
+                            resource.kind,
+                            ResourceKind::Supplement | ResourceKind::Other
+                        )
+                    })
+        }),
+    };
+    Ok(if owns_source { sibling } else { source.into() })
 }
 pub fn refresh(state: &mut WorkbenchState, spec_id: &str, at: &str) -> Result<()> {
     let before = sources::spec(state, spec_id)?.clone();
@@ -155,8 +203,8 @@ pub fn refresh(state: &mut WorkbenchState, spec_id: &str, at: &str) -> Result<()
         .iter_mut()
         .find(|s| s.id == before.id)
         .expect("spec") = after.clone();
-    // 资源引用不代表归属；只合并没有独立 Spec 元数据的同目录交互说明。
-    let interaction = fs::alias_key(&local_link(&before.source_path, "interaction.md")?);
+    // 先限定精确配对，再复用来源归属；个人资源引用不能停用独立 Spec。
+    let main = fs::alias_key(&before.source_path);
     let children: Vec<_> = state
         .specs
         .iter()
@@ -164,10 +212,10 @@ pub fn refresh(state: &mut WorkbenchState, spec_id: &str, at: &str) -> Result<()
             s.id != before.id
                 && s.project_id == before.project_id
                 && s.active
-                && fs::alias_key(&s.source_path) == interaction
-                && sources::text(&root, &s.source_path)
-                    .and_then(|text| content::metadata(&text))
-                    .is_ok_and(|meta| meta.is_none())
+                && attachment_main(&s.source_path)
+                    .is_some_and(|source| fs::alias_key(&source) == main)
+                && main_source(&root, &s.source_path)
+                    .is_ok_and(|source| fs::alias_key(&source) == main)
                 && resources.iter().any(|r| {
                     r.target_type == TargetType::Local
                         && fs::alias_key(&r.target) == fs::alias_key(&s.source_path)

@@ -418,7 +418,10 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             validate_resources(&resources)?;
             if source_path != before.source_path {
                 let root = Root::open(Path::new(&project.root_path))?;
-                sources::text(&root, &source_path)?;
+                let main = super::registration::main_source(&root, &source_path)?;
+                if fs::alias_key(&main) != fs::alias_key(&source_path) {
+                    return Err(invalid("该路径为关联内容，请使用主规格路径"));
+                }
                 root.revalidate()?;
             }
             let mut record = SpecRecord {

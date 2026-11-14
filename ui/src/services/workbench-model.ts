@@ -47,4 +47,3 @@ export interface ConfirmationRecord { id: string; specId: string; scope: string;
 export interface ContentView { status: ContentStatus; scope: string; artifactDigest: string | null; metadataError: string | null; questions: QuestionView[]; confirmations: ConfirmationRecord[]; canConfirm: boolean; blockers: string[]; needsReconfirmation: boolean }
 export interface RespondQuestionAction { kind: 'respondQuestion'; specId: string; questionId: string; questionDigest: string; responseKind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string }
 export interface ProjectDocument extends SourceDocument { sourcePath: string }
-export interface AgentRequest { specId: string; text: string; readAt: string }
