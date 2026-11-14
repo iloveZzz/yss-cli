@@ -549,6 +549,13 @@ impl Database {
     pub(crate) fn load_state(&mut self, root: &Root) -> Result<WorkbenchState> {
         self.revalidate(root)?;
         let transaction = self.connection.transaction().map_err(sql_error)?;
+        check_schema(&transaction)?;
+        let integrity: String = transaction
+            .query_row("PRAGMA integrity_check(1)", [], |r| r.get(0))
+            .map_err(sql_error)?;
+        if integrity != "ok" {
+            return Err(invalid("工作台数据库完整性校验失败；原文件已保留"));
+        }
         let (identity, revision) = metadata(&transaction)?;
         if identity != self.identity {
             return Err(invalid("数据库身份与存储标记不匹配"));
