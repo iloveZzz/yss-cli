@@ -1,4 +1,8 @@
-use super::model::{MAX_STATE, WorkbenchState};
+use super::{
+    model::{MAX_STATE, WorkbenchState},
+    sqlite::Database,
+    storage_migration::{self, DATABASE_NAME, StorageState},
+};
 use crate::{
     codec::{self, Limits},
     error::{ErrorCode, Result, YssError},
@@ -11,10 +15,12 @@ use std::{
 };
 
 pub struct Store {
-    lock: RootLock,
+    database: Database,
     state: WorkbenchState,
-    file: FileSnapshot,
+    marker: FileSnapshot,
     uncertain: bool,
+    // Keep the directory locked until the SQLite connection has closed.
+    lock: RootLock,
 }
 
 fn state_limits() -> Limits {
@@ -48,7 +54,7 @@ pub fn resolve_data_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     fs::absolute(&path)
 }
 
-fn reject_git(path: &Path) -> Result<()> {
+pub(crate) fn reject_git(path: &Path) -> Result<()> {
     if path.ancestors().any(|p| {
         p.join(".git").symlink_metadata().is_ok()
             || p.join(".gitmodules").symlink_metadata().is_ok()
@@ -101,7 +107,7 @@ fn prepare_dir(path: &Path) -> Result<PathBuf> {
     Ok(actual)
 }
 
-fn validate(state: &WorkbenchState) -> Result<()> {
+pub(crate) fn validate_state(state: &WorkbenchState) -> Result<()> {
     if state.schema_version != 3 {
         return Err(invalid("不支持的工作台数据版本；原文件已保留"));
     }
@@ -204,6 +210,25 @@ fn validate(state: &WorkbenchState) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_state_limits(state: &WorkbenchState) -> Result<()> {
+    let bytes = codec::encode_json(state)?;
+    if bytes.len() as u64 > MAX_STATE {
+        return Err(YssError::new(
+            ErrorCode::InvalidInput,
+            "工作台数据已达到 16 MiB 上限；原数据保持可读",
+        )
+        .context("httpStatus", 413));
+    }
+    let _: WorkbenchState = codec::decode_json(&bytes, state_limits()).map_err(|_| {
+        YssError::new(
+            ErrorCode::InvalidInput,
+            "工作台数据已达到结构容量上限；原数据保持可读",
+        )
+        .context("httpStatus", 413)
+    })?;
+    Ok(())
+}
+
 fn load(root: &Root) -> Result<(WorkbenchState, FileSnapshot)> {
     let file = match root.read_checked(&state_path()?, MAX_STATE) {
         Ok(file) => file,
@@ -214,32 +239,60 @@ fn load(root: &Root) -> Result<(WorkbenchState, FileSnapshot)> {
     };
     let state = super::migration::decode_state(&file.bytes, state_limits())
         .map_err(|e| invalid("工作台数据损坏；原文件已保留").context("detail", e.message))?;
-    validate(&state)?;
+    validate_state(&state)?;
     Ok((state, file.snapshot))
 }
 
 pub fn read_state(data_dir: &Path) -> Result<WorkbenchState> {
-    let path = resolve_data_dir(Some(data_dir))?;
-    reject_git(&path)?;
-    if !path.try_exists()? {
+    let storage = storage_migration::probe(data_dir)?;
+    if matches!(storage, StorageState::Empty) {
         return Ok(WorkbenchState::default());
     }
-    let path = std::fs::canonicalize(path)?;
+    let path = std::fs::canonicalize(resolve_data_dir(Some(data_dir))?)?;
     reject_git(&path)?;
-    Ok(load(&Root::open(&path)?)?.0)
+    let root = Root::open(&path)?;
+    match storage {
+        StorageState::Empty => Ok(WorkbenchState::default()),
+        StorageState::Legacy => Ok(load(&root)?.0),
+        StorageState::Preparing(_) => Err(YssError::new(
+            ErrorCode::RecoveryRequired,
+            "迁移未完成；请启动新版工作台继续迁移",
+        )),
+        StorageState::Active(marker) => {
+            let mut database = Database::open_read_only(&root, &RelPath::new(DATABASE_NAME)?)?;
+            if database.identity() != &marker.identity() {
+                return Err(YssError::new(
+                    ErrorCode::RecoveryRequired,
+                    "数据库与存储标记不匹配",
+                ));
+            }
+            database.load_state(&root)
+        }
+    }
 }
-
 impl Store {
     pub fn open(data_dir: &Path) -> Result<Self> {
         let path = prepare_dir(data_dir)?;
         let lock = fs::lock_file(Root::open(&path)?, &RelPath::new("lock")?).map_err(|e| {
             if e.code == ErrorCode::Locked {
-                YssError::new(ErrorCode::Locked, "工作台已运行；请使用已有窗口")
+                YssError::new(
+                    ErrorCode::Locked,
+                    "工作台已运行；迁移须先退出旧工作台，再重试",
+                )
             } else {
                 e
             }
         })?;
-        let (state, file) = load(&lock.root)?;
+        let storage = storage_migration::ensure_sqlite(&lock)?;
+        let marker = lock.root.read_checked(&state_path()?, 16 * 1024)?.snapshot;
+        let mut database = Database::open_read_write(&lock.root, &RelPath::new(DATABASE_NAME)?)?;
+        if database.identity() != &storage.identity() {
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "数据库与存储标记不匹配",
+            ));
+        }
+        let state = database.load_state(&lock.root)?;
         if state
             .projects
             .iter()
@@ -251,10 +304,11 @@ impl Store {
             ));
         }
         Ok(Self {
-            lock,
+            database,
             state,
-            file,
+            marker,
             uncertain: false,
+            lock,
         })
     }
     pub fn state(&self) -> &WorkbenchState {
@@ -277,113 +331,44 @@ impl Store {
             )
             .context("revision", self.state.revision));
         }
+        if self
+            .lock
+            .root
+            .read_checked(&state_path()?, 16 * 1024)?
+            .snapshot
+            != self.marker
+        {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "存储标记已被外部修改，请重启核实",
+            ));
+        }
+        if next == self.state {
+            return Ok(expected_revision);
+        }
         next.revision = expected_revision
             .checked_add(1)
             .ok_or_else(|| invalid("revision 已溢出"))?;
-        validate(&next)?;
-        let bytes = codec::encode_json(&next)?;
-        if bytes.len() as u64 > MAX_STATE {
-            return Err(YssError::new(
-                ErrorCode::InvalidInput,
-                "工作台数据已达到 16 MiB 上限；原数据保持可读",
-            )
-            .context("httpStatus", 413));
-        }
-        let _: WorkbenchState = codec::decode_json(&bytes, state_limits()).map_err(|_| {
-            YssError::new(
-                ErrorCode::InvalidInput,
-                "工作台数据已达到结构容量上限；原数据保持可读",
-            )
-            .context("httpStatus", 413)
-        })?;
-        let root = &self.lock.root;
-        root.revalidate()?;
-        let (_, actual) = load(root)?;
-        if actual != self.file {
-            return Err(YssError::new(
-                ErrorCode::ConcurrentChange,
-                "数据文件已被外部修改；请重启后核实",
-            ));
-        }
-        if self.file != FileSnapshot::Missing {
-            let original = root.read_checked(&state_path()?, MAX_STATE)?;
-            let value: serde_json::Value = codec::decode_json(&original.bytes, state_limits())?;
-            if let Some(version @ (1 | 2)) = value
-                .get("schemaVersion")
-                .and_then(serde_json::Value::as_u64)
-            {
-                backup_previous(root, &original.bytes, version)?;
-                if root.read_checked(&state_path()?, MAX_STATE)?.snapshot != self.file {
-                    return Err(YssError::new(
-                        ErrorCode::ConcurrentChange,
-                        "备份期间数据文件改变；原文件已保留",
-                    ));
-                }
-            }
-        }
-        let temp = RelPath::new(format!("state-{}.tmp", fs::unique_id()?))?;
-        let written = root.create_file(&temp, &bytes, 0o600)?;
-        let published = root.rename(&temp, &state_path()?, &self.file, true);
-        if let Err(error) = published {
-            if error
-                .context
-                .get("renameApplied")
-                .is_some_and(|v| v == "true")
-            {
-                self.uncertain = true;
-                if let Ok(file) = root.read_checked(&state_path()?, MAX_STATE)
-                    && file.bytes == bytes
-                {
-                    self.state = next;
-                    self.file = file.snapshot;
-                }
-                return Err(YssError::new(
-                    ErrorCode::RecoveryRequired,
-                    "写入后校验失败；请刷新并核实结果，勿重复提交",
-                )
-                .context("revision", self.state.revision));
-            }
-            let _ = root.remove(&temp, &written);
+        if let Err(error) =
+            self.database
+                .commit_delta(&self.lock.root, expected_revision, &self.state, &next)
+        {
+            self.uncertain = error.code == ErrorCode::RecoveryRequired;
             return Err(error);
         }
-        let file = root
-            .read_checked(&state_path()?, MAX_STATE)
-            .inspect_err(|_e| {
-                self.uncertain = true;
-            })?;
-        if file.bytes != bytes {
+        if !self
+            .lock
+            .root
+            .read_checked(&state_path()?, 16 * 1024)
+            .is_ok_and(|f| f.snapshot == self.marker)
+        {
             self.uncertain = true;
             return Err(YssError::new(
-                ErrorCode::ConcurrentChange,
-                "写入后数据改变；请重启核实",
+                ErrorCode::RecoveryRequired,
+                "提交后存储标记改变，请重启核实，勿重复提交",
             ));
         }
         self.state = next;
-        self.file = file.snapshot;
         Ok(self.state.revision)
     }
-}
-
-fn backup_previous(root: &Root, bytes: &[u8], version: u64) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    let path = RelPath::new(format!(
-        "state.v{version}-backup-{:x}.json",
-        Sha256::digest(bytes)
-    ))?;
-    match root.read_checked(&path, MAX_STATE) {
-        Ok(existing) if existing.bytes == bytes => return Ok(()),
-        Ok(_) => return Err(invalid("已有升级备份内容不同；未覆盖")),
-        Err(e) if e.context.get("kind").is_some_and(|k| k == "NotFound") => {}
-        Err(e) => return Err(e),
-    }
-    let temp = RelPath::new(format!("backup-{}.tmp", fs::unique_id()?))?;
-    let file = root.create_file(&temp, bytes, 0o600)?;
-    if let Err(e) = root.rename(&temp, &path, &FileSnapshot::Missing, false) {
-        let _ = root.remove(&temp, &file);
-        return Err(e);
-    }
-    if root.read_checked(&path, MAX_STATE)?.bytes != bytes {
-        return Err(invalid("升级备份校验失败；原状态未升级"));
-    }
-    Ok(())
 }
