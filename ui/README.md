@@ -5,3 +5,15 @@
 在仓库根执行 `pnpm --dir ui install --frozen-lockfile`，再运行 `typecheck`、`lint`、`build`。`ui/dist` 由 Rust 用户程序内嵌。联调与正常运行使用 `cargo build --locked --bin yss` 后的 `target/debug/yss workbench --no-open`；Vite 单独启动没有工作台会话及 API。
 
 页面通过同源服务读写个人数据，来源项目只读。共享快照和请求生命周期归 useWorkbench；编辑草稿持有打开时 revision，后台刷新不覆盖输入。来源预览单独取消旧请求。无远程字体、图片、CDN 或持久测试套件。
+
+主规格与关联 Markdown 文档的“预览”支持 `mermaid` 代码块，例如：
+
+```mermaid
+flowchart LR
+  A[提交需求] --> B{信息完整？}
+  B -->|是| C[编写规格]
+  B -->|否| D[补充信息]
+  D --> B
+```
+
+Mermaid 资源随 CLI 内嵌，按需加载，可离线预览；图内跳转和图片不启用。语法错误会显示提示并保留该图源码；切换“Markdown 原文”可查看包含 Mermaid 代码块的完整文档。

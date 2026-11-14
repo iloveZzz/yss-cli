@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { loadSource, loadDocument, errorMessage, dateLabel, type SourceDocument } from '@/services/workbench'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { renderMarkdown, resolveDocumentLink } from '../schemas/markdown'
+import { useMermaid } from '../hooks/useMermaid'
 const props = defineProps<{ specId: string; sourcePath: string; documentPath?: string; fragment?: string; embedded?: boolean }>()
 const emit = defineEmits<{ navigate: [path: string, fragment: string] }>()
 const { snapshot } = useWorkbench()
@@ -12,6 +13,7 @@ const mode = shallowRef<'preview' | 'source'>('preview')
 const article = useTemplateRef<HTMLElement>('article')
 const currentPath = computed(() => props.documentPath ?? props.sourcePath)
 const html = computed(() => renderMarkdown(source.value?.text ?? ''))
+useMermaid(article, html)
 async function scrollFragment(fragment?: string) {
   if (!fragment) return
   await nextTick()
@@ -57,5 +59,9 @@ function followLink(event: MouseEvent) {
 <style scoped>
 .preview-embedded { max-width: 1080px; margin: 0 auto; padding: 24px; border: 0; border-radius: 0; box-shadow: none; }
 .preview-embedded .section-heading { justify-content: flex-end; }
+.preview { min-width: 0; }
+.markdown :deep(.mermaid-diagram) { margin: 16px 0; padding: 16px; overflow: auto; border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; }
+.markdown :deep(.mermaid-diagram svg) { display: block; height: auto; margin: 0 auto; }
+.markdown :deep(.mermaid-diagram p) { margin: 0; }
 @media (width < 720px) { .preview-embedded { padding: 16px; } }
 </style>
