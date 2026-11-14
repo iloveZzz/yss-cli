@@ -367,6 +367,34 @@ impl Root {
         }
         Ok(self.read_checked(path, MAX_ASSET)?.snapshot)
     }
+    /// Inspect mutable database files without reading their entire contents.
+    pub(crate) fn regular_file_identity(&self, path: &RelPath) -> Result<FileIdentity> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("文件父目录不存在"))?;
+        self.revalidate_parent(&parent)?;
+        let metadata = parent
+            .dir
+            .symlink_metadata(&parent.name)
+            .map_err(|e| io_at(e, path))?;
+        plain(&metadata)?;
+        if !metadata.is_file() {
+            return Err(unsafe_path("数据库路径不是普通文件").at(path));
+        }
+        #[cfg(unix)]
+        {
+            use cap_std::fs::MetadataExt;
+            if metadata.nlink() != 1 || platform::mode(&metadata) & 0o077 != 0 {
+                return Err(unsafe_path("数据库文件须为私有文件且不能有硬链接").at(path));
+            }
+        }
+        let identity = platform::identity_at(&parent.dir, &parent.name)?;
+        self.revalidate_parent(&parent)?;
+        if platform::identity_at(&parent.dir, &parent.name)? != identity {
+            return Err(drift().at(path));
+        }
+        Ok(identity)
+    }
     pub fn read_checked(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
         let parent = self
             .parent(path)?

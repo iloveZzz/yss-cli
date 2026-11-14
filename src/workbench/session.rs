@@ -79,7 +79,12 @@ fn read(data_dir: &Path) -> Result<Option<Session>> {
     if !data_dir.try_exists()? {
         return Ok(None);
     }
-    super::store::read_state(data_dir)?;
+    if !matches!(
+        super::storage_migration::probe(data_dir)?,
+        super::storage_migration::StorageState::Active(_)
+    ) {
+        return Ok(None);
+    }
     let root = Root::open(&std::fs::canonicalize(data_dir)?)?;
     let file = match root.read_checked(&RelPath::new("session.json")?, 4096) {
         Ok(file) => file,

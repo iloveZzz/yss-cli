@@ -1,6 +1,8 @@
 # 构建、发行包与安装
 
-当前源码为纯 Rust CLI `3.4.1`，补齐 Spec 关联阅读、隔离原型预览、问题答复与延期、范围版本确认；实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前源码为 Rust CLI `3.4.1`，补齐 Spec 关联阅读、隔离原型预览、问题答复与延期、范围版本确认；实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+
+工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 
 ## 本地构建
 
