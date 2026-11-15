@@ -330,6 +330,7 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
             }
         }
     }
+    conflicts.extend(new_skill_view_conflicts(&operations, &guards)?);
     if !conflicts.is_empty() {
         let mut message = "本地内容与模板变更冲突；未写入文件".to_owned();
         for diagnostic in &report.diagnostics {
@@ -454,6 +455,45 @@ fn add_create(
     });
     Ok(())
 }
+fn new_skill_view_conflicts(
+    operations: &[Operation],
+    guards: &BTreeMap<RelPath, FileSnapshot>,
+) -> Result<BTreeSet<RelPath>> {
+    let planned: BTreeMap<_, _> = operations
+        .iter()
+        .filter_map(|operation| match operation {
+            Operation::Create { path, file } | Operation::Replace { path, file, .. } => Some((
+                path.clone(),
+                Some(FileDescriptor::new(&file.bytes, file.mode)),
+            )),
+            Operation::Delete { path, .. } => Some((path.clone(), None)),
+            Operation::CreateDir { .. } => None,
+        })
+        .collect();
+    let mut conflicts = BTreeSet::new();
+    for operation in operations {
+        let Operation::Create { path, file } = operation else {
+            continue;
+        };
+        let Some(suffix) = path.as_str().strip_prefix(".claude/skills/") else {
+            continue;
+        };
+        if crate::bundle::skill_for_path(path.as_str()).is_none() {
+            continue;
+        }
+        let canonical = RelPath::new(format!(".agents/skills/{suffix}"))?;
+        let actual = match planned.get(&canonical) {
+            Some(descriptor) => descriptor.as_ref(),
+            None => guards.get(&canonical).and_then(FileSnapshot::descriptor),
+        };
+        if actual != Some(&FileDescriptor::new(&file.bytes, file.mode)) {
+            conflicts.insert(canonical);
+            conflicts.insert(path.clone());
+        }
+    }
+    Ok(conflicts)
+}
+
 fn render(bytes: &[u8], vars: &BTreeMap<String, String>, path: &str) -> Result<Vec<u8>> {
     fn replace(text: &str, vars: &BTreeMap<String, String>) -> String {
         let mut text = text.to_owned();

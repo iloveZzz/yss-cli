@@ -52,6 +52,16 @@ GitLab 次级来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli`，需要
 
 ## 恢复
 
+### 项目共享与本机资料
+
+工程 Git 快照可保存完整受管资料和 `.yss/project.json`，存在生成收据 `.yss/scaffold.json` 时保留其来源；具体边界见[技能选择与所有权](skills-discovery.md)。工具收据 `.yss/tool.json` 属于独立工具安装目录，不混入项目仓。
+
+项目的 `.yss/lock` 和 `.yss/transactions/` 是本机锁与恢复资料，新共享快照通过工程根 `.gitignore` 排除这两个路径，不整体忽略 `.yss/`。已跟踪的文件不会因新增忽略规则停止跟踪；不自动去跟踪或删除它们。已有 Frontend user-owned `.gitignore` 不由 sync 覆盖，需要按实际项目配置授权增量补足，保留定制。
+
+共享前处理实际未完成事务，不能删除锁、事务或收据来绕过保护。新 clone 能继续诊断/同步与跨机器、跨平台恢复分别验证，不能由一次 doctor 成功推断全部成立。
+
+### 事务恢复行为
+
 所有已有根的更新共用安装锁和事务日志，收据最后写入。未提交事务完整预检后回滚，用户在中断后修改的未知状态会产生冲突；已提交事务不会回滚。`recover --dry-run` 只读。
 
 3.6.0 仅将身份不匹配、完整合法且无私有残留的 committed 事务列为只读历史。`TransactionStatus` 增加 `retainedHistory`，不改变 pending、TransactionReport、收据或事务格式；原路径和字节保留，不以当前收据是否等于旧事务 after 判断历史资格。实际恢复和清理仍要求根与事务目录身份匹配；写入前加锁并复查完整事务集合和元数据。同步遇到真实内容冲突仍拒绝，不借历史兼容绕过文件保护。
@@ -62,7 +72,7 @@ Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-CLI 3.6.0 的 GitHub 构建固定使用模板提交 `b8a8ceb81adcd75efc4f644e544f7e158080bb27`（Template `v5.6.0`）；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 记录配套 Template `v5.6.0` 标签，历史标签保持原指向。
+当前源码的 GitHub 构建固定使用模板提交 `377d251e64b6daaa9f1f101b34fbcbbc85777ed6`，包含 Home 多项目协调与宿主技能入口；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；推送触发 CLI CI 前，须先确保该模板提交在固定的远端模板仓可获取。此源码来源更新不创建正式发行；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 仍记录既有 Template `v5.6.0` 标签，历史标签保持原指向。
 
 CLI `3.6.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 

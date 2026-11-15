@@ -31,7 +31,7 @@ pub(crate) fn project_next_steps(
         ),
         _ => (
             "review-upstream",
-            "若本工程有上游 Home 或规格，请由 Agent 复用已有入口记录其位置；没有上游时无需补造关系。",
+            "若本工程有上游 Home 或规格，复用已有入口记录其位置及本仓技能入口；Git 接入与技能共享按 setup-yss-harness 的 project-portability 参考处理，没有上游时无需补造关系。",
         ),
     };
     vec![NextStep {
@@ -45,11 +45,11 @@ pub(crate) fn scaffold_next_steps(profile: Profile, root: &Path) -> Vec<NextStep
     let (name, message) = match profile {
         Profile::Backend => (
             "backend",
-            "如需项目技能，使用本次已核验的 CLI 接入 Backend skills；随后按已知上游关系补充导航。",
+            "如需项目技能，使用本次已核验的 CLI 接入 Backend skills；随后按实际 Git 边界和已知上游关系完成接入。",
         ),
         Profile::Frontend => (
             "frontend",
-            "如需项目技能，使用本次已核验的 CLI 接入 Frontend skills；随后按已知上游关系补充导航。",
+            "如需项目技能，使用本次已核验的 CLI 接入 Frontend skills；随后按实际 Git 边界和已知上游关系完成接入。",
         ),
         Profile::Spec => return Vec::new(),
     };

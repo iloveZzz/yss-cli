@@ -1,7 +1,9 @@
 use super::{
     Bundle,
     archive::{self, Entry},
-    manifest::{self, BundleFile, Installation, Manifest, ProfileBundle, SourcePolicy},
+    manifest::{
+        self, BundleFile, Installation, Manifest, ProfileBundle, SourceManifest, SourcePolicy,
+    },
 };
 use crate::{
     codec::{self, Limits},
@@ -250,6 +252,39 @@ fn source_snapshot(root: &Root, policies: &BTreeMap<Profile, SourcePolicy>) -> R
         inventory,
     })
 }
+fn add_skill_views(
+    files: &mut BTreeMap<RelPath, BundleFile>,
+    policy: &SourceManifest,
+) -> Result<()> {
+    let mut views = BTreeMap::new();
+    for (path, file) in files.iter() {
+        let Some(suffix) = path.as_str().strip_prefix(".agents/skills/") else {
+            continue;
+        };
+        let target = RelPath::new(format!(".claude/skills/{suffix}"))?;
+        if !policy.includes(target.as_str()) {
+            continue;
+        }
+        let render = policy.render_paths.contains(&target);
+        if render != file.render {
+            return Err(invalid("技能视图与来源的渲染策略不一致").at(target));
+        }
+        let entry = BundleFile {
+            descriptor: file.descriptor.clone(),
+            ownership: policy.ownership(target.as_str()),
+            render,
+        };
+        views.insert(target, entry);
+    }
+    for (path, file) in files.iter() {
+        if path.as_str().starts_with(".claude/skills/") && views.get(path) != Some(file) {
+            return Err(invalid("技能视图缺少对应来源或内容不一致").at(path));
+        }
+    }
+    files.extend(views);
+    Ok(())
+}
+
 pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
     let root = Root::open(source_root)?;
     let mut policies = BTreeMap::new();
@@ -325,6 +360,7 @@ pub fn build(source_root: &Path, out: &Path) -> Result<BundleBuildReport> {
             };
             files.insert(path, entry);
         }
+        add_skill_views(&mut files, &policy.manifest)?;
         let mut installations = BTreeMap::new();
         for (&kind, mode) in &policy.installations {
             let mut base = BTreeMap::new();
