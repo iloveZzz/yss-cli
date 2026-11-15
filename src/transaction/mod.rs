@@ -88,6 +88,7 @@ pub struct TransactionSummary {
 pub struct TransactionStatus {
     pub transactions: Vec<TransactionSummary>,
     pub pending: Vec<String>,
+    pub retained_history: Vec<String>,
 }
 fn required(message: &str) -> YssError {
     YssError::new(ErrorCode::RecoveryRequired, message)
@@ -102,15 +103,22 @@ fn status_root(root: &Root) -> Result<TransactionStatus> {
     }
     let mut status = TransactionStatus::default();
     for id in root.list(Some(&path))? {
-        let loaded = journal::load(root, &id, false)?;
-        if !loaded.phase.terminal() {
-            status.pending.push(id.clone());
+        match journal::inspect(root, &id)? {
+            journal::Inspection::RetainedHistory(summary) => {
+                status.retained_history.push(id);
+                status.transactions.push(summary);
+            }
+            journal::Inspection::Bound(loaded) => {
+                if !loaded.phase.terminal() {
+                    status.pending.push(id.clone());
+                }
+                status.transactions.push(TransactionSummary {
+                    id,
+                    phase: loaded.phase,
+                    operations: loaded.plan.as_ref().map_or(0, |p| p.records.len()),
+                });
+            }
         }
-        status.transactions.push(TransactionSummary {
-            id,
-            phase: loaded.phase,
-            operations: loaded.plan.as_ref().map_or(0, |p| p.records.len()),
-        });
     }
     if status.pending.len() > 1 {
         return Err(required("存在多个未完成事务；拒绝自动修改"));

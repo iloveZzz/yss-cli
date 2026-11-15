@@ -63,6 +63,7 @@ pub struct ProjectReport {
     pub preserved: Vec<RelPath>,
     pub diagnostics: Vec<SkillDiagnostic>,
     pub transaction: Option<TransactionReport>,
+    pub next_steps: Vec<crate::guidance::NextStep>,
 }
 #[derive(Debug, Serialize)]
 pub struct PathChange {

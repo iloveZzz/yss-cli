@@ -25,7 +25,7 @@
 
 | 选项 | 值 | 内容 |
 | --- | --- | --- |
-| `--profile` | `spec` | 业务规格与产品设计 |
+| `--profile` | `spec` | 业务规格、产品设计与产品 Home 工程会话入口 |
 | `--profile` | `backend` | Java 后端研发 |
 | `--profile` | `frontend` | Vue 3 前端研发 |
 | `--installation` | `project` | 技能与必要项目资料；新安装默认值 |
@@ -125,6 +125,14 @@ yss recover --root <项目或工具目录> --dry-run
 工具目录不能位于 Git 工作树内，也不能兼作项目目录。首次安装应使用已核验的新程序和发行归档，明确指定新目录或已有空目录作为工具目录；旧 Go 安装与 Rust 格式不兼容。升级 CLI 后，项目只有另行执行 `sync` 才会使用新程序内嵌的资源。
 
 `recover` 处理未提交事务；对已提交事务只重试安全清理，不是已完成操作的通用回滚。中断后用户若又修改了相关文件，恢复可能报告冲突；保留现场并按诊断处理。
+
+## 初始化与工程接入的完成指引（开发构建）
+
+当前开发源码在 init/attach 和三种 scaffold 的成功报告中新增 `nextSteps`；旧安装程序不会因模板更新获得该字段。Spec project 提醒核实 Home 地图与工程关系，Spec skills 保持原仓职责；Backend/Frontend 提醒按已知上游补充导航。CLI 不读取或创建真实仓库地图，也不自动操作关联仓。
+
+scaffold 仅生成源码，需要技能时建议显式 `attach --profile backend|frontend --installation skills`。返回的 `command` 包含 `program` 和独立字符串数组 `args`，不应拼接为 shell 字符串；program 是调用名，Agent 应沿用本次已核验的二进制绝对路径执行 args。非 UTF-8 路径省略 command，保留文字指引。生成成功后 attach 失败时保留源码与原入口，按实际冲突处理。
+
+dry-run、sync、skills ensure 的 `nextSteps` 为 `[]`；错误或取消仍返回原错误，无成功指引。普通报告与 JSON 的 result 含相同字段，外层 `yss.output` 仍为版本 1。新安装仍默认 project，范围切换需显式指定；skills 也会安装宿主入口，可能与已有规则冲突。
 
 ## 通用选项与输出
 
