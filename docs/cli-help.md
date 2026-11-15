@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.5.0` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.5.1` 候选源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -125,6 +125,10 @@ yss recover --root <项目或工具目录> --dry-run
 工具目录不能位于 Git 工作树内，也不能兼作项目目录。首次安装应使用已核验的新程序和发行归档，明确指定新目录或已有空目录作为工具目录；旧 Go 安装与 Rust 格式不兼容。升级 CLI 后，项目只有另行执行 `sync` 才会使用新程序内嵌的资源。
 
 `recover` 处理未提交事务；对已提交事务只重试安全清理，不是已完成操作的通用回滚。中断后用户若又修改了相关文件，恢复可能报告冲突；保留现场并按诊断处理。
+
+3.5.1 候选支持保留目录身份变化后的已提交历史：事务元数据须完整有效，私有材料须全部清理。`doctor` 的事务状态新增 `retainedHistory` ID 数组，历史仍列在 `transactions`，不进入 `pending`；没有历史时输出 `[]`。仅有这类历史时，`recover` 返回 unchanged，不创建锁、不写日志、不清理原材料。身份不匹配的未完成或 rolled-back 事务、有残留或损坏的记录仍拒绝处理。
+
+保留历史不代表项目文件可覆盖。`sync`、`skills ensure` 和工具升级仍执行原有收据、摘要、文件所有权及冲突检查；本地定制与新模板冲突时仍返回 `CONFLICT`。
 
 ## 通用选项与输出
 

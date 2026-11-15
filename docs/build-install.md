@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码为 Rust CLI `3.5.0`，内嵌 Spec / Home Template 5.5.0，并交付 SQLite 工作台存储、Spec 命名及损坏数据保护；实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前源码为 Rust CLI `3.5.1` 补丁候选，基于 v3.5.0 的 `be7c833079df723577ed513f0ecb21bf00e81944`，内嵌 Spec / Home Template 5.5.0。候选增加已清理的已提交事务历史兼容，不包含 main 后续未发布功能；开发构建的 sourceState 及内容摘要以程序记录为准，不能视为正式发行。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
 
 工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 
@@ -24,8 +24,8 @@ Bundle 缺失时用户程序编译失败；内部 Bundle 工具可先独立构�
 ## 打包
 
 ```text
-cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.5.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.5.0_aarch64-apple-darwin.tar.gz
-shasum -a 256 /absolute/dist/yss_3.5.0_aarch64-apple-darwin.tar.gz
+cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.5.1 --target aarch64-apple-darwin --out /absolute/dist/yss_3.5.1_aarch64-apple-darwin.tar.gz
+shasum -a 256 /absolute/dist/yss_3.5.1_aarch64-apple-darwin.tar.gz
 ```
 
 输出父目录应存在，已有归档不会被覆盖。内部工具读取实际 ELF/Mach-O/PE 程序的专用构建记录，核对目标架构、版本、Bundle 和源码来源，不能通过参数伪造来源或执行外平台程序。压缩包只包含程序与 `release-manifest.json`；Windows 使用 ZIP。以真实归档生成统一 SHA256SUMS，完整归档和逐条载荷均校验 SHA-256、长度、路径与模式。
@@ -53,6 +53,8 @@ GitLab 次级来源固定为 `https://gitlab.yss.test:9443/yss/yss-cli`，需要
 ## 恢复
 
 所有已有根的更新共用安装锁和事务日志，收据最后写入。未提交事务完整预检后回滚，用户在中断后修改的未知状态会产生冲突；已提交事务不会回滚。`recover --dry-run` 只读。
+
+3.5.1 候选仅将身份不匹配、完整合法且无私有残留的 committed 事务列为只读历史。`TransactionStatus` 增加 `retainedHistory`，不改变 pending、TransactionReport、收据或事务格式；原路径和字节保留，不以当前收据是否等于旧事务 after 判断历史资格。实际恢复和清理仍要求根与事务目录身份匹配；写入前加锁并复查完整事务集合和元数据。同步遇到真实内容冲突仍拒绝，不借历史兼容绕过文件保护。
 
 Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当前进程仍可能是旧版本，磁盘目标与清理状态分别报告。旧 exe 仍被占用时可提交并报告 cleanup pending，之后执行 recover 重试清理。若中断导致主入口暂缺，使用从已核验归档取得的独立新程序执行 `recover --root <工具根>`。GitHub Windows 工作流仅构建和静态校验，不运行 `yss.exe`；每次发行的原生运行验证范围以其发行说明为准。
 

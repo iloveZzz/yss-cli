@@ -1,7 +1,7 @@
-use super::{Desired, TransactionPhase, required};
+use super::{Desired, TransactionPhase, TransactionSummary, required};
 use crate::{
     codec::{self, Limits},
-    error::{ErrorCode, Result},
+    error::{ErrorCode, Result, YssError},
     fs::{FileIdentity, FileSnapshot, Root},
     model::{MAX_ASSET, MAX_MANIFEST, RelPath, Sha256},
 };
@@ -113,6 +113,90 @@ pub(super) struct Loaded {
     pub owned: BTreeMap<RelPath, FileSnapshot>,
     pub cleaned: BTreeSet<RelPath>,
 }
+pub(super) enum Inspection {
+    Bound(Box<Loaded>),
+    RetainedHistory(TransactionSummary),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RecordSnapshot {
+    directory: FileSnapshot,
+    entries: Vec<String>,
+    metadata: BTreeMap<RelPath, FileSnapshot>,
+}
+
+pub(super) fn record_snapshot(root: &Root, id: &str) -> Result<RecordSnapshot> {
+    let base = base(id)?;
+    let directory = root.inspect(&base)?;
+    if !matches!(directory, FileSnapshot::Directory { .. }) {
+        return Err(required("事务目录不是普通目录").at(&base));
+    }
+    let entries = root.list(Some(&base))?;
+    let mut metadata = BTreeMap::new();
+    for name in ["identity.json", "plan.json", "journal.jsonl"] {
+        let path = base.join(name)?;
+        metadata.insert(path.clone(), root.inspect(&path)?);
+    }
+    root.revalidate()?;
+    Ok(RecordSnapshot {
+        directory,
+        entries,
+        metadata,
+    })
+}
+
+fn check_snapshot(root: &Root, id: &str, before: &RecordSnapshot) -> Result<()> {
+    if &record_snapshot(root, id)? != before {
+        return Err(
+            YssError::new(ErrorCode::ConcurrentChange, "读取期间事务材料改变").at(base(id)?),
+        );
+    }
+    Ok(())
+}
+
+fn is_current_binding(root: &Root, loaded: &Loaded) -> Result<bool> {
+    root.revalidate()?;
+    Ok(loaded.identity.root == root.identity
+        && root.inspect(&base(&loaded.identity.id)?)?.identity()
+            == Some(&loaded.identity.directory))
+}
+
+fn ensure_current_binding(root: &Root, loaded: &Loaded) -> Result<()> {
+    if !is_current_binding(root, loaded)? {
+        return Err(required("事务与当前根目录身份不匹配").at(base(&loaded.identity.id)?));
+    }
+    Ok(())
+}
+
+pub(super) fn inspect(root: &Root, id: &str) -> Result<Inspection> {
+    let (loaded, snapshot) = read_record(root, id)?;
+    let bound = is_current_binding(root, &loaded)?;
+    if !bound {
+        if loaded.phase != TransactionPhase::Committed {
+            return Err(required("身份不匹配的事务尚未提交").at(base(id)?));
+        }
+        for path in loaded
+            .identity
+            .private_files
+            .iter()
+            .chain(loaded.identity.private_directories.iter())
+        {
+            if root.inspect(path)? != FileSnapshot::Missing {
+                return Err(required("身份不匹配的事务仍有私有材料").at(path));
+            }
+        }
+    }
+    check_snapshot(root, id, &snapshot)?;
+    if bound {
+        Ok(Inspection::Bound(Box::new(loaded)))
+    } else {
+        Ok(Inspection::RetainedHistory(TransactionSummary {
+            id: id.into(),
+            phase: loaded.phase,
+            operations: loaded.plan.as_ref().map_or(0, |p| p.records.len()),
+        }))
+    }
+}
 pub(super) fn base(id: &str) -> Result<RelPath> {
     if id.len() != 32
         || !id
@@ -136,27 +220,63 @@ pub(super) fn object(id: &str, hash: &Sha256) -> Result<RelPath> {
     base(id)?.join(&format!("objects/{hash}"))
 }
 
-fn read_optional(root: &Root, path: &RelPath) -> Result<Option<Vec<u8>>> {
-    match root.inspect(path)? {
-        FileSnapshot::Missing => Ok(None),
-        FileSnapshot::File { .. } => Ok(Some(root.read_checked(path, MAX_MANIFEST)?.bytes)),
+fn read_optional(root: &Root, path: &RelPath, record: &RecordSnapshot) -> Result<Option<Vec<u8>>> {
+    let expected = &record.metadata[path];
+    let changed = || YssError::new(ErrorCode::ConcurrentChange, "解析期间事务元数据改变").at(path);
+    match expected {
+        FileSnapshot::Missing => {
+            if root.inspect(path)? != FileSnapshot::Missing {
+                return Err(changed());
+            }
+            Ok(None)
+        }
+        FileSnapshot::File { .. } => {
+            let checked = root.read_checked(path, MAX_MANIFEST)?;
+            if &checked.snapshot != expected {
+                return Err(changed());
+            }
+            Ok(Some(checked.bytes))
+        }
         _ => Err(required("事务元数据不是普通文件")),
     }
 }
 pub(super) fn load(root: &Root, id: &str, verify_objects: bool) -> Result<Loaded> {
+    let (loaded, snapshot) = read_record(root, id)?;
+    ensure_current_binding(root, &loaded)?;
+    if verify_objects
+        && !matches!(
+            loaded.phase,
+            TransactionPhase::Preparing
+                | TransactionPhase::Committed
+                | TransactionPhase::RolledBack
+        )
+    {
+        let plan = loaded
+            .plan
+            .as_ref()
+            .ok_or_else(|| required("事务缺少计划"))?;
+        for (hash, size) in &plan.objects {
+            let bytes = root.read_checked(&object(id, hash)?, MAX_ASSET)?.bytes;
+            if bytes.len() as u64 != *size || Sha256::of(&bytes) != *hash {
+                return Err(required("事务内容对象不完整"));
+            }
+        }
+    }
+    check_snapshot(root, id, &snapshot)?;
+    Ok(loaded)
+}
+
+fn read_record(root: &Root, id: &str) -> Result<(Loaded, RecordSnapshot)> {
+    let snapshot = record_snapshot(root, id)?;
     let base = base(id)?;
     let identity: Identity = codec::decode_json(
-        &root
-            .read_checked(&base.join("identity.json")?, MAX_MANIFEST)?
-            .bytes,
+        &read_optional(root, &base.join("identity.json")?, &snapshot)?
+            .ok_or_else(|| required("事务缺少身份记录").at(&base))?,
         Limits::manifest(),
     )?;
     codec::ensure_format(&identity.format, identity.format_version, "yss.transaction")?;
-    if identity.id != id
-        || identity.root != root.identity
-        || root.inspect(&base)?.identity() != Some(&identity.directory)
-    {
-        return Err(required("事务与当前根目录身份不匹配"));
+    if identity.id != id {
+        return Err(required("事务目录与记录 ID 不一致").at(&base));
     }
     for path in identity
         .private_files
@@ -167,13 +287,13 @@ pub(super) fn load(root: &Root, id: &str, verify_objects: bool) -> Result<Loaded
             return Err(required("事务私有范围越界"));
         }
     }
-    let plan = if let Some(bytes) = read_optional(root, &base.join("plan.json")?)? {
+    let plan = if let Some(bytes) = read_optional(root, &base.join("plan.json")?, &snapshot)? {
         if Sha256::of(&bytes) != identity.plan_sha256 {
             return Err(required("事务计划原始字节摘要不一致"));
         }
         let plan: Plan = codec::decode_json(&bytes, Limits::manifest())?;
         codec::ensure_format(&plan.format, plan.format_version, "yss.transaction")?;
-        if plan.root != root.identity || plan.id != id || plan.records.is_empty() {
+        if plan.root != identity.root || plan.id != id || plan.records.is_empty() {
             return Err(required("事务计划身份不合法"));
         }
         validate_records(&plan)?;
@@ -182,8 +302,8 @@ pub(super) fn load(root: &Root, id: &str, verify_objects: bool) -> Result<Loaded
         None
     };
     let log = base.join("journal.jsonl")?;
-    let log_state = root.inspect(&log)?;
-    let bytes = read_optional(root, &log)?.unwrap_or_default();
+    let log_state = &snapshot.metadata[&log];
+    let bytes = read_optional(root, &log, &snapshot)?.unwrap_or_default();
     if !bytes.is_empty() && !bytes.ends_with(b"\n") {
         return Err(required("事务日志被截断"));
     }
@@ -213,26 +333,7 @@ pub(super) fn load(root: &Root, id: &str, verify_objects: bool) -> Result<Loaded
         return Err(required("事务缺少不可变计划"));
     }
     validate_private(root, &loaded)?;
-    if verify_objects
-        && !matches!(
-            loaded.phase,
-            TransactionPhase::Preparing
-                | TransactionPhase::Committed
-                | TransactionPhase::RolledBack
-        )
-    {
-        let plan = loaded
-            .plan
-            .as_ref()
-            .ok_or_else(|| required("事务缺少计划"))?;
-        for (hash, size) in &plan.objects {
-            let bytes = root.read_checked(&object(id, hash)?, MAX_ASSET)?.bytes;
-            if bytes.len() as u64 != *size || Sha256::of(&bytes) != *hash {
-                return Err(required("事务内容对象不完整"));
-            }
-        }
-    }
-    Ok(loaded)
+    Ok((loaded, snapshot))
 }
 fn validate_records(plan: &Plan) -> Result<()> {
     let mut seen = BTreeSet::new();
@@ -449,6 +550,7 @@ impl Loaded {
         Ok(())
     }
     pub fn append(&mut self, root: &Root, event: Event) -> Result<()> {
+        ensure_current_binding(root, self)?;
         let log = base(&self.identity.id)?.join("journal.jsonl")?;
         if self.log_identity.is_none() {
             self.log_identity = root.create_file(&log, b"", 0o600)?.identity().cloned();
@@ -528,6 +630,10 @@ fn validate_private(root: &Root, loaded: &Loaded) -> Result<()> {
     Ok(())
 }
 pub(super) fn cleanup(root: &Root, loaded: &mut Loaded) -> Result<bool> {
+    ensure_current_binding(root, loaded)?;
+    if !loaded.phase.terminal() {
+        return Err(required("未终结事务不能清理材料"));
+    }
     let mut paths: Vec<_> = loaded.identity.private_files.iter().cloned().collect();
     let mut directories: Vec<_> = loaded
         .identity
