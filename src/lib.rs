@@ -4,6 +4,7 @@ pub mod cli;
 pub mod codec;
 pub mod error;
 pub mod fs;
+pub mod guidance;
 pub mod model;
 pub mod output;
 pub mod project;

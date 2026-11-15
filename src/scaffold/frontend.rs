@@ -34,6 +34,7 @@ pub struct FrontendReport {
     pub files: usize,
     pub source: SourceProvenance,
     pub bundle_digest: Sha256,
+    pub next_steps: Vec<crate::guidance::NextStep>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -202,5 +203,10 @@ pub fn generate(
         files: tree.files.len(),
         source: bundle.manifest.source.clone(),
         bundle_digest: bundle.digest.clone(),
+        next_steps: if request.dry_run {
+            Vec::new()
+        } else {
+            crate::guidance::scaffold_next_steps(Profile::Frontend, &target)
+        },
     })
 }

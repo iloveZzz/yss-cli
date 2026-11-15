@@ -34,12 +34,12 @@ pub enum Command {
     Workbench(WorkbenchArgs),
     #[command(
         about = "初始化新目录或空项目目录",
-        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n确认预览后去掉 --dry-run 执行；已有项目使用 yss attach。"
+        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n去掉 --dry-run 执行；已有项目使用 yss attach。Spec project 安装后按 nextSteps 核实 Home 工程关系。"
     )]
     Init(InstallArgs),
     #[command(
         about = "将 YSS 接入已有普通项目",
-        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --dry-run\n\n已接入 YSS 的项目使用 yss sync。"
+        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --installation skills --dry-run\n\n已接入 YSS 的项目使用 yss sync；若有上游 Home 或规格，复用已有入口补充导航。"
     )]
     Attach(InstallArgs),
     #[command(
@@ -206,7 +206,7 @@ pub struct InstallArgs {
     #[arg(
         long,
         value_enum,
-        help = "项目类型：spec 业务规格与产品设计；backend 后端研发；frontend 前端研发"
+        help = "项目类型：spec 业务规格、产品设计与产品 Home 工程会话入口；backend 后端研发；frontend 前端研发"
     )]
     pub profile: Profile,
     #[arg(
@@ -277,19 +277,19 @@ pub struct EnsureArgs {
 pub enum ScaffoldCommand {
     #[command(
         about = "生成最小 Vue 3 前端工程；不安装依赖",
-        after_help = "示例：\n  yss scaffold frontend --project-name my-frontend --output-dir . --dry-run\n\n输出父目录必须已存在，目标工程必须不存在。去掉 --dry-run 生成源码；运行需另行 pnpm install。"
+        after_help = "示例：\n  yss scaffold frontend --project-name my-frontend --output-dir . --dry-run\n\n输出父目录必须已存在，目标工程必须不存在。去掉 --dry-run 生成源码；需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach skills，运行按任务另行安装依赖。"
     )]
     Frontend(FrontendScaffoldArgs),
     #[command(about = "查看可选平台、版本与配方")]
     Catalog,
     #[command(
         about = "生成 DDD 分层 Java 空工程",
-        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。"
+        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
     )]
     Ddd(ScaffoldArgs),
     #[command(
         about = "生成 MVC 分层 Java 空工程",
-        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。"
+        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
     )]
     Mvc(ScaffoldArgs),
 }

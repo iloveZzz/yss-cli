@@ -54,6 +54,7 @@ pub struct ScaffoldReport {
     pub files: usize,
     pub modules: Vec<String>,
     pub source: SourceProvenance,
+    pub next_steps: Vec<crate::guidance::NextStep>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -281,6 +282,11 @@ pub fn generate(
         files: tree.files.len(),
         modules: modules(request.architecture),
         source: bundle.manifest.source.clone(),
+        next_steps: if request.dry_run {
+            Vec::new()
+        } else {
+            crate::guidance::scaffold_next_steps(Profile::Backend, &target)
+        },
     })
 }
 fn put(tree: &mut RenderedTree, path: &str, mut text: String) -> Result<()> {

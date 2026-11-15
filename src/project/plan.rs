@@ -231,6 +231,11 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
         preserved: Vec::new(),
         diagnostics,
         transaction: None,
+        next_steps: if new && !dry_run {
+            crate::guidance::project_next_steps(profile, installation)
+        } else {
+            Vec::new()
+        },
     };
     let old = previous
         .as_ref()
