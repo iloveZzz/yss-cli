@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码为 Rust CLI `3.6.0`，内嵌 Spec / Home Template 5.6.0，新增 Home 初始化指引、已清理的已提交事务历史兼容及工作台 Mermaid 预览。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前源码为 Rust CLI `3.7.0`，内嵌 Spec / Home Template 5.7.0。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
 
 工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 
@@ -24,8 +24,8 @@ Bundle 缺失时用户程序编译失败；内部 Bundle 工具可先独立构�
 ## 打包
 
 ```text
-cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.6.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.6.0_aarch64-apple-darwin.tar.gz
-shasum -a 256 /absolute/dist/yss_3.6.0_aarch64-apple-darwin.tar.gz
+cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.7.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.7.0_aarch64-apple-darwin.tar.gz
+shasum -a 256 /absolute/dist/yss_3.7.0_aarch64-apple-darwin.tar.gz
 ```
 
 输出父目录应存在，已有归档不会被覆盖。内部工具读取实际 ELF/Mach-O/PE 程序的专用构建记录，核对目标架构、版本、Bundle 和源码来源，不能通过参数伪造来源或执行外平台程序。压缩包只包含程序与 `release-manifest.json`；Windows 使用 ZIP。以真实归档生成统一 SHA256SUMS，完整归档和逐条载荷均校验 SHA-256、长度、路径与模式。
@@ -72,9 +72,9 @@ Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-当前源码的 GitHub 构建固定使用模板提交 `377d251e64b6daaa9f1f101b34fbcbbc85777ed6`，包含 Home 多项目协调与宿主技能入口；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；推送触发 CLI CI 前，须先确保该模板提交在固定的远端模板仓可获取。此源码来源更新不创建正式发行；使用发行产物时须核对真实模板来源，不能混用不同来源的包。`docs/template-release.json` 仍记录既有 Template `v5.6.0` 标签，历史标签保持原指向。
+当前源码的 GitHub 构建固定使用模板提交 `18fd61598ccca45f3bd2d91033c1f5a1e6e47176`，包含 Home 多项目协调、Backend4 默认配方与 Boot4 技能索引；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；推送触发 CLI CI 前，须先确保该模板提交在固定的远端模板仓可获取。使用发行产物时核对真实模板来源。`docs/template-release.json` 记录 Template `v5.7.0` 的实际发行标签。
 
-CLI `3.6.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
+CLI `3.7.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 
 现有 `yss-linux` 作业按 ARM64 原生主机校验。其他原生作业使用实际注册 runner 的变量 `YSS_RUNNER_LINUX_X86_64`、`YSS_RUNNER_MACOS_ARM64`、`YSS_RUNNER_MACOS_X86_64`、`YSS_RUNNER_WINDOWS_ARM64`、`YSS_RUNNER_WINDOWS_X86_64`；变量缺失意味着对应目标未验证，不代表整个矩阵完成。CI artifacts 不自动发布为正式 Release。
 
