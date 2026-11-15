@@ -45,13 +45,13 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 `3.5.0` 内嵌 Template `5.5.0`，Spec 默认安装 17 项技能并作为产品 Home 的工程会话入口，Backend/Frontend 默认集合为 42/13。项目仓库地图由项目维护；从 Home 进行明确研发时核实目标工程规则与上游版本。此版本同时交付主分支的 Spec 命名改进、SQLite 工作台存储和损坏数据保护；既有命令接口保持。
 
-`3.6.0` 增加初始化和脚手架完成后的 `nextSteps` 指引，明确 Home 关系与 `attach --installation skills` 的后续动作；完整有效且已清理的 committed 事务在目录身份变化后保留为只读历史。工作台 Markdown 预览支持 Mermaid 图。实际模板来源以发行记录为准。
+`3.6.0` 内嵌 Template `5.6.0`，增加初始化和脚手架完成后的 `nextSteps` 指引，明确 Home 关系与 `attach --installation skills` 的后续动作；完整有效且已清理的 committed 事务在目录身份变化后保留为只读历史。工作台 Markdown 预览支持 Mermaid 图。实际模板来源以发行记录为准。
 
 源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
 
 ## 个人 Spec 工作台
 
-配套 Template 5.5.0，保留主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认；三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
+配套 Template 5.6.0，保留主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认；三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
 
 ```text
 yss workbench
