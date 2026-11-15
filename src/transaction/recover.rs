@@ -1,25 +1,76 @@
 use super::{
-    Desired, TransactionPhase, TransactionReport,
+    Desired, TransactionPhase, TransactionReport, TransactionStatus,
     journal::{self, Event, ExecutableReplacement, Loaded, ReplacementDirection},
     required, status_root,
 };
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    fs::{self, FileSnapshot, Root},
-    model::{MAX_ASSET, Sha256},
+    fs::{self, FileSnapshot, Root, RootIdentity},
+    model::{MAX_ASSET, RelPath, Sha256},
 };
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
+
+#[derive(PartialEq, Eq)]
+struct RecoverySnapshot {
+    root: RootIdentity,
+    directory: FileSnapshot,
+    records: BTreeMap<String, journal::RecordSnapshot>,
+}
+
+fn capture_recovery_snapshot(root: &Root) -> Result<RecoverySnapshot> {
+    let path = RelPath::new(".yss/transactions")?;
+    let directory = root.inspect(&path)?;
+    let mut records = BTreeMap::new();
+    if directory != FileSnapshot::Missing {
+        for id in root.list(Some(&path))? {
+            records.insert(id.clone(), journal::record_snapshot(root, &id)?);
+        }
+    }
+    root.revalidate()?;
+    Ok(RecoverySnapshot {
+        root: root.identity.clone(),
+        directory,
+        records,
+    })
+}
+
+fn inspect_recovery(root: &Root) -> Result<(TransactionStatus, RecoverySnapshot)> {
+    let before = capture_recovery_snapshot(root)?;
+    let status = status_root(root)?;
+    if before != capture_recovery_snapshot(root)? {
+        return Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            "检查期间事务材料改变",
+        ));
+    }
+    Ok((status, before))
+}
+
+fn recheck_after_lock(root: &Root, before: &RecoverySnapshot) -> Result<TransactionStatus> {
+    let (current, after) = inspect_recovery(root)?;
+    if &after != before {
+        return Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            "加锁后事务材料改变",
+        ));
+    }
+    Ok(current)
+}
 
 pub fn recover(path: &Path, dry_run: bool, cancel: &Cancellation) -> Result<TransactionReport> {
     cancel.check()?;
     let root = Root::open(path)?;
-    let status = status_root(&root)?;
+    let (status, before) = inspect_recovery(&root)?;
     if status.pending.is_empty() {
-        if !dry_run && !status.transactions.is_empty() {
+        if !dry_run && status.transactions.len() > status.retained_history.len() {
             let lock = fs::lock_root(path)?;
+            let current = recheck_after_lock(&lock.root, &before)?;
             let mut complete = true;
-            for summary in status.transactions {
+            for summary in current.transactions {
+                if current.retained_history.contains(&summary.id) {
+                    continue;
+                }
                 let mut loaded = journal::load(&lock.root, &summary.id, false)?;
                 complete &= journal::cleanup(&lock.root, &mut loaded)?;
             }
@@ -52,13 +103,7 @@ pub fn recover(path: &Path, dry_run: bool, cancel: &Cancellation) -> Result<Tran
         });
     }
     let lock = fs::lock_root(path)?;
-    let current = status_root(&lock.root)?;
-    if current.pending != status.pending {
-        return Err(YssError::new(
-            ErrorCode::ConcurrentChange,
-            "加锁后事务状态改变",
-        ));
-    }
+    recheck_after_lock(&lock.root, &before)?;
     rollback(&lock.root, id, cancel)
 }
 fn before_matches(expected: &FileSnapshot, current: &FileSnapshot) -> bool {
