@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.5.1` 候选源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.6.0` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -126,13 +126,13 @@ yss recover --root <项目或工具目录> --dry-run
 
 `recover` 处理未提交事务；对已提交事务只重试安全清理，不是已完成操作的通用回滚。中断后用户若又修改了相关文件，恢复可能报告冲突；保留现场并按诊断处理。
 
-3.5.1 候选支持保留目录身份变化后的已提交历史：事务元数据须完整有效，私有材料须全部清理。`doctor` 的事务状态新增 `retainedHistory` ID 数组，历史仍列在 `transactions`，不进入 `pending`；没有历史时输出 `[]`。仅有这类历史时，`recover` 返回 unchanged，不创建锁、不写日志、不清理原材料。身份不匹配的未完成或 rolled-back 事务、有残留或损坏的记录仍拒绝处理。
+3.6.0 支持保留目录身份变化后的已提交历史：事务元数据须完整有效，私有材料须全部清理。`doctor` 的事务状态新增 `retainedHistory` ID 数组，历史仍列在 `transactions`，不进入 `pending`；没有历史时输出 `[]`。仅有这类历史时，`recover` 返回 unchanged，不创建锁、不写日志、不清理原材料。身份不匹配的未完成或 rolled-back 事务、有残留或损坏的记录仍拒绝处理。
 
 保留历史不代表项目文件可覆盖。`sync`、`skills ensure` 和工具升级仍执行原有收据、摘要、文件所有权及冲突检查；本地定制与新模板冲突时仍返回 `CONFLICT`。
 
-## 初始化与工程接入的完成指引（开发构建）
+## 初始化与工程接入的完成指引（3.6.0 起）
 
-当前开发源码在 init/attach 和三种 scaffold 的成功报告中新增 `nextSteps`；旧安装程序不会因模板更新获得该字段。Spec project 提醒核实 Home 地图与工程关系，Spec skills 保持原仓职责；Backend/Frontend 提醒按已知上游补充导航。CLI 不读取或创建真实仓库地图，也不自动操作关联仓。
+3.6.0 在 init/attach 和三种 scaffold 的成功报告中新增 `nextSteps`；旧安装程序不会因模板更新获得该字段。Spec project 提醒核实 Home 地图与工程关系，Spec skills 保持原仓职责；Backend/Frontend 提醒按已知上游补充导航。CLI 不读取或创建真实仓库地图，也不自动操作关联仓。
 
 scaffold 仅生成源码，需要技能时建议显式 `attach --profile backend|frontend --installation skills`。返回的 `command` 包含 `program` 和独立字符串数组 `args`，不应拼接为 shell 字符串；program 是调用名，Agent 应沿用本次已核验的二进制绝对路径执行 args。非 UTF-8 路径省略 command，保留文字指引。生成成功后 attach 失败时保留源码与原入口，按实际冲突处理。
 

@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。用户运行时分发单个 `yss`（Windows 为 `yss.exe`），无需 Go、Bun、Node 或 Python。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.5.0`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.6.0`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
 
 `3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板。此前的 `3.1.4` 构建仅支持 `spec`/`backend`，模板文档更新不会改变已安装程序；使用前查看实际 `yss help init`。
 
@@ -44,6 +44,8 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 `3.3.3` 更新内嵌 Template 为 `5.3.4`，分发三个 Profile 的技能地图及六个安装入口导航，明确 Spec 的 handoff 交接职责，并完善第三方问题、Agent 文档事实来源与前端边界检查方法。默认技能仍为 Spec 16 项、Backend 41 项、Frontend 13 项，CLI 命令和依赖保持不变。公开技能与 CLI Bundle 使用各自真实来源记录。
 
 `3.5.0` 内嵌 Template `5.5.0`，Spec 默认安装 17 项技能并作为产品 Home 的工程会话入口，Backend/Frontend 默认集合为 42/13。项目仓库地图由项目维护；从 Home 进行明确研发时核实目标工程规则与上游版本。此版本同时交付主分支的 Spec 命名改进、SQLite 工作台存储和损坏数据保护；既有命令接口保持。
+
+`3.6.0` 增加初始化和脚手架完成后的 `nextSteps` 指引，明确 Home 关系与 `attach --installation skills` 的后续动作；完整有效且已清理的 committed 事务在目录身份变化后保留为只读历史。工作台 Markdown 预览支持 Mermaid 图。实际模板来源以发行记录为准。
 
 源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
 
