@@ -94,6 +94,8 @@ pub struct Platform {
 pub(super) struct CatalogInput {
     pub schema_version: u32,
     pub kind: String,
+    #[serde(default)]
+    pub default_recipe_id: Option<String>,
     pub profiles: Vec<Platform>,
     pub compatibility: Vec<Recipe>,
     #[serde(rename = "component_retirement_policy")]
@@ -129,8 +131,7 @@ pub(super) struct Recipe {
     #[serde(default)]
     pub blockers: Vec<String>,
     #[serde(default)]
-    #[serde(rename = "verification_scope")]
-    pub _verification_scope: BTreeMap<String, serde_json::Value>,
+    pub verification_scope: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
     #[serde(rename = "components")]
     pub _components: BTreeMap<String, serde_json::Value>,
@@ -146,6 +147,10 @@ pub(super) fn catalog(bundle: &Bundle) -> Result<CatalogInput> {
         )?,
         Limits::manifest(),
     )?;
+    validate_catalog(&input)?;
+    Ok(input)
+}
+fn validate_catalog(input: &CatalogInput) -> Result<()> {
     if input.schema_version != 2 || input.kind != "backend-platform-catalog" {
         return Err(invalid("平台目录身份不合法"));
     }
@@ -179,7 +184,270 @@ pub(super) fn catalog(bundle: &Bundle) -> Result<CatalogInput> {
             return Err(invalid("平台配方 ID 重复"));
         }
     }
-    Ok(input)
+    for recipe in &input.compatibility {
+        if !input.profiles.iter().any(|platform| {
+            platform.id == recipe.profile_id
+                && platform.spring_boot_version == recipe.spring_boot_version
+        }) {
+            return Err(invalid("平台配方引用了不存在的精确平台"));
+        }
+    }
+    if input
+        .default_recipe_id
+        .as_ref()
+        .is_some_and(|id| !input.compatibility.iter().any(|recipe| &recipe.id == id))
+    {
+        return Err(invalid("默认配方 ID 不存在"));
+    }
+    Ok(())
+}
+pub(super) fn resolve(
+    catalog: &CatalogInput,
+    requested: &super::ScaffoldInputOptions,
+) -> Result<super::ScaffoldInputs> {
+    validate_catalog(catalog)?;
+    for (flag, value) in [
+        ("--platform-profile", &requested.platform_profile),
+        ("--parent-group-id", &requested.parent_group_id),
+        ("--parent-artifact-id", &requested.parent_artifact_id),
+    ] {
+        if value.as_ref().is_some_and(|value| !coordinate(value)) {
+            return Err(invalid(&format!("{flag} 不能为空且必须为合法坐标标识")));
+        }
+    }
+    for (flag, value) in [
+        ("--spring-boot-version", &requested.spring_boot_version),
+        ("--parent-version", &requested.parent_version),
+        (
+            "--yss-components-version",
+            &requested.yss_components_version,
+        ),
+    ] {
+        if value.as_ref().is_some_and(|value| !exact_version(value)) {
+            return Err(invalid(&format!(
+                "{flag} 必须为精确版本，不能包含空串、范围或占位符"
+            )));
+        }
+    }
+    let platforms: Vec<_> = catalog
+        .profiles
+        .iter()
+        .filter(|platform| {
+            requested
+                .platform_profile
+                .as_ref()
+                .is_none_or(|id| id == &platform.id)
+                && requested
+                    .spring_boot_version
+                    .as_ref()
+                    .is_none_or(|version| version == &platform.spring_boot_version)
+                && requested
+                    .java_version
+                    .is_none_or(|java| java == platform.java_version)
+        })
+        .collect();
+    if platforms.is_empty() {
+        return Err(invalid(
+            "显式平台、Spring Boot 精确版本与 Java 版本没有匹配项，请运行 yss scaffold catalog",
+        ));
+    }
+    let mut candidates = Vec::new();
+    let mut default = None;
+    for recipe in &catalog.compatibility {
+        let Some(platform) = platforms.iter().find(|platform| {
+            platform.id == recipe.profile_id
+                && platform.spring_boot_version == recipe.spring_boot_version
+        }) else {
+            continue;
+        };
+        if recipe.bom.group_id != "com.yss.cloud" || recipe.bom.artifact_id != "yss-components-bom"
+        {
+            continue;
+        }
+        let candidate =
+            input_for_platform(requested, platform, &recipe.parent, &recipe.bom.version);
+        if [
+            (&requested.parent_group_id, &candidate.parent_group_id),
+            (&requested.parent_artifact_id, &candidate.parent_artifact_id),
+            (&requested.parent_version, &candidate.parent_version),
+            (
+                &requested.yss_components_version,
+                &candidate.yss_components_version,
+            ),
+        ]
+        .iter()
+        .any(|(requested, actual)| requested.as_ref().is_some_and(|value| value != *actual))
+        {
+            continue;
+        }
+        if catalog.default_recipe_id.as_ref() == Some(&recipe.id) {
+            default = Some(candidate.clone());
+        }
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    let resolved = if let Some(input) = default {
+        input
+    } else if candidates.len() == 1 {
+        candidates.remove(0)
+    } else if !candidates.is_empty() {
+        let mut choices: BTreeMap<&str, std::collections::BTreeSet<String>> = BTreeMap::new();
+        for input in &candidates {
+            for (flag, value) in [
+                ("--platform-profile", input.platform_profile.clone()),
+                ("--spring-boot-version", input.spring_boot_version.clone()),
+                ("--java-version", input.java_version.to_string()),
+                ("--parent-group-id", input.parent_group_id.clone()),
+                ("--parent-artifact-id", input.parent_artifact_id.clone()),
+                ("--parent-version", input.parent_version.clone()),
+                (
+                    "--yss-components-version",
+                    input.yss_components_version.clone(),
+                ),
+            ] {
+                choices.entry(flag).or_default().insert(value);
+            }
+        }
+        let choices = choices
+            .into_iter()
+            .filter(|(_, values)| values.len() > 1)
+            .map(|(flag, values)| {
+                format!(
+                    "{flag} [{}]",
+                    values.into_iter().collect::<Vec<_>>().join(" | ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("；");
+        return Err(invalid(&format!(
+            "匹配到多个配方配置，请明确选择 {choices}"
+        )));
+    } else {
+        let mut missing = Vec::new();
+        for (flag, value) in [
+            ("--parent-group-id", &requested.parent_group_id),
+            ("--parent-artifact-id", &requested.parent_artifact_id),
+            ("--parent-version", &requested.parent_version),
+            (
+                "--yss-components-version",
+                &requested.yss_components_version,
+            ),
+        ] {
+            if value.is_none() {
+                missing.push(flag);
+            }
+        }
+        if platforms.len() != 1
+            || (requested.platform_profile.is_none()
+                && requested.spring_boot_version.is_none()
+                && requested.java_version.is_none())
+        {
+            missing.push(
+                "--platform-profile / --spring-boot-version / --java-version（需唯一定位平台）",
+            );
+        }
+        if !missing.is_empty() {
+            return Err(invalid(&format!(
+                "没有匹配配方，自定义输入请补充 {}",
+                missing.join("、")
+            )));
+        }
+        let parent = Coordinates {
+            group_id: requested.parent_group_id.clone().unwrap(),
+            artifact_id: requested.parent_artifact_id.clone().unwrap(),
+            version: requested.parent_version.clone().unwrap(),
+        };
+        input_for_platform(
+            requested,
+            platforms[0],
+            &parent,
+            requested.yss_components_version.as_deref().unwrap(),
+        )
+    };
+    validate_input(catalog, &resolved)?;
+    Ok(resolved)
+}
+fn input_for_platform(
+    requested: &super::ScaffoldInputOptions,
+    platform: &Platform,
+    parent: &Coordinates,
+    bom_version: &str,
+) -> super::ScaffoldInputs {
+    super::ScaffoldInputs {
+        project_name: requested.project_name.clone(),
+        base_package: requested.base_package.clone(),
+        group_id: requested.group_id.clone(),
+        project_version: requested.project_version.clone(),
+        platform_profile: platform.id.clone(),
+        spring_boot_version: platform.spring_boot_version.clone(),
+        java_version: platform.java_version,
+        parent_group_id: parent.group_id.clone(),
+        parent_artifact_id: parent.artifact_id.clone(),
+        parent_version: parent.version.clone(),
+        yss_components_version: bom_version.into(),
+    }
+}
+pub(super) fn recipe_warnings(
+    bundle: &Bundle,
+    input: &super::ScaffoldInputs,
+) -> Result<Vec<String>> {
+    let catalog = catalog(bundle)?;
+    let recipes: Vec<_> = catalog
+        .compatibility
+        .iter()
+        .filter(|recipe| {
+            recipe.parent.group_id == input.parent_group_id
+                && recipe.parent.artifact_id == input.parent_artifact_id
+                && recipe.parent.version == input.parent_version
+                && recipe.bom.group_id == "com.yss.cloud"
+                && recipe.bom.artifact_id == "yss-components-bom"
+                && recipe.bom.version == input.yss_components_version
+        })
+        .collect();
+    if let Some(recipe) = recipes.iter().find(|recipe| {
+        recipe.profile_id == input.platform_profile
+            && recipe.spring_boot_version == input.spring_boot_version
+    }) {
+        if recipe.status == "verified" && !recipe.verification_scope.is_empty() {
+            return Ok(Vec::new());
+        }
+        let scope = if recipe.verification_scope.is_empty() {
+            "没有登记验证范围"
+        } else {
+            "验证范围仅限 catalog 的 verificationScope"
+        };
+        return Ok(vec![format!(
+            "配方 {} 的登记状态为 {}，{}。当前工程仍需验证。",
+            recipe.id, recipe.status, scope
+        )]);
+    }
+    let coordinates = format!(
+        "Parent {}:{}:{} / BOM com.yss.cloud:yss-components-bom:{}",
+        input.parent_group_id,
+        input.parent_artifact_id,
+        input.parent_version,
+        input.yss_components_version
+    );
+    if recipes.is_empty() {
+        return Ok(vec![format!(
+            "{coordinates} 没有登记验证记录。当前工程仍需验证。"
+        )]);
+    }
+    let combinations = recipes
+        .iter()
+        .map(|recipe| {
+            format!(
+                "{} / Boot {}（{}）",
+                recipe.profile_id, recipe.spring_boot_version, recipe.status
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("、");
+    Ok(vec![format!(
+        "{coordinates} 在 {} / Boot {} 的组合未验证。已有登记组合为 {combinations}。",
+        input.platform_profile, input.spring_boot_version
+    )])
 }
 pub fn coordinate(value: &str) -> bool {
     !value.is_empty()
@@ -216,6 +484,9 @@ pub(super) fn validate_project_name(name: &str) -> Result<()> {
     Ok(())
 }
 pub(super) fn validate(bundle: &Bundle, input: &super::ScaffoldInputs) -> Result<Platform> {
+    validate_input(&catalog(bundle)?, input)
+}
+fn validate_input(catalog: &CatalogInput, input: &super::ScaffoldInputs) -> Result<Platform> {
     validate_project_name(&input.project_name)?;
     let reserved = [
         "class",
@@ -305,10 +576,9 @@ pub(super) fn validate(bundle: &Bundle, input: &super::ScaffoldInputs) -> Result
             return Err(invalid("Maven 版本必须精确，不能包含范围或占位符"));
         }
     }
-    let catalog = catalog(bundle)?;
     let platform = catalog
         .profiles
-        .into_iter()
+        .iter()
         .find(|p| {
             p.id == input.platform_profile && p.spring_boot_version == input.spring_boot_version
         })
@@ -316,7 +586,7 @@ pub(super) fn validate(bundle: &Bundle, input: &super::ScaffoldInputs) -> Result
     if input.java_version != platform.java_version {
         return Err(invalid("Java 版本与所选平台不匹配"));
     }
-    Ok(platform)
+    Ok(platform.clone())
 }
 pub(super) fn variables(
     input: &super::ScaffoldInputs,

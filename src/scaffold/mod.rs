@@ -24,7 +24,21 @@ pub enum Architecture {
     Ddd,
     Mvc,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+pub struct ScaffoldInputOptions {
+    pub project_name: String,
+    pub base_package: String,
+    pub platform_profile: Option<String>,
+    pub spring_boot_version: Option<String>,
+    pub java_version: Option<u32>,
+    pub group_id: String,
+    pub project_version: String,
+    pub parent_group_id: Option<String>,
+    pub parent_artifact_id: Option<String>,
+    pub parent_version: Option<String>,
+    pub yss_components_version: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScaffoldInputs {
     pub project_name: String,
@@ -49,11 +63,14 @@ pub struct ScaffoldRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ScaffoldReport {
     pub root: String,
+    pub input: ScaffoldInputs,
     pub status: &'static str,
     pub dry_run: bool,
     pub files: usize,
     pub modules: Vec<String>,
     pub source: SourceProvenance,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     pub next_steps: Vec<crate::guidance::NextStep>,
 }
 #[derive(Serialize)]
@@ -62,6 +79,7 @@ pub struct CatalogReport {
     pub frontend: frontend::FrontendCatalog,
     pub source: SourceProvenance,
     pub platforms: Vec<PlatformChoice>,
+    pub default_recipe_id: Option<String>,
     pub required_flags: Vec<&'static str>,
 }
 #[derive(Serialize)]
@@ -80,6 +98,7 @@ pub struct RecipeChoice {
     pub bom: Coordinates,
     pub evidence_status: String,
     pub blockers: Vec<String>,
+    pub verification_scope: BTreeMap<String, serde_json::Value>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -115,6 +134,7 @@ pub fn catalog(bundle: &Bundle) -> Result<CatalogReport> {
                     bom: r.bom.clone(),
                     evidence_status: r.status.clone(),
                     blockers: r.blockers.clone(),
+                    verification_scope: r.verification_scope.clone(),
                 })
                 .collect();
             PlatformChoice {
@@ -129,21 +149,18 @@ pub fn catalog(bundle: &Bundle) -> Result<CatalogReport> {
         frontend: frontend::catalog(bundle)?,
         source: bundle.manifest.source.clone(),
         platforms,
+        default_recipe_id: input.default_recipe_id,
         required_flags: vec![
             "project-name",
             "base-package",
             "output-dir",
-            "platform-profile",
-            "spring-boot-version",
-            "java-version",
             "group-id",
             "project-version",
-            "parent-group-id",
-            "parent-artifact-id",
-            "parent-version",
-            "yss-components-version",
         ],
     })
+}
+pub fn resolve_inputs(bundle: &Bundle, requested: &ScaffoldInputOptions) -> Result<ScaffoldInputs> {
+    context::resolve(&context::catalog(bundle)?, requested)
 }
 fn modules(architecture: Architecture) -> Vec<String> {
     match architecture {
@@ -171,7 +188,7 @@ pub fn render(
     let mut tree = RenderedTree::default();
     match request.architecture {
         Architecture::Ddd => ddd::render(bundle, &request.input, &vars, &mut tree)?,
-        Architecture::Mvc => mvc::render(bundle, &request.input, &platform, &vars, &mut tree)?,
+        Architecture::Mvc => mvc::render(bundle, &request.input, &vars, &mut tree)?,
     }
     copy_wrapper(bundle, &mut tree)?;
     if !tree.files.contains_key(&RelPath::new("README.md")?) {
@@ -255,6 +272,7 @@ pub fn generate(
 ) -> Result<ScaffoldReport> {
     cancel.check()?;
     let tree = render(bundle, request, &GenerationContext::capture()?)?;
+    let warnings = context::recipe_warnings(bundle, &request.input)?;
     let output = fs::absolute(&request.output_dir)?;
     let target = output.join(&request.input.project_name);
     if output.exists() {
@@ -273,6 +291,7 @@ pub fn generate(
     }
     Ok(ScaffoldReport {
         root: target.display().to_string(),
+        input: request.input.clone(),
         status: if request.dry_run {
             "planned"
         } else {
@@ -282,6 +301,7 @@ pub fn generate(
         files: tree.files.len(),
         modules: modules(request.architecture),
         source: bundle.manifest.source.clone(),
+        warnings,
         next_steps: if request.dry_run {
             Vec::new()
         } else {

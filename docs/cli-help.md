@@ -77,28 +77,41 @@ yss sync --root ./my-spec
 
 ## 生成 Java 工程
 
-先使用 `yss scaffold catalog` 查看当前内嵌资源中的平台标识、精确版本和配方证据，再选择 `ddd` 或 `mvc`。示例使用目录中列出的一个平台组合；实际版本和 Maven 坐标应根据项目环境确认：
+先使用 `yss scaffold catalog` 查看内嵌默认配方、平台和证据。MVC 与 DDD 共用参数补全规则，当前默认 YSS `4.0.0-SNAPSHOT` / Boot `4.1.2` / Java `17`。简短命令只需五项工程参数，工程自己的版本继续显式指定。
 
 ```sh
-yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run
+yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run
+yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run
 ```
 
-将 `ddd` 改为 `mvc` 可选择 MVC 结构。实际生成时输出父目录必须存在，`<输出父目录>/<工程名>` 必须不存在，即使是空目录也不能覆盖。生成不自动运行 Maven。
+第二条命令选用当前唯一的 Parent3.2 / Boot3.5.16 / Java17 配方。将 `ddd` 与 `mvc` 互换可选择工程结构。完整自定义示例同样适用。
+
+```sh
+yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run
+```
+
+实际生成时输出父目录必须存在，`<输出父目录>/<工程名>` 必须不存在，即使是空目录也不能覆盖。生成不自动运行 Maven。
 
 | 参数 | 说明 |
 | --- | --- |
-| `--project-name` | 工程名，小写 kebab-case；也用于生成目标目录名 |
-| `--base-package` | Java 基础包名，例如 `com.example.sample` |
-| `--output-dir` | 输出父目录；实际生成时须已存在 |
-| `--platform-profile` | `scaffold catalog` 中的平台标识 |
-| `--spring-boot-version` | 与所选平台匹配的精确 Spring Boot 版本 |
-| `--java-version` | 与所选平台匹配的 Java 主版本，如 `17` |
-| `--group-id` / `--project-version` | 生成工程的 Maven groupId 和版本 |
-| `--parent-group-id` / `--parent-artifact-id` / `--parent-version` | 父 POM 的 Maven 坐标和精确版本 |
-| `--yss-components-version` | YSS 组件 BOM 的精确版本 |
+| `--project-name` | 必填，工程名使用小写 kebab-case，也用于目标目录名 |
+| `--base-package` | 必填，Java 基础包名，例如 `com.example.sample` |
+| `--output-dir` | 必填，输出父目录，实际生成时须已存在 |
+| `--group-id` / `--project-version` | 必填，工程自己的 Maven groupId 和版本 |
+| `--platform-profile` | 可选，`scaffold catalog` 中的平台标识 |
+| `--spring-boot-version` | 可选，与所选平台匹配的精确 Spring Boot 版本 |
+| `--java-version` | 可选，与所选平台匹配的整数 Java 主版本，如 `17` |
+| `--parent-group-id` / `--parent-artifact-id` / `--parent-version` | 可选，父 POM 的 Maven 坐标和精确版本 |
+| `--yss-components-version` | 可选，YSS 组件 BOM 的精确版本 |
 | `--dry-run` | 只预览，不创建输出目录或工程 |
 
-除 `--dry-run` 外，上表参数对 `ddd` 和 `mvc` 均为必填。不要把 catalog 中的配方记录当成本次工程的构建结果。
+七项技术参数按显式值共同约束。默认配方满足约束时补齐，否则只接受唯一的完整配置。多个候选会列出可区分参数和值。只给 Boot3 平台时需进一步选择 3.0 或 3.2。没有匹配配方时，自定义 Parent G/A/V、BOM 版本须完整，并用显式平台、Boot、Java 约束唯一定位平台。完整显式旧命令继续保留原值，包括 Boot4.1.1。拒绝空技术值、版本范围、占位符及平台/Java 不匹配。
+
+catalog 的 `defaultRecipeId` 可为 `null`，旧目录按唯一匹配补全。`requiredFlags` 只有五项工程参数。生成及 dry-run 的 `result.input` 和实际生成收据的 `input` 展示完整解析值。普通报告和 `--json` 相同。
+
+catalog 的 recipe 返回 `verificationScope`，旧记录缺少范围时为 `{}`，`evidenceStatus` 和 `blockers` 保持原值。生成报告按 Parent 完整 GAV、`com.yss.cloud:yss-components-bom:<版本>`、平台标识和 Boot 精确版本匹配记录。只有匹配记录为 `verified` 且范围非空时省略 `warnings`。其他合法组合会收到状态/范围限制、跨平台未验证或没有登记记录的非阻断提示，仍可生成。新 4.0 配方仍为 `candidate`。本地源码构件的 MVC/DDD 构建、启动监听及代表性 H2/PostgreSQL 消费已验证。DDD 缺失路由返回 500/A0101，仅计监听观察。远程构件发布与解析、Windows 原生运行仍未验证。
+
+普通报告和 `--json` 包含相同诊断信息，`warnings` 为空时省略。它仅说明历史 catalog 证据，不证明当前 SNAPSHOT 字节或本次目标工程构建与运行通过。`nextSteps` 保留后续行动指引，dry-run 时仍为 `[]`。
 
 ## 更新 CLI、诊断和恢复
 

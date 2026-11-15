@@ -1,18 +1,40 @@
 # Java / Frontend 脚手架
 
-先查看 `yss scaffold catalog --json`。明确选择平台、精确 Spring Boot/Java 版本、父 POM 和 YSS BOM 版本；目录中的配方证据是模板来源记录，不是本次构建验证结果。
+新建后端工程默认采用 catalog 的 `defaultRecipeId`，当前为 YSS `4.0.0-SNAPSHOT`、Spring Boot `4.1.2`、Java `17`。Parent 为 `com.yss.cloud:yss-cloud-microservice:4.0.0-SNAPSHOT`，BOM 为 `com.yss.cloud:yss-components-bom:4.0.0-SNAPSHOT`。先查看 `yss scaffold catalog --json` 核对实际内嵌版本与配方证据。
 
-```text
-yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir /absolute/output --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT
+以下五项工程参数必填，工程自己的 `--project-version` 始终使用显式值。
+
+```sh
+yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir /absolute/output --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run
 ```
 
-替换 `ddd` 为 `mvc` 使用同一输入。工程名为 kebab-case，包名为合法 Java 包；拒绝版本范围、占位符和不匹配的平台。所有列出的坐标参数必填，不猜最新版本。
+替换 `mvc` 为 `ddd` 使用同一规则。选择旧组件版本时增加一个参数，当前目录可唯一补齐 Parent3.2 / Boot3.5.16 / Java17。
+
+```sh
+yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir /absolute/output --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run
+```
+
+平台、Boot、Java、Parent G/A/V、YSS BOM 版本七项技术参数均可选。所有显式值优先，默认配方满足全部约束时补齐缺项，否则只补齐唯一的完整配方。同值配置去重后仍有多个候选时，错误列出可区分参数和值。例如只选 `spring-boot-3.5-jdk17` 会在 3.0 与 3.2 之间产生歧义，需要明确 BOM 或 Parent 版本。旧 catalog 没有默认指针时 `defaultRecipeId` 返回 `null`，按唯一匹配补全，有歧义时需补充参数。
+
+完整显式命令仍可使用自定义 Parent 和 BOM。没有匹配配方时，须明确 Parent G/A/V、BOM 版本，并通过显式平台、Boot、Java 约束唯一定位平台。缺失值会逐项提示，不推断 Parent 版本等于 BOM 版本。
+
+```sh
+yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir /absolute/output --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run
+```
+
+工程名为 kebab-case，包名为合法 Java 包。拒绝空技术值、版本范围、占位符和不匹配的平台。完整显式旧命令保留输入，包括 Boot4.1.1。解析仅使用内嵌目录。
+
+`catalog.requiredFlags` 只有五项工程参数。生成及 dry-run 的 `result.input` 展示解析后的完整参数，生成收据保存相同输入。普通报告和 `--json` 展示相同值。
+
+每个 recipe 的 `verificationScope` 原样展示已登记的验证范围，旧记录没有范围时输出 `{}`。`evidenceStatus` 与 `blockers` 保留该 recipe 的原始记录。只有 Parent 完整 GAV、YSS BOM 完整 GAV、平台标识和 Boot 精确版本全部匹配，且状态为 `verified`、范围非空时，生成报告才省略 `warnings`。
+
+精确匹配但状态或范围受限、坐标仅登记在其他平台、以及自定义 Parent/BOM 没有登记记录时，普通报告和 `--json` 都提供相同的非阻断 `warnings`，合法输入仍可生成。提示描述 catalog 的历史证据，不能证明当前 SNAPSHOT 字节或本次目标工程的构建与运行通过。新 4.0 配方仍为 `candidate`。本地源码构件的 MVC/DDD 构建、启动监听及代表性 H2/PostgreSQL 消费已验证。DDD 缺失路由返回 500/A0101，仅计监听观察。远程构件发布与解析、Windows 原生运行仍未验证。`nextSteps` 仅用于可执行后续指引，dry-run 时仍为 `[]`。
 
 DDD 包含 domain、application、infrastructure、adapter/web、bootstrap；MVC 包含 server、service、repository。复用 Bundle 中的 Maven Wrapper 与 Java 模板，生成业务空骨架，不加入业务示例。`.yss/scaffold.json` 记录上下文、来源、平台与文件摘要，清单不包含自身。
 
 实际生成要求输出父目录已存在。目标 `<output-dir>/<project-name>` 必须不存在，包括拒绝已有空目录；全树校验后同父目录暂存发布。`--dry-run` 不创建输出父目录。生成不写入 Git、不执行 Maven；Git 工作树中的路径校验可能执行只读 Git 探测。
 
-构建时从生成工程根运行 `./mvnw -DskipTests package`；Windows 使用 `mvnw.cmd`，并准备匹配的 JDK 和 Maven 私服环境。CLI 3.1.0 的临时开发验证曾使用 JDK 17.0.16、Boot 3.5.16、YSS 3.2.0-SNAPSHOT，DDD/MVC 均构建成功；其他版本或组合仍需单独验证。固定作者与 UTC 时间的渲染结果可重复，实际生成仅采集一次时间。
+构建时从生成工程根运行 `./mvnw -DskipTests package`；Windows 使用 `mvnw.cmd`，并准备匹配的 JDK 和 Maven 私服环境。CLI 3.1.0 的临时开发验证曾使用 JDK 17.0.16、Boot 3.5.16、YSS 3.2.0-SNAPSHOT，DDD/MVC 均构建成功；其他未登记验证范围仍需单独验证。上述历史记录与本轮 4.0 配方的局部证据分别保留。固定作者与 UTC 时间的渲染结果可重复，实际生成仅采集一次时间。
 
 ## Frontend
 

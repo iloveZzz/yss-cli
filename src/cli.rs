@@ -284,12 +284,12 @@ pub enum ScaffoldCommand {
     Catalog,
     #[command(
         about = "生成 DDD 分层 Java 空工程",
-        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
+        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
     )]
     Ddd(ScaffoldArgs),
     #[command(
         about = "生成 MVC 分层 Java 空工程",
-        after_help = "示例（按 catalog 和项目环境确认版本与坐标）：\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --group-id com.example --project-version 1.0.0-SNAPSHOT --parent-group-id com.yss.cloud --parent-artifact-id yss-cloud-microservice --parent-version 3.2.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n先运行 yss scaffold catalog 查看平台与版本；输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
+        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
     )]
     Mvc(ScaffoldArgs),
 }
@@ -311,23 +311,23 @@ pub struct ScaffoldArgs {
     #[arg(long, help = "输出父目录；实际生成时须已存在")]
     pub output_dir: PathBuf,
     #[arg(long, help = "平台标识，使用 scaffold catalog 查看")]
-    pub platform_profile: String,
+    pub platform_profile: Option<String>,
     #[arg(long, help = "与平台匹配的精确 Spring Boot 版本")]
-    pub spring_boot_version: String,
+    pub spring_boot_version: Option<String>,
     #[arg(long, help = "与平台匹配的 Java 主版本，例如 17")]
-    pub java_version: String,
+    pub java_version: Option<u32>,
     #[arg(long, help = "生成工程的 Maven groupId")]
     pub group_id: String,
     #[arg(long, help = "生成工程的 Maven 版本")]
     pub project_version: String,
     #[arg(long, help = "父 POM 的 Maven groupId")]
-    pub parent_group_id: String,
+    pub parent_group_id: Option<String>,
     #[arg(long, help = "父 POM 的 Maven artifactId")]
-    pub parent_artifact_id: String,
+    pub parent_artifact_id: Option<String>,
     #[arg(long, help = "父 POM 的精确版本")]
-    pub parent_version: String,
+    pub parent_version: Option<String>,
     #[arg(long, help = "YSS 组件 BOM 的精确版本")]
-    pub yss_components_version: String,
+    pub yss_components_version: Option<String>,
     #[arg(long, help = "仅预览，不创建工程或保存计划")]
     pub dry_run: bool,
 }
@@ -593,32 +593,31 @@ fn scaffold_report<'a>(
     bundle: &[u8],
     cancel: &Cancellation,
 ) -> Result<Report<'a>> {
-    use crate::scaffold::{ScaffoldInputs, ScaffoldRequest};
+    use crate::scaffold::{ScaffoldInputOptions, ScaffoldRequest};
+    let bundle = crate::bundle::load(bundle)?;
     let request = ScaffoldRequest {
         architecture,
         output_dir: args.output_dir,
         dry_run: args.dry_run,
-        input: ScaffoldInputs {
-            project_name: args.project_name,
-            base_package: args.base_package,
-            platform_profile: args.platform_profile,
-            spring_boot_version: args.spring_boot_version,
-            java_version: args
-                .java_version
-                .parse()
-                .map_err(|_| YssError::new(ErrorCode::Argument, "Java 版本必须为整数"))?,
-            group_id: args.group_id,
-            project_version: args.project_version,
-            parent_group_id: args.parent_group_id,
-            parent_artifact_id: args.parent_artifact_id,
-            parent_version: args.parent_version,
-            yss_components_version: args.yss_components_version,
-        },
+        input: crate::scaffold::resolve_inputs(
+            &bundle,
+            &ScaffoldInputOptions {
+                project_name: args.project_name,
+                base_package: args.base_package,
+                platform_profile: args.platform_profile,
+                spring_boot_version: args.spring_boot_version,
+                java_version: args.java_version,
+                group_id: args.group_id,
+                project_version: args.project_version,
+                parent_group_id: args.parent_group_id,
+                parent_artifact_id: args.parent_artifact_id,
+                parent_version: args.parent_version,
+                yss_components_version: args.yss_components_version,
+            },
+        )?,
     };
     Ok(Report::Scaffold(crate::scaffold::generate(
-        &crate::bundle::load(bundle)?,
-        &request,
-        cancel,
+        &bundle, &request, cancel,
     )?))
 }
 fn variables(args: Variables) -> std::collections::BTreeMap<String, String> {
