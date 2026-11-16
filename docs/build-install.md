@@ -80,11 +80,11 @@ CLI `3.8.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-
 
 ## 3.1.0 及此前的历史平台验证
 
-以下记录属于 3.1.0 及此前开发阶段，不代表 3.2.0 已重新执行相同验证。当时在 macOS ARM64 执行了项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消。Linux ARM64 musl 在原生 ARM64 容器完成构建及 init/sync/doctor，修复了 cap-std 的 O_PATH 目录句柄无法 fsync 的问题。当时未执行 Windows 运行验证；Linux x86_64、macOS Intel、Windows ARM64 未验证。
+以下记录属于 3.1.0 及此前开发阶段。当前版本的实际构建、运行及平台验证范围以对应发行记录为准。当时在 macOS ARM64 执行了项目、文件保护、恢复、离线安装和脚手架代表路径；DDD/MVC Maven 构建通过。网络使用临时 TLS 服务验证预览、身份、重定向、截断及取消。Linux ARM64 musl 在原生 ARM64 容器完成构建及 init/sync/doctor，修复了 cap-std 的 O_PATH 目录句柄无法 fsync 的问题。当时未执行 Windows 运行验证；Linux x86_64、macOS Intel、Windows ARM64 未验证。
 
 ## 历史源码快照的体积与运行实测
 
-以下结果来自历史源码快照，不代表 3.2.0 的构建或运行结果。
+以下结果来自体积比较时的历史源码快照。当前版本的构建与运行结果以实际来源及对应发行记录为准。
 
 同一 Rust 1.99.1、aarch64-apple-darwin、源码快照及 2,097,919 字节 Bundle，thin LTO、单 codegen unit、移除符号。下表为优化级别比较，时间是本机热启动中位数（version 30 次，catalog 7 次），包含进程启动；不能外推其他平台。
 
