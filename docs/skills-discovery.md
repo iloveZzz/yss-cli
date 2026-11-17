@@ -26,7 +26,7 @@ yss sync --root /absolute/project --installation project
 
 ## Profile 有效内容与 Claude 入口
 
-本轮开发构建在共享内容、specialist 与 Profile 覆盖合并后，从有效 `.agents/skills` 派生 `.claude/skills` 普通文件。Backend 使用自己的覆盖及资源，Frontend 保持自己的可选范围；已发行 3.9.0 的默认数量为 Spec 17、Backend 42、Frontend 13；本地 Issue 衔接候选模板为 Frontend 增加共享 implement / to-tickets，默认 15、可用 19，Spec / Backend 默认不变。实际成员以所运行程序的 Bundle 为准，模板源码变化不会更新旧程序。对象内容、文件模式、渲染策略及目标所有权沿用 Bundle 和安装事务，不依赖源仓的根软链。既有视图与有效内容不同、存在孤立视图或渲染策略不一致时，Bundle 构建拒绝继续。
+当前 3.10.0 / Template 5.10.0 在共享内容、specialist 与 Profile 覆盖合并后，从有效 `.agents/skills` 派生 `.claude/skills` 普通文件。Backend 使用自己的覆盖及资源，Frontend 保持自己的可选范围；已发行 3.9.0 的默认数量为 Spec 17、Backend 42、Frontend 13；当前 Template 5.10.0 为 Frontend 增加共享 implement / to-tickets，默认 15、可用 19，Spec / Backend 默认不变。实际成员以所运行程序的 Bundle 为准，模板源码变化不会更新旧程序。对象内容、文件模式、渲染策略及目标所有权沿用 Bundle 和安装事务，不依赖源仓的根软链。既有视图与有效内容不同、存在孤立视图或渲染策略不一致时，Bundle 构建拒绝继续。
 
 首次新增 Claude 视图时，还会比较本次计划结束后的 canonical 内容。如果旧安装中保留的 `.agents` 定制或删除状态与新视图不一致，sync 和 ensure 整次返回冲突且不写入。先审阅并统一采用版本，再重新预览；不要删除收据或未知文件来绕过保护。已有宿主视图仍沿用三方同步规则，多个副本不形成持续自动联动。
 
