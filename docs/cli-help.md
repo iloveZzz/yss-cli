@@ -47,6 +47,18 @@ yss attach --root ./existing-service --profile backend --installation skills
 
 已有 YSS 安装不能再次 `init` 或 `attach`；改用 `sync`。未知文件不会自动接管，遇到冲突应查看诊断并保留用户文件。
 
+这些命令负责安装文件与技能，完整工程接入由 Agent 按已安装的 `setup-yss-harness/references/project-onboarding.md` 协同完成。仅安装、升级 CLI 或补装技能，不自动初始化 Git、配置远程或设置 Issue tracker，也不能把安装成功报告成工程协作已就绪。
+
+用户要求完整工程初始化或接入时，依次核实以下事项；已有信息与有效配置直接复用：
+
+1. 检查真实 Git 根、worktree/submodule、当前改动和 fetch/push remote。目标目录没有 `.git` 不代表不属于父仓；monorepo 子工程不另建嵌套仓。
+2. 已知远程先核实项目身份、访问情况与是否已有内容。非空远程先复用 checkout 或按请求 clone，再 attach/sync；访问失败不能按空仓生成。新的独立空工程可先 init，或先 scaffold 再 attach，然后按授权建立本地仓；已有本地仓直接复用。先执行 `git init` 会让目录不再满足 init 的空目录要求，此时使用 attach。
+3. 核实并按授权配置远程。已有不同地址、多个 remote 或 fetch/push 目标不同时先明确选择，不静默覆盖；配置本地 remote 不等于托管项目已创建或可访问。完整接入不自动包含提交、推送或创建远程项目。
+4. 配置目标工程的 Issue tracker，按下文规则保留既有选择或采用可核实的首次默认；分别报告项目、Issues 功能及访问能力。
+5. 按需复用或补齐 Home 地图与入口，链接稳定工程身份和实际配置入口；没有 Home 时无需补造关系。
+
+Issue tracker 位于消费工程 `.template-spec/agents/issue-tracker.md`，与 Git remote 分别维护。已有有效 tracker（含集中项目、Local Markdown、root、历史字段与用户正文）继续沿用，除非用户明确要求更改。尚无已确认 tracker 时优先使用本次明确选择；仅对完整新工程、且已核实唯一 GitHub/GitLab 代码托管项目的情况，默认采用该项目 Issues，并向用户明确报告实例与项目。模板占位、登录默认仓、CLI 发行仓和模板仓不构成业务目标；多候选、集中管理意图或平台不明时说明缺口，不猜测、不因远程失败自动改用 Local Markdown。后续票据操作读取目标工程的 `.template-spec/agents/issue-tracker-operations.md`；配置文件和共享方法是否可安装，以实际 CLI 内嵌 Bundle 为准。
+
 ### 项目参数
 
 | 参数 | 说明 |
@@ -143,11 +155,13 @@ yss recover --root <项目或工具目录> --dry-run
 
 保留历史不代表项目文件可覆盖。`sync`、`skills ensure` 和工具升级仍执行原有收据、摘要、文件所有权及冲突检查；本地定制与新模板冲突时仍返回 `CONFLICT`。
 
-## 初始化与工程接入的完成指引（3.6.0 起）
+## 安装结果与完整工程接入指引
 
-3.6.0 在 init/attach 和三种 scaffold 的成功报告中新增 `nextSteps`；旧安装程序不会因模板更新获得该字段。Spec project 提醒核实 Home 地图与工程关系，Spec skills 保持原仓职责；Backend/Frontend 提醒按已知上游补充导航。CLI 不读取或创建真实仓库地图，也不自动操作关联仓。
+3.6.0 在 init/attach 和三种 scaffold 的成功报告中首次新增 `nextSteps`。当前源码细化了完整工程接入提示；旧安装程序不会因模板文档更新获得新文案或新资源，须核对实际版本、帮助与内嵌 Bundle。
 
-scaffold 仅生成源码，需要技能时建议显式 `attach --profile backend|frontend --installation skills`。返回的 `command` 包含 `program` 和独立字符串数组 `args`，不应拼接为 shell 字符串；program 是调用名，Agent 应沿用本次已核验的二进制绝对路径执行 args。非 UTF-8 路径省略 command，保留文字指引。生成成功后 attach 失败时保留源码与原入口，按实际冲突处理。
+init/attach 的成功提示指向 `setup-yss-harness` 的 `references/project-onboarding.md`，说明真实 Git 边界、本地仓复用或创建、远程核实、Issue tracker 和按需 Home 的接续工作。仅安装 CLI/skills 不自动进入完整接入。现有 `configure-home`、`review-repository-role`、`review-upstream` ID 保留，新增 `complete-project-onboarding` 与 `configure-issue-tracker` 文字指引；Spec project 按实际职责核实 Home，Spec skills 保持原仓职责，Backend/Frontend 复用已知上游入口。CLI 不读取或创建真实仓库地图，也不执行 Git、远程或 Issue tracker 配置。
+
+scaffold 仅生成源码，需要技能时建议显式 `attach --profile backend|frontend --installation skills`，随后按同一工程接入参考继续已授权工作。原 `attach-skills` ID 与可解析命令保留，并附加上述两条接入文字指引。返回的 `command` 包含 `program` 和独立字符串数组 `args`，不应拼接为 shell 字符串；program 是调用名，Agent 应沿用本次已核验的二进制绝对路径执行 args。非 UTF-8 路径省略 command，保留文字指引。生成成功后 attach 失败时保留源码与原入口，按实际冲突处理。
 
 dry-run、sync、skills ensure 的 `nextSteps` 为 `[]`；错误或取消仍返回原错误，无成功指引。普通报告与 JSON 的 result 含相同字段，外层 `yss.output` 仍为版本 1。新安装仍默认 project，范围切换需显式指定；skills 也会安装宿主入口，可能与已有规则冲突。
 

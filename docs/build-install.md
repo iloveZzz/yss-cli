@@ -72,7 +72,7 @@ Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-当前源码的 GitHub 构建固定使用模板提交 `e60d603ed017a5bc36cc9b8fa7ee750ac93b20dc`，包含来源核验、项目接续、PR/MR 跟进和数据库查询与方言指引，并保留 Home 多项目协调、Backend4 默认配方与 Boot4 技能索引；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；推送触发 CLI CI 前，须先确保该模板提交在固定的远端模板仓可获取。使用发行产物时核对真实模板来源。`docs/template-release.json` 记录 Template `v5.9.0` 的实际发行标签。
+当前源码的 GitHub 构建固定使用模板提交 `eed36cb7f2eb447e4088db0bc068ddb761e4f8dd`，包含 Spec/Issue 接续、Git/remote/tracker 工程接入与 Frontend 默认 implement/to-tickets，默认技能数为 Spec 17、Backend 42、Frontend 15，并保留既有来源核验、Home 多项目协调和 Backend4 配方；GitLab 默认使用该提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交；推送触发 CLI CI 前，须先确保该模板提交在固定的远端模板仓可获取。使用发行产物时核对真实模板来源。`docs/template-release.json` 记录 Template `v5.9.0` 的实际发行标签。
 
 CLI `3.9.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，只执行内部打包器与静态来源、架构、摘要校验，不执行用户程序。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库；内部构建工具不分发。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS；其他平台不发布。
 

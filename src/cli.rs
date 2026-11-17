@@ -12,7 +12,7 @@ use std::{ffi::OsString, io::Write, path::PathBuf};
 #[command(
     name = "yss",
     about = "安装项目模板、管理技能并生成 Java / Vue 工程",
-    after_help = "常用示例：\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n写入命令直接执行；添加 --dry-run 可先预览。",
+    after_help = "常用示例：\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n写入命令直接执行；添加 --dry-run 可先预览。CLI 安装文件与技能，完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实 Git、远程、Issue tracker 和按需 Home 关系。仅安装 CLI/skills 不自动执行这些接入动作。",
     disable_version_flag = true
 )]
 pub struct Cli {
@@ -33,13 +33,13 @@ pub enum Command {
     #[command(about = "启动个人本地 Spec 工作台，或读取快照")]
     Workbench(WorkbenchArgs),
     #[command(
-        about = "初始化新目录或空项目目录",
-        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n去掉 --dry-run 执行；已有项目使用 yss attach。Spec project 安装后按 nextSteps 核实 Home 工程关系。"
+        about = "在新目录或空目录安装 YSS 项目资源",
+        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n去掉 --dry-run 执行；已有内容的目录使用 yss attach，已接入 YSS 则使用 yss sync。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查真实 Git 边界，复用或按授权创建适用本地仓，核实远程、Issue tracker，再按需配置 Home。若已知远程先核实是否有内容；非空远程先复用 checkout 或 clone，不另建历史。init 不执行 Git 初始化、远程创建或推送；仅安装技能不自动开展完整接入。"
     )]
     Init(InstallArgs),
     #[command(
         about = "将 YSS 接入已有普通项目",
-        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --installation skills --dry-run\n\n已接入 YSS 的项目使用 yss sync；若有上游 Home 或规格，复用已有入口补充导航。"
+        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --installation skills --dry-run\n\n已接入 YSS 的项目使用 yss sync。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查真实 Git 边界，复用所属仓并核实远程、Issue tracker，再按需补齐 Home 关系。保留已有 tracker；新工程尚无已确认 tracker 且已核实唯一 GitHub/GitLab 项目时，可默认采用该项目 Issues 并明确报告。attach 仅安装文件与技能，不代表 Git、远程或 tracker 已配置完成。"
     )]
     Attach(InstallArgs),
     #[command(
@@ -63,7 +63,7 @@ pub enum Command {
     Recover(RecoverArgs),
     #[command(
         about = "在线或离线安装、升级 Rust CLI",
-        after_help = "示例（替换尖括号内的值）：\n  yss upgrade --to <版本> --tool-root <工具目录> --dry-run\n  yss upgrade --artifact <归档> --sha256 <摘要> --tool-root <工具目录> --dry-run\n\n程序升级与项目同步分别执行；在线预览仍会访问发行信息。"
+        after_help = "示例（替换尖括号内的值）：\n  yss upgrade --to <版本> --tool-root <工具目录> --dry-run\n  yss upgrade --artifact <归档> --sha256 <摘要> --tool-root <工具目录> --dry-run\n\n程序升级与项目同步分别执行；在线预览仍会访问发行信息。仅安装或升级 CLI 不初始化工程 Git、远程或 Issue tracker；完整工程接入参见 setup-yss-harness 的 references/project-onboarding.md。"
     )]
     Upgrade(UpgradeArgs),
     #[command(about = "显示版本与构建来源")]
@@ -260,7 +260,7 @@ pub enum SkillsCommand {
     List(RootArgs),
     #[command(
         about = "补装指定技能及其依赖资源",
-        after_help = "示例：\n  yss skills ensure setup-yss-harness --root ./my-project --dry-run"
+        after_help = "示例：\n  yss skills ensure setup-yss-harness --root ./my-project --dry-run\n\n仅补装技能与必要资源，不自动配置 Git、远程或 Issue tracker。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 及已有授权继续。"
     )]
     Ensure(EnsureArgs),
 }
@@ -277,19 +277,19 @@ pub struct EnsureArgs {
 pub enum ScaffoldCommand {
     #[command(
         about = "生成最小 Vue 3 前端工程；不安装依赖",
-        after_help = "示例：\n  yss scaffold frontend --project-name my-frontend --output-dir . --dry-run\n\n输出父目录必须已存在，目标工程必须不存在。去掉 --dry-run 生成源码；需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach skills，运行按任务另行安装依赖。"
+        after_help = "示例：\n  yss scaffold frontend --project-name my-frontend --output-dir . --dry-run\n\n输出父目录必须已存在，目标工程必须不存在。去掉 --dry-run 生成源码；需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach skills，运行按任务另行安装依赖。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查 Git 边界，复用或按授权创建本地仓，核实远程、Issue tracker 和按需 Home；scaffold 不执行这些配置。"
     )]
     Frontend(FrontendScaffoldArgs),
     #[command(about = "查看可选平台、版本与配方")]
     Catalog,
     #[command(
         about = "生成 DDD 分层 Java 空工程",
-        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
+        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold ddd --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查 Git 边界，复用或按授权创建本地仓，核实远程、Issue tracker 和按需 Home；scaffold 不执行这些配置。"
     )]
     Ddd(ScaffoldArgs),
     #[command(
         about = "生成 MVC 分层 Java 空工程",
-        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。"
+        after_help = "默认配方（技术参数按 catalog 条件补全）\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --dry-run\n\n选择 3.2\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n完整自定义组合\n  yss scaffold mvc --project-name sample-app --base-package com.example.sample --output-dir . --group-id com.example --project-version 1.0.0-SNAPSHOT --platform-profile spring-boot-3.5-jdk17 --spring-boot-version 3.5.16 --java-version 17 --parent-group-id com.example --parent-artifact-id custom-parent --parent-version 1.0.0 --yss-components-version 3.2.0-SNAPSHOT --dry-run\n\n显式值优先，仅补全唯一组合，有歧义时按提示补充参数。先运行 yss scaffold catalog 查看默认配方与版本。输出目录下不能已有同名工程。需要技能时使用本次已核验的 CLI 执行 nextSteps 中的 attach --profile backend --installation skills。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查 Git 边界，复用或按授权创建本地仓，核实远程、Issue tracker 和按需 Home；scaffold 不执行这些配置。"
     )]
     Mvc(ScaffoldArgs),
 }
