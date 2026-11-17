@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。用户运行时分发单个 `yss`（Windows 为 `yss.exe`），无需 Go、Bun、Node 或 Python。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.10.0`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.11.0`，内嵌模板以实际 Bundle 为准；发行目标为 macOS ARM64 与 Windows x86_64，正式产物以 GitHub Release 为准。与旧 Go 安装不兼容：使用新目录，不迁移旧收据或事务。`spec`/`backend`/`frontend` 是三种 Profile；`project`/`skills` 是项目内的两种安装范围。
 
 `3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板。此前的 `3.1.4` 构建仅支持 `spec`/`backend`，模板文档更新不会改变已安装程序；使用前查看实际 `yss help init`。
 
@@ -55,11 +55,13 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 `3.10.0` 内嵌 Template `5.10.0`，完善 Spec / Issue 接续、Git / remote / Issue tracker 工程接入，并为 Frontend 默认加入共享 `implement` / `to-tickets`，默认技能集合为 Spec 17、Backend 42、Frontend 15 项。CLI 帮助与 `nextSteps` 补充完整工程接入指引，区分文件安装与 Git、远程、tracker 配置，并保留已有工程配置；命令接口与依赖保持不变。
 
+`3.11.0` 内嵌 Template `5.11.0`，工作台增加工程维护、产品 Home 绑定、Codex 隔离运行与成果接收、可恢复草稿、确认版本比较和在线一致备份。模板补充复杂研发组织、环境交付与运行反馈接续，以及客户跟进全生命周期 Demo 和工作台指南。默认技能集合为 Spec 17、Backend 42、Frontend 15 项。
+
 源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
 
 ## 个人 Spec 工作台
 
-配套 Template 5.10.0，保留主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认；三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
+配套 Template 5.11.0，保留主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认；三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
 
 ```text
 yss workbench
@@ -68,7 +70,7 @@ yss workbench snapshot --json
 yss workbench register --root /absolute/project --source docs/spec/users/spec.md --json
 ```
 
-本轮 `3.10.0` 源码开发构建增加工程维护、产品 Home 导入绑定、Codex 隔离运行、可恢复草稿、确认版本差异和在线一致备份，尚未正式发行。Spec 列表、状态／阶段看板与个人生命周期记录继续保留，已有任务可通过 CLI 查询。
+`3.11.0` 增加工程维护、产品 Home 导入绑定、Codex 隔离运行、可恢复草稿、确认版本差异和在线一致备份。Spec 列表、状态／阶段看板与个人生命周期记录继续保留，已有任务可通过 CLI 查询。
 
 工程详情和“设置”提供工程维护，“项目”页可导入原仓库地图并绑定本机工程。Spec 详情可发起 Codex 隔离运行，在执行记录答复输入、停止或续接，核对冻结差异后逐文件接收到原工程，再刷新原 Spec。Git、Codex、gh/glab 的可用性和认证沿本机实际环境核对。
 
