@@ -257,6 +257,12 @@ pub struct WorkQuery {
     pub include_closed: bool,
     pub source_problems_only: bool,
     pub sort: WorkSort,
+    #[serde(default)]
+    pub content_statuses: Vec<ContentStatus>,
+    #[serde(default)]
+    pub reminder_kinds: Vec<String>,
+    #[serde(default)]
+    pub needs_reconfirmation: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -288,6 +294,9 @@ pub struct WorkItem {
     pub active: bool,
     pub updated_at: String,
     pub has_source_problem: bool,
+    pub content_status: Option<ContentStatus>,
+    pub reminder_counts: BTreeMap<String, usize>,
+    pub needs_reconfirmation: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -419,6 +428,10 @@ pub struct SourceDocument {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MutationRequest {
     pub expected_revision: u64,
+    #[serde(default)]
+    pub expected_target: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub action: Action,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -529,7 +542,7 @@ pub enum Action {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
 pub enum ContentStatus {
     Unmarked,

@@ -30,6 +30,8 @@ pub(super) struct Plan {
     pub records: Vec<Record>,
     pub guards: BTreeMap<RelPath, FileSnapshot>,
     pub objects: BTreeMap<Sha256, u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub business_files: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -341,6 +343,15 @@ fn validate_records(plan: &Plan) -> Result<()> {
         if !seen.insert(crate::fs::alias_key(record.path.as_str())) {
             return Err(required("事务计划包含重复路径"));
         }
+        if plan.business_files
+            && record
+                .path
+                .as_str()
+                .split('/')
+                .any(|part| matches!(part, ".git" | ".yss"))
+        {
+            return Err(required("业务文件事务不可写控制状态"));
+        }
         if record.path.as_str().starts_with(".yss/") {
             if index + 1 != plan.records.len()
                 || !matches!(record.path.as_str(), ".yss/project.json" | ".yss/tool.json")
@@ -348,7 +359,7 @@ fn validate_records(plan: &Plan) -> Result<()> {
             {
                 return Err(required("事务元数据必须最后提交"));
             }
-        } else if index + 1 == plan.records.len() {
+        } else if !plan.business_files && index + 1 == plan.records.len() {
             return Err(required("事务缺少最后的安装记录"));
         }
         if matches!(

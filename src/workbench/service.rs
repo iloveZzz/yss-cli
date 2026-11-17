@@ -152,7 +152,93 @@ pub(super) fn validate_resources(resources: &[ResourceRef]) -> Result<()> {
     }
     Ok(())
 }
-pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationResult> {
+#[derive(serde::Serialize, serde::Deserialize)]
+struct MutationReceipt {
+    request_digest: String,
+    result: MutationResult,
+}
+
+pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<MutationResult> {
+    let digest = crate::model::Sha256::of(
+        &serde_json::to_vec(&(&request.action, &request.expected_target))
+            .map_err(|_| invalid("请求编码失败"))?,
+    )
+    .as_str()
+    .to_owned();
+    if let Some(id) = &request.request_id {
+        if id.is_empty() || id.len() > 128 {
+            return Err(invalid("提交请求 ID 无效"));
+        }
+        if let Some(receipt) = store.record::<MutationReceipt>("mutationReceipt", id)? {
+            if receipt.request_digest != digest {
+                return Err(YssError::new(
+                    ErrorCode::Conflict,
+                    "该请求 ID 已用于不同的提交",
+                ));
+            }
+            return Ok(receipt.result);
+        }
+    }
+    if let Some(expected) = &request.expected_target {
+        let current = super::drafts::target(store.state(), &request.action)?;
+        if current["token"].as_str() != Some(expected) {
+            return Err(
+                YssError::new(ErrorCode::ConcurrentChange, "编辑内容已更新，请比较后保存")
+                    .context("revision", store.state().revision)
+                    .context(
+                        "currentTargetDigest",
+                        current["token"].as_str().unwrap_or(""),
+                    )
+                    .context("currentEditableValues", current["values"].to_string()),
+            );
+        }
+        request.expected_revision = store.state().revision;
+    }
+    mutate_inner(store, request, &digest)
+}
+
+fn finish_mutation(
+    store: &mut Store,
+    expected_revision: u64,
+    state: WorkbenchState,
+    mut result: MutationResult,
+    mut effects: super::sqlite::CommitEffects,
+    request_id: Option<&str>,
+    request_digest: &str,
+) -> Result<MutationResult> {
+    let changed = &state != store.state()
+        || !effects.records.is_empty()
+        || !effects.blobs.is_empty()
+        || request_id.is_some();
+    result.revision = if changed {
+        expected_revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("版本已溢出"))?
+    } else {
+        expected_revision
+    };
+    if let Some(id) = request_id {
+        let receipt = MutationReceipt {
+            request_digest: request_digest.into(),
+            result: result.clone(),
+        };
+        effects.records.push(super::sqlite::RecordWrite {
+            kind: "mutationReceipt".into(),
+            id: id.into(),
+            payload: Some(
+                serde_json::to_string(&receipt).map_err(|_| invalid("提交回执编码失败"))?,
+            ),
+        });
+    }
+    result.revision = store.commit_with_effects(expected_revision, state, &effects)?;
+    Ok(result)
+}
+
+fn mutate_inner(
+    store: &mut Store,
+    request: MutationRequest,
+    request_digest: &str,
+) -> Result<MutationResult> {
     if request.expected_revision != store.state().revision {
         return Err(
             YssError::new(ErrorCode::ConcurrentChange, "内容已改变，请刷新后重新保存")
@@ -178,37 +264,48 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             *group_by,
             &at,
         )?;
-        let revision = if &state != store.state() {
-            store.commit(request.expected_revision, state)?
-        } else {
-            state.revision
-        };
-        return Ok(MutationResult {
-            response_id: None,
-            revision,
-            project_id: None,
-            spec_id: None,
-            task_ids: vec![],
-            view_id: Some(id),
-        });
+        return finish_mutation(
+            store,
+            request.expected_revision,
+            state,
+            MutationResult {
+                response_id: None,
+                revision: 0,
+                project_id: None,
+                spec_id: None,
+                task_ids: vec![],
+                view_id: Some(id),
+            },
+            super::sqlite::CommitEffects::default(),
+            request.request_id.as_deref(),
+            request_digest,
+        );
     }
     if let Action::RemoveView { view_id } = &request.action {
         super::query::remove_view(&mut state, view_id)?;
-        let revision = store.commit(request.expected_revision, state)?;
-        return Ok(MutationResult {
-            response_id: None,
-            revision,
-            project_id: None,
-            spec_id: None,
-            task_ids: vec![],
-            view_id: None,
-        });
+        return finish_mutation(
+            store,
+            request.expected_revision,
+            state,
+            MutationResult {
+                response_id: None,
+                revision: 0,
+                project_id: None,
+                spec_id: None,
+                task_ids: vec![],
+                view_id: None,
+            },
+            super::sqlite::CommitEffects::default(),
+            request.request_id.as_deref(),
+            request_digest,
+        );
     }
     let project_id;
     let mut spec_id = None;
     let mut response_id = None;
     let mut task_ids = vec![];
     let mut delta = BTreeMap::new();
+    let mut effects = super::sqlite::CommitEffects::default();
     match super::tasks::expand_action(&state, request.action)? {
         Action::RespondQuestion {
             spec_id: id,
@@ -253,6 +350,7 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
         } => {
             project_id = sources::spec(&state, &id)?.project_id.clone();
             super::content::confirm(&mut state, &id, scope, artifact_digest, &at)?;
+            effects = super::artifacts::confirmation_effects(&state, &id)?;
             spec_id = Some(id);
         }
         Action::RefreshSpec { spec_id: id } => {
@@ -470,17 +568,20 @@ pub fn mutate(store: &mut Store, request: MutationRequest) -> Result<MutationRes
             changes: delta,
         });
     }
-    let revision = if &state != store.state() {
-        store.commit(request.expected_revision, state)?
-    } else {
-        state.revision
-    };
-    Ok(MutationResult {
-        response_id,
-        revision,
-        project_id: Some(project_id),
-        spec_id,
-        task_ids,
-        view_id: None,
-    })
+    finish_mutation(
+        store,
+        request.expected_revision,
+        state,
+        MutationResult {
+            response_id,
+            revision: 0,
+            project_id: Some(project_id),
+            spec_id,
+            task_ids,
+            view_id: None,
+        },
+        effects,
+        request.request_id.as_deref(),
+        request_digest,
+    )
 }

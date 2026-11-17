@@ -25,6 +25,41 @@ fn broken(resources: &[ResourceView]) -> bool {
         )
     })
 }
+pub fn reminder_counts(content: &ContentView) -> BTreeMap<String, usize> {
+    let mut counts: BTreeMap<String, usize> =
+        ["decision", "research", "overdue", "writeback", "ready"]
+            .into_iter()
+            .map(|kind| (kind.into(), 0))
+            .collect();
+    for question in &content.questions {
+        let kind = match question.state {
+            QuestionState::Open | QuestionState::NeedsReview => {
+                Some(match question.question.kind {
+                    QuestionKind::Decision => "decision",
+                    QuestionKind::Research => "research",
+                })
+            }
+            QuestionState::PendingWriteback => Some("writeback"),
+            QuestionState::Overdue => Some("overdue"),
+            QuestionState::Deferred
+                if question
+                    .response
+                    .as_ref()
+                    .is_some_and(|response| !response.review_when.trim().is_empty()) =>
+            {
+                Some("overdue")
+            }
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            *counts.entry(kind.into()).or_default() += 1;
+        }
+    }
+    if content.status == ContentStatus::Ready {
+        counts.insert("ready".into(), 1);
+    }
+    counts
+}
 pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
     let request = normalize_query(request.clone())?;
     let projects: BTreeMap<_, _> = snapshot
@@ -56,6 +91,9 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 notes: s.notes.clone(),
                 active: project.active && s.active,
                 updated_at: s.updated_at.clone(),
+                content_status: Some(spec.content.status),
+                reminder_counts: reminder_counts(&spec.content),
+                needs_reconfirmation: spec.content.needs_reconfirmation,
                 has_source_problem: spec.source_health != SourceHealth::Available
                     || broken(&spec.resources),
             });
@@ -82,6 +120,9 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 title: t.title.clone(),
                 stage: t.stage,
                 status: t.status,
+                content_status: None,
+                reminder_counts: BTreeMap::new(),
+                needs_reconfirmation: false,
                 next_action: String::new(),
                 blocker: t.blocker.clone(),
                 notes: t.notes.clone(),
@@ -105,6 +146,17 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
             && (request.stages.is_empty() || request.stages.contains(&item.stage))
             && (request.statuses.is_empty() || request.statuses.contains(&item.status))
             && (!request.source_problems_only || item.has_source_problem)
+            && (request.content_statuses.is_empty()
+                || item
+                    .content_status
+                    .is_some_and(|status| request.content_statuses.contains(&status)))
+            && (request.reminder_kinds.is_empty()
+                || request.reminder_kinds.iter().any(|kind| {
+                    item.reminder_counts
+                        .get(kind)
+                        .is_some_and(|count| *count > 0)
+                }))
+            && (!request.needs_reconfirmation || item.needs_reconfirmation)
             && (needle.is_empty()
                 || [
                     &item.title,

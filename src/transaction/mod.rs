@@ -1,4 +1,5 @@
 mod apply;
+mod files;
 mod journal;
 mod recover;
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     model::{FileDescriptor, RelPath, RenderedFile},
 };
 pub use apply::apply;
+pub use files::{apply_files, apply_files_checked};
 pub use recover::recover;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};

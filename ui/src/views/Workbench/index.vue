@@ -1,21 +1,272 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import SpecRows from '@/components/SpecRows.vue'
+import { useRoute, useRouter } from 'vue-router'
+import WorkItemRows from '@/components/WorkItemRows.vue'
 import ContentAttention from './components/ContentAttention.vue'
+import ActiveJobs from './components/ActiveJobs.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
-import { dateLabel, hasSourceProblem, stages, type ChangeEvent } from '@/services/workbench'
+import {
+  dateLabel,
+  hasSourceProblem,
+  stages,
+  type ChangeEvent,
+  type WorkItem
+} from '@/services/workbench'
+import { contentReminders } from '@/services/workbench-content'
+import { eventDescription } from '@/services/workbench-history'
 const { activeSpecs, snapshot } = useWorkbench()
-const doing = computed(() => activeSpecs.value.filter(s => s.record.status === 'doing'))
-const blocked = computed(() => activeSpecs.value.filter(s => s.record.status === 'blocked'))
+const route = useRoute()
+const router = useRouter()
+const doing = computed(() => activeSpecs.value.filter((spec) => spec.record.status === 'doing'))
+const blocked = computed(() => activeSpecs.value.filter((spec) => spec.record.status === 'blocked'))
 const problems = computed(() => activeSpecs.value.filter(hasSourceProblem))
-const recent = computed(() => activeSpecs.value.filter(s => s.record.lastVisitedAt).sort((a,b) => (b.record.lastVisitedAt ?? '').localeCompare(a.record.lastVisitedAt ?? '')).slice(0,5))
-const activity = computed(() => (snapshot.value?.history ?? []).filter(event => !event.taskId).reverse().slice(0,8))
-const title = (specId: string | null, projectId: string) => specId ? snapshot.value?.specs.find(s => s.record.id === specId)?.record.title : snapshot.value?.projects.find(p => p.record.id === projectId)?.record.name
+const groups = computed(() => [
+  { id: 'blocked', label: '需要解除阻塞', specs: blocked.value, query: { status: 'blocked' } },
+  { id: 'doing', label: '进行中', specs: doing.value, query: { status: 'doing' } },
+  { id: 'source', label: '来源异常', specs: problems.value, query: { sourceProblems: 'true' } }
+])
+const focus = computed(
+  () =>
+    groups.value.find((group) => group.id === route.query.focus) ??
+    groups.value.find((group) => group.specs.length) ??
+    groups.value[0]!
+)
+const progressItems = computed<WorkItem[]>(() =>
+  focus.value.specs.map((spec) => ({
+    entity: 'spec',
+    id: spec.record.id,
+    projectId: spec.record.projectId,
+    projectName:
+      snapshot.value?.projects.find((project) => project.record.id === spec.record.projectId)
+        ?.record.name ?? '未知工程',
+    specId: spec.record.id,
+    specTitle: spec.record.title,
+    sourcePath: spec.record.sourcePath,
+    title: spec.record.title,
+    stage: spec.record.stage,
+    status: spec.record.status,
+    nextAction: spec.record.nextAction,
+    blocker: spec.record.blocker,
+    notes: spec.record.notes,
+    active: spec.record.active,
+    updatedAt: spec.record.updatedAt,
+    hasSourceProblem: hasSourceProblem(spec),
+    contentStatus: spec.content.status,
+    reminderCounts: Object.fromEntries(
+      contentReminders(spec.content).map((reminder) => [reminder.id, reminder.count])
+    ),
+    needsReconfirmation: spec.content.needsReconfirmation
+  }))
+)
+const recent = computed(() =>
+  activeSpecs.value
+    .filter((spec) => spec.record.lastVisitedAt)
+    .toSorted((left, right) =>
+      (right.record.lastVisitedAt ?? '').localeCompare(left.record.lastVisitedAt ?? '')
+    )
+    .slice(0, 5)
+)
+const activity = computed(() =>
+  (snapshot.value?.history ?? [])
+    .filter((event) => !event.taskId)
+    .toReversed()
+    .slice(0, 8)
+)
 function target(event: ChangeEvent) {
-  const parent = title(event.specId,event.projectId) ?? '未知记录'
-  return event.lifecycleStage ? `${parent} · ${stages[event.lifecycleStage]}阶段` : parent
+  const parent = event.specId
+    ? snapshot.value?.specs.find((spec) => spec.record.id === event.specId)?.record.title
+    : snapshot.value?.projects.find((project) => project.record.id === event.projectId)?.record.name
+  return event.lifecycleStage
+    ? `${parent ?? '未知记录'} · ${stages[event.lifecycleStage]}阶段`
+    : (parent ?? '未知记录')
 }
-function scrollProblems() { document.getElementById('source-problems')?.scrollIntoView({ behavior: 'instant' }) }
-const fields: Record<string, string> = { name: '项目名', rootPath: '路径', active: '启用状态', title: '标题', sourcePath: '来源', stage: '阶段', status: '状态', nextAction: '下一步', blocker: '阻塞说明', notes: '备注', resources: '资源', progress: '阶段进度', note: '阶段说明' }
+function selectFocus(value: string) {
+  void router.replace({ query: { ...route.query, focus: value } })
+}
 </script>
-<template><div class="page-heading"><div><h1>工作台</h1></div><RouterLink to="/specs" class="text-link">查看全部 Spec →</RouterLink></div><div v-if="!snapshot?.projects.length" class="empty panel welcome"><h2>把本机 Spec 汇集到这里</h2><p>先登记项目，再从 Markdown 文件中选择要跟踪的 Spec。</p><RouterLink to="/projects" class="primary-link">登记第一个项目 →</RouterLink></div><template v-else><div class="overview-strip"><RouterLink to="/specs?status=doing"><strong>{{ doing.length }}</strong><span>进行中 Spec</span></RouterLink><RouterLink to="/specs?status=blocked"><strong>{{ blocked.length }}</strong><span>阻塞 Spec</span></RouterLink><a href="#/workbench" @click.prevent="scrollProblems"><strong>{{ problems.length }}</strong><span>来源异常</span></a><RouterLink to="/projects"><strong>{{ snapshot.projects.filter(p => p.record.active).length }}</strong><span>本机项目</span></RouterLink></div><div class="workbench-grid"><div><ContentAttention :specs="activeSpecs" /><section class="work-section"><div class="section-heading"><h2>进行中 <span class="count">{{ doing.length }}</span></h2><RouterLink to="/specs?status=doing">查看列表</RouterLink></div><div class="panel"><SpecRows :specs="doing" compact /></div></section><section class="work-section"><div class="section-heading"><h2>需要解除阻塞</h2></div><div class="panel blocked-list"><article v-for="s in blocked" :key="s.record.id"><RouterLink :to="{ path: `/specs/${s.record.id}`, query: { return: '/workbench' } }">{{ s.record.title }}</RouterLink><p>{{ s.record.blocker }}</p><p class="muted">下一步：{{ s.record.nextAction || '尚未填写' }}</p></article><p v-if="!blocked.length" class="empty">当前没有标记为阻塞的 Spec</p></div></section><section id="source-problems" class="work-section"><div class="section-heading"><h2>来源异常</h2><span class="muted">不改变个人状态</span></div><div class="panel"><SpecRows :specs="problems" compact /></div></section></div><aside><section class="panel side-section"><h2>最近访问</h2><RouterLink v-for="s in recent" :key="s.record.id" :to="{ path: `/specs/${s.record.id}`, query: { return: '/workbench' } }" class="recent-item"><strong>{{ s.record.title }}</strong><span>{{ dateLabel(s.record.lastVisitedAt) }}</span></RouterLink><p v-if="!recent.length" class="empty">打开 Spec 后显示在这里</p></section><section class="panel side-section"><h2>最近操作</h2><ol class="activity-list"><li v-for="event in activity" :key="event.id"><RouterLink :to="{path:event.specId ? `/specs/${event.specId}` : `/projects/${event.projectId}`,query:{return:'/workbench'}}">{{ target(event) }}</RouterLink><p>{{ Object.keys(event.changes).map(key => fields[key] ?? key).join('、') }}</p><time>{{ dateLabel(event.at) }}</time></li></ol><p v-if="!activity.length" class="empty">暂无个人变更</p></section></aside></div></template></template>
+<template>
+  <div class="page-heading">
+    <h1>工作台</h1>
+    <div class="inline-actions">
+      <RouterLink to="/projects" class="text-link">工程管理</RouterLink>
+      <RouterLink to="/specs" class="text-link">全部 Spec →</RouterLink>
+    </div>
+  </div>
+  <div v-if="!snapshot?.projects.length" class="empty panel welcome">
+    <h2>把本机 Spec 汇集到这里</h2>
+    <p>先登记工程，再从 Markdown 文件中选择要跟踪的 Spec。</p>
+    <RouterLink to="/projects" class="primary-link">登记第一个工程 →</RouterLink>
+  </div>
+  <template v-else>
+    <ContentAttention :specs="activeSpecs" />
+    <ActiveJobs />
+    <section class="work-section progress-section" aria-labelledby="progress-heading">
+      <div class="section-heading">
+        <h2 id="progress-heading">Spec 推进</h2>
+        <RouterLink :to="{ path: '/specs', query: focus.query }">查看筛选列表 →</RouterLink>
+      </div>
+      <div class="progress-filters" role="group" aria-label="Spec 推进范围">
+        <button
+          v-for="group in groups"
+          :key="group.id"
+          type="button"
+          :aria-pressed="focus.id === group.id"
+          @click="selectFocus(group.id)"
+        >
+          {{ group.label }}
+          <span>{{ group.specs.length }}</span>
+        </button>
+      </div>
+      <div v-if="progressItems.length" class="panel">
+        <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" />
+      </div>
+      <p v-else class="quiet-empty">
+        {{
+          focus.id === 'blocked'
+            ? '当前没有阻塞事项'
+            : focus.id === 'doing'
+              ? '当前没有进行中的 Spec'
+              : '当前来源均可访问'
+        }}
+      </p>
+    </section>
+    <div v-if="recent.length || activity.length" class="recent-panels">
+      <section v-if="recent.length" class="panel recent-panel" aria-labelledby="recent-heading">
+        <div class="recent-heading"><h2 id="recent-heading">最近访问</h2></div>
+        <ul class="compact-records">
+          <li v-for="spec in recent" :key="spec.record.id">
+            <RouterLink
+              :to="{ path: `/specs/${spec.record.id}`, query: { return: route.fullPath } }"
+            >
+              {{ spec.record.title }}
+            </RouterLink>
+            <time :datetime="spec.record.lastVisitedAt ?? undefined">
+              {{ dateLabel(spec.record.lastVisitedAt) }}
+            </time>
+          </li>
+        </ul>
+      </section>
+      <section v-if="activity.length" class="panel recent-panel" aria-labelledby="activity-heading">
+        <div class="recent-heading"><h2 id="activity-heading">最近操作</h2></div>
+        <ol class="compact-records activity-records">
+          <li v-for="event in activity" :key="event.id">
+            <div>
+              <RouterLink
+                :to="{
+                  path: event.specId ? `/specs/${event.specId}` : `/projects/${event.projectId}`,
+                  query: { return: route.fullPath }
+                }"
+              >
+                {{ target(event) }}
+              </RouterLink>
+              <p>{{ eventDescription(event) }}</p>
+            </div>
+            <time :datetime="event.at">{{ dateLabel(event.at) }}</time>
+          </li>
+        </ol>
+      </section>
+    </div>
+  </template>
+</template>
+<style scoped>
+.progress-section {
+  margin-top: 24px;
+}
+.progress-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--yss-colors-border);
+}
+.progress-filters button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #717780;
+  font-size: 12px;
+}
+.progress-filters button[aria-pressed='true'] {
+  border-bottom-color: var(--yss-color-primary-control);
+  color: var(--yss-color-primary-control);
+}
+.progress-filters span {
+  font-size: 11px;
+  color: #858d99;
+}
+.quiet-empty {
+  padding: 14px 0;
+  color: #717780;
+  font-size: 12px;
+}
+.recent-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+  margin: 24px 0;
+}
+.recent-panel {
+  min-width: 0;
+}
+.recent-heading {
+  padding: 16px 18px 10px;
+}
+.compact-records {
+  list-style: none;
+  margin: 0;
+  padding: 0 18px;
+}
+.compact-records li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid #edf0f4;
+}
+.compact-records a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.compact-records time {
+  flex: none;
+  color: #939aa5;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.activity-records li > div {
+  min-width: 0;
+}
+.activity-records p {
+  margin-top: 4px;
+  color: #858d99;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (width<900px) {
+  .recent-panels {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+@media (width<720px) {
+  .page-heading {
+    flex-wrap: wrap;
+  }
+  .progress-filters button {
+    min-height: 44px;
+    padding-inline: 9px;
+  }
+  .compact-records li {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+}
+</style>

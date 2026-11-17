@@ -539,6 +539,84 @@ impl Root {
         }
         Ok(actual)
     }
+    pub(crate) fn create_streamed<F>(&self, path: &RelPath, write: F) -> Result<FileIdentity>
+    where
+        F: FnOnce(&mut std::fs::File) -> Result<()>,
+    {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("创建文件的父目录不存在"))?;
+        self.revalidate_parent(&parent)?;
+        let mut options = OpenOptions::new();
+        options
+            .write(true)
+            .create_new(true)
+            .follow(FollowSymlinks::No);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = parent.dir.open_with(&parent.name, &options)?;
+        let identity = platform::identity_file(&file)?;
+        let mut file = file.into_std();
+        write(&mut file)?;
+        file.sync_all()?;
+        drop(file);
+        platform::sync_dir(&parent.dir)?;
+        self.revalidate_parent(&parent)?;
+        if self.regular_file_identity(path)? != identity {
+            return Err(drift());
+        }
+        Ok(identity)
+    }
+    pub(crate) fn open_streamed(&self, path: &RelPath) -> Result<std::fs::File> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("文件父目录不存在"))?;
+        self.revalidate_parent(&parent)?;
+        let before = parent.dir.symlink_metadata(&parent.name)?;
+        plain(&before)?;
+        if !before.is_file() {
+            return Err(unsafe_path("只能读取普通文件"));
+        }
+        let mut options = OpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No);
+        let file = parent.dir.open_with(&parent.name, &options)?;
+        let identity = platform::identity_file(&file)?;
+        if platform::identity_at(&parent.dir, &parent.name)? != identity {
+            return Err(drift());
+        }
+        self.revalidate_parent(&parent)?;
+        Ok(file.into_std())
+    }
+    pub(crate) fn publish_streamed(
+        &self,
+        from: &RelPath,
+        to: &RelPath,
+        identity: &FileIdentity,
+    ) -> Result<()> {
+        let source = self
+            .parent(from)?
+            .ok_or_else(|| unsafe_path("源父目录不存在"))?;
+        let target = self
+            .parent(to)?
+            .ok_or_else(|| unsafe_path("目标父目录不存在"))?;
+        self.revalidate_parent(&source)?;
+        self.revalidate_parent(&target)?;
+        if self.regular_file_identity(from)? != *identity
+            || self.inspect(to)? != FileSnapshot::Missing
+        {
+            return Err(drift());
+        }
+        platform::rename_no_replace(&source.dir, &source.name, &target.dir, &target.name)?;
+        platform::sync_dir(&target.dir)?;
+        self.revalidate_parent(&target)?;
+        if self.regular_file_identity(to)? != *identity {
+            return Err(drift());
+        }
+        Ok(())
+    }
     pub fn append(&self, path: &RelPath, bytes: &[u8], identity: &FileIdentity) -> Result<()> {
         let parent = self
             .parent(path)?

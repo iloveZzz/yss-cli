@@ -15,20 +15,40 @@ use std::{
     path::Path,
 };
 
-pub fn apply(
+pub fn apply(path: &Path, changes: ChangeSet, cancel: &Cancellation) -> Result<TransactionReport> {
+    let mut operations = changes.operations;
+    operations.push(changes.metadata);
+    apply_operations(
+        path,
+        changes.root_identity,
+        operations,
+        changes.guards,
+        false,
+        cancel,
+        &|| Ok(()),
+    )
+}
+
+pub(super) fn apply_operations(
     path: &Path,
-    mut changes: ChangeSet,
+    root_identity: crate::fs::RootIdentity,
+    operations: Vec<Operation>,
+    guards: BTreeMap<crate::model::RelPath, crate::fs::FileSnapshot>,
+    business_files: bool,
     cancel: &Cancellation,
+    validate: &dyn Fn() -> Result<()>,
 ) -> Result<TransactionReport> {
     cancel.check()?;
     let root = Root::open(path)?;
-    preflight(&root, &changes)?;
+    preflight(&root, &root_identity, &operations, &guards, business_files)?;
+    validate()?;
     if !status_root(&root)?.pending.is_empty() {
         return Err(required("存在未完成事务，请先 recover"));
     }
     let lock = fs::lock_root(path)?;
     let root = &lock.root;
-    preflight(root, &changes)?;
+    preflight(root, &root_identity, &operations, &guards, business_files)?;
+    validate()?;
     if !status_root(root)?.pending.is_empty() {
         return Err(required("加锁后发现未完成事务"));
     }
@@ -36,8 +56,7 @@ pub fn apply(
     let base = journal::base(&id)?;
     let mut objects = BTreeMap::new();
     let mut records = Vec::new();
-    changes.operations.push(changes.metadata);
-    for operation in changes.operations {
+    for operation in operations {
         cancel.check()?;
         let path = operation.path().clone();
         let before = operation.before();
@@ -77,7 +96,8 @@ pub fn apply(
         root: root.identity.clone(),
         id: id.clone(),
         records,
-        guards: changes.guards,
+        guards,
+        business_files,
         objects: objects
             .iter()
             .map(|(h, b)| (h.clone(), b.len() as u64))
@@ -169,6 +189,7 @@ pub fn apply(
         recheck_progress(root, &loaded, 0)?;
         for index in 0..count {
             cancel.check()?;
+            validate()?;
             root.revalidate()?;
             if index + 1 == count {
                 recheck_progress(root, &loaded, index)?;
@@ -177,6 +198,7 @@ pub fn apply(
         }
         recheck_progress(root, &loaded, count)?;
         cancel.check()?;
+        validate()?;
         loaded.append(
             root,
             Event::Phase {
@@ -218,33 +240,46 @@ fn failed(root: &Root, id: &str, error: YssError) -> Result<TransactionReport> {
             .context("rollbackPath", rollback.path.unwrap_or_default())),
     }
 }
-fn preflight(root: &Root, changes: &ChangeSet) -> Result<()> {
-    if root.identity != changes.root_identity {
+fn preflight(
+    root: &Root,
+    root_identity: &crate::fs::RootIdentity,
+    operations: &[Operation],
+    guards: &BTreeMap<RelPath, FileSnapshot>,
+    business_files: bool,
+) -> Result<()> {
+    if &root.identity != root_identity {
         return Err(YssError::new(
             ErrorCode::ConcurrentChange,
-            "安装根目录在规划后改变",
+            "事务根目录在规划后改变",
         ));
     }
-    let metadata = changes.metadata.path().as_str();
-    if !matches!(metadata, ".yss/project.json" | ".yss/tool.json")
-        || !matches!(
-            changes.metadata,
-            Operation::Create { .. } | Operation::Replace { .. }
-        )
-    {
-        return Err(YssError::new(
-            ErrorCode::InvalidInput,
-            "缺少最后提交的安装记录",
-        ));
-    }
+    let metadata = if business_files {
+        None
+    } else {
+        let operation = operations
+            .last()
+            .ok_or_else(|| YssError::new(ErrorCode::InvalidInput, "缺少最后提交的安装记录"))?;
+        let path = operation.path().as_str();
+        if !matches!(path, ".yss/project.json" | ".yss/tool.json")
+            || !matches!(
+                operation,
+                Operation::Create { .. } | Operation::Replace { .. }
+            )
+        {
+            return Err(YssError::new(
+                ErrorCode::InvalidInput,
+                "缺少最后提交的安装记录",
+            ));
+        }
+        Some(path)
+    };
     let mut tree = RenderedTree::default();
-    for operation in changes
-        .operations
-        .iter()
-        .chain(std::iter::once(&changes.metadata))
-    {
+    for operation in operations {
         let path = operation.path();
-        if path.as_str().starts_with(".yss") && path.as_str() != metadata {
+        if (path.as_str().split('/').any(|part| part == ".git")
+            || path.as_str().starts_with(".yss"))
+            && metadata != Some(path.as_str())
+        {
             return Err(
                 YssError::new(ErrorCode::UnsafePath, "业务操作不可写 YSS 控制状态").at(path),
             );
@@ -272,7 +307,7 @@ fn preflight(root: &Root, changes: &ChangeSet) -> Result<()> {
         }
     }
     fs::validate_tree(&tree)?;
-    for (path, expected) in &changes.guards {
+    for (path, expected) in guards {
         if &root.inspect(path)? != expected {
             return Err(YssError::new(ErrorCode::ConcurrentChange, "只读输入已改变").at(path));
         }

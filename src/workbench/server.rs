@@ -36,6 +36,9 @@ struct Server {
     token: String,
     assets: AssetLoader,
     cancel: Cancellation,
+    platform: super::api::PlatformApi,
+    shutdown: Cancellation,
+    restart: Arc<Mutex<Option<PathBuf>>>,
 }
 fn failure(status: StatusCode, code: &str, message: &str) -> Response {
     (
@@ -59,7 +62,7 @@ fn error(e: YssError) -> Response {
             | ErrorCode::RecoveryRequired => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         });
-    (status,Json(json!({"error":{"code":e.code,"message":e.message,"revision":e.context.get("revision").and_then(|s|s.parse::<u64>().ok())}}))).into_response()
+    (status,Json(json!({"error":{"code":e.code,"message":e.message,"revision":e.context.get("revision").and_then(|s|s.parse::<u64>().ok()),"context":e.context}}))).into_response()
 }
 async fn handle(State(server): State<Server>, request: Request) -> Response {
     let mut response = dispatch(server, request).await;
@@ -69,7 +72,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ("referrer-policy", "no-referrer"),
         (
             "content-security-policy",
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src http://127.0.0.1:*",
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src http://127.0.0.1:*",
         ),
     ] {
         response.headers_mut().insert(
@@ -89,6 +92,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
         return failure(StatusCode::FORBIDDEN, "HOST", "请求主机不合法");
     }
     let path = request.uri().path().to_owned();
+    let query = request.uri().query().unwrap_or("").to_owned();
     let method = request.method().clone();
     if !path.starts_with("/api/") {
         if method != axum::http::Method::GET {
@@ -142,6 +146,152 @@ async fn dispatch(server: Server, request: Request) -> Response {
     {
         return failure(StatusCode::FORBIDDEN, "ORIGIN", "请求来源不合法");
     }
+    if method == axum::http::Method::GET
+        && (path.starts_with("/api/confirmations/") || path.starts_with("/api/specs/"))
+        && path.ends_with("/file")
+    {
+        let current = path.starts_with("/api/specs/");
+        let prefix_len = if current { 11 } else { 19 };
+        let id = path[prefix_len..path.len() - 5].to_owned();
+        let query = super::api::query_values(&query);
+        let requested = query.get("path").cloned().unwrap_or_default();
+        let expected_sha = query.get("sha256").cloned();
+        let store = server.store.clone();
+        return match tokio::task::spawn_blocking(move || -> Result<_> {
+            if current {
+                let state = super::jobs::lock_store(&store)?.state().clone();
+                let file = super::artifacts::current_file(&state, &id, &requested)?;
+                if expected_sha.is_some_and(|expected| expected != file.0.sha256) {
+                    return Err(YssError::new(
+                        ErrorCode::ConcurrentChange,
+                        "当前图片已变化，请重新比较后预览",
+                    )
+                    .context("httpStatus", 409));
+                }
+                Ok(file)
+            } else {
+                let mut store = super::jobs::lock_store(&store)?;
+                super::artifacts::historical_file(&mut store, &id, &requested)
+            }
+        })
+        .await
+        {
+            Ok(Ok((file, bytes))) => (
+                [
+                    (header::CONTENT_TYPE, file.mime),
+                    (header::CONTENT_DISPOSITION, "attachment".into()),
+                ],
+                Body::from(bytes),
+            )
+                .into_response(),
+            Ok(Err(error_value)) => error(error_value),
+            Err(_) => failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL",
+                "历史文件读取失败",
+            ),
+        };
+    }
+    if method == axum::http::Method::GET && path == "/api/changes" {
+        let platform = server.platform.clone();
+        let stopping = server.shutdown.clone();
+        let stream = futures_util::stream::unfold(
+            (platform, stopping, String::new()),
+            |(platform, stopping, mut previous)| async move {
+                loop {
+                    if stopping.is_cancelled() || platform.cancel.is_cancelled() {
+                        return None;
+                    }
+                    let reader = platform.clone();
+                    let value = tokio::task::spawn_blocking(move || reader.source_state()).await;
+                    let value = match value {
+                        Ok(Ok(value)) => value,
+                        _ => return None,
+                    };
+                    let key =
+                        serde_json::json!([value["revision"], value["sourceVersions"]]).to_string();
+                    if key != previous {
+                        previous = key;
+                        let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
+                        bytes.push(b'\n');
+                        return Some((
+                            Ok::<_, std::io::Error>(bytes),
+                            (platform, stopping, previous),
+                        ));
+                    }
+                    tokio::select! {
+                        _ = stopping.cancelled() => return None,
+                        _ = platform.cancel.cancelled() => return None,
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                    }
+                }
+            },
+        );
+        return (
+            [(header::CONTENT_TYPE, "application/x-ndjson")],
+            Body::from_stream(stream),
+        )
+            .into_response();
+    }
+    if method == axum::http::Method::GET
+        && path.starts_with("/api/jobs/")
+        && path.ends_with("/events")
+    {
+        let id = path[10..path.len() - 7].to_owned();
+        if let Err(error_value) = server.platform.jobs.get(&id) {
+            return error(error_value);
+        }
+        let after = super::api::query_values(&query)
+            .get("after")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        let jobs = server.platform.jobs.clone();
+        let stopping = server.shutdown.clone();
+        let stream = futures_util::stream::unfold(
+            (jobs, stopping, id, after),
+            |(jobs, stopping, id, mut after)| async move {
+                loop {
+                    if stopping.is_cancelled() {
+                        return None;
+                    }
+                    let reader = jobs.clone();
+                    let job_id = id.clone();
+                    let result = tokio::task::spawn_blocking(move || -> Result<_> {
+                        let events =
+                            super::jobs::lock_store(&reader.store)?.events(&job_id, after)?;
+                        let terminal = reader.get(&job_id)?.terminal();
+                        Ok((events, terminal))
+                    })
+                    .await;
+                    let (events, terminal) = match result {
+                        Ok(Ok(value)) => value,
+                        _ => return None,
+                    };
+                    if !events.is_empty() {
+                        let mut bytes = Vec::new();
+                        for event in events {
+                            after = event.id;
+                            serde_json::to_writer(&mut bytes, &event).ok()?;
+                            bytes.push(b'\n');
+                        }
+                        return Some((Ok::<_, std::io::Error>(bytes), (jobs, stopping, id, after)));
+                    }
+                    if terminal {
+                        return None;
+                    }
+                    tokio::select! {
+                        _ = stopping.cancelled() => return None,
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                    }
+                }
+            },
+        );
+        return (
+            [(header::CONTENT_TYPE, "application/x-ndjson")],
+            Body::from_stream(stream),
+        )
+            .into_response();
+    }
     let bytes = match to_bytes(request.into_body(), 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => {
@@ -161,6 +311,38 @@ async fn dispatch(server: Server, request: Request) -> Response {
         let decode_error = |e: YssError| {
             YssError::new(ErrorCode::InvalidInput, "请求内容不合法").context("detail", e.message)
         };
+        if method == axum::http::Method::POST && path == "/api/restart" {
+            if server.platform.jobs.list()?.iter().any(|job| !job.terminal()) {
+                return Err(YssError::new(
+                    ErrorCode::Locked,
+                    "请等待活动作业结束或逐项停止后重启",
+                ));
+            }
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Restart {
+                tool_root: Option<String>,
+            }
+            let request: Restart = codec::decode_json(&bytes, limits).map_err(decode_error)?;
+            let executable = if let Some(root) = request.tool_root {
+                let root = crate::fs::Root::open(std::path::Path::new(&root))?;
+                let name = if cfg!(windows) { "yss.exe" } else { "yss" };
+                let path = root.path.join(name);
+                let _ = crate::updater::release::read_binary_info(&path)?;
+                root.revalidate()?;
+                path
+            } else {
+                std::env::current_exe()?
+            };
+            *server.restart.lock().map_err(|_| {
+                YssError::new(ErrorCode::Io, "重启状态失效")
+            })? = Some(executable);
+            server.shutdown.cancel();
+            return Ok(json!({"restarting":true,"message":"正在重启工作台，新会话将自动打开，请在新页面恢复草稿"}));
+        }
+        if let Some(value) = server.platform.route(method.as_str(), &path, &query, &bytes)? {
+            return Ok(value);
+        }
         if method == axum::http::Method::POST && path == "/api/register" {
             #[derive(serde::Deserialize)]
             #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -264,7 +446,17 @@ async fn dispatch(server: Server, request: Request) -> Response {
                     .data_dir(),
             )?)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {
-            serde_json::to_value(service::snapshot(&state, &server.cancel)?)
+            {
+                let mut snapshot = service::snapshot(&state, &server.cancel)?;
+                if super::api::query_values(&query)
+                    .get("compact")
+                    .is_some_and(|value| value == "1")
+                {
+                    let start = snapshot.history.len().saturating_sub(32);
+                    snapshot.history.drain(..start);
+                }
+                serde_json::to_value(snapshot)
+            }
         } else if method == axum::http::Method::POST && path == "/api/query" {
             let query: WorkQuery = codec::decode_json(&bytes, limits).map_err(decode_error)?;
             serde_json::to_value(super::query::query(
@@ -310,6 +502,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
 pub fn serve(
     options: ServeOptions,
     assets: AssetLoader,
+    bundle_bytes: &[u8],
     cancel: &Cancellation,
     err: &mut dyn Write,
 ) -> Result<()> {
@@ -318,10 +511,14 @@ pub fn serve(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(async {
+    let restart = Arc::new(Mutex::new(None));
+    let shutdown = Cancellation::new();
+    let mut restart_port = options.port;
+    let result: Result<()> = runtime.block_on(async {
         let listener =
             tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, options.port)).await?;
         let host = listener.local_addr()?.to_string();
+        restart_port = listener.local_addr()?.port();
         let origin = format!("http://{host}");
         let token = format!("{}{}", crate::fs::unique_id()?, crate::fs::unique_id()?);
         let _session = super::session::publish(&canonical_data_dir, &origin, &token)?;
@@ -335,8 +532,19 @@ pub fn serve(
         if options.open_browser && webbrowser::open(&url).is_err() {
             writeln!(err, "无法自动打开浏览器，请复制上方链接。").ok();
         }
+        let store = Arc::new(Mutex::new(store));
+        let jobs = super::jobs::JobManager::new(store.clone())?;
+        let platform = super::api::PlatformApi {
+            jobs: jobs.clone(),
+            bundle: Arc::from(bundle_bytes),
+            cancel: cancel.clone(),
+            origin: origin.clone(),
+        };
         let server = Server {
-            store: Arc::new(Mutex::new(store)),
+            store,
+            platform,
+            shutdown: shutdown.clone(),
+            restart: restart.clone(),
             host,
             origin,
             token: format!("Bearer {token}"),
@@ -344,9 +552,43 @@ pub fn serve(
             cancel: cancel.clone(),
         };
         let stopping = cancel.clone();
+        let shutdown_jobs = jobs.clone();
         axum::serve(listener, Router::new().fallback(handle).with_state(server))
-            .with_graceful_shutdown(async move { stopping.cancelled().await })
+            .with_graceful_shutdown(async move {
+                tokio::select! {
+                    _ = stopping.cancelled() => {},
+                    _ = shutdown.cancelled() => {}
+                }
+                shutdown.cancel();
+                shutdown_jobs.shutdown();
+            })
             .await?;
+        jobs.shutdown();
         Ok(())
-    })
+    });
+    drop(runtime);
+    result?;
+    let executable = restart
+        .lock()
+        .map_err(|_| YssError::new(ErrorCode::Io, "重启状态失效"))?
+        .take();
+    if let Some(executable) = executable {
+        let mut command = std::process::Command::new(executable);
+        command
+            .args(["workbench", "--data-dir"])
+            .arg(canonical_data_dir)
+            .arg("--port")
+            .arg(restart_port.to_string());
+        if !options.open_browser {
+            command.arg("--no-open");
+        }
+        let status = command.status()?;
+        if !status.success() {
+            return Err(YssError::new(
+                ErrorCode::Io,
+                "新版工作台启动失败，请从终端重新打开并核对数据目录",
+            ));
+        }
+    }
+    Ok(())
 }

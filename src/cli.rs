@@ -181,6 +181,12 @@ pub struct WorkbenchQueryArgs {
     pub stages: Vec<crate::workbench::model::Stage>,
     #[arg(long = "status", value_enum)]
     pub statuses: Vec<crate::workbench::model::Status>,
+    #[arg(long = "content-status", value_enum)]
+    pub content_statuses: Vec<crate::workbench::model::ContentStatus>,
+    #[arg(long="reminder",value_parser=["decision","research","overdue","writeback","ready"])]
+    pub reminder_kinds: Vec<String>,
+    #[arg(long)]
+    pub needs_reconfirmation: bool,
     #[arg(long, value_enum, default_value = "active")]
     pub activity: crate::workbench::model::ActivityScope,
     #[arg(long)]
@@ -447,6 +453,8 @@ fn dispatch<'a>(
                             &mut store,
                             crate::workbench::model::MutationRequest {
                                 expected_revision,
+                                expected_target: None,
+                                request_id: None,
                                 action,
                             },
                         )?,
@@ -463,6 +471,9 @@ fn dispatch<'a>(
                     Ok(Report::WorkbenchQuery(crate::workbench::query::query(
                         &snapshot,
                         &crate::workbench::model::WorkQuery {
+                            content_statuses: q.content_statuses,
+                            reminder_kinds: q.reminder_kinds,
+                            needs_reconfirmation: q.needs_reconfirmation,
                             entity: q.entity,
                             q: q.q,
                             project_ids: q.project_ids,
@@ -705,6 +716,7 @@ pub fn run(
                                         open_browser: !args.no_open,
                                     },
                                     assets,
+                                    bundle_bytes,
                                     cancel,
                                     err,
                                 )
