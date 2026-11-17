@@ -21,7 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   update: [patch: Partial<WorkQuery>]
   toggle: [
-    key: 'projectIds' | 'stages' | 'statuses' | 'contentStatuses' | 'reminderKinds',
+    key: 'projectIds' | 'stages' | 'statuses' | 'contentStatuses' | 'reminderKinds' | 'attention',
     value: string,
     checked: boolean
   ]
@@ -31,6 +31,17 @@ const id = useId()
 const root = useTemplateRef<HTMLElement>('root')
 const chipList = useTemplateRef<HTMLDivElement>('chipList')
 const groups = computed(() => [
+  {
+    key: 'attention' as const,
+    label: '进展提醒',
+    options: [
+      { value: 'awaitingConfirmation', label: '待确认' },
+      { value: 'unverified', label: '未核实' },
+      { value: 'needsSync', label: '待同步' },
+      { value: 'needsReview', label: '需复核' },
+      { value: 'conflict', label: '有冲突' }
+    ]
+  },
   {
     key: 'projectIds' as const,
     label: '工程',

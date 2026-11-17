@@ -6,6 +6,8 @@ import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import ProgressSummary from '@/components/ProgressSummary.vue'
+import LifecycleOverview from './components/LifecycleOverview.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import ExternalLinks from '@/components/ExternalLinks.vue'
@@ -36,7 +38,10 @@ const router = useRouter()
 const { snapshot, submit } = useWorkbench()
 const stageDirty = shallowRef(false)
 const questionDirty = shallowRef(false)
-const editor = useSpecEditor(computed(() => stageDirty.value || questionDirty.value))
+const lifecycleDirty = shallowRef(false)
+const editor = useSpecEditor(
+  computed(() => stageDirty.value || questionDirty.value || lifecycleDirty.value)
+)
 const {
   spec,
   draft,
@@ -91,6 +96,9 @@ const selectedStage = computed(() =>
 const sourceSection = computed(() =>
   typeof route.query.section === 'string' ? route.query.section : ''
 )
+const progress = computed(
+  () => snapshot.value?.progress?.[spec.value?.record.id ?? ''] ?? spec.value?.progress
+)
 const reminders = computed(() => contentReminders(spec.value?.content))
 const project = computed(() =>
   snapshot.value?.projects.find((item) => item.record.id === spec.value?.record.projectId)
@@ -113,6 +121,7 @@ watch(
     copyNotice.value = ''
     syncError.value = ''
     stageDirty.value = false
+    lifecycleDirty.value = false
     questionDirty.value = false
   },
   { flush: 'sync' }
@@ -168,6 +177,7 @@ function moveTab(event: KeyboardEvent) {
       <div>
         <h1>{{ spec.record.title }}</h1>
         <div class="inline-meta">
+          <span class="muted">个人标记</span>
           <StatusBadge :status="spec.record.status" />
           <span>{{ stages[spec.record.stage] }}</span>
           <span>{{ contentStatuses[spec.content.status] }}</span>
@@ -206,6 +216,7 @@ function moveTab(event: KeyboardEvent) {
         </Button>
       </div>
     </div>
+    <ProgressSummary :progress="progress" />
     <div class="tabs" role="tablist" aria-label="Spec 内容" @keydown="moveTab">
       <button
         v-for="item in tabs"
@@ -383,16 +394,32 @@ function moveTab(event: KeyboardEvent) {
       role="tabpanel"
       aria-labelledby="tab-lifecycle"
     >
-      <LifecyclePanel
-        v-if="!initializing"
+      <LifecycleOverview
         :key="spec.record.id"
         :spec-id="spec.record.id"
+        :project-id="spec.record.projectId"
+        :spec-digest="spec.content.artifactDigest"
+        :progress="progress"
         :initial-stage="selectedStage"
         :confirm-leave="allowLeave"
         @select="setQuery({ stage: $event })"
-        @dirty="stageDirty = $event"
+        @dirty="lifecycleDirty = $event"
         @saved="childSaved"
+        @confirm-content="tab = 'content'"
       />
+      <details class="personal-lifecycle">
+        <summary>个人阶段记录</summary>
+        <LifecyclePanel
+          v-if="!initializing"
+          :key="spec.record.id"
+          :spec-id="spec.record.id"
+          :initial-stage="selectedStage"
+          :confirm-leave="allowLeave"
+          @select="setQuery({ stage: $event })"
+          @dirty="stageDirty = $event"
+          @saved="childSaved"
+        />
+      </details>
     </section>
     <section
       v-show="tab === 'resources'"
@@ -444,6 +471,7 @@ function moveTab(event: KeyboardEvent) {
         :key="spec.record.id"
         :spec-id="spec.record.id"
         :project-id="spec.record.projectId"
+        :lifecycle-stage="selectedStage"
       />
     </section>
     <section
@@ -497,7 +525,7 @@ function moveTab(event: KeyboardEvent) {
       "
     />
     <ModalDialog v-model="confirmOpen" title="离开当前编辑？">
-      <p>继续操作将离开当前编辑，已成功保存的本机草稿可从原记录恢复。</p>
+      <p>当前编辑包含未保存输入，继续操作将离开编辑。</p>
       <div class="form-actions">
         <Button variant="outline" @click="decide(false)">继续编辑</Button>
         <Button @click="decide(true)">离开并继续</Button>

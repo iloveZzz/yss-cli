@@ -57,14 +57,19 @@ export function useSpecFilters() {
   function apply(view: SavedView) {
     if (view.query.entity === 'spec')
       navigate({
-        query: { ...defaultWorkQuery(), ...view.query },
+        query: {
+          ...defaultWorkQuery(),
+          ...view.query,
+          progressBasis: view.query.progressBasis ?? 'personal',
+          attention: view.query.attention ?? []
+        },
         layout: view.layout,
         groupBy: view.groupBy,
         viewId: view.id
       })
   }
   function toggle(
-    key: 'projectIds' | 'stages' | 'statuses' | 'contentStatuses' | 'reminderKinds',
+    key: 'projectIds' | 'stages' | 'statuses' | 'contentStatuses' | 'reminderKinds' | 'attention',
     value: string,
     checked: boolean
   ) {
@@ -78,7 +83,7 @@ export function useSpecFilters() {
   function clear() {
     navigate({
       ...state.value,
-      query: { ...defaultWorkQuery(), sort: filters.value.sort },
+      query: { ...defaultWorkQuery(), sort: filters.value.sort, progressBasis: filters.value.progressBasis },
       viewId: undefined
     })
   }

@@ -244,6 +244,8 @@ async function readBlobFile(path: string, label: string, signal?: AbortSignal): 
 }
 
 export interface SourceState {
+  externalVersion?: string
+  progressVersions?: import('./workbench-progress').ProjectVersion[]
   revision: number
   sourceVersions: Record<string, string>
   readAt: string

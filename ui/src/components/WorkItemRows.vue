@@ -2,17 +2,22 @@
 import { computed, useId } from 'vue'
 import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
+import ProgressSummary from './ProgressSummary.vue'
+import { useWorkbench } from '@/hooks/useWorkbench'
 import { dateLabel, stages, contentStatuses, type WorkItem } from '@/services/workbench'
 import { contentReminders } from '@/services/workbench-content'
-const props = withDefaults(defineProps<{ items: WorkItem[]; caption?: string }>(), {
-  caption: 'Spec 查询结果'
+const props = withDefaults(defineProps<{ items: WorkItem[]; caption?: string; progressBasis?: 'effective' | 'personal' }>(), {
+  caption: 'Spec 查询结果',
+  progressBasis: 'effective'
 })
 const route = useRoute()
+const { snapshot } = useWorkbench()
 const id = useId()
 const reminders = contentReminders(undefined)
 const rows = computed(() =>
   props.items.map((item) => ({
     item,
+    progress: item.progress ?? snapshot.value?.progress?.[item.specId],
     reminders: reminders.flatMap((reminder) => {
       const count = item.reminderCounts?.[reminder.id] ?? 0
       return count ? [{ ...reminder, count }] : []
@@ -30,14 +35,14 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
       <thead>
         <tr>
           <th scope="col">Spec / 工程</th>
-          <th scope="col">个人进度</th>
+          <th scope="col">{{ progressBasis === 'effective' ? '自动进度' : '个人进度' }}</th>
           <th scope="col">内容与待办</th>
           <th scope="col">下一步与阻塞</th>
           <th scope="col">最近更新</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="{ item, reminders: pending } in rows" :key="item.id">
+        <tr v-for="{ item, progress, reminders: pending } in rows" :key="item.id">
           <th scope="row" class="item-title">
             <RouterLink :to="detail(item)" :title="item.sourcePath">{{ item.title }}</RouterLink>
             <span class="row-sub">{{ item.projectName }}{{ !item.active ? ' · 已停用' : '' }}</span>
@@ -75,12 +80,15 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
             </div>
           </td>
           <td class="item-next">
+            <ProgressSummary v-if="progressBasis === 'effective'" :progress="progress" compact />
+            <template v-else>
             <p v-if="item.status === 'blocked'" class="row-blocker">
               {{ item.blocker || '待补充阻塞说明' }}
             </p>
             <p :class="{ 'row-sub': item.status === 'blocked' }">
               {{ item.nextAction || (item.status === 'blocked' ? '下一步尚未填写' : '—') }}
             </p>
+            </template>
           </td>
           <td class="item-updated">
             <time :datetime="item.updatedAt">{{ dateLabel(item.updatedAt) }}</time>

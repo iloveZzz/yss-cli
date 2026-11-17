@@ -13,6 +13,95 @@ use crate::{
 use std::{collections::BTreeMap, path::Path};
 
 pub use super::sources::{discover, read_source};
+
+fn attach_progress(
+    snapshot: &mut Snapshot,
+    mut records: super::progress::ProgressRecords,
+    state: &WorkbenchState,
+) {
+    let mut project_ids: std::collections::BTreeSet<String> = records
+        .goals
+        .iter()
+        .flat_map(|goal| {
+            goal.goal
+                .participants
+                .iter()
+                .map(|participant| participant.project_id.clone())
+        })
+        .collect();
+    for goal in &records.goals {
+        if let Some(spec) = state.specs.iter().find(|spec| spec.id == goal.goal.spec_id) {
+            project_ids.insert(spec.project_id.clone());
+        }
+    }
+    records.current_versions = super::progress::current_versions(state, &project_ids);
+    snapshot.progress = super::progress::project(snapshot, &records);
+    for spec in &mut snapshot.specs {
+        spec.progress = snapshot.progress.get(&spec.record.id).cloned();
+    }
+    snapshot.progress_records = records;
+}
+
+pub fn snapshot_from_store(store: &mut Store, cancel: &Cancellation) -> Result<Snapshot> {
+    let records = super::progress::load(store)?;
+    let mut value = snapshot(store.state(), cancel)?;
+    attach_progress(&mut value, records, store.state());
+    Ok(value)
+}
+
+pub fn read_snapshot(data_dir: &Path, cancel: &Cancellation) -> Result<Snapshot> {
+    let (state, records) =
+        super::store::read_state_with_records(data_dir, super::progress::RECORD_KINDS)?;
+    let mut value = snapshot(&state, cancel)?;
+    attach_progress(
+        &mut value,
+        super::progress::ProgressRecords::from_raw(&records)?,
+        &state,
+    );
+    Ok(value)
+}
+
+pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> Result<String> {
+    let spec = snapshot
+        .specs
+        .iter()
+        .find(|spec| spec.record.id == spec_id)
+        .ok_or_else(|| missing("Spec 不存在"))?;
+    let context = serde_json::json!({
+        "specId": spec_id,
+        "dataDir": data_dir,
+        "cliExecutable": std::env::current_exe().ok(),
+        "specDigest": spec.content.artifact_digest,
+        "progress": snapshot.progress.get(spec_id),
+        "project": snapshot.projects.iter().find(|project| project.record.id == spec.record.project_id)
+            .map(|project| &project.record),
+    });
+    Ok(format!(
+        "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n在实际工作开始、产物与适用检查完成、遇到阻塞及版本影响核实后，依据当前程序的 workbench progress 帮助上报。目标和验收沿本次用户授权，报告关联实际成果、采用版本和检查结果。隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。进度能力暂不可用时，在原任务结果中保留待同步事实并继续已授权工作。\n",
+        serde_json::to_string_pretty(&context).map_err(|_| invalid("进度上下文编码失败"))?
+    ))
+}
+
+pub fn read_agent_request(
+    data_dir: &Path,
+    spec_id: &str,
+    cancel: &Cancellation,
+) -> Result<AgentRequest> {
+    let (state, raw) =
+        super::store::read_state_with_records(data_dir, super::progress::RECORD_KINDS)?;
+    let mut view = snapshot(&state, cancel)?;
+    attach_progress(
+        &mut view,
+        super::progress::ProgressRecords::from_raw(&raw)?,
+        &state,
+    );
+    let mut request = super::content::agent_request(&state, spec_id, data_dir)?;
+    request
+        .text
+        .push_str(&progress_context(&view, spec_id, data_dir)?);
+    Ok(request)
+}
+
 pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapshot> {
     let mut projects = vec![];
     let mut specs = vec![];
@@ -62,6 +151,8 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         }
     }
     Ok(Snapshot {
+        progress_records: super::progress::ProgressRecords::default(),
+        progress: BTreeMap::new(),
         revision: state.revision,
         read_at: now(),
         projects,
@@ -158,13 +249,16 @@ struct MutationReceipt {
     result: MutationResult,
 }
 
-pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<MutationResult> {
-    let digest = crate::model::Sha256::of(
-        &serde_json::to_vec(&(&request.action, &request.expected_target))
-            .map_err(|_| invalid("请求编码失败"))?,
+pub(crate) fn mutation_digest(action: &Action, expected_target: &Option<String>) -> Result<String> {
+    Ok(crate::model::Sha256::of(
+        &serde_json::to_vec(&(action, expected_target)).map_err(|_| invalid("请求编码失败"))?,
     )
     .as_str()
-    .to_owned();
+    .to_owned())
+}
+
+pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<MutationResult> {
+    let digest = mutation_digest(&request.action, &request.expected_target)?;
     if let Some(id) = &request.request_id {
         if id.is_empty() || id.len() > 128 {
             return Err(invalid("提交请求 ID 无效"));
@@ -247,6 +341,100 @@ fn mutate_inner(
     }
     let mut state = store.state().clone();
     let at = now();
+    let progress_spec_id = match &request.action {
+        Action::SetLifecycleGoal { input } => Some(input.spec_id.clone()),
+        Action::ReportProgress { input } => Some(input.spec_id.clone()),
+        Action::ConfirmProgress { input } => Some(input.spec_id.clone()),
+        Action::SetProgressOverride { input } => Some(input.spec_id.clone()),
+        Action::ClearProgressOverride { input } => Some(input.spec_id.clone()),
+        Action::ReconcileProgress { spec_id } => Some(spec_id.clone()),
+        _ => None,
+    };
+    if let Some(spec_id) = progress_spec_id {
+        let project_id = sources::spec(&state, &spec_id)?.project_id.clone();
+        let mut records = super::progress::load(store)?;
+        let mut project_ids: std::collections::BTreeSet<String> = records
+            .goals
+            .iter()
+            .flat_map(|goal| {
+                goal.goal
+                    .participants
+                    .iter()
+                    .map(|participant| participant.project_id.clone())
+            })
+            .chain(match &request.action {
+                Action::SetLifecycleGoal { input } => input
+                    .participants
+                    .iter()
+                    .map(|participant| participant.project_id.clone())
+                    .collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        project_ids.insert(project_id.clone());
+        records.current_versions = super::progress::current_versions(&state, &project_ids);
+        let view = snapshot(&state, &Cancellation::new())?;
+        let effects = match request.action.clone() {
+            Action::SetLifecycleGoal { input } => {
+                super::progress::prepare_goal(&view, &records, input, &at)?
+            }
+            Action::ReportProgress { input } => {
+                super::progress::prepare_report(&view, &records, input, &at)?
+            }
+            Action::ConfirmProgress { input } => {
+                super::progress::prepare_confirmation(&view, &records, input, &at)?
+            }
+            Action::SetProgressOverride { input } => {
+                super::progress::prepare_override(&view, &records, input, &at)?
+            }
+            Action::ClearProgressOverride { input } => {
+                super::progress::prepare_clear_override(&view, &records, input, &at)?
+            }
+            Action::ReconcileProgress { .. } => {
+                super::progress::prepare_reconcile(&view, &records, &spec_id, &at)?
+            }
+            _ => unreachable!("progress action was selected above"),
+        };
+        if !effects.records.is_empty() {
+            let operation =
+                serde_json::to_value(&request.action).map_err(|_| invalid("进展操作编码失败"))?;
+            let details = serde_json::json!({
+                "operation": operation["kind"],
+                "goalVersion": operation.pointer("/input/goalVersion"),
+                "reportId": operation.pointer("/input/id"),
+                "stage": operation.pointer("/input/stage")
+            });
+            super::history::record_change(
+                &mut state,
+                super::history::EventTarget {
+                    project_id: project_id.clone(),
+                    spec_id: Some(spec_id.clone()),
+                    task_id: None,
+                    lifecycle_stage: None,
+                },
+                None::<&serde_json::Value>,
+                &serde_json::json!({"progress":details}),
+                &at,
+            )?;
+            super::tasks::touch_spec(&mut state, &spec_id, &at);
+        }
+        return finish_mutation(
+            store,
+            request.expected_revision,
+            state,
+            MutationResult {
+                response_id: None,
+                revision: 0,
+                project_id: Some(project_id),
+                spec_id: Some(spec_id),
+                task_ids: Vec::new(),
+                view_id: None,
+            },
+            effects,
+            request.request_id.as_deref(),
+            request_digest,
+        );
+    }
     if let Action::SaveView {
         view_id,
         name,
@@ -556,6 +744,12 @@ fn mutate_inner(
             spec_id = Some(id);
             record.last_visited_at = Some(at.clone());
         }
+        Action::SetLifecycleGoal { .. }
+        | Action::ReportProgress { .. }
+        | Action::ConfirmProgress { .. }
+        | Action::SetProgressOverride { .. }
+        | Action::ClearProgressOverride { .. }
+        | Action::ReconcileProgress { .. } => unreachable!("progress actions are handled above"),
     }
     if !delta.is_empty() {
         state.history.push(ChangeEvent {

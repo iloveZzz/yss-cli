@@ -1,5 +1,6 @@
 import { shallowRef } from 'vue'
 export * from './workbench-model'
+export * from './workbench-progress'
 import type {
   MutationRequest,
   MutationResult,
@@ -97,6 +98,12 @@ export function resolvePendingRequest(requestId: string) {
     if (intent.requestId === requestId) intents.delete(key)
   }
   publishPending()
+}
+export async function reconcilePendingMutation(requestId: string): Promise<unknown> {
+  const intent = Array.from(intents.values()).find((pending) => pending.requestId === requestId)
+  if (!intent || intent.path !== '/api/commands' || intent.method !== 'POST')
+    throw new Error('当前会话缺少原保存请求，请回到原操作入口核对。')
+  return apiRequest(intent.path, { method: intent.method, body: intent.body })
 }
 export async function apiRequest<T>(
   path: string,

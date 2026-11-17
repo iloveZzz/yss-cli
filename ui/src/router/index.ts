@@ -21,8 +21,11 @@ export const router = createRouter({
     { path: '/settings', component: Settings },
     { path: '/:pathMatch(.*)*', redirect: '/workbench' }
   ],
-  scrollBehavior(to, _from, saved) {
-    return saved ?? { top: positions.get(to.fullPath) ?? 0 }
+  scrollBehavior(to, from, saved) {
+    if (saved) return saved
+    // In-page query updates include reading progress and component-managed anchors.
+    if (to.path === from.path) return false
+    return { top: positions.get(to.fullPath) ?? 0 }
   }
 })
 

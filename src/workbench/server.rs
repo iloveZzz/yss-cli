@@ -208,8 +208,13 @@ async fn dispatch(server: Server, request: Request) -> Response {
                         Ok(Ok(value)) => value,
                         _ => return None,
                     };
-                    let key =
-                        serde_json::json!([value["revision"], value["sourceVersions"]]).to_string();
+                    let key = serde_json::json!([
+                        value["revision"],
+                        value["sourceVersions"],
+                        value["progressVersions"],
+                        value["externalVersion"]
+                    ])
+                    .to_string();
                     if key != previous {
                         previous = key;
                         let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
@@ -436,18 +441,18 @@ async fn dispatch(server: Server, request: Request) -> Response {
             && path.starts_with("/api/specs/")
             && path.ends_with("/request")
         {
-            serde_json::to_value(super::content::agent_request(
-                &state,
-                &path[11..path.len() - 8],
-                server
-                    .store
-                    .lock()
-                    .map_err(|_| YssError::new(ErrorCode::Io, "数据锁失效，请重启"))?
-                    .data_dir(),
-            )?)
+            let mut store = super::jobs::lock_store(&server.store)?;
+            let id = &path[11..path.len() - 8];
+            let snapshot = service::snapshot_from_store(&mut store, &server.cancel)?;
+            let mut request = super::content::agent_request(store.state(), id, store.data_dir())?;
+            request.text.push_str(&service::progress_context(&snapshot, id, store.data_dir())?);
+            serde_json::to_value(request)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {
             {
-                let mut snapshot = service::snapshot(&state, &server.cancel)?;
+                let mut snapshot = service::snapshot_from_store(
+                    &mut *super::jobs::lock_store(&server.store)?,
+                    &server.cancel,
+                )?;
                 if super::api::query_values(&query)
                     .get("compact")
                     .is_some_and(|value| value == "1")
@@ -460,7 +465,10 @@ async fn dispatch(server: Server, request: Request) -> Response {
         } else if method == axum::http::Method::POST && path == "/api/query" {
             let query: WorkQuery = codec::decode_json(&bytes, limits).map_err(decode_error)?;
             serde_json::to_value(super::query::query(
-                &service::snapshot(&state, &server.cancel)?,
+                &service::snapshot_from_store(
+                    &mut *super::jobs::lock_store(&server.store)?,
+                    &server.cancel,
+                )?,
                 &query,
             )?)
         } else if method == axum::http::Method::GET
@@ -469,7 +477,10 @@ async fn dispatch(server: Server, request: Request) -> Response {
         {
             let id = &path[11..path.len() - 10];
             serde_json::to_value(super::lifecycle::build_lifecycle(
-                &service::snapshot(&state, &server.cancel)?,
+                &service::snapshot_from_store(
+                    &mut *super::jobs::lock_store(&server.store)?,
+                    &server.cancel,
+                )?,
                 id,
             )?)
         } else if method == axum::http::Method::POST && path == "/api/discover" {
@@ -534,6 +545,8 @@ pub fn serve(
         }
         let store = Arc::new(Mutex::new(store));
         let jobs = super::jobs::JobManager::new(store.clone())?;
+        let progress_tracker =
+            super::progress_tracking::start(jobs.clone(), cancel.clone(), shutdown.clone());
         let platform = super::api::PlatformApi {
             jobs: jobs.clone(),
             bundle: Arc::from(bundle_bytes),
@@ -552,8 +565,9 @@ pub fn serve(
             cancel: cancel.clone(),
         };
         let stopping = cancel.clone();
+        let tracker_shutdown = shutdown.clone();
         let shutdown_jobs = jobs.clone();
-        axum::serve(listener, Router::new().fallback(handle).with_state(server))
+        let serve_result = axum::serve(listener, Router::new().fallback(handle).with_state(server))
             .with_graceful_shutdown(async move {
                 tokio::select! {
                     _ = stopping.cancelled() => {},
@@ -562,8 +576,11 @@ pub fn serve(
                 shutdown.cancel();
                 shutdown_jobs.shutdown();
             })
-            .await?;
+            .await;
+        tracker_shutdown.cancel();
         jobs.shutdown();
+        let _ = progress_tracker.join();
+        serve_result?;
         Ok(())
     });
     drop(runtime);

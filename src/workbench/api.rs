@@ -59,7 +59,36 @@ fn number(query: &BTreeMap<String, String>, key: &str, default: usize) -> Result
 
 impl PlatformApi {
     pub fn source_state(&self) -> Result<Value> {
-        let state = jobs::lock_store(&self.jobs.store)?.state().clone();
+        let (state, records, external_links) = {
+            let mut store = jobs::lock_store(&self.jobs.store)?;
+            (
+                store.state().clone(),
+                super::progress::load(&mut store)?,
+                store.records::<integrations::ExternalLink>("externalLink")?,
+            )
+        };
+        let external_version = Sha256::of(
+            &serde_json::to_vec(&external_links)
+                .map_err(|_| sources::invalid("研发关联版本编码失败"))?,
+        )
+        .as_str()
+        .to_owned();
+        let mut project_ids: std::collections::BTreeSet<String> = records
+            .goals
+            .iter()
+            .flat_map(|goal| {
+                goal.goal
+                    .participants
+                    .iter()
+                    .map(|participant| participant.project_id.clone())
+            })
+            .collect();
+        for goal in &records.goals {
+            if let Some(spec) = state.specs.iter().find(|spec| spec.id == goal.goal.spec_id) {
+                project_ids.insert(spec.project_id.clone());
+            }
+        }
+        let progress_versions = super::progress::current_versions(&state, &project_ids);
         let mut versions = BTreeMap::new();
         for spec in &state.specs {
             let Some(project) = state
@@ -150,7 +179,9 @@ impl PlatformApi {
                 version.unwrap_or_else(|error| format!("{:?}", error.code)),
             );
         }
-        Ok(json!({"revision":state.revision,"sourceVersions":versions,"readAt":sources::now()}))
+        Ok(
+            json!({"revision":state.revision,"sourceVersions":versions,"progressVersions":progress_versions,"externalVersion":external_version,"readAt":sources::now()}),
+        )
     }
 
     pub fn route(
@@ -204,14 +235,20 @@ impl PlatformApi {
         let query = query_values(query);
         let parts = path.trim_matches('/').split('/').collect::<Vec<_>>();
         let result = match (method, parts.as_slice()) {
-            ("GET", ["api", "receipts", id]) => {
+            ("GET", ["api", "receipts"]) | ("GET", ["api", "receipts", _]) => {
+                let id = parts
+                    .get(2)
+                    .copied()
+                    .or_else(|| query.get("requestId").map(String::as_str))
+                    .filter(|id| !id.is_empty() && id.len() <= 128)
+                    .ok_or_else(|| sources::invalid("请求 ID 无效"))?;
                 let mut store = jobs::lock_store(&self.jobs.store)?;
                 if let Some(receipt) = store.record::<Value>("mutationReceipt", id)? {
-                    json!({"found":true,"result":receipt["result"]})
+                    json!({"found":true,"result":receipt["result"],"requestDigest":receipt["request_digest"]})
                 } else if let Some(job) = store
                     .records::<super::jobs::JobRecord>("job")?
                     .into_iter()
-                    .find(|job| job.request_id == *id)
+                    .find(|job| job.request_id == id)
                 {
                     json!({"found":true,"result":job})
                 } else {
@@ -342,9 +379,11 @@ impl PlatformApi {
                     50
                 }
                 let request: Request = decode(bytes)?;
-                let state = jobs::lock_store(&self.jobs.store)?.state().clone();
-                let mut result =
-                    super::query::query(&service::snapshot(&state, &self.cancel)?, &request.query)?;
+                let snapshot = service::snapshot_from_store(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    &self.cancel,
+                )?;
+                let mut result = super::query::query(&snapshot, &request.query)?;
                 result.items = result
                     .items
                     .into_iter()
@@ -418,14 +457,17 @@ impl PlatformApi {
                 )?)?
             }
             ("GET", ["api", "specs", id, "view"]) => {
-                let state = jobs::lock_store(&self.jobs.store)?.state().clone();
-                let spec = sources::spec(&state, id)?;
-                let project = sources::project(&state, &spec.project_id)?;
-                encode(sources::spec_view(
-                    &state,
-                    spec,
-                    &Root::open(Path::new(&project.root_path)),
-                ))?
+                let snapshot = service::snapshot_from_store(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    &self.cancel,
+                )?;
+                encode(
+                    snapshot
+                        .specs
+                        .into_iter()
+                        .find(|spec| spec.record.id == *id)
+                        .ok_or_else(|| sources::missing("Spec 不存在"))?,
+                )?
             }
             ("GET", ["api", "specs", id, "confirmations"]) => {
                 artifacts::confirmations(&mut *jobs::lock_store(&self.jobs.store)?, id)?

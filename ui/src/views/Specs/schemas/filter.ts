@@ -19,6 +19,8 @@ export function encodeWorkQuery(
 ): LocationQueryRaw {
   return {
     entity: 'spec',
+    progressBasis: query.progressBasis,
+    attention: query.attention.length ? query.attention : undefined,
     q: query.q || undefined,
     project: query.projectIds.length ? query.projectIds : undefined,
     spec: query.specIds.length ? query.specIds : undefined,
@@ -51,6 +53,13 @@ export function decodeWorkQuery(raw: LocationQuery): {
   const text = (key: string) => values(key)[0] ?? ''
   const query: WorkQuery = {
     ...defaultWorkQuery(),
+    progressBasis:
+      text('progressBasis') === 'effective' || !Object.keys(raw).length
+        ? 'effective'
+        : 'personal',
+    attention: values('attention').filter((value) =>
+      ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'].includes(value)
+    ),
     q: text('q'),
     projectIds: values('project'),
     specIds: values('spec'),

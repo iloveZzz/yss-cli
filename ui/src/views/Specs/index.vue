@@ -76,7 +76,7 @@ const coverage = computed(() => {
       projects.value.some((p) => p.record.id === s.record.projectId && p.record.active)
     )
   }
-  const entries = ss.map((s) => ({ active: enabled(s.record.id), status: s.record.status }))
+  const entries = ss.map((s) => ({ active: enabled(s.record.id), status: filters.value.progressBasis === 'effective' ? snapshot.value?.progress?.[s.record.id]?.status ?? 'unmarked' : s.record.status }))
   return {
     total: entries.length,
     inactive: entries.filter((e) => !e.active).length,
@@ -103,6 +103,10 @@ function all() {
         @removed="detachView"
       />
       <div class="result-controls">
+        <div class="segmented" role="group" aria-label="进度依据">
+          <button type="button" :aria-pressed="filters.progressBasis === 'effective'" @click="update({ progressBasis: 'effective' })">自动进度</button>
+          <button type="button" :aria-pressed="filters.progressBasis === 'personal'" @click="update({ progressBasis: 'personal' })">个人标记</button>
+        </div>
         <label class="inline-field sort-control" :for="id + 'sort'">
           <span>排序</span>
           <SingleSelect
@@ -188,7 +192,7 @@ function all() {
       </div>
     </section>
     <section v-else-if="layout === 'list'" class="panel" :aria-busy="loading">
-      <WorkItemRows :items="result.items" />
+      <WorkItemRows :items="result.items" :progress-basis="filters.progressBasis" />
       <div v-if="result.total > result.items.length" class="load-more">
         <Button type="button" variant="outline" :disabled="loading" @click="loadMore">
           加载更多（已显示 {{ result.items.length }} / {{ result.total }}）
@@ -202,6 +206,7 @@ function all() {
       :items="result.items"
       :group-by="groupBy"
       :revision="result.revision"
+      :progress-basis="filters.progressBasis"
     />
     <div v-if="layout === 'board' && result.total > result.items.length" class="load-more">
       <Button type="button" variant="outline" :disabled="loading" @click="loadMore">

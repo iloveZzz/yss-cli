@@ -53,7 +53,7 @@ const { result, loading, error, refresh } = useWorkItems(query)
 const totals = computed(() => {
   const entries = specs.value.map((s) => ({
     active: !!project.value?.record.active && s.record.active,
-    status: s.record.status
+    status: snapshot.value?.progress?.[s.record.id]?.status ?? 'unmarked'
   }))
   return {
     total: entries.length,

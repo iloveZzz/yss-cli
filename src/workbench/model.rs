@@ -263,6 +263,10 @@ pub struct WorkQuery {
     pub reminder_kinds: Vec<String>,
     #[serde(default)]
     pub needs_reconfirmation: bool,
+    #[serde(default)]
+    pub progress_basis: super::progress::ProgressBasis,
+    #[serde(default)]
+    pub attention: Vec<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -297,6 +301,8 @@ pub struct WorkItem {
     pub content_status: Option<ContentStatus>,
     pub reminder_counts: BTreeMap<String, usize>,
     pub needs_reconfirmation: bool,
+    #[serde(default)]
+    pub progress: Option<super::progress::ProgressSummary>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -342,6 +348,8 @@ pub struct ProjectView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpecView {
+    #[serde(default)]
+    pub progress: Option<super::progress::ProgressSummary>,
     pub content: ContentView,
     pub record: SpecRecord,
     pub source_health: SourceHealth,
@@ -352,6 +360,10 @@ pub struct SpecView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    #[serde(skip)]
+    pub progress_records: super::progress::ProgressRecords,
+    #[serde(default)]
+    pub progress: BTreeMap<String, super::progress::ProgressSummary>,
     pub revision: u64,
     pub read_at: String,
     pub projects: Vec<ProjectView>,
@@ -388,11 +400,23 @@ pub struct LifecycleStageView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LifecycleView {
+    #[serde(default)]
+    pub progress_history: ProgressHistory,
+    #[serde(default)]
+    pub progress: Option<super::progress::ProgressSummary>,
     pub revision: u64,
     pub spec: SpecView,
     pub stages: Vec<LifecycleStageView>,
     pub tasks: Vec<TaskView>,
     pub events: Vec<ChangeEvent>,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressHistory {
+    pub goals: Vec<super::progress::GoalRecord>,
+    pub reports: Vec<super::progress::ReportRecord>,
+    pub overrides: Vec<super::progress::OverrideRecord>,
+    pub decisions: Vec<super::progress::DecisionRecord>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -453,6 +477,24 @@ pub struct MutationResult {
     deny_unknown_fields
 )]
 pub enum Action {
+    SetLifecycleGoal {
+        input: super::progress::LifecycleGoalInput,
+    },
+    ReportProgress {
+        input: super::progress::ProgressReportInput,
+    },
+    ConfirmProgress {
+        input: super::progress::ConfirmationInput,
+    },
+    SetProgressOverride {
+        input: super::progress::OverrideInput,
+    },
+    ClearProgressOverride {
+        input: super::progress::ClearOverrideInput,
+    },
+    ReconcileProgress {
+        spec_id: String,
+    },
     RespondQuestion {
         spec_id: String,
         question_id: String,

@@ -626,12 +626,29 @@ pub fn external_add(store: &Arc<Mutex<Store>>, mut target: AddExternal) -> Resul
             .iter()
             .find(|s| &s.id == id)
             .ok_or_else(|| invalid("关联Spec不存在"))?;
-        if target
-            .project_id
-            .as_ref()
-            .is_some_and(|id| id != &spec.project_id)
+        let spec_id = spec.id.clone();
+        let source_project_id = spec.project_id.clone();
+        if let Some(project_id) = &target.project_id
+            && project_id != &source_project_id
         {
-            return Err(invalid("关联Spec与工程不一致"));
+            let records = super::progress::load(&mut store)?;
+            let linked = records
+                .goals
+                .iter()
+                .filter(|goal| goal.goal.spec_id == spec_id)
+                .max_by(|left, right| {
+                    (&left.created_at, &left.goal_version)
+                        .cmp(&(&right.created_at, &right.goal_version))
+                })
+                .is_some_and(|goal| {
+                    goal.goal
+                        .participants
+                        .iter()
+                        .any(|participant| &participant.project_id == project_id)
+                });
+            if !linked {
+                return Err(invalid("关联工程须属于此 Spec 的生命周期参与范围"));
+            }
         }
     }
     if let Some(found) = store
@@ -730,6 +747,12 @@ fn summary(value: &Value) -> Value {
         "ref",
         "sha",
         "head_branch",
+        "head_sha",
+        "merge_commit_sha",
+        "source_branch",
+        "target_branch",
+        "web_url",
+        "merged",
     ] {
         let item = safe_scalar(value, key);
         if !item.is_null() {
@@ -799,6 +822,9 @@ fn fetch(target: &AddExternal, cancel: &Cancellation) -> Result<Value> {
                 && (40..=64).contains(&sha.len())
                 && sha.bytes().all(|b| b.is_ascii_hexdigit())
             {
+                data["head_sha"] = json!(sha);
+                data["source_branch"] = value.pointer("/head/ref").cloned().unwrap_or(Value::Null);
+                data["target_branch"] = value.pointer("/base/ref").cloned().unwrap_or(Value::Null);
                 data["checks"] = paged(
                     target,
                     &format!("{base}/commits/{sha}/check-runs"),

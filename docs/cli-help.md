@@ -15,6 +15,7 @@
 | 排查差异或恢复 | `doctor` / `recover` | 受管项目目录或 CLI 工具目录 |
 | 本机 Spec 与工程工作台 | `workbench` | 个人数据、工程维护与隔离运行入口 |
 | 查询任务和生命周期 | `workbench snapshot` / `query` / `lifecycle` | 已纳管记录 |
+| 上报生命周期进展 | `workbench progress set-goal` / `report` / `confirm` / `reconcile` | 主 Spec 的目标、证据和明确确认 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
 `yss help <命令>` 或 `yss <命令> --help` 查看命令帮助，例如 `yss skills ensure --help`。写入命令默认执行；支持预览的命令可加 `--dry-run`，查看结果后重新运行并去掉该参数。预览不创建目标、锁或可保存的执行计划；在线升级预览仍会访问发行信息。
@@ -197,10 +198,30 @@ yss workbench query --entity task --stage verification --json
 yss workbench query --entity spec --activity all --include-closed --json
 yss workbench query --entity spec --content-status ready --reminder ready --json
 yss workbench query --entity spec --needs-reconfirmation --json
+yss workbench query --entity spec --progress-basis effective --attention needsReview --json
 yss workbench lifecycle --spec <SpecID> --json
 ```
 
-`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。本轮源码新增可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`，用于 Spec 内容与提醒筛选。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录；register/respond 写入个人数据。参数完整枚举以 `yss workbench query --help` 为准。
+`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`，以及可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`。`--progress-basis effective` 使用自动证据与当前版本人工更正汇总的有效进度；缺省 `personal` 延续个人标记语义。`--attention` 可重复传入 `awaitingConfirmation`、`unverified`、`needsSync`、`needsReview`、`conflict`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录。参数完整枚举以 `yss workbench query --help` 为准。
+
+### 上报生命周期进展
+
+本轮工作树新增以下入口，安装程序须先核实 `yss workbench progress --help`。
+
+```sh
+yss workbench --data-dir /absolute/personal-data progress set-goal --input /absolute/goal.json --request-id goal-request-001 --json
+yss workbench --data-dir /absolute/personal-data progress report --input /absolute/report.json --request-id report-request-001 --json
+yss workbench --data-dir /absolute/personal-data progress confirm --input /absolute/confirmation.json --request-id confirm-request-001 --json
+yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <SpecID> --request-id reconcile-request-001 --json
+```
+
+`--input -` 从标准输入读取 JSON，最大 1 MiB。写入沿用同一 `data-dir`，优先交给运行中的服务；离线写入使用现有独占锁。`requestId` 标识一次逻辑操作，重试沿用原 ID 和原载荷；同 ID 不同内容返回冲突。响应不确定时先查询回执，命令错误中的 `requestId` 可用于核对。每次成功响应返回统一信封和事务 revision，随后查询 `lifecycle` 取得最新 `goalVersion`、`specDigest` 与 `evidenceDigest`。
+
+目标输入包括 `specId`、`scope`、`target`、八阶段适用性、参与工程及角色、`acceptanceRefs` 和实际 `specDigest`。报告携带稳定 `id`、目标版本、阶段、范围引用、工程与角色、执行状态、证据适用性、代码提交与工作树摘要、实际检查凭证。工作树摘要覆盖 Git diff 与未忽略的未跟踪文件；采用程序返回的当前版本信息或按共享协议核实生成。Backend、Frontend 和联调分别关联真实工程 ID，避免工作树别名生成重复主 Spec。
+
+确认输入绑定 `goalVersion`、阶段、范围和当前 `evidenceDigest`，并在 `source` 记录用户明确决定的出处。规格、验证和最终目标确认由真实用户决定产生。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
+
+详细 JSON 约定随模板分发到 `.template-spec/agents/workbench-progress.md`。工作台生成的 Agent 请求也携带当前身份和实际上报程序路径。能力缺失或报告失败时继续原已授权工作，记录待同步材料后核实补报。
 
 当前源码使用 SQLite 保存个人数据。旧 JSON v1/v2/v3 的纯查询保持只读；首次启动新版工作台或执行写入命令时先备份原字节并迁移，即使该业务操作最后没有状态变化也会完成迁移。迁移后 `state.json` 仅为存储标记，旧版程序不能读写同一数据目录。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
 

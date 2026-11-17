@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, shallowRef, watch, onBeforeUnmount, useId } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
+import { useWorkbench } from '@/hooks/useWorkbench'
 import { Button } from '@/components/ui/button'
 import SingleSelect from '@/components/SingleSelect.vue'
-import { errorMessage, dateLabel } from '@/services/workbench'
+import { errorMessage, dateLabel, roleLabels } from '@/services/workbench'
 import { getJob, terminalJob, objectValue, readableValue } from '@/services/workbench-platform'
 import {
   getExternalLinks,
@@ -12,7 +13,23 @@ import {
   type ExternalLink
 } from '@/services/workbench-engineering'
 const props = defineProps<{ projectId?: string; specId?: string }>()
+const { snapshot, externalVersion } = useWorkbench()
 const links = shallowRef<ExternalLink[]>([])
+const selectedProjectId = shallowRef(props.projectId ?? '')
+const sourceProjectId = computed(() => props.projectId ?? snapshot.value?.specs.find((spec) => spec.record.id === props.specId)?.record.projectId)
+const projectOptions = computed(() => {
+  const participants = props.specId ? snapshot.value?.progress?.[props.specId]?.goal?.participants ?? [] : []
+  const ids = [...new Set([sourceProjectId.value, ...participants.map((participant) => participant.projectId)].filter((id): id is string => !!id))]
+  return ids.map((id) => {
+    const project = snapshot.value?.projects.find((entry) => entry.record.id === id)
+    const roles = participants.filter((entry) => entry.projectId === id).map((entry) => roleLabels[entry.role])
+    return { value: id, label: [project?.record.name ?? id, roles.join(' / ')].filter(Boolean).join(' · ') }
+  })
+})
+watch(projectOptions, (options) => {
+  if (!options.some((option) => option.value === selectedProjectId.value))
+    selectedProjectId.value = sourceProjectId.value ?? options[0]?.value ?? ''
+}, { immediate: true })
 const formId = useId()
 const form = reactive({
   provider: 'github' as ExternalLink['provider'],
@@ -88,8 +105,9 @@ const entries = computed(() =>
   links.value
     .filter(
       (link) =>
-        (!props.projectId || link.projectId === props.projectId) &&
-        (!props.specId || link.specId === props.specId)
+        props.specId
+          ? link.specId === props.specId
+          : !props.projectId || link.projectId === props.projectId
     )
     .map((link) => {
       const checks = ['checks', 'pipelines', 'jobs'].flatMap((key) => {
@@ -109,6 +127,7 @@ const entries = computed(() =>
       )
       return {
         link,
+        projectName: snapshot.value?.projects.find((project) => project.record.id === link.projectId)?.record.name ?? link.projectId ?? '未绑定工程',
         url: linkUrl(link),
         title: link.data?.title ?? `${labels[link.kind]} #${link.number}`,
         state: link.data
@@ -141,7 +160,11 @@ async function refresh() {
     if (active && current === generation) loading.value = false
   }
 }
-watch(() => [props.projectId, props.specId], refresh, { immediate: true })
+watch(
+  [() => props.projectId, () => props.specId, () => externalVersion.value, () => snapshot.value?.revision, () => props.specId ? snapshot.value?.progress?.[props.specId]?.evidenceDigest : Object.values(snapshot.value?.progress ?? {}).map((progress) => progress.evidenceDigest).join('|')],
+  refresh,
+  { immediate: true }
+)
 onBeforeUnmount(() => {
   active = false
   generation++
@@ -151,7 +174,7 @@ async function add() {
   busy.value = true
   error.value = ''
   try {
-    await addExternalLink({ ...form, projectId: props.projectId, specId: props.specId })
+    await addExternalLink({ ...form, projectId: props.specId ? selectedProjectId.value : props.projectId, specId: props.specId })
     await refresh()
     expanded.value = false
   } catch (cause) {
@@ -231,6 +254,10 @@ useIntervalFn(async () => {
     >
       <fieldset :disabled="busy" class="plain-fieldset form-stack">
         <legend class="sr-only">远端事项信息</legend>
+        <label v-if="specId && projectOptions.length > 1" :for="formId + '-project'">
+          关联工程
+          <SingleSelect :id="formId + '-project'" v-model="selectedProjectId" :options="projectOptions" :disabled="busy" />
+        </label>
         <div class="form-grid">
           <label
             >平台<SingleSelect
@@ -315,6 +342,7 @@ useIntervalFn(async () => {
                 >{{ labels[entry.link.kind] }} #{{ entry.link.number }} ·
                 {{ entry.link.project }}</span
               >
+              <span v-if="specId" class="row-sub">{{ entry.projectName }}</span>
               <details class="external-detail">
                 <summary>
                   关联信息<span v-if="entry.checks.length">

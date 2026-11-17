@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, shallowRef } from 'vue'
+import { useWorkbench } from '@/hooks/useWorkbench'
 import { Button } from '@/components/ui/button'
 import {
   pendingRequests,
+  reconcilePendingMutation,
   resolvePendingRequest,
   acknowledgeRequest,
   errorMessage
@@ -14,6 +16,7 @@ import {
   readableValue,
   type RequestRecord
 } from '@/services/workbench-platform'
+const { refresh: refreshSnapshot } = useWorkbench()
 const records = shallowRef<RequestRecord[]>([])
 const error = shallowRef('')
 const result = shallowRef('')
@@ -33,6 +36,14 @@ async function refresh() {
 async function inspect(id: string) {
   loading.value = true
   try {
+    const pending = pendingRequests.value.find((intent) => intent.requestId === id)
+    if (pending?.path === '/api/commands') {
+      const committed = await reconcilePendingMutation(id)
+      result.value = '已使用原请求内容核实，此次保存已提交。'
+      receiptDetails.value = readableValue(committed)
+      await Promise.all([refreshSnapshot(), refresh()])
+      return
+    }
     const receipt = await getReceipt(id)
     result.value = receipt.found
       ? '已找到已提交回执，此次请求已核对。'
@@ -65,6 +76,7 @@ onMounted(refresh)
       <div>
         <strong>{{ intent.status === 'uncertain' ? '结果待核对' : '正在提交' }}</strong>
         <p class="path-text">{{ intent.path }}</p>
+        <p v-if="intent.path === '/api/commands'">将使用原请求内容核实并完成此次保存。</p>
       </div>
       <Button
         type="button"
@@ -72,7 +84,7 @@ onMounted(refresh)
         :disabled="loading"
         @click="inspect(intent.requestId)"
       >
-        核对回执
+        {{ intent.path === '/api/commands' ? '用原请求核实' : '核对回执' }}
       </Button>
     </article>
     <details v-if="records.length" class="request-history">

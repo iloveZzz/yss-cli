@@ -120,6 +120,7 @@ pub fn spec_view(state: &WorkbenchState, s: &SpecRecord, root: &Result<Root>) ->
         .and_then(|text| super::content::metadata(text).ok().flatten());
     let resources = resource_views(&super::content::merged_resources(s, meta.as_ref()), root);
     SpecView {
+        progress: None,
         content: super::content::view(state, s, root),
         record: s.clone(),
         source_health,

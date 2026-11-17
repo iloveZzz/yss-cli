@@ -108,6 +108,37 @@ pub fn build_lifecycle(snapshot: &Snapshot, spec_id: &str) -> Result<LifecycleVi
         })
         .collect();
     Ok(LifecycleView {
+        progress_history: ProgressHistory {
+            goals: snapshot
+                .progress_records
+                .goals
+                .iter()
+                .filter(|record| record.goal.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            reports: snapshot
+                .progress_records
+                .reports
+                .iter()
+                .filter(|record| record.report.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            overrides: snapshot
+                .progress_records
+                .overrides
+                .iter()
+                .filter(|record| record.value.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            decisions: snapshot
+                .progress_records
+                .decisions
+                .iter()
+                .filter(|record| record.confirmation.spec_id == spec_id)
+                .cloned()
+                .collect(),
+        },
+        progress: snapshot.progress.get(spec_id).cloned(),
         revision: snapshot.revision,
         spec,
         stages,

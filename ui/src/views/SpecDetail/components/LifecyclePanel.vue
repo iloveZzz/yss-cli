@@ -85,7 +85,7 @@ watch(
   }
 )
 watch(
-  [() => props.specId, () => snapshot.value?.revision],
+  [() => props.specId, () => snapshot.value?.revision, () => snapshot.value?.progress?.[props.specId]?.evidenceDigest],
   async () => {
     controller?.abort()
     const own = new AbortController()

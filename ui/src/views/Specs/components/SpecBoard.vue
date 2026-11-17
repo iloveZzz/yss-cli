@@ -14,12 +14,16 @@ import { Button } from '@/components/ui/button'
 import SingleSelect from '@/components/SingleSelect.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import ProgressSummary from '@/components/ProgressSummary.vue'
+import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
+import { useWorkbench } from '@/hooks/useWorkbench'
 import { contentReminders } from '@/services/workbench-content'
 import { useWorkActions } from '../hooks/useWorkActions'
-const props = defineProps<{ items: WorkItem[]; groupBy: GroupBy; revision: number }>()
+const props = defineProps<{ items: WorkItem[]; groupBy: GroupBy; revision: number; progressBasis: 'effective' | 'personal' }>()
 const route = useRoute()
 const id = useId()
-const { move, confirm, cancel, open, blocker, error, notice, saving } = useWorkActions()
+const { snapshot } = useWorkbench()
+const { move, confirm, cancel, open, blocker, error, notice, saving, overrideOpen, correction, corrected } = useWorkActions(() => props.progressBasis)
 const board = useTemplateRef<HTMLElement>('board')
 watch(notice, async (value) => {
   if (value) {
@@ -143,8 +147,9 @@ function end() {
             </RouterLink>
           </template>
         </div>
-        <p v-if="item.nextAction" class="card-next">{{ item.nextAction }}</p>
-        <p v-if="item.status === 'blocked'" class="blocker-text">{{ item.blocker }}</p>
+        <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress ?? snapshot?.progress?.[item.specId]" compact />
+        <p v-if="progressBasis === 'personal' && item.nextAction" class="card-next">{{ item.nextAction }}</p>
+        <p v-if="progressBasis === 'personal' && item.status === 'blocked'" class="blocker-text">{{ item.blocker }}</p>
         <p v-if="item.hasSourceProblem" class="warning-text">来源异常</p>
         <p v-if="!item.active" class="muted">已停用，请到详情恢复</p>
         <SingleSelect
@@ -172,6 +177,7 @@ function end() {
       <p v-if="!column.items.length" class="column-empty">暂无 Spec</p>
     </section>
   </div>
+  <ProgressOverrideForm v-if="correction" v-model="overrideOpen" :spec-id="correction.item.specId" :progress="snapshot?.progress?.[correction.item.specId] ?? correction.item.progress" :stage="correction.stage" :initial-progress="correction.progress" @saved="corrected" />
   <ModalDialog v-model="open" title="记录阻塞原因" :busy="saving">
     <form class="form-stack" @submit.prevent="confirm">
       <label :for="id + 'blocker'">阻塞说明（必填）</label>

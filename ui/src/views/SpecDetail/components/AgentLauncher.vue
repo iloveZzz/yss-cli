@@ -4,10 +4,17 @@ import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { startAgent } from '@/services/workbench-agent'
-import { errorMessage } from '@/services/workbench'
-const props = defineProps<{ specId: string; projectId: string }>()
+import { errorMessage, stages, type Stage } from '@/services/workbench'
+const props = defineProps<{ specId: string; projectId: string; lifecycleStage?: Stage }>()
 const router = useRouter()
 const { snapshot } = useWorkbench()
+const progress = computed(() => snapshot.value?.progress?.[props.specId])
+const trackedStage = computed(() => {
+  const stage = props.lifecycleStage ?? progress.value?.primaryStage
+  return progress.value?.goalVersion && progress.value.stages.some((entry) => entry.stage === stage && entry.applicable)
+    ? stage
+    : undefined
+})
 const defaultPrompt = '请依据当前规格与已保存答复继续工作，并说明实际完成内容。'
 const prompt = shallowRef(defaultPrompt)
 const selected = shallowRef<string[]>([])
@@ -69,7 +76,7 @@ async function run() {
           .filter(Boolean)
       ])
     )
-    const job = await startAgent({ specId, prompt: prompt.value, projectIds: ids, carryFiles })
+    const job = await startAgent({ specId, prompt: prompt.value, projectIds: ids, carryFiles, lifecycleStage: trackedStage.value })
     if (own === generation) await router.push({ path: `/jobs/${job.id}`, query: { run: job.id } })
   } catch (cause) {
     if (own === generation) error.value = errorMessage(cause)
@@ -81,6 +88,7 @@ async function run() {
 <template>
   <section class="platform-section agent-launcher">
     <h2>运行 Codex</h2>
+    <p v-if="trackedStage" class="view-note muted">本次跟进 · {{ stages[trackedStage] }} · 已绑定当前交付目标</p>
     <form class="form-stack" aria-label="运行 Codex" @submit.prevent="run">
       <label>
         本次任务

@@ -1,6 +1,6 @@
 use super::{
     model::{MAX_STATE, WorkbenchState},
-    sqlite::{CommitEffects, Database, RecordWrite},
+    sqlite::{CommitEffects, Database, ExtensionRecords, RecordWrite},
     storage_migration::{self, DATABASE_NAME, StorageState},
 };
 use crate::{
@@ -244,16 +244,23 @@ fn load(root: &Root) -> Result<(WorkbenchState, FileSnapshot)> {
 }
 
 pub fn read_state(data_dir: &Path) -> Result<WorkbenchState> {
+    Ok(read_state_with_records(data_dir, &[])?.0)
+}
+
+pub(crate) fn read_state_with_records(
+    data_dir: &Path,
+    kinds: &[&str],
+) -> Result<(WorkbenchState, ExtensionRecords)> {
     let storage = storage_migration::probe(data_dir)?;
     if matches!(storage, StorageState::Empty) {
-        return Ok(WorkbenchState::default());
+        return Ok((WorkbenchState::default(), ExtensionRecords::new()));
     }
     let path = std::fs::canonicalize(resolve_data_dir(Some(data_dir))?)?;
     reject_git(&path)?;
     let root = Root::open(&path)?;
     match storage {
-        StorageState::Empty => Ok(WorkbenchState::default()),
-        StorageState::Legacy => Ok(load(&root)?.0),
+        StorageState::Empty => Ok((WorkbenchState::default(), ExtensionRecords::new())),
+        StorageState::Legacy => Ok((load(&root)?.0, ExtensionRecords::new())),
         StorageState::Preparing(_) => Err(YssError::new(
             ErrorCode::RecoveryRequired,
             "迁移未完成；请启动新版工作台继续迁移",
@@ -266,7 +273,7 @@ pub fn read_state(data_dir: &Path) -> Result<WorkbenchState> {
                     "数据库与存储标记不匹配",
                 ));
             }
-            database.load_state(&root)
+            database.load_state_with_records(&root, kinds)
         }
     }
 }

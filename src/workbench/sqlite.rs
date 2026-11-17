@@ -39,6 +39,8 @@ pub(crate) struct CommitEffects {
     pub blobs: Vec<(String, Vec<u8>)>,
 }
 
+pub(crate) type ExtensionRecords = BTreeMap<String, Vec<(String, String)>>;
+
 fn write_effects(connection: &Connection, effects: &CommitEffects) -> Result<()> {
     for record in &effects.records {
         if let Some(payload) = &record.payload {
@@ -665,6 +667,13 @@ impl Database {
         Ok(())
     }
     pub(crate) fn load_state(&mut self, root: &Root) -> Result<WorkbenchState> {
+        Ok(self.load_state_with_records(root, &[])?.0)
+    }
+    pub(crate) fn load_state_with_records(
+        &mut self,
+        root: &Root,
+        kinds: &[&str],
+    ) -> Result<(WorkbenchState, ExtensionRecords)> {
         self.revalidate(root)?;
         let transaction = self.connection.transaction().map_err(sql_error)?;
         check_schema(&transaction)?;
@@ -706,11 +715,25 @@ impl Database {
                 return Err(invalid("数据库键、顺序与记录内容不一致"));
             }
         }
+        let mut extensions = BTreeMap::new();
+        if scalar(&transaction, "PRAGMA user_version")? >= 2 {
+            for kind in kinds {
+                let mut statement = transaction
+                    .prepare("SELECT id,payload FROM workbench_records WHERE kind=?1 ORDER BY id")
+                    .map_err(sql_error)?;
+                let rows = statement
+                    .query_map([kind], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(sql_error)?
+                    .collect::<rusqlite::Result<Vec<(String, String)>>>()
+                    .map_err(sql_error)?;
+                extensions.insert((*kind).to_owned(), rows);
+            }
+        }
         let data_version = scalar(&transaction, "PRAGMA data_version")?;
         transaction.commit().map_err(sql_error)?;
         self.revalidate(root)?;
         self.data_version = data_version;
-        Ok(state)
+        Ok((state, extensions))
     }
     pub(crate) fn commit_delta(
         &mut self,

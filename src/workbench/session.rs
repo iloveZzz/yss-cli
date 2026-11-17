@@ -162,10 +162,15 @@ fn send(
     data_dir: &Path,
     action: Option<Action>,
     registration: Option<(&str, &str)>,
+    request_id: Option<&str>,
 ) -> Result<Option<MutationResult>> {
     let Some(session) = read(data_dir)? else {
         return Ok(None);
     };
+    let request_digest = action
+        .as_ref()
+        .map(|action| super::service::mutation_digest(action, &None))
+        .transpose()?;
     let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -197,20 +202,65 @@ fn send(
         let (path, body) = if let Some((root, source)) = registration {
             ("/api/register", json!({"expectedRevision":revision,"rootPath":root,"sourcePath":source}))
         } else {
-            ("/api/commands", json!({"expectedRevision":revision,"action":action.ok_or_else(|| invalid("缺少操作"))?}))
+            ("/api/commands", json!({"expectedRevision":revision,"requestId":request_id,"action":action.ok_or_else(|| invalid("缺少操作"))?}))
         };
         let response = client.post(format!("{base}{path}")).bearer_auth(&session.token)
             .header(reqwest::header::ORIGIN, base).header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(serde_json::to_vec(&body).map_err(|_| invalid("操作编码失败"))?).send().await
-            .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "工作台写入响应中断；请先核对当前记录，勿直接重复提交"))?;
-        let value = response_json(response).await?;
-        let result = serde_json::from_value(value).map_err(|_| invalid("工作台操作响应无效；请核对当前记录"))?;
-        Ok(Some(result))
+            ;
+        let result = match response {
+            Ok(response) => response_json(response).await.and_then(|value| {
+                serde_json::from_value(value)
+                    .map_err(|_| invalid("工作台操作响应无效；请核对当前记录"))
+            }),
+            Err(_) => Err(YssError::new(ErrorCode::Network, "工作台写入响应中断")),
+        };
+        match result {
+            Ok(result) => return Ok(Some(result)),
+            Err(error) if error.context.contains_key("httpStatus") => return Err(error),
+            Err(_) => {}
+        }
+        if let Some(id) = request_id {
+            let mut receipt_url = reqwest::Url::parse(&format!("{base}/api/receipts"))
+                .map_err(|_| invalid("回执地址无效"))?;
+            receipt_url.query_pairs_mut().append_pair("requestId", id);
+            if let Ok(response) = client.get(receipt_url).bearer_auth(&session.token).send().await
+                && let Ok(receipt) = response_json(response).await
+                && receipt["found"] == true
+            {
+                if receipt["requestDigest"].as_str() != request_digest.as_deref() {
+                    return Err(YssError::new(ErrorCode::Conflict, "回执对应不同请求内容，请核对原请求 ID")
+                        .context("requestId", id));
+                }
+                let result = serde_json::from_value(receipt["result"].clone())
+                    .map_err(|_| invalid("回执格式无效，请核对当前记录"))?;
+                return Ok(Some(result));
+            }
+        }
+        Err(YssError::new(ErrorCode::RecoveryRequired, "工作台写入响应中断；请按请求 ID 核对回执后继续")
+            .context("requestId", request_id.unwrap_or("")))
     })
 }
 
 pub fn mutate_if_running(data_dir: &Path, action: Action) -> Result<Option<MutationResult>> {
-    send(data_dir, Some(action), None)
+    send(data_dir, Some(action), None, None)
+}
+
+pub fn mutate_with_request_if_running(
+    data_dir: &Path,
+    action: Action,
+    request_id: &str,
+) -> Result<Option<MutationResult>> {
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err(invalid("提交请求 ID 无效"));
+    }
+    for attempt in 0..3 {
+        match send(data_dir, Some(action.clone()), None, Some(request_id)) {
+            Err(error) if error.code == ErrorCode::ConcurrentChange && attempt < 2 => continue,
+            result => return result,
+        }
+    }
+    unreachable!("bounded retries return from the loop")
 }
 
 pub fn register_if_running(
@@ -218,5 +268,5 @@ pub fn register_if_running(
     root: &str,
     source: &str,
 ) -> Result<Option<MutationResult>> {
-    send(data_dir, None, Some((root, source)))
+    send(data_dir, None, Some((root, source)), None)
 }

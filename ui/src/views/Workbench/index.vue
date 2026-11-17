@@ -17,13 +17,16 @@ import { eventDescription } from '@/services/workbench-history'
 const { activeSpecs, snapshot } = useWorkbench()
 const route = useRoute()
 const router = useRouter()
-const doing = computed(() => activeSpecs.value.filter((spec) => spec.record.status === 'doing'))
-const blocked = computed(() => activeSpecs.value.filter((spec) => spec.record.status === 'blocked'))
+const progressFor = (id: string) => snapshot.value?.progress?.[id]
+const doing = computed(() => activeSpecs.value.filter((spec) => progressFor(spec.record.id)?.status === 'doing'))
+const blocked = computed(() => activeSpecs.value.filter((spec) => progressFor(spec.record.id)?.status === 'blocked'))
+const attention = computed(() => activeSpecs.value.filter((spec) => !!progressFor(spec.record.id)?.attention.length))
 const problems = computed(() => activeSpecs.value.filter(hasSourceProblem))
 const groups = computed(() => [
-  { id: 'blocked', label: '需要解除阻塞', specs: blocked.value, query: { status: 'blocked' } },
-  { id: 'doing', label: '进行中', specs: doing.value, query: { status: 'doing' } },
-  { id: 'source', label: '来源异常', specs: problems.value, query: { sourceProblems: 'true' } }
+  { id: 'attention', label: '待确认与核实', specs: attention.value, query: { attention: ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'], progressBasis: 'effective' } },
+  { id: 'blocked', label: '需要解除阻塞', specs: blocked.value, query: { status: 'blocked', progressBasis: 'effective' } },
+  { id: 'doing', label: '进行中', specs: doing.value, query: { status: 'doing', progressBasis: 'effective' } },
+  { id: 'source', label: '来源异常', specs: problems.value, query: { sourceProblems: 'true', progressBasis: 'effective' } }
 ])
 const focus = computed(
   () =>
@@ -43,10 +46,11 @@ const progressItems = computed<WorkItem[]>(() =>
     specTitle: spec.record.title,
     sourcePath: spec.record.sourcePath,
     title: spec.record.title,
-    stage: spec.record.stage,
-    status: spec.record.status,
-    nextAction: spec.record.nextAction,
-    blocker: spec.record.blocker,
+    progress: progressFor(spec.record.id),
+    stage: progressFor(spec.record.id)?.primaryStage ?? 'unmarked',
+    status: progressFor(spec.record.id)?.status ?? 'unmarked',
+    nextAction: progressFor(spec.record.id)?.nextAction ?? '',
+    blocker: progressFor(spec.record.id)?.blocker ?? '',
     notes: spec.record.notes,
     active: spec.record.active,
     updatedAt: spec.record.updatedAt,
@@ -122,7 +126,9 @@ function selectFocus(value: string) {
       </div>
       <p v-else class="quiet-empty">
         {{
-          focus.id === 'blocked'
+          focus.id === 'attention'
+            ? '当前没有待确认或待核实事项'
+            : focus.id === 'blocked'
             ? '当前没有阻塞事项'
             : focus.id === 'doing'
               ? '当前没有进行中的 Spec'

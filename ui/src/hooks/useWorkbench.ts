@@ -1,19 +1,20 @@
 import { computed, shallowReadonly, shallowRef } from 'vue'
 import {
   ApiError,
-  apiRequest,
   errorMessage,
   executeCommand,
   expired,
   loadSnapshot,
   type Action,
-  type Snapshot,
-  type SpecView
+  type Snapshot
 } from '@/services/workbench'
 import { getSourceState, readNdjson, type SourceState } from '@/services/workbench-platform'
 const sourceVersions = shallowRef<Record<string, string>>({})
+const externalVersion = shallowRef('')
+let progressVersions = ''
 let changesController: AbortController | undefined
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+let sourceRetryTimer: ReturnType<typeof setTimeout> | undefined
 let changing = false
 let pendingSource: SourceState | undefined
 const snapshot = shallowRef<Snapshot | null>(null)
@@ -21,8 +22,8 @@ const loading = shallowRef(false)
 const saving = shallowRef(false)
 const error = shallowRef('')
 let controller: AbortController | undefined
-async function refresh() {
-  if (expired.value) return
+async function refresh(): Promise<boolean> {
+  if (expired.value) return false
   controller?.abort()
   const current = new AbortController()
   controller = current
@@ -32,12 +33,14 @@ async function refresh() {
     if (!current.signal.aborted) {
       snapshot.value = next
       error.value = ''
+      return true
     }
   } catch (e) {
     if (!current.signal.aborted) error.value = errorMessage(e)
   } finally {
     if (controller === current) loading.value = false
   }
+  return false
 }
 async function submit(
   action: Action,
@@ -64,6 +67,7 @@ async function submit(
   }
 }
 async function applySourceState(value: SourceState): Promise<void> {
+  clearTimeout(sourceRetryTimer)
   pendingSource = value
   if (changing) return
   changing = true
@@ -72,34 +76,40 @@ async function applySourceState(value: SourceState): Promise<void> {
       const state = pendingSource
       pendingSource = undefined
       const previous = sourceVersions.value
+      const incomingProgress = JSON.stringify(state.progressVersions ?? [])
+      const progressChanged = progressVersions !== incomingProgress
       if (!snapshot.value) {
         sourceVersions.value = state.sourceVersions
+        progressVersions = incomingProgress
+        externalVersion.value = state.externalVersion ?? ''
         continue
       }
       if (snapshot.value.revision !== state.revision) {
-        await refresh()
-        if (snapshot.value?.revision === state.revision) sourceVersions.value = state.sourceVersions
+        const refreshed = await refresh()
+        if (!refreshed && !expired.value) sourceRetryTimer = setTimeout(() => void checkChanges(), 2000)
+        if (snapshot.value?.revision === state.revision) {
+          sourceVersions.value = state.sourceVersions
+          progressVersions = incomingProgress
+          externalVersion.value = state.externalVersion ?? ''
+        }
         continue
       }
       const changed = Object.keys(state.sourceVersions).filter(
         (id) => previous[id] !== undefined && previous[id] !== state.sourceVersions[id]
       )
-      if (!changed.length) {
+      if (!changed.length && !progressChanged) {
         sourceVersions.value = state.sourceVersions
+        progressVersions = incomingProgress
+        externalVersion.value = state.externalVersion ?? ''
         continue
       }
-      const revision = snapshot.value.revision
-      const views = await Promise.all(
-        changed.map((id) => apiRequest<SpecView>(`/api/specs/${encodeURIComponent(id)}/view`))
-      )
-      if (snapshot.value?.revision !== revision) continue
-      const replacements = new Map(views.map((view) => [view.record.id, view]))
-      snapshot.value = {
-        ...snapshot.value,
-        readAt: state.readAt,
-        specs: snapshot.value.specs.map((spec) => replacements.get(spec.record.id) ?? spec)
+      if (await refresh()) {
+        sourceVersions.value = state.sourceVersions
+        progressVersions = incomingProgress
+        externalVersion.value = state.externalVersion ?? ''
+      } else if (!expired.value) {
+        sourceRetryTimer = setTimeout(() => void checkChanges(), 2000)
       }
-      sourceVersions.value = state.sourceVersions
     }
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -131,6 +141,7 @@ function startChanges() {
 }
 function stopChanges() {
   clearTimeout(reconnectTimer)
+  clearTimeout(sourceRetryTimer)
   changesController?.abort()
   changesController = undefined
 }
@@ -151,6 +162,7 @@ export function useWorkbench() {
     expired: shallowReadonly(expired),
     activeSpecs,
     sourceVersions: shallowReadonly(sourceVersions),
+    externalVersion: shallowReadonly(externalVersion),
     startChanges,
     stopChanges,
     checkChanges,

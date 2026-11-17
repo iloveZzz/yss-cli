@@ -6,7 +6,11 @@ use crate::{
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
-use std::{ffi::OsString, io::Write, path::PathBuf};
+use std::{
+    ffi::OsString,
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 #[derive(Parser)]
 #[command(
@@ -80,6 +84,12 @@ impl Command {
                 Some(WorkbenchCommand::Register { .. }) => "workbench.register",
                 Some(WorkbenchCommand::Request { .. }) => "workbench.request",
                 Some(WorkbenchCommand::Respond(_)) => "workbench.respond",
+                Some(WorkbenchCommand::Progress(command)) => match command {
+                    WorkbenchProgressCommand::SetGoal(_) => "workbench.progress.set-goal",
+                    WorkbenchProgressCommand::Report(_) => "workbench.progress.report",
+                    WorkbenchProgressCommand::Confirm(_) => "workbench.progress.confirm",
+                    WorkbenchProgressCommand::Reconcile { .. } => "workbench.progress.reconcile",
+                },
             },
             Self::Init(_) => "init",
             Self::Attach(_) => "attach",
@@ -118,6 +128,8 @@ pub struct WorkbenchArgs {
 }
 #[derive(Subcommand)]
 pub enum WorkbenchCommand {
+    #[command(about = "登记目标、上报实际成果并核实生命周期进度", subcommand)]
+    Progress(WorkbenchProgressCommand),
     #[command(about = "登记或刷新一个主 Spec 及关联产物，保留个人备注与历史")]
     Register {
         #[arg(long)]
@@ -141,6 +153,94 @@ pub enum WorkbenchCommand {
         #[arg(long)]
         spec: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum WorkbenchProgressCommand {
+    #[command(about = "登记本次目标、适用阶段、参与工程和规格版本")]
+    SetGoal(ProgressInputArgs),
+    #[command(about = "上报带版本与证据的阶段成果，重复上报使用原 ID")]
+    Report(ProgressInputArgs),
+    #[command(about = "记录用户对当前范围、版本和证据的明确确认")]
+    Confirm(ProgressInputArgs),
+    #[command(about = "复核已登记 Spec 的当前事实，历史时间缺失时保留未知")]
+    Reconcile {
+        #[arg(long)]
+        spec_id: String,
+        #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
+        request_id: String,
+    },
+}
+
+#[derive(Args)]
+pub struct ProgressInputArgs {
+    #[arg(long, help = "JSON 文件路径，使用 - 从标准输入读取，最大 1 MiB")]
+    pub input: String,
+    #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
+    pub request_id: String,
+}
+
+fn progress_input<T: serde::de::DeserializeOwned>(input: &str) -> Result<T> {
+    const LIMIT: u64 = 1024 * 1024;
+    let bytes = if input == "-" {
+        let mut bytes = Vec::new();
+        std::io::stdin().take(LIMIT + 1).read_to_end(&mut bytes)?;
+        bytes
+    } else {
+        let path = crate::fs::absolute(std::path::Path::new(input))?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| YssError::new(ErrorCode::InvalidInput, "输入路径无效"))?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| YssError::new(ErrorCode::InvalidInput, "输入文件名无效"))?;
+        crate::fs::Root::open(&std::fs::canonicalize(parent)?)?
+            .read_checked(&crate::model::RelPath::new(name)?, LIMIT)?
+            .bytes
+    };
+    crate::codec::decode_json(
+        &bytes,
+        crate::codec::Limits {
+            bytes: LIMIT,
+            ..crate::codec::Limits::manifest()
+        },
+    )
+}
+
+fn progress_action(
+    command: &WorkbenchProgressCommand,
+) -> Result<(crate::workbench::model::Action, String)> {
+    use crate::workbench::model::Action;
+    Ok(match command {
+        WorkbenchProgressCommand::SetGoal(args) => (
+            Action::SetLifecycleGoal {
+                input: progress_input(&args.input)?,
+            },
+            args.request_id.clone(),
+        ),
+        WorkbenchProgressCommand::Report(args) => (
+            Action::ReportProgress {
+                input: progress_input(&args.input)?,
+            },
+            args.request_id.clone(),
+        ),
+        WorkbenchProgressCommand::Confirm(args) => (
+            Action::ConfirmProgress {
+                input: progress_input(&args.input)?,
+            },
+            args.request_id.clone(),
+        ),
+        WorkbenchProgressCommand::Reconcile {
+            spec_id,
+            request_id,
+        } => (
+            Action::ReconcileProgress {
+                spec_id: spec_id.clone(),
+            },
+            request_id.clone(),
+        ),
+    })
 }
 #[derive(Args)]
 pub struct WorkbenchResponseArgs {
@@ -169,6 +269,10 @@ pub struct WorkbenchResponseArgs {
 }
 #[derive(Args)]
 pub struct WorkbenchQueryArgs {
+    #[arg(long, value_enum, default_value = "personal")]
+    pub progress_basis: crate::workbench::progress::ProgressBasis,
+    #[arg(long, value_parser = ["awaitingConfirmation", "unverified", "needsSync", "needsReview", "conflict"])]
+    pub attention: Vec<String>,
     #[arg(long, value_enum, default_value = "spec")]
     pub entity: crate::workbench::model::WorkEntity,
     #[arg(long, default_value = "")]
@@ -400,6 +504,28 @@ fn dispatch<'a>(
         Command::Workbench(args) => {
             let path = crate::workbench::store::resolve_data_dir(args.data_dir.as_deref())?;
             match &args.command {
+                Some(WorkbenchCommand::Progress(command)) => {
+                    let (action, request_id) = progress_action(command)?;
+                    if let Some(result) = crate::workbench::session::mutate_with_request_if_running(
+                        &path,
+                        action.clone(),
+                        &request_id,
+                    )? {
+                        return Ok(Report::WorkbenchMutation(result));
+                    }
+                    let mut store = crate::workbench::store::Store::open(&path)?;
+                    let expected_revision = store.state().revision;
+                    let result = crate::workbench::service::mutate(
+                        &mut store,
+                        crate::workbench::model::MutationRequest {
+                            expected_revision,
+                            expected_target: None,
+                            request_id: Some(request_id),
+                            action,
+                        },
+                    )?;
+                    return Ok(Report::WorkbenchMutation(result));
+                }
                 Some(WorkbenchCommand::Register { root, source }) => {
                     let root = crate::fs::absolute(root)?;
                     let root = root.to_str().ok_or_else(|| {
@@ -420,11 +546,7 @@ fn dispatch<'a>(
                 }
                 Some(WorkbenchCommand::Request { spec_id }) => {
                     return Ok(Report::WorkbenchRequest(
-                        crate::workbench::content::agent_request(
-                            &crate::workbench::store::read_state(&path)?,
-                            spec_id,
-                            &path,
-                        )?,
+                        crate::workbench::service::read_agent_request(&path, spec_id, cancel)?,
                     ));
                 }
                 Some(WorkbenchCommand::Respond(r)) => {
@@ -462,15 +584,14 @@ fn dispatch<'a>(
                 }
                 _ => {}
             }
-            let snapshot = crate::workbench::service::snapshot(
-                &crate::workbench::store::read_state(&path)?,
-                cancel,
-            )?;
+            let snapshot = crate::workbench::service::read_snapshot(&path, cancel)?;
             match args.command {
                 Some(WorkbenchCommand::Query(q)) => {
                     Ok(Report::WorkbenchQuery(crate::workbench::query::query(
                         &snapshot,
                         &crate::workbench::model::WorkQuery {
+                            progress_basis: q.progress_basis,
+                            attention: q.attention,
                             content_statuses: q.content_statuses,
                             reminder_kinds: q.reminder_kinds,
                             needs_reconfirmation: q.needs_reconfirmation,

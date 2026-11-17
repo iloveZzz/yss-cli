@@ -8,6 +8,18 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub fn normalize_query(mut query: WorkQuery) -> Result<WorkQuery> {
     query.q = query.q.trim().into();
+    if query.attention.iter().any(|value| {
+        ![
+            "awaitingConfirmation",
+            "unverified",
+            "needsSync",
+            "needsReview",
+            "conflict",
+        ]
+        .contains(&value.as_str())
+    }) {
+        return Err(invalid("进度关注条件无效"));
+    }
     if query
         .statuses
         .iter()
@@ -75,6 +87,10 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
             continue;
         };
         if request.entity == WorkEntity::Spec {
+            let progress = snapshot.progress.get(&s.id).cloned();
+            let effective = progress
+                .as_ref()
+                .filter(|_| request.progress_basis == super::progress::ProgressBasis::Effective);
             items.push(WorkItem {
                 entity: WorkEntity::Spec,
                 id: s.id.clone(),
@@ -84,13 +100,17 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 spec_title: s.title.clone(),
                 source_path: s.source_path.clone(),
                 title: s.title.clone(),
-                stage: s.stage,
-                status: s.status,
-                next_action: s.next_action.clone(),
-                blocker: s.blocker.clone(),
+                stage: effective.map_or(s.stage, |value| value.primary_stage),
+                status: effective.map_or(s.status, |value| value.status),
+                next_action: effective
+                    .map_or_else(|| s.next_action.clone(), |value| value.next_action.clone()),
+                blocker: effective.map_or_else(|| s.blocker.clone(), |value| value.blocker.clone()),
                 notes: s.notes.clone(),
                 active: project.active && s.active,
-                updated_at: s.updated_at.clone(),
+                updated_at: effective
+                    .and_then(|value| value.last_verified_at.clone())
+                    .unwrap_or_else(|| s.updated_at.clone()),
+                progress,
                 content_status: Some(spec.content.status),
                 reminder_counts: reminder_counts(&spec.content),
                 needs_reconfirmation: spec.content.needs_reconfirmation,
@@ -123,6 +143,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 content_status: None,
                 reminder_counts: BTreeMap::new(),
                 needs_reconfirmation: false,
+                progress: None,
                 next_action: String::new(),
                 blocker: t.blocker.clone(),
                 notes: t.notes.clone(),
@@ -143,7 +164,15 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
         }) && (request.include_closed || !matches!(item.status, Status::Done | Status::Canceled))
             && (request.project_ids.is_empty() || request.project_ids.contains(&item.project_id))
             && (request.spec_ids.is_empty() || request.spec_ids.contains(&item.spec_id))
-            && (request.stages.is_empty() || request.stages.contains(&item.stage))
+            && (request.stages.is_empty()
+                || request.stages.contains(&item.stage)
+                || (request.progress_basis == super::progress::ProgressBasis::Effective
+                    && item.progress.as_ref().is_some_and(|progress| {
+                        progress
+                            .active_stages
+                            .iter()
+                            .any(|stage| request.stages.contains(stage))
+                    })))
             && (request.statuses.is_empty() || request.statuses.contains(&item.status))
             && (!request.source_problems_only || item.has_source_problem)
             && (request.content_statuses.is_empty()
@@ -157,6 +186,13 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                         .is_some_and(|count| *count > 0)
                 }))
             && (!request.needs_reconfirmation || item.needs_reconfirmation)
+            && (request.attention.is_empty()
+                || item.progress.as_ref().is_some_and(|progress| {
+                    request
+                        .attention
+                        .iter()
+                        .any(|value| progress.attention.contains(value))
+                }))
             && (needle.is_empty()
                 || [
                     &item.title,

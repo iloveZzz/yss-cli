@@ -81,7 +81,7 @@ export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<
               (!query.value.specIds.length || query.value.specIds.includes(spec.record.id))
           )
           .map(
-            (spec) => `${spec.record.id}:${spec.sourceModifiedAt}:${spec.content.artifactDigest}`
+            (spec) => `${spec.record.id}:${spec.sourceModifiedAt}:${spec.content.artifactDigest}:${snapshot.value?.progress?.[spec.record.id]?.evidenceDigest}`
           )
           .join('|')
     ],

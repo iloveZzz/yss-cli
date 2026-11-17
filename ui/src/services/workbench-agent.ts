@@ -1,4 +1,4 @@
-import { apiRequest, type SpecView, type SourceDocument } from './workbench'
+import { apiRequest, type SpecView, type SourceDocument, type Stage } from './workbench'
 import { requestId, type JobRecord, type JsonObject } from './workbench-platform'
 export interface FileDescriptor {
   sha256: string
@@ -53,6 +53,9 @@ export interface AgentBindingResult {
   rebindId: string
 }
 export interface AgentRun {
+  lifecycleStage?: Stage | null
+  goalVersion?: string | null
+  specDigest?: string | null
   id: string
   specId: string
   prompt: string
@@ -69,6 +72,7 @@ export interface AgentRun {
   updatedAt: string
 }
 export interface AgentStart {
+  lifecycleStage?: Stage
   specId: string
   prompt: string
   projectIds: string[]

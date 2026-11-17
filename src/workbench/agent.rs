@@ -3,7 +3,8 @@ use super::{
     agent_workspace::{self, GitBaseline, Workspace},
     content as spec_content,
     jobs::{JobContext, JobManager, JobRecord, lock_store},
-    model::{ContentView, QuestionResponse, ResponseKind, SourceDocument, WorkbenchState},
+    model::{ContentView, QuestionResponse, ResponseKind, SourceDocument, Stage, WorkbenchState},
+    progress_agent::{self, Activity},
     sources,
     store::Store,
 };
@@ -32,6 +33,8 @@ pub struct AgentStartRequest {
     pub carry_files: BTreeMap<String, Vec<String>>,
     pub request_id: String,
     pub resume_run_id: Option<String>,
+    #[serde(default)]
+    pub lifecycle_stage: Option<Stage>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,6 +55,12 @@ pub struct AgentRun {
     pub applied_files: Vec<Value>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub lifecycle_stage: Option<Stage>,
+    #[serde(default)]
+    pub goal_version: Option<String>,
+    #[serde(default)]
+    pub spec_digest: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -281,13 +290,26 @@ fn execute(
         applied_files: Vec::new(),
         created_at: at.clone(),
         updated_at: at,
+        lifecycle_stage: None,
+        goal_version: None,
+        spec_digest: None,
     });
     run.job_id = context.id.clone();
     run.prompt = request.prompt.clone();
     run.status = "preparing".into();
     run.updated_at = sources::now();
+    let binding = lock_store(&context.store).and_then(|mut store| {
+        progress_agent::bind_run(&mut store, &mut run, request.lifecycle_stage)
+    });
+    if let Err(error) = binding {
+        let _ = context.emit(
+            "progressError",
+            json!({"runId":run.id,"activity":"bind","error":error}),
+        );
+    }
     save(&context, &run)?;
     context.emit("run", json!({"runId":run.id,"resumed":resumed}))?;
+    progress_agent::note(&context, &run, Activity::Started);
     let work = (|| -> Result<Value> {
         let (data_dir, spec) = {
             let store = lock_store(&context.store)?;
@@ -352,6 +374,17 @@ fn execute(
             (text, project.root_path.clone())
         };
         instructions.push_str(&format!("\n运行 ID：{}\n工作区映射：{}\n在列出的隔离工作区完成此任务。所有文件修改限定在这些工作区内，保持 Git HEAD、分支与 index。新增业务问题先写入主 Spec 的 questions，再在结构化提问中沿用该问题的 id。工作台将保存实际答复并在工具结果中返回答复 ID，落实答复后以该 ID 写入 appliedDecisionId。运行结束后由用户在工作台接收文件并刷新原 Spec 记录。\n用户本次要求：\n{}\n",run.id,serde_json::to_string_pretty(&run.workspaces.iter().map(|w|json!({"projectIds":w.project_ids,"originalRoot":w.original_root,"worktreeRoot":w.worktree_root,"projectPrefixes":w.project_prefixes})).collect::<Vec<_>>()).map_err(|e|invalid(e.to_string()))?,request.prompt));
+        match lock_store(&context.store)
+            .and_then(|mut store| progress_agent::run_context(&mut store, &run))
+        {
+            Ok(progress_instructions) => instructions.push_str(&progress_instructions),
+            Err(error) => {
+                let _ = context.emit(
+                    "progressError",
+                    json!({"runId":run.id,"activity":"context","error":error}),
+                );
+            }
+        }
         let roots = run
             .workspaces
             .iter()
@@ -457,6 +490,15 @@ fn execute(
         let _ = store.put_record("agentRun", &latest.id, &latest);
     }
     let frozen = freeze_shared(&context.store, &run.id, &Cancellation::new());
+    progress_agent::note(
+        &context,
+        &run,
+        if work.is_ok() && frozen.is_ok() {
+            Activity::Completed
+        } else {
+            Activity::Interrupted
+        },
+    );
     match (work, frozen) {
         (Ok(value), Ok(())) => Ok(value),
         (Err(error), Ok(())) => Err(error),
@@ -1289,6 +1331,13 @@ fn commit_acceptance(
         blobs: Vec::new(),
     };
     store.commit_with_effects(revision, state, &effects)?;
+    if let Err(error) = progress_agent::record(store, &run, Activity::Accepted) {
+        let _ = store.append_event(
+            job_id,
+            "progressError",
+            &json!({"runId":run.id,"activity":"accepted","error":error}),
+        );
+    }
     Ok(
         json!({"runId":run_id,"specId":run.spec_id,"projects":outcome.reports,"refreshError":refresh.err(),"revision":store.state().revision}),
     )
