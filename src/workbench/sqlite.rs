@@ -22,6 +22,51 @@ CREATE TABLE question_responses (id TEXT PRIMARY KEY NOT NULL, position INTEGER 
 CREATE TABLE confirmations (id TEXT PRIMARY KEY NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL, spec_id TEXT NOT NULL REFERENCES specs(id) DEFERRABLE INITIALLY DEFERRED);
 CREATE TABLE history (position INTEGER PRIMARY KEY, payload TEXT NOT NULL)";
 
+pub(crate) const EXTENSION_SCHEMA: &str = "CREATE TABLE workbench_records (kind TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(kind,id));
+CREATE TABLE artifact_blobs (sha256 TEXT PRIMARY KEY NOT NULL, bytes BLOB NOT NULL);
+CREATE TABLE job_events (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)";
+
+#[derive(Clone)]
+pub(crate) struct RecordWrite {
+    pub kind: String,
+    pub id: String,
+    pub payload: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct CommitEffects {
+    pub records: Vec<RecordWrite>,
+    pub blobs: Vec<(String, Vec<u8>)>,
+}
+
+fn write_effects(connection: &Connection, effects: &CommitEffects) -> Result<()> {
+    for record in &effects.records {
+        if let Some(payload) = &record.payload {
+            connection.execute("INSERT INTO workbench_records(kind,id,payload) VALUES(?1,?2,?3) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload", params![record.kind, record.id, payload]).map_err(sql_error)?;
+        } else {
+            connection
+                .execute(
+                    "DELETE FROM workbench_records WHERE kind=?1 AND id=?2",
+                    params![record.kind, record.id],
+                )
+                .map_err(sql_error)?;
+        }
+    }
+    for (digest, bytes) in &effects.blobs {
+        let actual = crate::model::Sha256::of(bytes).as_str().to_owned();
+        if &actual != digest {
+            return Err(invalid("字节对象摘要不匹配"));
+        }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO artifact_blobs(sha256,bytes) VALUES(?1,?2)",
+                params![digest, bytes],
+            )
+            .map_err(sql_error)?;
+    }
+    Ok(())
+}
+
 struct Table {
     name: &'static str,
     columns: &'static [&'static str],
@@ -183,16 +228,24 @@ fn configure(connection: &Connection) -> Result<()> {
 }
 fn check_schema(connection: &Connection) -> Result<()> {
     if scalar(connection, "PRAGMA application_id")? != APPLICATION_ID
-        || scalar(connection, "PRAGMA user_version")? != 1
+        || ![1, 2].contains(&scalar(connection, "PRAGMA user_version")?)
     {
         return Err(invalid("不支持的工作台数据库版本；原文件已保留"));
     }
-    let mut expected: Vec<String> = SCHEMA
+    let schema = if scalar(connection, "PRAGMA user_version")? == 2 {
+        format!("{SCHEMA};{EXTENSION_SCHEMA}")
+    } else {
+        SCHEMA.to_owned()
+    };
+    let mut expected: Vec<String> = schema
         .split(';')
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .collect();
-    let mut statement = connection.prepare("SELECT CASE WHEN length(CAST(sql AS BLOB))<=4096 THEN sql END FROM sqlite_schema WHERE sql IS NOT NULL LIMIT 10").map_err(sql_error)?;
+    if scalar(connection, "PRAGMA user_version")? == 2 {
+        expected.push("CREATE TABLE sqlite_sequence(name,seq)".into());
+    }
+    let mut statement = connection.prepare("SELECT CASE WHEN length(CAST(sql AS BLOB))<=4096 THEN sql END FROM sqlite_schema WHERE sql IS NOT NULL LIMIT 32").map_err(sql_error)?;
     let mut actual = statement
         .query_map([], |r| r.get::<_, String>(0))
         .map_err(sql_error)?
@@ -467,10 +520,13 @@ impl Database {
             .map_err(sql_error)?;
         transaction.execute_batch(SCHEMA).map_err(sql_error)?;
         transaction
+            .execute_batch(EXTENSION_SCHEMA)
+            .map_err(sql_error)?;
+        transaction
             .pragma_update(None, "application_id", APPLICATION_ID)
             .map_err(sql_error)?;
         transaction
-            .pragma_update(None, "user_version", 1)
+            .pragma_update(None, "user_version", 2)
             .map_err(sql_error)?;
         let initial =
             i64::try_from(identity.initial_revision).map_err(|_| invalid("初始 revision 无效"))?;
@@ -513,8 +569,70 @@ impl Database {
         Ok(())
     }
     fn open_existing(root: &Root, name: &RelPath, writable: bool) -> Result<Self> {
-        let (connection, file_identity) = open(root, name, writable)?;
+        let (mut connection, file_identity) = open(root, name, writable)?;
         check_schema(&connection)?;
+        if writable {
+            configure(&connection)?;
+        }
+        if writable && scalar(&connection, "PRAGMA user_version")? == 1 {
+            let (before_identity, before_revision) = metadata(&connection)?;
+            let backup_name = RelPath::new(format!(
+                "workbench.schema-v1-backup-{}-r{}.sqlite3",
+                before_identity.id, before_revision
+            ))?;
+            if matches!(
+                root.inspect(&backup_name)?,
+                crate::fs::FileSnapshot::Missing
+            ) {
+                let staged = RelPath::new(format!(
+                    "workbench-schema-backup-{}.tmp",
+                    crate::fs::unique_id()?
+                ))?;
+                root.create_file(&staged, &[], 0o600)?;
+                let staged_identity = root.regular_file_identity(&staged)?;
+                let mut backup = Connection::open_with_flags(
+                    root.path.join(staged.as_str()),
+                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+                )
+                .map_err(sql_error)?;
+                rusqlite::backup::Backup::new(&connection, &mut backup)
+                    .map_err(sql_error)?
+                    .run_to_completion(64, Duration::from_millis(10), None)
+                    .map_err(sql_error)?;
+                check_schema(&backup)?;
+                let integrity: String = backup
+                    .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+                    .map_err(sql_error)?;
+                if integrity != "ok"
+                    || metadata(&backup)? != (before_identity.clone(), before_revision)
+                {
+                    return Err(invalid("升级备份与当前数据库不一致"));
+                }
+                backup.close().map_err(|(_, error)| sql_error(error))?;
+                root.publish_streamed(&staged, &backup_name, &staged_identity)?;
+            } else {
+                let backup = Connection::open_with_flags(
+                    root.path.join(backup_name.as_str()),
+                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+                )
+                .map_err(sql_error)?;
+                check_schema(&backup)?;
+                if metadata(&backup)? != (before_identity, before_revision) {
+                    return Err(invalid("已有升级备份与当前数据库不匹配"));
+                }
+            }
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sql_error)?;
+            transaction
+                .execute_batch(EXTENSION_SCHEMA)
+                .map_err(sql_error)?;
+            transaction
+                .pragma_update(None, "user_version", 2)
+                .map_err(sql_error)?;
+            transaction.commit().map_err(sql_error)?;
+            check_schema(&connection)?;
+        }
         if writable {
             configure(&connection)?;
         }
@@ -600,8 +718,9 @@ impl Database {
         expected_revision: u64,
         before: &WorkbenchState,
         next: &WorkbenchState,
+        effects: &CommitEffects,
     ) -> Result<()> {
-        let result = self.commit_transaction(root, expected_revision, before, next);
+        let result = self.commit_transaction(root, expected_revision, before, next, effects);
         if result.is_err() && !self.connection.is_autocommit() {
             return Err(YssError::new(
                 ErrorCode::RecoveryRequired,
@@ -616,6 +735,7 @@ impl Database {
         expected_revision: u64,
         before: &WorkbenchState,
         next: &WorkbenchState,
+        effects: &CommitEffects,
     ) -> Result<()> {
         self.revalidate(root)?;
         store::validate_state(next)?;
@@ -643,6 +763,7 @@ impl Database {
             .context("revision", revision));
         }
         apply_delta(&transaction, &old, &new)?;
+        write_effects(&transaction, effects)?;
         let changed = transaction
             .execute(
                 "UPDATE workbench_meta SET revision=?1 WHERE id=1 AND revision=?2",
@@ -675,5 +796,169 @@ impl Database {
             ));
         }
         Ok(())
+    }
+    pub(crate) fn read_records(&self, kind: &str) -> Result<Vec<(String, String)>> {
+        if scalar(&self.connection, "PRAGMA user_version")? < 2 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare("SELECT id,payload FROM workbench_records WHERE kind=?1 ORDER BY id")
+            .map_err(sql_error)?;
+        statement
+            .query_map([kind], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(sql_error)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(sql_error)
+    }
+    pub(crate) fn write_records(&mut self, root: &Root, effects: &CommitEffects) -> Result<()> {
+        self.revalidate(root)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sql_error)?;
+        if scalar(&transaction, "PRAGMA data_version")? != self.data_version {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "数据库已被其他连接修改，请重启核实",
+            ));
+        }
+        write_effects(&transaction, effects)?;
+        if let Err(error) = transaction.commit() {
+            let error = sql_error(error);
+            if error.code == ErrorCode::Locked && self.connection.is_autocommit() {
+                return Err(error);
+            }
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "扩展数据提交结果待核实，请重启后查询",
+            ));
+        }
+        self.revalidate(root).map_err(|_| {
+            YssError::new(
+                ErrorCode::RecoveryRequired,
+                "扩展数据提交后文件身份改变，请重启核实",
+            )
+        })
+    }
+    pub(crate) fn blob(&self, digest: &str) -> Result<Vec<u8>> {
+        let bytes: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT bytes FROM artifact_blobs WHERE sha256=?1",
+                [digest],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)?;
+        if crate::model::Sha256::of(&bytes).as_str() != digest {
+            return Err(invalid("已保存字节对象摘要不一致，请保留数据库并核实"));
+        }
+        Ok(bytes)
+    }
+    pub(crate) fn append_event(
+        &mut self,
+        root: &Root,
+        job_id: &str,
+        kind: &str,
+        payload: &str,
+        at: &str,
+    ) -> Result<u64> {
+        self.revalidate(root)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sql_error)?;
+        if scalar(&transaction, "PRAGMA data_version")? != self.data_version {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "数据库已被其他连接修改，请重启核实",
+            ));
+        }
+        transaction
+            .execute(
+                "INSERT INTO job_events(job_id,kind,payload,created_at) VALUES(?1,?2,?3,?4)",
+                params![job_id, kind, payload, at],
+            )
+            .map_err(sql_error)?;
+        let id = transaction.last_insert_rowid();
+        if let Err(error) = transaction.commit() {
+            let error = sql_error(error);
+            if error.code == ErrorCode::Locked && self.connection.is_autocommit() {
+                return Err(error);
+            }
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "作业事件提交结果待核实，请重启后查询",
+            ));
+        }
+        self.revalidate(root).map_err(|_| {
+            YssError::new(
+                ErrorCode::RecoveryRequired,
+                "事件提交后数据库身份改变，请重启核实",
+            )
+        })?;
+        Ok(id as u64)
+    }
+    pub(crate) fn events(&self, job_id: &str, after: u64) -> Result<Vec<super::jobs::JobEvent>> {
+        let mut statement=self.connection.prepare("SELECT id,kind,payload,created_at FROM job_events WHERE job_id=?1 AND id>?2 ORDER BY id LIMIT 200").map_err(sql_error)?;
+        let rows = statement
+            .query_map(params![job_id, after as i64], |row| {
+                Ok((
+                    row.get::<_, i64>(0)? as u64,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        rows.map(|row| {
+            let (id, kind, payload, created_at) = row.map_err(sql_error)?;
+            Ok(super::jobs::JobEvent {
+                id,
+                job_id: job_id.into(),
+                kind,
+                payload: serde_json::from_str(&payload).map_err(|_| invalid("作业事件无效"))?,
+                created_at,
+            })
+        })
+        .collect()
+    }
+    pub(crate) fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
+        self.connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM job_events WHERE job_id=?1 AND id>?2)",
+                params![job_id, after as i64],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)
+    }
+    pub(crate) fn storage_usage(&self) -> Result<serde_json::Value> {
+        let blobs: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(SUM(length(bytes)),0) FROM artifact_blobs",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(sql_error)?;
+        let records: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(SUM(length(payload)),0) FROM workbench_records",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(sql_error)?;
+        let events: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(SUM(length(payload)),0) FROM job_events",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(sql_error)?;
+        Ok(
+            serde_json::json!({"schemaVersion":2,"blobBytes":blobs,"recordBytes":records,"eventBytes":events}),
+        )
     }
 }

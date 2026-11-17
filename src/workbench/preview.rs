@@ -55,6 +55,8 @@ fn mime(path: &str) -> Option<&'static str> {
         "png" => Some("image/png"),
         "jpg" | "jpeg" => Some("image/jpeg"),
         "webp" => Some("image/webp"),
+        "avif" => Some("image/avif"),
+        "bmp" => Some("image/bmp"),
         "gif" => Some("image/gif"),
         "ico" => Some("image/x-icon"),
         "woff" => Some("font/woff"),
@@ -103,8 +105,20 @@ fn check_entry(root: &Root, target: &str) -> Result<()> {
 }
 
 // Include every served asset so changing JS/CSS also invalidates a content confirmation.
-pub fn artifact_digest(root: &Root, target: &str) -> Result<String> {
+pub fn artifact_files(root: &Root, target: &str) -> Result<BTreeMap<String, Vec<u8>>> {
     check_entry(root, target)?;
+    served_files(root, target)
+}
+
+pub(crate) fn served_files(root: &Root, target: &str) -> Result<BTreeMap<String, Vec<u8>>> {
+    served_files_with_cancel(root, target, &Cancellation::new())
+}
+
+pub(crate) fn served_files_with_cancel(
+    root: &Root,
+    target: &str,
+    cancel: &Cancellation,
+) -> Result<BTreeMap<String, Vec<u8>>> {
     let (directory, _) = entry_parts(target)?;
     let initial = if directory.is_empty() {
         None
@@ -116,12 +130,12 @@ pub fn artifact_digest(root: &Root, target: &str) -> Result<String> {
     let mut total = 0u64;
     let mut files = BTreeMap::new();
     while let Some((dir, depth)) = stack.pop() {
-        let (entries, complete) =
-            root.source_entries(dir.as_ref(), &mut budget, &Cancellation::new())?;
+        let (entries, complete) = root.source_entries(dir.as_ref(), &mut budget, cancel)?;
         if !complete {
             return Err(invalid("原型资源过多，无法完整核对版本"));
         }
         for (name, metadata) in entries {
+            cancel.check()?;
             if !visible(&name) {
                 continue;
             }
@@ -140,18 +154,27 @@ pub fn artifact_digest(root: &Root, target: &str) -> Result<String> {
                 if total > MAX_TOTAL {
                     return Err(invalid("原型资源超过 128 MiB，无法完整核对版本"));
                 }
-                files.insert(path.to_string(), Sha256::digest(&file.bytes));
+                files.insert(path.to_string(), file.bytes);
             }
         }
     }
     root.revalidate()?;
+    Ok(files)
+}
+
+pub fn files_digest(files: &BTreeMap<String, Vec<u8>>) -> String {
     let mut digest = Sha256::new();
-    for (path, hash) in files {
+    for (path, bytes) in files {
+        let hash = Sha256::digest(bytes);
         digest.update((path.len() as u64).to_le_bytes());
         digest.update(path.as_bytes());
         digest.update(hash);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    format!("{:x}", digest.finalize())
+}
+
+pub fn artifact_digest(root: &Root, target: &str) -> Result<String> {
+    Ok(files_digest(&artifact_files(root, target)?))
 }
 
 fn decoded_path(value: &str) -> Result<String> {

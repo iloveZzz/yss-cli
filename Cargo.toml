@@ -29,6 +29,7 @@ saphyr-parser = "0.3.3"
 sha2 = "0.10"
 thiserror = "2"
 tokio-util = "0.7"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 unicode-normalization = "0.1"
 getrandom = "0.3"
 tar = "0.4"
@@ -45,13 +46,14 @@ directories = "6.0.0"
 axum = "0.8.9"
 rust-embed = { version = "8.14.0", features = ["debug-embed"] }
 webbrowser = "1.2.7"
-rusqlite = { version = "0.42.0", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.42.0", default-features = false, features = ["bundled", "backup"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2"
 rustix = { version = "1", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Wdk_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Wdk_Storage_FileSystem"] }
 
 [build-dependencies]
 sha2 = "0.10"

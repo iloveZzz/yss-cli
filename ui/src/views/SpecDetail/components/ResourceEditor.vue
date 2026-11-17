@@ -5,4 +5,64 @@ import { Input } from '@/components/ui/input'
 import type { ResourceRef } from '@/services/workbench'
 const resources = defineModel<ResourceRef[]>({ required: true })
 </script>
-<template><div class="section-heading"><h3>关联资源</h3><Button type="button" variant="outline" @click="resources = [...resources, { kind: 'other', label: '', targetType: 'local', target: '' }]">＋ 添加</Button></div><fieldset v-for="(resource, i) in resources" :key="i" class="resource-editor"><legend>资源 {{ i + 1 }}</legend><div class="form-grid"><label>类型<SingleSelect :model-value="resource.kind" :options="[{value:'supplement',label:'规格补充'},{value:'prototype',label:'原型'},{value:'interaction',label:'交互说明'},{value:'other',label:'其他'}]" :aria-label="`资源 ${i+1} 类型`" @update:model-value="resource.kind=$event as ResourceRef['kind']" /></label><label>位置<SingleSelect :model-value="resource.targetType" :options="[{value:'local',label:'项目内文件'},{value:'web',label:'HTTP(S) 链接'}]" :aria-label="`资源 ${i+1} 位置`" @update:model-value="resource.targetType=$event as ResourceRef['targetType']" /></label></div><label>资源名称<Input v-model="resource.label" required /></label><label>{{ resource.targetType === 'local' ? '项目内相对路径' : '链接地址' }}<Input v-model="resource.target" required spellcheck="false" /></label><Button type="button" variant="ghost" @click="resources = resources.filter((_, index) => index !== i)">移除资源 {{ i + 1 }}</Button></fieldset><p class="muted">本地文件只显示路径；外部链接由你点击打开，工作台不探测。</p></template>
+<template>
+  <div class="section-heading">
+    <h3>关联资源</h3>
+    <Button
+      type="button"
+      variant="outline"
+      @click="
+        resources = [...resources, { kind: 'other', label: '', targetType: 'local', target: '' }]
+      "
+    >
+      ＋ 添加
+    </Button>
+  </div>
+  <fieldset v-for="(resource, i) in resources" :key="i" class="resource-editor">
+    <legend>资源 {{ i + 1 }}</legend>
+    <div class="form-grid">
+      <label>
+        类型
+        <SingleSelect
+          :model-value="resource.kind"
+          :options="[
+            { value: 'supplement', label: '规格补充' },
+            { value: 'prototype', label: '原型' },
+            { value: 'interaction', label: '交互说明' },
+            { value: 'other', label: '其他' }
+          ]"
+          :aria-label="`资源 ${i + 1} 类型`"
+          @update:model-value="resource.kind = $event as ResourceRef['kind']"
+        />
+      </label>
+      <label>
+        位置
+        <SingleSelect
+          :model-value="resource.targetType"
+          :options="[
+            { value: 'local', label: '项目内文件' },
+            { value: 'web', label: 'HTTP(S) 链接' }
+          ]"
+          :aria-label="`资源 ${i + 1} 位置`"
+          @update:model-value="resource.targetType = $event as ResourceRef['targetType']"
+        />
+      </label>
+    </div>
+    <label>
+      资源名称
+      <Input v-model="resource.label" required />
+    </label>
+    <label>
+      {{ resource.targetType === 'local' ? '项目内相对路径' : '链接地址' }}
+      <Input v-model="resource.target" required spellcheck="false" />
+    </label>
+    <Button
+      type="button"
+      variant="ghost"
+      @click="resources = resources.filter((_, index) => index !== i)"
+    >
+      移除资源 {{ i + 1 }}
+    </Button>
+  </fieldset>
+  <p class="muted">项目内文件使用相对路径。外部链接由你点击打开，工作台不主动探测。</p>
+</template>

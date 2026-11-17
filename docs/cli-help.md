@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.10.0` 源码，正式产物以 GitHub Release 为准。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.10.0` 源码，正式产物以 GitHub Release 为准。本轮工作台增强属于 `3.10.0` 源码开发构建，尚未正式发行。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
@@ -13,7 +13,7 @@
 | 新建 Java 后端骨架 | `scaffold catalog` / `scaffold ddd` / `scaffold mvc` | 全新的工程目录 |
 | 新建 Vue 前端骨架 | `scaffold frontend` | 已有父目录下全新的工程目录 |
 | 排查差异或恢复 | `doctor` / `recover` | 受管项目目录或 CLI 工具目录 |
-| 本机 Spec 与任务可视化 | `workbench` | 个人数据目录，项目来源只读 |
+| 本机 Spec 与工程工作台 | `workbench` | 个人数据、工程维护与隔离运行入口 |
 | 查询任务和生命周期 | `workbench snapshot` / `query` / `lifecycle` | 已纳管记录 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
@@ -159,7 +159,7 @@ yss recover --root <项目或工具目录> --dry-run
 
 3.6.0 在 init/attach 和三种 scaffold 的成功报告中首次新增 `nextSteps`。当前源码细化了完整工程接入提示；旧安装程序不会因模板文档更新获得新文案或新资源，须核对实际版本、帮助与内嵌 Bundle。
 
-init/attach 的成功提示指向 `setup-yss-harness` 的 `references/project-onboarding.md`，说明真实 Git 边界、本地仓复用或创建、远程核实、Issue tracker 和按需 Home 的接续工作。仅安装 CLI/skills 不自动进入完整接入。现有 `configure-home`、`review-repository-role`、`review-upstream` ID 保留，新增 `complete-project-onboarding` 与 `configure-issue-tracker` 文字指引；Spec project 按实际职责核实 Home，Spec skills 保持原仓职责，Backend/Frontend 复用已知上游入口。CLI 不读取或创建真实仓库地图，也不执行 Git、远程或 Issue tracker 配置。
+init/attach 的成功提示指向 `setup-yss-harness` 的 `references/project-onboarding.md`，说明真实 Git 边界、本地仓复用或创建、远程核实、Issue tracker 和按需 Home 的接续工作。仅安装 CLI/skills 不自动进入完整接入。现有 `configure-home`、`review-repository-role`、`review-upstream` ID 保留，新增 `complete-project-onboarding` 与 `configure-issue-tracker` 文字指引；Spec project 按实际职责核实 Home，Spec skills 保持原仓职责，Backend/Frontend 复用已知上游入口。init/attach 的后续指引由 Agent 按实际工程继续处理。工作台“产品 Home”可读取已有地图并保存本机绑定，地图内容由项目继续维护。
 
 scaffold 仅生成源码，需要技能时建议显式 `attach --profile backend|frontend --installation skills`，随后按同一工程接入参考继续已授权工作。原 `attach-skills` ID 与可解析命令保留，并附加上述两条接入文字指引。返回的 `command` 包含 `program` 和独立字符串数组 `args`，不应拼接为 shell 字符串；program 是调用名，Agent 应沿用本次已核验的二进制绝对路径执行 args。非 UTF-8 路径省略 command，保留文字指引。生成成功后 attach 失败时保留源码与原入口，按实际冲突处理。
 
@@ -189,18 +189,30 @@ CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-di
 
 ## 个人 Spec 工作台
 
-`yss workbench` 启动本机浏览器工作台；`--no-open` 只打印入口，`--port 0` 自动分配端口，`--data-dir <绝对路径>` 指定个人数据目录。服务本身不接受 `--json`。旧版已安装程序不会自动获得这些命令。
+`yss workbench` 启动本机浏览器工作台；`--no-open` 只打印入口，`--port 0` 自动分配端口，`--data-dir <绝对路径>` 指定个人数据目录。服务本身不接受 `--json`。关闭浏览器后活动作业继续运行，退出 CLI 会停止服务并中断作业。旧版已安装程序不会自动获得本轮源码增强。
 
 ```sh
 yss workbench snapshot --json
 yss workbench query --entity task --stage verification --json
 yss workbench query --entity spec --activity all --include-closed --json
+yss workbench query --entity spec --content-status ready --reminder ready --json
+yss workbench query --entity spec --needs-reconfirmation --json
 yss workbench lifecycle --spec <SpecID> --json
 ```
 
-`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录；register/respond 写入个人数据。参数完整枚举以 `yss workbench query --help` 为准。
+`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`。本轮源码新增可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`，用于 Spec 内容与提醒筛选。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录；register/respond 写入个人数据。参数完整枚举以 `yss workbench query --help` 为准。
 
 当前源码使用 SQLite 保存个人数据。旧 JSON v1/v2/v3 的纯查询保持只读；首次启动新版工作台或执行写入命令时先备份原字节并迁移，即使该业务操作最后没有状态变化也会完成迁移。迁移后 `state.json` 仅为存储标记，旧版程序不能读写同一数据目录。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
+
+### 当前源码的浏览器操作
+
+- 工程详情和“设置”的“工程维护”提供诊断、技能、接入、同步、脚手架、恢复和升级。先查看执行内容，核对后执行，作业在“执行记录”中查看或停止。根、Bundle、参数或文件变化时重新预览。
+- “项目 → 产品 Home”导入现有 `REPOSITORIES.md` 或等价 README，核对字段后绑定本机工程。识别有歧义时提供字段映射或人工核对条目，原地图继续维护关系。
+- Spec 详情“运行 Codex”选择参与工程和要带入的未提交文件，在隔离 worktree 运行。到执行详情处理输入、停止或续接，结束后按冻结差异逐文件接收，再刷新原 Spec。
+- Spec 信息、问题答复和阶段进度可恢复已保存的本机草稿，并发修改按字段核对合并。内容区提供确认版本差异，旧记录缺少正文基线时保留其原确认历史。
+- “设置 → 备份与恢复”在线生成一致备份，恢复到新的或空的个人数据目录后，按返回命令打开该目录核对。纯 CLI 或旧版的离线完整目录备份步骤见工作台说明。
+
+Git、支持 app-server 的 Codex 及 gh/glab 按本机实际可用工具使用，远端关联读取采用对应平台已有认证。完整工作台说明提供界面入口、成果接收、进程与磁盘版本及恢复步骤。[工作台说明](workbench.md)
 
 ### 主 Spec、问题回复与确认（3.4.1 起）
 

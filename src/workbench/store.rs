@@ -1,6 +1,6 @@
 use super::{
     model::{MAX_STATE, WorkbenchState},
-    sqlite::Database,
+    sqlite::{CommitEffects, Database, RecordWrite},
     storage_migration::{self, DATABASE_NAME, StorageState},
 };
 use crate::{
@@ -317,7 +317,15 @@ impl Store {
     pub fn data_dir(&self) -> &Path {
         &self.lock.root.path
     }
-    pub fn commit(&mut self, expected_revision: u64, mut next: WorkbenchState) -> Result<u64> {
+    pub fn commit(&mut self, expected_revision: u64, next: WorkbenchState) -> Result<u64> {
+        self.commit_with_effects(expected_revision, next, &CommitEffects::default())
+    }
+    pub(crate) fn commit_with_effects(
+        &mut self,
+        expected_revision: u64,
+        mut next: WorkbenchState,
+        effects: &CommitEffects,
+    ) -> Result<u64> {
         if self.uncertain {
             return Err(YssError::new(
                 ErrorCode::RecoveryRequired,
@@ -343,16 +351,19 @@ impl Store {
                 "存储标记已被外部修改，请重启核实",
             ));
         }
-        if next == self.state {
+        if next == self.state && effects.records.is_empty() && effects.blobs.is_empty() {
             return Ok(expected_revision);
         }
         next.revision = expected_revision
             .checked_add(1)
             .ok_or_else(|| invalid("revision 已溢出"))?;
-        if let Err(error) =
-            self.database
-                .commit_delta(&self.lock.root, expected_revision, &self.state, &next)
-        {
+        if let Err(error) = self.database.commit_delta(
+            &self.lock.root,
+            expected_revision,
+            &self.state,
+            &next,
+            effects,
+        ) {
             self.uncertain = error.code == ErrorCode::RecoveryRequired;
             return Err(error);
         }
@@ -370,5 +381,160 @@ impl Store {
         }
         self.state = next;
         Ok(self.state.revision)
+    }
+    pub fn record<T: serde::de::DeserializeOwned>(
+        &mut self,
+        kind: &str,
+        id: &str,
+    ) -> Result<Option<T>> {
+        self.database
+            .read_records(kind)?
+            .into_iter()
+            .find(|(key, _)| key == id)
+            .map(|(_, payload)| {
+                serde_json::from_str(&payload).map_err(|_| invalid("扩展记录格式无效"))
+            })
+            .transpose()
+    }
+    pub fn record_entries<T: serde::de::DeserializeOwned>(
+        &mut self,
+        kind: &str,
+    ) -> Result<Vec<(String, T)>> {
+        self.database
+            .read_records(kind)?
+            .into_iter()
+            .map(|(id, payload)| {
+                Ok((
+                    id,
+                    serde_json::from_str(&payload).map_err(|_| invalid("扩展记录格式无效"))?,
+                ))
+            })
+            .collect()
+    }
+    pub fn records<T: serde::de::DeserializeOwned>(&mut self, kind: &str) -> Result<Vec<T>> {
+        self.database
+            .read_records(kind)?
+            .into_iter()
+            .map(|(_, payload)| {
+                serde_json::from_str(&payload).map_err(|_| invalid("扩展记录格式无效"))
+            })
+            .collect()
+    }
+    pub fn put_record<T: serde::Serialize>(
+        &mut self,
+        kind: &str,
+        id: &str,
+        value: &T,
+    ) -> Result<()> {
+        self.write_extensions(&CommitEffects {
+            records: vec![RecordWrite {
+                kind: kind.into(),
+                id: id.into(),
+                payload: Some(
+                    serde_json::to_string(value).map_err(|_| invalid("扩展记录编码失败"))?,
+                ),
+            }],
+            blobs: Vec::new(),
+        })
+    }
+    pub fn delete_record(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.write_extensions(&CommitEffects {
+            records: vec![RecordWrite {
+                kind: kind.into(),
+                id: id.into(),
+                payload: None,
+            }],
+            blobs: Vec::new(),
+        })
+    }
+    pub(crate) fn write_extensions(&mut self, effects: &CommitEffects) -> Result<()> {
+        if self.uncertain {
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "写入结果待确认，请重启核实",
+            ));
+        }
+        if self
+            .lock
+            .root
+            .read_checked(&state_path()?, 16 * 1024)?
+            .snapshot
+            != self.marker
+        {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "存储标记已改变，请重启核实",
+            ));
+        }
+        let result = self.database.write_records(&self.lock.root, effects);
+        if result
+            .as_ref()
+            .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
+        {
+            self.uncertain = true;
+        }
+        result
+    }
+    pub fn append_event(
+        &mut self,
+        job_id: &str,
+        kind: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64> {
+        if self.uncertain {
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "写入结果待核实，请重启工作台",
+            ));
+        }
+        if self
+            .lock
+            .root
+            .read_checked(&state_path()?, 16 * 1024)?
+            .snapshot
+            != self.marker
+        {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "存储标记已改变，请重启核实",
+            ));
+        }
+        let result = self.database.append_event(
+            &self.lock.root,
+            job_id,
+            kind,
+            &serde_json::to_string(payload).map_err(|_| invalid("作业事件编码失败"))?,
+            &super::sources::now(),
+        );
+        if result
+            .as_ref()
+            .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
+        {
+            self.uncertain = true;
+        }
+        result
+    }
+    pub fn events(&mut self, job_id: &str, after: u64) -> Result<Vec<super::jobs::JobEvent>> {
+        self.database.events(job_id, after)
+    }
+    pub fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
+        self.database.has_events_after(job_id, after)
+    }
+    pub(crate) fn blob(&self, digest: &str) -> Result<Vec<u8>> {
+        self.database.blob(digest)
+    }
+    pub fn get_blob(&self, digest: &str) -> Result<Vec<u8>> {
+        self.database.blob(digest)
+    }
+    pub fn put_blob(&mut self, bytes: &[u8]) -> Result<String> {
+        let digest = crate::model::Sha256::of(bytes).as_str().to_owned();
+        self.write_extensions(&CommitEffects {
+            records: Vec::new(),
+            blobs: vec![(digest.clone(), bytes.to_vec())],
+        })?;
+        Ok(digest)
+    }
+    pub fn storage_usage(&self) -> Result<serde_json::Value> {
+        self.database.storage_usage()
     }
 }

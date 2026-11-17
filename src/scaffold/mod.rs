@@ -270,8 +270,16 @@ pub fn generate(
     request: &ScaffoldRequest,
     cancel: &Cancellation,
 ) -> Result<ScaffoldReport> {
+    generate_with_context(bundle, request, &GenerationContext::capture()?, cancel)
+}
+pub fn generate_with_context(
+    bundle: &Bundle,
+    request: &ScaffoldRequest,
+    context: &GenerationContext,
+    cancel: &Cancellation,
+) -> Result<ScaffoldReport> {
     cancel.check()?;
-    let tree = render(bundle, request, &GenerationContext::capture()?)?;
+    let tree = render(bundle, request, context)?;
     let warnings = context::recipe_warnings(bundle, &request.input)?;
     let output = fs::absolute(&request.output_dir)?;
     let target = output.join(&request.input.project_name);

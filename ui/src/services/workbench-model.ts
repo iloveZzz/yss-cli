@@ -16,7 +16,12 @@ export interface DiscoverResult { candidates: Candidate[]; warnings: string[]; c
 export interface SourceDocument { specId: string; text: string; digest: string; readAt: string }
 export type EditSpec = Pick<SpecRecord, 'sourcePath' | 'title' | 'stage' | 'status' | 'nextAction' | 'blocker' | 'notes' | 'resources' | 'active'>
 export type Action = RespondQuestionAction | { kind: 'refreshSpec'; specId: string } | { kind: 'confirmContent'; specId: string; scope: string; artifactDigest: string } | { kind: 'addProject'; rootPath: string; name?: string } | { kind: 'updateProject'; projectId: string; name: string; rootPath: string; active: boolean } | { kind: 'addSpec'; projectId: string; sourcePath: string } | ({ kind: 'editSpec'; specId: string } & EditSpec) | { kind: 'visitSpec'; specId: string } | {kind:'addTasks'; specId:string; drafts:TaskDraft[]} | {kind:'editTask';taskId:string;edit:TaskEdit} | ({kind:'setStageRecord'} & Omit<StageRecord,'updatedAt'>) | {kind:'setWorkStatus';entity:WorkEntity;id:string;status:Status;blocker:string} | {kind:'setWorkStage';entity:WorkEntity;id:string;stage:Stage} | {kind:'saveView';viewId:string|null;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy} | {kind:'removeView';viewId:string}
-export interface MutationRequest { expectedRevision: number; action: Action }
+export interface MutationRequest {
+  expectedRevision: number
+  action: Action
+  expectedTarget?: string
+  requestId?: string
+}
 export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null }
 
 export type WorkEntity = 'spec' | 'task'
@@ -30,13 +35,27 @@ export type TaskEdit = Pick<TaskRecord,'title'|'stage'|'status'|'blocker'|'notes
 export interface TaskDraft {title:string;stage:Stage;resources:ResourceRef[]}
 export interface TaskView {record:TaskRecord;resources:SpecView['resources']}
 export interface StageRecord {specId:string;stage:Stage;progress:StageProgress;note:string;resources:ResourceRef[];updatedAt:string}
-export interface WorkQuery {entity:WorkEntity;q:string;projectIds:string[];specIds:string[];stages:Stage[];statuses:Status[];activity:'active'|'inactive'|'all';includeClosed:boolean;sourceProblemsOnly:boolean;sort:'updatedDesc'|'titleAsc'}
+export interface WorkQuery {
+  entity: WorkEntity
+  q: string
+  projectIds: string[]
+  specIds: string[]
+  stages: Stage[]
+  statuses: Status[]
+  activity: 'active' | 'inactive' | 'all'
+  includeClosed: boolean
+  sourceProblemsOnly: boolean
+  contentStatuses: ContentStatus[]
+  reminderKinds: string[]
+  needsReconfirmation: boolean
+  sort: 'updatedDesc' | 'titleAsc'
+}
 export interface SavedView {id:string;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy;createdAt:string;updatedAt:string}
-export interface WorkItem {entity:WorkEntity;id:string;projectId:string;projectName:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean}
+export interface WorkItem {entity:WorkEntity;id:string;projectId:string;projectName:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean;contentStatus:ContentStatus|null;reminderCounts:Record<string,number>;needsReconfirmation:boolean}
 export interface QueryResult {revision:number;readAt:string;total:number;items:WorkItem[]}
 export type TaskCounts = Record<Status | 'total',number>
 export interface LifecycleView {revision:number;spec:SpecView;stages:{stage:Stage;record:StageRecord|null;taskCounts:TaskCounts}[];tasks:TaskView[];events:ChangeEvent[]}
-export function defaultWorkQuery():WorkQuery {return {entity:'spec',q:'',projectIds:[],specIds:[],stages:[],statuses:[],activity:'active',includeClosed:false,sourceProblemsOnly:false,sort:'updatedDesc'}}
+export function defaultWorkQuery():WorkQuery {return {entity:'spec',q:'',projectIds:[],specIds:[],stages:[],statuses:[],activity:'active',includeClosed:false,sourceProblemsOnly:false,contentStatuses:[],reminderKinds:[],needsReconfirmation:false,sort:'updatedDesc'}}
 
 export const contentStatuses = { unmarked: '未标记', draft: '草稿', ready: '可确认', confirmed: '已确认' } as const
 export type ContentStatus = keyof typeof contentStatuses

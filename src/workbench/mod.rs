@@ -14,3 +14,16 @@ pub(crate) mod sqlite;
 pub(crate) mod storage_migration;
 pub mod store;
 pub mod tasks;
+
+pub mod api;
+pub mod artifacts;
+pub mod backup;
+pub mod drafts;
+pub mod jobs;
+
+pub mod agent;
+pub mod agent_protocol;
+pub mod agent_workspace;
+pub mod engineering;
+pub mod integrations;
+pub mod process;
