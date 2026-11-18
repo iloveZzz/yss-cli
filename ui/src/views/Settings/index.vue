@@ -110,7 +110,7 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
       <div class="table-scroll" tabindex="0" role="region" aria-label="本机工具状态">
         <table class="spec-table tools-table">
           <caption class="sr-only">
-            Git、Codex 与远端平台工具
+            Git、Pi Agent 与远端平台工具
           </caption>
           <thead>
             <tr>
@@ -120,6 +120,15 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
             </tr>
           </thead>
           <tbody>
+            <tr v-if="info.pi">
+              <th scope="row">Pi Agent</th>
+              <td :class="info.pi.available ? 'muted' : 'warning-text'">
+                {{ info.pi.sandboxReady ? '命令沙箱就绪' : '运行不可用' }}
+              </td>
+              <td>
+                {{ [info.pi.version, info.pi.message].filter(Boolean).join(' · ') }}
+              </td>
+            </tr>
             <tr v-for="tool in info.tools" :key="tool.name">
               <th scope="row">{{ tool.name }}</th>
               <td :class="tool.available ? 'muted' : 'warning-text'">

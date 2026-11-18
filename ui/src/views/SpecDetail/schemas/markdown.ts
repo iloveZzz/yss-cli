@@ -1,6 +1,8 @@
 import MarkdownIt from 'markdown-it'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
+type MarkdownOptions = { documentLinks?: boolean; headingPrefix?: string; hideSpecMetadata?: boolean }
+type MarkdownEnvironment = MarkdownOptions & { headings: Map<string, number> }
 export function isWebLink(url: string): boolean {
   try { const parsed = new URL(url); return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password } catch { return false }
 }
@@ -25,24 +27,32 @@ export function resolveDocumentLink(sourcePath: string, href: string): { path: s
 }
 markdown.validateLink = url => isWebLink(url) || isRelativeLink(url)
 markdown.renderer.rules.image = (tokens, index) => `<span class="muted">[图片：${markdown.utils.escapeHtml(tokens[index]?.content ?? '')}，未加载]</span>`
-markdown.renderer.rules.link_open = (tokens, index, options, _env, renderer) => {
+markdown.renderer.rules.link_open = (tokens, index, options, rawEnv, renderer) => {
   const token = tokens[index]
   if (token) {
     const href = String(token.attrGet('href') ?? '')
     if (isWebLink(href)) { token.attrSet('target', '_blank'); token.attrSet('rel', 'noopener noreferrer') }
-    else { token.attrSet('data-document-link', href); token.attrSet('href', '#document') }
+    else if ((rawEnv as MarkdownEnvironment).documentLinks === false) {
+      token.attrs = token.attrs?.filter(([name]) => name !== 'href') ?? null
+    } else { token.attrSet('data-document-link', href); token.attrSet('href', '#document') }
   }
   return renderer.renderToken(tokens, index, options)
 }
 markdown.renderer.rules.heading_open = (tokens, index, options, rawEnv, renderer) => {
-  const env = rawEnv as { headings: Map<string, number> }
+  const env = rawEnv as MarkdownEnvironment
   const title = tokens[index + 1]?.children?.map(t => t.content).join('') ?? ''
   const base = title.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').replace(/\s/g, '-')
   const count = env.headings.get(base) ?? 0
   env.headings.set(base, count + 1)
-  tokens[index]?.attrSet('id', count ? `${base}-${count}` : base)
+  tokens[index]?.attrSet('id', (env.headingPrefix ?? '') + (count ? `${base}-${count}` : base))
   return renderer.renderToken(tokens, index, options)
 }
-export function renderMarkdown(text: string): string {
-  return markdown.render(text.replace(/<!--\s*yss-spec\b[\s\S]*?-->/g, ''), { headings: new Map<string, number>() })
+export function renderMarkdown(text: string, options?: MarkdownOptions): string {
+  const source = options?.hideSpecMetadata === false
+    ? text
+    : text.replace(/<!--\s*yss-spec\b[\s\S]*?-->/g, '')
+  return markdown.render(source, {
+    ...options,
+    headings: new Map<string, number>()
+  })
 }

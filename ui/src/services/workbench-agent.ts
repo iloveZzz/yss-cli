@@ -62,6 +62,8 @@ export interface AgentRun {
   projectIds: string[]
   status: string
   jobId: string
+  host: 'codex' | 'pi'
+  canResume: boolean
   threadId?: string
   turnId?: string
   hostSettings?: JsonObject
@@ -78,6 +80,7 @@ export interface AgentStart {
   projectIds: string[]
   carryFiles: Record<string, string[]>
   resumeRunId?: string
+  allowCommands?: boolean
 }
 export const startAgent = (value: AgentStart) =>
   apiRequest<JobRecord>('/api/agent/start', { body: { ...value, requestId: requestId() } })

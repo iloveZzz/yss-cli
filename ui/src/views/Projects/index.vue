@@ -129,7 +129,7 @@ function edit(project?: ProjectRecord) {
       >
       <template v-else
         ><h2>登记第一个本机工程</h2>
-        <p>选择工程目录后，可关联 Spec、维护技能或参与 Codex 运行。</p>
+        <p>选择工程目录后，可关联 Spec、维护技能或参与 Pi Agent 运行。</p>
         <Button @click="edit()">登记本机工程</Button></template
       >
     </div>

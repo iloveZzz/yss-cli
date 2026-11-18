@@ -223,14 +223,33 @@ pub fn record(store: &mut Store, run: &AgentRun, activity: Activity) -> Result<(
 }
 
 pub fn run_context(store: &mut Store, run: &AgentRun) -> Result<String> {
-    let snapshot = service::snapshot_from_store(store, &Cancellation::new())?;
-    let mut instructions = service::progress_context(&snapshot, &run.spec_id, store.data_dir())?;
-    let mapping: Vec<_> = run.workspaces.iter().flat_map(|workspace| workspace.project_ids.iter().map(|project_id|json!({"projectId":project_id,"originalRoot":workspace.original_root,"worktreeRoot":workspace.worktree_root,"projectPrefix":workspace.project_prefixes.get(project_id)}))).collect();
-    let contract = json!({
-        "runId":run.id,"specId":run.spec_id,"lifecycleStage":run.lifecycle_stage,"goalVersion":run.goal_version,"specDigest":run.spec_digest,
-        "dataDir":store.data_dir(),"cliExecutable":std::env::current_exe().ok(),"originalProjectMapping":mapping,
-        "reportFields": {"id":"每次新观察使用稳定新标识，同一观察重试沿用原标识","specId":run.spec_id,"goalVersion":run.goal_version,"specDigest":run.spec_digest,"stage":run.lifecycle_stage,"projectId":"原工程 projectId，Spec 角色可省略","role":"spec | backend | frontend | integration","progress":"unmarked | todo | doing | blocked | done | skipped","validity":"current | unverified | needsSync | needsReview","summary":"实际范围与结果","blocker":"阻塞时写具体原因","nextAction":"原 Agent 下一步","scopeRefs":["本次目标或验收依据"],"versions":[{"projectId":"原工程 projectId","commit":"完整 commit SHA，可选","workingTreeDigest":"工作树 SHA-256，可选"}],"evidence":[{"kind":"document | artifact | command | test | merge | environment | acceptance | other","label":"实际检查或产物","reference":"实际文件、命令结果或远程URL","outcome":"passed | failed | observed，可选"}]}
-    });
-    instructions.push_str(&format!("\n本运行的稳定身份与上报契约\n{}\n\n沿用上述 dataDir、原 Spec ID、goalVersion 与 specDigest。在隔离工作区继续原任务，使用 originalProjectMapping 的原工程 projectId 上报。隔离成果上报实际工作区采用版本与证据，等待接收与原工程核实期间使用 doing 及 needsSync 或 unverified。每个参与工程分别记录，联调报告列出实际验证的工程版本组合。用户明确确认规格、业务验收或交付时，记录其当前范围、证据摘要和真实出处。通过 cliExecutable 指定的程序执行 workbench --data-dir <dataDir> progress report --input <JSON文件> --request-id <稳定请求ID>。同一报告重试沿用 id 与 request-id，新观察使用新标识。生命周期上报失败时保留事实到本轮结果并继续已有授权工作。\n",serde_json::to_string_pretty(&contract).map_err(|_|super::sources::invalid("运行上报契约编码失败"))?));
+    let mut instructions = String::from(
+        "\n工作台会记录作业开始、结束与成果接收。请在最终答复中列出本次实际成果、检查结果和阻塞，留待原工程接收后核实。\n",
+    );
+    let (Some(stage), Some(version)) = (run.lifecycle_stage, run.goal_version.as_ref()) else {
+        return Ok(instructions);
+    };
+    let records = progress::load(store)?;
+    if let Some(goal) = records
+        .goals
+        .iter()
+        .find(|goal| goal.goal.spec_id == run.spec_id && &goal.goal_version == version)
+    {
+        let binding = json!({
+            "specId": run.spec_id,
+            "stage": stage,
+            "goalVersion": version,
+            "specDigest": run.spec_digest,
+            "scope": goal.goal.scope,
+            "target": goal.goal.target,
+            "acceptanceRefs": goal.goal.acceptance_refs,
+            "participatingProjectIds": run.project_ids,
+        });
+        instructions.push_str(&format!(
+            "\n本次运行绑定的生命周期目标\n{}\n",
+            serde_json::to_string_pretty(&binding)
+                .map_err(|_| super::sources::invalid("运行目标上下文编码失败"))?
+        ));
+    }
     Ok(instructions)
 }

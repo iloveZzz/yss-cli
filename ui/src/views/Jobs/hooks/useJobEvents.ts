@@ -1,153 +1,139 @@
-import { computed, onBeforeUnmount, shallowRef, watch, type Ref } from 'vue'
-import { errorMessage } from '@/services/workbench'
-import { objectValue, streamJob, terminalJob, type JobEvent } from '@/services/workbench-platform'
-export function useJobEvents(
-  jobId: Readonly<Ref<string>>,
-  terminal: Readonly<Ref<boolean>>,
-  updated: () => void
-) {
-  const events = shallowRef<JobEvent[]>([])
+import { computed, shallowRef, watch, type Ref } from 'vue'
+import { ApiError, errorMessage } from '@/services/workbench'
+import { getJobActivities, streamJob, type ActivityPage } from '@/services/workbench-platform'
+import { useJobConversation } from './useJobConversation'
+
+// Read a consistent snapshot, then subscribe strictly after its persisted event cursor.
+// Reconnection repeats that handshake, including pending inputs and already-started commands.
+export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void) {
+  const latest = shallowRef<ActivityPage>()
   const error = shallowRef('')
-  const connected = shallowRef(false)
-  const complete = shallowRef(false)
-  const terminalSeen = shallowRef(false)
-  const inputs = shallowRef<JobEvent[]>([])
-  const runId = shallowRef('')
-  const dropped = shallowRef(0)
-  let controller: AbortController | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let cursor = 0
-  let generation = 0
-  let endedCleanly = false
-  let flushTimer: ReturnType<typeof setTimeout> | undefined
-  let recent: { event: JobEvent; size: number }[] = []
-  let recentSize = 0
-  function publish() {
-    clearTimeout(flushTimer)
-    flushTimer = undefined
-    events.value = recent.map(({ event }) => event)
-  }
-  const statusLabel = computed(() => {
-    if (complete.value) return '已读取日志'
-    if (connected.value)
-      return terminal.value || terminalSeen.value ? '正在读取历史日志' : '实时连接'
-    return '正在重连'
-  })
-  const pendingInputs = computed(() => (terminal.value || terminalSeen.value ? [] : inputs.value))
-  function resolved(id: string) {
-    inputs.value = inputs.value.filter(
-      (event) => String(objectValue(event.payload).requestId ?? event.id) !== id
-    )
-  }
-  function finishReading() {
-    clearTimeout(timer)
-    timer = undefined
-    complete.value = true
-  }
-  async function connect(id: string, own: number) {
-    if (!id || own !== generation || complete.value) return
-    const connection = new AbortController()
-    controller = connection
-    connected.value = true
-    endedCleanly = false
-    try {
-      await streamJob(id, cursor, connection.signal, (event) => {
-        if (own !== generation || event.id <= cursor) return
-        cursor = event.id
-        error.value = ''
-        const size = JSON.stringify(event).length * 2
-        recent.push({ event, size })
-        recentSize += size
-        while (recent.length > 1 && (recent.length > 500 || recentSize > 4 * 1024 * 1024)) {
-          recentSize -= recent.shift()!.size
-          dropped.value++
-        }
-        if (!flushTimer) flushTimer = setTimeout(publish, 80)
-        if (event.kind === 'run') runId.value = String(objectValue(event.payload).runId ?? '')
-        if (event.kind === 'inputRequested') {
-          inputs.value = [...inputs.value, event]
-          publish()
-        }
-        if (
-          event.kind === 'finished' ||
-          (['status', 'stateChanged'].includes(event.kind) &&
-            terminalJob(String(objectValue(event.payload).status ?? '')))
-        ) {
-          terminalSeen.value = true
-          publish()
-        }
-        if (event.kind === 'inputResolved')
-          resolved(String(objectValue(event.payload).requestId ?? ''))
-        if (
-          [
-            'completed',
-            'failed',
-            'status',
-            'stateChanged',
-            'canceled',
-            'inputRequested',
-            'finished',
-            'run'
-          ].includes(event.kind)
-        )
-          updated()
-      })
-      if (own !== generation || connection.signal.aborted) return
-      endedCleanly = true
-      publish()
-      error.value = ''
-      if (terminal.value || terminalSeen.value) finishReading()
-    } catch (cause) {
-      if (!connection.signal.aborted && own === generation) error.value = errorMessage(cause)
-    } finally {
-      if (own === generation && !connection.signal.aborted) {
-        connected.value = false
-        if (!complete.value) timer = setTimeout(() => void connect(id, own), 1500)
-      }
-    }
-  }
+  const statusLabel = shallowRef('')
+  const retryKey = shallowRef(0)
+  const conversation = useJobConversation()
   watch(
-    jobId,
-    (id) => {
-      controller?.abort()
-      clearTimeout(timer)
-      timer = undefined
-      events.value = []
-      inputs.value = []
-      runId.value = ''
-      dropped.value = 0
-      clearTimeout(flushTimer)
-      flushTimer = undefined
-      recent = []
-      recentSize = 0
-      cursor = 0
-      endedCleanly = false
-      terminalSeen.value = false
-      complete.value = false
-      connected.value = false
+    [jobId, retryKey],
+    ([id], previous, onCleanup) => {
+      if (previous?.[0] !== id) {
+        latest.value = undefined
+        conversation.reset()
+      }
       error.value = ''
-      void connect(id, ++generation)
+      if (!id) return
+      const connection = new AbortController()
+      const { signal } = connection
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let syncing: Promise<void> | undefined
+      let observed = 0
+      onCleanup(() => {
+        connection.abort()
+        clearTimeout(timer)
+      })
+
+      async function sync() {
+        const page = await getJobActivities(id, undefined, signal)
+        if (signal.aborted) return
+        const prior = latest.value
+        latest.value = page
+        if (prior?.runId !== page.runId || prior?.terminal !== page.terminal) updated()
+        if (page.host === 'pi') await conversation.open(id, signal)
+        if (!signal.aborted) error.value = ''
+      }
+      function flush() {
+        if (!syncing)
+          syncing = sync().finally(() => {
+            syncing = undefined
+          })
+        return syncing
+      }
+      function schedule(delay = 350) {
+        if (timer || signal.aborted) return
+        timer = setTimeout(async () => {
+          timer = undefined
+          try {
+            await flush()
+          } catch (cause) {
+            if (!signal.aborted) {
+              error.value = errorMessage(cause)
+              schedule(1500)
+            }
+            return
+          }
+          if (observed > (latest.value?.cursor ?? 0)) schedule()
+        }, delay)
+      }
+      async function connect() {
+        try {
+          statusLabel.value = latest.value ? '正在重连' : '正在读取记录'
+          await flush()
+          if (signal.aborted) return
+          const after = conversation.getCursor() ?? latest.value?.cursor ?? 0
+          if (!latest.value?.terminal || after < latest.value.cursor) {
+            statusLabel.value = '实时连接'
+            await streamJob(id, after, signal, (event) => {
+              if (signal.aborted) return
+              observed = Math.max(observed, event.id)
+              conversation.receive(event)
+              schedule()
+              if (
+                [
+                  'status',
+                  'stateChanged',
+                  'finished',
+                  'inputRequested',
+                  'inputResolved',
+                  'piQuestionResult',
+                  'run'
+                ].includes(event.kind)
+              )
+                updated()
+            })
+            await flush()
+            // A scheduled read could have started before the last event was committed.
+            if (!signal.aborted && observed > (latest.value?.cursor ?? 0)) await flush()
+          }
+          if (signal.aborted) return
+          if (latest.value?.terminal && (conversation.getCursor() ?? latest.value.cursor) >= latest.value.cursor) {
+            statusLabel.value = '已读取记录'
+            return
+          }
+        } catch (cause) {
+          if (signal.aborted) return
+          error.value = errorMessage(cause)
+          if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
+            statusLabel.value = '读取失败'
+            return
+          }
+        }
+        if (!signal.aborted) {
+          statusLabel.value = '正在重连'
+          reconnect = setTimeout(() => void connect(), 1500)
+        }
+      }
+      let reconnect: ReturnType<typeof setTimeout> | undefined
+      onCleanup(() => clearTimeout(reconnect))
+      void connect()
     },
     { immediate: true }
   )
-  watch(terminal, (value) => {
-    if (value && endedCleanly && !connected.value) finishReading()
-  })
-  onBeforeUnmount(() => {
-    generation++
-    controller?.abort()
-    clearTimeout(timer)
-    clearTimeout(flushTimer)
-  })
+  function resolved(requestId: string) {
+    conversation.accepted(requestId)
+    const page = latest.value
+    if (page)
+      latest.value = {
+        ...page,
+        pendingInputs: page.pendingInputs.filter(
+          (e) => String((e.payload as { requestId?: string })?.requestId ?? e.id) !== requestId
+        )
+      }
+  }
   return {
-    events,
+    latest,
     error,
-    connected,
-    complete,
     statusLabel,
-    pendingInputs,
-    runId,
-    dropped,
-    resolved
+    resolved,
+    retry: () => retryKey.value++,
+    pendingInputs: computed(() => latest.value?.pendingInputs ?? []),
+    conversation
   }
 }

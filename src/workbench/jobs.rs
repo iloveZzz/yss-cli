@@ -60,6 +60,7 @@ struct Control {
 
 pub struct JobManager {
     pub store: Arc<Mutex<Store>>,
+    pub(crate) activity_cache: Mutex<super::activities::ActivityCache>,
     controls: Mutex<BTreeMap<String, Arc<Control>>>,
     handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
     stopping: Cancellation,
@@ -113,7 +114,14 @@ impl JobContext {
                 return Err(YssError::new(ErrorCode::Conflict, "输入请求 ID 重复"));
             }
         }
-        self.set_status("waitingInput")?;
+        let method = payload["protocolMethod"].as_str().unwrap_or_default();
+        let approval = method.ends_with("/requestApproval")
+            || matches!(method, "execCommandApproval" | "applyPatchApproval");
+        self.set_status(if approval {
+            "waitingApproval"
+        } else {
+            "waitingInput"
+        })?;
         self.emit(
             "inputRequested",
             json!({"requestId":request_id,"request":payload}),
@@ -158,6 +166,7 @@ impl JobManager {
         }
         Ok(Arc::new(Self {
             store,
+            activity_cache: Mutex::default(),
             controls: Mutex::new(BTreeMap::new()),
             handles: Mutex::new(Vec::new()),
             stopping: Cancellation::new(),

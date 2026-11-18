@@ -27,5 +27,164 @@
       "digest": "sha256:ba728db29f97b894318836d094705b34c0f792352548189703224c694d29ed5b",
       "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/input/index.ts"
     }
+  ],
+  "additional_sources": [
+    {
+      "repository": "https://github.com/unovue/shadcn-vue",
+      "revision": "0bfec13a0463003663857ee316f3e24792969a4d",
+      "style": "new-york-v4",
+      "component_groups": [
+        "message",
+        "message-scroller",
+        "trace",
+        "questionnaire"
+      ],
+      "components": [
+        {
+          "path": "ui/message/Message.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message/Message.vue",
+          "source_digest": "sha256:b0631388c9ad765913c87df526dc3609c299847399ae646ab0f6f359c6b960c8",
+          "adapted_digest": "sha256:738eb8cc283de946653e1a8dcd2cca03b2908a2eb817cacf5a375f722ac92e4e"
+        },
+        {
+          "path": "ui/message/MessageContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message/MessageContent.vue",
+          "source_digest": "sha256:dfa5f2e594220384033f0d5cb429ebdb2900c80680d015b6bc3a2b339d1ef5fc",
+          "adapted_digest": "sha256:b8f0c13358dc71280730c197e814a306c5f819fa0256f46cb6f598d34754a4b3"
+        },
+        {
+          "path": "ui/message/MessageHeader.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message/MessageHeader.vue",
+          "source_digest": "sha256:350a27584ca2141f70765f974ec6f75dd0b6dece3c15bd1a98c145a905aa1efc",
+          "adapted_digest": "sha256:93c46dae98f13ab9db28f5edd43efbba9ae7c9281800d36e7463ed8085e9347b"
+        },
+        {
+          "path": "ui/message-scroller/MessageScroller.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScroller.vue",
+          "source_digest": "sha256:26fed36ea99429601f30c79ba40237c7c680cb682154b089819aee09c9a1157b",
+          "adapted_digest": "sha256:fe66e8a6b8f6bb353e40ffc562e05f9c33403ded4ec634827aeecab84af49c5c"
+        },
+        {
+          "path": "ui/message-scroller/MessageScrollerProvider.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerProvider.vue",
+          "source_digest": "sha256:a9cf5be30a4ba0ab6ead7df6bba0beaae6ded5dc5e7921baf0cc245c768fe9ac",
+          "adapted_digest": "sha256:a9cf5be30a4ba0ab6ead7df6bba0beaae6ded5dc5e7921baf0cc245c768fe9ac"
+        },
+        {
+          "path": "ui/message-scroller/MessageScrollerViewport.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerViewport.vue",
+          "source_digest": "sha256:79cd512b4bd21753a13fa53c6dc1c51deb7444547c8ea2b990640a0977b2b32d",
+          "adapted_digest": "sha256:9874a90d39c9117137f6a997b9b546d7fb2f49b0917d6f2b93a5d5957afffb5d"
+        },
+        {
+          "path": "ui/message-scroller/MessageScrollerContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerContent.vue",
+          "source_digest": "sha256:eab14fea6a8eb32b56c12496d31288686445f5d18fafb48506a540075e166ef4",
+          "adapted_digest": "sha256:a3b34b66f4a0fa9ad560f44d5ecf2e4652ee9af0ca0b8173ecf7ccb980dfdc37"
+        },
+        {
+          "path": "ui/message-scroller/MessageScrollerItem.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerItem.vue",
+          "source_digest": "sha256:0b029f74f34ba82307e0244310eefcbe562fd9b80048a4d426ce24490465a1ad",
+          "adapted_digest": "sha256:d40f9baf442ff2fe54c2b2f72a958d76e000b2a2148f074b64cd258761822d32"
+        },
+        {
+          "path": "ui/message-scroller/MessageScrollerButton.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerButton.vue",
+          "source_digest": "sha256:0af271eeb533d619c3590cb6c1685c314d59340e72f795eed10e386708bd1696",
+          "adapted_digest": "sha256:bcbdfd8e6128422227bee2f20c558db4d6e8a9e7ef607b1e64877262c7a04d5d"
+        },
+        {
+          "path": "ui/message-scroller/useMessageScroller.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/message-scroller/useMessageScroller.ts",
+          "source_digest": "sha256:639cc602f52492f853562eeac71045549c069afc76199aea47b8a694d8fdd996",
+          "adapted_digest": "sha256:d805c9cf36e9e0fdb2c1b844057524abe72210244b5ed4cb0fb946ec0f04c387"
+        },
+        {
+          "path": "ui/trace/Trace.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/Trace.vue",
+          "source_digest": "sha256:42f72b05478b13b2bdf64b56533981488c241b6bdaceca3f16fdceac35390228",
+          "adapted_digest": "sha256:6785d6f490503f851eee5794932b24111820e849e4f19af07cdeeb512731c57e"
+        },
+        {
+          "path": "ui/trace/TraceLine.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceLine.vue",
+          "source_digest": "sha256:1419acc271691c59313b826de378a3683c10b625cc83085a97e79d38ac55649b",
+          "adapted_digest": "sha256:537cf3f4aa788ab0a1e56a00f18a226248a7d500e1619a02d1ce8b8596cc101b"
+        },
+        {
+          "path": "ui/trace/TraceTitle.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceTitle.vue",
+          "source_digest": "sha256:ebce8073a4919fdf7e37a214f0edcc67777604a2bdd2d108af1727188c1b84d2",
+          "adapted_digest": "sha256:36523159c5904b95cb7a2cabec11f36dc91996a7c2edd9e69d2a560b78edd780"
+        },
+        {
+          "path": "ui/trace/TraceIcon.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceIcon.vue",
+          "source_digest": "sha256:be4ea11c1ad85dcd3ba12c9705ab5226c15fe0b1439a20f4b33a768c755ad645",
+          "adapted_digest": "sha256:da66c95e67566752842337beb9c0385bce1d67a6bfa39d40dbfb9f1bd2e4bbc9"
+        },
+        {
+          "path": "ui/trace/TraceCollapsible.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceCollapsible.vue",
+          "source_digest": "sha256:1c0ee5346c9b5402b49ecc90e0e5f3dc7d4e1329a93a650351265f7663697fb0",
+          "adapted_digest": "sha256:cb18cffa43b811e7a5036e27a611fdadc59c99264e3457106ee21182236b0afc"
+        },
+        {
+          "path": "ui/trace/TraceCollapsibleTrigger.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceCollapsibleTrigger.vue",
+          "source_digest": "sha256:f453601f413192431176287a1e8e7f8896b8c70f4f67b2b8d4c2078d88a94a2a",
+          "adapted_digest": "sha256:67c99a6487771bf7030c44ef0dd42b54c6cd8bef4897f594af11398f84d9411e"
+        },
+        {
+          "path": "ui/trace/TraceCollapsibleContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/trace/TraceCollapsibleContent.vue",
+          "source_digest": "sha256:74753a9422a6270e1e956317c33d377c921cd05b2e417b4f3011f20eb48e1581",
+          "adapted_digest": "sha256:b42d0fdfeab634b1abe2593636b83195d62a4202a896bf37bdc368cac889c84b"
+        },
+        {
+          "path": "ui/questionnaire/Questionnaire.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/Questionnaire.vue",
+          "source_digest": "sha256:46a9211dcde42deca7cf6e3ed844fc540d5b5fbd0132a3188b26bb3cd4f9df5c",
+          "adapted_digest": "sha256:9eaf16de0d8629a67581e73d5c874113a00647a9eaa56f0683e2dba7f8015d0a"
+        },
+        {
+          "path": "ui/questionnaire/QuestionnaireItem.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/QuestionnaireItem.vue",
+          "source_digest": "sha256:7ca4b726d0358a9271d571e2b78775665102ba53e1a8a526788e59de7020a13d",
+          "adapted_digest": "sha256:ca33ca362891bf6f3e64f796ee686e3fbddebdd7b70e20c721d2795f2065349d"
+        },
+        {
+          "path": "ui/questionnaire/QuestionnaireTitle.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/QuestionnaireTitle.vue",
+          "source_digest": "sha256:edcb0cd58812570f130d505ec9c00ba5d8e9b707645e317e6921fc94e5bb7b9b",
+          "adapted_digest": "sha256:3a10e22fddb026421525df63dc7966f6af5b4155987f964100ae5ca88f3998d4"
+        },
+        {
+          "path": "ui/questionnaire/QuestionnaireDescription.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/QuestionnaireDescription.vue",
+          "source_digest": "sha256:cda35ce681b7bedbe7257bd7592242e025f385213b283107a54f1256431fef18",
+          "adapted_digest": "sha256:54f9d20abbf027b94e96fdd3796d2b3a735d27a83b64abc0efca00bd12343683"
+        },
+        {
+          "path": "ui/questionnaire/QuestionnaireChoices.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/QuestionnaireChoices.vue",
+          "source_digest": "sha256:bd7f8d0c92539f0429abc7acb09bdb5c3c1005079faf958f0cc279acc5b8f2d7",
+          "adapted_digest": "sha256:8f06392c45b0b52bb6394980dbc7a1a2e17dfe1f7e7c37d450ad42093bb36ba2"
+        },
+        {
+          "path": "ui/questionnaire/QuestionnaireChoice.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/QuestionnaireChoice.vue",
+          "source_digest": "sha256:36274edfcdbde07d31b96fccc91177898fe2409e6f8b779bafa29f0ba7faeefe",
+          "adapted_digest": "sha256:086ebe0a2ae00ebde4a20e6c413230d2abe35083bc3db4e3053be14aae682841"
+        },
+        {
+          "path": "ui/questionnaire/useQuestionnaire.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/0bfec13a0463003663857ee316f3e24792969a4d/apps/v4/registry/new-york-v4/ui/questionnaire/useQuestionnaire.ts",
+          "source_digest": "sha256:e0f4bf7322c9754e625e5bfcde6e4db2895fc4cf80d913d1394f5e29c2f3f2a8",
+          "adapted_digest": "sha256:e0f4bf7322c9754e625e5bfcde6e4db2895fc4cf80d913d1394f5e29c2f3f2a8"
+        }
+      ]
+    }
   ]
 }

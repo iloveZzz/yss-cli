@@ -11,7 +11,6 @@ const props = defineProps<{ runId: string; specId: string; running: boolean }>()
 const view = shallowRef<SpecView>()
 const error = shallowRef('')
 const loading = shallowRef(false)
-const open = shallowRef(false)
 const resource = shallowRef<{ path: string; fragment: string } | null>(null)
 const version = computed(
   () => `${view.value?.sourceModifiedAt}:${view.value?.content.artifactDigest}`
@@ -35,14 +34,9 @@ async function refresh() {
     if (own === generation) loading.value = false
   }
 }
-watch(
-  () => [props.runId, props.specId, open.value],
-  () => {
-    if (open.value) void refresh()
-  }
-)
+watch(() => [props.runId, props.specId], refresh, { immediate: true })
 useIntervalFn(() => {
-  if (open.value && props.running && !document.hidden) void refresh()
+  if (props.running && !loading.value && !document.hidden) void refresh()
 }, 5000)
 function navigate(path: string, fragment = '') {
   resource.value = { path, fragment }
@@ -59,18 +53,12 @@ function safeWeb(value: string) {
 <template>
   <section class="platform-section">
     <div class="section-heading">
-      <h2>规格、原型与问题</h2>
-      <div class="inline-actions">
-        <Button type="button" variant="outline" :aria-expanded="open" @click="open = !open">
-          {{ open ? '收起产物' : '阅读运行产物' }}
-        </Button>
-        <Button v-if="open" type="button" variant="ghost" :disabled="loading" @click="refresh">
-          重新读取
-        </Button>
-      </div>
+      <h2>隔离工作区产物</h2>
+      <Button type="button" variant="outline" :disabled="loading" @click="refresh">重新读取</Button>
     </div>
     <p v-if="error" role="alert" class="notice warning">{{ error }}</p>
-    <template v-if="open && view">
+    <p v-if="loading && !view" role="status" class="muted">正在读取本次产物…</p>
+    <template v-if="view">
       <p class="muted">{{ contentStatuses[view.content.status] }} · {{ view.content.scope }}</p>
       <div class="inline-actions resource-shortcuts">
         <template v-for="(item, index) in view.resources" :key="index">

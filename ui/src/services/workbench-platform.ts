@@ -48,6 +48,12 @@ export interface PageResult<T> {
   total: number
   items: T[]
 }
+export interface PiRuntimeStatus {
+  available: boolean
+  sandboxReady: boolean
+  version: string | null
+  message: string | null
+}
 export interface SystemInfo {
   version: {
     version: string
@@ -60,6 +66,7 @@ export interface SystemInfo {
   storage: { schemaVersion: number; blobBytes: number; recordBytes: number; eventBytes: number }
   databaseBytes: number
   tools: { name: string; available: boolean; version?: string; message?: string }[]
+  pi: PiRuntimeStatus
 }
 export interface ArtifactFile {
   path: string
@@ -143,9 +150,65 @@ export interface RequestRecord {
   createdAt?: string
   updatedAt?: string
 }
-export const getRequests = () => apiRequest<{ items: RequestRecord[] }>('/api/requests')
+export const getRequests = () => apiRequest<{ total?: number; items: RequestRecord[] }>('/api/requests')
 export const getReceipt = (id: string) =>
   apiRequest<{ found: boolean; result?: unknown }>(`/api/receipts/${encodeURIComponent(id)}`)
+export interface JobActivity {
+  id: number
+  updatedEventId: number
+  createdAt: string
+  kind: 'message' | 'user' | 'info' | 'command' | 'files' | 'tool' | 'question' | 'status' | 'error'
+  text: string
+  status: string
+  exitCode: number | null
+  output?: string
+  itemId?: string
+  operation?: string
+  path?: string
+  error?: string
+  question?: JobQuestion
+}
+export interface JobQuestion {
+  requestId: string
+  questionId: string
+  reason: string
+  options: string[]
+  answer: string | null
+  responseId: string | null
+  error: string | null
+}
+export interface ActivityPage {
+  items: JobActivity[]
+  total: number
+  hasOlder: boolean
+  cursor: number
+  terminal: boolean
+  runId: string | null
+  host: 'pi' | 'codex' | null
+  latestMessage: string | null
+  pendingInputs: JobEvent[]
+}
+export interface ConversationPage {
+  items: JobActivity[]
+  hasOlder: boolean
+  cursor: number
+  terminal: boolean
+  prompt: string | null
+  previousJobId: string | null
+}
+export function getJobActivities(id: string, before?: number, signal?: AbortSignal) {
+  const query = before === undefined ? '' : `?before=${before}`
+  return apiRequest<ActivityPage>(`/api/jobs/${encodeURIComponent(id)}/activities${query}`, { signal })
+}
+export function getJobConversation(id: string, before?: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ view: 'conversation' })
+  if (before !== undefined) query.set('before', String(before))
+  return apiRequest<ConversationPage>(`/api/jobs/${encodeURIComponent(id)}/activities?${query}`, { signal })
+}
+export function getActivityDetail(id: string, activityId: number, signal: AbortSignal) {
+  return apiRequest<JobActivity>(`/api/jobs/${encodeURIComponent(id)}/activities/${activityId}`, { signal })
+}
+
 export const getJobs = (signal?: AbortSignal) => apiRequest<JobRecord[]>('/api/jobs', { signal })
 export const getJob = (id: string, signal?: AbortSignal) =>
   apiRequest<JobRecord>(`/api/jobs/${encodeURIComponent(id)}`, { signal })

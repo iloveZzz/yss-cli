@@ -7,6 +7,10 @@ impl Cancellation {
     pub fn new() -> Self {
         Self::default()
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn child(&self) -> Self {
+        Self(self.0.child_token())
+    }
     pub fn cancel(&self) {
         self.0.cancel();
     }

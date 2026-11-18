@@ -11,11 +11,12 @@ import { ApiError, errorMessage } from '@/services/workbench'
 import { objectValue, readableValue } from '@/services/workbench-platform'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import AgentRebindPanel from './AgentRebindPanel.vue'
-const props = defineProps<{ runId: string; running?: boolean }>()
+const props = defineProps<{ runId: string; running: boolean; visible: boolean }>()
 const emit = defineEmits<{ accepted: [] }>()
 const { snapshot } = useWorkbench()
 const diff = shallowRef<AgentDiff>()
 const selected = shallowRef<string[]>([])
+const expanded = shallowRef('')
 const acknowledged = shallowRef<string[]>([])
 const loading = shallowRef(false)
 const bindingBusy = shallowRef(false)
@@ -44,6 +45,7 @@ async function refresh() {
   error.value = ''
   selected.value = []
   acknowledged.value = []
+  expanded.value = ''
   diff.value = undefined
   try {
     const value = await getAgentDiff(props.runId)
@@ -59,9 +61,22 @@ async function refresh() {
 watch(
   () => [props.runId, props.running],
   () => {
-    if (!props.running) void refresh()
+    // A running view and a finished snapshot use different review baselines.
+    generation++
+    diff.value = undefined
+    selected.value = []
+    acknowledged.value = []
+    expanded.value = ''
+    loading.value = false
+    if (props.visible) void refresh()
   },
   { immediate: true }
+)
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible && !diff.value && !loading.value) void refresh()
+  }
 )
 onBeforeUnmount(() => {
   generation++
@@ -98,8 +113,7 @@ async function accept() {
   <section class="platform-section">
     <div class="section-heading">
       <div>
-        <h2>审阅与接收文件</h2>
-        <p class="muted">选择已核对的文件，将结果接收到原工程。</p>
+        <h2>变更文件</h2>
       </div>
       <Button type="button" variant="outline" :disabled="busy" @click="refresh">
         重新读取差异
@@ -114,9 +128,7 @@ async function accept() {
       @rebound="bindingUpdated"
     />
     <p v-if="loading" role="status" class="muted">正在读取或接收文件…</p>
-    <p v-if="running && !diff" class="muted">
-      运行结束后可审阅并接收成果。也可手动读取当前工作区差异。
-    </p>
+    <p v-if="running" class="muted">正在展示隔离工作区的变更。运行结束后可接收文件。</p>
     <section v-if="targets.length" class="accept-targets" aria-label="接收目标工程">
       <h3>接收目标</h3>
       <dl>
@@ -152,60 +164,108 @@ async function accept() {
         >
       </div>
     </div>
-    <article v-for="file in files" :key="key(file)" class="diff-file">
-      <div class="section-heading">
-        <label class="check-label">
-          <input
-            v-model="selected"
-            type="checkbox"
-            :value="key(file)"
-            :disabled="
-              busy ||
-              running ||
-              !diff?.reviewToken ||
-              (file.conflict && !acknowledged.includes(key(file)))
-            "
-          />
-          <strong>{{ file.path }}</strong>
-        </label>
-        <span class="muted">{{ file.result ? (file.initial ? '修改' : '新增') : '删除' }}</span>
-      </div>
-      <p class="file-project muted">{{ projectName(file.projectId) }}</p>
-      <p v-if="file.conflict" class="notice warning">
-        原工程与运行基线已有差异，请同时核对当前原文件和运行结果。
-      </p>
-      <div v-if="file.binary" class="diff-binary">
-        <p>二进制文件</p>
-        <p class="path-text">原文件 {{ file.current?.sha256 ?? '不存在' }}</p>
-        <p class="path-text">运行结果 {{ file.result?.sha256 ?? '删除' }}</p>
-      </div>
-      <details v-else>
-        <summary>展开文件对照</summary>
-        <div class="three-way">
-          <section>
-            <h3>运行起点</h3>
-            <pre>{{ file.initialText ?? '文件不存在' }}</pre>
-          </section>
-          <section>
-            <h3>原工程当前内容</h3>
-            <pre>{{ file.currentText ?? '文件不存在' }}</pre>
-          </section>
-          <section>
-            <h3>运行结果</h3>
-            <pre>{{ file.resultText ?? '文件已删除' }}</pre>
-          </section>
-        </div>
-      </details>
-      <label v-if="file.conflict" class="check-label">
-        <input
-          v-model="acknowledged"
-          type="checkbox"
-          :value="key(file)"
-          @change="selected = selected.filter((item) => item !== key(file))"
-        />
-        我已核对冲突，可用运行结果更新此文件
-      </label>
-    </article>
+    <div
+      v-if="files.length"
+      class="file-scroll"
+      tabindex="0"
+      role="region"
+      aria-label="变更文件列表"
+    >
+      <table class="files-table">
+        <caption class="sr-only">
+          可审阅的文件变更与冲突状态
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" class="select-col">选择</th>
+            <th scope="col">文件</th>
+            <th scope="col">工程</th>
+            <th scope="col">变更</th>
+            <th scope="col">核对状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="file in files" :key="key(file)">
+            <tr>
+              <td class="select-col">
+                <input
+                  v-model="selected"
+                  type="checkbox"
+                  :value="key(file)"
+                  :aria-label="`选择 ${file.path}`"
+                  :disabled="
+                    busy ||
+                    running ||
+                    !diff?.reviewToken ||
+                    (file.conflict && !acknowledged.includes(key(file)))
+                  "
+                />
+              </td>
+              <th scope="row">
+                <button
+                  type="button"
+                  class="file-trigger"
+                  :aria-expanded="expanded === key(file)"
+                  @click="expanded = expanded === key(file) ? '' : key(file)"
+                >
+                  <span aria-hidden="true">{{ expanded === key(file) ? '▾' : '▸' }}</span>
+                  <span>{{ file.path }}</span>
+                </button>
+              </th>
+              <td>{{ projectName(file.projectId) }}</td>
+              <td>{{ file.result ? (file.initial ? '修改' : '新增') : '删除' }}</td>
+              <td :class="{ 'warning-text': file.conflict && !acknowledged.includes(key(file)) }">
+                {{
+                  file.conflict
+                    ? acknowledged.includes(key(file))
+                      ? '冲突已核对'
+                      : '有冲突'
+                    : '无冲突'
+                }}
+              </td>
+            </tr>
+            <tr v-if="expanded === key(file)">
+              <td colspan="5" class="comparison">
+                <p v-if="file.conflict" class="notice warning">
+                  原工程与运行基线已有差异，请核对原工程当前内容和运行结果。
+                </p>
+                <p v-if="file.binary" class="muted">二进制文件 · SHA-256</p>
+                <div class="three-way">
+                  <section>
+                    <h3>运行起点</h3>
+                    <pre>{{
+                      (file.binary ? file.initial?.sha256 : file.initialText) ?? '文件不存在'
+                    }}</pre>
+                  </section>
+                  <section>
+                    <h3>原工程当前内容</h3>
+                    <pre>{{
+                      (file.binary ? file.current?.sha256 : file.currentText) ?? '文件不存在'
+                    }}</pre>
+                  </section>
+                  <section>
+                    <h3>运行结果</h3>
+                    <pre>{{
+                      (file.binary ? file.result?.sha256 : file.resultText) ?? '文件已删除'
+                    }}</pre>
+                  </section>
+                </div>
+                <label v-if="file.conflict" class="check-label">
+                  <input
+                    v-model="acknowledged"
+                    type="checkbox"
+                    :value="key(file)"
+                    :disabled="busy || running"
+                    @change="selected = selected.filter((item) => item !== key(file))"
+                  />
+                  我已核对冲突，可用运行结果更新此文件
+                </label>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
     <p v-if="diff && !files.length" class="empty">当前没有可接收的文件差异</p>
     <div class="form-actions">
       <Button
@@ -285,9 +345,59 @@ async function accept() {
   padding-block: 10px;
   border-bottom: 1px solid var(--yss-colors-border);
 }
-.file-project {
-  margin: 4px 0 10px;
-  font-size: 12px;
+.file-scroll {
+  overflow: auto;
+  max-height: 65vh;
+}
+.files-table {
+  width: 100%;
+  min-width: 660px;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.files-table th,
+.files-table td {
+  padding: 6px 10px;
+  height: 40px;
+  text-align: left;
+  font-weight: 400;
+  border-bottom: 1px solid var(--yss-colors-border);
+}
+.files-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f7f8fa;
+  z-index: 1;
+  color: var(--brand-color-text-secondary);
+}
+.files-table .select-col {
+  width: 52px;
+  text-align: center;
+}
+.files-table td {
+  white-space: nowrap;
+}
+.file-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  min-height: 32px;
+  cursor: pointer;
+}
+.files-table .comparison {
+  white-space: normal;
+  background: #f7f8fa;
+  padding: 12px 16px;
+}
+.comparison .check-label {
+  margin-top: 12px;
+}
+@media (width < 720px) {
+  .file-trigger {
+    min-height: 44px;
+  }
 }
 .acceptance-result {
   margin-top: 16px;

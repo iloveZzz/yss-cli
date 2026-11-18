@@ -1,9 +1,12 @@
 use super::{
-    agent_protocol::{RunRequest, Session},
+    agent_protocol::{self, PiSession, RunRequest},
     agent_workspace::{self, GitBaseline, Workspace},
     content as spec_content,
     jobs::{JobContext, JobManager, JobRecord, lock_store},
-    model::{ContentView, QuestionResponse, ResponseKind, SourceDocument, Stage, WorkbenchState},
+    model::{
+        ContentView, QuestionKind, QuestionResponse, ResponseKind, SourceDocument, Stage,
+        WorkbenchState,
+    },
     progress_agent::{self, Activity},
     sources,
     store::Store,
@@ -18,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
 };
 
@@ -34,7 +37,16 @@ pub struct AgentStartRequest {
     pub request_id: String,
     pub resume_run_id: Option<String>,
     #[serde(default)]
+    pub allow_commands: bool,
+    #[serde(default)]
     pub lifecycle_stage: Option<Stage>,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AgentHost {
+    #[default]
+    Codex,
+    Pi,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +59,10 @@ pub struct AgentRun {
     pub job_id: String,
     #[serde(default)]
     pub binding_revision: u64,
+    #[serde(default)]
+    host: AgentHost,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pi_session: Option<PiSession>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub host_settings: Option<Value>,
@@ -151,6 +167,38 @@ fn save(context: &JobContext, run: &AgentRun) -> Result<()> {
 pub fn result(store: &mut Store, run_id: &str) -> Result<AgentRun> {
     load(store, run_id)
 }
+fn session_cwd(store: &Store, run: &AgentRun) -> Result<PathBuf> {
+    let project = &sources::spec(store.state(), &run.spec_id)?.project_id;
+    run.workspaces
+        .iter()
+        .find_map(|workspace| {
+            let prefix = workspace.project_prefixes.get(project)?;
+            Some(Path::new(&workspace.worktree_root).join(prefix))
+        })
+        .ok_or_else(|| invalid("运行缺少主 Spec 工程"))
+}
+fn can_resume(store: &Store, run: &AgentRun) -> bool {
+    agent_protocol::supported()
+        && run.host == AgentHost::Pi
+        && terminal(&run.status)
+        && run.pi_session.as_ref().is_some_and(|session| {
+            session_cwd(store, run).is_ok_and(|cwd| {
+                run.workspaces.iter().all(|workspace| {
+                    Root::open(Path::new(&workspace.worktree_root))
+                        .is_ok_and(|root| root.identity == workspace.worktree_identity)
+                }) && agent_protocol::session_available(store.data_dir(), &run.id, &cwd, session)
+            })
+        })
+}
+pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
+    let run = load(store, run_id)?;
+    let resume = can_resume(store, &run);
+    let mut value = serde_json::to_value(run).map_err(|_| invalid("执行详情编码失败"))?;
+    let fields = value.as_object_mut().expect("AgentRun is an object");
+    fields.remove("piSession");
+    fields.insert("canResume".into(), json!(resume));
+    Ok(value)
+}
 pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result<JobRecord> {
     if request.prompt.trim().is_empty() || request.prompt.len() > 128 * 1024 {
         return Err(invalid("请填写 128 KiB 以内的续办要求"));
@@ -206,8 +254,11 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             ) {
                 return Err(YssError::new(ErrorCode::Locked, "此运行仍在执行"));
             }
-            if prior.thread_id.is_none() || prior.workspaces.is_empty() {
-                return Err(invalid("运行尚未建立宿主会话，请重新发起"));
+            if prior.host != AgentHost::Pi {
+                return Err(invalid("此运行使用 Codex，请从 Spec 发起新的 Pi 运行"));
+            }
+            if !can_resume(&store, &prior) {
+                return Err(invalid("Pi 会话或工作区不可用，请从 Spec 重新发起"));
             }
             if !request.carry_files.is_empty() {
                 return Err(invalid("续接沿用原运行初始快照，请勿再次带入文件"));
@@ -221,6 +272,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         };
         (projects, prior, spec.title)
     };
+    let pi = agent_protocol::require_runtime(&Cancellation::new())?;
     let roots = projects
         .iter()
         .map(|(_, path)| {
@@ -236,7 +288,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         title,
         request.request_id.clone(),
         roots,
-        move |context| execute(context, request, projects, prior),
+        move |context| execute(context, request, projects, prior, &pi),
     )
 }
 fn mapped_state(store: &Store, run: &AgentRun) -> Result<WorkbenchState> {
@@ -271,10 +323,27 @@ fn execute(
     request: AgentStartRequest,
     projects: Vec<(String, String)>,
     prior: Option<AgentRun>,
+    pi: &Path,
 ) -> Result<Value> {
     let at = sources::now();
     let resumed = prior.is_some();
-    let mut run = prior.unwrap_or(AgentRun {
+    let previous_job_id = prior.as_ref().map(|run| run.job_id.clone());
+    let mut store = lock_store(&context.store)?;
+    let prior = if let Some(prior) = prior {
+        let current = load(&mut store, &prior.id)?;
+        // Runtime discovery happens before the job takes its workspace reservation.
+        if current.job_id != prior.job_id || current.binding_revision != prior.binding_revision {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "续接前执行记录或工程绑定已变化，请打开最新执行详情后重试",
+            )
+            .context("jobId", current.job_id));
+        }
+        Some(current)
+    } else {
+        None
+    };
+    let mut run = prior.unwrap_or_else(|| AgentRun {
         id: context.id.clone(),
         spec_id: request.spec_id.clone(),
         prompt: request.prompt.clone(),
@@ -282,6 +351,8 @@ fn execute(
         status: "preparing".into(),
         job_id: context.id.clone(),
         binding_revision: 0,
+        host: AgentHost::Pi,
+        pi_session: None,
         thread_id: None,
         turn_id: None,
         host_settings: None,
@@ -298,17 +369,28 @@ fn execute(
     run.prompt = request.prompt.clone();
     run.status = "preparing".into();
     run.updated_at = sources::now();
-    let binding = lock_store(&context.store).and_then(|mut store| {
-        progress_agent::bind_run(&mut store, &mut run, request.lifecycle_stage)
-    });
+    let binding = progress_agent::bind_run(&mut store, &mut run, request.lifecycle_stage);
+    store.put_record_with_event(
+        "agentRun",
+        &run.id,
+        &run,
+        Some(super::sqlite::EventWrite {
+            job_id: &context.id,
+            kind: "run",
+            payload: &json!({
+                "runId": run.id, "resumed": resumed, "host": run.host,
+                "allowCommands": request.allow_commands, "prompt": request.prompt,
+                "previousJobId": previous_job_id
+            }),
+        }),
+    )?;
+    drop(store);
     if let Err(error) = binding {
         let _ = context.emit(
             "progressError",
             json!({"runId":run.id,"activity":"bind","error":error}),
         );
     }
-    save(&context, &run)?;
-    context.emit("run", json!({"runId":run.id,"resumed":resumed}))?;
     progress_agent::note(&context, &run, Activity::Started);
     let work = (|| -> Result<Value> {
         let (data_dir, spec) = {
@@ -352,7 +434,7 @@ fn execute(
         for workspace in &run.workspaces {
             agent_workspace::validate(workspace)?;
         }
-        let (mut instructions, cwd) = {
+        let (mut instructions, cwd, primary_project) = {
             let store = lock_store(&context.store)?;
             let mapped = mapped_state(&store, &run)?;
             let spec = sources::spec(&mapped, &run.spec_id)?;
@@ -371,9 +453,9 @@ fn execute(
             if let Some(index) = text.find("此工作台的所有后续命令") {
                 text.truncate(index);
             }
-            (text, project.root_path.clone())
+            (text, project.root_path.clone(), spec.project_id.clone())
         };
-        instructions.push_str(&format!("\n运行 ID：{}\n工作区映射：{}\n在列出的隔离工作区完成此任务。所有文件修改限定在这些工作区内，保持 Git HEAD、分支与 index。新增业务问题先写入主 Spec 的 questions，再在结构化提问中沿用该问题的 id。工作台将保存实际答复并在工具结果中返回答复 ID，落实答复后以该 ID 写入 appliedDecisionId。运行结束后由用户在工作台接收文件并刷新原 Spec 记录。\n用户本次要求：\n{}\n",run.id,serde_json::to_string_pretty(&run.workspaces.iter().map(|w|json!({"projectIds":w.project_ids,"originalRoot":w.original_root,"worktreeRoot":w.worktree_root,"projectPrefixes":w.project_prefixes})).collect::<Vec<_>>()).map_err(|e|invalid(e.to_string()))?,request.prompt));
+        instructions.push_str(&format!("\n运行 ID：{}\n工作区映射：{}\n在列出的隔离工作区完成此任务。所有文件修改限定在这些工作区内，保持 Git HEAD、分支与 index。新增业务问题先写入主 Spec 的 questions，再用 ask_spec_question 提交该问题的 ID。工作台将保存实际答复并在工具结果中返回答复 ID，落实答复后以该 ID 写入 appliedDecisionId。运行结束后由用户在工作台接收文件并刷新原 Spec 记录。\n用户本次要求：\n{}\n",run.id,serde_json::to_string_pretty(&run.workspaces.iter().map(|w|json!({"projectIds":w.project_ids,"worktreeRoot":w.worktree_root,"projectPrefixes":w.project_prefixes})).collect::<Vec<_>>()).map_err(|e|invalid(e.to_string()))?,request.prompt));
         match lock_store(&context.store)
             .and_then(|mut store| progress_agent::run_context(&mut store, &run))
         {
@@ -385,95 +467,42 @@ fn execute(
                 );
             }
         }
-        let roots = run
-            .workspaces
-            .iter()
-            .map(|w| w.worktree_root.clone())
-            .collect::<Vec<_>>();
-        let resume = run.thread_id.clone();
         run.status = "running".into();
         save(&context, &run)?;
-        let executable = std::env::var("YSS_CODEX_EXECUTABLE").unwrap_or_else(|_| "codex".into());
-        let mut session = Session::open(&executable, Path::new(&cwd), &context.cancel)?;
         let run_id = run.id.clone();
-        let completed = session.run(
-            RunRequest { cwd: &cwd, roots: &roots, prompt: &instructions, resume: resume.as_deref() },
-            &context.cancel,
-            |kind, payload| {
-                if matches!(kind, "hostThread" | "hostTurn") {
-                    let mut store = lock_store(&context.store)?;
-                    let mut latest = load(&mut store, &run_id)?;
-                    if kind == "hostThread" {
-                        latest.thread_id = payload.pointer("/thread/id").and_then(Value::as_str).map(str::to_owned);
-                        latest.host_settings = Some(payload.clone());
-                    } else {
-                        latest.turn_id = payload.pointer("/turn/id").and_then(Value::as_str).map(str::to_owned);
-                    }
-                    latest.updated_at = sources::now();
-                    store.put_record("agentRun", &run_id, &latest)?;
-                }
-                context.emit(kind, payload)
+        let question_run = run.id.clone();
+        agent_protocol::run(
+            RunRequest {
+                executable: pi,
+                data_dir: &data_dir,
+                run_id: &run.id,
+                cwd: Path::new(&cwd),
+                primary_project: &primary_project,
+                workspaces: &run.workspaces,
+                prompt: &instructions,
+                resume: run.pi_session.as_ref(),
+                allow_commands: request.allow_commands,
             },
-            |request_id, payload| {
-                let mut answer = context.request_input(request_id, payload.clone())?;
-                let id = fs::unique_id()?;
+            &context,
+            |session, settings| {
                 let mut store = lock_store(&context.store)?;
-                let latest = load(&mut store, &run_id)?;
-                let mut response_ids = BTreeMap::new();
-                if let Some(answers) = answer.get("answers").and_then(Value::as_object) {
-                    let view = content(&mut store, &run_id, &latest.spec_id)?;
-                    for (question_id, value) in answers {
-                        if let Some(question) = view.questions.iter().find(|question| question.question.id == *question_id) {
-                            let text = value.get("answers").and_then(Value::as_array)
-                                .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n"))
-                                .unwrap_or_default();
-                            if text.trim().is_empty() { continue; }
-                            let saved = respond(&mut store, &run_id, QuestionResponse {
-                                id: String::new(), spec_id: latest.spec_id.clone(), question_id: question_id.clone(),
-                                kind: ResponseKind::Answer, answer: text, reason: String::new(), impact: String::new(),
-                                excluded_scope: String::new(), review_at: String::new(), review_when: String::new(),
-                                review_utc_offset_minutes: 0, question_digest: question.digest.clone(), created_at: String::new(),
-                            })?;
-                            response_ids.insert(question_id.clone(), saved.id);
-                        }
-                    }
-                }
-                for (question_id, response_id) in &response_ids {
-                    let pointer = format!("/answers/{}/answers", question_id.replace('~', "~0").replace('/', "~1"));
-                    if let Some(values) = answer.pointer_mut(&pointer).and_then(Value::as_array_mut) {
-                        values.push(json!(format!("工作台已保存实际答复 ID {response_id}。将答复落实到正文及关联产物后，以此 ID 写入 appliedDecisionId。")));
-                    }
-                }
                 let mut latest = load(&mut store, &run_id)?;
-                latest.answers.push(json!({"id": id, "requestId": request_id, "request": payload, "answer": answer, "responseIds": response_ids, "createdAt": sources::now()}));
+                if let Some(session) = session {
+                    latest.pi_session = Some(session);
+                }
+                latest.host_settings = Some(settings);
                 latest.updated_at = sources::now();
-                store.put_record("agentRun", &run_id, &latest)?;
-                Ok(answer)
+                store.put_record("agentRun", &run_id, &latest)
             },
+            move |context, question_id| ask_question(context, &question_run, question_id),
         )?;
-        let status = completed
-            .pointer("/turn/status")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        if status != "completed" {
-            return Err(YssError::new(
-                if status == "interrupted" {
-                    ErrorCode::Cancelled
-                } else {
-                    ErrorCode::Io
-                },
-                "Codex 本轮未完成",
-            )
-            .context("turn", completed));
-        }
         let mut store = lock_store(&context.store)?;
         let mut latest = load(&mut store, &run.id)?;
         latest.status = "completed".into();
-        latest.turn_id = None;
         latest.updated_at = sources::now();
         store.put_record("agentRun", &latest.id, &latest)?;
         Ok(
-            json!({"runId":latest.id,"threadId":latest.thread_id,"status":"completed","diffAvailable":true}),
+            json!({"runId": latest.id, "host": latest.host, "status": "completed", "diffAvailable": true}),
         )
     })();
     if let Err(error) = &work
@@ -796,6 +825,14 @@ pub fn respond(
     run_id: &str,
     response: QuestionResponse,
 ) -> Result<QuestionResponse> {
+    save_response(store, run_id, response, None)
+}
+fn save_response(
+    store: &mut Store,
+    run_id: &str,
+    response: QuestionResponse,
+    input: Option<(&str, &str)>,
+) -> Result<QuestionResponse> {
     let mut run = load(store, run_id)?;
     if response.spec_id != run.spec_id {
         return Err(invalid("Spec 与运行不匹配"));
@@ -807,11 +844,113 @@ pub fn respond(
         .last()
         .cloned()
         .ok_or_else(|| invalid("答复保存失败"))?;
-    run.answers
-        .push(json!({"id":response.id,"questionResponse":response}));
+    let mut answer = json!({"id":response.id,"questionResponse":response});
     run.updated_at = sources::now();
-    store.put_record("agentRun", &run.id, &run)?;
+    if let Some((job_id, request_id)) = input {
+        if run.job_id != job_id {
+            return Err(invalid("答复的执行记录已变化，请重新核对"));
+        }
+        answer["jobId"] = json!(job_id);
+        answer["requestId"] = json!(request_id);
+        run.answers.push(answer);
+        // The answer and its replay event must survive interruptions together.
+        store.put_record_with_event(
+            "agentRun",
+            &run.id,
+            &run,
+            Some(super::sqlite::EventWrite {
+                job_id,
+                kind: "piQuestionResult",
+                payload: &json!({
+                    "requestId": request_id, "responseId": response.id, "answer": response.answer
+                }),
+            }),
+        )?;
+    } else {
+        run.answers.push(answer);
+        store.put_record("agentRun", &run.id, &run)?;
+    }
     Ok(response)
+}
+fn ask_question(context: &JobContext, run_id: &str, question_id: &str) -> Result<String> {
+    let (spec_id, question) = {
+        let mut store = lock_store(&context.store)?;
+        let run = load(&mut store, run_id)?;
+        let question = content(&mut store, run_id, &run.spec_id)?
+            .questions
+            .into_iter()
+            .find(|question| question.question.id == question_id)
+            .filter(|question| question.question.kind == QuestionKind::Decision)
+            .ok_or_else(|| invalid("请先在主 Spec 登记此业务问题，再按实际 ID 提问"))?;
+        (run.spec_id, question)
+    };
+    let answer_text = |response: &QuestionResponse| {
+        format!(
+            "用户答复：{}\n工作台已保存答复 ID {}。落实正文及产物后，以该 ID 写入 appliedDecisionId。",
+            response.answer, response.id
+        )
+    };
+    if let Some(saved) = &question.response
+        && saved.question_digest == question.digest
+        && saved.kind == ResponseKind::Answer
+    {
+        return Ok(answer_text(saved));
+    }
+    let mut details = json!({ "id": question_id, "question": question.question.title });
+    if !question.question.recommendation.trim().is_empty() {
+        details["options"] = json!([{ "label": question.question.recommendation }]);
+    }
+    let request_id = fs::unique_id()?;
+    let reply = context.request_input(
+        &request_id,
+        json!({
+            "protocolMethod": "pi/askSpecQuestion",
+            "params": { "reason": question.question.impact, "questions": [details] },
+        }),
+    )?;
+    let saved = (|| -> Result<QuestionResponse> {
+        let answer = reply["answers"][question_id]["answers"]
+            .as_array()
+            .filter(|answers| answers.len() == 1)
+            .and_then(|answers| answers[0].as_str())
+            .map(str::trim)
+            .filter(|answer| !answer.is_empty())
+            .ok_or_else(|| invalid("业务问题答复为空或格式无效"))?;
+        context.cancel.check()?;
+        let mut store = lock_store(&context.store)?;
+        save_response(
+            &mut store,
+            run_id,
+            QuestionResponse {
+                id: String::new(),
+                spec_id,
+                question_id: question_id.into(),
+                kind: ResponseKind::Answer,
+                answer: answer.into(),
+                reason: String::new(),
+                impact: String::new(),
+                excluded_scope: String::new(),
+                review_at: String::new(),
+                review_when: String::new(),
+                review_utc_offset_minutes: 0,
+                question_digest: question.digest,
+                created_at: String::new(),
+            },
+            Some((&context.id, &request_id)),
+        )
+    })();
+    match saved {
+        Ok(saved) => Ok(answer_text(&saved)),
+        Err(error) => {
+            if error.code != ErrorCode::Cancelled {
+                let _ = context.emit(
+                    "piQuestionResult",
+                    json!({"requestId": request_id, "error": error.message}),
+                );
+            }
+            Err(error)
+        }
+    }
 }
 fn text(bytes: Option<Vec<u8>>) -> Option<String> {
     bytes

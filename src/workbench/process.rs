@@ -224,12 +224,6 @@ pub(crate) fn run_command(
     cancel: &Cancellation,
     timeout: Duration,
 ) -> Result<Vec<u8>> {
-    cancel.check()?;
-    let program = command.get_program().to_string_lossy().into_owned();
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
     command
         .env("GH_PROMPT_DISABLED", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -239,56 +233,10 @@ pub(crate) fn run_command(
         .env_remove("GLAB_DEBUG_HTTP")
         .env_remove("GIT_TRACE")
         .env_remove("GIT_TRACE_CURL");
-    let scope = isolate(&mut command)?;
-    let mut child = command.spawn().map_err(|_| {
-        YssError::new(
-            ErrorCode::NotReady,
-            format!("无法启动 {program}，请先安装并登录"),
-        )
-    })?;
-    let mut tree = ProcessTree::attach(&mut child, scope)?;
-    let (tx, rx) = mpsc::channel();
-    reader(child.stdout.take().expect("piped stdout"), true, tx.clone());
-    reader(child.stderr.take().expect("piped stderr"), false, tx);
-    let started = Instant::now();
-    let mut output = Vec::new();
-    while output.len() < 2 || child.try_wait()?.is_none() {
-        if cancel.is_cancelled() {
-            stop(&mut child, &mut tree);
-            return cancel.check().map(|_| Vec::new());
-        }
-        if started.elapsed() > timeout {
-            stop(&mut child, &mut tree);
-            return Err(YssError::new(ErrorCode::Network, "外部查询超时"));
-        }
-        match rx.recv_timeout(Duration::from_millis(30)) {
-            Ok((stdout, Ok(bytes))) if bytes.len() <= OUTPUT_LIMIT => output.push((stdout, bytes)),
-            Ok(_) => {
-                stop(&mut child, &mut tree);
-                return Err(YssError::new(
-                    ErrorCode::Network,
-                    "外部查询输出超过限制或读取失败",
-                ));
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) if output.len() == 2 => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => {
-                stop(&mut child, &mut tree);
-                return Err(YssError::new(ErrorCode::Network, "外部查询输出中断"));
-            }
-        }
-    }
-    let status = child.wait()?;
-    stop(&mut child, &mut tree);
+    let (status, stdout, stderr) = capture_command(command, cancel, timeout)?;
     if !status.success() {
-        // Never return raw stderr, which an authenticated helper may populate with secrets.
-        let stderr = output
-            .iter()
-            .find(|(stdout, _)| !stdout)
-            .map(|(_, bytes)| String::from_utf8_lossy(bytes).to_ascii_lowercase())
-            .unwrap_or_default();
+        // Authenticated helpers can include secrets in their diagnostics.
+        let stderr = String::from_utf8_lossy(&stderr).to_ascii_lowercase();
         let (code, message) = if stderr.contains("429")
             || stderr.contains("rate limit")
             || stderr.contains("rate_limit")
@@ -314,10 +262,70 @@ pub(crate) fn run_command(
         };
         return Err(YssError::new(code, message));
     }
-    // Preserve the identity of stdout even when stderr arrives first.
-    Ok(output
-        .into_iter()
-        .find(|(stdout, _)| *stdout)
-        .expect("stdout read")
-        .1)
+    Ok(stdout)
+}
+
+pub(crate) fn capture_command(
+    mut command: Command,
+    cancel: &Cancellation,
+    timeout: Duration,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>)> {
+    cancel.check()?;
+    let program = command.get_program().to_string_lossy().into_owned();
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let scope = isolate(&mut command)?;
+    let mut child = command.spawn().map_err(|_| {
+        YssError::new(
+            ErrorCode::NotReady,
+            format!("无法启动 {program}，请先安装并登录"),
+        )
+    })?;
+    let mut tree = ProcessTree::attach(&mut child, scope)?;
+    let (tx, rx) = mpsc::channel();
+    reader(child.stdout.take().expect("piped stdout"), true, tx.clone());
+    reader(child.stderr.take().expect("piped stderr"), false, tx);
+    let started = Instant::now();
+    let (mut stdout, mut stderr, mut status) = (None, None, None);
+    while stdout.is_none() || stderr.is_none() || status.is_none() {
+        if cancel.is_cancelled() {
+            stop(&mut child, &mut tree);
+            cancel.check()?;
+        }
+        if started.elapsed() > timeout {
+            stop(&mut child, &mut tree);
+            return Err(YssError::new(ErrorCode::Network, "外部查询超时"));
+        }
+        if status.is_none()
+            && let Some(exited) = child.try_wait()?
+        {
+            status = Some(exited);
+            // Descendants can otherwise keep pipes open and continue writing after the command exits.
+            stop(&mut child, &mut tree);
+        }
+        match rx.recv_timeout(Duration::from_millis(30)) {
+            Ok((true, Ok(bytes))) if bytes.len() <= OUTPUT_LIMIT => stdout = Some(bytes),
+            Ok((false, Ok(bytes))) if bytes.len() <= OUTPUT_LIMIT => stderr = Some(bytes),
+            Ok(_) => {
+                stop(&mut child, &mut tree);
+                return Err(YssError::new(
+                    ErrorCode::Network,
+                    "外部查询输出超过限制或读取失败",
+                ));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) if stdout.is_some() && stderr.is_some() => {
+                if status.is_none() {
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+            Err(_) => {
+                stop(&mut child, &mut tree);
+                return Err(YssError::new(ErrorCode::Network, "外部查询输出中断"));
+            }
+        }
+    }
+    Ok((status.unwrap(), stdout.unwrap(), stderr.unwrap()))
 }

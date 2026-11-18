@@ -39,7 +39,29 @@ pub(crate) struct CommitEffects {
     pub blobs: Vec<(String, Vec<u8>)>,
 }
 
+pub(crate) struct EventWrite<'a> {
+    pub job_id: &'a str,
+    pub kind: &'a str,
+    pub payload: &'a serde_json::Value,
+}
+
 pub(crate) type ExtensionRecords = BTreeMap<String, Vec<(String, String)>>;
+
+fn insert_event(
+    connection: &Connection,
+    job_id: &str,
+    kind: &str,
+    payload: &str,
+    at: &str,
+) -> Result<u64> {
+    connection
+        .execute(
+            "INSERT INTO job_events(job_id,kind,payload,created_at) VALUES(?1,?2,?3,?4)",
+            params![job_id, kind, payload, at],
+        )
+        .map_err(sql_error)?;
+    Ok(connection.last_insert_rowid() as u64)
+}
 
 fn write_effects(connection: &Connection, effects: &CommitEffects) -> Result<()> {
     for record in &effects.records {
@@ -834,7 +856,12 @@ impl Database {
             .collect::<rusqlite::Result<_>>()
             .map_err(sql_error)
     }
-    pub(crate) fn write_records(&mut self, root: &Root, effects: &CommitEffects) -> Result<()> {
+    pub(crate) fn write_records(
+        &mut self,
+        root: &Root,
+        effects: &CommitEffects,
+        event: Option<EventWrite<'_>>,
+    ) -> Result<()> {
         self.revalidate(root)?;
         let transaction = self
             .connection
@@ -847,6 +874,15 @@ impl Database {
             ));
         }
         write_effects(&transaction, effects)?;
+        if let Some(event) = event {
+            insert_event(
+                &transaction,
+                event.job_id,
+                event.kind,
+                &serde_json::to_string(event.payload).map_err(|_| invalid("作业事件编码失败"))?,
+                &super::sources::now(),
+            )?;
+        }
         if let Err(error) = transaction.commit() {
             let error = sql_error(error);
             if error.code == ErrorCode::Locked && self.connection.is_autocommit() {
@@ -897,13 +933,7 @@ impl Database {
                 "数据库已被其他连接修改，请重启核实",
             ));
         }
-        transaction
-            .execute(
-                "INSERT INTO job_events(job_id,kind,payload,created_at) VALUES(?1,?2,?3,?4)",
-                params![job_id, kind, payload, at],
-            )
-            .map_err(sql_error)?;
-        let id = transaction.last_insert_rowid();
+        let id = insert_event(&transaction, job_id, kind, payload, at)?;
         if let Err(error) = transaction.commit() {
             let error = sql_error(error);
             if error.code == ErrorCode::Locked && self.connection.is_autocommit() {
@@ -920,12 +950,17 @@ impl Database {
                 "事件提交后数据库身份改变，请重启核实",
             )
         })?;
-        Ok(id as u64)
+        Ok(id)
     }
-    pub(crate) fn events(&self, job_id: &str, after: u64) -> Result<Vec<super::jobs::JobEvent>> {
-        let mut statement=self.connection.prepare("SELECT id,kind,payload,created_at FROM job_events WHERE job_id=?1 AND id>?2 ORDER BY id LIMIT 200").map_err(sql_error)?;
+    pub(crate) fn events_through(
+        &self,
+        job_id: &str,
+        after: u64,
+        through: u64,
+    ) -> Result<Vec<super::jobs::JobEvent>> {
+        let mut statement=self.connection.prepare("SELECT id,kind,payload,created_at FROM job_events WHERE job_id=?1 AND id>?2 AND id<=?3 ORDER BY id LIMIT 200").map_err(sql_error)?;
         let rows = statement
-            .query_map(params![job_id, after as i64], |row| {
+            .query_map(params![job_id, after as i64, through as i64], |row| {
                 Ok((
                     row.get::<_, i64>(0)? as u64,
                     row.get::<_, String>(1)?,
@@ -945,6 +980,16 @@ impl Database {
             })
         })
         .collect()
+    }
+    pub(crate) fn last_event_id(&self, job_id: &str) -> Result<u64> {
+        self.connection
+            .query_row(
+                "SELECT COALESCE(MAX(id),0) FROM job_events WHERE job_id=?1",
+                [job_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|id| id as u64)
+            .map_err(sql_error)
     }
     pub(crate) fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.connection

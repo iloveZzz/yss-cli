@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码为 Rust CLI `3.12.0`，内嵌 Spec / Home Template 5.12.0。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；用户运行时不依赖 Go/Bun/Node/Python。
+当前源码为 Rust CLI `3.12.0`，内嵌 Spec / Home Template 5.12.0。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。用户程序内嵌模板资源，构建过程需要 Rust 工具链及目标平台链接工具；CLI 和工作台界面由 yss 二进制提供。macOS ARM64 的 Agent 作业使用独立安装的 Pi 1.5.2 及其运行依赖。
 
 工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 
@@ -102,4 +102,4 @@ CLI `3.12.0` 的发行目标仅为 `aarch64-apple-darwin` 和 `x86_64-pc-windows
 
 在空 PATH 下已实际执行 help/version/catalog、init/attach/sync/skills/doctor/recover、DDD/MVC 生成、离线预览/初装/重复升级。输入和目标使用非 Git 临时目录，未调用 Go/Bun/Node/Python；涉及 Git 工作树的保护性操作仍需系统 Git，缺失时拒绝继续。Rust 程序本身不会启动解释器来完成这些流程；Maven 编译所需 JDK/Maven 环境另算。
 
-源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，运行时无需 Node。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。
+源码构建工作台资源需要 Node 24（^24.14.1）和 pnpm 10.15.0；浏览器界面内嵌到用户程序，Pi 作业使用本机 Pi 的运行环境。内部 `yss-bundle` 可在没有 `ui/dist` 时构建；`yss` 和 `cargo clippy --all-targets` 必须先构建 UI。

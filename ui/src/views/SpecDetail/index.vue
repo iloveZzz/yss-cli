@@ -66,7 +66,7 @@ const tabs = [
   { id: 'lifecycle', label: '生命周期' },
   { id: 'resources', label: '关联资源' },
   { id: 'development', label: '研发关联' },
-  { id: 'run', label: '运行 Codex' },
+  { id: 'run', label: '运行 Pi Agent' },
   { id: 'history', label: '变更历史' },
   { id: 'settings', label: '设置' }
 ]
@@ -200,7 +200,7 @@ function moveTab(event: KeyboardEvent) {
         </p>
       </div>
       <div class="inline-actions">
-        <Button variant="outline" @click="tab = 'run'">运行 Codex</Button>
+        <Button variant="outline" @click="tab = 'run'">运行 Pi Agent</Button>
         <Button
           v-if="
             draft &&
@@ -469,6 +469,7 @@ function moveTab(event: KeyboardEvent) {
     <section v-show="tab === 'run'" id="panel-run" role="tabpanel" aria-labelledby="tab-run">
       <AgentLauncher
         :key="spec.record.id"
+        :active="tab === 'run'"
         :spec-id="spec.record.id"
         :project-id="spec.record.projectId"
         :lifecycle-stage="selectedStage"

@@ -1,0 +1,394 @@
+use super::{
+    sandbox::Sandbox,
+    workspace::{Location as WorktreeLocation, Worktrees},
+};
+use crate::{
+    cancel::Cancellation,
+    error::{ErrorCode, Result, YssError},
+    fs::unique_id,
+    workbench::jobs::JobContext,
+};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeSet,
+    io::{BufRead, BufReader, Read},
+    os::unix::net::{UnixListener, UnixStream},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
+
+const TOOLS: &[&str] = &["read", "ls", "grep", "write", "edit", "ask_spec_question"];
+const MAX_REQUEST: u64 = 4 * 1024 * 1024;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Location {
+    #[serde(default)]
+    path: String,
+    project_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Request {
+    token: String,
+    id: Option<String>,
+    #[serde(flatten)]
+    operation: Operation,
+}
+
+#[derive(Deserialize)]
+#[serde(
+    tag = "operation",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+enum Operation {
+    Ready {
+        tools: Vec<String>,
+    },
+    Read {
+        #[serde(flatten)]
+        location: Location,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    },
+    Ls {
+        #[serde(flatten)]
+        location: Location,
+    },
+    Grep {
+        #[serde(flatten)]
+        location: Location,
+        query: String,
+    },
+    Write {
+        #[serde(flatten)]
+        location: Location,
+        content: String,
+    },
+    Edit {
+        #[serde(flatten)]
+        location: Location,
+        old_text: String,
+        new_text: String,
+    },
+    Bash {
+        #[serde(flatten)]
+        location: Location,
+        command: String,
+    },
+    AskSpecQuestion {
+        question_id: String,
+    },
+}
+
+pub(super) struct Bridge {
+    path: PathBuf,
+    token: String,
+    ready: Arc<AtomicBool>,
+    cancel: Cancellation,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Bridge {
+    pub fn start(
+        private: &Path,
+        context: &JobContext,
+        worktrees: Worktrees,
+        sandbox: Option<Sandbox>,
+        ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
+    ) -> Result<Self> {
+        let path = private.join("tools.sock");
+        let listener = UnixListener::bind(&path)?;
+        listener.set_nonblocking(true)?;
+        let token = unique_id()?;
+        let ready = Arc::new(AtomicBool::new(false));
+        let cancel = context.cancel.child();
+        let mut context = context.clone();
+        context.cancel = cancel.clone();
+        let mut broker = Broker {
+            context,
+            worktrees,
+            sandbox,
+            token: token.clone(),
+            ready: ready.clone(),
+        };
+        let worker = thread::Builder::new()
+            .name("pi-tools".into())
+            .spawn(move || {
+                while !broker.context.cancel.is_cancelled() {
+                    match listener.accept() {
+                        Ok((stream, _)) => broker.serve(stream, &ask),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(20));
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(_) => break,
+                    }
+                }
+            })?;
+        Ok(Self {
+            path,
+            token,
+            ready,
+            cancel,
+            worker: Some(worker),
+        })
+    }
+
+    pub fn configure(&self, command: &mut std::process::Command, allow_commands: bool) {
+        command
+            .env("YSS_PI_SOCKET", &self.path)
+            .env("YSS_PI_SOCKET_TOKEN", &self.token)
+            .env(
+                "YSS_PI_ALLOW_COMMANDS",
+                if allow_commands { "1" } else { "0" },
+            );
+    }
+
+    pub fn await_ready(&self) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !self.ready.load(Ordering::Acquire) {
+            self.cancel.check()?;
+            if Instant::now() >= deadline {
+                return Err(YssError::new(
+                    ErrorCode::NotReady,
+                    "Pi 未加载工作台的受控工具",
+                ));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+struct Broker {
+    context: JobContext,
+    worktrees: Worktrees,
+    sandbox: Option<Sandbox>,
+    token: String,
+    ready: Arc<AtomicBool>,
+}
+
+fn invalid(message: &str) -> YssError {
+    YssError::new(ErrorCode::InvalidInput, message)
+}
+
+fn read_request(stream: &mut UnixStream) -> Result<Request> {
+    let mut line = Vec::new();
+    let read = BufReader::new(stream)
+        .take(MAX_REQUEST + 1)
+        .read_until(b'\n', &mut line)? as u64;
+    if read == 0 || read > MAX_REQUEST || line.last() != Some(&b'\n') {
+        return Err(invalid("Pi 工具请求不完整或超过长度限制"));
+    }
+    serde_json::from_slice(&line).map_err(|_| invalid("Pi 工具请求格式无效"))
+}
+
+impl Broker {
+    fn serve(
+        &mut self,
+        mut stream: UnixStream,
+        ask: &impl Fn(&JobContext, &str) -> Result<String>,
+    ) {
+        if stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .is_err()
+            || stream
+                .set_write_timeout(Some(Duration::from_secs(1)))
+                .is_err()
+        {
+            return;
+        }
+        let value = read_request(&mut stream)
+            .and_then(|request| self.execute(request, ask))
+            .unwrap_or_else(|error| json!({ "error": error.message }));
+        let _ = serde_json::to_writer(&mut stream, &value);
+    }
+
+    fn execute(
+        &self,
+        request: Request,
+        ask: &impl Fn(&JobContext, &str) -> Result<String>,
+    ) -> Result<Value> {
+        self.context.cancel.check()?;
+        if request.token != self.token {
+            return Err(invalid("Pi 工具连接无效"));
+        }
+        if let Operation::Ready { tools } = &request.operation {
+            let mut expected: BTreeSet<&str> = TOOLS.iter().copied().collect();
+            if self.sandbox.is_some() {
+                expected.insert("bash");
+            }
+            if tools.len() != expected.len()
+                || tools.iter().map(String::as_str).collect::<BTreeSet<_>>() != expected
+            {
+                return Err(invalid("Pi 启用的工具超出工作台授权"));
+            }
+            self.ready.store(true, Ordering::Release);
+            return Ok(json!({ "text": "工作台工具已就绪" }));
+        }
+        if !self.ready.load(Ordering::Acquire) {
+            return Err(invalid("Pi 工具尚未就绪"));
+        }
+        let id = request
+            .id
+            .as_deref()
+            .filter(|id| !id.is_empty() && id.len() <= 256)
+            .ok_or_else(|| invalid("Pi 工具调用缺少有效编号"))?;
+        let locate = |location: &Location| {
+            self.worktrees
+                .locate(location.project_id.as_deref(), &location.path)
+        };
+        let cancel = &self.context.cancel;
+        let result = match request.operation {
+            Operation::Ready { .. } => unreachable!(),
+            Operation::Read {
+                location,
+                offset,
+                limit,
+            } => self.file_call(id, "read", "读取", &location, |target| {
+                Ok((target.read(offset, limit)?, None))
+            })?,
+            Operation::Ls { location } => {
+                self.file_call(id, "ls", "列出", &location, |target| {
+                    Ok((target.list(cancel)?, None))
+                })?
+            }
+            Operation::Grep { location, query } => {
+                self.file_call(id, "grep", "搜索", &location, |target| {
+                    Ok((target.grep(&query, cancel)?, None))
+                })?
+            }
+            Operation::Write { location, content } => {
+                self.file_call(id, "write", "写入", &location, |target| {
+                    let action = target.write(content, cancel)?;
+                    Ok((
+                        format!("已写入 {}", target.display().display()),
+                        Some(action),
+                    ))
+                })?
+            }
+            Operation::Edit {
+                location,
+                old_text,
+                new_text,
+            } => self.file_call(id, "edit", "编辑", &location, |target| {
+                let action = target.edit(&old_text, &new_text, cancel)?;
+                Ok((
+                    format!("已编辑 {}", target.display().display()),
+                    Some(action),
+                ))
+            })?,
+            Operation::Bash { location, command } => {
+                return self.run_command(id, &locate(&location)?.directory()?, &command);
+            }
+            Operation::AskSpecQuestion { question_id } => ask(&self.context, &question_id)?,
+        };
+        Ok(json!({ "text": result }))
+    }
+
+    fn file_call(
+        &self,
+        id: &str,
+        operation: &str,
+        label: &str,
+        location: &Location,
+        call: impl FnOnce(&WorktreeLocation<'_>) -> Result<(String, Option<&'static str>)>,
+    ) -> Result<String> {
+        let mut path = None;
+        let result = self
+            .worktrees
+            .locate(location.project_id.as_deref(), &location.path)
+            .and_then(|target| {
+                path = Some(target.display());
+                call(&target)
+            });
+        let message = path.as_ref().map_or_else(
+            || label.into(),
+            |path| format!("{label} {}", path.display()),
+        );
+        match result {
+            Ok((text, change)) => {
+                if let Some(action) = change {
+                    self.context.emit("item/completed", json!({
+                        "item": { "id": id, "type": "fileChange", "operation": operation, "changes": [{ "path": path, "kind": action }] }
+                    }))?;
+                } else {
+                    self.context.emit("piTool", json!({
+                        "id": id, "operation": operation, "path": path, "status": "completed", "message": message
+                    }))?;
+                }
+                Ok(text)
+            }
+            Err(error) => {
+                let _ = self.context.emit("piTool", json!({
+                    "id": id, "operation": operation, "path": path, "status": "failed", "message": message, "error": error.message
+                }));
+                Err(error)
+            }
+        }
+    }
+
+    fn run_command(&self, id: &str, cwd: &Path, command: &str) -> Result<Value> {
+        let sandbox = self
+            .sandbox
+            .as_ref()
+            .ok_or_else(|| invalid("本次作业未授权执行隔离命令"))?;
+        if command.trim().is_empty() || command.len() > 64 * 1024 || command.contains('\0') {
+            return Err(invalid("命令须为 64 KiB 以内的有效文本"));
+        }
+        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd });
+        self.context
+            .emit("item/started", json!({ "item": base.clone() }))?;
+        let (mut item, result) = (base, sandbox.run(cwd, command, &self.context.cancel));
+        let (output, code) = match result {
+            Ok((status, stdout, stderr)) => {
+                let mut combined = stdout;
+                if !combined.is_empty() && !stderr.is_empty() && combined.last() != Some(&b'\n') {
+                    combined.push(b'\n');
+                }
+                combined.extend_from_slice(&stderr);
+                let text = String::from_utf8_lossy(&combined);
+                let limit = text.floor_char_boundary(text.len().min(256 * 1024));
+                let mut output = text[..limit].to_owned();
+                if limit < text.len() {
+                    output.push_str("\n[达到命令输出长度上限]");
+                }
+                (output, status.code().unwrap_or(-1))
+            }
+            Err(error) => {
+                item["status"] = json!(if error.code == ErrorCode::Cancelled {
+                    "canceled"
+                } else {
+                    "failed"
+                });
+                item["aggregatedOutput"] = json!(error.message);
+                self.context
+                    .emit("item/completed", json!({ "item": item }))?;
+                return Err(error);
+            }
+        };
+        item["exitCode"] = json!(code);
+        item["status"] = json!(if code == 0 { "completed" } else { "failed" });
+        item["aggregatedOutput"] = json!(output);
+        self.context
+            .emit("item/completed", json!({ "item": item }))?;
+        Ok(json!({ "text": format!("退出码 {code}\n{output}"), "exitCode": code }))
+    }
+}

@@ -1,6 +1,6 @@
 use super::{
     model::{MAX_STATE, WorkbenchState},
-    sqlite::{CommitEffects, Database, ExtensionRecords, RecordWrite},
+    sqlite::{CommitEffects, Database, EventWrite, ExtensionRecords, RecordWrite},
     storage_migration::{self, DATABASE_NAME, StorageState},
 };
 use crate::{
@@ -433,7 +433,16 @@ impl Store {
         id: &str,
         value: &T,
     ) -> Result<()> {
-        self.write_extensions(&CommitEffects {
+        self.put_record_with_event(kind, id, value, None)
+    }
+    pub(crate) fn put_record_with_event<T: serde::Serialize>(
+        &mut self,
+        kind: &str,
+        id: &str,
+        value: &T,
+        event: Option<EventWrite<'_>>,
+    ) -> Result<()> {
+        let effects = CommitEffects {
             records: vec![RecordWrite {
                 kind: kind.into(),
                 id: id.into(),
@@ -442,7 +451,8 @@ impl Store {
                 ),
             }],
             blobs: Vec::new(),
-        })
+        };
+        self.write_extensions_with_event(&effects, event)
     }
     pub fn delete_record(&mut self, kind: &str, id: &str) -> Result<()> {
         self.write_extensions(&CommitEffects {
@@ -455,6 +465,13 @@ impl Store {
         })
     }
     pub(crate) fn write_extensions(&mut self, effects: &CommitEffects) -> Result<()> {
+        self.write_extensions_with_event(effects, None)
+    }
+    fn write_extensions_with_event(
+        &mut self,
+        effects: &CommitEffects,
+        event: Option<EventWrite<'_>>,
+    ) -> Result<()> {
         if self.uncertain {
             return Err(YssError::new(
                 ErrorCode::RecoveryRequired,
@@ -473,7 +490,7 @@ impl Store {
                 "存储标记已改变，请重启核实",
             ));
         }
-        let result = self.database.write_records(&self.lock.root, effects);
+        let result = self.database.write_records(&self.lock.root, effects, event);
         if result
             .as_ref()
             .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
@@ -522,7 +539,18 @@ impl Store {
         result
     }
     pub fn events(&mut self, job_id: &str, after: u64) -> Result<Vec<super::jobs::JobEvent>> {
-        self.database.events(job_id, after)
+        self.events_through(job_id, after, i64::MAX as u64)
+    }
+    pub(crate) fn events_through(
+        &self,
+        job_id: &str,
+        after: u64,
+        through: u64,
+    ) -> Result<Vec<super::jobs::JobEvent>> {
+        self.database.events_through(job_id, after, through)
+    }
+    pub(crate) fn last_event_id(&self, job_id: &str) -> Result<u64> {
+        self.database.last_event_id(job_id)
     }
     pub fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.database.has_events_after(job_id, after)

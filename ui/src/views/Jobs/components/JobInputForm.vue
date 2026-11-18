@@ -59,13 +59,13 @@ function respond(decision?: string) {
 </script>
 <template>
   <section class="notice input-request">
-    <h2>{{ approval ? '需要你授权' : '需要你的答复' }}</h2>
+    <h2>{{ approval || ['execCommandApproval', 'applyPatchApproval'].includes(method) ? '需要你授权' : '需要你的答复' }}</h2>
     <p v-if="params.reason || params.message" class="preserve-lines">
       {{ String(params.reason ?? params.message) }}
     </p>
     <p v-if="command" class="request-command">{{ command }}</p>
     <p v-if="params.cwd" class="path-text">{{ params.cwd }}</p>
-    <form aria-label="回复 Codex" @submit.prevent="respond()">
+    <form aria-label="提交运行答复" @submit.prevent="respond()">
       <fieldset class="plain-fieldset" :disabled="busy">
         <legend class="sr-only">{{ approval ? '操作授权' : '问题答复' }}</legend>
         <div v-for="question in questions" :key="String(question.id)" class="input-question">

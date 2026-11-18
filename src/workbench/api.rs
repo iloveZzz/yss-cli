@@ -57,6 +57,14 @@ fn number(query: &BTreeMap<String, String>, key: &str, default: usize) -> Result
         .unwrap_or(Ok(default))
 }
 
+fn event_cursor(value: &str) -> Result<u64> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|v| *v <= i64::MAX as u64)
+        .ok_or_else(|| sources::invalid("事件游标无效"))
+}
+
 impl PlatformApi {
     pub fn source_state(&self) -> Result<Value> {
         let (state, records, external_links) = {
@@ -291,7 +299,7 @@ impl PlatformApi {
                         items.insert(job.request_id.clone(),json!({"requestId":job.request_id,"kind":job.kind,"status":job.status,"jobId":job.id,"result":job.result,"createdAt":job.created_at,"updatedAt":job.updated_at}));
                     }
                 }
-                json!({"items":items.into_values().rev().take(200).collect::<Vec<_>>()})
+                json!({"total":items.len(),"items":items.into_values().rev().take(200).collect::<Vec<_>>()})
             }
             ("POST", ["api", "targets"]) => {
                 #[derive(Deserialize)]
@@ -331,18 +339,31 @@ impl PlatformApi {
             }
             ("GET", ["api", "jobs"]) => encode(self.jobs.list()?)?,
             ("GET", ["api", "jobs", id]) => encode(self.jobs.get(id)?)?,
+            ("GET", ["api", "jobs", id, "activities"]) => {
+                let before = query
+                    .get("before")
+                    .map(|value| event_cursor(value))
+                    .transpose()?;
+                if query.get("view").is_some_and(|view| view == "conversation") {
+                    super::activities::conversation(&self.jobs, id, before)?
+                } else {
+                    super::activities::page(&self.jobs, id, before)?
+                }
+            }
+            ("GET", ["api", "jobs", id, "activities", first]) => {
+                let first = event_cursor(first)?;
+                if first == 0 {
+                    return Err(sources::invalid("活动编号无效"));
+                }
+                super::activities::detail(&self.jobs, id, first)?
+            }
             ("GET", ["api", "jobs", id, "event-page"]) => {
                 self.jobs.get(id)?;
                 let after = query
                     .get("after")
-                    .map(|value| {
-                        value
-                            .parse::<u64>()
-                            .ok()
-                            .filter(|value| *value <= i64::MAX as u64)
-                            .ok_or_else(|| sources::invalid("事件游标无效"))
-                    })
-                    .unwrap_or(Ok(0))?;
+                    .map(|value| event_cursor(value))
+                    .transpose()?
+                    .unwrap_or(0);
                 let mut store = jobs::lock_store(&self.jobs.store)?;
                 let items = store.events(id, after)?;
                 let next_after = items.last().map(|event| event.id).unwrap_or(after);
@@ -414,7 +435,7 @@ impl PlatformApi {
                     (store.data_dir().to_owned(), store.storage_usage()?)
                 };
                 let mut tools = Vec::new();
-                for program in ["git", "codex", "gh", "glab"] {
+                for program in ["git", "gh", "glab"] {
                     let result = super::process::run(
                         program,
                         &["--version".into()],
@@ -424,7 +445,8 @@ impl PlatformApi {
                     tools.push(match result {Ok(bytes)=>json!({"name":program,"available":true,"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),Err(error)=>json!({"name":program,"available":false,"message":error.message})});
                 }
                 let executable = std::env::current_exe()?;
-                json!({"version":BuildInfo::current(),"dataDir":data_dir,"executable":executable,"storage":usage,"databaseBytes":std::fs::metadata(data_dir.join(super::storage_migration::DATABASE_NAME)).map(|metadata|metadata.len()).unwrap_or(0),"tools":tools})
+                let pi = super::agent_protocol::runtime_status(&self.cancel);
+                json!({"version":BuildInfo::current(),"dataDir":data_dir,"executable":executable,"storage":usage,"databaseBytes":std::fs::metadata(data_dir.join(super::storage_migration::DATABASE_NAME)).map(|metadata|metadata.len()).unwrap_or(0),"tools":tools,"pi":pi})
             }
             ("POST", ["api", "backups"]) => {
                 #[derive(Deserialize)]
@@ -558,10 +580,9 @@ impl PlatformApi {
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
             }
-            ("GET", ["api", "agent", id]) => encode(agent::result(
-                &mut *jobs::lock_store(&self.jobs.store)?,
-                id,
-            )?)?,
+            ("GET", ["api", "agent", id]) => {
+                agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
+            }
             ("POST", ["api", "agent", id, "document"]) => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]

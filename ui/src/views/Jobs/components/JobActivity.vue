@@ -1,252 +1,291 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, toRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
-import { dateLabel } from '@/services/workbench'
-import { readableValue, type JobEvent } from '@/services/workbench-platform'
-import { jobActivity } from '../schemas/job'
-import { useJobHistory } from '../hooks/useJobHistory'
+import { dateLabel, errorMessage } from '@/services/workbench'
+import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
+import { activityLabels, stepResult } from '../schemas/job'
+import ActivityDetail from './ActivityDetail.vue'
+import RawJobEvents from './RawJobEvents.vue'
 
 const props = defineProps<{
   jobId: string
-  events: JobEvent[]
+  latest?: ActivityPage
   status: string
   error: string
-  complete: boolean
-  dropped: number
+  visible: boolean
 }>()
-const entries = computed(() => jobActivity(props.events))
-const log = useTemplateRef<HTMLOListElement>('activity')
-const following = shallowRef(true)
-const history = useJobHistory(toRef(props, 'jobId'))
-const rawOpen = shallowRef(false)
-function scrolled() {
-  const element = log.value
-  if (element)
-    following.value = element.scrollHeight - element.scrollTop - element.clientHeight < 80
-}
-function latest() {
-  if (log.value) log.value.scrollTop = log.value.scrollHeight
-  following.value = true
-}
-watch(
-  () => props.events.at(-1)?.id,
-  async () => {
-    if (!following.value) return
+const emit = defineEmits<{ retry: [] }>()
+const log = useTemplateRef<HTMLElement>('log')
+const bounds = shallowRef<number[]>([])
+const history = shallowRef<ActivityPage>()
+const frozen = shallowRef<ActivityPage>()
+const open = shallowRef<number>()
+const busy = shallowRef(false)
+const historyError = shallowRef('')
+const page = computed(() => history.value ?? frozen.value ?? props.latest)
+const following = computed(() => !history.value && !frozen.value)
+const rows = computed(() => page.value?.items ?? [])
+let controller: AbortController | undefined
+onBeforeUnmount(() => controller?.abort())
+async function navigate(nextBounds: number[]) {
+  controller?.abort()
+  const request = new AbortController()
+  controller = request
+  busy.value = true
+  historyError.value = ''
+  try {
+    const before = nextBounds.at(-1)
+    const result =
+      before === undefined ? undefined : await getJobActivities(props.jobId, before, request.signal)
+    if (request.signal.aborted) return
+    bounds.value = nextBounds
+    history.value = result
+    frozen.value = undefined
+    open.value = undefined
     await nextTick()
-    latest()
+    if (log.value) log.value.scrollTop = result ? 0 : log.value.scrollHeight
+  } catch (cause) {
+    if (!request.signal.aborted) historyError.value = errorMessage(cause)
+  } finally {
+    if (!request.signal.aborted) busy.value = false
   }
+}
+function older() {
+  const first = rows.value[0]
+  if (first) void navigate([...bounds.value, first.id])
+}
+function scrolled() {
+  const el = log.value
+  if (!el || !props.visible || history.value || busy.value) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight > 24) frozen.value ??= props.latest
+  else if (!open.value) frozen.value = undefined
+}
+function toggle(id: number) {
+  open.value = open.value === id ? undefined : id
+  if (open.value && !history.value) frozen.value ??= props.latest
+  else scrolled()
+}
+// Keep the same page boundaries while reading. An older, long-running command may
+// still receive output after it has fallen off the latest page.
+watch(
+  () => [props.latest?.cursor, props.visible],
+  async (_, __, onCleanup) => {
+    if (!props.visible || busy.value) return
+    if (following.value) {
+      await nextTick()
+      if (log.value) log.value.scrollTop = log.value.scrollHeight
+      return
+    }
+    const pinned = history.value ?? frozen.value
+    const last = pinned?.items.at(-1)
+    if (!last || pinned?.cursor === props.latest?.cursor) return
+    const request = new AbortController()
+    onCleanup(() => request.abort())
+    try {
+      const result = await getJobActivities(props.jobId, last.id + 1, request.signal)
+      if (request.signal.aborted) return
+      if (history.value === pinned) history.value = result
+      else if (frozen.value === pinned) frozen.value = result
+    } catch (cause) {
+      if (!request.signal.aborted) historyError.value = errorMessage(cause)
+    }
+  },
+  { immediate: true, flush: 'post' }
 )
-function toggleRaw(event: Event) {
-  rawOpen.value = (event.target as HTMLDetailsElement).open
-  if (rawOpen.value && !history.loaded.value) void history.read(0)
+function summary(text: string, command: boolean) {
+  if (!command) return text
+  const shell = /^(?:\/[^ ]*\/)?(?:zsh|bash|sh) -[a-z]*c\s+/.exec(text)
+  if (!shell) return text
+  const body = text.slice(shell[0].length)
+  const quote = body[0]
+  if (quote !== '"' && quote !== "'") return body
+  return body.endsWith(quote) ? body.slice(1, -1) : body.slice(1)
 }
 </script>
-
 <template>
-  <section class="platform-section activity-section">
+  <section class="platform-section log-section">
     <div class="section-heading">
-      <h2>消息与操作</h2>
-      <span class="muted connection-state">{{ status }}</span>
+      <div class="log-heading">
+        <h2>执行活动</h2>
+        <span v-if="page" class="muted">{{ page.total }} 条</span>
+      </div>
+      <span class="muted">{{ status }}</span>
     </div>
-    <p v-if="error" role="alert" class="notice warning">{{ error }}</p>
-    <div class="activity-toolbar">
-      <span class="muted">{{ dropped ? '正在显示近期记录' : `${events.length} 条运行事件` }}</span>
-      <Button type="button" variant="ghost" :disabled="!entries.length" @click="latest">
-        {{ following ? '已跟随最新消息' : '跳到最新消息' }}
-      </Button>
-    </div>
-    <ol
-      ref="activity"
-      class="activity-feed"
-      role="list"
+    <p v-if="error || historyError" role="alert" class="notice warning">
+      {{ error || historyError }}
+      <Button v-if="error" type="button" variant="ghost" @click="emit('retry')">重新连接</Button>
+    </p>
+    <div
+      ref="log"
+      class="activity-scroll"
+      role="region"
+      aria-label="执行活动列表"
       tabindex="0"
-      aria-label="近期运行消息与操作"
       @scroll.passive="scrolled"
     >
-      <li
-        v-for="entry in entries"
-        :key="entry.id"
-        :class="['activity-entry', `entry-${entry.kind}`]"
+      <table class="activity-table">
+        <caption class="sr-only">
+          本轮执行活动，按时间顺序排列
+        </caption>
+        <colgroup>
+          <col class="time-col" />
+          <col class="type-col" />
+          <col />
+          <col class="result-col" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">时间</th>
+            <th scope="col">活动</th>
+            <th scope="col">内容摘要</th>
+            <th scope="col">单步结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="row in rows" :key="row.id">
+            <tr>
+              <td>
+                <time :datetime="row.createdAt" :title="dateLabel(row.createdAt)">{{
+                  dateLabel(row.createdAt).split(' ').at(-1)
+                }}</time>
+              </td>
+              <th scope="row">{{ activityLabels[row.kind] }}</th>
+              <td class="summary-cell">
+                <button
+                  type="button"
+                  :aria-expanded="open === row.id"
+                  :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${row.text.slice(0, 80)}`"
+                  @click="toggle(row.id)"
+                >
+                  <span aria-hidden="true" class="chevron">{{ open === row.id ? '▾' : '▸' }}</span>
+                  <span class="summary-text" :class="{ mono: row.kind === 'command' }">{{
+                    summary(row.text, row.kind === 'command') || '查看详情'
+                  }}</span>
+                </button>
+              </td>
+              <td
+                :class="{
+                  'warning-text':
+                    (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error'
+                }"
+              >
+                {{ stepResult(row) }}
+              </td>
+            </tr>
+            <tr v-if="open === row.id">
+              <td colspan="4" class="activity-detail">
+                <ActivityDetail :job-id="jobId" :row="row" />
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <p v-if="!rows.length" class="empty">
+        {{ latest?.terminal ? '此执行暂无可展示的活动' : '等待运行活动…' }}
+      </p>
+    </div>
+    <nav class="log-nav" aria-label="执行活动分页">
+      <Button type="button" variant="outline" :disabled="busy || !page?.hasOlder" @click="older"
+        >较早活动</Button
       >
-        <div class="activity-meta">
-          <strong>{{ entry.title }}</strong>
-          <span v-if="entry.status && entry.kind === 'command'">{{ entry.status }}</span>
-          <time>{{ dateLabel(entry.createdAt) }}</time>
-        </div>
-        <p
-          v-if="entry.text"
-          :class="['activity-text', { 'command-text': entry.kind === 'command' }]"
-        >
-          {{ entry.text }}
-        </p>
-        <details v-if="entry.output" class="command-output">
-          <summary>命令输出</summary>
-          <pre>{{ entry.output }}</pre>
-        </details>
-      </li>
-      <li v-if="!entries.length" class="empty">
-        {{ complete ? '此执行暂无可展示的消息，可查看原始事件。' : '等待运行消息…' }}
-      </li>
-    </ol>
-    <details class="raw-history" @toggle="toggleRaw">
-      <summary>查看完整原始事件</summary>
-      <template v-if="rawOpen">
-        <div class="history-toolbar">
-          <span class="muted">第 {{ history.page.value + 1 }} 页 · 每页最多 200 条</span>
-          <Button
-            type="button"
-            variant="ghost"
-            :disabled="history.loading.value"
-            @click="history.read()"
-            >刷新当前页</Button
-          >
-        </div>
-        <p v-if="history.error.value" role="alert" class="notice error">
-          {{ history.error.value }}
-        </p>
-        <ol class="raw-events" role="list" aria-label="原始事件历史">
-          <li v-for="event in history.items.value" :key="event.id">
-            <details>
-              <summary>
-                <span>#{{ event.id }} · {{ event.kind }}</span
-                ><time>{{ dateLabel(event.createdAt) }}</time>
-              </summary>
-              <pre>{{ readableValue(event) }}</pre>
-            </details>
-          </li>
-        </ol>
-        <p v-if="history.loaded.value && !history.items.value.length" class="empty">本页暂无事件</p>
-        <nav class="history-toolbar" aria-label="原始事件分页">
-          <Button
-            type="button"
-            variant="outline"
-            :disabled="history.loading.value || history.page.value === 0"
-            @click="history.read(history.page.value - 1)"
-            >上一页</Button
-          >
-          <Button
-            type="button"
-            variant="outline"
-            :disabled="history.loading.value || !history.hasMore.value"
-            @click="history.read(history.page.value + 1)"
-            >下一页</Button
-          >
-        </nav>
-      </template>
-    </details>
+      <Button
+        v-if="bounds.length"
+        type="button"
+        variant="outline"
+        :disabled="busy"
+        @click="navigate(bounds.slice(0, -1))"
+        >较新活动</Button
+      >
+      <Button v-if="!following" type="button" variant="ghost" @click="navigate([])"
+        >回到最新活动</Button
+      >
+    </nav>
+    <RawJobEvents :job-id="jobId" />
   </section>
 </template>
-
 <style scoped>
-.activity-section {
+.log-section {
   min-width: 0;
 }
-.activity-toolbar,
-.history-toolbar {
+.log-heading,
+.log-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  margin: 12px 0;
-  flex-wrap: wrap;
 }
-.connection-state {
-  min-width: 112px;
-  text-align: right;
+.log-nav {
+  margin-top: 12px;
 }
-.activity-feed {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 540px;
+.activity-scroll {
+  max-height: min(54vh, 540px);
   overflow: auto;
   overscroll-behavior: contain;
+  overflow-anchor: none;
 }
-.activity-entry {
-  padding: 14px 4px;
+.activity-table {
+  width: 100%;
+  min-width: 540px;
+  table-layout: fixed;
+  border-spacing: 0;
+}
+.time-col {
+  width: 92px;
+}
+.type-col {
+  width: 90px;
+}
+.result-col {
+  width: 90px;
+}
+.activity-table th,
+.activity-table td {
+  padding: 5px 10px;
+  height: 40px;
+  text-align: left;
+  font-weight: 400;
   border-bottom: 1px solid var(--yss-colors-border);
 }
-.activity-entry:last-child {
-  border-bottom: 0;
-}
-.activity-meta {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 12px;
+.activity-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f7f8fa;
   color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
-.activity-meta strong {
-  color: var(--brand-color-text);
-  font-weight: 550;
+.activity-table time,
+.mono {
+  font-variant-numeric: tabular-nums;
 }
-.activity-meta time {
-  margin-left: auto;
-  font-size: 11px;
-}
-.activity-text {
-  margin: 7px 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.75;
-}
-.command-text {
-  font-family: ui-monospace, SFMono-Regular, monospace;
+.mono {
+  font-family: ui-monospace, monospace;
   font-size: 12px;
 }
-.entry-status {
-  padding-block: 10px;
-}
-.entry-error .activity-meta strong {
-  color: var(--yss-colors-error-text);
-}
-.command-output {
-  margin-top: 8px;
-}
-.command-output pre,
-.raw-events pre {
-  overflow: auto;
-  max-height: 360px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.raw-history {
-  border-top: 1px solid var(--yss-colors-border);
-  padding-top: 14px;
-  margin-top: 14px;
-}
-.raw-events {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  max-height: 520px;
-  overflow: auto;
-}
-.raw-events > li {
-  border-bottom: 1px solid var(--yss-colors-border);
-  padding: 9px 0;
-}
-.raw-events summary {
-  display: list-item;
+.summary-cell button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  gap: 8px;
+  min-height: 32px;
   cursor: pointer;
 }
-.raw-events time {
-  margin-inline-start: 12px;
+.chevron {
   color: var(--brand-color-text-secondary);
-  font-size: 11px;
+}
+.summary-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-table .activity-detail {
+  background: #f7f8fa;
+  padding: 12px 16px;
+  white-space: normal;
 }
 @media (width < 720px) {
-  .activity-feed {
-    max-height: 430px;
-  }
-  .activity-meta time {
-    margin-left: 0;
-  }
-  .raw-events time {
-    display: block;
-    margin-inline-start: 0;
-    margin-top: 4px;
+  .summary-cell button {
+    min-height: 44px;
   }
 }
 </style>

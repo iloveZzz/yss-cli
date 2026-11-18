@@ -18,6 +18,7 @@ pub(crate) mod storage_migration;
 pub mod store;
 pub mod tasks;
 
+pub(crate) mod activities;
 pub mod api;
 pub mod artifacts;
 pub mod backup;
