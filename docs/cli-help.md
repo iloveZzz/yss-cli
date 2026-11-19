@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.12.0` 源码，正式产物以 GitHub Release 为准。`3.12.0` 增加自动生命周期汇总和 `workbench progress` 上报入口；`3.11.0` 增加工作台工程维护、隔离运行、成果接收和备份恢复。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
+本指南适用于 Rust YSS CLI `3.13.0` 源码，正式产物以 GitHub Release 为准。`3.13.0` 在 macOS ARM64 切换到 Pi Agent 并更新执行会话；`3.12.0` 增加自动生命周期汇总和 `workbench progress` 上报入口；`3.11.0` 增加工作台工程维护、隔离运行、成果接收和备份恢复。`3.3.0` 新增 `scaffold frontend`；`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板；此前的 `3.1.4` 构建仅支持 `spec`/`backend`。先运行 `yss version` 和 `yss --help`，命令、参数和内嵌模板以实际输出为准。模板文档更新不会改变已安装的程序。
 
 ## 选择操作
 
