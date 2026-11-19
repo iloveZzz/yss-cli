@@ -203,7 +203,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
     if request.prompt.trim().is_empty() || request.prompt.len() > 128 * 1024 {
         return Err(invalid("请填写 128 KiB 以内的续办要求"));
     }
-    let (projects, prior, title) = {
+    let (projects, prior, spec) = {
         let mut store = lock_store(&manager.store)?;
         let spec = sources::spec(store.state(), &request.spec_id)?.clone();
         if !spec.active {
@@ -270,19 +270,31 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         } else {
             None
         };
-        (projects, prior, spec.title)
+        (projects, prior, spec)
     };
-    let pi = agent_protocol::require_runtime(&Cancellation::new())?;
+    let cancel = Cancellation::new();
     let roots = projects
         .iter()
-        .map(|(_, path)| {
-            agent_workspace::git_root(Path::new(path)).map(|p| p.to_string_lossy().into_owned())
+        .map(|(id, path)| {
+            let path = Path::new(path);
+            let root = agent_workspace::agent_git_root(path, &cancel)?;
+            if prior.is_none()
+                && id == &spec.project_id
+                && !request
+                    .carry_files
+                    .get(id)
+                    .is_some_and(|paths| paths.contains(&spec.source_path))
+            {
+                agent_workspace::check_spec_at_head(&root, path, &spec.source_path, &cancel)?;
+            }
+            Ok(root.to_string_lossy().into_owned())
         })
         .collect::<Result<BTreeSet<_>>>()?
         .into_iter()
         .collect();
+    let pi = agent_protocol::require_runtime(&cancel)?;
     let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
-    let title = format!("Spec 续办 · {title} · {}", &digest.as_str()[..8]);
+    let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);
     manager.start(
         "agent".into(),
         title,

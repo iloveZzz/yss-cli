@@ -123,10 +123,15 @@ const allLink = computed(() => ({
         </p>
       </section>
       <p class="view-note muted">
-        仅覆盖手动关联的 Spec。尚未选择的文件、其他目录和外部平台不计入。
+        包含自动纳管和手动关联的 Spec。其他候选文件可在下方选择关联；不扫描外部平台。
       </p>
-      <details v-if="project.available && project.record.active" class="discover-disclosure">
-        <summary>关联更多 Spec 文件</summary>
+      <details
+        v-if="project.available && project.record.active"
+        :key="project.record.rootPath"
+        :open="!specs.length"
+        class="discover-disclosure"
+      >
+        <summary>自动发现与关联 Spec 文件</summary>
         <DiscoverSpecs
           :key="project.record.id"
           :project-id="project.record.id"

@@ -5,7 +5,7 @@ use crate::{
     fs::{self, Root},
     model::{RelPath, Sha256},
 };
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 pub fn now() -> String {
     time::OffsetDateTime::now_utc()
@@ -118,7 +118,10 @@ pub fn spec_view(state: &WorkbenchState, s: &SpecRecord, root: &Result<Root>) ->
         .as_ref()
         .ok()
         .and_then(|text| super::content::metadata(text).ok().flatten());
-    let resources = resource_views(&super::content::merged_resources(s, meta.as_ref()), root);
+    let resources = resource_views(
+        &super::content::resolved_resources(s, meta.as_ref(), root.as_ref().ok()),
+        root,
+    );
     SpecView {
         progress: None,
         content: super::content::view(state, s, root),
@@ -141,6 +144,9 @@ pub fn resource_views(resources: &[ResourceRef], root: &Result<Root>) -> Vec<Res
                 };
             }
             let result = match root {
+                Ok(root) if r.kind == ResourceKind::Prototype => {
+                    super::preview::check_entry(root, &r.target)
+                }
                 Ok(root) => RelPath::new(&r.target)
                     .and_then(|p| root.source_metadata(&p))
                     .and_then(|m| {
@@ -171,6 +177,14 @@ pub fn resource_views(resources: &[ResourceRef], root: &Result<Root>) -> Vec<Res
         })
         .collect()
 }
+pub fn source_directories(root: &Root, cancel: &Cancellation) -> Vec<RelPath> {
+    ["docs/spec", "docs/specs", "specs", ".work"]
+        .into_iter()
+        .map(|path| RelPath::new(path).expect("fixed Spec directory"))
+        .filter(|path| root.source_entries(Some(path), &mut 0, cancel).is_ok())
+        .collect()
+}
+
 pub fn discover(
     state: &WorkbenchState,
     request: &DiscoverRequest,
@@ -178,12 +192,35 @@ pub fn discover(
 ) -> Result<DiscoverResult> {
     let p = project(state, &request.project_id)?;
     let root = Root::open(Path::new(&p.root_path))?;
-    let initial = if request.directory.is_empty() || request.directory == "." {
-        None
-    } else {
-        Some(RelPath::new(&request.directory)?)
+    scan(state, p, &root, request.directory.as_deref(), false, cancel)
+}
+
+pub(super) fn scan(
+    state: &WorkbenchState,
+    project: &ProjectRecord,
+    root: &Root,
+    directory: Option<&str>,
+    managed_only: bool,
+    cancel: &Cancellation,
+) -> Result<DiscoverResult> {
+    let registered: BTreeSet<_> = state
+        .specs
+        .iter()
+        .filter(|spec| spec.project_id == project.id)
+        .map(|spec| fs::alias_key(&spec.source_path))
+        .collect();
+    let mut stack = match directory {
+        Some("" | ".") => vec![(None, 0)],
+        Some(path) => vec![(Some(RelPath::new(path)?), 0)],
+        None => source_directories(root, cancel)
+            .into_iter()
+            .rev()
+            .map(|path| (Some(path), 0))
+            .collect(),
     };
-    let mut stack = vec![(initial, 0)];
+    if stack.is_empty() {
+        stack.push((None, 0));
+    }
     let mut budget = 10000;
     let mut result = DiscoverResult {
         candidates: vec![],
@@ -252,31 +289,28 @@ pub fn discover(
                     stack.push((Some(rel), depth + 1));
                 }
             } else if name.to_ascii_lowercase().ends_with(".md") {
-                match super::registration::main_source(&root, rel.as_str()) {
-                    Ok(main) if fs::alias_key(&main) != fs::alias_key(rel.as_str()) => continue,
-                    Ok(_) => {}
+                let key = fs::alias_key(rel.as_str());
+                if managed_only && registered.contains(&key) {
+                    continue;
+                }
+                match candidate(root, &rel, managed_only) {
+                    Ok(Some(content)) => result.candidates.push(Candidate {
+                        source_path: rel.as_str().into(),
+                        title: title(&content, rel.as_str()),
+                        modified_at: if managed_only {
+                            None
+                        } else {
+                            modified(root, rel.as_str())
+                        },
+                        already_registered: registered.contains(&key),
+                    }),
+                    Ok(None) => {}
                     Err(error) => {
                         if error.code == ErrorCode::Cancelled {
                             return Err(error);
                         }
                         result.complete = false;
                         result.warnings.push(format!("{}：{}", rel, error.message));
-                        continue;
-                    }
-                }
-                match text(&root, rel.as_str()) {
-                    Ok(content) => result.candidates.push(Candidate {
-                        source_path: rel.as_str().into(),
-                        title: title(&content, rel.as_str()),
-                        modified_at: modified(&root, rel.as_str()),
-                        already_registered: state.specs.iter().any(|s| {
-                            s.project_id == p.id
-                                && fs::alias_key(&s.source_path) == fs::alias_key(rel.as_str())
-                        }),
-                    }),
-                    Err(e) => {
-                        result.complete = false;
-                        result.warnings.push(format!("{}：{}", rel, e.message));
                     }
                 }
             }
@@ -294,4 +328,23 @@ pub fn discover(
         .candidates
         .sort_by(|a, b| a.source_path.cmp(&b.source_path));
     Ok(result)
+}
+
+pub(super) fn candidate(root: &Root, path: &RelPath, managed_only: bool) -> Result<Option<String>> {
+    let content = text(root, path.as_str())?;
+    if managed_only {
+        let name = path.as_str().rsplit('/').next().unwrap_or_default();
+        let conventional =
+            name.eq_ignore_ascii_case("spec.md") || name.to_ascii_lowercase().ends_with("-spec.md");
+        let header = content
+            .trim_start_matches('\u{feff}')
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with("# "));
+        if !conventional && !header.is_some_and(|line| line.starts_with("<!-- yss-spec ")) {
+            return Ok(None);
+        }
+    }
+    let main = super::registration::main_source_for_text(root, path.as_str(), &content)?;
+    Ok((fs::alias_key(&main) == fs::alias_key(path.as_str())).then_some(content))
 }

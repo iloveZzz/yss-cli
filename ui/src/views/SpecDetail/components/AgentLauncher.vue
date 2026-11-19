@@ -181,7 +181,7 @@ async function run() {
       <details class="run-help">
         <summary>运行方式与权限</summary>
         <p class="muted">
-          在隔离 worktree 中处理，完成后逐文件预览并接收到原工程。模型与登录沿用本机 Pi 配置。
+          参与工程需位于有提交的 Git 工作树。Pi 在隔离 worktree 中处理，完成后可逐文件预览并接收。模型与登录沿用本机 Pi 配置。
         </p>
       </details>
       <AgentCommandPermission

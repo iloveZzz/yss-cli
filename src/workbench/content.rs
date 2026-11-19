@@ -59,7 +59,7 @@ pub fn resource_key(resource: &ResourceRef) -> String {
         resource.target
     )
 }
-pub fn merged_resources(spec: &SpecRecord, meta: Option<&SpecMetadata>) -> Vec<ResourceRef> {
+fn merged_resources(spec: &SpecRecord, meta: Option<&SpecMetadata>) -> Vec<ResourceRef> {
     let mut resources: Vec<_> = spec
         .resources
         .iter()
@@ -81,6 +81,112 @@ pub fn merged_resources(spec: &SpecRecord, meta: Option<&SpecMetadata>) -> Vec<R
             *old = resource.clone();
         } else {
             resources.push(resource.clone());
+        }
+    }
+    resources
+}
+
+pub fn resolved_resources(
+    spec: &SpecRecord,
+    meta: Option<&SpecMetadata>,
+    root: Option<&Root>,
+) -> Vec<ResourceRef> {
+    let resources = merged_resources(spec, meta);
+    match root {
+        Some(root) => resolve_local_resources(root, &spec.source_path, resources),
+        None => resources,
+    }
+}
+
+pub(super) fn preview_target(
+    spec: &SpecRecord,
+    meta: Option<&SpecMetadata>,
+    root: &Root,
+    requested: &str,
+) -> Option<String> {
+    RelPath::new(requested).ok()?;
+    let resources = resolved_resources(spec, meta, Some(root));
+    let linked = |target: &str| {
+        resources.iter().any(|resource| {
+            resource.kind == ResourceKind::Prototype
+                && resource.target_type == TargetType::Local
+                && resource.target == target
+        })
+    };
+    if linked(requested) {
+        return Some(requested.into());
+    }
+    let built = super::preview::built_path(requested)?;
+    (linked(&built) && super::preview::built_alternative(root, requested).as_ref() == Some(&built))
+        .then_some(built)
+}
+
+pub(super) fn resolve_local_resources(
+    root: &Root,
+    source_path: &str,
+    mut resources: Vec<ResourceRef>,
+) -> Vec<ResourceRef> {
+    let mut local_paths = BTreeSet::new();
+    resources.retain_mut(|resource| {
+        if resource.target_type != TargetType::Local {
+            return true;
+        }
+        if resource.kind == ResourceKind::Prototype
+            && let Some(built) = super::preview::built_alternative(root, &resource.target)
+        {
+            resource.target = built;
+        }
+        local_paths.insert(fs::alias_key(&resource.target))
+    });
+
+    let Some((directory, name)) = source_path.rsplit_once('/') else {
+        return resources;
+    };
+    let Some(key) = name.strip_suffix("-spec.md").filter(|key| !key.is_empty()) else {
+        return resources;
+    };
+    if directory.rsplit('/').next() != Some(key) {
+        return resources;
+    }
+    let has_kind =
+        |resources: &[ResourceRef], kind| resources.iter().any(|resource| resource.kind == kind);
+    if !has_kind(&resources, ResourceKind::Interaction) {
+        let target = format!("{directory}/{key}-interaction.md");
+        if !local_paths.contains(&fs::alias_key(&target))
+            && sources::text(root, &target)
+                .and_then(|text| metadata(&text))
+                .is_ok_and(|metadata| metadata.is_none())
+        {
+            resources.push(ResourceRef {
+                kind: ResourceKind::Interaction,
+                target_type: TargetType::Local,
+                label: "交互说明".into(),
+                target,
+            });
+        }
+    }
+    if !has_kind(&resources, ResourceKind::Prototype) {
+        let built = format!("prototypes/{key}/dist/index.html");
+        let source = format!("prototypes/{key}/index.html");
+        let target = if super::preview::check_entry(root, &built).is_ok() {
+            Some(built)
+        } else if RelPath::new(&source)
+            .and_then(|path| root.source_metadata(&path))
+            .is_ok_and(|metadata| metadata.is_file())
+        {
+            Some(source)
+        } else {
+            None
+        };
+        if let Some(target) = target
+            && !local_paths.contains(&fs::alias_key(&target))
+        {
+            resources.push(ResourceRef {
+                kind: ResourceKind::Prototype,
+                target_type: TargetType::Local,
+                label: "高保真交互原型".into(),
+                target,
+            });
         }
     }
     resources
@@ -249,7 +355,7 @@ pub fn view(state: &WorkbenchState, spec: &SpecRecord, root: &Result<Root>) -> C
                 )),
             }
         }
-        let resources = merged_resources(spec, Some(&meta));
+        let resources = resolved_resources(spec, Some(&meta), Some(root));
         // shortcut: 字节摘要会将纯排版变化视为新版本；需要区分时再引入经过验证的语义归一化。
         let mut artifacts = vec![(
             spec.source_path.clone(),
@@ -414,7 +520,8 @@ pub fn agent_request(
     let source = sources::read_source(state, spec_id)?;
     let meta = metadata(&source.text)?;
     let content = read_view(state, spec_id)?;
-    let resources = merged_resources(spec, meta.as_ref());
+    let root = Root::open(Path::new(&project.root_path))?;
+    let resources = resolved_resources(spec, meta.as_ref(), Some(&root));
     let mut text = format!(
         "请继续更新此主 Spec 及关联产物。\n项目：{}\n主 Spec：{}\nSpec ID：{}\n范围：{}\n来源摘要：{}\n内容状态：{:?}\n\n答复不等于解决：先把决定落实到正文、AC、交互说明和原型，再把对应问题 status 写为 resolved，并以 appliedDecisionId 引用本次实际采用的回复 ID；不要仅改问题状态。延期只暂停受影响范围，保留影响、排除范围和复查日期/条件，写为 deferred，禁止伪装解决。事实问题自行调查并在 resolution 写明证据。关键业务决定仍未知时，当场向用户提问。不得代替用户写入个人确认。\n",
         project.root_path, spec.source_path, spec.id, content.scope, source.digest, content.status

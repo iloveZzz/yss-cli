@@ -110,16 +110,15 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         cancel.check()?;
         let root = Root::open(Path::new(&project.root_path));
         projects.push(ProjectView {
-            source_directories: ["docs/spec", "docs/specs", "specs", ".work"]
-                .into_iter()
-                .filter(|path| {
-                    root.as_ref().is_ok_and(|root| {
-                        root.source_entries(RelPath::new(*path).ok().as_ref(), &mut 0, cancel)
-                            .is_ok()
-                    })
-                })
-                .map(str::to_owned)
-                .collect(),
+            source_directories: root.as_ref().map_or_else(
+                |_| vec![],
+                |root| {
+                    sources::source_directories(root, cancel)
+                        .into_iter()
+                        .map(|path| path.as_str().to_owned())
+                        .collect()
+                },
+            ),
             record: project.clone(),
             available: root.is_ok(),
             message: root.as_ref().err().map(|e| e.message.clone()),
@@ -494,6 +493,7 @@ fn mutate_inner(
     let mut task_ids = vec![];
     let mut delta = BTreeMap::new();
     let mut effects = super::sqlite::CommitEffects::default();
+    let scan_new_project = matches!(&request.action, Action::AddProject { .. });
     match super::tasks::expand_action(&state, request.action)? {
         Action::RespondQuestion {
             spec_id: id,
@@ -658,24 +658,8 @@ fn mutate_inner(
             check_source_unique(&state, &id, &source_path, "")?;
             let text = sources::text(&root, &source_path)?;
             root.revalidate()?;
-            let record = SpecRecord {
-                id: fs::unique_id()?,
-                project_id: id.clone(),
-                title: sources::title(&text, &source_path),
-                source_path,
-                stage: Stage::Unmarked,
-                status: Status::Unmarked,
-                next_action: String::new(),
-                blocker: String::new(),
-                notes: String::new(),
-                resources: vec![],
-                source_resource_targets: vec![],
-                inferred_resources: vec![],
-                active: true,
-                created_at: at.clone(),
-                updated_at: at.clone(),
-                last_visited_at: None,
-            };
+            let title = sources::title(&text, &source_path);
+            let record = super::registration::new_record(&id, source_path, title, &at)?;
             project_id = id;
             spec_id = Some(record.id.clone());
             delta = changes(None, &record)?;
@@ -758,9 +742,13 @@ fn mutate_inner(
             lifecycle_stage: None,
             project_id: project_id.clone(),
             spec_id: spec_id.clone(),
-            at,
+            at: at.clone(),
             changes: delta,
         });
+    }
+    if scan_new_project {
+        let project = sources::project(&state, &project_id)?.clone();
+        super::registration::scan_project(&mut state, &project, &at, &Cancellation::new())?;
     }
     finish_mutation(
         store,

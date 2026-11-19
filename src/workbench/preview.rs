@@ -87,21 +87,47 @@ fn entry_parts(target: &str) -> Result<(String, String)> {
     Ok((directory.into(), entry.into()))
 }
 
-fn check_entry(root: &Root, target: &str) -> Result<()> {
+fn is_source_entry(root: &Root, target: &str) -> Result<bool> {
     entry_parts(target)?;
     let html = root.source_read(&RelPath::new(target)?, MAX_FILE)?;
     let text = String::from_utf8(html.bytes).map_err(|_| invalid("HTML 入口不是 UTF-8"))?;
     let lower = text.to_ascii_lowercase();
-    if lower.contains("/@vite/client")
+    root.revalidate()?;
+    Ok(lower.contains("/@vite/client")
+        || ["src=\"/src/", "src='/src/", "src=\"./src/", "src='./src/"]
+            .iter()
+            .any(|prefix| lower.contains(prefix))
         || [".ts\"", ".ts'", ".tsx\"", ".tsx'", ".vue\"", ".vue'"]
             .iter()
-            .any(|suffix| lower.contains(suffix))
-    {
+            .any(|suffix| lower.contains(suffix)))
+}
+
+pub(super) fn built_path(target: &str) -> Option<String> {
+    let (directory, entry) = target.rsplit_once('/').unwrap_or(("", target));
+    if entry != "index.html" || directory.rsplit('/').next() == Some("dist") {
+        return None;
+    }
+    Some(if directory.is_empty() {
+        "dist/index.html".into()
+    } else {
+        format!("{directory}/dist/index.html")
+    })
+}
+
+pub(super) fn built_alternative(root: &Root, target: &str) -> Option<String> {
+    let built = built_path(target)?;
+    (matches!(is_source_entry(root, &built), Ok(false))
+        && matches!(is_source_entry(root, target), Ok(true)))
+    .then_some(built)
+}
+
+pub(super) fn check_entry(root: &Root, target: &str) -> Result<()> {
+    if is_source_entry(root, target)? {
         return Err(invalid(
-            "这是尚未构建的原型源码入口。请由 Agent 构建后关联 dist/index.html；工作台不会执行项目命令",
+            "当前关联指向原型源码。请先构建，再关联 dist/index.html；工作台不会执行项目命令",
         ));
     }
-    root.revalidate()
+    Ok(())
 }
 
 // Include every served asset so changing JS/CSS also invalidates a content confirmation.

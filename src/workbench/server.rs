@@ -413,19 +413,12 @@ async fn dispatch(server: Server, request: Request) -> Response {
             let project = super::sources::project(&state, &spec.project_id)?;
             let source = super::sources::read_source(&state, id)?;
             let meta = super::content::metadata(&source.text)?;
-            if !super::content::merged_resources(spec, meta.as_ref())
-                .iter()
-                .any(|r| {
-                    r.kind == ResourceKind::Prototype
-                        && r.target_type == TargetType::Local
-                        && r.target == request.target
-                })
-            {
-                return Err(super::sources::invalid("只能预览此 Spec 已关联的本地原型"));
-            }
+            let root = crate::fs::Root::open(std::path::Path::new(&project.root_path))?;
+            let target = super::content::preview_target(spec, meta.as_ref(), &root, &request.target)
+                .ok_or_else(|| super::sources::invalid("只能预览此 Spec 已关联的本地原型"))?;
             serde_json::to_value(super::preview::start(
                 &project.root_path,
-                &request.target,
+                &target,
                 &server.origin,
                 &server.cancel,
             )?)
@@ -517,7 +510,7 @@ pub fn serve(
     cancel: &Cancellation,
     err: &mut dyn Write,
 ) -> Result<()> {
-    let store = Store::open(&resolve_data_dir(Some(&options.data_dir))?)?;
+    let mut store = Store::open(&resolve_data_dir(Some(&options.data_dir))?)?;
     let canonical_data_dir = store.data_dir().to_owned();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -528,6 +521,7 @@ pub fn serve(
     let result: Result<()> = runtime.block_on(async {
         let listener =
             tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, options.port)).await?;
+        super::registration::scan_startup(&mut store, cancel, err)?;
         let host = listener.local_addr()?.to_string();
         restart_port = listener.local_addr()?.port();
         let origin = format!("http://{host}");

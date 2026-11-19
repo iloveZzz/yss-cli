@@ -227,7 +227,7 @@ export async function loadSnapshot(signal?: AbortSignal) {
 export const executeCommand = (requestBody: MutationRequest) =>
   request<MutationResult>('/api/commands', requestBody)
 export const discoverSpecs = (
-  body: { projectId: string; directory: string },
+  body: { projectId: string; directory?: string },
   signal?: AbortSignal
 ) => request<DiscoverResult>('/api/discover', body, signal)
 export const loadSource = (id: string, signal?: AbortSignal) =>

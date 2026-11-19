@@ -80,7 +80,7 @@ pub(crate) fn capture(state: &WorkbenchState, spec_id: &str) -> Result<(String, 
         Sha256::of(&main.bytes).as_str().to_owned(),
     )];
     let mut files = BTreeMap::from([(spec.source_path.clone(), ("spec".to_owned(), main.bytes))]);
-    for resource in content::merged_resources(spec, metadata.as_ref()) {
+    for resource in content::resolved_resources(spec, metadata.as_ref(), Some(&root)) {
         if resource.target_type == TargetType::Web {
             return Err(sources::invalid("外部产物需要本地快照后保存版本"));
         }
@@ -291,7 +291,7 @@ pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>)
             None
         }
     };
-    for resource in content::merged_resources(spec, metadata.as_ref()) {
+    for resource in content::resolved_resources(spec, metadata.as_ref(), Some(&root)) {
         if resource.target_type != TargetType::Local {
             continue;
         }
@@ -300,7 +300,7 @@ pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>)
             .and_then(|value| value.as_str().map(str::to_owned))
             .unwrap_or_else(|| "other".into());
         if resource.kind == ResourceKind::Prototype {
-            match preview::served_files(&root, &resource.target) {
+            match preview::artifact_files(&root, &resource.target) {
                 Ok(tree) => {
                     for (path, bytes) in tree {
                         current_files.insert(path, (kind.clone(), bytes));
@@ -488,7 +488,7 @@ pub fn current_file(
         std::str::from_utf8(&main.bytes).map_err(|_| sources::invalid("主规格不是 UTF-8"))?,
     )?;
     let mut found = (path == spec.source_path).then_some(("spec".to_owned(), main.bytes));
-    for resource in content::merged_resources(spec, metadata.as_ref()) {
+    for resource in content::resolved_resources(spec, metadata.as_ref(), Some(&root)) {
         if found.is_some() || resource.target_type != TargetType::Local {
             continue;
         }
@@ -499,7 +499,7 @@ pub fn current_file(
         if resource.kind == ResourceKind::Prototype {
             let directory = resource.target.rsplit_once('/').map(|(dir, _)| dir);
             if directory.is_none_or(|directory| path.starts_with(&format!("{directory}/")))
-                && let Some((_, bytes)) = preview::served_files(&root, &resource.target)?
+                && let Some((_, bytes)) = preview::artifact_files(&root, &resource.target)?
                     .into_iter()
                     .find(|(candidate, _)| candidate == path)
             {

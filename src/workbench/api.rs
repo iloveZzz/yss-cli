@@ -110,7 +110,8 @@ impl PlatformApi {
                 let root = Root::open(Path::new(&project.root_path))?;
                 let text = sources::text(&root, &spec.source_path)?;
                 let metadata = super::content::metadata(&text)?;
-                let resources = super::content::merged_resources(spec, metadata.as_ref());
+                let resources =
+                    super::content::resolved_resources(spec, metadata.as_ref(), Some(&root));
                 let mut paths = vec![spec.source_path.clone()];
                 paths.extend(
                     resources
@@ -621,28 +622,28 @@ impl PlatformApi {
                     target: String,
                 }
                 let request: Request = decode(bytes)?;
-                let root = {
+                let (root, target) = {
                     let mut store = jobs::lock_store(&self.jobs.store)?;
                     let document = agent::source(&mut store, id, &request.spec_id)?;
                     let metadata = super::content::metadata(&document.text)?;
                     let spec = sources::spec(store.state(), &request.spec_id)?;
-                    if !super::content::merged_resources(spec, metadata.as_ref())
-                        .iter()
-                        .any(|resource| {
-                            resource.kind == ResourceKind::Prototype
-                                && resource.target_type == TargetType::Local
-                                && resource.target == request.target
-                        })
-                    {
-                        return Err(sources::invalid("只能预览此运行已关联的静态原型"));
-                    }
                     let project_id = spec.project_id.clone();
-                    agent::project_root(&mut store, id, &project_id)?
+                    let path = agent::project_root(&mut store, id, &project_id)?;
+                    let root = Root::open(&path)?;
+                    let spec = sources::spec(store.state(), &request.spec_id)?;
+                    let target = super::content::preview_target(
+                        spec,
+                        metadata.as_ref(),
+                        &root,
+                        &request.target,
+                    )
+                    .ok_or_else(|| sources::invalid("只能预览此运行已关联的静态原型"))?;
+                    (path, target)
                 };
                 encode(super::preview::start(
                     root.to_str()
                         .ok_or_else(|| sources::invalid("运行目录不是UTF-8"))?,
-                    &request.target,
+                    &target,
                     &self.origin,
                     &self.cancel,
                 )?)?

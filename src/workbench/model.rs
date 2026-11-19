@@ -422,7 +422,7 @@ pub struct ProgressHistory {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscoverRequest {
     pub project_id: String,
-    pub directory: String,
+    pub directory: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

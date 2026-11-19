@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, shallowRef, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,6 +8,7 @@ import { useWorkbench } from '@/hooks/useWorkbench'
 import { errorMessage, type ProjectRecord } from '@/services/workbench'
 const props = defineProps<{ project?: ProjectRecord }>()
 const open = defineModel<boolean>({ required: true })
+const router = useRouter()
 const { snapshot, submit, saving } = useWorkbench()
 const form = reactive({ name: '', rootPath: '', active: true })
 const error = shallowRef('')
@@ -25,7 +27,7 @@ watch(open, (value) => {
 async function save() {
   error.value = ''
   try {
-    await submit(
+    const result = await submit(
       props.project
         ? { kind: 'updateProject', projectId: props.project.id, ...form }
         : {
@@ -36,6 +38,7 @@ async function save() {
       revision
     )
     open.value = false
+    if (!props.project && result.projectId) await router.push(`/projects/${result.projectId}`)
   } catch (e) {
     error.value = errorMessage(e)
   }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { shallowRef, ref, computed, onBeforeUnmount } from 'vue'
+import { shallowRef, ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { discoverSpecs, errorMessage, type DiscoverResult } from '@/services/workbench'
 import { useWorkbench } from '@/hooks/useWorkbench'
 const props = defineProps<{ projectId: string; directories: string[] }>()
 const { submit, saving, snapshot, refresh } = useWorkbench()
-const directory = shallowRef(props.directories[0] ?? '.')
+const directory = shallowRef('')
 const manual = shallowRef('')
 const result = shallowRef<DiscoverResult>()
 const selected = ref<string[]>([])
@@ -19,6 +19,7 @@ const unregistered = computed(
 )
 let controller: AbortController | undefined
 onBeforeUnmount(() => controller?.abort())
+onMounted(() => void scan())
 async function scan() {
   controller?.abort()
   controller = new AbortController()
@@ -30,7 +31,7 @@ async function scan() {
   result.value = undefined
   try {
     const next = await discoverSpecs(
-      { projectId: props.projectId, directory: directory.value },
+      { projectId: props.projectId, directory: directory.value || undefined },
       current.signal
     )
     if (!current.signal.aborted) result.value = next
@@ -86,7 +87,7 @@ async function add(paths: string[]) {
 <template>
   <section class="panel discover-panel">
     <h2>关联 Spec</h2>
-    <p class="muted">选择项目内目录查找 Markdown，勾选后才会关联。</p>
+    <p class="muted">工作台启动和登记项目时自动纳管可识别的主规格。其他 Markdown 可按目录查找后手动关联。</p>
     <form class="inline-form" aria-label="发现工程 Spec 文件" @submit.prevent="scan">
       <label class="grow">
         相对目录
@@ -94,8 +95,7 @@ async function add(paths: string[]) {
           v-model="directory"
           name="directory"
           list="spec-directories"
-          required
-          placeholder="例如 docs/specs"
+          placeholder="留空使用常用规格目录"
         />
       </label>
       <datalist id="spec-directories">

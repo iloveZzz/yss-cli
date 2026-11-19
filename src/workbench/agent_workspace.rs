@@ -82,6 +82,60 @@ fn git_text_cancel(root: &Path, arguments: &[&str], cancel: &Cancellation) -> Re
 pub fn git_root(project: &Path) -> Result<PathBuf> {
     git_root_cancel(project, &Cancellation::new())
 }
+pub(super) fn agent_git_root(project: &Path, cancel: &Cancellation) -> Result<PathBuf> {
+    let root = git_root_cancel(project, cancel).map_err(|error| {
+        if error.code == ErrorCode::Cancelled {
+            return error;
+        }
+        invalid(format!(
+            "无法为工程 {} 建立 Pi 隔离工作区：请确认 Git 已安装，并关联有提交的 Git 工作树",
+            project.display()
+        ))
+        .context("cause", error.message)
+    })?;
+    git_text_cancel(&root, &["rev-parse", "--verify", "HEAD^{commit}"], cancel).map_err(
+        |error| {
+            if error.code == ErrorCode::Cancelled {
+                return error;
+            }
+            invalid(format!(
+                "工程 {} 没有可用的 Git HEAD 提交，Pi 无法创建隔离工作区。请先建立 Git 基线。",
+                project.display()
+            ))
+            .context("cause", error.message)
+        },
+    )?;
+    Ok(root)
+}
+
+pub(super) fn check_spec_at_head(
+    git_root: &Path,
+    project: &Path,
+    source: &str,
+    cancel: &Cancellation,
+) -> Result<()> {
+    let project = std::fs::canonicalize(project)?;
+    let relative = project
+        .strip_prefix(git_root)
+        .map_err(|_| invalid("主规格工程不在 Git 根内"))?
+        .join(RelPath::new(source)?.as_str());
+    let relative = relative
+        .to_str()
+        .ok_or_else(|| invalid("主规格路径不是 UTF-8"))?
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    match git_text_cancel(
+        git_root,
+        &["cat-file", "-t", &format!("HEAD:{relative}")],
+        cancel,
+    ) {
+        Ok(kind) if kind == "blob" => Ok(()),
+        Err(error) if error.code == ErrorCode::Cancelled => Err(error),
+        _ => Err(invalid(format!(
+            "Git HEAD 中没有主 Spec。请在「带入未提交文件」中加入 {source}，再启动 Pi。"
+        ))
+        .at(source)),
+    }
+}
 fn git_root_cancel(project: &Path, cancel: &Cancellation) -> Result<PathBuf> {
     let actual = std::fs::canonicalize(project)?;
     let root = PathBuf::from(git_text_cancel(
@@ -289,7 +343,17 @@ fn referenced_files(
             .as_ref()
             .map(|metadata| &metadata.resources)
             .unwrap_or(&source.inferred_resources);
-        for resource in source.personal_resources.iter().chain(declared) {
+        let resources = super::content::resolve_local_resources(
+            &project,
+            &source.source_path,
+            source
+                .personal_resources
+                .iter()
+                .chain(declared)
+                .cloned()
+                .collect(),
+        );
+        for resource in &resources {
             cancel.check()?;
             if resource.target_type != TargetType::Local {
                 continue;

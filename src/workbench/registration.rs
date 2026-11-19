@@ -6,11 +6,12 @@ use super::{
     store::Store,
 };
 use crate::{
+    cancel::Cancellation,
     error::Result,
     fs::{self, Root},
     model::RelPath,
 };
-use std::path::Path;
+use std::{collections::BTreeSet, io::Write, path::Path};
 
 pub fn local_link(base: &str, link: &str) -> Result<String> {
     if link.contains(':') || link.starts_with('/') || link.contains('\\') {
@@ -108,8 +109,7 @@ fn inferred(root: &Root, source: &str, text: &str) -> Vec<ResourceRef> {
     resources
 }
 fn attachment_main(source: &str) -> Option<String> {
-    let path = Path::new(source);
-    let name = path.file_name()?.to_str()?;
+    let (directory, name) = source.rsplit_once('/').unwrap_or(("", source));
     let lower = name.to_ascii_lowercase();
     let main = if lower == "interaction.md" {
         "spec.md".into()
@@ -123,11 +123,17 @@ fn attachment_main(source: &str) -> Option<String> {
         }
         format!("{key}-spec.md")
     };
-    // 文件名是路径，不作为 Markdown URL 解码其中的百分号。
-    path.with_file_name(main).to_str().map(str::to_owned)
+    Some(if directory.is_empty() {
+        main
+    } else {
+        format!("{directory}/{main}")
+    })
 }
 pub fn main_source(root: &Root, source: &str) -> Result<String> {
-    if content::metadata(&sources::text(root, source)?)?.is_some() {
+    main_source_for_text(root, source, &sources::text(root, source)?)
+}
+pub(super) fn main_source_for_text(root: &Root, source: &str, text: &str) -> Result<String> {
+    if content::metadata(text)?.is_some() {
         return Ok(source.into());
     }
     let Some(sibling) = attachment_main(source) else {
@@ -169,6 +175,135 @@ pub fn main_source(root: &Root, source: &str) -> Result<String> {
     };
     Ok(if owns_source { sibling } else { source.into() })
 }
+
+pub(super) fn new_record(
+    project_id: &str,
+    source_path: String,
+    title: String,
+    at: &str,
+) -> Result<SpecRecord> {
+    Ok(SpecRecord {
+        id: fs::unique_id()?,
+        project_id: project_id.into(),
+        title,
+        source_path,
+        stage: Stage::Unmarked,
+        status: Status::Unmarked,
+        next_action: String::new(),
+        blocker: String::new(),
+        notes: String::new(),
+        resources: vec![],
+        source_resource_targets: vec![],
+        inferred_resources: vec![],
+        active: true,
+        created_at: at.into(),
+        updated_at: at.into(),
+        last_visited_at: None,
+    })
+}
+
+pub(super) fn scan_project(
+    state: &mut WorkbenchState,
+    project: &ProjectRecord,
+    at: &str,
+    cancel: &Cancellation,
+) -> Result<(usize, Vec<String>)> {
+    let root = Root::open(Path::new(&project.root_path))?;
+    let scan = sources::scan(state, project, &root, None, true, cancel)?;
+    let mut warnings = scan.warnings;
+    let mut found = Vec::new();
+    let mut paths = BTreeSet::new();
+    for candidate in scan.candidates {
+        cancel.check()?;
+        let key = fs::alias_key(&candidate.source_path);
+        if !paths.insert(key) {
+            warnings.push(format!("{}：路径与另一候选重复", candidate.source_path));
+            continue;
+        }
+        let path = RelPath::new(&candidate.source_path)?;
+        let text = match sources::candidate(&root, &path, true) {
+            Ok(Some(text)) => text,
+            Ok(None) => continue,
+            Err(error) => {
+                warnings.push(format!("{}：{}", candidate.source_path, error.message));
+                continue;
+            }
+        };
+        let title = sources::title(&text, &candidate.source_path);
+        let mut spec = new_record(&project.id, candidate.source_path, title, at)?;
+        if content::metadata(&text)?.is_none() {
+            spec.inferred_resources = inferred(&root, &spec.source_path, &text);
+        }
+        found.push(spec);
+    }
+    root.revalidate()?;
+    let added = found.len();
+    for spec in found {
+        history::record_change(
+            state,
+            EventTarget {
+                project_id: spec.project_id.clone(),
+                spec_id: Some(spec.id.clone()),
+                task_id: None,
+                lifecycle_stage: None,
+            },
+            None,
+            &spec,
+            at,
+        )?;
+        state.specs.push(spec);
+    }
+    Ok((added, warnings))
+}
+
+pub(super) fn scan_startup(
+    store: &mut Store,
+    cancel: &Cancellation,
+    output: &mut dyn Write,
+) -> Result<()> {
+    let mut state = store.state().clone();
+    let projects: Vec<_> = state
+        .projects
+        .iter()
+        .filter(|project| project.active)
+        .cloned()
+        .collect();
+    let at = sources::now();
+    let mut added = 0;
+    for project in &projects {
+        cancel.check()?;
+        match scan_project(&mut state, project, &at, cancel) {
+            Ok((count, warnings)) => {
+                added += count;
+                if !warnings.is_empty() {
+                    writeln!(
+                        output,
+                        "规格扫描提示：{} 有 {} 项提示，首项为 {}",
+                        project.name,
+                        warnings.len(),
+                        warnings[0]
+                    )?;
+                }
+            }
+            Err(error) if error.code == crate::error::ErrorCode::Cancelled => return Err(error),
+            Err(error) => writeln!(output, "规格扫描已跳过 {}：{}", project.name, error.message)?,
+        }
+    }
+    cancel.check()?;
+    if added != 0 {
+        store.commit(state.revision, state)?;
+    }
+    if !projects.is_empty() {
+        writeln!(
+            output,
+            "启动扫描：{} 个启用项目，新增 {} 个 Spec。",
+            projects.len(),
+            added
+        )?;
+    }
+    Ok(())
+}
+
 pub fn refresh(state: &mut WorkbenchState, spec_id: &str, at: &str) -> Result<()> {
     let before = sources::spec(state, spec_id)?.clone();
     let project = sources::project(state, &before.project_id)?;
@@ -187,7 +322,7 @@ pub fn refresh(state: &mut WorkbenchState, spec_id: &str, at: &str) -> Result<()
     } else {
         vec![]
     };
-    let resources = content::merged_resources(&after, meta.as_ref());
+    let resources = content::resolved_resources(&after, meta.as_ref(), Some(&root));
     root.revalidate()?;
     let target = EventTarget {
         project_id: before.project_id.clone(),
@@ -312,24 +447,8 @@ pub fn register(
     }) {
         s.id.clone()
     } else {
-        let spec = SpecRecord {
-            id: fs::unique_id()?,
-            project_id: project_id.clone(),
-            title: sources::title(&text, &source_path),
-            source_path,
-            stage: Stage::Unmarked,
-            status: Status::Unmarked,
-            next_action: String::new(),
-            blocker: String::new(),
-            notes: String::new(),
-            resources: vec![],
-            source_resource_targets: vec![],
-            inferred_resources: vec![],
-            active: true,
-            created_at: at.clone(),
-            updated_at: at.clone(),
-            last_visited_at: None,
-        };
+        let title = sources::title(&text, &source_path);
+        let spec = new_record(&project_id, source_path, title, &at)?;
         history::record_change(
             &mut state,
             EventTarget {
