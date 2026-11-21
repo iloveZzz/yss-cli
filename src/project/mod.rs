@@ -132,30 +132,7 @@ pub fn list_skills(path: &Path, bundle: &Bundle) -> Result<SkillsReport> {
     let selected = bundle.select(state.profile, state.installation, &explicit)?;
     let mut installed = BTreeMap::new();
     for name in profile.skills() {
-        let prefix = format!(".agents/skills/{name}/");
-        let mut status = "not-installed";
-        for (path, file) in state
-            .managed
-            .iter()
-            .filter(|(p, _)| p.as_str().starts_with(&prefix))
-        {
-            let actual = root.inspect(path)?;
-            if actual == fs::FileSnapshot::Missing {
-                status = "missing";
-                break;
-            }
-            if actual.descriptor() != Some(&file.last_installed) {
-                status = "modified";
-                break;
-            }
-            status = "installed";
-        }
-        if status == "not-installed"
-            && root.inspect(&RelPath::new(format!("{prefix}SKILL.md"))?)?
-                != fs::FileSnapshot::Missing
-        {
-            status = "unmanaged";
-        }
+        let status = skill_installation_status(&root, &state, &name)?;
         installed.insert(name, status);
     }
     Ok(SkillsReport {
@@ -169,6 +146,43 @@ pub fn list_skills(path: &Path, bundle: &Bundle) -> Result<SkillsReport> {
         diagnostics,
     })
 }
+
+fn skill_installation_status(
+    root: &Root,
+    state: &state::ProjectState,
+    name: &str,
+) -> Result<&'static str> {
+    let prefix = format!(".agents/skills/{name}/");
+    let entry = RelPath::new(format!("{prefix}SKILL.md"))?;
+    if !state.managed.contains_key(&entry) {
+        // Other skills can borrow files in this directory without installing its entry.
+        return Ok(if root.regular_file_metadata(&entry)?.is_some() {
+            "unmanaged"
+        } else {
+            "not-installed"
+        });
+    }
+
+    let mut modified = false;
+    for (path, file) in state
+        .managed
+        .iter()
+        .filter(|(path, _)| path.as_str().starts_with(&prefix))
+    {
+        let Some(metadata) = root.regular_file_metadata(path)? else {
+            return Ok("missing");
+        };
+        let expected = &file.last_installed;
+        if metadata.len() != expected.size || fs::platform::mode(&metadata) != expected.mode {
+            modified = true;
+        } else if !modified {
+            let actual = root.read_checked(path, expected.size)?;
+            modified = actual.snapshot.descriptor() != Some(expected);
+        }
+    }
+    Ok(if modified { "modified" } else { "installed" })
+}
+
 pub fn doctor(path: &Path, _bundle: &Bundle) -> Result<DoctorReport> {
     let root = Root::open(path)?;
     let (state, _) = state::detect(&root)?;
@@ -227,10 +241,20 @@ fn unavailable_skills(
     if let Some(root) = root {
         for name in profile.retired_skills.keys() {
             for platform in &platforms {
-                let path = RelPath::new(format!("{platform}/{name}/SKILL.md"))?;
-                if root.inspect(&path)? != fs::FileSnapshot::Missing {
-                    paths.entry(name.clone()).or_default().insert(path);
-                }
+                let directory = RelPath::new(format!("{platform}/{name}"))?;
+                let Some(metadata) = root.entry_metadata(&directory)? else {
+                    continue;
+                };
+                let path = if metadata.is_dir() && !fs::platform::dangerous(&metadata) {
+                    let entry = RelPath::new(format!("{directory}/SKILL.md"))?;
+                    if root.entry_metadata(&entry)?.is_none() {
+                        continue;
+                    }
+                    entry
+                } else {
+                    directory
+                };
+                paths.entry(name.clone()).or_default().insert(path);
             }
         }
     }

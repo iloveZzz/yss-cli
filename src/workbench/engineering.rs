@@ -394,6 +394,17 @@ fn fingerprint(
     bundle: &Bundle,
 ) -> Result<String> {
     let path = Path::new(&request.root);
+    if matches!(request.operation, EngineeringOperation::SkillsList) {
+        // This read-only operation re-runs the query at execution time. Pin its
+        // result and project identity without opening unrelated managed files.
+        let root = Root::open(path)?;
+        root.revalidate()?;
+        let snapshot = json!({
+            "request": request, "report": report, "context": context,
+            "bundle": bundle.digest, "identity": root.identity
+        });
+        return Ok(Sha256::of(&codec::encode_json(&snapshot)?).as_str().into());
+    }
     let mut files = BTreeMap::new();
     let identity;
     if path.exists() {

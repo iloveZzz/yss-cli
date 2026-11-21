@@ -74,6 +74,13 @@ struct Parent {
     name: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathLookup {
+    Project,
+    BundleSource,
+    ProjectInventory,
+}
+
 pub fn absolute(path: &Path) -> Result<PathBuf> {
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(unsafe_path("根路径不允许 .."));
@@ -272,15 +279,15 @@ impl Root {
         self.boundary.revalidate()
     }
     fn parent(&self, path: &RelPath) -> Result<Option<Parent>> {
-        self.parent_checked(path, true)
+        self.parent_checked(path, PathLookup::Project)
     }
-    fn parent_checked(&self, path: &RelPath, check_aliases: bool) -> Result<Option<Parent>> {
+    fn parent_checked(&self, path: &RelPath, lookup: PathLookup) -> Result<Option<Parent>> {
         self.boundary.check(path)?;
         let mut dir = self.dir.try_clone()?;
         let mut components = path.as_str().split('/').peekable();
         let mut parent = String::new();
         while let Some(name) = components.next() {
-            if check_aliases {
+            if lookup != PathLookup::BundleSource {
                 aliases(&dir, name)?;
             }
             if components.peek().is_none() {
@@ -300,6 +307,11 @@ impl Root {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(e) => return Err(io_at(e, path)),
             };
+            if lookup == PathLookup::ProjectInventory
+                && (!metadata.is_dir() || platform::dangerous(&metadata))
+            {
+                return Ok(None);
+            }
             plain(&metadata)?;
             let before_id = platform::identity_at(&dir, name)?;
             let child = dir.open_dir_nofollow(name).map_err(|e| io_at(e, path))?;
@@ -329,11 +341,11 @@ impl Root {
         aliases(&current, &parent.name)
     }
     pub(crate) fn open_dir(&self, path: &RelPath) -> Result<Dir> {
-        self.open_dir_checked(path, true)
+        self.open_dir_checked(path, PathLookup::Project)
     }
-    fn open_dir_checked(&self, path: &RelPath, check_aliases: bool) -> Result<Dir> {
+    fn open_dir_checked(&self, path: &RelPath, lookup: PathLookup) -> Result<Dir> {
         let parent = self
-            .parent_checked(path, check_aliases)?
+            .parent_checked(path, lookup)?
             .ok_or_else(|| unsafe_path("父目录不存在"))?;
         let metadata = parent.dir.symlink_metadata(&parent.name)?;
         plain(&metadata)?;
@@ -346,6 +358,23 @@ impl Root {
             return Err(unsafe_path("拒绝穿越嵌套 Git 工作树").at(path));
         }
         Ok(dir)
+    }
+    /// Inspect a directory entry without opening its contents or traversing a
+    /// link. Write planning and mutations inspect their actual targets strictly.
+    pub(crate) fn entry_metadata(&self, path: &RelPath) -> Result<Option<Metadata>> {
+        let Some(parent) = self.parent_checked(path, PathLookup::ProjectInventory)? else {
+            return Ok(None);
+        };
+        match parent.dir.symlink_metadata(&parent.name) {
+            Ok(metadata) => Ok(Some(metadata)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(io_at(e, path)),
+        }
+    }
+    pub(crate) fn regular_file_metadata(&self, path: &RelPath) -> Result<Option<Metadata>> {
+        Ok(self
+            .entry_metadata(path)?
+            .filter(|metadata| metadata.is_file() && !platform::dangerous(metadata)))
     }
     pub fn inspect(&self, path: &RelPath) -> Result<FileSnapshot> {
         let Some(parent) = self.parent(path)? else {
@@ -412,11 +441,11 @@ impl Root {
     // Read-only traversal avoids repeated whole-directory alias scans; writes retain them.
     pub(crate) fn source_read(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
         let parent = self
-            .parent_checked(path, false)?
+            .parent_checked(path, PathLookup::BundleSource)?
             .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
         let file = read_in_dir(&parent.dir, &parent.name, limit)?;
         if self
-            .parent_checked(path, false)?
+            .parent_checked(path, PathLookup::BundleSource)?
             .is_none_or(|p| p.identity != parent.identity)
         {
             return Err(drift());
@@ -425,7 +454,7 @@ impl Root {
     }
     pub(crate) fn source_metadata(&self, path: &RelPath) -> Result<Metadata> {
         let parent = self
-            .parent_checked(path, false)?
+            .parent_checked(path, PathLookup::BundleSource)?
             .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
         let metadata = parent.dir.symlink_metadata(&parent.name)?;
         plain(&metadata)?;
@@ -447,7 +476,7 @@ impl Root {
         cancel: &crate::cancel::Cancellation,
     ) -> Result<(Vec<(String, Metadata)>, bool)> {
         let dir = match path {
-            Some(p) => self.open_dir_checked(p, false)?,
+            Some(p) => self.open_dir_checked(p, PathLookup::BundleSource)?,
             None => self.dir.try_clone()?,
         };
         let mut entries = Vec::new();
@@ -464,7 +493,7 @@ impl Root {
             entries.push((name, metadata));
         }
         let current = match path {
-            Some(p) => self.open_dir_checked(p, false)?,
+            Some(p) => self.open_dir_checked(p, PathLookup::BundleSource)?,
             None => self.dir.try_clone()?,
         };
         if platform::identity_dir(&current)? != platform::identity_dir(&dir)? {
