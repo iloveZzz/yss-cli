@@ -250,7 +250,7 @@ yss workbench respond --spec-id <SpecID> --question-id OQ-02 --question-digest <
 
 发现扫描遇识别错误会告警并跳过该候选；主文件 register/refresh 停用符合归属条件的旧附件记录，刷新附件本身不合并，个人备注、答复、确认和历史不删除。改名先核实新路径未被启用/停用记录占用，更新文件与资源链接，再编辑原 Spec 的主路径，最后 register 新路径并核对原 ID；不新增登记后再合并。编辑改路径指向已归属附件会拒绝。路径变化会使旧确认不再匹配，历史仍保留；详情见[工作台说明](workbench.md)。这些识别规则是本次源码行为，不能仅凭帮助中有同名命令就推断旧安装版本支持。
 
-`respond` 只能记录用户真实答复或已同意的延期，不能代作业务决定；要求当前问题摘要，返回 `result.responseId`。延期须有原因、影响、排除范围，以及 `--review-at YYYY-MM-DD` 或 `--review-when 条件`；日期按 `--review-utc-offset-minutes`（默认 UTC）解释，关键问题须完整排除其受影响范围。`request` 的 `result.text` 含主文件、资源、最新回复 ID 与摘要，供 Agent 实际回写正文、AC、交互和原型后引用。答复不等于解决。
+`respond` 只能记录用户真实答复或已同意的延期，不能代作业务决定；要求当前问题摘要，返回 `result.responseId`。延期须有原因、影响、排除范围，以及 `--review-at YYYY-MM-DD` 或 `--review-when 条件`；日期按 `--review-utc-offset-minutes`（默认 UTC）解释，关键问题须完整排除其受影响范围。`request` 的 `result.text` 保留当前问题数组。按 `question.id`、`digest` 和用途定位有效的 `response.id`，按本次授权回写尚未采纳的有效答复或延期。已采纳的决定供引用。若本次授权修订规则且业务前提确有变化，保留受影响的原问题 ID 并更新题意或影响，复读适用性后继续。变更、被替换或到期的记录单列历史原文和复查原因。工作台中选择「沿用原答复」后，仍需点击「保存答复」才产生当前问题的新答复 ID。
 
 运行中的工作台通过个人目录中私有 `session.json` 调用既有本地鉴权接口写入，保持单进程锁与 revision 校验；服务未运行才直接打开 Store。不要分享该会话文件。内容确认仅由工作台用户明确操作，绑定范围和产物摘要，不能从个人 Status=done 推断。
 

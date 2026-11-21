@@ -4,8 +4,8 @@ use super::{
     content as spec_content,
     jobs::{JobContext, JobManager, JobRecord, lock_store},
     model::{
-        ContentView, QuestionKind, QuestionResponse, ResponseKind, SourceDocument, Stage,
-        WorkbenchState,
+        ContentView, QuestionKind, QuestionResponse, QuestionState, QuestionStatus, ResponseKind,
+        SourceDocument, SpecMetadata, SpecRecord, Stage, WorkbenchState,
     },
     progress_agent::{self, Activity},
     sources,
@@ -303,6 +303,37 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         move |context| execute(context, request, projects, prior, &pi),
     )
 }
+fn include_run_response(records: &mut Vec<QuestionResponse>, response: QuestionResponse) {
+    if records.iter().any(|record| record.id == response.id) {
+        return;
+    }
+    let saved_at = |text: &str| {
+        time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).ok()
+    };
+    let incoming_at = saved_at(&response.created_at);
+    // Accepting or resuming a run later must not replace a newer answer saved in the main workspace.
+    let position = records
+        .iter()
+        .position(|record| {
+            if record.spec_id != response.spec_id || record.question_id != response.question_id {
+                return false;
+            }
+            match (incoming_at, saved_at(&record.created_at)) {
+                (Some(incoming), Some(existing)) => incoming <= existing,
+                _ => true,
+            }
+        })
+        .unwrap_or(records.len());
+    records.insert(position, response);
+}
+
+fn run_responses(run: &AgentRun) -> impl Iterator<Item = Result<QuestionResponse>> + '_ {
+    run.answers
+        .iter()
+        .filter_map(|answer| answer.get("questionResponse"))
+        .map(|value| serde_json::from_value(value.clone()).map_err(|e| invalid(e.to_string())))
+}
+
 fn mapped_state(store: &Store, run: &AgentRun) -> Result<WorkbenchState> {
     let mut state = store.state().clone();
     for workspace in &run.workspaces {
@@ -319,17 +350,80 @@ fn mapped_state(store: &Store, run: &AgentRun) -> Result<WorkbenchState> {
                 .into();
         }
     }
-    for value in &run.answers {
-        if let Some(response) = value.get("questionResponse") {
-            let response: QuestionResponse =
-                serde_json::from_value(response.clone()).map_err(|e| invalid(e.to_string()))?;
-            if !state.question_responses.iter().any(|r| r.id == response.id) {
-                state.question_responses.push(response);
-            }
-        }
+    for response in run_responses(run) {
+        include_run_response(&mut state.question_responses, response?);
     }
     Ok(state)
 }
+
+fn last_accepted_file<'a>(
+    run: &'a AgentRun,
+    workspace: &Workspace,
+    path: &str,
+) -> Option<&'a Value> {
+    run.applied_files.iter().rev().find(|file| {
+        file["worktreeRoot"].as_str() == Some(&workspace.worktree_root)
+            && file["path"].as_str() == Some(path)
+    })
+}
+
+fn spec_workspace<'a>(run: &'a AgentRun, spec: &SpecRecord) -> Option<(&'a Workspace, String)> {
+    let workspace = run
+        .workspaces
+        .iter()
+        .find(|w| w.project_prefixes.contains_key(&spec.project_id))?;
+    let prefix = &workspace.project_prefixes[&spec.project_id];
+    let path = if prefix.is_empty() {
+        spec.source_path.clone()
+    } else {
+        format!("{prefix}/{}", spec.source_path)
+    };
+    Some((workspace, path))
+}
+
+fn source_basis(run: &AgentRun, spec: &SpecRecord) -> Option<(&'static str, FileDescriptor)> {
+    let (workspace, path) = spec_workspace(run, spec)?;
+    if let Some(accepted) = last_accepted_file(run, workspace, &path) {
+        let descriptor = serde_json::from_value(accepted.get("result")?.clone()).ok()?;
+        return Some(("本次运行最近已接收的同一主 Spec", descriptor));
+    }
+    // The original checkout may have changed since this workspace was captured.
+    if run.binding_revision != 0 {
+        return None;
+    }
+    Some((
+        "本次运行起点已带入的同一主 Spec",
+        workspace.initial.get(&path)?.clone(),
+    ))
+}
+
+fn source_basis_bytes(
+    store: &Store,
+    run: &AgentRun,
+    descriptor: &FileDescriptor,
+) -> Result<Vec<u8>> {
+    frozen_bytes(store, descriptor)
+        .or_else(|_| agent_workspace::initial_bytes(store.data_dir(), &run.id, descriptor))
+}
+
+fn resume_source_status(store: &Store, run: &AgentRun, spec: &SpecRecord) -> String {
+    let evidence = source_basis(run, spec).and_then(|(basis, descriptor)| {
+        let bytes = source_basis_bytes(store, run, &descriptor).ok()?;
+        let meta = source_metadata(&bytes).ok()?;
+        Some((
+            basis,
+            descriptor.sha256,
+            spec_content::source_status_label(meta.as_ref()),
+        ))
+    });
+    match evidence {
+        Some((basis, digest, status)) => format!(
+            "\n续办来源依据：{basis}（SHA-256 {digest}）的 contentStatus：{status}。当前读取的是隔离稿，可含上次尚未接收的改动。若仅回写指定问题，沿用上述来源状态，恢复隔离稿中由局部回写误改的标记。原字段缺省时保留缺省；原无元数据时，按任务授权登记所需问题。另有明确的整份交付授权且已核对完整产物时，保留有依据的整份状态变更。\n"
+        ),
+        None => "\n续办来源依据：无法从此运行已带入或已接收的同一主 Spec 核实应保留的 contentStatus。当前隔离稿可能已有未接收的改动。请沿本次可读的接收记录或既有明确整份决定核对；依据仍缺时保留这项状态待核对，可继续处理已确定的单项答复。\n".into(),
+    }
+}
+
 fn execute(
     context: JobContext,
     request: AgentStartRequest,
@@ -461,9 +555,9 @@ fn execute(
                 )
                 .at(&spec.source_path));
             }
-            let mut text = spec_content::agent_request(&mapped, &run.spec_id, &data_dir)?.text;
-            if let Some(index) = text.find("此工作台的所有后续命令") {
-                text.truncate(index);
+            let mut text = spec_content::agent_request(&mapped, &run.spec_id, None)?.text;
+            if resumed {
+                text.push_str(&resume_source_status(&store, &run, spec));
             }
             (text, project.root_path.clone(), spec.project_id.clone())
         };
@@ -849,6 +943,7 @@ fn save_response(
     if response.spec_id != run.spec_id {
         return Err(invalid("Spec 与运行不匹配"));
     }
+    ensure_response_available(store, &run.spec_id, &response.question_id)?;
     let mut mapped = mapped_state(store, &run)?;
     spec_content::respond(&mut mapped, response, &sources::now())?;
     let response = mapped
@@ -902,10 +997,24 @@ fn ask_question(context: &JobContext, run_id: &str, question_id: &str) -> Result
             response.answer, response.id
         )
     };
-    if let Some(saved) = &question.response
-        && saved.question_digest == question.digest
-        && saved.kind == ResponseKind::Answer
-    {
+    if let Some(saved) = &question.response {
+        if saved.kind == ResponseKind::Defer {
+            let usage = if question.state == QuestionState::Deferred {
+                "已回写，引用原安排即可。"
+            } else {
+                "仅回写延期安排，保留其影响范围、日期和条件。"
+            };
+            return Ok(format!(
+                "用户已为当前问题保存延期安排。{usage}按条件复查的延期须核实触发事实。\n{}",
+                serde_json::to_string_pretty(saved).map_err(|_| invalid("延期安排无法编码"))?
+            ));
+        }
+        if question.state == QuestionState::Resolved {
+            return Ok(format!(
+                "此答复已回写，请引用原结论。\n答复 ID {}\n用户答复：{}\n来源结论：{}",
+                saved.id, saved.answer, question.question.resolution
+            ));
+        }
         return Ok(answer_text(saved));
     }
     let mut details = json!({ "id": question_id, "question": question.question.title });
@@ -944,7 +1053,7 @@ fn ask_question(context: &JobContext, run_id: &str, question_id: &str) -> Result
                 excluded_scope: String::new(),
                 review_at: String::new(),
                 review_when: String::new(),
-                review_utc_offset_minutes: 0,
+                review_utc_offset_minutes: Some(0),
                 question_digest: question.digest,
                 created_at: String::new(),
             },
@@ -1075,7 +1184,14 @@ fn diff_run(
                 project_id: project_id.clone(),
                 path: relative,
                 workspace_path: path.clone(),
-                conflict: current != initial && current != result,
+                conflict: current != initial
+                    && current != result
+                    && !last_accepted_file(run, workspace, path)
+                        .and_then(|file| file.get("result"))
+                        .and_then(|value| {
+                            serde_json::from_value::<Option<FileDescriptor>>(value.clone()).ok()
+                        })
+                        .is_some_and(|accepted| accepted == current),
                 initial,
                 result,
                 current,
@@ -1133,6 +1249,7 @@ pub fn accept(
         run = result(store, run_id)?;
     }
     let preview = diff_run(&run, cancel, &|descriptor| frozen_bytes(store, descriptor))?;
+    writeback_questions(store, &run, &preview, &request, &|d| frozen_bytes(store, d))?;
     let outcome = apply_reviewed(&run, &preview, request, cancel, &|descriptor| {
         frozen_bytes(store, descriptor)
     })?;
@@ -1158,6 +1275,10 @@ struct AcceptanceLease {
     run_id: String,
     job_id: String,
     roots: Vec<String>,
+    #[serde(default)]
+    spec_id: String,
+    #[serde(default)]
+    writeback_questions: BTreeSet<String>,
 }
 fn lease_owner() -> &'static str {
     static OWNER: OnceLock<String> = OnceLock::new();
@@ -1186,6 +1307,36 @@ pub fn ensure_roots_available(store: &mut Store, roots: &[String]) -> Result<()>
             YssError::new(ErrorCode::Locked, "目标工程正在接收已审阅成果，请稍后重试")
                 .context("runId", lease.run_id),
         );
+    }
+    Ok(())
+}
+fn spec_acceptance(store: &mut Store, spec_id: &str) -> Result<Option<AcceptanceLease>> {
+    Ok(store
+        .records::<AcceptanceLease>("agentAcceptance")?
+        .into_iter()
+        .find(|lease| lease.owner == lease_owner() && lease.spec_id == spec_id))
+}
+pub(super) fn ensure_source_path_available(store: &mut Store, spec_id: &str) -> Result<()> {
+    if spec_acceptance(store, spec_id)?.is_some() {
+        return Err(YssError::new(
+            ErrorCode::Locked,
+            "此 Spec 正在接收已审阅成果，请在接收后更改主文件路径",
+        ));
+    }
+    Ok(())
+}
+pub(super) fn ensure_response_available(
+    store: &mut Store,
+    spec_id: &str,
+    question_id: &str,
+) -> Result<()> {
+    if spec_acceptance(store, spec_id)?
+        .is_some_and(|lease| lease.writeback_questions.contains(question_id))
+    {
+        return Err(YssError::new(
+            ErrorCode::Locked,
+            "此问题正在接收已复核的回写，请在接收后保存",
+        ));
     }
     Ok(())
 }
@@ -1240,6 +1391,8 @@ fn acquire_acceptance(
             run_id: run_id.into(),
             job_id: run.job_id.clone(),
             roots,
+            spec_id: run.spec_id.clone(),
+            writeback_questions: BTreeSet::new(),
         },
     )?;
     Ok((
@@ -1326,6 +1479,20 @@ pub fn accept_shared(
     let preview = diff_run(&run, cancel, &|descriptor| {
         captured_blob(&blobs, descriptor)
     })?;
+    {
+        let mut store = lock_store(shared)?;
+        let latest = load(&mut store, run_id)?;
+        let questions = writeback_questions(&store, &latest, &preview, &request, &|d| {
+            captured_blob(&blobs, d)
+        })?;
+        if !questions.is_empty() {
+            let mut lease = store
+                .record::<AcceptanceLease>("agentAcceptance", run_id)?
+                .ok_or_else(|| invalid("接收期间缺少工程锁"))?;
+            lease.writeback_questions = questions;
+            store.put_record("agentAcceptance", run_id, &lease)?;
+        }
+    }
     let outcome = apply_reviewed(&run, &preview, request, cancel, &|descriptor| {
         captured_blob(&blobs, descriptor)
     })?;
@@ -1335,8 +1502,161 @@ pub fn accept_shared(
 struct AcceptanceOutcome {
     reports: Vec<Value>,
     successful_projects: BTreeSet<String>,
+    accepted_paths: BTreeMap<String, BTreeSet<String>>,
     applied_files: Vec<Value>,
 }
+fn source_metadata(bytes: &[u8]) -> Result<Option<SpecMetadata>> {
+    if bytes.len() as u64 > super::model::MAX_SOURCE {
+        return Err(invalid("主 Spec 超过 2 MiB 读取上限"));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| invalid("主 Spec 不是 UTF-8"))?;
+    spec_content::metadata(text)
+}
+
+fn writeback_questions(
+    store: &Store,
+    run: &AgentRun,
+    preview: &RunDiff,
+    request: &AcceptRequest,
+    read_blob: &dyn Fn(&FileDescriptor) -> Result<Vec<u8>>,
+) -> Result<BTreeSet<String>> {
+    let state = store.state();
+    let spec = sources::spec(state, &run.spec_id)?;
+    let project = sources::project(state, &spec.project_id)?;
+    let source = Path::new(&project.root_path).join(&spec.source_path);
+    let mut questions = BTreeSet::new();
+    let file =
+        preview.files.iter().find(|file| {
+            request.files.iter().any(|selected| {
+                selected.project_id == file.project_id && selected.path == file.path
+            }) && sources::project(state, &file.project_id)
+                .is_ok_and(|p| Path::new(&p.root_path).join(&file.path) == source)
+        });
+    let Some(file) = file.filter(|file| file.current != file.result) else {
+        return Ok(questions);
+    };
+    let result = file
+        .result
+        .as_ref()
+        .ok_or_else(|| invalid("成果删除了本次主 Spec，无法登记回写结果").at(&file.path))?;
+    let proposed = source_metadata(&read_blob(result)?).map_err(|mut error| {
+        let field = error
+            .path
+            .as_ref()
+            .map(|path| format!("（{path}）"))
+            .unwrap_or_default();
+        error.message = format!("主 Spec 成果无法登记{field}：{}", error.message);
+        error.at(&file.path)
+    })?;
+    let conflict = |question_id: &str| {
+        YssError::new(ErrorCode::ConcurrentChange,
+            format!("问题 {question_id} 的来源、答复或延期安排已变化，无法接收此回写；请依据当前决定更新成果。")).at(&file.path)
+    };
+    let root = Root::open(Path::new(&project.root_path))?;
+    let current = bytes(&root, &spec.source_path, &file.current)?.unwrap_or_default();
+    // A valid result may repair an existing malformed source.
+    let current_metadata = source_metadata(&current).ok().flatten();
+    let basis = source_basis(run, spec);
+    let same_source = match &basis {
+        Some((_, descriptor)) => Some(descriptor) == file.current.as_ref(),
+        // Rebinding changes the checkout identity. An exact match still proves the original bytes.
+        None => run.binding_revision != 0 && file.initial.is_some() && file.initial == file.current,
+    };
+    let saved_metadata = if same_source {
+        None
+    } else {
+        basis
+            .and_then(|(_, d)| source_basis_bytes(store, run, &d).ok())
+            .map(|bytes| source_metadata(&bytes).ok().flatten())
+    };
+    let basis_metadata = if same_source {
+        Some(&current_metadata)
+    } else {
+        saved_metadata.as_ref()
+    };
+    let Some(proposed) = proposed else {
+        if current_metadata.is_some() || basis_metadata.is_some_and(Option::is_some) {
+            return Err(
+                invalid("成果移除了已有的 yss-spec 元数据，请保留主 Spec 的登记信息")
+                    .at(&file.path),
+            );
+        }
+        return Ok(questions);
+    };
+    if !proposed
+        .questions
+        .iter()
+        .any(|q| q.applied_decision_id.is_some() && q.status != QuestionStatus::Open)
+    {
+        return Ok(questions);
+    }
+    let index = |metadata: &Option<SpecMetadata>| -> BTreeMap<_, _> {
+        metadata
+            .iter()
+            .flat_map(|m| &m.questions)
+            .map(|q| (q.id.clone(), q.clone()))
+            .collect()
+    };
+    let basis_questions = basis_metadata.map(index);
+    let current_questions = index(&current_metadata);
+    let mut records: Vec<_> = state
+        .question_responses
+        .iter()
+        .filter(|r| r.spec_id == spec.id)
+        .cloned()
+        .collect();
+    for response in run_responses(run) {
+        let response = response?;
+        if response.spec_id == spec.id {
+            include_run_response(&mut records, response);
+        }
+    }
+    let mut by_question = BTreeMap::<&str, Vec<&QuestionResponse>>::new();
+    for response in &records {
+        by_question
+            .entry(&response.question_id)
+            .or_default()
+            .push(response);
+    }
+    for question in proposed
+        .questions
+        .iter()
+        .filter(|q| q.applied_decision_id.is_some() && q.status != QuestionStatus::Open)
+    {
+        let original = current_questions.get(&question.id);
+        if original == Some(question) {
+            continue;
+        }
+        if !basis_questions
+            .as_ref()
+            .is_some_and(|known| original == known.get(&question.id))
+        {
+            return Err(conflict(&question.id));
+        }
+        let matching = by_question.remove(question.id.as_str()).unwrap_or_default();
+        // A frozen result must not turn a condition already reopened in the source into a valid deferral.
+        if let Some(original) = original
+            && original.applied_decision_id == question.applied_decision_id
+            && matches!(
+                spec_content::question_view(original, matching.clone())?.state,
+                QuestionState::Overdue | QuestionState::NeedsReview
+            )
+        {
+            return Err(conflict(&question.id));
+        }
+        let view = spec_content::question_view(question, matching)?;
+        if !matches!(
+            view.state,
+            QuestionState::Resolved | QuestionState::Deferred
+        ) || view.response.as_ref().map(|r| &r.id) != question.applied_decision_id.as_ref()
+        {
+            return Err(conflict(&question.id));
+        }
+        questions.insert(question.id.clone());
+    }
+    Ok(questions)
+}
+
 fn apply_reviewed(
     run: &AgentRun,
     preview: &RunDiff,
@@ -1393,13 +1713,14 @@ fn apply_reviewed(
     let mut reports = Vec::new();
     let mut applied_files = Vec::new();
     let mut successful_projects = BTreeSet::new();
+    let mut accepted_paths = BTreeMap::<String, BTreeSet<String>>::new();
     for (project_id, files) in &selected {
         let workspace = run
             .workspaces
             .iter()
             .find(|workspace| workspace.project_ids.contains(project_id))
             .ok_or_else(|| invalid("运行工程不存在"))?;
-        if files.iter().all(|(path, expected, result)| {
+        let report = if files.iter().all(|(path, expected, result)| {
             expected == result
                 && run.applied_files.iter().any(|record| {
                     record.get("worktreeRoot").and_then(Value::as_str)
@@ -1407,35 +1728,71 @@ fn apply_reviewed(
                         && record.get("path").and_then(Value::as_str) == Some(path)
                 })
         }) {
-            reports.push(
-                json!({"projectIds":[project_id],"projectId":project_id,"status":"alreadyApplied"}),
-            );
-            continue;
-        }
-        match agent_workspace::apply(
-            workspace,
-            &preview.git_baselines[&workspace.original_root],
-            files,
-            read_blob,
-            cancel,
-        ) {
-            Ok(report) => {
-                successful_projects.insert(project_id.clone());
-                for (path, _, result) in files {
-                    applied_files.push(json!({"projectId":project_id,"worktreeRoot":workspace.worktree_root,"path":path,"result":result,"acceptedAt":sources::now(),"transactionId":report.id}));
+            json!({"projectIds":[project_id],"projectId":project_id,"status":"alreadyApplied"})
+        } else {
+            let report = match agent_workspace::apply(
+                workspace,
+                &preview.git_baselines[&workspace.original_root],
+                files,
+                read_blob,
+                cancel,
+            ) {
+                Ok(report) => report,
+                Err(error) => {
+                    reports.push(json!({"projectIds":[project_id],"projectId":project_id,"status":"failed","error":error}));
+                    continue;
                 }
-                reports.push(json!({"projectIds":[project_id],"projectId":project_id,"status":"applied","transaction":report}));
+            };
+            successful_projects.insert(project_id.clone());
+            for (path, _, result) in files {
+                applied_files.push(json!({"projectId":project_id,"worktreeRoot":workspace.worktree_root,"path":path,"result":result,"acceptedAt":sources::now(),"transactionId":report.id}));
             }
-            Err(error) => reports
-                .push(json!({"projectIds":[project_id],"projectId":project_id,"status":"failed","error":error})),
-        }
+            json!({"projectIds":[project_id],"projectId":project_id,"status":"applied","transaction":report})
+        };
+        accepted_paths
+            .entry(workspace.worktree_root.clone())
+            .or_default()
+            .extend(files.iter().map(|(path, _, _)| path.clone()));
+        reports.push(report);
     }
     Ok(AcceptanceOutcome {
         reports,
         successful_projects,
+        accepted_paths,
         applied_files,
     })
 }
+fn merge_registered_responses(
+    state: &mut WorkbenchState,
+    run: &AgentRun,
+    spec: &SpecRecord,
+) -> Result<()> {
+    // Only the registered source, after file acceptance, can establish which answers belong here.
+    let Ok(Some(metadata)) = sources::read_source(state, &spec.id)
+        .and_then(|source| spec_content::metadata(&source.text))
+    else {
+        return Ok(());
+    };
+    let mut questions = BTreeMap::new();
+    for question in metadata.questions {
+        let digest = spec_content::question_digest(&question)?;
+        questions.insert(question.id, (digest, question.applied_decision_id));
+    }
+    for response in run_responses(run) {
+        let response = response?;
+        if response.spec_id == spec.id
+            && questions
+                .get(&response.question_id)
+                .is_some_and(|(digest, applied)| {
+                    response.question_digest == *digest || applied.as_ref() == Some(&response.id)
+                })
+        {
+            include_run_response(&mut state.question_responses, response);
+        }
+    }
+    Ok(())
+}
+
 fn commit_acceptance(
     store: &mut Store,
     run_id: &str,
@@ -1450,23 +1807,19 @@ fn commit_acceptance(
         )
         .context("projects", json!(outcome.reports)));
     }
-    run.applied_files.extend(outcome.applied_files);
     let mut state = store.state().clone();
     let at = sources::now();
-    for answer in &run.answers {
-        if let Some(value) = answer.get("questionResponse") {
-            let response: QuestionResponse =
-                serde_json::from_value(value.clone()).map_err(|e| invalid(e.to_string()))?;
-            let spec = sources::spec(&state, &response.spec_id)?;
-            if outcome.successful_projects.contains(&spec.project_id)
-                && !state.question_responses.iter().any(|r| r.id == response.id)
-            {
-                state.question_responses.push(response);
-            }
-        }
-    }
     let spec = sources::spec(&state, &run.spec_id)?.clone();
-    let refresh = if outcome.successful_projects.contains(&spec.project_id) {
+    // The same path can be reported under a child project, including on a retry.
+    let source_accepted = spec_workspace(&run, &spec).is_some_and(|(workspace, path)| {
+        outcome
+            .accepted_paths
+            .get(&workspace.worktree_root)
+            .is_some_and(|paths| paths.contains(&path))
+    });
+    run.applied_files.extend(outcome.applied_files);
+    let refresh = if source_accepted || outcome.successful_projects.contains(&spec.project_id) {
+        merge_registered_responses(&mut state, &run, &spec)?;
         super::registration::refresh(&mut state, &run.spec_id, &at).map(|_| ())
     } else {
         Ok(())

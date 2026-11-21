@@ -11,9 +11,10 @@ const editorSessionId = crypto.randomUUID()
 export function useServerDraft<T extends object>(options: {
   targetType: string
   targetId: () => string
+  targetVersion?: () => string
   payload: Readonly<Ref<T | undefined>>
   restore: (value: T) => void
-  refreshBase?: () => Promise<EditableTarget<T>>
+  refreshBase?: (record: DraftRecord<T>) => Promise<EditableTarget<T>>
 }) {
   const id = shallowRef<string>(crypto.randomUUID())
   const revision = shallowRef(0)
@@ -36,8 +37,8 @@ export function useServerDraft<T extends object>(options: {
       !!options.payload.value && !!base.value && !contentEqual(options.payload.value, base.value)
   )
   watch(
-    options.targetId,
-    async (targetId) => {
+    [options.targetId, () => options.targetVersion?.()],
+    async ([targetId]) => {
       const own = ++generation
       clearTimeout(timer)
       id.value = crypto.randomUUID()
@@ -51,6 +52,7 @@ export function useServerDraft<T extends object>(options: {
       recovering = undefined
       error.value = ''
       status.value = ''
+      saving.value = false
       if (!targetId) return
       try {
         const records = await listDrafts<T>(options.targetType, targetId)
@@ -59,7 +61,7 @@ export function useServerDraft<T extends object>(options: {
         if (own === generation) error.value = errorMessage(cause)
       }
     },
-    { immediate: true }
+    { immediate: true, flush: options.targetVersion ? 'sync' : 'pre' }
   )
   function setBase(value: T, token: string) {
     base.value = structuredClone(toRaw(value))
@@ -111,7 +113,7 @@ export function useServerDraft<T extends object>(options: {
           status.value = '草稿保存失败，输入仍保留'
         }
       } finally {
-        saving.value = false
+        if (own === generation) saving.value = false
       }
     })()
     inflight = operation
@@ -130,29 +132,32 @@ export function useServerDraft<T extends object>(options: {
   )
   async function restore(record: DraftRecord<T>) {
     const own = generation
-    await flush()
-    if (own !== generation) return
-    if (changed.value && revision.value) {
-      recoverable.value = await listDrafts<T>(options.targetType, options.targetId())
-      id.value = crypto.randomUUID()
-      revision.value = 0
-      savedPayload.value = ''
-    }
     try {
+      await flush()
+      if (own !== generation) return
+      if (changed.value && revision.value) {
+        const records = await listDrafts<T>(options.targetType, options.targetId())
+        if (own !== generation) return
+        recoverable.value = records
+        id.value = crypto.randomUUID()
+        revision.value = 0
+        savedPayload.value = ''
+      }
       if (options.refreshBase) {
-        const target = await options.refreshBase()
+        const target = await options.refreshBase(record)
+        if (own !== generation) return
         setBase(target.values, target.token)
       }
       if (own !== generation) return
       recovering = record
-      if (base.value && !contentEqual(record.base, base.value)) {
+      if (base.value && record.baseToken !== baseToken.value && !contentEqual(record.base, base.value)) {
         recoveryConflict.value = { base: record.base, local: record.payload, current: base.value }
         status.value = '草稿基线已变化，请核对合并内容'
         return
       }
       await mergeRecovered(record.payload)
     } catch (cause) {
-      error.value = errorMessage(cause)
+      if (own === generation) error.value = errorMessage(cause)
     }
   }
   async function mergeRecovered(value: T) {
@@ -170,41 +175,51 @@ export function useServerDraft<T extends object>(options: {
   }
 
   async function discard(record: DraftRecord<T>) {
+    const own = generation
     try {
       await removeDraft(record.id, record.revision)
+      if (own !== generation) return
       recoverable.value = recoverable.value.filter((item) => item.id !== record.id)
       adopted.value = adopted.value.filter((item) => item.id !== record.id)
     } catch (cause) {
-      error.value = errorMessage(cause)
+      if (own === generation) error.value = errorMessage(cause)
     }
   }
   async function accepted(submitted: T, currentBase: T, token: string) {
+    const own = generation
     clearTimeout(timer)
     accepting = true
     try {
       if (inflight) await inflight
+      if (own !== generation) return
       const previousId = id.value
       const previousRevision = revision.value
       setBase(currentBase, token)
-      if (contentEqual(options.payload.value, submitted)) {
+      const payload = options.payload.value
+      // A saved target may normalize the submitted fields.
+      savedPayload.value = contentEqual(payload, submitted) ? JSON.stringify(payload) : ''
+      if (savedPayload.value) {
         try {
           if (previousRevision) await removeDraft(previousId, previousRevision)
-          for (const record of adopted.value) await removeDraft(record.id, record.revision)
+          const restored = adopted.value
+          if (own !== generation) return
+          for (const record of restored) await removeDraft(record.id, record.revision)
+          if (own !== generation) return
           recoverable.value = recoverable.value.filter(
             (record) => !adopted.value.some((item) => item.id === record.id)
           )
           adopted.value = []
         } catch (cause) {
+          if (own !== generation) return
           error.value = errorMessage(cause)
         }
         id.value = crypto.randomUUID()
         revision.value = 0
       }
-      savedPayload.value = ''
     } finally {
       accepting = false
     }
-    if (changed.value) await flush()
+    if (changed.value && JSON.stringify(options.payload.value) !== savedPayload.value) await flush()
     else status.value = '已保存'
   }
 

@@ -47,6 +47,7 @@ fn selected_fields(value: &impl Serialize, keys: &[&str]) -> Result<Value> {
 }
 
 pub fn target(state: &WorkbenchState, action: &Action) -> Result<Value> {
+    let mut question_view = None;
     let (values, guard) = match action {
         Action::EditSpec { spec_id, .. }
         | Action::SetWorkStatus {
@@ -88,15 +89,14 @@ pub fn target(state: &WorkbenchState, action: &Action) -> Result<Value> {
             let content = super::content::read_view(state, spec_id)?;
             let question = content
                 .questions
-                .iter()
+                .into_iter()
                 .find(|item| item.question.id == *question_id)
                 .ok_or_else(|| sources::invalid("问题不存在"))?;
             let response = question.response.as_ref();
-            let values = json!({"responseKind":response.map(|value|value.kind).unwrap_or(ResponseKind::Answer),"answer":response.map(|value|value.answer.as_str()).unwrap_or(""),"reason":response.map(|value|value.reason.as_str()).unwrap_or(""),"impact":response.map(|value|value.impact.as_str()).unwrap_or(""),"excludedScope":response.map(|value|value.excluded_scope.as_str()).unwrap_or(""),"reviewAt":response.map(|value|value.review_at.as_str()).unwrap_or(""),"reviewWhen":response.map(|value|value.review_when.as_str()).unwrap_or(""),"reviewUtcOffsetMinutes":response.map(|value|value.review_utc_offset_minutes).unwrap_or(0)});
-            (
-                values,
-                json!({"questionDigest":question.digest,"responseId":response.map(|value|&value.id)}),
-            )
+            let values = json!({"responseKind":response.map(|value|value.kind).unwrap_or(ResponseKind::Answer),"answer":response.map(|value|value.answer.as_str()).unwrap_or(""),"reason":response.map(|value|value.reason.as_str()).unwrap_or(""),"impact":response.map(|value|value.impact.as_str()).unwrap_or(""),"excludedScope":response.map(|value|value.excluded_scope.as_str()).unwrap_or(""),"reviewAt":response.map(|value|value.review_at.as_str()).unwrap_or(""),"reviewWhen":response.map(|value|value.review_when.as_str()).unwrap_or(""),"reviewUtcOffsetMinutes":response.and_then(|value|value.review_utc_offset_minutes).unwrap_or(0)});
+            let guard = json!({"questionDigest":question.digest,"responseId":response.map(|value|&value.id)});
+            question_view = Some(question);
+            (values, guard)
         }
         Action::SetStageRecord { spec_id, stage, .. } => {
             let spec = sources::spec(state, spec_id)?;
@@ -111,7 +111,12 @@ pub fn target(state: &WorkbenchState, action: &Action) -> Result<Value> {
     };
     let bytes = serde_json::to_vec(&json!({"values":values,"guard":guard}))
         .map_err(|_| sources::invalid("编辑基线编码失败"))?;
-    Ok(json!({"token":Sha256::of(&bytes).as_str(),"values":values}))
+    let mut target = json!({"token":Sha256::of(&bytes).as_str(),"values":values});
+    if let Some(question) = question_view {
+        target["question"] =
+            serde_json::to_value(question).map_err(|_| sources::invalid("问题无法编码"))?;
+    }
+    Ok(target)
 }
 
 fn validate_target(store: &Store, target_type: &str, target_id: &str) -> Result<()> {

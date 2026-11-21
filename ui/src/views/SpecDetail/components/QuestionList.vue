@@ -2,8 +2,9 @@
 import { computed, nextTick, shallowRef, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
-import { canCopyQuestionResponse, questionStateLabel } from '@/services/workbench-content'
+import { currentQuestionResponse, questionHistory, questionState, questionStateLabel, responseUse, reviewDateLabel } from '@/services/workbench-content'
 import type { QuestionView } from '@/services/workbench'
+import QuestionHistory from './QuestionHistory.vue'
 const props = defineProps<{
   specId: string
   sourcePath: string
@@ -53,13 +54,17 @@ watch(
   },
   { immediate: true }
 )
-function summary(item: QuestionView) {
-  return item.response
-    ? item.response.kind === 'answer'
-      ? item.response.answer
-      : item.response.reason
-    : item.question.resolution || item.question.recommendation || '尚未答复'
-}
+const rows = computed(() => props.items.map((item) => {
+  const response = currentQuestionResponse(item)
+  const history = questionHistory(item)
+  const state = questionState(item)
+  const summary = response
+    ? (response.kind === 'answer' ? response.answer : response.reason)
+    : history.length
+      ? (state === 'overdue' ? '原延期已到期，需重新处理。' : '原答复仅供复查。')
+      : item.question.resolution || item.question.recommendation || '尚未答复'
+  return { item, state, response, history, summary }
+}))
 </script>
 <template>
   <div class="question-table-wrap panel" tabindex="0" role="region" :aria-labelledby="id">
@@ -75,7 +80,7 @@ function summary(item: QuestionView) {
         </tr>
       </thead>
       <tbody role="rowgroup">
-        <template v-for="item in items" :key="item.question.id">
+        <template v-for="{ item, state, response, history, summary } in rows" :key="item.question.id">
           <tr
             :id="`question-${item.question.id}`"
             role="row"
@@ -100,7 +105,7 @@ function summary(item: QuestionView) {
               </button>
             </th>
             <td role="cell" data-label="状态">
-              <span class="question-state" :data-state="item.state">
+              <span class="question-state" :data-state="state">
                 {{ questionStateLabel(item) }}
               </span>
               <span v-if="item.question.blocking" class="blocking-label">影响本次确认</span>
@@ -111,43 +116,37 @@ function summary(item: QuestionView) {
               </p>
             </td>
             <td role="cell" data-label="答复摘要" class="question-response">
-              <span v-if="item.response" class="summary-label">
-                {{
-                  !canCopyQuestionResponse(item)
-                    ? '原答复，待复查'
-                    : item.response.kind === 'answer'
-                      ? '已保存答复'
-                      : '已保存延期'
-                }}
-              </span>
-              <p :title="summary(item)">{{ summary(item) }}</p>
+              <span v-if="response" class="summary-label">{{ responseUse(item, response) }}</span>
+              <p :title="summary">{{ summary }}</p>
             </td>
             <td role="cell" data-label="操作" class="question-actions">
               <Button
-                v-if="item.state !== 'resolved'"
+                v-if="state !== 'resolved' || response"
                 type="button"
                 variant="outline"
                 :disabled="saving"
-                :aria-label="`${item.question.kind === 'research' ? '补充依据或延期' : '答复或延期'}：${item.question.title}`"
+                :aria-label="`${!response && history.length ? '复查' : '答复或延期'}：${item.question.title}`"
                 @click="emit('answer', item, $event.currentTarget as HTMLButtonElement)"
               >
                 {{
-                  item.response
+                  response
                     ? '修改答复 / 延期'
+                    : history.length
+                      ? '复查'
                     : item.question.kind === 'research'
                       ? '补充 / 延期'
                       : '答复 / 延期'
                 }}
               </Button>
               <Button
-                v-if="canCopyQuestionResponse(item)"
+                v-if="response"
                 type="button"
                 variant="ghost"
                 :disabled="saving"
-                :aria-label="`复制答复：${item.question.title}`"
+                :aria-label="`复制有效答复：${item.question.title}`"
                 @click="emit('copy', item)"
               >
-                复制答复
+                复制有效答复
               </Button>
             </td>
           </tr>
@@ -176,50 +175,44 @@ function summary(item: QuestionView) {
                     </div>
                   </dl>
                 </section>
-                <section v-if="item.response">
+                <section v-if="response">
                   <h3>
-                    {{
-                      !canCopyQuestionResponse(item)
-                        ? '原答复，待复查'
-                        : item.response.kind === 'answer'
-                          ? '已保存答复'
-                          : '已保存延期安排'
-                    }}
+                    {{ responseUse(item, response) }}
                   </h3>
+                  <p class="path-text">答复 ID · {{ response.id }}</p>
                   <p class="preserve-lines">
-                    {{
-                      item.response.kind === 'answer' ? item.response.answer : item.response.reason
-                    }}
+                    {{ response.kind === 'answer' ? response.answer : response.reason }}
                   </p>
-                  <dl v-if="item.response.kind === 'defer'">
+                  <dl v-if="response.kind === 'defer'">
                     <div>
                       <dt>影响</dt>
-                      <dd>{{ item.response.impact }}</dd>
+                      <dd>{{ response.impact }}</dd>
                     </div>
                     <div>
                       <dt>本次排除</dt>
-                      <dd>{{ item.response.excludedScope }}</dd>
+                      <dd>{{ response.excludedScope }}</dd>
                     </div>
                     <div>
                       <dt>复查日期</dt>
-                      <dd>{{ item.response.reviewAt || '未设日期' }}</dd>
+                      <dd>{{ response.reviewAt ? reviewDateLabel(response) : '未设日期' }}</dd>
                     </div>
-                    <div v-if="item.response.reviewWhen">
+                    <div v-if="response.reviewWhen">
                       <dt>触发条件</dt>
-                      <dd>{{ item.response.reviewWhen }}</dd>
+                      <dd>{{ response.reviewWhen }} · 请核对条件是否已触发</dd>
                     </div>
                   </dl>
                 </section>
               </div>
-              <p v-if="item.state === 'needsReview'" class="warning-text">
+              <QuestionHistory :entries="history" />
+              <p v-if="state === 'needsReview'" class="warning-text">
                 问题内容或延期安排需重新核对，原答复不会作为当前回复复制。
               </p>
-              <p v-if="item.state === 'overdue'" class="warning-text">
+              <p v-if="state === 'overdue'" class="warning-text">
                 延期已到期，请复查后重新答复或安排延期。
               </p>
-              <p v-if="item.state === 'pendingWriteback'" class="muted">待 Agent 回写并核验。</p>
+              <p v-if="state === 'pendingWriteback'" class="muted">待 Agent 回写并核验。</p>
               <p v-if="item.question.resolution" class="preserve-lines resolution-text">
-                {{ item.state === 'resolved' ? '回写结论' : '来源记录' }} ·
+                {{ state === 'resolved' || state === 'deferred' ? '已回写结论' : '来源中的既有记录，供复查' }} ·
                 {{ item.question.resolution }}
               </p>
               <p class="path-text">{{ sourcePath }} · {{ item.question.id }}</p>

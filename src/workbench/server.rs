@@ -437,7 +437,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
             let mut store = super::jobs::lock_store(&server.store)?;
             let id = &path[11..path.len() - 8];
             let snapshot = service::snapshot_from_store(&mut store, &server.cancel)?;
-            let mut request = super::content::agent_request(store.state(), id, store.data_dir())?;
+            let mut request = super::content::agent_request(store.state(), id, Some(store.data_dir()))?;
             request.text.push_str(&service::progress_context(&snapshot, id, store.data_dir())?);
             serde_json::to_value(request)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {

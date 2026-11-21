@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import ModalDialog from '@/components/ModalDialog.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
+import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
   contentStatuses,
   dateLabel,
   errorMessage,
+  type AgentRequest,
   type ContentView,
   type QuestionView
 } from '@/services/workbench'
@@ -20,7 +22,8 @@ import {
 import QuestionResponseForm from './QuestionResponseForm.vue'
 import ConfirmationDiff from './ConfirmationDiff.vue'
 import QuestionList from './QuestionList.vue'
-import { apiRequest } from '@/services/workbench'
+import AgentRequestPreview from './AgentRequestPreview.vue'
+import { getAgentRequest, getSpecContent } from '@/services/workbench-platform'
 const props = defineProps<{
   specId: string
   sourcePath: string
@@ -105,8 +108,9 @@ async function closeQuestion() {
 }
 const notice = shallowRef('')
 const error = shallowRef('')
-const manualCopy = shallowRef('')
+const manualCopy = shallowRef<{ text: string; questions: QuestionView[]; readAt: string }>()
 const manualOpen = shallowRef(false)
+const requestOpen = shallowRef(false)
 const confirmOpen = shallowRef(false)
 const accepted = shallowRef(false)
 const confirmation = shallowRef<{
@@ -117,56 +121,76 @@ const confirmation = shallowRef<{
 }>()
 const exclusions = computed(() =>
   props.content.questions
-    .filter((item) => item.response?.kind === 'defer' && item.state !== 'resolved')
+    .filter((item) => canCopyQuestionResponse(item) && item.response?.kind === 'defer' && item.state !== 'resolved')
     .map((item) => item.response?.excludedScope ?? '')
     .filter(Boolean)
 )
 const latestConfirmation = computed(() => props.content.confirmations.at(-1))
 const pending = computed(() => props.content.questions.filter((item) => item.state !== 'resolved'))
 const copyable = computed(() => props.content.questions.filter(canCopyQuestionResponse))
+let copyAttempt = 0
 watch(
-  () => props.specId,
-  () => {
-    selected.value = null
+  [() => props.specId, () => route.query.tab],
+  ([specId], [previousSpecId]) => {
+    copyAttempt++
+    if (specId !== previousSpecId) selected.value = null
+    requestOpen.value = false
+    manualOpen.value = false
+    manualCopy.value = undefined
     error.value = ''
   }
 )
 watch([() => props.specId, () => snapshot.value?.readAt], () => {
   manualOpen.value = false
-  manualCopy.value = ''
+  manualCopy.value = undefined
   notice.value = ''
 })
-function saved() {
-  notice.value = '答复已保存。可直接复制答复提示词，交给 Agent 回写并核验。'
+useQuestionReviewDeadline(() => manualOpen.value ? manualCopy.value : undefined, async () => {
+  manualOpen.value = false
+  manualCopy.value = undefined
+  notice.value = '已有延期到达复查日期，请重新复制有效答复。'
+})
+function saved(responseId?: string | null) {
+  notice.value = `答复已保存${responseId ? `（${responseId}）` : ''}。可在问题详情中查看回写状态。`
   emit('saved')
 }
-async function copyReplies(items: QuestionView[]) {
-  let text = formatQuestionReplies(props.sourcePath, items, props.projectRoot)
-  if (text) {
-    try {
-      const context = await apiRequest<{ specId: string; text: string; readAt: string }>(
-        `/api/specs/${encodeURIComponent(props.specId)}/request`
-      )
-      text = `${context.text}\n本次选中问题：${items.map((item) => item.question.id).join('、')}\n\n${text}`
-    } catch (cause) {
-      error.value = errorMessage(cause)
-      return
-    }
-  }
-  if (!text) return
+async function copyReplies(selected?: QuestionView) {
+  const attempt = ++copyAttempt
   const specId = props.specId
-  const readAt = snapshot.value?.readAt
+  const isCurrent = () =>
+    mounted && route.query.tab === 'content' && specId === props.specId && attempt === copyAttempt
   error.value = ''
+  notice.value = ''
+  let current: QuestionView[]
+  let request: AgentRequest
+  try {
+    request = await getAgentRequest(specId)
+    const questions = request.questions ?? (await getSpecContent(specId)).questions
+    if (!isCurrent()) return
+    current = questions.filter((item) =>
+      canCopyQuestionResponse(item) &&
+      (!selected || (item.question.id === selected.question.id && item.response?.id === selected.response?.id))
+    )
+  } catch (cause) {
+    if (isCurrent()) error.value = `未复制。读取最新答复失败：${errorMessage(cause)}`
+    return
+  }
+  const text = formatQuestionReplies(
+    request.sourcePath ?? props.sourcePath, current, request.projectRoot ?? props.projectRoot, request
+  )
+  if (!text) {
+    notice.value = selected ? '选中的答复已变更或已到复查日期，请先复查。' : '当前没有可复制的有效答复。'
+    return
+  }
   try {
     await navigator.clipboard.writeText(text)
-    if (specId !== props.specId || readAt !== snapshot.value?.readAt) return
-    const message = `已复制 ${items.filter(canCopyQuestionResponse).length} 项答复，可直接粘贴给 Agent。`
-    notice.value = notice.value === message ? `${message}\u00a0` : message
+    if (!isCurrent()) return
+    notice.value = `已复制 ${current.length} 项有效答复，可直接粘贴给 Agent。`
     manualOpen.value = false
   } catch {
-    if (specId !== props.specId || readAt !== snapshot.value?.readAt) return
+    if (!isCurrent()) return
     notice.value = ''
-    manualCopy.value = text
+    manualCopy.value = { text, questions: current, readAt: request.readAt }
     manualOpen.value = true
   }
 }
@@ -220,12 +244,15 @@ async function confirmContent() {
           </h2>
           <p class="muted">答复回写并核验后，再确认本次范围与版本。</p>
         </div>
-        <Button
-          :disabled="content.status === 'confirmed' || !content.canConfirm || saving"
-          @click="prepareConfirmation"
-        >
-          {{ content.status === 'confirmed' ? '已确认此版本' : '查看范围并确认' }}
-        </Button>
+        <div class="inline-actions">
+          <Button type="button" variant="outline" @click="requestOpen = true">查看 Agent 续办文本</Button>
+          <Button
+            :disabled="content.status === 'confirmed' || !content.canConfirm || saving"
+            @click="prepareConfirmation"
+          >
+            {{ content.status === 'confirmed' ? '已确认此版本' : '查看范围并确认' }}
+          </Button>
+        </div>
       </div>
       <details class="content-scope">
         <summary>本次确认范围</summary>
@@ -272,9 +299,9 @@ async function confirmContent() {
         type="button"
         variant="outline"
         :disabled="saving"
-        @click="copyReplies(copyable)"
+        @click="copyReplies()"
       >
-        复制全部答复
+        复制有效答复
         <span v-if="copyable.length">（{{ copyable.length }}）</span>
       </Button>
     </div>
@@ -306,7 +333,7 @@ async function confirmContent() {
       :items="visibleQuestions"
       :saving="saving"
       @answer="openQuestion"
-      @copy="copyReplies([$event])"
+      @copy="copyReplies"
     />
     <p v-else-if="!content.questions.length" class="question-empty">主规格尚未列出待确认事项。</p>
     <p v-else class="question-empty">
@@ -329,12 +356,13 @@ async function confirmContent() {
       @dirty="emit('dirty', $event)"
       @saved="saved"
     />
+    <AgentRequestPreview v-model="requestOpen" :spec-id="specId" />
     <ModalDialog v-model="manualOpen" title="手动复制答复">
       <p role="alert">无法访问剪贴板。请选中以下提示词，手动复制后粘贴给 Agent。</p>
       <label for="reply-prompt">答复提示词</label>
       <textarea
         id="reply-prompt"
-        :value="manualCopy"
+        :value="manualCopy?.text"
         readonly
         rows="12"
         class="manual-copy"

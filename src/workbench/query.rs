@@ -44,6 +44,9 @@ pub fn reminder_counts(content: &ContentView) -> BTreeMap<String, usize> {
             .map(|kind| (kind.into(), 0))
             .collect();
     for question in &content.questions {
+        if question.state == QuestionState::NeedsReview {
+            *counts.entry("overdue".into()).or_default() += 1;
+        }
         let kind = match question.state {
             QuestionState::Open | QuestionState::NeedsReview => {
                 Some(match question.question.kind {

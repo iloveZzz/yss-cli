@@ -23,7 +23,7 @@ export interface MutationRequest {
   expectedTarget?: string
   requestId?: string
 }
-export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null }
+export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null; responseId?: string | null }
 
 export type WorkEntity = 'spec' | 'task'
 export type Layout = 'list' | 'board'
@@ -63,8 +63,11 @@ export function defaultWorkQuery():WorkQuery {return {entity:'spec',progressBasi
 export const contentStatuses = { unmarked: '未标记', draft: '草稿', ready: '可确认', confirmed: '已确认' } as const
 export type ContentStatus = keyof typeof contentStatuses
 export interface ContentQuestion { id: string; title: string; kind: 'research' | 'decision'; impact: string; recommendation: string; blocking: boolean; affectedScope: string; status: 'open' | 'resolved' | 'deferred'; resolution: string; appliedDecisionId: string | null }
-export interface QuestionResponse { id: string; specId: string; questionId: string; kind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string; questionDigest: string; createdAt: string }
-export interface QuestionView { question: ContentQuestion; digest: string; state: 'open' | 'pendingWriteback' | 'resolved' | 'deferred' | 'overdue' | 'needsReview'; response: QuestionResponse | null }
+export interface QuestionResponse { id: string; specId: string; questionId: string; kind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes?: number | null; reviewWhen: string; questionDigest: string; createdAt: string }
+export interface QuestionHistoryEntry { response: QuestionResponse; reason: string; sourceResolution?: string }
+export interface QuestionView { question: ContentQuestion; digest: string; state: 'open' | 'pendingWriteback' | 'resolved' | 'deferred' | 'overdue' | 'needsReview'; response: QuestionResponse | null; history?: QuestionHistoryEntry[] }
+export interface AgentQuestion extends QuestionView { usage: string }
+export interface AgentRequest { specId: string; text: string; readAt: string; projectRoot?: string; sourcePath?: string; dataDir?: string; questions?: AgentQuestion[]; history?: QuestionHistoryEntry[] }
 export interface ConfirmationRecord { id: string; specId: string; scope: string; artifactDigest: string; createdAt: string }
 export interface ContentView { status: ContentStatus; scope: string; artifactDigest: string | null; metadataError: string | null; questions: QuestionView[]; confirmations: ConfirmationRecord[]; canConfirm: boolean; blockers: string[]; needsReconfirmation: boolean }
 export interface RespondQuestionAction { kind: 'respondQuestion'; specId: string; questionId: string; questionDigest: string; responseKind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string }

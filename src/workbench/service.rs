@@ -95,7 +95,7 @@ pub fn read_agent_request(
         super::progress::ProgressRecords::from_raw(&raw)?,
         &state,
     );
-    let mut request = super::content::agent_request(&state, spec_id, data_dir)?;
+    let mut request = super::content::agent_request(&state, spec_id, Some(data_dir))?;
     request
         .text
         .push_str(&progress_context(&view, spec_id, data_dir)?);
@@ -509,6 +509,7 @@ fn mutate_inner(
             review_utc_offset_minutes,
         } => {
             project_id = sources::spec(&state, &id)?.project_id.clone();
+            super::agent::ensure_response_available(store, &id, &question_id)?;
             super::content::respond(
                 &mut state,
                 QuestionResponse {
@@ -522,7 +523,7 @@ fn mutate_inner(
                     excluded_scope,
                     review_at,
                     review_when,
-                    review_utc_offset_minutes,
+                    review_utc_offset_minutes: Some(review_utc_offset_minutes),
                     question_digest,
                     created_at: String::new(),
                 },
@@ -625,6 +626,10 @@ fn mutate_inner(
             let root_path = if root_path == before.root_path {
                 root_path
             } else {
+                super::agent::ensure_roots_available(
+                    store,
+                    std::slice::from_ref(&before.root_path),
+                )?;
                 project_root(&root_path, store.data_dir())?
             };
             check_project_unique(&state, &root_path, &id)?;
@@ -687,6 +692,7 @@ fn mutate_inner(
             check_source_unique(&state, &before.project_id, &source_path, &id)?;
             validate_resources(&resources)?;
             if source_path != before.source_path {
+                super::agent::ensure_source_path_available(store, &id)?;
                 let root = Root::open(Path::new(&project.root_path))?;
                 let main = super::registration::main_source(&root, &source_path)?;
                 if fs::alias_key(&main) != fs::alias_key(&source_path) {

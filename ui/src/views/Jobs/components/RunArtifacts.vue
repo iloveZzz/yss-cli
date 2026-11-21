@@ -6,7 +6,8 @@ import { getAgentSpecView } from '@/services/workbench-agent'
 import { errorMessage, contentStatuses, type SpecView } from '@/services/workbench'
 import SourcePreview from '@/views/SpecDetail/components/SourcePreview.vue'
 import ResourceViewer from '@/views/SpecDetail/components/ResourceViewer.vue'
-import { questionStateLabel } from '@/services/workbench-content'
+import { currentQuestionResponse, questionHistory, questionStateLabel, responseText, responseUse } from '@/services/workbench-content'
+import QuestionHistory from '@/views/SpecDetail/components/QuestionHistory.vue'
 const props = defineProps<{ runId: string; specId: string; running: boolean }>()
 const view = shallowRef<SpecView>()
 const error = shallowRef('')
@@ -15,6 +16,9 @@ const resource = shallowRef<{ path: string; fragment: string } | null>(null)
 const version = computed(
   () => `${view.value?.sourceModifiedAt}:${view.value?.content.artifactDigest}`
 )
+const questions = computed(() => (view.value?.content.questions ?? []).map((item) => ({
+  item, response: currentQuestionResponse(item), history: questionHistory(item)
+})))
 let generation = 0
 onBeforeUnmount(() => {
   generation++
@@ -86,18 +90,20 @@ function safeWeb(value: string) {
       <div v-if="view.content.questions.length" class="run-questions">
         <h3>本次运行的问题</h3>
         <article
-          v-for="question in view.content.questions"
+          v-for="{ item: question, response, history } in questions"
           :key="question.question.id"
           class="diff-file"
         >
           <strong>{{ question.question.id }} · {{ question.question.title }}</strong>
           <p class="muted">{{ questionStateLabel(question) }}</p>
-          <p v-if="question.response" class="preserve-lines">
-            {{ question.response.answer || question.response.reason }}
+          <p v-if="response" class="preserve-lines">
+            {{ responseUse(question, response) }} · {{ response.id }}<br />
+            {{ responseText(response) }}
           </p>
           <p v-if="question.question.resolution" class="preserve-lines">
-            {{ question.question.resolution }}
+            {{ question.state === 'resolved' || question.state === 'deferred' ? '已回写结论' : '来源中的既有记录，供复查' }} · {{ question.question.resolution }}
           </p>
+          <QuestionHistory :entries="history" />
         </article>
       </div>
       <ResourceViewer

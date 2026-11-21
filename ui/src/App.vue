@@ -4,9 +4,15 @@ import { useEventListener } from '@vueuse/core'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { dateLabel } from '@/services/workbench'
 const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges } =
   useWorkbench()
+useQuestionReviewDeadline(() => {
+  const value = snapshot.value
+  if (!value || expired.value) return
+  return { readAt: value.readAt, questions: value.specs.flatMap((spec) => spec.content.questions) }
+}, refresh)
 const route = useRoute()
 const recentProjects = computed(() =>
   (snapshot.value?.projects ?? [])

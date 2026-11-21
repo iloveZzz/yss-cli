@@ -4,7 +4,10 @@ import {
   ApiError,
   expired,
   type Action,
+  type AgentRequest,
   type ChangeEvent,
+  type ContentView,
+  type QuestionView,
   type QueryResult,
   type WorkQuery
 } from './workbench'
@@ -43,6 +46,7 @@ export interface DraftRecord<T = JsonObject> {
 export interface EditableTarget<T = JsonObject> {
   token: string
   values: T
+  question?: QuestionView
 }
 export interface PageResult<T> {
   total: number
@@ -231,6 +235,10 @@ export const restoreBackup = (archivePath: string, targetPath: string) =>
   })
 export const getTarget = <T>(action: Action) =>
   apiRequest<EditableTarget<T>>('/api/targets', { body: { action } })
+export const getSpecContent = (id: string) =>
+  apiRequest<ContentView>(`/api/specs/${encodeURIComponent(id)}/content`)
+export const getAgentRequest = (id: string) =>
+  apiRequest<AgentRequest>(`/api/specs/${encodeURIComponent(id)}/request`)
 export const listDrafts = <T>(targetType: string, targetId: string) =>
   apiRequest<DraftRecord<T>[]>(`/api/drafts?${new URLSearchParams({ targetType, targetId })}`)
 export const putDraft = <T>(

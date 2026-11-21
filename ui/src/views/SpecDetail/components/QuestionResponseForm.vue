@@ -1,308 +1,188 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, shallowRef, useId, watch, toRaw } from 'vue'
+import { computed, nextTick, onBeforeUnmount, useId, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
-import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
-import { useServerDraft } from '@/hooks/useServerDraft'
-import {
-  errorMessage,
-  contentEqual,
-  ApiError,
-  type QuestionView,
-  type RespondQuestionAction
-} from '@/services/workbench'
-import { getTarget, type JsonObject } from '@/services/workbench-platform'
+import { currentQuestionResponse, questionHistory, reviewDateLabel } from '@/services/workbench-content'
+import type { QuestionView } from '@/services/workbench'
+import { useQuestionResponseEditor } from '../hooks/useQuestionResponseEditor'
+import QuestionHistory from './QuestionHistory.vue'
+
 const props = defineProps<{
   specId: string
   item: QuestionView | null
   confirmLeave: (required: boolean) => boolean | Promise<boolean>
 }>()
-const emit = defineEmits<{ close: []; saved: []; dirty: [value: boolean] }>()
-const { snapshot, saving, submit } = useWorkbench()
+const emit = defineEmits<{ close: []; saved: [id?: string | null]; dirty: [value: boolean] }>()
+const { saving } = useWorkbench()
 const id = useId()
-const error = shallowRef('')
-const baseline = shallowRef('')
-const notice = shallowRef('')
-let revision = 0
-let generation = 0
-interface QuestionDraft {
-  responseKind: 'answer' | 'defer'
-  answer: string
-  reason: string
-  impact: string
-  excludedScope: string
-  reviewAt: string
-  reviewWhen: string
-}
-const form = reactive<QuestionDraft>({
-  responseKind: 'answer',
-  answer: '',
-  reason: '',
-  impact: '',
-  excludedScope: '',
-  reviewAt: '',
-  reviewWhen: ''
-})
-const conflict = shallowRef<{
-  base: JsonObject
-  local: JsonObject
-  current: JsonObject
-  token: string
-}>()
-const dirty = computed(
-  () => !!props.item && !contentEqual(form, JSON.parse(baseline.value || 'null'))
-)
+const answerField = useTemplateRef<HTMLTextAreaElement>('answerField')
+const {
+  form, basis, question, busy, dirty, error, notice, review, collision, pending, drafts,
+  recoverable, initialize, acceptReview, merge, save
+} = useQuestionResponseEditor(props, (responseId) => emit('saved', responseId), () => emit('close'))
+const history = computed(() => question.value ? questionHistory(question.value) : [])
+const current = computed(() => question.value && currentQuestionResponse(question.value))
+const oldAnswer = computed(() => !current.value && history.value.find((entry) => entry.response.kind === 'answer')?.response)
 const open = computed({
   get: () => !!props.item,
-  set: (value) => {
-    if (!value) emit('close')
-  }
+  set: (value) => { if (!value) emit('close') }
 })
-function editableQuestion(value: QuestionDraft): QuestionDraft {
-  const hasResponse = !!(value.answer.trim() || value.reason.trim())
-  return {
-    responseKind: value.responseKind,
-    answer: value.answer,
-    reason: value.reason,
-    impact: hasResponse ? value.impact : (props.item?.question.affectedScope ?? ''),
-    excludedScope: hasResponse ? value.excludedScope : (props.item?.question.affectedScope ?? ''),
-    reviewAt: value.reviewAt,
-    reviewWhen: value.reviewWhen
-  }
-}
-async function currentTarget() {
-  const target = await getTarget<QuestionDraft>(action({ ...form }))
-  return { token: target.token, values: editableQuestion(target.values) }
-}
-const drafts = useServerDraft<QuestionDraft>({
-  targetType: 'question',
-  targetId: () => (props.item ? `${props.specId}:${props.item.question.id}` : ''),
-  payload: computed(() => (props.item ? form : undefined)),
-  restore: (value) => Object.assign(form, value),
-  refreshBase: currentTarget
-})
-function action(value: QuestionDraft): RespondQuestionAction {
-  return {
-    kind: 'respondQuestion',
-    specId: props.specId,
-    questionId: props.item?.question.id ?? '',
-    questionDigest: props.item?.digest ?? '',
-    ...value,
-    reviewUtcOffsetMinutes: value.reviewAt
-      ? -new Date(`${value.reviewAt}T00:00:00`).getTimezoneOffset()
-      : 0
-  }
-}
-watch(
-  () => props.item,
-  async (item) => {
-    generation++
-    if (!item) return
-    const own = generation
-    const response = item.response
-    Object.assign(form, {
-      responseKind: response?.kind ?? 'answer',
-      answer: response?.answer ?? '',
-      reason: response?.reason ?? '',
-      impact: response?.impact ?? item.question.affectedScope,
-      excludedScope: response?.excludedScope ?? item.question.affectedScope,
-      reviewAt: response?.reviewAt ?? '',
-      reviewWhen: response?.reviewWhen ?? ''
-    })
-    baseline.value = JSON.stringify(form)
-    error.value = ''
-    notice.value = ''
-    conflict.value = undefined
-    revision = snapshot.value?.revision ?? 0
-    try {
-      const target = await getTarget<QuestionDraft>(action({ ...form }))
-      if (own === generation) drafts.setBase({ ...form }, target.token)
-    } catch (cause) {
-      if (own === generation) error.value = errorMessage(cause)
-    }
-  }
-)
 watch(dirty, (value) => emit('dirty', value), { immediate: true })
 onBeforeUnmount(() => emit('dirty', false))
-async function close() {
+
+async function canClose() {
   await drafts.flush()
-  if (await props.confirmLeave(dirty.value)) emit('close')
+  return props.confirmLeave(dirty.value)
 }
-async function save() {
-  if (!props.item) return
-  error.value = ''
-  if (form.responseKind === 'answer' && !form.answer.trim()) {
-    error.value = '请填写答复或补充依据。'
-    return
-  }
-  if (
-    form.responseKind === 'defer' &&
-    (!form.reason.trim() ||
-      !form.impact.trim() ||
-      !form.excludedScope.trim() ||
-      (!form.reviewAt && !form.reviewWhen.trim()))
-  ) {
-    error.value = '延期须填写原因、影响、排除范围，以及复查日期或触发条件。'
-    return
-  }
-  const submitted = structuredClone(toRaw(form))
-  const own = generation
-  await drafts.flush()
-  try {
-    await submit(action(submitted), revision, drafts.baseToken.value || undefined)
-    if (own !== generation) return
-    baseline.value = JSON.stringify(submitted)
-    revision = snapshot.value?.revision ?? revision
-    const target = await getTarget<QuestionDraft>(action(submitted))
-    await drafts.accepted(submitted, submitted, target.token)
-    emit('saved')
-    if (!dirty.value) emit('close')
-    else notice.value = '提交时的答复已保存，新增输入已保留。'
-  } catch (cause) {
-    if (own !== generation) return
-    error.value = errorMessage(cause)
-    if (cause instanceof ApiError && cause.status === 409) {
-      try {
-        const target = await getTarget<QuestionDraft>(action(submitted))
-        conflict.value = {
-          base: JSON.parse(baseline.value),
-          local: { ...form },
-          current: { ...editableQuestion(target.values) },
-          token: target.token
-        }
-      } catch (readError) {
-        error.value = errorMessage(readError)
-      }
-    }
-  }
+async function cancel() {
+  if (await canClose()) emit('close')
 }
-function merge(value: JsonObject) {
-  if (!conflict.value) return
-  baseline.value = JSON.stringify(conflict.value.current)
-  drafts.setBase(conflict.value.current as unknown as QuestionDraft, conflict.value.token)
-  Object.assign(form, value)
-  revision = snapshot.value?.revision ?? revision
-  conflict.value = undefined
+async function reuseAnswer() {
+  const response = oldAnswer.value
+  if (!response) return
+  form.answer = response.answer
   error.value = ''
-  notice.value = '已合并，请核对后保存。'
+  notice.value = `已填入 ${response.id} 的原答复，可修改后保存。`
+  await nextTick()
+  answerField.value?.focus()
+}
+async function submitForm() {
+  await save()
+  if (error.value && form.responseKind === 'answer' && !form.answer.trim())
+    answerField.value?.focus()
 }
 </script>
 <template>
-  <ModalDialog
-    v-model="open"
-    title="答复与延期"
-    :busy="saving"
-    :before-close="() => confirmLeave(dirty)"
-  >
-    <form v-if="item" class="form-stack" aria-label="答复与延期" @submit.prevent="save">
-      <p class="preserve-lines">{{ item.question.title }}</p>
-      <DraftNotice
-        :status="drafts.status.value"
-        :error="drafts.error.value"
-        :drafts="drafts.recoverable.value"
-        :conflict="drafts.recoveryConflict.value"
-        @merge="drafts.mergeRecovered"
-        @cancel-recovery="drafts.cancelRecovery"
-        @restore="drafts.restore"
-        @discard="drafts.discard"
-      />
-      <ConflictResolver
-        v-if="conflict"
-        :base="conflict.base"
-        :local="conflict.local"
-        :current="conflict.current"
-        @resolve="merge"
-        @close="conflict = undefined"
-      />
-      <label :for="`${id}-kind`">
-        处理方式
-        <SingleSelect
-          :id="`${id}-kind`"
-          :model-value="form.responseKind"
-          :options="[
-            { value: 'answer', label: item.question.kind === 'research' ? '补充依据' : '答复问题' },
-            { value: 'defer', label: '延期处理' }
-          ]"
-          aria-label="处理方式"
-          @update:model-value="form.responseKind = $event as 'answer' | 'defer'"
+  <ModalDialog v-model="open" title="答复与延期" :busy="busy || saving" :before-close="canClose">
+    <form v-if="question" class="form-stack" aria-label="答复与延期" novalidate @submit.prevent="submitForm">
+      <header class="question-heading">
+        <p class="muted">{{ question.question.id }} · 当前问题摘要 {{ question.digest || '未知' }}</p>
+        <h3 class="preserve-lines">{{ question.question.title }}</h3>
+        <p class="preserve-lines">涉及范围 · {{ question.question.affectedScope || '未说明' }}</p>
+        <p v-if="question.question.impact" class="muted preserve-lines">影响 · {{ question.question.impact }}</p>
+      </header>
+      <QuestionHistory :entries="history" />
+      <p v-if="!basis && busy" role="status" class="muted">正在核对当前问题…</p>
+      <template v-if="basis">
+        <DraftNotice
+          :status="drafts.status.value"
+          :error="drafts.error.value"
+          :drafts="recoverable"
+          :conflict="drafts.recoveryConflict.value"
+          @merge="drafts.mergeRecovered"
+          @cancel-recovery="drafts.cancelRecovery"
+          @restore="drafts.restore"
+          @discard="drafts.discard"
         />
-      </label>
-      <template v-if="form.responseKind === 'answer'">
-        <label :for="`${id}-answer`">
-          {{ item.question.kind === 'research' ? '补充依据与来源' : '我的答复' }}
-          <textarea
-            :id="`${id}-answer`"
-            v-model="form.answer"
-            name="answer"
-            rows="5"
-            required
-            :aria-describedby="`${id}-hint`"
-          />
-        </label>
-        <Button
-          v-if="item.question.recommendation"
-          type="button"
-          variant="outline"
-          @click="form.answer = item.question.recommendation"
-        >
-          采用推荐答案
-        </Button>
-      </template>
-      <template v-else>
-        <label :for="`${id}-reason`">
-          延期原因
-          <textarea :id="`${id}-reason`" v-model="form.reason" name="reason" rows="2" required />
-        </label>
-        <label :for="`${id}-impact`">
-          影响范围
-          <textarea :id="`${id}-impact`" v-model="form.impact" name="impact" rows="2" required />
-        </label>
-        <label :for="`${id}-excluded`">
-          从本次确认中排除的范围
-          <textarea
-            :id="`${id}-excluded`"
-            v-model="form.excludedScope"
-            name="excludedScope"
-            rows="2"
-            required
-          />
-        </label>
-        <div class="form-grid">
-          <label :for="`${id}-date`">
-            复查日期
-            <Input
-              :id="`${id}-date`"
-              v-model="form.reviewAt"
-              name="reviewAt"
-              type="date"
-              :aria-describedby="`${id}-review-hint`"
-            />
+        <ConflictResolver
+          v-if="collision"
+          :base="{ ...basis.values }"
+          :local="{ ...form }"
+          :current="{ ...collision.values }"
+          @resolve="merge"
+          @close="collision = undefined"
+        />
+        <fieldset class="response-mode">
+          <legend class="sr-only">处理方式</legend>
+          <label>
+            <input v-model="form.responseKind" class="sr-only" name="responseKind" type="radio" value="answer" />
+            <span>{{ question.question.kind === 'research' ? '补充依据' : '答复问题' }}</span>
           </label>
-          <label :for="`${id}-condition`">
-            或复查触发条件
-            <Input
-              :id="`${id}-condition`"
-              v-model="form.reviewWhen"
-              name="reviewWhen"
-              :aria-describedby="`${id}-review-hint`"
-            />
+          <label>
+            <input v-model="form.responseKind" class="sr-only" name="responseKind" type="radio" value="defer" />
+            <span>延期处理</span>
           </label>
-        </div>
-        <p :id="`${id}-review-hint`" class="muted">
-          日期与条件至少填写一项，日期按提交时本地时区记录。
-        </p>
+        </fieldset>
+        <template v-if="form.responseKind === 'answer'">
+          <div class="answer-field">
+            <div class="answer-label">
+              <label :for="`${id}-answer`">{{ question.question.kind === 'research' ? '补充依据与来源' : '本次答复' }}</label>
+              <Button v-if="oldAnswer && !review" type="button" variant="outline" :title="`沿用 ${oldAnswer.id}`" @click="reuseAnswer">沿用原答复</Button>
+            </div>
+            <textarea :id="`${id}-answer`" ref="answerField" v-model="form.answer" name="answer" rows="3"
+              placeholder="填写适用于当前问题的答复" required :aria-invalid="!!error && !form.answer.trim()"
+              :aria-describedby="`${id}-hint`" />
+          </div>
+          <Button v-if="question.question.recommendation" type="button" variant="outline" class="recommendation"
+            @click="form.answer = question.question.recommendation">采用推荐答案</Button>
+        </template>
+        <template v-else>
+          <label :for="`${id}-reason`">
+            延期原因
+            <textarea :id="`${id}-reason`" v-model="form.reason" name="reason" rows="2" required />
+          </label>
+          <label :for="`${id}-impact`">
+            影响范围
+            <textarea :id="`${id}-impact`" v-model="form.impact" name="impact" rows="2" required />
+          </label>
+          <label :for="`${id}-excluded`">
+            从本次确认中排除的范围
+            <textarea :id="`${id}-excluded`" v-model="form.excludedScope" name="excludedScope" rows="2" required />
+          </label>
+          <div class="form-grid">
+            <label :for="`${id}-date`">复查日期
+              <Input :id="`${id}-date`" v-model="form.reviewAt" name="reviewAt" type="date" :aria-describedby="`${id}-review-hint`" />
+            </label>
+            <label :for="`${id}-condition`">或复查触发条件
+              <Input :id="`${id}-condition`" v-model="form.reviewWhen" name="reviewWhen" :aria-describedby="`${id}-review-hint`" />
+            </label>
+          </div>
+          <p :id="`${id}-review-hint`" class="muted">
+            日期与条件至少填写一项。新选日期按本地时区保存，条件是否触发须另行核对。
+            <template v-if="current?.kind === 'defer' && current.reviewAt">保留 {{ reviewDateLabel(current) }} 时沿用其时区。</template>
+          </p>
+        </template>
+        <p :id="`${id}-hint`" class="muted">保存后进入待回写，落实到相关规格与产物后更新结果。</p>
       </template>
-      <p :id="`${id}-hint`" class="muted">保存后进入待回写，落实到相关规格与产物后更新结果。</p>
-      <p v-if="error" role="alert" class="notice error">{{ error }} 输入与本机草稿均保留。</p>
+      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
+      <div v-if="review">
+        <Button type="button" variant="outline" :disabled="busy" @click="acceptReview">核对新版并保留输入</Button>
+      </div>
       <div class="form-actions">
-        <Button type="button" variant="outline" :disabled="saving" @click="close">关闭</Button>
-        <Button :disabled="saving">{{ saving ? '保存中…' : '保存答复' }}</Button>
+        <Button type="button" variant="outline" :disabled="busy || saving" @click="cancel">取消</Button>
+        <Button v-if="!basis && !busy" type="button" @click="initialize">重新读取问题</Button>
+        <Button v-else type="submit" :disabled="busy || saving || !basis || !!review || !!collision">
+          {{ busy || saving ? '处理中…' : pending ? (pending.requestId ? '核对并重试原请求' : '重读保存结果') : '保存答复' }}
+        </Button>
       </div>
     </form>
   </ModalDialog>
 </template>
+<style scoped>
+.question-heading { overflow-wrap: anywhere; }
+.question-heading h3 { margin: 4px 0; font-size: 15px; }
+.question-heading .muted { font-size: 12px; }
+.answer-field { display: grid; gap: 6px; }
+.answer-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.answer-label label { font-weight: 550; }
+.recommendation { align-self: flex-start; }
+.response-mode {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: 8px;
+  background: #f0f2f5;
+}
+.response-mode label { position: relative; }
+.response-mode span {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--yss-control-min-height);
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.response-mode input:checked + span { color: #171a20; background: #fff; box-shadow: 0 1px 3px #171a201c; }
+.response-mode input:focus-visible + span { outline: 2px solid var(--brand-color-primary); outline-offset: 2px; }
+@media (width < 560px) { .form-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>

@@ -596,8 +596,15 @@ pub enum ContentStatus {
 #[serde(rename_all = "camelCase")]
 pub enum SourceContentStatus {
     #[default]
+    #[serde(skip)]
+    Unspecified,
     Draft,
     Ready,
+}
+impl SourceContentStatus {
+    fn is_unspecified(&self) -> bool {
+        *self == Self::Unspecified
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -617,7 +624,7 @@ pub enum QuestionStatus {
 pub struct SpecMetadata {
     pub schema_version: u32,
     pub scope: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "SourceContentStatus::is_unspecified")]
     pub content_status: SourceContentStatus,
     #[serde(default)]
     pub resources: Vec<ResourceRef>,
@@ -659,8 +666,8 @@ pub struct QuestionResponse {
     pub excluded_scope: String,
     pub review_at: String,
     pub review_when: String,
-    #[serde(default)]
-    pub review_utc_offset_minutes: i16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_utc_offset_minutes: Option<i16>,
     pub question_digest: String,
     pub created_at: String,
 }
@@ -685,11 +692,21 @@ pub enum QuestionState {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct HistoricalResponse {
+    pub response: QuestionResponse,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_resolution: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuestionView {
     pub question: SpecQuestion,
     pub digest: String,
     pub state: QuestionState,
     pub response: Option<QuestionResponse>,
+    #[serde(default)]
+    pub history: Vec<HistoricalResponse>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -706,8 +723,27 @@ pub struct ContentView {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentQuestion {
+    pub question: SpecQuestion,
+    pub digest: String,
+    pub state: QuestionState,
+    pub response: Option<QuestionResponse>,
+    pub usage: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentRequest {
     pub spec_id: String,
+    #[serde(default)]
+    pub project_root: String,
+    #[serde(default)]
+    pub source_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_dir: Option<String>,
     pub text: String,
     pub read_at: String,
+    #[serde(default)]
+    pub questions: Vec<AgentQuestion>,
+    #[serde(default)]
+    pub history: Vec<HistoricalResponse>,
 }
