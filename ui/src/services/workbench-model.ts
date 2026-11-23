@@ -54,7 +54,7 @@ export interface WorkQuery {
   sort: 'updatedDesc' | 'titleAsc'
 }
 export interface SavedView {id:string;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy;createdAt:string;updatedAt:string}
-export interface WorkItem {progress?:ProgressSummary;entity:WorkEntity;id:string;projectId:string;projectName:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean;contentStatus:ContentStatus|null;reminderCounts:Record<string,number>;needsReconfirmation:boolean}
+export interface WorkItem {progress?:ProgressSummary;entity:WorkEntity;id:string;projectId:string;projectName:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean;contentStatus:ContentStatus|null;reminderCounts:Record<string,number>;needsReconfirmation:boolean;materialReview?:boolean}
 export interface QueryResult {revision:number;readAt:string;total:number;items:WorkItem[]}
 export type TaskCounts = Record<Status | 'total',number>
 export interface LifecycleView {progressHistory?:ProgressHistory;progress?:ProgressSummary;revision:number;spec:SpecView;stages:{stage:Stage;record:StageRecord|null;taskCounts:TaskCounts}[];tasks:TaskView[];events:ChangeEvent[]}
@@ -69,6 +69,13 @@ export interface QuestionView { question: ContentQuestion; digest: string; state
 export interface AgentQuestion extends QuestionView { usage: string }
 export interface AgentRequest { specId: string; text: string; readAt: string; projectRoot?: string; sourcePath?: string; dataDir?: string; questions?: AgentQuestion[]; history?: QuestionHistoryEntry[] }
 export interface ConfirmationRecord { id: string; specId: string; scope: string; artifactDigest: string; createdAt: string }
-export interface ContentView { status: ContentStatus; scope: string; artifactDigest: string | null; metadataError: string | null; questions: QuestionView[]; confirmations: ConfirmationRecord[]; canConfirm: boolean; blockers: string[]; needsReconfirmation: boolean }
+export interface MaterialChange {
+  target: string
+  kind: 'changed' | 'sharedUpdated' | 'dependencyReview' | 'unavailable' | 'historyUnavailable'
+  reason: string
+  confirmedDigest: string | null
+  observedDigest: string | null
+}
+export interface ContentView { status: ContentStatus; scope: string; artifactDigest: string | null; metadataError: string | null; questions: QuestionView[]; confirmations: ConfirmationRecord[]; canConfirm: boolean; blockers: string[]; needsReconfirmation: boolean; confirmedVersion?: ConfirmationRecord; observedArtifactDigest?: string; materialReviewDigest?: string; materialChanges?: MaterialChange[] }
 export interface RespondQuestionAction { kind: 'respondQuestion'; specId: string; questionId: string; questionDigest: string; responseKind: 'answer' | 'defer'; answer: string; reason: string; impact: string; excludedScope: string; reviewAt: string; reviewUtcOffsetMinutes: number; reviewWhen: string }
 export interface ProjectDocument extends SourceDocument { sourcePath: string }

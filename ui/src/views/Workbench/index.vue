@@ -12,7 +12,7 @@ import {
   type ChangeEvent,
   type WorkItem
 } from '@/services/workbench'
-import { contentReminders } from '@/services/workbench-content'
+import { contentReminders, materialNeedsReview } from '@/services/workbench-content'
 import { eventDescription } from '@/services/workbench-history'
 const { activeSpecs, snapshot } = useWorkbench()
 const route = useRoute()
@@ -59,7 +59,8 @@ const progressItems = computed<WorkItem[]>(() =>
     reminderCounts: Object.fromEntries(
       contentReminders(spec.content).map((reminder) => [reminder.id, reminder.count])
     ),
-    needsReconfirmation: spec.content.needsReconfirmation
+    needsReconfirmation: spec.content.needsReconfirmation,
+    materialReview: materialNeedsReview(spec.content)
   }))
 )
 const recent = computed(() =>

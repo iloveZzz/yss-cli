@@ -108,7 +108,7 @@ async function reconcile() {
           :disabled="saving"
           @click="goalOpen = true"
         >
-          {{ progress?.goal ? '编辑交付目标' : '录入交付目标' }}
+          {{ progress?.status === 'done' ? '登记新一轮目标' : progress?.goal ? '编辑交付目标' : '录入交付目标' }}
         </Button>
         <Button
           type="button"
@@ -120,6 +120,12 @@ async function reconcile() {
         </Button>
       </div>
     </div>
+    <details v-if="progress?.lastDelivery" class="goal-strip">
+      <summary>最近已验收目标 · {{ dateLabel(progress.lastDelivery.recordedAt) }}</summary>
+      <p>{{ progress.lastDelivery.scope }}</p>
+      <code>{{ progress.lastDelivery.goalVersion }}</code>
+      <p class="muted">{{ progress.lastDelivery.source }}</p>
+    </details>
     <div v-if="progress?.goal" class="goal-strip">
       <p>{{ progress.goal.scope }}</p>
       <span>

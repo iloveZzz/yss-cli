@@ -233,7 +233,7 @@ function moveTab(event: KeyboardEvent) {
     </div>
     <p v-if="copyNotice" role="status" class="copy-path-notice">{{ copyNotice }}</p>
     <div
-      v-if="reminders.some((item) => item.count) || spec.content.needsReconfirmation"
+      v-if="reminders.some((item) => item.count)"
       class="content-reminder-links"
     >
       <Button
@@ -242,11 +242,8 @@ function moveTab(event: KeyboardEvent) {
         variant="ghost"
         @click="setQuery({ tab: 'content', category: item.id, questionId: undefined })"
       >
-        {{ item.label }} {{ item.count }}
+        {{ item.label }}{{ item.id === 'ready' ? '' : ` ${item.count}` }}
       </Button>
-      <span v-if="spec.content.needsReconfirmation" class="warning-text">
-        来源已更新，需要重新确认
-      </span>
     </div>
     <DraftNotice
       :status="drafts.status.value"

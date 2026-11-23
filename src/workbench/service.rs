@@ -14,6 +14,12 @@ use std::{collections::BTreeMap, path::Path};
 
 pub use super::sources::{discover, read_source};
 
+fn record_kinds() -> Vec<&'static str> {
+    let mut kinds = super::progress::RECORD_KINDS.to_vec();
+    kinds.extend([super::materials::SNAPSHOTS, super::materials::REVIEWS]);
+    kinds
+}
+
 fn attach_progress(
     snapshot: &mut Snapshot,
     mut records: super::progress::ProgressRecords,
@@ -35,6 +41,7 @@ fn attach_progress(
         }
     }
     records.current_versions = super::progress::current_versions(state, &project_ids);
+    super::progress::refresh_inputs(&mut records, state, &Cancellation::new());
     snapshot.progress = super::progress::project(snapshot, &records);
     for spec in &mut snapshot.specs {
         spec.progress = snapshot.progress.get(&spec.record.id).cloned();
@@ -44,15 +51,16 @@ fn attach_progress(
 
 pub fn snapshot_from_store(store: &mut Store, cancel: &Cancellation) -> Result<Snapshot> {
     let records = super::progress::load(store)?;
-    let mut value = snapshot(store.state(), cancel)?;
+    let materials = super::materials::Records::load(store)?;
+    let mut value = snapshot(store.state(), &materials, cancel)?;
     attach_progress(&mut value, records, store.state());
     Ok(value)
 }
 
 pub fn read_snapshot(data_dir: &Path, cancel: &Cancellation) -> Result<Snapshot> {
-    let (state, records) =
-        super::store::read_state_with_records(data_dir, super::progress::RECORD_KINDS)?;
-    let mut value = snapshot(&state, cancel)?;
+    let (state, records) = super::store::read_state_with_records(data_dir, &record_kinds())?;
+    let materials = super::materials::Records::from_raw(&records)?;
+    let mut value = snapshot(&state, &materials, cancel)?;
     attach_progress(
         &mut value,
         super::progress::ProgressRecords::from_raw(&records)?,
@@ -72,12 +80,15 @@ pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> 
         "dataDir": data_dir,
         "cliExecutable": std::env::current_exe().ok(),
         "specDigest": spec.content.artifact_digest,
+        "observedArtifactDigest": spec.content.observed_artifact_digest,
+        "materialReviewDigest": spec.content.material_review_digest,
+        "materialChanges": spec.content.material_changes,
         "progress": snapshot.progress.get(spec_id),
         "project": snapshot.projects.iter().find(|project| project.record.id == spec.record.project_id)
             .map(|project| &project.record),
     });
     Ok(format!(
-        "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n在实际工作开始、产物与适用检查完成、遇到阻塞及版本影响核实后，依据当前程序的 workbench progress 帮助上报。目标和验收沿本次用户授权，报告关联实际成果、采用版本和检查结果。隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。进度能力暂不可用时，在原任务结果中保留待同步事实并继续已授权工作。\n",
+        "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n在实际工作开始、产物与适用检查完成、遇到阻塞及版本影响核实后，依据当前程序的 workbench progress 帮助上报。目标和验收沿本次用户授权，报告关联实际成果、采用版本和检查结果。共享材料的影响待核实时，先核对原条款和验收，再根据 workbench review-materials 帮助记录影响及采用依据。该操作不产生人工确认。隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。进度能力暂不可用时，在原任务结果中保留待同步事实并继续已授权工作。\n",
         serde_json::to_string_pretty(&context).map_err(|_| invalid("进度上下文编码失败"))?
     ))
 }
@@ -87,28 +98,66 @@ pub fn read_agent_request(
     spec_id: &str,
     cancel: &Cancellation,
 ) -> Result<AgentRequest> {
-    let (state, raw) =
-        super::store::read_state_with_records(data_dir, super::progress::RECORD_KINDS)?;
-    let mut view = snapshot(&state, cancel)?;
+    let (state, raw) = super::store::read_state_with_records(data_dir, &record_kinds())?;
+    let materials = super::materials::Records::from_raw(&raw)?;
+    let mut view = snapshot(&state, &materials, cancel)?;
     attach_progress(
         &mut view,
         super::progress::ProgressRecords::from_raw(&raw)?,
         &state,
     );
-    let mut request = super::content::agent_request(&state, spec_id, Some(data_dir))?;
+    let mut request = super::content::agent_request_with_materials(
+        &state,
+        spec_id,
+        Some(data_dir),
+        Some(&materials),
+    )?;
     request
         .text
         .push_str(&progress_context(&view, spec_id, data_dir)?);
     Ok(request)
 }
 
-pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapshot> {
+pub(super) fn agent_request_from_store(
+    store: &mut Store,
+    spec_id: &str,
+    cancel: &Cancellation,
+) -> Result<AgentRequest> {
+    let records = super::progress::load(store)?;
+    let materials = super::materials::Records::load(store)?;
+    let mut view = snapshot(store.state(), &materials, cancel)?;
+    attach_progress(&mut view, records, store.state());
+    let mut request = super::content::agent_request_with_materials(
+        store.state(),
+        spec_id,
+        Some(store.data_dir()),
+        Some(&materials),
+    )?;
+    request
+        .text
+        .push_str(&progress_context(&view, spec_id, store.data_dir())?);
+    Ok(request)
+}
+
+fn snapshot(
+    state: &WorkbenchState,
+    materials: &super::materials::Records,
+    cancel: &Cancellation,
+) -> Result<Snapshot> {
     let mut projects = vec![];
     let mut specs = vec![];
     let mut tasks = vec![];
     for project in &state.projects {
         cancel.check()?;
         let root = Root::open(Path::new(&project.root_path));
+        let shared = root
+            .as_ref()
+            .map(|root| super::materials::shared(state, materials, &project.id, root))
+            .unwrap_or_default();
+        let context = super::materials::Context {
+            records: materials,
+            shared: &shared,
+        };
         projects.push(ProjectView {
             source_directories: root.as_ref().map_or_else(
                 |_| vec![],
@@ -125,7 +174,7 @@ pub fn snapshot(state: &WorkbenchState, cancel: &Cancellation) -> Result<Snapsho
         });
         for s in state.specs.iter().filter(|s| s.project_id == project.id) {
             cancel.check()?;
-            specs.push(sources::spec_view(state, s, &root));
+            specs.push(sources::spec_view(state, s, &root, Some(&context)));
             for task in state.tasks.iter().filter(|t| t.spec_id == s.id) {
                 cancel.check()?;
                 tasks.push(TaskView {
@@ -286,6 +335,16 @@ pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<Mutatio
             );
         }
         request.expected_revision = store.state().revision;
+    } else if request.expected_revision < store.state().revision
+        && matches!(
+            request.action,
+            Action::ConfirmContent { .. }
+                | Action::ConfirmProgress { .. }
+                | Action::ReviewMaterials { .. }
+        )
+    {
+        // Each of these writes revalidates the exact displayed inputs under this store lock.
+        request.expected_revision = store.state().revision;
     }
     mutate_inner(store, request, &digest)
 }
@@ -372,7 +431,9 @@ fn mutate_inner(
             .collect();
         project_ids.insert(project_id.clone());
         records.current_versions = super::progress::current_versions(&state, &project_ids);
-        let view = snapshot(&state, &Cancellation::new())?;
+        super::progress::refresh_inputs(&mut records, &state, &Cancellation::new());
+        let materials = super::materials::Records::load(store)?;
+        let view = snapshot(&state, &materials, &Cancellation::new())?;
         let effects = match request.action.clone() {
             Action::SetLifecycleGoal { input } => {
                 super::progress::prepare_goal(&view, &records, input, &at)?
@@ -538,8 +599,24 @@ fn mutate_inner(
             artifact_digest,
         } => {
             project_id = sources::spec(&state, &id)?.project_id.clone();
-            super::content::confirm(&mut state, &id, scope, artifact_digest, &at)?;
-            effects = super::artifacts::confirmation_effects(&state, &id)?;
+            let records = super::materials::Records::load(store)?;
+            let (view, captured) = super::content::inspect_record(&state, &id, &records, true)?;
+            let count = state.confirmations.len();
+            super::content::confirm(&mut state, &id, scope, artifact_digest, &at, &view)?;
+            if state.confirmations.len() > count {
+                effects = super::artifacts::confirmation_effects(
+                    store,
+                    &state.confirmations[count],
+                    captured.ok_or_else(|| invalid("确认材料无法保存"))?,
+                )?;
+            }
+            spec_id = Some(id);
+        }
+        Action::ReviewMaterials { input } => {
+            let id = input.spec_id.clone();
+            project_id = sources::spec(&state, &id)?.project_id.clone();
+            effects = super::materials::prepare_review(&state, store, input, &at)?;
+            super::tasks::touch_spec(&mut state, &id, &at);
             spec_id = Some(id);
         }
         Action::RefreshSpec { spec_id: id } => {

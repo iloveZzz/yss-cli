@@ -84,11 +84,15 @@ impl Command {
                 Some(WorkbenchCommand::Register { .. }) => "workbench.register",
                 Some(WorkbenchCommand::Request { .. }) => "workbench.request",
                 Some(WorkbenchCommand::Respond(_)) => "workbench.respond",
+                Some(WorkbenchCommand::ReviewMaterials(_)) => "workbench.review-materials",
                 Some(WorkbenchCommand::Progress(command)) => match command {
                     WorkbenchProgressCommand::SetGoal(_) => "workbench.progress.set-goal",
                     WorkbenchProgressCommand::Report(_) => "workbench.progress.report",
                     WorkbenchProgressCommand::Confirm(_) => "workbench.progress.confirm",
                     WorkbenchProgressCommand::Reconcile { .. } => "workbench.progress.reconcile",
+                    WorkbenchProgressCommand::ObserveInputs { .. } => {
+                        "workbench.progress.observe-inputs"
+                    }
                 },
             },
             Self::Init(_) => "init",
@@ -144,6 +148,8 @@ pub enum WorkbenchCommand {
     },
     #[command(about = "保存用户已明确给出的答复或延期；答复不等于解决")]
     Respond(WorkbenchResponseArgs),
+    #[command(about = "核实一个 Spec 的材料，记录参考、依赖或采用版本")]
+    ReviewMaterials(ProgressInputArgs),
     #[command(about = "只读输出个人状态与来源健康；可配合 --json")]
     Snapshot,
     #[command(about = "只读筛选已纳管的 Spec 或任务")]
@@ -157,6 +163,13 @@ pub enum WorkbenchCommand {
 
 #[derive(Subcommand)]
 pub enum WorkbenchProgressCommand {
+    #[command(about = "只读采集检查采用的文件和目录摘要")]
+    ObserveInputs {
+        #[arg(long)]
+        project: String,
+        #[arg(long = "path", required = true)]
+        paths: Vec<String>,
+    },
     #[command(about = "登记本次目标、适用阶段、参与工程和规格版本")]
     SetGoal(ProgressInputArgs),
     #[command(about = "上报带版本与证据的阶段成果，重复上报使用原 ID")]
@@ -240,6 +253,7 @@ fn progress_action(
             },
             request_id.clone(),
         ),
+        WorkbenchProgressCommand::ObserveInputs { .. } => unreachable!("observation is read-only"),
     })
 }
 #[derive(Args)]
@@ -480,6 +494,7 @@ enum Report<'a> {
     WorkbenchRequest(crate::workbench::model::AgentRequest),
     WorkbenchQuery(crate::workbench::model::QueryResult),
     WorkbenchLifecycle(Box<crate::workbench::model::LifecycleView>),
+    WorkbenchInputs(crate::workbench::progress::InputObservation),
     Help { help: String },
     Version(&'a BuildInfo),
     Catalog(crate::scaffold::CatalogReport),
@@ -504,8 +519,26 @@ fn dispatch<'a>(
         Command::Workbench(args) => {
             let path = crate::workbench::store::resolve_data_dir(args.data_dir.as_deref())?;
             match &args.command {
-                Some(WorkbenchCommand::Progress(command)) => {
-                    let (action, request_id) = progress_action(command)?;
+                Some(WorkbenchCommand::Progress(WorkbenchProgressCommand::ObserveInputs {
+                    project,
+                    paths,
+                })) => {
+                    return Ok(Report::WorkbenchInputs(
+                        crate::workbench::progress::observe_inputs(&path, project, paths, cancel)?,
+                    ));
+                }
+                Some(WorkbenchCommand::Progress(_))
+                | Some(WorkbenchCommand::ReviewMaterials(_)) => {
+                    let (action, request_id) = match args.command.as_ref().expect("write command") {
+                        WorkbenchCommand::Progress(command) => progress_action(command)?,
+                        WorkbenchCommand::ReviewMaterials(input) => (
+                            crate::workbench::model::Action::ReviewMaterials {
+                                input: progress_input(&input.input)?,
+                            },
+                            input.request_id.clone(),
+                        ),
+                        _ => unreachable!("write command was matched"),
+                    };
                     if let Some(result) = crate::workbench::session::mutate_with_request_if_running(
                         &path,
                         action.clone(),

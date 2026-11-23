@@ -76,7 +76,7 @@ async function applySourceState(value: SourceState): Promise<void> {
       const state = pendingSource
       pendingSource = undefined
       const previous = sourceVersions.value
-      const incomingProgress = JSON.stringify(state.progressVersions ?? [])
+      const incomingProgress = JSON.stringify([state.progressVersions ?? [], state.inputVersions ?? ''])
       const progressChanged = progressVersions !== incomingProgress
       if (!snapshot.value) {
         sourceVersions.value = state.sourceVersions

@@ -151,5 +151,10 @@ export function contentReminders(content: ContentView | undefined) {
     { id: 'decision', label: '待你决定' }, { id: 'research', label: '待补充' },
     { id: 'overdue', label: '需要复查' }, { id: 'writeback', label: '待回写' }
   ].map((item) => ({ ...item, count: questions.filter((q) => matchesContentReminder(q, item.id)).length }))
-  return [...reminders, { id: 'ready', label: '可确认', count: content?.status === 'ready' ? 1 : 0 }]
+  return [...reminders, { id: 'ready', label: content?.needsReconfirmation ? '新版待确认' : '可确认', count: content?.status === 'ready' ? 1 : 0 }]
+}
+
+export function materialNeedsReview(content: ContentView | undefined) {
+  return content?.materialChanges?.some((change) =>
+    change.kind === 'dependencyReview' || change.kind === 'historyUnavailable') ?? false
 }

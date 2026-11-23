@@ -301,6 +301,8 @@ pub struct WorkItem {
     pub content_status: Option<ContentStatus>,
     pub reminder_counts: BTreeMap<String, usize>,
     pub needs_reconfirmation: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub material_review: bool,
     #[serde(default)]
     pub progress: Option<super::progress::ProgressSummary>,
 }
@@ -514,6 +516,9 @@ pub enum Action {
         scope: String,
         artifact_digest: String,
     },
+    ReviewMaterials {
+        input: super::materials::ReviewInput,
+    },
     RefreshSpec {
         spec_id: String,
     },
@@ -720,6 +725,22 @@ pub struct ContentView {
     pub can_confirm: bool,
     pub blockers: Vec<String>,
     pub needs_reconfirmation: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_version: Option<ConfirmationRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_artifact_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_review_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub material_changes: Vec<super::materials::MaterialChange>,
+}
+impl ContentView {
+    pub(super) fn material_review(&self) -> bool {
+        use super::materials::MaterialChangeKind::{DependencyReview, HistoryUnavailable};
+        self.material_changes
+            .iter()
+            .any(|change| matches!(change.kind, DependencyReview | HistoryUnavailable))
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

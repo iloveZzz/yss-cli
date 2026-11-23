@@ -76,6 +76,19 @@ fn visible(path: &str) -> bool {
         .all(|part| !part.starts_with('.') && part != "node_modules" && part != "src")
 }
 
+pub(super) fn served_path(entry: &str, path: &str) -> bool {
+    let directory = entry
+        .rsplit_once('/')
+        .map_or("", |(directory, _)| directory);
+    let relative = if directory.is_empty() {
+        Some(path)
+    } else {
+        path.strip_prefix(directory)
+            .and_then(|suffix| suffix.strip_prefix('/'))
+    };
+    relative.is_some_and(|relative| visible(relative) && mime(relative).is_some())
+}
+
 fn entry_parts(target: &str) -> Result<(String, String)> {
     RelPath::new(target)?;
     if !matches!(mime(target), Some("text/html; charset=utf-8")) {
@@ -189,14 +202,41 @@ pub(crate) fn served_files_with_cancel(
 }
 
 pub fn files_digest(files: &BTreeMap<String, Vec<u8>>) -> String {
+    asset_digest(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), Sha256::digest(bytes))),
+    )
+}
+
+fn asset_digest<T: AsRef<[u8]>>(files: impl IntoIterator<Item = (impl AsRef<str>, T)>) -> String {
     let mut digest = Sha256::new();
-    for (path, bytes) in files {
-        let hash = Sha256::digest(bytes);
+    for (path, hash) in files {
+        let path = path.as_ref();
         digest.update((path.len() as u64).to_le_bytes());
         digest.update(path.as_bytes());
         digest.update(hash);
     }
     format!("{:x}", digest.finalize())
+}
+
+pub(super) fn manifest_digest(files: &[super::artifacts::ArtifactFile]) -> Option<String> {
+    let hashes = files
+        .iter()
+        .map(|file| {
+            let mut bytes = [0u8; 32];
+            if file.sha256.len() != 64 {
+                return None;
+            }
+            let (pairs, _) = file.sha256.as_bytes().as_chunks::<2>();
+            for (out, pair) in bytes.iter_mut().zip(pairs) {
+                let hex = |byte: u8| (byte as char).to_digit(16).map(|value| value as u8);
+                *out = hex(pair[0])? * 16 + hex(pair[1])?;
+            }
+            Some((file.path.as_str(), bytes))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(asset_digest(hashes))
 }
 
 pub fn artifact_digest(root: &Root, target: &str) -> Result<String> {

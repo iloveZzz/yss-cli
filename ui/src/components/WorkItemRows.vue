@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{ items: WorkItem[]; caption?: string; pr
 const route = useRoute()
 const { snapshot } = useWorkbench()
 const id = useId()
-const reminders = contentReminders(undefined)
+const reminders = contentReminders(undefined).filter((reminder) => reminder.id !== 'ready')
 const rows = computed(() =>
   props.items.map((item) => ({
     item,
@@ -59,15 +59,12 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
             <span class="row-sub">{{ stages[item.stage] }}</span>
           </td>
           <td class="item-content">
-            <RouterLink :to="detail(item, { tab: 'content' })" class="content-state">
-              {{ item.contentStatus ? contentStatuses[item.contentStatus] : '未标记' }}
-            </RouterLink>
             <RouterLink
-              v-if="item.needsReconfirmation"
-              :to="detail(item, { tab: 'content' })"
-              class="reconfirm-link"
+              :to="detail(item, { tab: 'content', category: 'ready' })"
+              :class="item.needsReconfirmation || item.materialReview ? 'reconfirm-link' : 'content-state'"
             >
-              需要重新确认
+              {{ item.needsReconfirmation ? '新版待确认' : item.materialReview
+                ? '材料待核实' : contentStatuses[item.contentStatus ?? 'unmarked'] }}
             </RouterLink>
             <div v-if="pending.length" class="reminder-links">
               <RouterLink

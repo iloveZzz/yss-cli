@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'
 import { Button } from '@/components/ui/button'
 import AgentCommandPermission from '@/components/AgentCommandPermission.vue'
+import PiReadiness from '@/components/PiReadiness.vue'
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui'
 import { errorMessage, dateLabel, ApiError } from '@/services/workbench'
 import {
@@ -14,7 +15,8 @@ import {
   terminalJob,
   objectValue,
   readableValue,
-  type JobRecord
+  type JobRecord,
+  type PiModel
 } from '@/services/workbench-platform'
 import { getAgentRun, startAgent, type AgentRun } from '@/services/workbench-agent'
 import { useWorkbench } from '@/hooks/useWorkbench'
@@ -46,10 +48,15 @@ const tab = computed({
 })
 const filesVisited = shallowRef(false)
 const continuationOpen = shallowRef(false)
-const continuation = shallowRef('请根据已有运行结果继续处理。')
+const defaultContinuation = '请根据已有运行结果继续处理。'
+const continuation = shallowRef(defaultContinuation)
 const allowCommands = shallowRef(false)
+const readyModel = shallowRef<PiModel>()
 watch(continuationOpen, (open) => {
-  if (!open) allowCommands.value = false
+  if (!open) {
+    allowCommands.value = false
+    readyModel.value = undefined
+  }
 })
 const stopRequestedFor = shallowRef('')
 const jobId = computed(() => String(route.params.jobId ?? ''))
@@ -152,7 +159,7 @@ watch(
     selectedTab.value = undefined
     filesVisited.value = false
     continuationOpen.value = false
-    continuation.value = '请根据已有运行结果继续处理。'
+    continuation.value = defaultContinuation
     allowCommands.value = false
     busy.value = false
     stopRequestedFor.value = ''
@@ -212,14 +219,28 @@ function openPendingQuestion() {
   tab.value = 'conversation'
   void conversationPanel.value?.focusQuestion(pending.id)
 }
+function toggleContinuation() {
+  const issue = job.value?.error?.context?.piIssue
+  const previousPrompt = currentRun.value?.prompt
+  if (
+    !continuationOpen.value && continuation.value === defaultContinuation && previousPrompt &&
+    (['subscription', 'credentials', 'modelUnavailable', 'modelAccess'].includes(String(issue)) ||
+      job.value?.error?.message.startsWith('Pi 模型认证失败'))
+  ) {
+    continuation.value = previousPrompt
+  }
+  continuationOpen.value = !continuationOpen.value
+}
 async function resume() {
   const current = run.value
   const target = jobId.value
+  const expectedModel = readyModel.value
   if (
     !current?.canResume ||
     current.jobId !== target ||
     latestRunActive.value ||
     busy.value ||
+    !expectedModel ||
     !continuation.value.trim()
   )
     return
@@ -232,6 +253,7 @@ async function resume() {
       projectIds: current.projectIds,
       carryFiles: {},
       resumeRunId: current.id,
+      expectedModel,
       allowCommands: allowCommands.value
     })
     if (target !== jobId.value) return
@@ -278,7 +300,7 @@ async function resume() {
           variant="outline"
           :aria-expanded="continuationOpen"
           aria-controls="continuation-form"
-          @click="continuationOpen = !continuationOpen"
+          @click="toggleContinuation"
         >
           继续处理
         </Button>
@@ -304,6 +326,7 @@ async function resume() {
         aria-label="续接 Pi"
         @submit.prevent="resume"
       >
+        <PiReadiness v-model:ready-model="readyModel" :resume-run-id="currentRun.id" :busy="busy" />
         <label for="job-continuation"
           >继续处理的内容<textarea
             id="job-continuation"
@@ -314,9 +337,9 @@ async function resume() {
             :disabled="busy"
           />
         </label>
-        <AgentCommandPermission v-model="allowCommands" :disabled="busy" />
+        <AgentCommandPermission v-model="allowCommands" :disabled="busy || !readyModel" />
         <div class="form-actions">
-          <Button type="submit" :disabled="busy || !continuation.trim()">{{
+          <Button type="submit" :disabled="busy || !readyModel || !continuation.trim()">{{
             busy ? '正在续接…' : '续接 Pi'
           }}</Button>
         </div>

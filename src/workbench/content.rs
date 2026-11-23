@@ -340,21 +340,24 @@ pub(super) fn question_view(
     Ok(view)
 }
 pub fn view(state: &WorkbenchState, spec: &SpecRecord, root: &Result<Root>) -> ContentView {
-    view_with_source(state, spec, root, None)
+    inspect(state, spec, root, None, None, false).0
 }
 
-fn view_with_source(
+pub(super) fn inspect(
     state: &WorkbenchState,
     spec: &SpecRecord,
     root: &Result<Root>,
     source: Option<&str>,
-) -> ContentView {
+    context: Option<&super::materials::Context<'_>>,
+    capture: bool,
+) -> (ContentView, Option<super::materials::Assessment>) {
     let confirmations: Vec<_> = state
         .confirmations
         .iter()
         .filter(|c| c.spec_id == spec.id)
         .cloned()
         .collect();
+    let confirmed_version = confirmations.last().cloned();
     let mut view = ContentView {
         status: ContentStatus::Unmarked,
         scope: String::new(),
@@ -365,7 +368,12 @@ fn view_with_source(
         can_confirm: false,
         blockers: vec![],
         needs_reconfirmation: false,
+        confirmed_version,
+        observed_artifact_digest: None,
+        material_review_digest: None,
+        material_changes: Vec::new(),
     };
+    let mut assessment = None;
     let read = (|| -> Result<()> {
         let root = root.as_ref().map_err(Clone::clone)?;
         let source = match source {
@@ -426,44 +434,41 @@ fn view_with_source(
             }
         }
         let resources = resolved_resources(spec, Some(&meta), Some(root));
-        // shortcut: 字节摘要会将纯排版变化视为新版本；需要区分时再引入经过验证的语义归一化。
-        let mut artifacts = vec![(
-            spec.source_path.clone(),
-            Sha256::of(source.as_bytes()).as_str().to_owned(),
-        )];
-        for resource in resources {
-            if resource.target_type == TargetType::Web {
-                view.blockers.push(format!(
-                    "{}为外部链接，请关联本地快照以锁定确认版本",
-                    resource.label
-                ));
-                continue;
-            }
-            let digest = if resource.kind == ResourceKind::Prototype {
-                super::preview::artifact_digest(root, &resource.target)?
-            } else {
-                let file = root.source_read(&RelPath::new(&resource.target)?, MAX_STATE)?;
-                Sha256::of(&file.bytes).as_str().to_owned()
-            };
-            artifacts.push((resource.target, digest));
-        }
-        root.revalidate()?;
-        artifacts.sort();
-        view.artifact_digest = Some(
-            Sha256::of(&codec::encode_json(&(view.scope.clone(), artifacts))?)
-                .as_str()
-                .into(),
-        );
+        let resolved = super::materials::assess(
+            super::materials::Source {
+                root,
+                spec,
+                text: &source,
+                resources: &resources,
+            },
+            &view,
+            context,
+            capture,
+        )?;
+        view.artifact_digest.clone_from(&resolved.digest);
+        view.observed_artifact_digest
+            .clone_from(&resolved.observed_digest);
+        view.material_review_digest
+            .clone_from(&resolved.review_digest);
+        view.material_changes.clone_from(&resolved.changes);
+        view.blockers.extend(resolved.blockers.iter().cloned());
+        assessment = Some(resolved);
         if meta.content_status != SourceContentStatus::Ready {
             view.blockers
                 .push("整份内容仍为草稿，核对其全部正文及关联产物后可标记 ready".into());
         }
         view.can_confirm = view.blockers.is_empty();
-        let confirmed = view.can_confirm
-            && view.confirmations.iter().any(|c| {
-                c.scope == view.scope && Some(&c.artifact_digest) == view.artifact_digest.as_ref()
-            });
-        view.needs_reconfirmation = !view.confirmations.is_empty() && !confirmed;
+        let current = view.confirmations.iter().rev().find(|c| {
+            c.scope == view.scope && Some(&c.artifact_digest) == view.artifact_digest.as_ref()
+        });
+        let confirmed = view.can_confirm && current.is_some();
+        if confirmed {
+            view.confirmed_version = current.cloned();
+            view.material_changes
+                .retain(|change| change.kind != super::materials::MaterialChangeKind::Changed);
+        }
+        view.needs_reconfirmation =
+            !view.confirmations.is_empty() && view.can_confirm && !confirmed;
         view.status = if confirmed {
             ContentStatus::Confirmed
         } else if view.can_confirm {
@@ -478,9 +483,8 @@ fn view_with_source(
         view.blockers.push(error.message);
         view.can_confirm = false;
         view.status = ContentStatus::Draft;
-        view.needs_reconfirmation = !view.confirmations.is_empty();
     }
-    view
+    (view, assessment)
 }
 pub fn read_view(state: &WorkbenchState, spec_id: &str) -> Result<ContentView> {
     let spec = sources::spec(state, spec_id)?;
@@ -490,6 +494,34 @@ pub fn read_view(state: &WorkbenchState, spec_id: &str) -> Result<ContentView> {
         spec,
         &Root::open(Path::new(&project.root_path)),
     ))
+}
+
+pub(super) fn inspect_record(
+    state: &WorkbenchState,
+    spec_id: &str,
+    records: &super::materials::Records,
+    capture: bool,
+) -> Result<(ContentView, Option<super::materials::Assessment>)> {
+    let spec = sources::spec(state, spec_id)?;
+    let project = sources::project(state, &spec.project_id)?;
+    let root = Root::open(Path::new(&project.root_path));
+    let shared = root
+        .as_ref()
+        .map(|root| super::materials::shared(state, records, &spec.project_id, root))
+        .unwrap_or_default();
+    let context = super::materials::Context {
+        records,
+        shared: &shared,
+    };
+    Ok(inspect(state, spec, &root, None, Some(&context), capture))
+}
+
+pub(super) fn read_store_view(
+    store: &mut super::store::Store,
+    spec_id: &str,
+) -> Result<ContentView> {
+    let records = super::materials::Records::load(store)?;
+    Ok(inspect_record(store.state(), spec_id, &records, false)?.0)
 }
 fn response_question(source: &str, response: &QuestionResponse) -> Result<SpecQuestion> {
     let question = metadata(source)?
@@ -557,9 +589,9 @@ pub fn confirm(
     scope: String,
     artifact_digest: String,
     at: &str,
+    content: &ContentView,
 ) -> Result<()> {
     let spec = super::tasks::active_spec(state, spec_id)?.clone();
-    let content = read_view(state, spec_id)?;
     if !content.can_confirm {
         return Err(invalid(&format!(
             "当前范围不能确认：{}",
@@ -567,7 +599,11 @@ pub fn confirm(
         )));
     }
     if content.scope != scope || content.artifact_digest.as_deref() != Some(&artifact_digest) {
-        return Err(invalid("来源或确认范围已改变，请刷新并核对新版本"));
+        return Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            "来源或确认范围已改变，请刷新并核对新版本",
+        )
+        .context("httpStatus", 409));
     }
     if content
         .confirmations
@@ -611,12 +647,40 @@ pub fn agent_request(
     spec_id: &str,
     registration_dir: Option<&Path>,
 ) -> Result<AgentRequest> {
+    agent_request_with_materials(state, spec_id, registration_dir, None)
+}
+
+pub(super) fn agent_request_with_materials(
+    state: &WorkbenchState,
+    spec_id: &str,
+    registration_dir: Option<&Path>,
+    records: Option<&super::materials::Records>,
+) -> Result<AgentRequest> {
     let spec = sources::spec(state, spec_id)?;
     let project = sources::project(state, &spec.project_id)?;
     let source = sources::read_source(state, spec_id)?;
     let meta = metadata(&source.text)?;
     let root = Root::open(Path::new(&project.root_path));
-    let content = view_with_source(state, spec, &root, Some(&source.text));
+    let shared = records
+        .and_then(|records| {
+            root.as_ref()
+                .ok()
+                .map(|root| super::materials::shared(state, records, &spec.project_id, root))
+        })
+        .unwrap_or_default();
+    let context = records.map(|records| super::materials::Context {
+        records,
+        shared: &shared,
+    });
+    let content = inspect(
+        state,
+        spec,
+        &root,
+        Some(&source.text),
+        context.as_ref(),
+        false,
+    )
+    .0;
     let root = root?;
     let resources = resolved_resources(spec, meta.as_ref(), Some(&root));
     let mut text = format!(

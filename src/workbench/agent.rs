@@ -1,5 +1,5 @@
 use super::{
-    agent_protocol::{self, PiSession, RunRequest},
+    agent_protocol::{self, PiModel, PiRuntime, PiSession, RunRequest},
     agent_workspace::{self, GitBaseline, Workspace},
     content as spec_content,
     jobs::{JobContext, JobManager, JobRecord, lock_store},
@@ -36,6 +36,8 @@ pub struct AgentStartRequest {
     pub carry_files: BTreeMap<String, Vec<String>>,
     pub request_id: String,
     pub resume_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_model: Option<PiModel>,
     #[serde(default)]
     pub allow_commands: bool,
     #[serde(default)]
@@ -190,6 +192,48 @@ fn can_resume(store: &Store, run: &AgentRun) -> bool {
             })
         })
 }
+
+fn recorded_model(run: &AgentRun) -> Result<PiModel> {
+    let settings = run.host_settings.as_ref();
+    settings
+        .and_then(|value| PiModel::new(value["provider"].as_str()?, value["model"].as_str()?))
+        .ok_or_else(|| {
+            YssError::new(
+                ErrorCode::NotReady,
+                "原 Pi 会话缺少模型记录，请从 Spec 重新发起",
+            )
+            .context("piIssue", "modelUnavailable")
+        })
+}
+
+fn pi_protected_paths(store: &Store) -> Vec<PathBuf> {
+    std::iter::once(store.data_dir().to_owned())
+        .chain(
+            store
+                .state()
+                .projects
+                .iter()
+                .map(|project| PathBuf::from(&project.root_path)),
+        )
+        .collect()
+}
+
+pub(crate) fn runtime_target(
+    store: &mut Store,
+    resume_id: Option<&str>,
+) -> Result<(Vec<PathBuf>, Option<PiModel>)> {
+    let model = resume_id
+        .map(|id| {
+            let run = load(store, id)?;
+            if !can_resume(store, &run) {
+                return Err(invalid("Pi 会话或工作区不可用，请从 Spec 重新发起"));
+            }
+            recorded_model(&run)
+        })
+        .transpose()?;
+    Ok((pi_protected_paths(store), model))
+}
+
 pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
     let run = load(store, run_id)?;
     let resume = can_resume(store, &run);
@@ -203,7 +247,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
     if request.prompt.trim().is_empty() || request.prompt.len() > 128 * 1024 {
         return Err(invalid("请填写 128 KiB 以内的续办要求"));
     }
-    let (projects, prior, spec) = {
+    let (projects, prior, spec, mut protected) = {
         let mut store = lock_store(&manager.store)?;
         let spec = sources::spec(store.state(), &request.spec_id)?.clone();
         if !spec.active {
@@ -270,10 +314,10 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         } else {
             None
         };
-        (projects, prior, spec)
+        (projects, prior, spec, pi_protected_paths(&store))
     };
     let cancel = Cancellation::new();
-    let roots = projects
+    let roots: Vec<_> = projects
         .iter()
         .map(|(id, path)| {
             let path = Path::new(path);
@@ -292,7 +336,10 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         .collect::<Result<BTreeSet<_>>>()?
         .into_iter()
         .collect();
-    let pi = agent_protocol::require_runtime(&cancel)?;
+    protected.extend(roots.iter().map(PathBuf::from));
+    let original_model = prior.as_ref().map(recorded_model).transpose()?;
+    let pi = agent_protocol::require_runtime(&cancel, &protected, original_model.as_ref())?;
+    pi.verify_expected(request.expected_model.as_ref())?;
     let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
     let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);
     manager.start(
@@ -429,7 +476,7 @@ fn execute(
     request: AgentStartRequest,
     projects: Vec<(String, String)>,
     prior: Option<AgentRun>,
-    pi: &Path,
+    pi: &PiRuntime,
 ) -> Result<Value> {
     let at = sources::now();
     let resumed = prior.is_some();
@@ -579,7 +626,7 @@ fn execute(
         let question_run = run.id.clone();
         agent_protocol::run(
             RunRequest {
-                executable: pi,
+                runtime: pi,
                 data_dir: &data_dir,
                 run_id: &run.id,
                 cwd: Path::new(&cwd),

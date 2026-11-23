@@ -1,12 +1,11 @@
 use super::{
-    content,
+    content, materials,
     model::*,
     preview, sources,
     sqlite::{CommitEffects, RecordWrite},
     store::Store,
 };
 use crate::{
-    codec,
     error::{ErrorCode, Result, YssError},
     fs::Root,
     model::{RelPath, Sha256},
@@ -19,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactFile {
     pub path: String,
@@ -37,9 +36,11 @@ pub struct ConfirmationSnapshot {
     pub artifact_digest: String,
     pub captured_at: String,
     pub files: Vec<ArtifactFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) materials: Vec<super::materials::Material>,
 }
 
-fn mime(path: &str) -> &'static str {
+pub(super) fn mime(path: &str) -> &'static str {
     match path
         .rsplit('.')
         .next()
@@ -64,102 +65,49 @@ fn mime(path: &str) -> &'static str {
     }
 }
 
-pub(crate) type CapturedFiles = Vec<(ArtifactFile, Vec<u8>)>;
-
-pub(crate) fn capture(state: &WorkbenchState, spec_id: &str) -> Result<(String, CapturedFiles)> {
-    let spec = sources::spec(state, spec_id)?;
-    let project = sources::project(state, &spec.project_id)?;
-    let root = Root::open(Path::new(&project.root_path))?;
-    let main = root.source_read(&RelPath::new(&spec.source_path)?, MAX_SOURCE)?;
-    let text =
-        std::str::from_utf8(&main.bytes).map_err(|_| sources::invalid("主规格不是 UTF-8"))?;
-    let metadata = content::metadata(text)?;
-    let view = content::read_view(state, spec_id)?;
-    let mut artifacts = vec![(
-        spec.source_path.clone(),
-        Sha256::of(&main.bytes).as_str().to_owned(),
-    )];
-    let mut files = BTreeMap::from([(spec.source_path.clone(), ("spec".to_owned(), main.bytes))]);
-    for resource in content::resolved_resources(spec, metadata.as_ref(), Some(&root)) {
-        if resource.target_type == TargetType::Web {
-            return Err(sources::invalid("外部产物需要本地快照后保存版本"));
-        }
-        let kind = serde_json::to_value(&resource.kind)
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_owned))
-            .unwrap_or_else(|| "other".into());
-        let digest = if resource.kind == ResourceKind::Prototype {
-            let tree = preview::artifact_files(&root, &resource.target)?;
-            let digest = preview::files_digest(&tree);
-            for (path, bytes) in tree {
-                files.insert(path, (kind.clone(), bytes));
-            }
-            digest
-        } else {
-            let bytes = root
-                .source_read(&RelPath::new(&resource.target)?, MAX_STATE)?
-                .bytes;
-            let digest = Sha256::of(&bytes).as_str().to_owned();
-            files.insert(resource.target.clone(), (kind, bytes));
-            digest
-        };
-        artifacts.push((resource.target, digest));
+fn snapshot(
+    record: &ConfirmationRecord,
+    captured: materials::Assessment,
+) -> Result<(ConfirmationSnapshot, CommitEffects)> {
+    if captured.digest.as_deref() != Some(&record.artifact_digest) {
+        return Err(sources::invalid("当前内容与确认版本不匹配"));
     }
-    artifacts.sort();
-    let digest = Sha256::of(&codec::encode_json(&(view.scope, artifacts))?)
-        .as_str()
-        .to_owned();
-    root.revalidate()?;
-    let latest = content::read_view(state, spec_id)?;
-    if latest.artifact_digest.as_deref() != Some(&digest) {
-        return Err(sources::invalid("采集期间来源已变化，请重新读取后确认"));
-    }
-    let files = files
-        .into_iter()
-        .map(|(path, (kind, bytes))| {
-            (
-                ArtifactFile {
-                    sha256: Sha256::of(&bytes).as_str().into(),
-                    size: bytes.len(),
-                    mime: mime(&path).into(),
-                    path,
-                    kind,
-                },
-                bytes,
-            )
-        })
-        .collect();
-    Ok((digest, files))
-}
-
-pub(crate) fn confirmation_effects(state: &WorkbenchState, spec_id: &str) -> Result<CommitEffects> {
-    let (digest, files) = capture(state, spec_id)?;
-    let record = state
-        .confirmations
-        .iter()
-        .rev()
-        .find(|record| record.spec_id == spec_id && record.artifact_digest == digest)
-        .ok_or_else(|| sources::invalid("当前内容与确认版本不匹配"))?;
     let snapshot = ConfirmationSnapshot {
         confirmation_id: record.id.clone(),
-        spec_id: spec_id.into(),
-        artifact_digest: digest,
+        spec_id: record.spec_id.clone(),
+        artifact_digest: record.artifact_digest.clone(),
         captured_at: sources::now(),
-        files: files.iter().map(|(file, _)| file.clone()).collect(),
+        files: captured.files.into_values().collect(),
+        materials: captured.materials,
     };
-    Ok(CommitEffects {
+    let effects = CommitEffects {
         records: vec![RecordWrite {
-            kind: "confirmationSnapshot".into(),
+            kind: materials::SNAPSHOTS.into(),
             id: record.id.clone(),
             payload: Some(
                 serde_json::to_string(&snapshot).map_err(|_| sources::invalid("快照编码失败"))?,
             ),
         }],
-        blobs: files
-            .into_iter()
-            .map(|(file, bytes)| (file.sha256, bytes))
-            .collect(),
-    })
+        blobs: captured.blobs,
+    };
+    Ok((snapshot, effects))
+}
+
+pub(super) fn confirmation_effects(
+    store: &Store,
+    record: &ConfirmationRecord,
+    captured: materials::Assessment,
+) -> Result<CommitEffects> {
+    let (snapshot, effects) = snapshot(record, captured)?;
+    let new_blobs: std::collections::BTreeSet<_> =
+        effects.blobs.iter().map(|(sha, _)| sha.as_str()).collect();
+    let mut verified = std::collections::BTreeSet::new();
+    for file in &snapshot.files {
+        if !new_blobs.contains(file.sha256.as_str()) && verified.insert(&file.sha256) {
+            store.blob(&file.sha256)?;
+        }
+    }
+    Ok(effects)
 }
 
 pub fn confirmations(store: &mut Store, spec_id: &str) -> Result<Value> {
@@ -204,21 +152,22 @@ pub fn backfill_snapshot(shared: &Arc<Mutex<Store>>, id: &str) -> Result<Value> 
         .iter()
         .find(|record| record.id == id)
         .ok_or_else(|| sources::invalid("确认记录不存在"))?;
-    let (digest, files) = capture(&state, &record.spec_id)?;
-    if digest != record.artifact_digest {
-        return Err(YssError::new(
-            ErrorCode::ConcurrentChange,
-            "当前完整产物摘要与旧确认不同，无法补存该历史版本",
-        )
-        .context("httpStatus", 409));
-    }
-    let snapshot = ConfirmationSnapshot {
-        confirmation_id: id.into(),
-        spec_id: record.spec_id.clone(),
-        artifact_digest: digest,
-        captured_at: sources::now(),
-        files: files.iter().map(|(file, _)| file.clone()).collect(),
-    };
+    let spec = sources::spec(&state, &record.spec_id)?;
+    let project = sources::project(&state, &spec.project_id)?;
+    let root = Root::open(Path::new(&project.root_path));
+    let (_, captured) = content::inspect(&state, spec, &root, None, None, true);
+    let captured = captured
+        .filter(|captured| captured.digest.as_deref() == Some(&record.artifact_digest))
+        .ok_or_else(|| {
+            YssError::new(
+                ErrorCode::ConcurrentChange,
+                "当前完整产物摘要与旧确认不同，无法补存该历史版本",
+            )
+            .context("httpStatus", 409)
+        })?;
+    let mut captured = captured;
+    captured.materials.clear();
+    let (_, effects) = snapshot(record, captured)?;
     let mut store = super::jobs::lock_store(shared)?;
     if store
         .record::<ConfirmationSnapshot>("confirmationSnapshot", id)?
@@ -243,36 +192,53 @@ pub fn backfill_snapshot(shared: &Arc<Mutex<Store>>, id: &str) -> Result<Value> 
         )
         .context("httpStatus", 409));
     }
-    store.write_extensions(&CommitEffects {
-        records: vec![RecordWrite {
-            kind: "confirmationSnapshot".into(),
-            id: id.into(),
-            payload: Some(
-                serde_json::to_string(&snapshot).map_err(|_| sources::invalid("快照编码失败"))?,
-            ),
-        }],
-        blobs: files
-            .into_iter()
-            .map(|(file, bytes)| (file.sha256, bytes))
-            .collect(),
-    })?;
+    store.write_extensions(&effects)?;
     manifest(&mut store, id)
 }
 
-pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>) -> Result<Value> {
-    if !store
-        .state()
-        .confirmations
-        .iter()
-        .any(|record| record.id == base_id && record.spec_id == spec_id)
-    {
-        return Err(sources::invalid("确认版本与当前 Spec 不匹配"));
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ComparisonBasis {
+    #[default]
+    Candidate,
+    Latest,
+}
+
+struct ComparisonFiles {
+    files: BTreeMap<String, ArtifactFile>,
+    blobs: BTreeMap<String, Vec<u8>>,
+    digest: Option<String>,
+    errors: Vec<String>,
+}
+
+impl ComparisonFiles {
+    fn bytes<'a>(
+        &'a self,
+        store: &Store,
+        file: &ArtifactFile,
+    ) -> Result<std::borrow::Cow<'a, [u8]>> {
+        match self.blobs.get(&file.sha256) {
+            Some(bytes) => Ok(std::borrow::Cow::Borrowed(bytes)),
+            None => Ok(std::borrow::Cow::Owned(store.blob(&file.sha256)?)),
+        }
     }
-    let Some(base) = store.record::<ConfirmationSnapshot>("confirmationSnapshot", base_id)? else {
-        return Ok(
-            json!({"baselineAvailable":false,"baseConfirmationId":base_id,"files":[],"message":"历史正文未留存，请从新增确认版本开始比较"}),
-        );
-    };
+}
+
+fn candidate_files(store: &mut Store, spec_id: &str) -> Result<ComparisonFiles> {
+    let records = materials::Records::load(store)?;
+    let (view, captured) = content::inspect_record(store.state(), spec_id, &records, true)?;
+    let mut errors = view.metadata_error.into_iter().collect::<Vec<_>>();
+    let captured = captured.unwrap_or_default();
+    errors.extend(captured.blockers);
+    Ok(ComparisonFiles {
+        files: captured.files,
+        blobs: captured.blobs.into_iter().collect(),
+        digest: view.artifact_digest,
+        errors,
+    })
+}
+
+fn latest_files(store: &mut Store, spec_id: &str) -> Result<ComparisonFiles> {
     let spec = sources::spec(store.state(), spec_id)?;
     let project = sources::project(store.state(), &spec.project_id)?;
     let root = Root::open(Path::new(&project.root_path))?;
@@ -318,43 +284,72 @@ pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>)
         }
     }
     root.revalidate()?;
-    let current_digest = content::read_view(store.state(), spec_id)?.artifact_digest;
-    let current = current_files
-        .into_iter()
-        .map(|(path, (kind, bytes))| {
-            (
-                ArtifactFile {
-                    sha256: Sha256::of(&bytes).as_str().into(),
-                    size: bytes.len(),
-                    mime: mime(&path).into(),
-                    path,
-                    kind,
-                },
-                bytes,
-            )
-        })
-        .collect::<Vec<_>>();
+    let view = content::read_store_view(store, spec_id)?;
+    let current_digest = view.observed_artifact_digest;
+    let mut files = BTreeMap::new();
+    let mut blobs = BTreeMap::new();
+    for (path, (kind, bytes)) in current_files {
+        let sha256 = Sha256::of(&bytes).as_str().to_owned();
+        files.insert(
+            path.clone(),
+            ArtifactFile {
+                sha256: sha256.clone(),
+                size: bytes.len(),
+                mime: mime(&path).into(),
+                path,
+                kind,
+            },
+        );
+        blobs.insert(sha256, bytes);
+    }
+    Ok(ComparisonFiles {
+        files,
+        blobs,
+        digest: current_digest,
+        errors: source_errors,
+    })
+}
+
+pub fn diff(
+    store: &mut Store,
+    spec_id: &str,
+    base_id: &str,
+    path: Option<&str>,
+    basis: ComparisonBasis,
+) -> Result<Value> {
+    if !store
+        .state()
+        .confirmations
+        .iter()
+        .any(|record| record.id == base_id && record.spec_id == spec_id)
+    {
+        return Err(sources::invalid("确认版本与当前 Spec 不匹配"));
+    }
+    let Some(base) = store.record::<ConfirmationSnapshot>("confirmationSnapshot", base_id)? else {
+        return Ok(
+            json!({"baselineAvailable":false,"baseConfirmationId":base_id,"files":[],"message":"历史正文未留存，请从新增确认版本开始比较"}),
+        );
+    };
+    let current = match basis {
+        ComparisonBasis::Candidate => candidate_files(store, spec_id)?,
+        ComparisonBasis::Latest => latest_files(store, spec_id)?,
+    };
     let before = base
         .files
         .iter()
-        .map(|file| (&file.path, file))
+        .map(|file| (file.path.as_str(), file))
         .collect::<BTreeMap<_, _>>();
-    let after = current
-        .iter()
-        .map(|(file, bytes)| (&file.path, (file, bytes)))
-        .collect::<BTreeMap<_, _>>();
-    let mut paths = before
+    let after = &current.files;
+    let paths = before
         .keys()
-        .chain(after.keys())
-        .map(|value| (*value).clone())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths.dedup();
+        .copied()
+        .chain(after.keys().map(String::as_str))
+        .collect::<std::collections::BTreeSet<_>>();
     let mut changes = Vec::new();
     for file_path in paths {
-        let old = before.get(&file_path).copied();
-        let new = after.get(&file_path).copied();
-        if old.map(|file| &file.sha256) == new.map(|(file, _)| &file.sha256) {
+        let old = before.get(file_path).copied();
+        let new = after.get(file_path);
+        if old.map(|file| &file.sha256) == new.map(|file| &file.sha256) {
             continue;
         }
         let status = match (old, new) {
@@ -362,13 +357,12 @@ pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>)
             (_, None) => "removed",
             _ => "modified",
         };
-        let mut change =
-            json!({"path":file_path,"status":status,"before":old,"after":new.map(|(file,_)|file)});
-        if path == Some(file_path.as_str()) {
+        let mut change = json!({"path":file_path,"status":status,"before":old,"after":new});
+        if path == Some(file_path) {
             let previous = old.map(|file| store.blob(&file.sha256)).transpose()?;
-            let next = new.map(|(_, bytes)| bytes.as_slice());
+            let next = new.map(|file| current.bytes(store, file)).transpose()?;
             let before_text = previous.as_deref().map(std::str::from_utf8).transpose();
-            let after_text = next.map(std::str::from_utf8).transpose();
+            let after_text = next.as_deref().map(std::str::from_utf8).transpose();
             match (before_text, after_text) {
                 (Ok(old), Ok(new)) => {
                     change["binary"] = json!(false);
@@ -382,7 +376,7 @@ pub fn diff(store: &mut Store, spec_id: &str, base_id: &str, path: Option<&str>)
         changes.push(change);
     }
     Ok(
-        json!({"baselineAvailable":true,"baseConfirmationId":base_id,"baseDigest":base.artifact_digest,"currentDigest":current_digest,"files":changes,"sourceErrors":source_errors}),
+        json!({"baselineAvailable":true,"baseConfirmationId":base_id,"baseDigest":base.artifact_digest,"currentDigest":current.digest,"files":changes,"sourceErrors":current.errors,"basis":basis}),
     )
 }
 
@@ -473,6 +467,19 @@ pub fn historical_file(
         .ok_or_else(|| sources::invalid("历史文件不存在"))?;
     let bytes = store.blob(&file.sha256)?;
     Ok((file, bytes))
+}
+
+pub(super) fn candidate_file(
+    store: &mut Store,
+    spec_id: &str,
+    path: &str,
+) -> Result<(ArtifactFile, Vec<u8>)> {
+    let current = candidate_files(store, spec_id)?;
+    let file = current
+        .files
+        .get(path)
+        .ok_or_else(|| sources::invalid("文件不在本轮确认材料中"))?;
+    Ok((file.clone(), current.bytes(store, file)?.into_owned()))
 }
 
 pub fn current_file(

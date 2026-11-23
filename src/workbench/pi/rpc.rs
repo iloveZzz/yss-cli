@@ -132,28 +132,54 @@ impl Session {
     }
 
     pub fn state(&mut self, cancel: &Cancellation) -> Result<Value> {
+        self.query("get_state", cancel)
+    }
+
+    pub fn available_models(&mut self, cancel: &Cancellation) -> Result<Value> {
+        self.query("get_available_models", cancel)
+    }
+
+    fn query(&mut self, command: &str, cancel: &Cancellation) -> Result<Value> {
         self.send(
-            json!({ "type": "get_state", "id": "state" }),
+            json!({ "type": command, "id": command }),
             cancel,
             Duration::from_secs(5),
         )?;
         let deadline = Some(Instant::now() + Duration::from_secs(20));
         loop {
             let value = self.receive(cancel, deadline)?;
-            if value["type"] == "response" && value["id"] == "state" {
-                if value["command"] == "get_state"
+            if value["type"] == "response" && value["id"] == command {
+                if value["command"] == command
                     && value["success"] == true
                     && value["data"].is_object()
                 {
                     return Ok(value["data"].clone());
                 }
-                return Err(protocol("Pi get_state 响应不兼容"));
+                return Err(protocol("Pi 状态或模型查询响应不兼容"));
             }
         }
     }
 
     pub fn prompt(&mut self, prompt: &str, context: &JobContext) -> Result<()> {
-        let cancel = &context.cancel;
+        self.complete_prompt(prompt, &context.cancel, Some(context), None)
+    }
+
+    pub fn test_connection(&mut self, cancel: &Cancellation) -> Result<()> {
+        self.complete_prompt(
+            "Reply with OK.",
+            cancel,
+            None,
+            Some(Instant::now() + Duration::from_secs(20)),
+        )
+    }
+
+    fn complete_prompt(
+        &mut self,
+        prompt: &str,
+        cancel: &Cancellation,
+        context: Option<&JobContext>,
+        finish_deadline: Option<Instant>,
+    ) -> Result<()> {
         self.active = true;
         self.send(
             json!({ "type": "prompt", "id": "prompt", "message": prompt }),
@@ -165,7 +191,8 @@ impl Session {
         let mut messages = Messages::default();
         let deadline = Instant::now() + Duration::from_secs(30);
         while !accepted || settled.is_none() {
-            let event = self.receive(cancel, (!accepted).then_some(deadline))?;
+            let event =
+                self.receive(cancel, finish_deadline.or((!accepted).then_some(deadline)))?;
             match event["type"].as_str() {
                 Some("response") if event["id"] == "prompt" => {
                     if event["command"] != "prompt" || event["success"] != true {
@@ -188,7 +215,11 @@ impl Session {
                     messages.record(&event, context)?;
                 }
                 Some("auto_retry_start") => {
-                    context.emit("piStatus", json!({ "message": "Pi 正在重试模型请求" }))?;
+                    if let Some(context) = context {
+                        context.emit("piStatus", json!({ "message": "Pi 正在重试模型请求" }))?;
+                    } else {
+                        return Err(messages.error.unwrap_or_else(|| provider_error(None)));
+                    }
                 }
                 _ => {}
             }
@@ -229,32 +260,63 @@ impl Drop for Session {
 
 fn provider_error(raw: Option<&str>) -> YssError {
     let raw = raw.unwrap_or_default().to_ascii_lowercase();
-    if [
-        "401",
-        "403",
-        "credential",
-        "authentication",
-        "no api key",
-        "invalidsubscription",
-        "unauthorized",
-        "oauth",
-        "not logged",
-    ]
-    .iter()
-    .any(|term| raw.contains(term))
-    {
-        YssError::new(
+    let status_is = |code: &str| {
+        raw.starts_with(&format!("{code} "))
+            || raw.contains(&format!("status {code}"))
+            || raw.contains(&format!("http {code}"))
+    };
+    let (code, issue, message) = if raw.contains("invalidsubscription") {
+        return YssError::new(
             ErrorCode::NotReady,
-            "Pi 模型认证失败，请检查本机 Pi 的供应商、登录和订阅",
+            "方舟套餐不可用，请核对套餐状态和专属 API Key，然后重新检测",
         )
+        .context("piIssue", "subscription")
+        .context("providerCode", "InvalidSubscription");
     } else if raw.contains("model") && (raw.contains("not found") || raw.contains("no model")) {
-        YssError::new(ErrorCode::NotReady, "Pi 未找到可用模型，请检查本机 Pi 配置")
-    } else {
-        YssError::new(
+        (
+            ErrorCode::NotReady,
+            "modelUnavailable",
+            "Pi 未找到可用模型，请核对本机 Pi 配置",
+        )
+    } else if status_is("401")
+        || [
+            "credential",
+            "authentication",
+            "no api key",
+            "invalidapikey",
+            "unauthorized",
+            "oauth",
+            "not logged",
+        ]
+        .iter()
+        .any(|term| raw.contains(term))
+    {
+        (
+            ErrorCode::NotReady,
+            "credentials",
+            "Pi 模型凭证不可用，请在本机 Pi 核对登录和 API Key",
+        )
+    } else if status_is("403") || raw.contains("permission denied") || raw.contains("accessdenied")
+    {
+        (
+            ErrorCode::NotReady,
+            "modelAccess",
+            "供应商拒绝模型访问，请核对当前账号的模型权限",
+        )
+    } else if status_is("429") || raw.contains("rate limit") {
+        (
             ErrorCode::Network,
+            "rateLimit",
+            "供应商暂时限制模型请求，请核对配额或稍后重试",
+        )
+    } else {
+        (
+            ErrorCode::Network,
+            "requestFailed",
             "Pi 模型请求失败，请在本机 Pi 检查模型与服务连接",
         )
-    }
+    };
+    YssError::new(code, message).context("piIssue", issue)
 }
 
 #[derive(Default)]
@@ -266,7 +328,7 @@ struct Messages {
 }
 
 impl Messages {
-    fn record(&mut self, event: &Value, context: &JobContext) -> Result<()> {
+    fn record(&mut self, event: &Value, context: Option<&JobContext>) -> Result<()> {
         let message = &event["message"];
         let kind = event["type"].as_str().unwrap_or_default();
         if kind == "message_start" && message["role"] == "assistant" {
@@ -276,7 +338,9 @@ impl Messages {
         let id = format!("pi-message-{}", self.seq);
         let event = match kind {
             "message_update"
-                if self.current && event["assistantMessageEvent"]["type"] == "text_delta" =>
+                if context.is_some()
+                    && self.current
+                    && event["assistantMessageEvent"]["type"] == "text_delta" =>
             {
                 let delta = event["assistantMessageEvent"]["delta"]
                     .as_str()
@@ -295,6 +359,9 @@ impl Messages {
                 self.reason = reason.map(str::to_owned);
                 self.error = (reason == Some("error"))
                     .then(|| provider_error(message["errorMessage"].as_str()));
+                if context.is_none() {
+                    return Ok(());
+                }
                 let content = message["content"]
                     .as_array()
                     .into_iter()
@@ -316,7 +383,7 @@ impl Messages {
             }
             _ => None,
         };
-        if let Some((kind, payload)) = event {
+        if let (Some(context), Some((kind, payload))) = (context, event) {
             context.emit(kind, payload)?;
         }
         Ok(())

@@ -261,7 +261,7 @@ fn submit_observation(manager: &JobManager, link: &ExternalLink) -> Result<()> {
         .collect();
     projects.insert(spec.project_id.clone());
     records.current_versions = progress::current_versions(store.state(), &projects);
-    let snapshot = service::snapshot(store.state(), &Cancellation::new())?;
+    let snapshot = service::snapshot_from_store(&mut store, &Cancellation::new())?;
     let reports = observation_reports(&snapshot, &records, &goal, link, &project_id);
     for input in reports {
         let expected_revision = store.state().revision;
@@ -529,6 +529,7 @@ fn observation_reports(
                 scope_refs,
                 versions: all_versions,
                 evidence,
+                input_paths: Vec::new(),
             });
         }
     }

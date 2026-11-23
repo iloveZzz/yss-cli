@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { ApiError, errorMessage } from '@/services/workbench'
-import { currentSpecFile, historicalFile, type ArtifactChange } from '@/services/workbench-platform'
-const props = defineProps<{ specId: string; confirmationId: string; file: ArtifactChange }>()
+import { currentSpecFile, historicalFile, type ArtifactChange, type ComparisonBasis } from '@/services/workbench-platform'
+const props = defineProps<{ specId: string; confirmationId: string; file: ArtifactChange; basis: ComparisonBasis }>()
 type Side = 'before' | 'after'
 interface ImageState {
   url: string
@@ -29,7 +29,7 @@ const sides = computed(() => {
   if (props.file.after)
     entries.push({
       key: 'after',
-      label: '当前版本',
+      label: props.basis === 'candidate' ? '本轮确认材料' : '当前来源',
       state: after.value,
       size: props.file.after.size
     })
@@ -50,6 +50,7 @@ watch(
   () => [
     props.specId,
     props.confirmationId,
+    props.basis,
     props.file.path,
     props.file.before?.sha256,
     props.file.after?.sha256
@@ -78,7 +79,7 @@ async function load() {
       const blob =
         side === 'before'
           ? await historicalFile(confirmationId, path, connection.signal)
-          : await currentSpecFile(specId, path, file.sha256, connection.signal)
+          : await currentSpecFile(specId, path, file.sha256, connection.signal, props.basis)
       if (own !== generation || connection.signal.aborted) return
       state.value = { url: URL.createObjectURL(blob), loading: false, error: '' }
     } catch (cause) {

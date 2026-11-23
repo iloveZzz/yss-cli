@@ -231,9 +231,24 @@ yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <S
 
 目标输入包括 `specId`、`scope`、`target`、八阶段适用性、参与工程及角色、`acceptanceRefs` 和实际 `specDigest`。报告携带稳定 `id`、目标版本、阶段、范围引用、工程与角色、执行状态、证据适用性、代码提交与工作树摘要、实际检查凭证。工作树摘要覆盖 Git diff 与未忽略的未跟踪文件；采用程序返回的当前版本信息或按共享协议核实生成。Backend、Frontend 和联调分别关联真实工程 ID，避免工作树别名生成重复主 Spec。
 
+局部报告可追加 `inputPaths`。执行检查前使用 `yss workbench progress observe-inputs --project <工程ID> --path <工程相对路径> --json`，可重复指定 `--path`。将结果的 `inputs` 放入 `inputPaths`，将 `version` 放入对应的 `versions`。核实检查前后采用的是同一份输入，保留检查前采集的 `observedDigest`。输入覆盖实际共享代码、配置及生成输入，包括被 Git 忽略的文件。保存报告时会校验摘要，变化后需要重新检查。联调、合并和环境结果继续核对精确版本组合。
+
 确认输入绑定 `goalVersion`、阶段、范围和当前 `evidenceDigest`，并在 `source` 记录用户明确决定的出处。规格、验证和最终目标确认由真实用户决定产生。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
 
 详细 JSON 约定随模板分发到 `.template-spec/agents/workbench-progress.md`。工作台生成的 Agent 请求也携带当前身份和实际上报程序路径。能力缺失或报告失败时继续原已授权工作，记录待同步材料后核实补报。
+
+### 核实一个 Spec 的关联材料
+
+```sh
+yss workbench review-materials --input /absolute/material-review.json --request-id material-review-001 --json
+```
+
+输入取当前 `lifecycle` 的 `result.spec.content.materialReviewDigest`，填写 `specId`、`observedDigest` 和具体 `reason`。摘要含当前来源、已确认版本和已有材料绑定。绑定或来源发生变化时重新读取并核实。可按需填写以下字段。
+
+- `bindings` 是这份 Spec 的完整显式绑定列表，省略时沿用已有绑定。每项填当前已关联的 `target` 和 `usage`。可选值为 `reference`（普通参考）、`follow`（整项属于本 Spec 的确认材料）和 `dependency`（实际依赖）。`dependency` 填可核对的 `scopeRef`，文本可另填 `section: {"start":"<唯一完整起始行>","end":"<唯一完整结束行>"}`。候选对比和确认快照采用该选区，包含起止行。
+- `keepConfirmed` 填已核实本 Spec 仍适用原确认材料的目标路径。`adoptLatest` 填本轮确需采用的最新版目标路径。两者按实际核实的原确认和当前资料版本适用，后续有变化时重新判断。
+
+该命令记录适用性和材料采用依据。新版内容确认仍在工作台由用户完成。已有确认、交付决定和问题答复继续按各自版本读取。
 
 当前源码使用 SQLite 保存个人数据。旧 JSON v1/v2/v3 的纯查询保持只读；首次启动新版工作台或执行写入命令时先备份原字节并迁移，即使该业务操作最后没有状态变化也会完成迁移。迁移后 `state.json` 仅为存储标记，旧版程序不能读写同一数据目录。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
 
@@ -245,7 +260,7 @@ yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <S
 - Spec 信息、问题答复和阶段进度可恢复已保存的本机草稿，并发修改按字段核对合并。内容区提供确认版本差异，旧记录缺少正文基线时保留其原确认历史。
 - “设置 → 备份与恢复”在线生成一致备份，恢复到新的或空的个人数据目录后，按返回命令打开该目录核对。纯 CLI 或旧版的离线完整目录备份步骤见工作台说明。
 
-Pi 运行入口支持 macOS ARM64 和本机 Pi 1.5.2，设置页显示版本与沙箱状态。Codex 历史记录可继续审阅和接收成果。远端关联读取采用 gh/glab 的已有认证。完整工作台说明提供界面入口、成果接收、进程与磁盘版本及恢复步骤。[工作台说明](workbench.md)
+当前源码的 Pi 运行入口支持 macOS ARM64 和本机 Pi 1.5.2 或 1.6.0。启动和续接表单显示模型及本机凭证检查结果，并提供按需连接测试。Codex 历史记录可继续审阅和接收成果。远端关联读取采用 gh/glab 的已有认证。完整工作台说明提供界面入口、成果接收、进程与磁盘版本及恢复步骤。[工作台说明](workbench.md)
 
 ### 主 Spec、问题回复与确认（3.4.1 起）
 

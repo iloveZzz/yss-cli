@@ -119,6 +119,7 @@ export interface ProgressReportInput {
   scopeRefs: string[]
   versions: ProjectVersion[]
   evidence: Evidence[]
+  inputPaths?: { projectId: string; paths: string[]; observedDigest?: string }[]
 }
 export interface ReportRecord extends ProgressReportInput {
   schemaVersion: number
@@ -207,6 +208,8 @@ export interface StageSummary {
 }
 export interface ProgressSummary {
   currentVersions?: ProjectVersion[]
+  lastDelivery?: DecisionRecord
+  materialReview?: boolean
   goal: GoalRecord | null
   goalVersion: string | null
   stages: StageSummary[]
@@ -238,8 +241,10 @@ export function stageState(stage: StageSummary) {
     !(stage.stage === 'delivery' && stage.confirmationRequired)
   )
     return '不适用'
-  if (stage.validity !== 'current') return validityLabels[stage.validity]
   if (stage.confirmation?.decision === 'reject') return '已退回'
+  if (stage.stage === 'delivery' && stage.confirmation?.decision === 'confirm' && stage.source === 'historical')
+    return '该版本已验收'
+  if (stage.validity !== 'current') return validityLabels[stage.validity]
   if (stage.confirmationRequired && !stage.confirmation) return '待确认'
   return progressLabels[stage.progress]
 }

@@ -3,10 +3,11 @@ import { computed, onBeforeUnmount, reactive, shallowRef, useId, watch } from 'v
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import AgentCommandPermission from '@/components/AgentCommandPermission.vue'
+import PiReadiness from '@/components/PiReadiness.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { startAgent } from '@/services/workbench-agent'
 import { errorMessage, stages, type Stage } from '@/services/workbench'
-import { getSystem, type PiRuntimeStatus } from '@/services/workbench-platform'
+import type { PiModel } from '@/services/workbench-platform'
 const props = defineProps<{ specId: string; projectId: string; active: boolean; lifecycleStage?: Stage }>()
 const router = useRouter()
 const heading = useId()
@@ -25,30 +26,7 @@ const carry = reactive<Record<string, string>>({})
 const busy = shallowRef(false)
 const allowCommands = shallowRef(false)
 const error = shallowRef('')
-const runtime = shallowRef<PiRuntimeStatus>()
-const checking = shallowRef(false)
-const runtimeError = shallowRef('')
-const runtimeRequest = new AbortController()
-async function refreshRuntime() {
-  if (checking.value) return
-  checking.value = true
-  runtimeError.value = ''
-  try {
-    runtime.value = (await getSystem(runtimeRequest.signal)).pi
-  } catch (cause) {
-    runtime.value = undefined
-    if (!runtimeRequest.signal.aborted) runtimeError.value = errorMessage(cause)
-  } finally {
-    checking.value = false
-  }
-}
-watch(
-  () => props.active,
-  (active) => {
-    if (active && !runtime.value) void refreshRuntime()
-  },
-  { immediate: true }
-)
+const readyModel = shallowRef<PiModel>()
 const primary = computed(() =>
   snapshot.value?.projects.find((project) => project.record.id === props.projectId)
 )
@@ -78,7 +56,6 @@ const unavailable = computed(() =>
 let generation = 0
 onBeforeUnmount(() => {
   generation++
-  runtimeRequest.abort()
 })
 watch([() => props.specId, () => props.projectId], () => {
   generation++
@@ -90,7 +67,8 @@ watch([() => props.specId, () => props.projectId], () => {
   allowCommands.value = false
 })
 async function run() {
-  if (busy.value || unavailable.value || checking.value || !runtime.value?.available) return
+  const expectedModel = readyModel.value
+  if (busy.value || unavailable.value || !expectedModel) return
   const own = generation
   const specId = props.specId
   const ids = [...projectIds.value]
@@ -107,7 +85,7 @@ async function run() {
       ])
     )
     const job = await startAgent({
-      specId, prompt: prompt.value, projectIds: ids, carryFiles,
+      specId, prompt: prompt.value, projectIds: ids, carryFiles, expectedModel,
       lifecycleStage: trackedStage.value, allowCommands: allowCommands.value
     })
     if (own === generation) await router.push({ path: `/jobs/${job.id}`, query: { run: job.id } })
@@ -121,13 +99,9 @@ async function run() {
 <template>
   <section class="platform-section agent-launcher">
     <h2 :id="heading">运行 Pi Agent</h2>
-    <p v-if="checking" role="status" class="muted">正在检测本机 Pi 与命令沙箱…</p>
-    <div v-else-if="runtimeError || runtime?.message" class="notice warning">
-      <p role="status">{{ runtimeError || runtime?.message }}</p>
-      <Button type="button" variant="outline" @click="refreshRuntime">重新检测</Button>
-    </div>
     <p v-if="trackedStage" class="view-note muted">本次跟进 · {{ stages[trackedStage] }} · 已绑定当前交付目标</p>
     <form class="form-stack" :aria-labelledby="heading" @submit.prevent="run">
+      <PiReadiness v-model:ready-model="readyModel" :active="active" :busy="busy" />
       <label>
         本次任务
         <textarea v-model="prompt" name="prompt" rows="4" required />
@@ -186,11 +160,11 @@ async function run() {
       </details>
       <AgentCommandPermission
         v-model="allowCommands"
-        :disabled="busy || checking || !runtime?.available"
+        :disabled="busy || !readyModel"
       />
       <p v-if="error" role="alert" class="notice error">{{ error }}</p>
       <div class="form-actions">
-        <Button type="submit" :disabled="busy || unavailable || checking || !runtime?.available">
+        <Button type="submit" :disabled="busy || unavailable || !readyModel">
           {{ busy ? '正在准备工作区…' : '运行 Pi Agent' }}
         </Button>
       </div>

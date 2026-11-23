@@ -52,10 +52,16 @@ export interface PageResult<T> {
   total: number
   items: T[]
 }
+export interface PiModel {
+  provider: string
+  id: string
+}
 export interface PiRuntimeStatus {
   available: boolean
   sandboxReady: boolean
   version: string | null
+  model: PiModel | null
+  credentialsReady: boolean | null
   message: string | null
 }
 export interface SystemInfo {
@@ -97,11 +103,13 @@ export interface ConfirmationSnapshot {
   createdAt: string
   baselineAvailable?: boolean
 }
+export type ComparisonBasis = 'candidate' | 'latest'
 export interface ConfirmationDiff {
   baselineAvailable: boolean
   baseConfirmationId: string
   baseDigest?: string
   currentDigest?: string
+  basis?: ComparisonBasis
   files: ArtifactChange[]
   message?: string
 }
@@ -264,9 +272,14 @@ export const getHistory = (specId: string, offset: number, limit: number, signal
   )
 export const getConfirmations = (specId: string) =>
   apiRequest<ConfirmationSnapshot[]>(`/api/specs/${encodeURIComponent(specId)}/confirmations`)
-export const getConfirmationDiff = (specId: string, baseConfirmationId: string, path?: string) =>
+export const getConfirmationDiff = (
+  specId: string,
+  baseConfirmationId: string,
+  path?: string,
+  basis: ComparisonBasis = 'candidate'
+) =>
   apiRequest<ConfirmationDiff>(`/api/specs/${encodeURIComponent(specId)}/diff`, {
-    body: { baseConfirmationId, path }
+    body: { baseConfirmationId, path, basis }
   })
 export const getConfirmationArtifacts = (id: string) =>
   apiRequest<ConfirmationArtifacts>(`/api/confirmations/${encodeURIComponent(id)}/artifacts`)
@@ -295,10 +308,11 @@ export function currentSpecFile(
   specId: string,
   path: string,
   sha256: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  basis: ComparisonBasis = 'candidate'
 ): Promise<Blob> {
   return readBlobFile(
-    `/api/specs/${encodeURIComponent(specId)}/file?${new URLSearchParams({ path, sha256 })}`,
+    `/api/specs/${encodeURIComponent(specId)}/file?${new URLSearchParams({ path, sha256, basis })}`,
     '当前文件读取失败',
     signal
   )
@@ -317,6 +331,7 @@ async function readBlobFile(path: string, label: string, signal?: AbortSignal): 
 export interface SourceState {
   externalVersion?: string
   progressVersions?: import('./workbench-progress').ProjectVersion[]
+  inputVersions?: string
   revision: number
   sourceVersions: Record<string, string>
   readAt: string

@@ -12,6 +12,7 @@ import {
   type ConfirmationSnapshot,
   type ConfirmationDiff,
   type ConfirmationArtifacts,
+  type ComparisonBasis,
   type ArtifactChange
 } from '@/services/workbench-platform'
 import { errorMessage, dateLabel } from '@/services/workbench'
@@ -22,6 +23,8 @@ const props = defineProps<{ specId: string }>()
 const id = useId()
 const records = shallowRef<ConfirmationSnapshot[]>([])
 const selected = shallowRef('')
+const basis = shallowRef<ComparisonBasis>('candidate')
+const basisLabel = computed(() => basis.value === 'candidate' ? '本轮确认材料' : '当前来源')
 const loadedConfirmationId = shallowRef('')
 const diff = shallowRef<ConfirmationDiff>()
 const artifacts = shallowRef<ConfirmationArtifacts>()
@@ -54,7 +57,7 @@ const downloads = new Set<string>()
 let downloadController: AbortController | undefined
 let generation = 0
 watch(
-  selected,
+  [selected, basis],
   () => {
     generation++
     loadedConfirmationId.value = ''
@@ -69,6 +72,7 @@ watch(
 async function load() {
   open.value = !open.value
   if (!open.value) return
+  basis.value = 'candidate'
   loading.value = true
   error.value = ''
   try {
@@ -91,7 +95,7 @@ async function compare() {
   previewTarget.value = null
   try {
     const [changes, manifest] = await Promise.all([
-      getConfirmationDiff(props.specId, confirmationId),
+      getConfirmationDiff(props.specId, confirmationId, undefined, basis.value),
       getConfirmationArtifacts(confirmationId)
     ])
     if (own !== generation) return
@@ -115,7 +119,7 @@ async function readFile(path: string) {
   loading.value = true
   error.value = ''
   try {
-    const result = await getConfirmationDiff(props.specId, confirmationId, path)
+    const result = await getConfirmationDiff(props.specId, confirmationId, path, basis.value)
     if (own === generation) selectedFile.value = result.files.find((file) => file.path === path)
   } catch (cause) {
     if (own === generation) error.value = errorMessage(cause)
@@ -157,7 +161,7 @@ async function download(path: string, version: 'before' | 'after' = 'before') {
   try {
     const blob =
       version === 'after' && current
-        ? await currentSpecFile(props.specId, path, current.sha256, controller.signal)
+        ? await currentSpecFile(props.specId, path, current.sha256, controller.signal, basis.value)
         : await historicalFile(confirmationId, path, controller.signal)
     if (controller.signal.aborted) return
     const url = URL.createObjectURL(blob)
@@ -172,7 +176,7 @@ async function download(path: string, version: 'before' | 'after' = 'before') {
       URL.revokeObjectURL(url)
       downloads.delete(url)
     }, 1500)
-    notice.value = `已下载${version === 'after' ? '当前版本' : '确认版本'}中的 ${path}`
+    notice.value = `已下载${version === 'after' ? basisLabel.value : '确认版本'}中的 ${path}`
   } catch (cause) {
     if (!controller.signal.aborted) error.value = errorMessage(cause)
   } finally {
@@ -201,6 +205,20 @@ onBeforeUnmount(() => {
             :disabled="loading || capturing"
             name="confirmationId"
             placeholder="选择确认版本"
+          />
+        </label>
+        <label class="grow" :for="id + '-basis'">
+          对比对象
+          <SingleSelect
+            :id="id + '-basis'"
+            :model-value="basis"
+            :options="[
+              { value: 'candidate', label: '本轮确认材料' },
+              { value: 'latest', label: '当前来源' }
+            ]"
+            :disabled="loading || capturing || downloading"
+            name="comparisonBasis"
+            @update:model-value="basis = $event as ComparisonBasis"
           />
         </label>
         <Button variant="outline" :disabled="loading || !selected" @click="compare">比较</Button>
@@ -280,7 +298,7 @@ onBeforeUnmount(() => {
               :disabled="downloading"
               @click="download(selectedFile.path, 'after')"
             >
-              下载当前版本
+              下载{{ basisLabel }}
             </Button>
           </div>
         </div>
@@ -289,6 +307,7 @@ onBeforeUnmount(() => {
           :key="`${loadedConfirmationId}:${selectedFile.path}`"
           :spec-id="specId"
           :confirmation-id="loadedConfirmationId"
+        :basis="basis"
           :file="selectedFile"
         />
         <p v-if="selectedFile.binary && !imageAsset(selectedFile)" class="muted">

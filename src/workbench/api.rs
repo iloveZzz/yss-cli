@@ -1,5 +1,5 @@
 use super::{
-    agent, artifacts, backup, drafts, engineering, integrations,
+    agent, agent_protocol, artifacts, backup, drafts, engineering, integrations,
     jobs::{self, JobManager},
     model::*,
     service, sources,
@@ -67,7 +67,7 @@ fn event_cursor(value: &str) -> Result<u64> {
 
 impl PlatformApi {
     pub fn source_state(&self) -> Result<Value> {
-        let (state, records, external_links) = {
+        let (state, mut records, external_links) = {
             let mut store = jobs::lock_store(&self.jobs.store)?;
             (
                 store.state().clone(),
@@ -97,6 +97,8 @@ impl PlatformApi {
             }
         }
         let progress_versions = super::progress::current_versions(&state, &project_ids);
+        super::progress::refresh_inputs(&mut records, &state, &self.cancel);
+        let input_versions = super::progress::input_versions_digest(&records);
         let mut versions = BTreeMap::new();
         for spec in &state.specs {
             let Some(project) = state
@@ -189,7 +191,7 @@ impl PlatformApi {
             );
         }
         Ok(
-            json!({"revision":state.revision,"sourceVersions":versions,"progressVersions":progress_versions,"externalVersion":external_version,"readAt":sources::now()}),
+            json!({"revision":state.revision,"sourceVersions":versions,"progressVersions":progress_versions,"inputVersions":input_versions,"externalVersion":external_version,"readAt":sources::now()}),
         )
     }
 
@@ -431,9 +433,14 @@ impl PlatformApi {
                 json!({"total":events.len(),"items":events.into_iter().skip(number(&query,"offset",0)?).take(number(&query,"limit",50)?.clamp(1,200)).collect::<Vec<_>>()})
             }
             ("GET", ["api", "system"]) => {
-                let (data_dir, usage) = {
-                    let store = jobs::lock_store(&self.jobs.store)?;
-                    (store.data_dir().to_owned(), store.storage_usage()?)
+                let (data_dir, usage, protected) = {
+                    let mut store = jobs::lock_store(&self.jobs.store)?;
+                    let (protected, _) = agent::runtime_target(&mut store, None)?;
+                    (
+                        store.data_dir().to_owned(),
+                        store.storage_usage()?,
+                        protected,
+                    )
                 };
                 let mut tools = Vec::new();
                 for program in ["git", "gh", "glab"] {
@@ -446,7 +453,7 @@ impl PlatformApi {
                     tools.push(match result {Ok(bytes)=>json!({"name":program,"available":true,"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),Err(error)=>json!({"name":program,"available":false,"message":error.message})});
                 }
                 let executable = std::env::current_exe()?;
-                let pi = super::agent_protocol::runtime_status(&self.cancel);
+                let pi = agent_protocol::runtime_status(&self.cancel, &protected, None);
                 json!({"version":BuildInfo::current(),"dataDir":data_dir,"executable":executable,"storage":usage,"databaseBytes":std::fs::metadata(data_dir.join(super::storage_migration::DATABASE_NAME)).map(|metadata|metadata.len()).unwrap_or(0),"tools":tools,"pi":pi})
             }
             ("POST", ["api", "backups"]) => {
@@ -530,6 +537,8 @@ impl PlatformApi {
                 struct Request {
                     base_confirmation_id: String,
                     path: Option<String>,
+                    #[serde(default)]
+                    basis: artifacts::ComparisonBasis,
                 }
                 let request: Request = decode(bytes)?;
                 artifacts::diff(
@@ -537,6 +546,7 @@ impl PlatformApi {
                     id,
                     &request.base_confirmation_id,
                     request.path.as_deref(),
+                    request.basis,
                 )?
             }
             ("GET", ["api", "engineering", "catalog"]) => engineering::catalog(&self.bundle)?,
@@ -581,6 +591,37 @@ impl PlatformApi {
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
             }
+            ("GET", ["api", "agent", "runtime"]) => {
+                let (protected, model) = agent::runtime_target(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    query.get("resumeRunId").map(String::as_str),
+                )?;
+                encode(agent_protocol::runtime_status(
+                    &self.cancel,
+                    &protected,
+                    model.as_ref(),
+                ))?
+            }
+            ("POST", ["api", "agent", "test-model"]) => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Request {
+                    resume_run_id: Option<String>,
+                    expected_model: agent_protocol::PiModel,
+                }
+                let request: Request = decode(bytes)?;
+                let (protected, model) = agent::runtime_target(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    request.resume_run_id.as_deref(),
+                )?;
+                agent_protocol::test_model(
+                    &self.cancel,
+                    &protected,
+                    model.as_ref(),
+                    &request.expected_model,
+                )?;
+                json!({"connected": true})
+            }
             ("GET", ["api", "agent", id]) => {
                 agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
             }
@@ -610,7 +651,7 @@ impl PlatformApi {
                     .find(|project| project.id == original.project_id)
                     .ok_or_else(|| sources::invalid("运行工程不存在"))?;
                 project.root_path = root.to_string_lossy().into_owned();
-                let mut view = sources::spec_view(&state, &original, &Root::open(&root));
+                let mut view = sources::spec_view(&state, &original, &Root::open(&root), None);
                 view.content = agent::content(&mut store, id, spec_id)?;
                 encode(view)?
             }

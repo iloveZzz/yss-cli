@@ -1,101 +1,31 @@
 mod bridge;
+mod readiness;
 mod rpc;
 mod sandbox;
 mod workspace;
 
-use super::{PiSession, RunRequest, RuntimeStatus};
+pub(super) use readiness::{check_runtime, test_model};
+
+use super::{PiSession, RunRequest};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::{FileSnapshot, Root},
     model::RelPath,
-    workbench::{jobs::JobContext, process},
+    workbench::jobs::JobContext,
 };
 use serde_json::{Value, json};
 use std::{
-    env, fs,
+    fs,
     io::{BufRead, BufReader, Read},
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
-    process::Command,
-    time::Duration,
 };
 
-const SUPPORTED_VERSION: semver::Version = semver::Version::new(1, 5, 2);
 const SESSION_DIR: &str = "pi-sessions";
 
 fn not_ready(message: &str) -> YssError {
     YssError::new(ErrorCode::NotReady, message)
-}
-
-fn locate_pi() -> Result<PathBuf> {
-    let pi = if let Some(path) = env::var_os("YSS_PI_EXECUTABLE") {
-        let path = PathBuf::from(path);
-        if !path.is_absolute() {
-            return Err(not_ready("YSS_PI_EXECUTABLE 须使用 Pi 的绝对路径"));
-        }
-        Some(path)
-    } else {
-        env::split_paths(&env::var_os("PATH").unwrap_or_default())
-            .filter(|path| path.is_absolute())
-            .map(|path| path.join("pi"))
-            .find(|path| {
-                fs::metadata(path)
-                    .is_ok_and(|metadata| metadata.is_file() && metadata.mode() & 0o111 != 0)
-            })
-    };
-    pi.and_then(|path| fs::canonicalize(path).ok())
-        .filter(|path| {
-            fs::metadata(path)
-                .is_ok_and(|metadata| metadata.is_file() && metadata.mode() & 0o111 != 0)
-        })
-        .ok_or_else(|| not_ready("未找到本机 Pi，请安装 Pi 1.5.2 或设置 YSS_PI_EXECUTABLE"))
-}
-
-fn pi_command(executable: &Path, protected: &[&Path]) -> Result<Command> {
-    if protected.iter().any(|root| executable.starts_with(root)) {
-        return Err(not_ready("Pi 可执行文件须在本次工程和工作台数据目录之外"));
-    }
-    let path = env::join_paths(
-        env::split_paths(&env::var_os("PATH").unwrap_or_default())
-            .filter(|path| path.is_absolute())
-            .filter_map(|path| fs::canonicalize(path).ok())
-            .filter(|path| path.is_dir() && !protected.iter().any(|root| path.starts_with(root))),
-    )
-    .map_err(|_| not_ready("Pi 运行环境的 PATH 无效"))?;
-    let mut command = Command::new(executable);
-    command.env("PATH", path);
-    for variable in [
-        "NODE_OPTIONS",
-        "NODE_PATH",
-        "BASH_ENV",
-        "ENV",
-        "DYLD_INSERT_LIBRARIES",
-    ] {
-        command.env_remove(variable);
-    }
-    Ok(command)
-}
-
-pub(super) fn check_runtime(cancel: &Cancellation, status: &mut RuntimeStatus) -> Result<PathBuf> {
-    let pi = locate_pi()?;
-    let mut probe = pi_command(&pi, &[])?;
-    // Probe outside of any checkout so project-local resources cannot influence discovery.
-    probe.current_dir("/private/tmp").arg("--version");
-    let (exit, stdout, _) = process::capture_command(probe, cancel, Duration::from_secs(5))?;
-    let version = std::str::from_utf8(&stdout)
-        .ok()
-        .and_then(|text| semver::Version::parse(text.trim()).ok())
-        .filter(|_| exit.success())
-        .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
-    let compatible = version == SUPPORTED_VERSION;
-    status.version = Some(version);
-    if !compatible {
-        return Err(not_ready("工作台当前支持 Pi 1.5.2，请核对本机 Pi 版本"));
-    }
-    sandbox::probe(cancel)?;
-    status.sandbox_ready = true;
-    Ok(pi)
 }
 
 fn session_directory(data_dir: &Path, run_id: &str, create: bool) -> Result<PathBuf> {
@@ -264,41 +194,33 @@ pub(super) fn run(
             sandbox::Sandbox::new(
                 &private,
                 request.data_dir,
+                &request.runtime.config_dir,
                 request.workspaces,
                 &context.cancel,
             )
         })
         .transpose()?;
     let bridge = bridge::Bridge::start(private.path(), context, worktrees, sandbox, ask)?;
-    let protected = std::iter::once(request.data_dir)
+    let protected = std::iter::once(request.data_dir.to_owned())
         .chain(
             request
                 .workspaces
                 .iter()
-                .map(|workspace| Path::new(&workspace.original_root)),
+                .map(|workspace| PathBuf::from(&workspace.original_root)),
         )
         .collect::<Vec<_>>();
-    let mut command = pi_command(request.executable, &protected)?;
+    let mut command = readiness::rpc_command(
+        &request.runtime.executable,
+        &request.runtime.config_dir,
+        &protected,
+    )?;
     command
         .current_dir(request.cwd)
-        .args([
-            "--mode",
-            "rpc",
-            "--offline",
-            "--no-builtin-tools",
-            "--no-extensions",
-            "--no-mcp",
-            "--no-approve",
-            "--no-prompt-templates",
-            "--no-context-files",
-            "--no-themes",
-            "--no-skills",
-        ])
         .arg("--extension")
         .arg(&extension)
         .arg("--session-dir")
-        .arg(&directory)
-        .env("PI_TELEMETRY", "0");
+        .arg(&directory);
+    readiness::select_model(&mut command, &request.runtime.model);
     if let Some(file) = &resume {
         command.arg("--session").arg(file);
     }
@@ -308,6 +230,7 @@ pub(super) fn run(
     bridge.configure(&mut command, request.allow_commands);
     let mut pi = rpc::Session::open(command, &context.cancel)?;
     let state = pi.state(&context.cancel)?;
+    readiness::verify_model(&state, &request.runtime.model)?;
     bridge.await_ready()?;
     let session = session_ref(&directory, &state)?;
     if let Some(original) = request.resume
@@ -318,9 +241,9 @@ pub(super) fn run(
         return Err(not_ready("Pi 打开的会话与原运行不匹配"));
     }
     let metadata = json!({
-        "host": "pi", "version": SUPPORTED_VERSION,
-        "model": state.pointer("/model/id").and_then(Value::as_str),
-        "provider": state.pointer("/model/provider").and_then(Value::as_str),
+        "host": "pi", "version": request.runtime.version,
+        "model": request.runtime.model.id,
+        "provider": request.runtime.model.provider,
         "thinkingLevel": state["thinkingLevel"].as_str(),
         "allowCommands": request.allow_commands
     });

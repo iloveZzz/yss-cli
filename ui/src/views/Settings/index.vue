@@ -123,10 +123,15 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
             <tr v-if="info.pi">
               <th scope="row">Pi Agent</th>
               <td :class="info.pi.available ? 'muted' : 'warning-text'">
-                {{ info.pi.sandboxReady ? '命令沙箱就绪' : '运行不可用' }}
+                {{ info.pi.available ? '本机检查通过' : '运行不可用' }}
               </td>
               <td>
-                {{ [info.pi.version, info.pi.message].filter(Boolean).join(' · ') }}
+                {{ [
+                  info.pi.version,
+                  info.pi.model && `${info.pi.model.provider} / ${info.pi.model.id}`,
+                  info.pi.sandboxReady && '命令沙箱就绪',
+                  info.pi.message
+                ].filter(Boolean).join(' · ') }}
               </td>
             </tr>
             <tr v-for="tool in info.tools" :key="tool.name">

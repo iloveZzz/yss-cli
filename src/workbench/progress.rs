@@ -5,9 +5,19 @@ use super::{
     sqlite::{CommitEffects, RecordWrite},
     store::Store,
 };
-use crate::{error::Result, model::Sha256};
+use crate::{
+    cancel::Cancellation,
+    error::Result,
+    fs::Root,
+    model::{RelPath, Sha256},
+};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
+
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
@@ -161,6 +171,31 @@ pub struct ProgressReportInput {
     pub versions: Vec<ProjectVersion>,
     #[serde(default)]
     pub evidence: Vec<Evidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_paths: Vec<ProjectInputs>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectInputs {
+    pub project_id: String,
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_digest: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputObservation {
+    pub inputs: ProjectInputs,
+    pub version: ProjectVersion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CheckedInputs {
+    project_id: String,
+    digest: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -169,6 +204,8 @@ pub struct ReportRecord {
     pub recorded_at: String,
     #[serde(flatten)]
     pub report: ProgressReportInput,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    checked_inputs: Vec<CheckedInputs>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
@@ -237,6 +274,8 @@ pub struct ProgressRecords {
     pub decisions: Vec<DecisionRecord>,
     #[serde(skip)]
     pub current_versions: Vec<ProjectVersion>,
+    #[serde(skip)]
+    checked_inputs: BTreeMap<(String, Vec<String>), Option<String>>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -313,6 +352,10 @@ pub struct ProgressSummary {
     pub conflicts: Vec<String>,
     #[serde(default)]
     pub current_versions: Vec<ProjectVersion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_delivery: Option<DecisionRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub material_review: bool,
 }
 
 pub const RECORD_KINDS: &[&str] = &[
@@ -343,6 +386,7 @@ impl ProgressRecords {
             overrides: decode(raw, RECORD_KINDS[2])?,
             decisions: decode(raw, RECORD_KINDS[3])?,
             current_versions: Vec::new(),
+            checked_inputs: BTreeMap::new(),
         };
         records.validate_schema()?;
         Ok(records)
@@ -366,6 +410,7 @@ pub fn load(store: &mut Store) -> Result<ProgressRecords> {
         overrides: store.records(RECORD_KINDS[2])?,
         decisions: store.records(RECORD_KINDS[3])?,
         current_versions: Vec::new(),
+        checked_inputs: BTreeMap::new(),
     };
     records.validate_schema()?;
     Ok(records)
@@ -391,8 +436,7 @@ pub fn current_versions(
 }
 
 fn read_project_version(project: &ProjectRecord) -> Result<ProjectVersion> {
-    use crate::{cancel::Cancellation, fs::Root, model::RelPath};
-    use std::{path::Path, time::Duration};
+    use std::time::Duration;
     let root = Root::open(Path::new(&project.root_path))?;
     let git = |args: &[&str]| {
         let mut command = std::process::Command::new("git");
@@ -451,6 +495,208 @@ fn read_project_version(project: &ProjectRecord) -> Result<ProjectVersion> {
     })
 }
 
+fn inputs_digest(root: &Root, paths: &[String], cancel: &Cancellation) -> Result<String> {
+    let mut pending = paths.iter().map(RelPath::new).collect::<Result<Vec<_>>>()?;
+    let mut entries = BTreeMap::<String, (u8, Option<(String, u32)>)>::new();
+    let mut budget = 4096;
+    let mut total = 0;
+    while let Some(path) = pending.pop() {
+        cancel.check()?;
+        if entries.contains_key(path.as_str()) {
+            continue;
+        }
+        if path
+            .as_str()
+            .split('/')
+            .any(|p| matches!(p, ".git" | ".yss" | "node_modules"))
+        {
+            return Err(sources::invalid("凭证范围包含版本库或本机工具数据"));
+        }
+        let metadata = match root.source_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(e) if e.context.get("kind").is_some_and(|kind| kind == "NotFound") => {
+                entries.insert(path.to_string(), (0, None));
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        if metadata.is_dir() {
+            let (children, complete) = root.source_entries(Some(&path), &mut budget, cancel)?;
+            if !complete {
+                return Err(sources::invalid("凭证范围内文件过多，无法完整核实"));
+            }
+            for (name, _) in children {
+                pending.push(path.join(&name)?);
+            }
+            entries.insert(path.to_string(), (1, None));
+        } else if metadata.is_file() {
+            let file = root.source_read(&path, 16 * 1024 * 1024)?;
+            total += file.bytes.len();
+            if total > 128 * 1024 * 1024 {
+                return Err(sources::invalid("凭证范围内文件超过 128 MiB"));
+            }
+            let descriptor = file
+                .snapshot
+                .descriptor()
+                .ok_or_else(|| sources::invalid("凭证文件无法核实"))?;
+            entries.insert(
+                path.to_string(),
+                (
+                    2,
+                    Some((descriptor.sha256.as_str().into(), descriptor.mode)),
+                ),
+            );
+        } else {
+            return Err(sources::invalid("凭证范围内存在不可核实的文件类型"));
+        }
+    }
+    root.revalidate()?;
+    Ok(digest(&(&root.path, entries)))
+}
+
+pub(super) fn refresh_inputs(
+    records: &mut ProgressRecords,
+    state: &WorkbenchState,
+    cancel: &Cancellation,
+) {
+    let current: BTreeSet<_> = state
+        .specs
+        .iter()
+        .filter_map(|spec| goal(records, &spec.id).map(|goal| (&spec.id, &goal.goal_version)))
+        .collect();
+    let mut inputs = BTreeMap::new();
+    for report in records
+        .reports
+        .iter()
+        .filter(|r| current.contains(&(&r.report.spec_id, &r.report.goal_version)))
+    {
+        for scope in &report.report.input_paths {
+            inputs
+                .entry((scope.project_id.clone(), scope.paths.clone()))
+                .or_insert_with(|| {
+                    let project = sources::project(state, &scope.project_id).ok()?;
+                    let root = Root::open(Path::new(&project.root_path)).ok()?;
+                    inputs_digest(&root, &scope.paths, cancel).ok()
+                });
+        }
+    }
+    records.checked_inputs = inputs;
+}
+
+pub(super) fn input_versions_digest(records: &ProgressRecords) -> String {
+    digest(&records.checked_inputs.iter().collect::<Vec<_>>())
+}
+
+fn validate_input_paths(paths: &[String]) -> Result<()> {
+    if paths.is_empty()
+        || paths.len() > 128
+        || paths
+            .iter()
+            .map(|path| crate::fs::alias_key(path))
+            .collect::<BTreeSet<_>>()
+            .len()
+            != paths.len()
+    {
+        return Err(sources::invalid(
+            "凭证输入须按工程登记 1 至 128 个不同的相对路径",
+        ));
+    }
+    Ok(())
+}
+
+fn verified_input_digest(
+    project: &ProjectRecord,
+    paths: &[String],
+    version: &ProjectVersion,
+    cancel: &Cancellation,
+) -> Result<String> {
+    let root = Root::open(Path::new(&project.root_path))?;
+    let hash = inputs_digest(&root, paths, cancel)?;
+    if read_project_version(project)? != *version || inputs_digest(&root, paths, cancel)? != hash {
+        return Err(
+            sources::invalid("采集期间凭证输入发生变化，请核实后重试").context("httpStatus", 409)
+        );
+    }
+    Ok(hash)
+}
+
+pub fn observe_inputs(
+    data_dir: &Path,
+    project_id: &str,
+    paths: &[String],
+    cancel: &Cancellation,
+) -> Result<InputObservation> {
+    validate_input_paths(paths)?;
+    let state = super::store::read_state(data_dir)?;
+    let project = sources::project(&state, project_id)?;
+    let version = read_project_version(project)?;
+    let hash = verified_input_digest(project, paths, &version, cancel)?;
+    Ok(InputObservation {
+        inputs: ProjectInputs {
+            project_id: project_id.into(),
+            paths: paths.to_vec(),
+            observed_digest: Some(hash),
+        },
+        version,
+    })
+}
+
+fn capture_report_inputs(
+    snapshot: &Snapshot,
+    records: &ProgressRecords,
+    input: &ProgressReportInput,
+) -> Result<Vec<CheckedInputs>> {
+    let mut projects = BTreeSet::new();
+    let mut checked = Vec::new();
+    for scope in &input.input_paths {
+        validate_input_paths(&scope.paths)?;
+        if !projects.insert(&scope.project_id) {
+            return Err(sources::invalid("每个工程只能登记一组凭证输入"));
+        }
+        let observed = scope
+            .observed_digest
+            .as_deref()
+            .filter(|digest| valid_digest(digest))
+            .ok_or_else(|| {
+                sources::invalid(
+                    "须提供检查时采集的凭证输入摘要，请在执行检查前使用 observe-inputs",
+                )
+            })?;
+        let project = snapshot
+            .projects
+            .iter()
+            .find(|p| p.record.id == scope.project_id)
+            .ok_or_else(|| sources::invalid("凭证输入工程未登记"))?;
+        let version = input
+            .versions
+            .iter()
+            .find(|v| v.project_id == scope.project_id)
+            .ok_or_else(|| sources::invalid("凭证输入须绑定报告实际采用的工程版本"))?;
+        let before = records
+            .current_versions
+            .iter()
+            .find(|v| v.project_id == scope.project_id)
+            .filter(|actual| versions_match(version, actual))
+            .ok_or_else(|| {
+                sources::invalid("报告版本与当前可读取的工程不同，无法采集输入范围")
+                    .context("httpStatus", 409)
+            })?;
+        let hash =
+            verified_input_digest(&project.record, &scope.paths, before, &Cancellation::new())?;
+        if hash != observed {
+            return Err(
+                sources::invalid("当前输入与实际检查时的摘要不同，请对当前版本重新检查")
+                    .context("httpStatus", 409),
+            );
+        }
+        checked.push(CheckedInputs {
+            project_id: scope.project_id.clone(),
+            digest: hash,
+        });
+    }
+    Ok(checked)
+}
+
 fn digest<T: Serialize>(value: &T) -> String {
     Sha256::of(&serde_json::to_vec(value).expect("lifecycle values serialize"))
         .as_str()
@@ -493,6 +739,12 @@ fn valid_stage(stage: Stage) -> Result<()> {
     }
     Ok(())
 }
+fn ordered_time(value: &str) -> (Option<OffsetDateTime>, &str) {
+    (OffsetDateTime::parse(value, &Rfc3339).ok(), value)
+}
+fn decision_order(record: &DecisionRecord) -> ((Option<OffsetDateTime>, &str), &str) {
+    (ordered_time(&record.recorded_at), &record.id)
+}
 fn spec_view<'a>(snapshot: &'a Snapshot, id: &str) -> Result<&'a SpecView> {
     snapshot
         .specs
@@ -505,7 +757,7 @@ fn goal<'a>(records: &'a ProgressRecords, spec_id: &str) -> Option<&'a GoalRecor
         .goals
         .iter()
         .filter(|g| g.goal.spec_id == spec_id)
-        .max_by(|a, b| (&a.created_at, &a.goal_version).cmp(&(&b.created_at, &b.goal_version)))
+        .max_by_key(|g| (ordered_time(&g.created_at), g.goal_version.as_str()))
 }
 fn current_goal<'a>(
     records: &'a ProgressRecords,
@@ -681,6 +933,7 @@ pub(crate) fn prepare_report(
     for scope in &input.scope_refs {
         required(scope, "范围引用不能为空")?;
     }
+    let checked_inputs = capture_report_inputs(snapshot, records, &input)?;
     let id = input.id.clone();
     write(
         RECORD_KINDS[1],
@@ -689,6 +942,7 @@ pub(crate) fn prepare_report(
             schema_version: 1,
             recorded_at: at.into(),
             report: input,
+            checked_inputs,
         },
     )
 }
@@ -783,6 +1037,14 @@ pub(crate) fn prepare_confirmation(
     at: &str,
 ) -> Result<CommitEffects> {
     let spec = spec_view(snapshot, &input.spec_id)?;
+    if !spec.record.active
+        || !snapshot
+            .projects
+            .iter()
+            .any(|project| project.record.id == spec.record.project_id && project.record.active)
+    {
+        return Err(sources::invalid("请先恢复工程和 Spec，再保存确认"));
+    }
     let goal = current_goal(records, &input.spec_id, &input.goal_version)?;
     if !matches!(
         input.stage,
@@ -806,6 +1068,9 @@ pub(crate) fn prepare_confirmation(
         .find(|s| s.stage == input.stage && (s.applicable || input.stage == Stage::Delivery))
         .ok_or_else(|| sources::invalid("确认阶段未纳入当前目标"))?;
     if input.decision == ConfirmationDecision::Confirm {
+        if spec.content.material_review() {
+            return Err(sources::invalid("关联材料影响待核实，核实后再确认当前目标"));
+        }
         if input.stage == Stage::Spec
             && !spec.content.can_confirm
             && spec.content.status != ContentStatus::Confirmed
@@ -836,6 +1101,7 @@ pub(crate) fn prepare_confirmation(
                 spec,
                 Some(goal),
                 input.stage,
+                false,
             )),
             confirmation: input,
         },
@@ -868,6 +1134,7 @@ fn evidence_digest(
     records: &ProgressRecords,
     spec: &SpecView,
     goal: Option<&GoalRecord>,
+    legacy: bool,
 ) -> String {
     let version = goal.map(|g| g.goal_version.as_str());
     let mut reports: Vec<_> = records
@@ -888,6 +1155,32 @@ fn evidence_digest(
         })
         .collect();
     overrides.sort_by(|a, b| a.id.cmp(&b.id));
+    if !legacy {
+        let validity: Vec<_> = reports
+            .iter()
+            .map(|record| report_validity(records, spec, goal, record))
+            .collect();
+        let mut decisions: Vec<_> = records
+            .decisions
+            .iter()
+            .filter(|decision| {
+                decision.confirmation.spec_id == spec.record.id
+                    && Some(decision.confirmation.goal_version.as_str()) == version
+            })
+            .collect();
+        decisions.sort_by(|a, b| a.id.cmp(&b.id));
+        return digest(&(
+            version,
+            &spec.content.artifact_digest,
+            &spec.content.scope,
+            &spec.content.blockers,
+            spec.content.status,
+            reports,
+            validity,
+            overrides,
+            decisions,
+        ));
+    }
     let mut versions: Vec<_> = records
         .current_versions
         .iter()
@@ -917,6 +1210,7 @@ fn stage_evidence_digest(
     spec: &SpecView,
     goal: Option<&GoalRecord>,
     stage: Stage,
+    legacy: bool,
 ) -> String {
     let relevant = |candidate: Stage| match stage {
         Stage::Verification => matches!(candidate, Stage::Implementation | Stage::Verification),
@@ -979,11 +1273,36 @@ fn stage_evidence_digest(
         if decisions
             .get(&decision.confirmation.stage)
             .is_none_or(|existing: &&DecisionRecord| {
-                (&existing.recorded_at, &existing.id) < (&decision.recorded_at, &decision.id)
+                decision_order(existing) < decision_order(decision)
             })
         {
             decisions.insert(decision.confirmation.stage, decision);
         }
+    }
+    if !legacy {
+        let validity: Vec<_> = reports
+            .values()
+            .map(|record| report_validity(records, spec, goal, record))
+            .collect();
+        let scoped = matches!(stage, Stage::Verification | Stage::Delivery)
+            && !reports.is_empty()
+            && reports
+                .values()
+                .all(|record| observed_scope(record, &spec.record.project_id).is_some());
+        let spec_basis = goal
+            .filter(|_| scoped)
+            .map(|goal| goal.goal.spec_digest.as_str())
+            .or(spec.content.artifact_digest.as_deref());
+        return digest(&(
+            goal.map(|g| &g.goal_version),
+            spec_basis,
+            &spec.content.scope,
+            &spec.content.blockers,
+            reports.values().collect::<Vec<_>>(),
+            validity,
+            overrides,
+            decisions.values().collect::<Vec<_>>(),
+        ));
     }
     digest(&(
         goal.map(|g| &g.goal_version),
@@ -1004,7 +1323,9 @@ fn matching_decision<'a>(
     stage: Stage,
     global_digest: &str,
 ) -> Option<&'a DecisionRecord> {
-    let relevant_digest = stage_evidence_digest(records, spec, goal, stage);
+    let relevant_digest = stage_evidence_digest(records, spec, goal, stage, false);
+    let previous_digest = stage_evidence_digest(records, spec, goal, stage, true);
+    let previous_global = evidence_digest(records, spec, goal, true);
     records
         .decisions
         .iter()
@@ -1012,15 +1333,18 @@ fn matching_decision<'a>(
             d.confirmation.spec_id == spec.record.id
                 && d.confirmation.stage == stage
                 && d.stage_evidence_digest.as_deref().map_or_else(
-                    || d.confirmation.evidence_digest == global_digest,
-                    |digest| digest == relevant_digest,
+                    || {
+                        d.confirmation.evidence_digest == global_digest
+                            || d.confirmation.evidence_digest == previous_global
+                    },
+                    |digest| digest == relevant_digest || digest == previous_digest,
                 )
                 && goal.is_some_and(|g| {
                     d.confirmation.goal_version == g.goal_version
                         && d.confirmation.scope == g.goal.scope
                 })
         })
-        .max_by(|a, b| (&a.recorded_at, &a.id).cmp(&(&b.recorded_at, &b.id)))
+        .max_by_key(|d| decision_order(d))
 }
 
 fn stage_participants(goal: Option<&GoalRecord>, stage: Stage) -> Vec<&Participant> {
@@ -1112,6 +1436,81 @@ fn versions_match(reported: &ProjectVersion, actual: &ProjectVersion) -> bool {
     reported.commit.is_some()
         && actual.working_tree_digest.as_deref() == Some(Sha256::of(&[]).as_str())
 }
+
+fn observed_scope<'a>(
+    record: &'a ReportRecord,
+    project_id: &str,
+) -> Option<(&'a ProjectInputs, &'a str)> {
+    let scope = record
+        .report
+        .input_paths
+        .iter()
+        .find(|input| input.project_id == project_id)?;
+    let saved = record
+        .checked_inputs
+        .iter()
+        .find(|input| input.project_id == project_id)?;
+    (scope.observed_digest.as_deref() == Some(&saved.digest))
+        .then_some((scope, saved.digest.as_str()))
+}
+
+fn scoped_validity(records: &ProgressRecords, record: &ReportRecord, project_id: &str) -> Validity {
+    let Some((scope, saved)) = observed_scope(record, project_id) else {
+        return Validity::Unverified;
+    };
+    let current = records
+        .checked_inputs
+        .get(&(scope.project_id.clone(), scope.paths.clone()))
+        .and_then(Option::as_deref);
+    match current {
+        Some(current) if saved == current => Validity::Current,
+        Some(_) => Validity::NeedsSync,
+        None => Validity::Unverified,
+    }
+}
+
+fn engineering_validity(
+    records: &ProgressRecords,
+    record: &ReportRecord,
+    project_id: &str,
+    exact_version: bool,
+) -> Validity {
+    let Some(reported) = record
+        .report
+        .versions
+        .iter()
+        .find(|version| version.project_id == project_id)
+    else {
+        return Validity::Unverified;
+    };
+    let has_scope = record
+        .report
+        .input_paths
+        .iter()
+        .any(|input| input.project_id == project_id);
+    if has_scope && !exact_version {
+        return scoped_validity(records, record, project_id);
+    }
+    let Some(actual) = records
+        .current_versions
+        .iter()
+        .find(|version| version.project_id == project_id)
+        .filter(|actual| actual.commit.is_some() || actual.working_tree_digest.is_some())
+    else {
+        return Validity::Unverified;
+    };
+    if exact_version && !versions_match(reported, actual) {
+        return Validity::NeedsSync;
+    }
+    if has_scope {
+        return scoped_validity(records, record, project_id);
+    }
+    if versions_match(reported, actual) {
+        Validity::Current
+    } else {
+        Validity::Unverified
+    }
+}
 fn has_stage_evidence(report: &ProgressReportInput, goal: &GoalRecord) -> bool {
     let good = |e: &&Evidence| e.outcome != Some(EvidenceOutcome::Failed);
     let passed = |e: &&Evidence| e.outcome == Some(EvidenceOutcome::Passed);
@@ -1181,9 +1580,7 @@ fn report_validity(
         return Validity::Unverified;
     };
     let report = &record.report;
-    if report.goal_version != goal.goal_version
-        || spec.content.artifact_digest.as_deref() != Some(report.spec_digest.as_str())
-    {
+    if report.goal_version != goal.goal_version || report.spec_digest != goal.goal.spec_digest {
         return stale_validity(report.stage);
     }
     if report.validity != Validity::Current {
@@ -1191,6 +1588,13 @@ fn report_validity(
     }
     if report.progress == Progress::Unmarked {
         return Validity::Unverified;
+    }
+    if spec.content.artifact_digest.as_deref() != Some(report.spec_digest.as_str()) {
+        match scoped_validity(records, record, &spec.record.project_id) {
+            Validity::Current if spec.content.artifact_digest.is_some() => {}
+            Validity::NeedsSync => return stale_validity(report.stage),
+            _ => return Validity::Unverified,
+        }
     }
     if matches!(report.progress, Progress::Done | Progress::Skipped) {
         let target_evidence_required =
@@ -1225,23 +1629,20 @@ fn report_validity(
             } else {
                 relevant
             };
-            for id in relevant {
-                let Some(reported) = report.versions.iter().find(|v| &v.project_id == id) else {
-                    return Validity::Unverified;
-                };
-                let Some(actual) = records
-                    .current_versions
+            let exact_version = report.role == ParticipantRole::Integration
+                || report
+                    .evidence
                     .iter()
-                    .find(|v| &v.project_id == id)
-                else {
-                    return Validity::Unverified;
-                };
-                if actual.commit.is_none() && actual.working_tree_digest.is_none() {
-                    return Validity::Unverified;
-                }
-                if !versions_match(reported, actual) {
-                    return Validity::NeedsSync;
-                }
+                    .any(|e| matches!(e.kind, EvidenceKind::Merge | EvidenceKind::Environment))
+                || goal.goal.target.kind != DeliveryTargetKind::Local
+                    && matches!(report.stage, Stage::Verification | Stage::Delivery);
+            let validity = aggregate_validity(
+                relevant
+                    .into_iter()
+                    .map(|id| engineering_validity(records, record, id, exact_version)),
+            );
+            if validity != Validity::Current {
+                return validity;
             }
         }
         // A cross-project verification statement must identify its tested combination.
@@ -1251,22 +1652,9 @@ fn report_validity(
                     matches!(p.role, ParticipantRole::Backend | ParticipantRole::Frontend)
                 })
             {
-                let Some(reported) = report
-                    .versions
-                    .iter()
-                    .find(|v| v.project_id == participant.project_id)
-                else {
-                    return Validity::Unverified;
-                };
-                let Some(actual) = records
-                    .current_versions
-                    .iter()
-                    .find(|v| v.project_id == participant.project_id)
-                else {
-                    return Validity::Unverified;
-                };
-                if !versions_match(reported, actual) {
-                    return Validity::NeedsSync;
+                let validity = engineering_validity(records, record, &participant.project_id, true);
+                if validity != Validity::Current {
+                    return validity;
                 }
             }
         }
@@ -1410,11 +1798,6 @@ fn participant_progress(
         view.evidence = report.report.evidence.clone();
         view.report_id = Some(report.report.id.clone());
         view.versions = report.report.versions.clone();
-    }
-    if goal.is_some_and(|g| {
-        spec.content.artifact_digest.as_deref() != Some(g.goal.spec_digest.as_str())
-    }) {
-        view.validity = stale_validity(stage);
     }
     if let Some(manual) = latest_override(
         records,
@@ -1739,10 +2122,13 @@ fn stage_summary(
             .chain(view.last_verified_at)
             .max();
     }
-    if goal.is_some_and(|g| {
-        spec.content.artifact_digest.as_deref() != Some(g.goal.spec_digest.as_str())
-    }) {
-        view.validity = stale_validity(stage);
+    if report.is_none()
+        && view.participants.is_empty()
+        && goal.is_some_and(|g| {
+            spec.content.artifact_digest.as_deref() != Some(g.goal.spec_digest.as_str())
+        })
+    {
+        view.validity = Validity::Unverified;
     }
     if stage == Stage::Spec && spec.content.status == ContentStatus::Confirmed {
         view.confirmation_required = goal.is_some_and(|g| g.goal.scope != spec.content.scope);
@@ -1806,13 +2192,64 @@ fn participant_completed(participant: &ParticipantProgress) -> bool {
 fn stage_completed(stage: &StageSummary) -> bool {
     completed(stage) && stage.participants.iter().all(participant_completed)
 }
+
+fn delivery_decisions<'a>(
+    records: &'a ProgressRecords,
+    spec: &str,
+) -> BTreeMap<&'a str, &'a DecisionRecord> {
+    let mut latest = BTreeMap::new();
+    for decision in records
+        .decisions
+        .iter()
+        .filter(|d| d.confirmation.spec_id == spec && d.confirmation.stage == Stage::Delivery)
+    {
+        let version = decision.confirmation.goal_version.as_str();
+        if latest
+            .get(version)
+            .is_none_or(|previous: &&DecisionRecord| {
+                decision_order(decision) > decision_order(previous)
+            })
+            && records.goals.iter().any(|g| {
+                g.goal.spec_id == spec
+                    && g.goal_version == version
+                    && g.goal.scope == decision.confirmation.scope
+            })
+        {
+            latest.insert(version, decision);
+        }
+    }
+    latest
+}
+
 fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) -> ProgressSummary {
     let goal = goal(records, &spec.record.id);
-    let evidence_digest = evidence_digest(records, spec, goal);
+    let delivery = delivery_decisions(records, &spec.record.id);
+    let current_delivery = goal.and_then(|goal| delivery.get(goal.goal_version.as_str()).copied());
+    let accepted = current_delivery
+        .filter(|decision| decision.confirmation.decision == ConfirmationDecision::Confirm);
+    let last_delivery = delivery
+        .values()
+        .filter(|decision| decision.confirmation.decision == ConfirmationDecision::Confirm)
+        .max_by_key(|d| decision_order(d))
+        .map(|d| (**d).clone());
+    let evidence_digest = evidence_digest(records, spec, goal, false);
     let mut stages: Vec<_> = Stage::LIFECYCLE
         .into_iter()
         .map(|stage| stage_summary(snapshot, records, spec, goal, stage, &evidence_digest))
         .collect();
+    let corrected = stages
+        .iter()
+        .filter(|stage| stage.applicable)
+        .flat_map(|stage| {
+            stage.override_record.iter().chain(
+                stage
+                    .participants
+                    .iter()
+                    .filter_map(|participant| participant.override_record.as_ref()),
+            )
+        })
+        .any(|record| !matches!(record.value.progress, Progress::Done | Progress::Skipped));
+    let retains_completion = accepted.is_some() && !corrected;
     if goal.is_some()
         && stages
             .iter()
@@ -1859,16 +2296,39 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             delivery.blocker = "用户已退回本次目标结果，请由原 Agent 继续处理".into();
         }
     }
+    if let Some(decision) = current_delivery
+        && let Some(stage) = stages
+            .iter_mut()
+            .find(|stage| stage.stage == Stage::Delivery)
+    {
+        stage.confirmation = Some(decision.clone());
+        if accepted.is_some() {
+            if stage.override_record.is_none() {
+                if stage.progress != Progress::Done || stage.validity != Validity::Current {
+                    stage.source = ProgressSource::Historical;
+                    stage.summary = "该目标版本已验收".into();
+                }
+                stage.progress = Progress::Done;
+                stage.next_action.clear();
+            }
+        } else {
+            stage.progress = Progress::Blocked;
+            stage.blocker = "用户已退回本次目标结果，请由原 Agent 继续处理".into();
+        }
+    }
     let in_scope = |stage: &&StageSummary| {
         stage.applicable || goal.is_some() && stage.stage == Stage::Delivery
     };
+    let material_review = spec.content.material_review();
     let awaiting = |stage: &StageSummary| {
-        stage.confirmation_required
+        !retains_completion
+            && !material_review
+            && stage.confirmation_required
             && !confirmation_satisfied(stage)
             && matches!(stage.progress, Progress::Done | Progress::Skipped)
             && stage.validity == Validity::Current
     };
-    let active_stages = stages
+    let mut active_stages: Vec<_> = stages
         .iter()
         .filter(in_scope)
         .filter(|stage| {
@@ -1882,7 +2342,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         })
         .map(|s| s.stage)
         .collect();
-    let primary = stages
+    let mut primary = stages
         .iter()
         .find(|s| s.applicable && !stage_completed(s))
         .or_else(|| {
@@ -1897,6 +2357,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
     }
     for stage in stages.iter().filter(in_scope) {
         match stage.validity {
+            _ if retains_completion => {}
             Validity::Current => {}
             Validity::Unverified => {
                 attention.insert("unverified".into());
@@ -1908,7 +2369,8 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
                 attention.insert("needsReview".into());
             }
         }
-        if stage.progress == Progress::Blocked || !stage.blocker.is_empty() {
+        if !retains_completion && (stage.progress == Progress::Blocked || !stage.blocker.is_empty())
+        {
             attention.insert("blocked".into());
         }
         if awaiting(stage) {
@@ -1921,6 +2383,35 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             attention.insert("conflict".into());
         }
     }
+    if material_review {
+        attention.insert("needsReview".into());
+    }
+    if retains_completion {
+        active_stages.clear();
+        primary = None;
+        for report in records.reports.iter().filter(|r| {
+            r.report.spec_id == spec.record.id
+                && goal.is_some_and(|g| g.goal_version == r.report.goal_version)
+        }) {
+            if report.checked_inputs.iter().any(|inputs| {
+                scoped_validity(records, report, &inputs.project_id) == Validity::NeedsSync
+            }) && latest_report(
+                records,
+                &spec.record.id,
+                goal,
+                report.report.stage,
+                report.report.project_id.as_deref(),
+                report.report.role,
+            )
+            .is_some_and(|latest| latest.report.id == report.report.id)
+            {
+                attention.insert("needsSync".into());
+                if !active_stages.contains(&report.report.stage) {
+                    active_stages.push(report.report.stage);
+                }
+            }
+        }
+    }
     let ongoing = stages.iter().filter(in_scope).any(|s| {
         s.progress == Progress::Doing
             || s.participants.iter().any(|p| p.progress == Progress::Doing)
@@ -1931,22 +2422,12 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
                 .iter()
                 .any(|p| p.progress == Progress::Blocked)
     });
-    let all_work_complete = stages.iter().filter(|s| s.applicable).all(stage_completed);
-    let final_confirmed = stages
-        .iter()
-        .find(|s| s.stage == Stage::Delivery)
-        .is_some_and(|s| {
-            s.confirmation
-                .as_ref()
-                .is_some_and(|d| d.confirmation.decision == ConfirmationDecision::Confirm)
-                && stage_completed(s)
-        });
-    let status = if ongoing {
+    let status = if retains_completion {
+        Status::Done
+    } else if ongoing {
         Status::Doing
     } else if blocked {
         Status::Blocked
-    } else if goal.is_some() && all_work_complete && final_confirmed {
-        Status::Done
     } else if stages
         .iter()
         .filter(in_scope)
@@ -1961,6 +2442,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
     let blocker = stages
         .iter()
         .filter(in_scope)
+        .filter(|_| !retains_completion)
         .find(|s| !s.blocker.is_empty())
         .map(|s| s.blocker.clone())
         .unwrap_or_default();
@@ -1977,11 +2459,13 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         attention: attention.into_iter().collect(),
         summary: primary
             .map(|s| s.summary.clone())
-            .unwrap_or_else(|| "当前目标已完成".into()),
+            .unwrap_or_else(|| "该目标版本已验收".into()),
         blocker,
         next_action: primary
             .map(|s| {
-                if awaiting(s) {
+                if material_review {
+                    "由 Agent 核实关联材料和适用范围".into()
+                } else if awaiting(s) {
                     "请人工确认当前范围与证据".into()
                 } else {
                     s.next_action.clone()
@@ -2009,6 +2493,8 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             })
             .cloned()
             .collect(),
+        last_delivery,
+        material_review,
         stages,
     }
 }

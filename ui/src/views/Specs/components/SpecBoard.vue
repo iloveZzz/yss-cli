@@ -41,7 +41,7 @@ watch(
   { flush: 'post' }
 )
 const hideEmpty = shallowRef(true)
-const reminders = contentReminders(undefined)
+const reminders = contentReminders(undefined).filter((reminder) => reminder.id !== 'ready')
 const dragging = shallowRef<{ item: WorkItem; revision: number; groupBy: GroupBy }>()
 const hovered = shallowRef('')
 const labels = computed(() => (props.groupBy === 'status' ? statuses : stages))
@@ -130,10 +130,14 @@ function end() {
           <StatusBadge :status="item.status" />
           <span>{{ stages[item.stage] }}</span>
         </div>
-        <p v-if="item.contentStatus" class="card-next">
-          {{ contentStatuses[item.contentStatus] }}
-          <span v-if="item.needsReconfirmation" class="warning-text">· 需要重新确认</span>
-        </p>
+        <RouterLink
+          v-if="item.contentStatus"
+          :to="{ path: '/specs/' + item.specId, query: { return: route.fullPath, tab: 'content', category: 'ready' } }"
+          :class="['card-next', { 'warning-text': item.needsReconfirmation || item.materialReview }]"
+        >
+          {{ item.needsReconfirmation ? '新版待确认' : item.materialReview
+            ? '材料待核实' : contentStatuses[item.contentStatus] }}
+        </RouterLink>
         <div class="board-reminders">
           <template v-for="reminder in reminders" :key="reminder.id">
             <RouterLink

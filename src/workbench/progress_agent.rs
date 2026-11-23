@@ -201,6 +201,7 @@ pub fn record(store: &mut Store, run: &AgentRun, activity: Activity) -> Result<(
             next_action: next_action.into(),
             scope_refs: vec![goal.goal.scope.clone()],
             versions: Vec::new(),
+            input_paths: Vec::new(),
             evidence: vec![Evidence {
                 kind: EvidenceKind::Other,
                 label: summary.into(),

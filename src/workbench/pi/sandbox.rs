@@ -80,20 +80,15 @@ struct Toolchain {
 }
 
 impl Toolchain {
-    fn discover(excluded: &[PathBuf]) -> Result<Self> {
+    fn discover(excluded: &[PathBuf], pi_config: &Path) -> Result<Self> {
         let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_owned());
-        let pi_config = env::var_os("PI_CODING_AGENT_DIR")
-            .and_then(|path| fs::canonicalize(path).ok())
-            .or_else(|| home.as_ref().map(|path| path.join(".pi")));
         let safe = |path: &Path| {
             path != Path::new("/")
                 && !excluded.iter().any(|other| overlaps(path, other))
-                && !pi_config
-                    .as_ref()
-                    .is_some_and(|other| overlaps(path, other))
+                && !overlaps(path, pi_config)
                 && !home.as_ref().is_some_and(|other| {
                     other.starts_with(path)
-                        || [".ssh", ".codex", ".config", ".npm", ".gnupg"]
+                        || [".pi", ".ssh", ".codex", ".config", ".npm", ".gnupg"]
                             .iter()
                             .any(|directory| overlaps(path, &other.join(directory)))
                 })
@@ -209,6 +204,7 @@ impl Sandbox {
     pub fn new(
         private: &PrivateDir,
         data_dir: &Path,
+        pi_config: &Path,
         workspaces: &[Workspace],
         cancel: &Cancellation,
     ) -> Result<Self> {
@@ -223,7 +219,7 @@ impl Sandbox {
             roots.push(root.to_owned());
             excluded.push(PathBuf::from(&workspace.original_root));
         }
-        let tools = Toolchain::discover(&excluded)?;
+        let tools = Toolchain::discover(&excluded, pi_config)?;
         Self::build(private, &roots, &protected, tools)
     }
 

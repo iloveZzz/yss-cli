@@ -27,7 +27,7 @@ const title = computed(() => {
 })
 let revision = 0
 function begin() {
-  if (!props.progress.goalVersion) return
+  if (!props.progress.goalVersion || props.progress.materialReview) return
   input.value = {
     specId: props.specId,
     goalVersion: props.progress.goalVersion,
@@ -70,12 +70,12 @@ async function confirm() {
   <p v-if="notice" role="status" class="confirmation-record">{{ notice }}</p>
   <div v-if="stage.confirmationRequired" class="confirmation-actions">
     <Button
-      v-if="stage.stage === 'spec'"
+      v-if="stage.stage === 'spec' || progress.materialReview"
       type="button"
       variant="outline"
       @click="emit('content')"
     >
-      查看内容与业务确认
+      {{ progress.materialReview ? '查看待核实材料' : '查看内容与业务确认' }}
     </Button>
     <Button
       v-if="
@@ -85,6 +85,7 @@ async function confirm() {
       type="button"
       :disabled="
         saving ||
+        progress.materialReview ||
         !['done', 'skipped'].includes(stage.progress) ||
         stage.validity !== 'current' ||
         !progress.goalVersion

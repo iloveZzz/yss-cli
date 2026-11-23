@@ -12,7 +12,7 @@ const title = computed(() => {
   const progress = props.progress
   if (!progress) return '目标与进展待核实'
   return progress.status === 'done'
-    ? '当前目标已完成'
+    ? progress.lastDelivery ? `已验收 · ${dateLabel(progress.lastDelivery.recordedAt)}` : '目标已完成'
     : `${stages[progress.primaryStage]} · ${progress.summary || '进展待核实'}`
 })
 const active = computed(() =>

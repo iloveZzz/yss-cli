@@ -105,7 +105,12 @@ fn health(error: &YssError) -> SourceHealth {
         SourceHealth::Unreadable
     }
 }
-pub fn spec_view(state: &WorkbenchState, s: &SpecRecord, root: &Result<Root>) -> SpecView {
+pub(super) fn spec_view(
+    state: &WorkbenchState,
+    s: &SpecRecord,
+    root: &Result<Root>,
+    context: Option<&super::materials::Context<'_>>,
+) -> SpecView {
     let read = match root {
         Ok(root) => text(root, &s.source_path),
         Err(e) => Err(e.clone()),
@@ -124,7 +129,7 @@ pub fn spec_view(state: &WorkbenchState, s: &SpecRecord, root: &Result<Root>) ->
     );
     SpecView {
         progress: None,
-        content: super::content::view(state, s, root),
+        content: super::content::inspect(state, s, root, read.as_deref().ok(), context, false).0,
         record: s.clone(),
         source_health,
         source_message,

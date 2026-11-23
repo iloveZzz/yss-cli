@@ -156,15 +156,30 @@ async fn dispatch(server: Server, request: Request) -> Response {
         let query = super::api::query_values(&query);
         let requested = query.get("path").cloned().unwrap_or_default();
         let expected_sha = query.get("sha256").cloned();
+        let latest = match query.get("basis").map(String::as_str) {
+            None | Some("candidate") => false,
+            Some("latest") => true,
+            Some(_) => {
+                return failure(StatusCode::BAD_REQUEST, "INVALID_INPUT", "文件对比范围无效");
+            }
+        };
         let store = server.store.clone();
         return match tokio::task::spawn_blocking(move || -> Result<_> {
             if current {
-                let state = super::jobs::lock_store(&store)?.state().clone();
-                let file = super::artifacts::current_file(&state, &id, &requested)?;
+                let file = if latest {
+                    let state = super::jobs::lock_store(&store)?.state().clone();
+                    super::artifacts::current_file(&state, &id, &requested)?
+                } else {
+                    super::artifacts::candidate_file(
+                        &mut *super::jobs::lock_store(&store)?,
+                        &id,
+                        &requested,
+                    )?
+                };
                 if expected_sha.is_some_and(|expected| expected != file.0.sha256) {
                     return Err(YssError::new(
                         ErrorCode::ConcurrentChange,
-                        "当前图片已变化，请重新比较后预览",
+                        "对比文件已变化，请重新比较后查看",
                     )
                     .context("httpStatus", 409));
                 }
@@ -426,8 +441,8 @@ async fn dispatch(server: Server, request: Request) -> Response {
             && path.starts_with("/api/specs/")
             && path.ends_with("/content")
         {
-            serde_json::to_value(super::content::read_view(
-                &state,
+            serde_json::to_value(super::content::read_store_view(
+                &mut *super::jobs::lock_store(&server.store)?,
                 &path[11..path.len() - 8],
             )?)
         } else if method == axum::http::Method::GET
@@ -436,10 +451,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
         {
             let mut store = super::jobs::lock_store(&server.store)?;
             let id = &path[11..path.len() - 8];
-            let snapshot = service::snapshot_from_store(&mut store, &server.cancel)?;
-            let mut request = super::content::agent_request(store.state(), id, Some(store.data_dir()))?;
-            request.text.push_str(&service::progress_context(&snapshot, id, store.data_dir())?);
-            serde_json::to_value(request)
+            serde_json::to_value(service::agent_request_from_store(&mut store, id, &server.cancel)?)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {
             {
                 let mut snapshot = service::snapshot_from_store(

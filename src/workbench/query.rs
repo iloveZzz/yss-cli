@@ -117,6 +117,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 content_status: Some(spec.content.status),
                 reminder_counts: reminder_counts(&spec.content),
                 needs_reconfirmation: spec.content.needs_reconfirmation,
+                material_review: spec.content.material_review(),
                 has_source_problem: spec.source_health != SourceHealth::Available
                     || broken(&spec.resources),
             });
@@ -146,6 +147,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 content_status: None,
                 reminder_counts: BTreeMap::new(),
                 needs_reconfirmation: false,
+                material_review: false,
                 progress: None,
                 next_action: String::new(),
                 blocker: t.blocker.clone(),
@@ -164,7 +166,14 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
             ActivityScope::Active => item.active,
             ActivityScope::Inactive => !item.active,
             ActivityScope::All => true,
-        }) && (request.include_closed || !matches!(item.status, Status::Done | Status::Canceled))
+        }) && (request.include_closed
+            || !matches!(item.status, Status::Done | Status::Canceled)
+            || item.status == Status::Done
+                && item.entity == WorkEntity::Spec
+                && (item.needs_reconfirmation
+                    && (request.needs_reconfirmation
+                        || request.reminder_kinds.iter().any(|kind| kind == "ready"))
+                    || !request.attention.is_empty()))
             && (request.project_ids.is_empty() || request.project_ids.contains(&item.project_id))
             && (request.spec_ids.is_empty() || request.spec_ids.contains(&item.spec_id))
             && (request.stages.is_empty()

@@ -1,5 +1,5 @@
 import { apiRequest, type SpecView, type SourceDocument, type Stage } from './workbench'
-import { requestId, type JobRecord, type JsonObject } from './workbench-platform'
+import { requestId, type JobRecord, type JsonObject, type PiModel, type PiRuntimeStatus } from './workbench-platform'
 export interface FileDescriptor {
   sha256: string
   size: number
@@ -80,8 +80,16 @@ export interface AgentStart {
   projectIds: string[]
   carryFiles: Record<string, string[]>
   resumeRunId?: string
+  expectedModel?: PiModel
   allowCommands?: boolean
 }
+export const getPiRuntime = (resumeRunId?: string, signal?: AbortSignal) =>
+  apiRequest<PiRuntimeStatus>(`/api/agent/runtime${resumeRunId ? `?resumeRunId=${encodeURIComponent(resumeRunId)}` : ''}`, { signal })
+export const testPiConnection = (expectedModel: PiModel, resumeRunId?: string, signal?: AbortSignal) =>
+  apiRequest<{ connected: boolean }>('/api/agent/test-model', {
+    body: { expectedModel, resumeRunId },
+    signal
+  })
 export const startAgent = (value: AgentStart) =>
   apiRequest<JobRecord>('/api/agent/start', { body: { ...value, requestId: requestId() } })
 export const getAgentRun = (id: string) =>

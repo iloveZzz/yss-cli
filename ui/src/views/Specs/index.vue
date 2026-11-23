@@ -221,7 +221,9 @@ function all() {
         启用且已关闭 {{ coverage.closed }} 项，停用
         {{ coverage.inactive }} 项。未登记目录和未接入平台不在当前覆盖范围。
       </p>
-      <p v-if="!filters.includeClosed">当前已隐藏已完成与已取消记录。</p>
+      <p v-if="!filters.includeClosed && !filters.needsReconfirmation && !filters.attention.length && !filters.reminderKinds.includes('ready')">
+        当前已隐藏已完成与已取消记录。
+      </p>
       <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
     </div>
   </details>

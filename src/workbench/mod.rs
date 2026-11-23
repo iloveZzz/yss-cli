@@ -1,6 +1,7 @@
 pub mod content;
 pub mod history;
 pub mod lifecycle;
+pub(crate) mod materials;
 pub mod migration;
 pub mod model;
 pub mod preview;

@@ -117,7 +117,7 @@ const chips = computed(() => {
   if (query.includeClosed)
     values.push({ key: 'closed', label: '含已完成／已取消', patch: { includeClosed: false } })
   if (query.needsReconfirmation)
-    values.push({ key: 'reconfirm', label: '需要重新确认', patch: { needsReconfirmation: false } })
+    values.push({ key: 'reconfirm', label: '新版待确认', patch: { needsReconfirmation: false } })
   if (query.sourceProblemsOnly)
     values.push({ key: 'source', label: '仅来源异常', patch: { sourceProblemsOnly: false } })
   return values
@@ -277,7 +277,7 @@ async function clear() {
                   })
                 "
               />
-              <span>需要重新确认</span>
+              <span>新版待确认（含已完成）</span>
             </label>
           </div>
         </FilterPopover>

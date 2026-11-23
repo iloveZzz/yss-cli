@@ -17,7 +17,8 @@ import {
 import {
   canCopyQuestionResponse,
   formatQuestionReplies,
-  matchesContentReminder
+  matchesContentReminder,
+  materialNeedsReview
 } from '@/services/workbench-content'
 import QuestionResponseForm from './QuestionResponseForm.vue'
 import ConfirmationDiff from './ConfirmationDiff.vue'
@@ -125,7 +126,15 @@ const exclusions = computed(() =>
     .map((item) => item.response?.excludedScope ?? '')
     .filter(Boolean)
 )
-const latestConfirmation = computed(() => props.content.confirmations.at(-1))
+const confirmedVersion = computed(() => props.content.confirmedVersion ?? props.content.confirmations.at(-1))
+const materialsNeedReview = computed(() => materialNeedsReview(props.content))
+const changeLabels = {
+  changed: '确认材料已更新',
+  sharedUpdated: '共用资料有新版',
+  dependencyReview: '依赖待核实',
+  unavailable: '来源异常',
+  historyUnavailable: '当前适用性待核实'
+}
 const pending = computed(() => props.content.questions.filter((item) => item.state !== 'resolved'))
 const copyable = computed(() => props.content.questions.filter(canCopyQuestionResponse))
 let copyAttempt = 0
@@ -224,7 +233,7 @@ async function confirmContent() {
       confirmation.value.revision
     )
     confirmOpen.value = false
-    notice.value = '已确认本次范围与内容版本；来源变化后需要重新确认。'
+    notice.value = '已确认本次范围与所采用的材料版本。'
     emit('saved')
   } catch (e) {
     error.value = errorMessage(e)
@@ -239,10 +248,13 @@ async function confirmContent() {
           <h2>
             内容确认
             <span class="content-status" :data-status="content.status">
-              {{ contentStatuses[content.status] }}
+              {{ content.needsReconfirmation ? '新版待确认' : contentStatuses[content.status] }}
             </span>
           </h2>
-          <p class="muted">答复回写并核验后，再确认本次范围与版本。</p>
+          <p v-if="confirmedVersion" class="muted">
+            已确认版本 {{ confirmedVersion.artifactDigest.slice(0, 12) }} ·
+            {{ dateLabel(confirmedVersion.createdAt) }}
+          </p>
         </div>
         <div class="inline-actions">
           <Button type="button" variant="outline" @click="requestOpen = true">查看 Agent 续办文本</Button>
@@ -270,8 +282,25 @@ async function confirmContent() {
         {{ content.metadataError }}
       </p>
       <p v-if="content.needsReconfirmation" class="notice warning">
-        来源内容已变更，之前的确认不适用于当前版本，请重新阅读后确认。
+        本 Spec 有新版材料或范围。核对本轮采用的内容后确认。
       </p>
+      <p v-if="materialsNeedReview" class="notice warning">
+        由 Agent 核实关联材料及相关条款。已确认版本可在下方回看。
+      </p>
+      <details v-if="content.materialChanges?.length" class="confirmation-blockers" open>
+        <summary>确认材料与来源变化</summary>
+        <ul>
+          <li v-for="change in content.materialChanges" :key="`${change.kind}:${change.target}`">
+            <strong>{{ changeLabels[change.kind] }}</strong>
+            <code>{{ change.target }}</code>
+            <div>{{ change.reason }}</div>
+            <small v-if="change.confirmedDigest || change.observedDigest" class="muted">
+              已采用 {{ change.confirmedDigest?.slice(0, 12) ?? '—' }} ·
+              当前资料 {{ change.observedDigest?.slice(0, 12) ?? '—' }}
+            </small>
+          </li>
+        </ul>
+      </details>
       <details v-if="content.blockers.length" class="confirmation-blockers">
         <summary>查看确认限制（{{ content.blockers.length }}）</summary>
         <ul>
@@ -279,10 +308,6 @@ async function confirmContent() {
         </ul>
       </details>
       <ConfirmationDiff :spec-id="specId" />
-      <p v-if="latestConfirmation" class="muted">
-        最近确认：{{ dateLabel(latestConfirmation.createdAt) }} · 版本
-        {{ latestConfirmation.artifactDigest.slice(0, 12) }}
-      </p>
     </section>
     <div class="section-heading questions-heading">
       <div>
