@@ -106,10 +106,14 @@ function closeOnEscape(event: KeyboardEvent) {
 <style scoped>
 .single-select-trigger { display:inline-flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; max-width:100%; height:34px; min-height:34px; padding:0 10px; border:1px solid var(--yss-colors-border-control); border-radius:8px; background:var(--brand-color-bg-container); color:inherit; text-align:left; font-size:13px; line-height:1.4; vertical-align:middle; box-shadow:none; }
 .single-select-trigger:hover:not(:disabled) { border-color:#a8b4cb; }
-.single-select-trigger:focus-visible { border-color:var(--yss-color-primary-control); outline:none; box-shadow:0 0 0 3px var(--yss-colors-primary-bg); }
+.single-select-trigger:focus { border-color:var(--yss-color-primary-control); outline:none; box-shadow:none; }
 .single-select-trigger[data-state=open] { border-color:var(--yss-color-primary-control); }
 .single-select-trigger:disabled { cursor:not-allowed; opacity:.55; }
 .single-select-trigger[aria-invalid=true] { border-color:var(--yss-colors-error-text); }
+.single-select-trigger[aria-invalid=true]:focus { border-bottom-width:3px; }
+@media (forced-colors:active) {
+  .single-select-trigger:focus { outline:2px solid Highlight; outline-offset:2px; }
+}
 .single-select-value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .single-select-chevron { flex:none; color:var(--brand-color-text-secondary); }
 .single-select-trigger[data-state=open] .single-select-chevron { transform:rotate(180deg); }
