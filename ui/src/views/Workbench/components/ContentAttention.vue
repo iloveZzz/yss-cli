@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { contentReminders, matchesContentReminder } from '@/services/workbench-content'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import type { SpecView } from '@/services/workbench'
@@ -15,7 +21,8 @@ function category(value: unknown) {
 }
 const selected = shallowRef(category(route.query.attention) ?? 'decision')
 const touched = shallowRef(!!category(route.query.attention))
-function select(kind: string) {
+function select(kind: string | number) {
+  if (typeof kind !== 'string' || !categories.has(kind) || kind === route.query.attention) return
   selected.value = kind
   touched.value = true
   void router.replace({ query: { ...route.query, attention: kind } })
@@ -93,83 +100,85 @@ function location(specId: string, questionId?: string) {
         查看筛选列表 →
       </RouterLink>
     </div>
-    <div class="attention-filters" role="group" aria-label="内容提醒类别">
-      <button
-        v-for="group in counts"
-        :key="group.id"
-        type="button"
-        :aria-pressed="selected === group.id"
-        @click="select(group.id)"
-      >
-        {{ group.label }}
-        <span>{{ group.count }}</span>
-      </button>
-    </div>
-    <div
-      v-if="items.length"
-      class="panel table-scroll attention-table"
-      tabindex="0"
-      role="region"
-      :aria-label="selectedLabel + '事项'"
-    >
-      <table class="spec-table">
-        <caption class="sr-only">{{ selectedLabel }}事项</caption>
-        <thead>
-          <tr>
-            <th scope="col">Spec / 工程</th>
-            <th scope="col">待处理事项</th>
-            <th scope="col">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.spec.record.id">
-            <th scope="row">
-              <RouterLink :to="location(item.spec.record.id)" :title="item.spec.record.sourcePath">
-                {{ item.spec.record.title }}
-              </RouterLink>
-              <span class="row-sub">{{ item.projectName }}</span>
-            </th>
-            <td>
-              <ul v-if="item.questions.length" class="attention-questions">
-                <li v-for="question in item.questions" :key="question.question.id">
-                  <RouterLink :to="location(item.spec.record.id, question.question.id)">
-                    {{ question.question.title }}
+    <Tabs :model-value="selected" activation-mode="manual" @update:model-value="select">
+      <TabsList class="attention-filters" aria-label="内容提醒类别">
+        <TabsTrigger v-for="group in counts" :key="group.id" :value="group.id">
+          {{ group.label }}
+          <Badge variant="secondary" class="tab-count">{{ group.count }}</Badge>
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent v-for="group in counts" :key="group.id" :value="group.id" class="min-w-0">
+        <Card
+          v-if="items.length"
+          class="panel block gap-0 py-0 shadow-none table-scroll attention-table"
+          tabindex="0"
+          role="region"
+          :aria-label="selectedLabel + '事项'"
+        >
+          <Table class="spec-table">
+            <TableCaption class="sr-only">{{ selectedLabel }}事项</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Spec / 工程</TableHead>
+                <TableHead scope="col">待处理事项</TableHead>
+                <TableHead scope="col">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="item in items" :key="item.spec.record.id">
+                <TableHead scope="row">
+                  <RouterLink :to="location(item.spec.record.id)" :title="item.spec.record.sourcePath">
+                    {{ item.spec.record.title }}
                   </RouterLink>
-                  <span v-if="question.question.blocking" class="blocking-label">阻塞</span>
-                </li>
-              </ul>
-              <p v-else class="muted">主规格已具备确认条件</p>
-              <RouterLink
-                v-if="item.count > item.questions.length && item.questions.length"
-                :to="location(item.spec.record.id)"
-                class="more-questions"
-              >
-                查看其余 {{ item.count - item.questions.length }} 项
-              </RouterLink>
-            </td>
-            <td class="attention-action">
-              <RouterLink :to="location(item.spec.record.id)">
-                {{
-                  selected === 'ready'
-                    ? '检查并确认'
-                    : selected === 'writeback'
-                      ? '核对回写'
-                      : '处理事项'
-                }}
-                <span>{{ item.count }} →</span>
-              </RouterLink>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p v-else class="attention-empty">当前没有{{ selectedLabel }}事项</p>
-    <details class="reminder-help">
-      <summary>提醒规则</summary>
-      <p>
-        答复保存后进入待回写。到期或设有复查条件的延期列入需要复查，条件是否满足由你核对。提醒随工作台读取更新，不发送后台通知。
-      </p>
-    </details>
+                  <span class="row-sub">{{ item.projectName }}</span>
+                </TableHead>
+                <TableCell>
+                  <ul v-if="item.questions.length" class="attention-questions">
+                    <li v-for="question in item.questions" :key="question.question.id">
+                      <RouterLink :to="location(item.spec.record.id, question.question.id)">
+                        {{ question.question.title }}
+                      </RouterLink>
+                      <Badge v-if="question.question.blocking" variant="outline" class="blocking-label">阻塞</Badge>
+                    </li>
+                  </ul>
+                  <p v-else class="muted">主规格已具备确认条件</p>
+                  <RouterLink
+                    v-if="item.count > item.questions.length && item.questions.length"
+                    :to="location(item.spec.record.id)"
+                    class="more-questions"
+                  >
+                    查看其余 {{ item.count - item.questions.length }} 项
+                  </RouterLink>
+                </TableCell>
+                <TableCell class="attention-action">
+                  <RouterLink :to="location(item.spec.record.id)">
+                    {{
+                      selected === 'ready'
+                        ? '检查并确认'
+                        : selected === 'writeback'
+                          ? '核对回写'
+                          : '处理事项'
+                    }}
+                    <span>{{ item.count }} →</span>
+                  </RouterLink>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </Card>
+        <Empty v-else class="attention-empty">
+          <EmptyDescription>当前没有{{ selectedLabel }}事项</EmptyDescription>
+        </Empty>
+      </TabsContent>
+    </Tabs>
+    <Collapsible class="reminder-help">
+      <CollapsibleTrigger>提醒规则</CollapsibleTrigger>
+      <CollapsibleContent>
+        <p>
+          答复保存后进入待回写。到期或设有复查条件的延期列入需要复查，条件是否满足由你核对。提醒随工作台读取更新，不发送后台通知。
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
   </section>
 </template>
 <style scoped>
@@ -188,7 +197,7 @@ function location(specId: string, questionId?: string) {
 }
 .attention-zero span,
 .attention-empty {
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
 .attention-zero a {
@@ -198,38 +207,29 @@ function location(specId: string, questionId?: string) {
 }
 .attention-filters {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
-.attention-filters button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 5px 10px;
-  border: 1px solid #e1e5ed;
-  border-radius: 7px;
-  color: #62666c;
-  background: #fff;
-  font-size: 12px;
+.attention-filters :deep([data-slot='tabs-trigger']) {
+  flex: 0 0 auto;
+  min-height: var(--yss-control-min-height);
+  padding-inline: 10px;
 }
-.attention-filters button[aria-pressed='true'] {
-  border-color: #c6d4f7;
-  background: #eef3ff;
-  color: #315dcf;
+.tab-count {
+  min-width: 20px;
+  font-variant-numeric: tabular-nums;
 }
-.attention-filters span {
-  font-size: 11px;
-  color: #858d99;
-}
-.attention-table table {
+.attention-table :deep(table) {
   min-width: 650px;
   border-collapse: separate;
   border-spacing: 0;
 }
-.attention-table tbody th {
+.attention-table :deep(tbody th) {
   position: sticky;
   inset-inline-start: 0;
   z-index: 1;
@@ -241,13 +241,13 @@ function location(specId: string, questionId?: string) {
   vertical-align: top;
   padding: 13px 16px;
 }
-.attention-table tbody th > a {
+.attention-table :deep(tbody th > a) {
   display: block;
   font-size: 12px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
-.attention-table td {
+.attention-table :deep(td) {
   vertical-align: top;
 }
 .attention-questions {
@@ -275,7 +275,7 @@ function location(specId: string, questionId?: string) {
 .more-questions {
   display: inline-block;
   margin-top: 8px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 .attention-action {
@@ -287,16 +287,13 @@ function location(specId: string, questionId?: string) {
   font-size: 11px;
 }
 .attention-empty {
-  padding: 14px 0;
+  border: 0;
+  padding: 18px 10px;
 }
 .reminder-help {
   margin-top: 10px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
-}
-.reminder-help summary {
-  cursor: pointer;
-  width: fit-content;
 }
 .reminder-help p {
   max-width: 760px;
@@ -304,12 +301,33 @@ function location(specId: string, questionId?: string) {
   line-height: 1.8;
 }
 @media (width<720px) {
-  .attention-filters button {
-    min-height: 40px;
+  .attention-filters {
+    flex-wrap: wrap;
   }
-  .attention-table tbody th {
-    min-width: 160px;
-    max-width: 210px;
+  .attention-table :deep(table) {
+    min-width: 0;
+    table-layout: fixed;
+  }
+  .attention-table :deep(th),
+  .attention-table :deep(td) {
+    white-space: normal;
+    padding-inline: 9px;
+    overflow-wrap: anywhere;
+  }
+  .attention-table :deep(thead th:first-child) {
+    width: 30%;
+  }
+  .attention-table :deep(thead th:last-child) {
+    width: 25%;
+  }
+  .attention-table :deep(tbody th) {
+    position: static;
+    width: auto;
+    min-width: 0;
+  }
+  .attention-questions li {
+    flex-wrap: wrap;
+    gap: 3px;
   }
   .attention-zero a {
     margin-left: 0;

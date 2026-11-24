@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
+import { Card } from '@/components/ui/card'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { computed, nextTick, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { Button } from '@/components/ui/button'
@@ -132,6 +138,10 @@ watch(
 watch([() => props.fragment, () => props.active], ([fragment]) => {
   if (source.value && !loading.value && fragment !== emittedFragment) void scrollFragment(fragment)
 })
+function retrySource(event: MouseEvent) {
+  (event.currentTarget as HTMLElement).closest<HTMLElement>('.preview')?.focus({ preventScroll: true })
+  retry.value++
+}
 function followLink(event: MouseEvent) {
   const link =
     event.target instanceof Element
@@ -152,7 +162,13 @@ function followLink(event: MouseEvent) {
 }
 </script>
 <template>
-  <section class="panel preview" :class="{ 'preview-embedded': embedded }">
+  <Card
+    class="panel preview block shadow-none"
+    :class="{ 'preview-embedded': embedded }"
+    role="region"
+    :aria-label="documentPath ? '关联文档' : '主规格正文'"
+    tabindex="-1"
+  >
     <div class="section-heading">
       <h2 v-if="!embedded">{{ documentPath ? '关联文档' : '主规格' }}</h2>
       <div class="segmented" role="group" aria-label="正文显示方式">
@@ -165,27 +181,33 @@ function followLink(event: MouseEvent) {
       </div>
     </div>
     <p v-if="!embedded" class="path-text">{{ currentPath }}</p>
-    <p v-if="loading" class="muted">正在读取来源…</p>
-    <div v-if="error" class="notice warning" role="alert">
+    <p v-if="loading && source" class="muted" role="status">正在更新来源…</p>
+    <Alert v-if="error" class="notice warning" role="alert">
       {{ error }}
       <p v-if="source">保留已读取内容：{{ dateLabel(source.readAt) }}</p>
-      <Button variant="outline" :disabled="loading" @click="retry++">重新读取</Button>
+      <Button variant="outline" :disabled="loading" @click="retrySource">重新读取</Button>
+    </Alert>
+    <div class="relative">
+      <!-- Only markdown-it output with raw HTML, images and unsafe links disabled. -->
+      <article
+        v-if="source && mode === 'preview'"
+        ref="article"
+        class="markdown"
+        @click="followLink"
+        v-html="html"
+      />
+      <pre v-else-if="source" class="source-text">{{ source.text }}</pre>
+      <LoadingSkeleton v-else-if="loading" variant="text" :rows="5" label="正在读取来源…" class="source-placeholder" />
+      <Empty v-else-if="!error"><EmptyDescription>暂无正文</EmptyDescription></Empty>
+      <LoadingIndicator :active="loading && !!source" placement="overlay" />
     </div>
-    <!-- Only markdown-it output with raw HTML, images and unsafe links disabled. -->
-    <article
-      v-if="source && mode === 'preview'"
-      ref="article"
-      class="markdown"
-      @click="followLink"
-      v-html="html"
-    />
-    <pre v-else-if="source" class="source-text">{{ source.text }}</pre>
-    <p v-else-if="!loading && !error" class="empty">暂无正文</p>
-    <details v-if="!embedded" class="preview-note">
-      <summary>阅读说明</summary>
-      <p>相对链接在工作台内打开，外部链接在新窗口打开。图片不会自动加载。</p>
-    </details>
-  </section>
+    <Collapsible v-if="!embedded" class="preview-note">
+      <CollapsibleTrigger>阅读说明</CollapsibleTrigger>
+      <CollapsibleContent>
+        <p>相对链接在工作台内打开，外部链接在新窗口打开。图片不会自动加载。</p>
+      </CollapsibleContent>
+    </Collapsible>
+  </Card>
 </template>
 <style scoped>
 .preview-embedded {
@@ -202,7 +224,14 @@ function followLink(event: MouseEvent) {
 .preview {
   min-width: 0;
 }
-.preview-note summary {
+.segmented [aria-pressed='false'] {
+  color: var(--brand-color-text-secondary);
+}
+.source-placeholder {
+  min-height: 200px;
+  padding-block: 20px;
+}
+.preview-note [data-slot='collapsible-trigger'] {
   width: fit-content;
   cursor: pointer;
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
 import { computed, shallowRef, watch, useId } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { Button } from '@/components/ui/button'
@@ -120,12 +122,14 @@ async function reconcile() {
         </Button>
       </div>
     </div>
-    <details v-if="progress?.lastDelivery" class="goal-strip">
-      <summary>最近已验收目标 · {{ dateLabel(progress.lastDelivery.recordedAt) }}</summary>
-      <p>{{ progress.lastDelivery.scope }}</p>
-      <code>{{ progress.lastDelivery.goalVersion }}</code>
-      <p class="muted">{{ progress.lastDelivery.source }}</p>
-    </details>
+    <Collapsible v-if="progress?.lastDelivery" class="goal-strip">
+      <CollapsibleTrigger>最近已验收目标 · {{ dateLabel(progress.lastDelivery.recordedAt) }}</CollapsibleTrigger>
+      <CollapsibleContent>
+        <p>{{ progress.lastDelivery.scope }}</p>
+        <code>{{ progress.lastDelivery.goalVersion }}</code>
+        <p class="muted">{{ progress.lastDelivery.source }}</p>
+      </CollapsibleContent>
+    </Collapsible>
     <div v-if="progress?.goal" class="goal-strip">
       <p>{{ progress.goal.scope }}</p>
       <span>
@@ -137,19 +141,21 @@ async function reconcile() {
         · {{ progress.goal.target.label }}
       </span>
       <code>{{ progress.goal.target.reference }}</code>
-      <details>
-        <summary>目标版本与验收引用</summary>
-        <code>{{ progress.goalVersion }}</code>
-        <code>规格摘要 {{ progress.goal.specDigest }}</code>
-        <ul>
-          <li
-            v-for="reference in progress.goal.acceptanceRefs"
-            :key="reference"
-          >
-            {{ reference }}
-          </li>
-        </ul>
-      </details>
+      <Collapsible>
+        <CollapsibleTrigger>目标版本与验收引用</CollapsibleTrigger>
+        <CollapsibleContent>
+          <code>{{ progress.goalVersion }}</code>
+          <code>规格摘要 {{ progress.goal.specDigest }}</code>
+          <ul>
+            <li
+              v-for="reference in progress.goal.acceptanceRefs"
+              :key="reference"
+            >
+              {{ reference }}
+            </li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
     <p v-else class="notice warning">
       本次交付目标待核实。录入范围、交付位置、适用阶段与验收引用后，可按同一目标跟进。
@@ -160,19 +166,20 @@ async function reconcile() {
       </li>
     </ul>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <p v-if="error" role="alert" class="notice error">
+    <Alert v-if="error" role="alert" class="notice error">
       {{ error }}
-    </p>
+    </Alert>
     <div
       v-if="progress"
       class="stage-grid"
       role="group"
       aria-label="选择生命周期阶段"
     >
-      <button
+      <Button
         v-for="stage in progress.stages"
         :key="stage.stage"
         type="button"
+        variant="outline"
         class="stage-button"
         :aria-pressed="selected?.stage === stage.stage"
         :aria-controls="id + '-detail'"
@@ -190,7 +197,7 @@ async function reconcile() {
           }}
         </span>
         <span class="stage-state">{{ stageState(stage) }}</span>
-      </button>
+      </Button>
     </div>
     <section
       v-if="selected && progress"
@@ -341,17 +348,18 @@ async function reconcile() {
   overflow-wrap: anywhere;
 }
 .goal-strip > span,
-.goal-strip > code {
+.goal-strip > code,
+.goal-strip [data-slot='collapsible-content'] > code {
   display: block;
   margin-top: 5px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
 }
-.goal-strip details {
+.goal-strip [data-slot='collapsible'] {
   margin-top: 8px;
 }
-.goal-strip summary {
+.goal-strip [data-slot='collapsible-trigger'] {
   cursor: pointer;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
 }
 .goal-strip code {
   font-size: 11px;
@@ -366,6 +374,8 @@ async function reconcile() {
 .stage-button {
   min-width: 0;
   min-height: 66px;
+  height: auto;
+  white-space: normal;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -382,7 +392,7 @@ async function reconcile() {
   background: #f4f7ff;
 }
 .stage-state {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 .stage-button[data-progress='done'][data-validity='current'] .stage-state {
@@ -411,7 +421,7 @@ h3 {
   font-weight: 600;
 }
 .detail-state {
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-weight: 400;
   font-size: 11px;
   margin-left: 10px;
@@ -434,7 +444,7 @@ h3 {
 }
 dt {
   font-size: 12px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
 }
 dd {
   margin: 0;

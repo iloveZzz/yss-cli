@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, nextTick, onBeforeUnmount, useId, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import ModalDialog from '@/components/ModalDialog.vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
@@ -19,11 +24,13 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; saved: [id?: string | null]; dirty: [value: boolean] }>()
 const { saving } = useWorkbench()
 const id = useId()
-const answerField = useTemplateRef<HTMLTextAreaElement>('answerField')
+const answerField = useTemplateRef<InstanceType<typeof Textarea>>('answerField')
 const {
   form, basis, question, busy, dirty, error, notice, review, collision, pending, drafts,
   recoverable, initialize, acceptReview, merge, save
 } = useQuestionResponseEditor(props, (responseId) => emit('saved', responseId), () => emit('close'))
+const reading = computed(() => busy.value && !basis.value)
+const submitting = computed(() => busy.value && !!basis.value && !review.value)
 const history = computed(() => question.value ? questionHistory(question.value) : [])
 const current = computed(() => question.value && currentQuestionResponse(question.value))
 const oldAnswer = computed(() => !current.value && history.value.find((entry) => entry.response.kind === 'answer')?.response)
@@ -57,7 +64,7 @@ async function submitForm() {
 }
 </script>
 <template>
-  <ModalDialog v-model="open" title="答复与延期" :busy="busy || saving" :before-close="canClose">
+  <ModalDialog v-model="open" title="答复与延期" :busy="(busy && !reading) || saving" :before-close="canClose">
     <form v-if="question" class="form-stack" aria-label="答复与延期" novalidate @submit.prevent="submitForm">
       <header class="question-heading">
         <p class="muted">{{ question.question.id }} · 当前问题摘要 {{ question.digest || '未知' }}</p>
@@ -66,7 +73,7 @@ async function submitForm() {
         <p v-if="question.question.impact" class="muted preserve-lines">影响 · {{ question.question.impact }}</p>
       </header>
       <QuestionHistory :entries="history" />
-      <p v-if="!basis && busy" role="status" class="muted">正在核对当前问题…</p>
+      <LoadingSkeleton v-if="reading" variant="form" :rows="3" label="正在核对当前问题…" />
       <template v-if="basis">
         <DraftNotice
           :status="drafts.status.value"
@@ -86,24 +93,28 @@ async function submitForm() {
           @resolve="merge"
           @close="collision = undefined"
         />
-        <fieldset class="response-mode">
-          <legend class="sr-only">处理方式</legend>
-          <label>
-            <input v-model="form.responseKind" class="sr-only" name="responseKind" type="radio" value="answer" />
+        <RadioGroup
+          :model-value="form.responseKind"
+          aria-label="处理方式"
+          class="response-mode"
+          @update:model-value="form.responseKind = $event === 'defer' ? 'defer' : 'answer'"
+        >
+          <label :for="`${id}-answer-mode`" :class="{ selected: form.responseKind === 'answer' }">
+            <RadioGroupItem :id="`${id}-answer-mode`" value="answer" />
             <span>{{ question.question.kind === 'research' ? '补充依据' : '答复问题' }}</span>
           </label>
-          <label>
-            <input v-model="form.responseKind" class="sr-only" name="responseKind" type="radio" value="defer" />
+          <label :for="`${id}-defer-mode`" :class="{ selected: form.responseKind === 'defer' }">
+            <RadioGroupItem :id="`${id}-defer-mode`" value="defer" />
             <span>延期处理</span>
           </label>
-        </fieldset>
+        </RadioGroup>
         <template v-if="form.responseKind === 'answer'">
           <div class="answer-field">
             <div class="answer-label">
               <label :for="`${id}-answer`">{{ question.question.kind === 'research' ? '补充依据与来源' : '本次答复' }}</label>
               <Button v-if="oldAnswer && !review" type="button" variant="outline" :title="`沿用 ${oldAnswer.id}`" @click="reuseAnswer">沿用原答复</Button>
             </div>
-            <textarea :id="`${id}-answer`" ref="answerField" v-model="form.answer" name="answer" rows="3"
+            <Textarea :id="`${id}-answer`" ref="answerField" v-model="form.answer" name="answer" rows="3"
               placeholder="填写适用于当前问题的答复" required :aria-invalid="!!error && !form.answer.trim()"
               :aria-describedby="`${id}-hint`" />
           </div>
@@ -113,15 +124,15 @@ async function submitForm() {
         <template v-else>
           <label :for="`${id}-reason`">
             延期原因
-            <textarea :id="`${id}-reason`" v-model="form.reason" name="reason" rows="2" required />
+            <Textarea :id="`${id}-reason`" v-model="form.reason" name="reason" rows="2" required />
           </label>
           <label :for="`${id}-impact`">
             影响范围
-            <textarea :id="`${id}-impact`" v-model="form.impact" name="impact" rows="2" required />
+            <Textarea :id="`${id}-impact`" v-model="form.impact" name="impact" rows="2" required />
           </label>
           <label :for="`${id}-excluded`">
             从本次确认中排除的范围
-            <textarea :id="`${id}-excluded`" v-model="form.excludedScope" name="excludedScope" rows="2" required />
+            <Textarea :id="`${id}-excluded`" v-model="form.excludedScope" name="excludedScope" rows="2" required />
           </label>
           <div class="form-grid">
             <label :for="`${id}-date`">复查日期
@@ -138,16 +149,20 @@ async function submitForm() {
         </template>
         <p :id="`${id}-hint`" class="muted">保存后进入待回写，落实到相关规格与产物后更新结果。</p>
       </template>
-      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
       <p v-if="notice" role="status">{{ notice }}</p>
       <div v-if="review">
-        <Button type="button" variant="outline" :disabled="busy" @click="acceptReview">核对新版并保留输入</Button>
+        <Button type="button" variant="outline" :disabled="busy" @click="acceptReview">
+          <LoadingIndicator :active="busy" />
+          {{ busy ? '正在核对…' : '核对新版并保留输入' }}
+        </Button>
       </div>
       <div class="form-actions">
-        <Button type="button" variant="outline" :disabled="busy || saving" @click="cancel">取消</Button>
+        <Button type="button" variant="outline" :disabled="(busy && !reading) || saving" @click="cancel">取消</Button>
         <Button v-if="!basis && !busy" type="button" @click="initialize">重新读取问题</Button>
         <Button v-else type="submit" :disabled="busy || saving || !basis || !!review || !!collision">
-          {{ busy || saving ? '处理中…' : pending ? (pending.requestId ? '核对并重试原请求' : '重读保存结果') : '保存答复' }}
+          <LoadingIndicator :active="submitting" />
+          {{ reading ? '正在读取…' : submitting ? '处理中…' : pending ? (pending.requestId ? '核对并重试原请求' : '重读保存结果') : '保存答复' }}
         </Button>
       </div>
     </form>
@@ -162,27 +177,29 @@ async function submitForm() {
 .answer-label label { font-weight: 550; }
 .recommendation { align-self: flex-start; }
 .response-mode {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   align-self: flex-start;
-  gap: 2px;
-  margin: 0;
+  gap: 4px;
   padding: 3px;
-  border: 0;
   border-radius: 8px;
-  background: #f0f2f5;
+  background: var(--yss-colors-surface-muted, #f0f2f5);
 }
-.response-mode label { position: relative; }
-.response-mode span {
-  display: inline-flex;
+.response-mode label {
+  flex-direction: row;
   align-items: center;
   min-height: var(--yss-control-min-height);
-  padding: 3px 12px;
+  padding: 3px 10px;
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
 }
-.response-mode input:checked + span { color: #171a20; background: #fff; box-shadow: 0 1px 3px #171a201c; }
-.response-mode input:focus-visible + span { outline: 2px solid var(--brand-color-primary); outline-offset: 2px; }
+.response-mode label.selected {
+  color: var(--brand-color-text);
+  background: #fff;
+}
+@media (width < 720px) {
+  .response-mode label { min-height: 44px; }
+}
 @media (width < 560px) { .form-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>

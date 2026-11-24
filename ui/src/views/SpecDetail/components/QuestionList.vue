@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, nextTick, shallowRef, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { currentQuestionResponse, questionHistory, questionState, questionStateLabel, responseUse, reviewDateLabel } from '@/services/workbench-content'
 import type { QuestionView } from '@/services/workbench'
 import QuestionHistory from './QuestionHistory.vue'
@@ -63,33 +65,41 @@ const rows = computed(() => props.items.map((item) => {
     : history.length
       ? (state === 'overdue' ? '原延期已到期，需重新处理。' : '原答复仅供复查。')
       : item.question.resolution || item.question.recommendation || '尚未答复'
-  return { item, state, response, history, summary }
+  const actionLabel = response
+    ? '修改答复 / 延期'
+    : history.length
+      ? '复查'
+      : item.question.kind === 'research'
+        ? '补充 / 延期'
+        : '答复 / 延期'
+  return { item, state, response, history, summary, actionLabel }
 }))
 </script>
 <template>
   <div class="question-table-wrap panel" tabindex="0" role="region" :aria-labelledby="id">
-    <table class="question-table" role="table">
-      <caption :id="id" class="sr-only">问题、答复与延期事项</caption>
-      <thead role="rowgroup">
-        <tr role="row">
-          <th scope="col">问题</th>
-          <th scope="col">状态</th>
-          <th scope="col">涉及范围</th>
-          <th scope="col">答复 / 建议摘要</th>
-          <th scope="col">操作</th>
-        </tr>
-      </thead>
-      <tbody role="rowgroup">
-        <template v-for="{ item, state, response, history, summary } in rows" :key="item.question.id">
-          <tr
+    <Table class="question-table" role="table">
+      <TableCaption :id="id" class="sr-only">问题、答复与延期事项</TableCaption>
+      <TableHeader role="rowgroup">
+        <TableRow role="row">
+          <TableHead scope="col">问题</TableHead>
+          <TableHead scope="col">状态</TableHead>
+          <TableHead scope="col">涉及范围</TableHead>
+          <TableHead scope="col">答复 / 建议摘要</TableHead>
+          <TableHead scope="col">操作</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody role="rowgroup">
+        <template v-for="{ item, state, response, history, summary, actionLabel } in rows" :key="item.question.id">
+          <TableRow
             :id="`question-${item.question.id}`"
             role="row"
             tabindex="-1"
             :class="['question-row', { 'question-selected': focused === item.question.id }]"
           >
-            <th scope="row" role="rowheader" class="question-title">
-              <button
+            <TableHead scope="row" role="rowheader" class="question-title">
+              <Button
                 type="button"
+                variant="ghost"
                 :aria-expanded="expanded.includes(item.question.id)"
                 :aria-controls="`${id}-${item.question.id}`"
                 @click="toggle(item.question.id)"
@@ -102,41 +112,33 @@ const rows = computed(() => props.items.map((item) => {
                     {{ expanded.includes(item.question.id) ? '−' : '+' }}
                   </span>
                 </span>
-              </button>
-            </th>
-            <td role="cell" data-label="状态">
-              <span class="question-state" :data-state="state">
+              </Button>
+            </TableHead>
+            <TableCell role="cell" data-label="状态">
+              <Badge variant="secondary" class="question-state" :data-state="state">
                 {{ questionStateLabel(item) }}
-              </span>
+              </Badge>
               <span v-if="item.question.blocking" class="blocking-label">影响本次确认</span>
-            </td>
-            <td role="cell" data-label="涉及范围" class="question-scope">
+            </TableCell>
+            <TableCell role="cell" data-label="涉及范围" class="question-scope">
               <p :title="item.question.affectedScope">
                 {{ item.question.affectedScope || '未说明' }}
               </p>
-            </td>
-            <td role="cell" data-label="答复摘要" class="question-response">
+            </TableCell>
+            <TableCell role="cell" data-label="答复摘要" class="question-response">
               <span v-if="response" class="summary-label">{{ responseUse(item, response) }}</span>
               <p :title="summary">{{ summary }}</p>
-            </td>
-            <td role="cell" data-label="操作" class="question-actions">
+            </TableCell>
+            <TableCell role="cell" data-label="操作" class="question-actions">
               <Button
                 v-if="state !== 'resolved' || response"
                 type="button"
                 variant="outline"
                 :disabled="saving"
-                :aria-label="`${!response && history.length ? '复查' : '答复或延期'}：${item.question.title}`"
+                :aria-label="`${actionLabel}：${item.question.title}`"
                 @click="emit('answer', item, $event.currentTarget as HTMLButtonElement)"
               >
-                {{
-                  response
-                    ? '修改答复 / 延期'
-                    : history.length
-                      ? '复查'
-                    : item.question.kind === 'research'
-                      ? '补充 / 延期'
-                      : '答复 / 延期'
-                }}
+                {{ actionLabel }}
               </Button>
               <Button
                 v-if="response"
@@ -148,15 +150,15 @@ const rows = computed(() => props.items.map((item) => {
               >
                 复制有效答复
               </Button>
-            </td>
-          </tr>
-          <tr
+            </TableCell>
+          </TableRow>
+          <TableRow
             v-if="expanded.includes(item.question.id)"
             :id="`${id}-${item.question.id}`"
             role="row"
             class="question-expanded"
           >
-            <td role="cell" colspan="5">
+            <TableCell role="cell" colspan="5">
               <div class="question-details-grid">
                 <section>
                   <h3>问题背景</h3>
@@ -216,11 +218,11 @@ const rows = computed(() => props.items.map((item) => {
                 {{ item.question.resolution }}
               </p>
               <p class="path-text">{{ sourcePath }} · {{ item.question.id }}</p>
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         </template>
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   </div>
 </template>
 <style scoped>
@@ -243,7 +245,7 @@ const rows = computed(() => props.items.map((item) => {
   border-bottom: 1px solid #edf0f4;
 }
 .question-table thead th {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   background: #fafbfc;
   font-size: 11px;
   font-weight: 500;
@@ -269,6 +271,8 @@ const rows = computed(() => props.items.map((item) => {
   align-items: flex-start;
   gap: 4px;
   width: 100%;
+  height: auto;
+  white-space: normal;
   padding: 0;
   text-align: left;
   border: 0;
@@ -281,7 +285,7 @@ const rows = computed(() => props.items.map((item) => {
 }
 .question-id,
 .expand-label {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 10px;
 }
 .expand-label {
@@ -334,7 +338,7 @@ const rows = computed(() => props.items.map((item) => {
 .summary-label {
   display: block;
   margin-bottom: 3px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 10px;
 }
 .question-actions {
@@ -372,7 +376,7 @@ const rows = computed(() => props.items.map((item) => {
   margin: 7px 0;
 }
 .question-expanded dt {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
 }
 .question-expanded dd {
   margin: 0;
@@ -423,7 +427,7 @@ const rows = computed(() => props.items.map((item) => {
   .question-row td::before {
     content: attr(data-label);
     display: block;
-    color: #858d99;
+    color: var(--brand-color-text-secondary);
     font-size: 10px;
     margin-bottom: 5px;
   }

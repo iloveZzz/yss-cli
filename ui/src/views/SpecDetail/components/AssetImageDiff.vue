@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { ApiError, errorMessage } from '@/services/workbench'
 import { currentSpecFile, historicalFile, type ArtifactChange, type ComparisonBasis } from '@/services/workbench-platform'
 const props = defineProps<{ specId: string; confirmationId: string; file: ArtifactChange; basis: ComparisonBasis }>()
@@ -127,7 +128,7 @@ onBeforeUnmount(reset)
           <span class="muted">{{ side.size }} 字节</span>
         </figcaption>
         <div class="asset-image-frame">
-          <p v-if="side.state.loading" role="status" class="muted">正在读取图片…</p>
+          <LoadingSkeleton v-if="side.state.loading" variant="cards" :rows="1" label="正在读取图片…" class="w-full p-3" />
           <p v-else-if="side.state.error" role="alert" class="warning-text">
             {{ side.state.error }}
           </p>

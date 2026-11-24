@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import JobDisclosure from './JobDisclosure.vue'
 import {
   getAgentDiff,
   acceptAgentFiles,
@@ -14,13 +24,17 @@ import AgentRebindPanel from './AgentRebindPanel.vue'
 const props = defineProps<{ runId: string; running: boolean; visible: boolean }>()
 const emit = defineEmits<{ accepted: [] }>()
 const { snapshot } = useWorkbench()
+const comparisonId = useId()
 const diff = shallowRef<AgentDiff>()
 const selected = shallowRef<string[]>([])
 const expanded = shallowRef('')
 const acknowledged = shallowRef<string[]>([])
-const loading = shallowRef(false)
+const reading = shallowRef(false)
+const accepting = shallowRef(false)
+const readFailed = shallowRef(false)
 const bindingBusy = shallowRef(false)
-const busy = computed(() => loading.value || bindingBusy.value)
+const busy = computed(() => reading.value || accepting.value || bindingBusy.value)
+const canReview = computed(() => !!diff.value?.reviewToken && !readFailed.value)
 const error = shallowRef('')
 const result = shallowRef<unknown>()
 const key = (file: AgentFile) => `${file.projectId}:${file.path}`
@@ -38,24 +52,49 @@ function projectName(id: string) {
 function selectSafeFiles() {
   selected.value = files.value.filter((file) => !file.conflict).map(key)
 }
+function selectFile(file: AgentFile, checked: boolean) {
+  const id = key(file)
+  selected.value = checked ? [...selected.value, id] : selected.value.filter((item) => item !== id)
+}
+function acknowledgeFile(file: AgentFile, checked: boolean) {
+  const id = key(file)
+  acknowledged.value = checked
+    ? [...acknowledged.value, id]
+    : acknowledged.value.filter((item) => item !== id)
+  selectFile(file, false)
+}
 let generation = 0
-async function refresh() {
-  const own = ++generation
-  loading.value = true
-  error.value = ''
+let acceptGeneration = 0
+function clearReview() {
+  diff.value = undefined
   selected.value = []
   acknowledged.value = []
   expanded.value = ''
-  diff.value = undefined
+  readFailed.value = false
+}
+async function refresh(resetSelection = false) {
+  if (reading.value) return
+  const own = ++generation
+  reading.value = true
+  error.value = ''
   try {
     const value = await getAgentDiff(props.runId)
     if (own !== generation) return
     if (!value.reviewToken) throw new Error('服务端未提供审阅版本，请刷新工作台后重新读取差异。')
+    if (resetSelection || diff.value?.reviewToken !== value.reviewToken) {
+      selected.value = []
+      acknowledged.value = []
+    }
+    if (!value.files.some((file) => key(file) === expanded.value)) expanded.value = ''
     diff.value = value
+    readFailed.value = false
   } catch (cause) {
-    if (own === generation) error.value = errorMessage(cause)
+    if (own === generation) {
+      error.value = errorMessage(cause)
+      readFailed.value = true
+    }
   } finally {
-    if (own === generation) loading.value = false
+    if (own === generation) reading.value = false
   }
 }
 watch(
@@ -63,11 +102,11 @@ watch(
   () => {
     // A running view and a finished snapshot use different review baselines.
     generation++
-    diff.value = undefined
-    selected.value = []
-    acknowledged.value = []
-    expanded.value = ''
-    loading.value = false
+    acceptGeneration++
+    clearReview()
+    error.value = ''
+    reading.value = false
+    accepting.value = false
     if (props.visible) void refresh()
   },
   { immediate: true }
@@ -75,37 +114,42 @@ watch(
 watch(
   () => props.visible,
   (visible) => {
-    if (visible && !diff.value && !loading.value) void refresh()
+    if (visible && !diff.value && !reading.value) void refresh()
   }
 )
 onBeforeUnmount(() => {
   generation++
+  acceptGeneration++
 })
 function bindingUpdated() {
   result.value = undefined
+  clearReview()
   void refresh()
 }
 async function accept() {
   const reviewed = diff.value
-  if (busy.value || props.running || !reviewed?.reviewToken || !chosen.value.length) return
+  if (busy.value || props.running || !canReview.value || !reviewed || !chosen.value.length) return
   const reviewedFiles = chosen.value
-  const runId = props.runId
-  loading.value = true
+  const own = ++acceptGeneration
+  accepting.value = true
   error.value = ''
   try {
-    const value = await acceptAgentFiles(runId, reviewed.reviewToken, reviewedFiles)
-    if (runId !== props.runId) return
+    const value = await acceptAgentFiles(props.runId, reviewed.reviewToken, reviewedFiles)
+    if (own !== acceptGeneration) return
     result.value = value
     emit('accepted')
-    await refresh()
+    await refresh(true)
   } catch (cause) {
-    if (runId !== props.runId) return
+    if (own !== acceptGeneration) return
     if (cause instanceof ApiError && cause.status === 409) {
-      await refresh()
-      error.value = `审阅版本已变化，已重新读取差异。请核对目标分支与文件后重新选择。${error.value ? ` ${error.value}` : ''}`
+      await refresh(true)
+      if (own !== acceptGeneration) return
+      error.value = readFailed.value
+        ? `审阅版本已变化，重新读取差异失败。${error.value}`
+        : '审阅版本已变化，已重新读取差异。请核对目标分支与文件后重新选择。'
     } else error.value = errorMessage(cause)
   } finally {
-    if (runId === props.runId) loading.value = false
+    if (own === acceptGeneration) accepting.value = false
   }
 }
 </script>
@@ -115,36 +159,45 @@ async function accept() {
       <div>
         <h2>变更文件</h2>
       </div>
-      <Button type="button" variant="outline" :disabled="busy" @click="refresh">
+      <Button type="button" variant="outline" :aria-disabled="busy" @click="!busy && refresh()">
         重新读取差异
       </Button>
     </div>
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+    <Alert v-if="error" variant="destructive" class="notice error">
+      <AlertDescription class="text-current">
+        <p>{{ error }}</p>
+        <p v-if="readFailed && diff">当前显示上次读取的差异。请重新读取后再接收文件。</p>
+      </AlertDescription>
+    </Alert>
     <AgentRebindPanel
       :key="runId"
       :run-id="runId"
-      :busy="loading || running"
+      :busy="reading || accepting || running"
       @busy="bindingBusy = $event"
       @rebound="bindingUpdated"
     />
-    <p v-if="loading" role="status" class="muted">正在读取或接收文件…</p>
-    <p v-if="running" class="muted">正在展示隔离工作区的变更。运行结束后可接收文件。</p>
-    <section v-if="targets.length" class="accept-targets" aria-label="接收目标工程">
-      <h3>接收目标</h3>
-      <dl>
-        <div v-for="[root, baseline] in targets" :key="root">
-          <dt>{{ root }}</dt>
-          <dd>
-            {{ baseline.branch ? baseline.branch.replace(/^refs\/heads\//, '') : '分离 HEAD' }}
-            <span class="path-text">· HEAD {{ baseline.head.slice(0, 12) }}</span>
-            <details>
-              <summary>完整 Git 基线</summary>
-              <pre>{{ readableValue(baseline) }}</pre>
-            </details>
-          </dd>
-        </div>
-      </dl>
-    </section>
+    <LoadingSkeleton v-if="reading && !diff && !accepting" variant="table" :rows="4" label="正在读取变更文件" />
+    <Alert v-if="running" role="status" class="notice">
+      <AlertDescription class="text-current">正在展示隔离工作区的变更。运行结束后可接收文件。</AlertDescription>
+    </Alert>
+    <Card v-if="targets.length" class="accept-targets gap-2 py-4 shadow-none">
+      <CardHeader class="px-4"><CardTitle>接收目标</CardTitle></CardHeader>
+      <CardContent class="px-4">
+        <dl>
+          <div v-for="[root, baseline] in targets" :key="root">
+            <dt>{{ root }}</dt>
+            <dd>
+              {{ baseline.branch ? baseline.branch.replace(/^refs\/heads\//, '') : '分离 HEAD' }}
+              <span class="path-text">· HEAD {{ baseline.head.slice(0, 12) }}</span>
+              <JobDisclosure>
+                <template #label>完整 Git 基线</template>
+                <pre>{{ readableValue(baseline) }}</pre>
+              </JobDisclosure>
+            </dd>
+          </div>
+        </dl>
+      </CardContent>
+    </Card>
     <div v-if="files.length" class="diff-toolbar">
       <span
         >{{ files.length }} 个文件<span v-if="conflicts">
@@ -152,7 +205,7 @@ async function accept() {
         ></span
       >
       <div class="inline-actions">
-        <Button type="button" variant="ghost" :disabled="busy || running" @click="selectSafeFiles"
+        <Button type="button" variant="ghost" :disabled="busy || running || !canReview" @click="selectSafeFiles"
           >选择无冲突文件</Button
         >
         <Button
@@ -164,116 +217,126 @@ async function accept() {
         >
       </div>
     </div>
-    <div
-      v-if="files.length"
-      class="file-scroll"
-      tabindex="0"
-      role="region"
-      aria-label="变更文件列表"
-    >
-      <table class="files-table">
-        <caption class="sr-only">
-          可审阅的文件变更与冲突状态
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col" class="select-col">选择</th>
-            <th scope="col">文件</th>
-            <th scope="col">工程</th>
-            <th scope="col">变更</th>
-            <th scope="col">核对状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="file in files" :key="key(file)">
-            <tr>
-              <td class="select-col">
-                <input
-                  v-model="selected"
-                  type="checkbox"
-                  :value="key(file)"
-                  :aria-label="`选择 ${file.path}`"
-                  :disabled="
-                    busy ||
-                    running ||
-                    !diff?.reviewToken ||
-                    (file.conflict && !acknowledged.includes(key(file)))
-                  "
-                />
-              </td>
-              <th scope="row">
-                <button
-                  type="button"
-                  class="file-trigger"
-                  :aria-expanded="expanded === key(file)"
-                  @click="expanded = expanded === key(file) ? '' : key(file)"
-                >
-                  <span aria-hidden="true">{{ expanded === key(file) ? '▾' : '▸' }}</span>
-                  <span>{{ file.path }}</span>
-                </button>
-              </th>
-              <td>{{ projectName(file.projectId) }}</td>
-              <td>{{ file.result ? (file.initial ? '修改' : '新增') : '删除' }}</td>
-              <td :class="{ 'warning-text': file.conflict && !acknowledged.includes(key(file)) }">
-                {{
-                  file.conflict
-                    ? acknowledged.includes(key(file))
-                      ? '冲突已核对'
-                      : '有冲突'
-                    : '无冲突'
-                }}
-              </td>
-            </tr>
-            <tr v-if="expanded === key(file)">
-              <td colspan="5" class="comparison">
-                <p v-if="file.conflict" class="notice warning">
-                  原工程与运行基线已有差异，请核对原工程当前内容和运行结果。
-                </p>
-                <p v-if="file.binary" class="muted">二进制文件 · SHA-256</p>
-                <div class="three-way">
-                  <section>
-                    <h3>运行起点</h3>
-                    <pre>{{
-                      (file.binary ? file.initial?.sha256 : file.initialText) ?? '文件不存在'
-                    }}</pre>
-                  </section>
-                  <section>
-                    <h3>原工程当前内容</h3>
-                    <pre>{{
-                      (file.binary ? file.current?.sha256 : file.currentText) ?? '文件不存在'
-                    }}</pre>
-                  </section>
-                  <section>
-                    <h3>运行结果</h3>
-                    <pre>{{
-                      (file.binary ? file.result?.sha256 : file.resultText) ?? '文件已删除'
-                    }}</pre>
-                  </section>
-                </div>
-                <label v-if="file.conflict" class="check-label">
-                  <input
-                    v-model="acknowledged"
-                    type="checkbox"
-                    :value="key(file)"
-                    :disabled="busy || running"
-                    @change="selected = selected.filter((item) => item !== key(file))"
+    <div v-if="diff" class="diff-results">
+      <div
+        v-if="files.length"
+        class="file-scroll"
+        tabindex="0"
+        role="region"
+        aria-label="变更文件列表"
+        :aria-busy="reading || accepting"
+      >
+        <Table class="files-table">
+          <TableCaption class="sr-only">
+            可审阅的文件变更与冲突状态
+          </TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col" class="select-col">选择</TableHead>
+              <TableHead scope="col">文件</TableHead>
+              <TableHead scope="col">工程</TableHead>
+              <TableHead scope="col">变更</TableHead>
+              <TableHead scope="col">核对状态</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <template v-for="(file, index) in files" :key="key(file)">
+              <TableRow>
+                <TableCell class="select-col">
+                  <Checkbox
+                    :model-value="selected.includes(key(file))"
+                    @update:model-value="selectFile(file, $event === true)"
+                    :aria-label="`选择 ${file.path}`"
+                    :disabled="
+                      busy ||
+                      running ||
+                      !canReview ||
+                      (file.conflict && !acknowledged.includes(key(file)))
+                    "
                   />
-                  我已核对冲突，可用运行结果更新此文件
-                </label>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+                </TableCell>
+                <TableHead scope="row">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="file-trigger"
+                    :aria-expanded="expanded === key(file)"
+                    :aria-controls="`${comparisonId}-${index}`"
+                    @click="expanded = expanded === key(file) ? '' : key(file)"
+                  >
+                    <span aria-hidden="true">{{ expanded === key(file) ? '▾' : '▸' }}</span>
+                    <span>{{ file.path }}</span>
+                  </Button>
+                </TableHead>
+                <TableCell>{{ projectName(file.projectId) }}</TableCell>
+                <TableCell>{{ file.result ? (file.initial ? '修改' : '新增') : '删除' }}</TableCell>
+                <TableCell>
+                  <Badge
+                    :variant="file.conflict && !acknowledged.includes(key(file)) ? 'destructive' : 'secondary'"
+                  >
+                    {{ !file.conflict ? '无冲突' : acknowledged.includes(key(file)) ? '冲突已核对' : '有冲突' }}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+              <TableRow v-show="expanded === key(file)" :id="`${comparisonId}-${index}`">
+                <TableCell v-if="expanded === key(file)" colspan="5" class="comparison">
+                  <div class="comparison-content">
+                    <Alert v-if="file.conflict" role="note" class="notice warning">
+                      <AlertDescription class="text-current">原工程与运行基线已有差异，请核对原工程当前内容和运行结果。</AlertDescription>
+                    </Alert>
+                    <p v-if="file.binary" class="muted">二进制文件 · SHA-256</p>
+                    <div class="three-way">
+                      <section>
+                        <h3>运行起点</h3>
+                        <pre>{{
+                          (file.binary ? file.initial?.sha256 : file.initialText) ?? '文件不存在'
+                        }}</pre>
+                      </section>
+                      <section>
+                        <h3>原工程当前内容</h3>
+                        <pre>{{
+                          (file.binary ? file.current?.sha256 : file.currentText) ?? '文件不存在'
+                        }}</pre>
+                      </section>
+                      <section>
+                        <h3>运行结果</h3>
+                        <pre>{{
+                          (file.binary ? file.result?.sha256 : file.resultText) ?? '文件已删除'
+                        }}</pre>
+                      </section>
+                    </div>
+                    <Field v-if="file.conflict" orientation="horizontal" class="conflict-check">
+                      <Checkbox
+                        :id="`${comparisonId}-ack-${index}`"
+                        :model-value="acknowledged.includes(key(file))"
+                        :disabled="busy || running || !canReview"
+                        @update:model-value="acknowledgeFile(file, $event === true)"
+                      />
+                      <FieldLabel :for="`${comparisonId}-ack-${index}`">
+                        我已核对冲突，可用运行结果更新此文件
+                      </FieldLabel>
+                    </Field>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </template>
+          </TableBody>
+        </Table>
+      </div>
+      <Empty v-if="!files.length" class="p-5">
+        <EmptyDescription>当前没有可接收的文件差异</EmptyDescription>
+      </Empty>
+      <LoadingIndicator :active="reading && !accepting" placement="overlay" label="正在重新读取差异" />
     </div>
-    <p v-if="diff && !files.length" class="empty">当前没有可接收的文件差异</p>
     <div class="form-actions">
       <Button
         type="button"
-        :disabled="busy || running || !diff?.reviewToken || !chosen.length"
+        :disabled="busy || running || !canReview || !chosen.length"
         @click="accept"
       >
-        接收选中文件（{{ chosen.length }}）
+        <LoadingIndicator :active="accepting" />
+        {{ accepting ? '正在接收…' : `接收选中文件（${chosen.length}）` }}
       </Button>
     </div>
     <section v-if="result" class="acceptance-result" aria-label="最近接收结果">
@@ -302,24 +365,27 @@ async function accept() {
           · {{ objectValue(project.error).message }}</span
         >
       </p>
-      <p v-if="objectValue(result).refreshError" class="notice warning">
-        文件接收已记录，Spec 刷新遇到问题。{{
-          objectValue(objectValue(result).refreshError).message
-        }}
-      </p>
-      <details class="result-details">
-        <summary>完整接收回执</summary>
+      <Alert v-if="objectValue(result).refreshError" class="notice warning">
+        <AlertDescription class="text-current">
+          文件接收已记录，Spec 刷新遇到问题。{{
+            objectValue(objectValue(result).refreshError).message
+          }}
+        </AlertDescription>
+      </Alert>
+      <JobDisclosure class="result-details">
+        <template #label>完整接收回执</template>
         <pre>{{ readableValue(result) }}</pre>
-      </details>
+      </JobDisclosure>
     </section>
   </section>
 </template>
 <style scoped>
+.section-heading button[aria-disabled='true'] {
+  opacity: 0.65;
+}
 .accept-targets {
   margin: 18px 0;
-  padding: 16px;
-  background: #f7f8fa;
-  border-radius: 8px;
+  background: var(--brand-color-bg-layout);
 }
 .accept-targets dl {
   margin: 8px 0 0;
@@ -345,9 +411,14 @@ async function accept() {
   padding-block: 10px;
   border-bottom: 1px solid var(--yss-colors-border);
 }
+.diff-results {
+  position: relative;
+}
 .file-scroll {
   overflow: auto;
   max-height: 65vh;
+  overscroll-behavior: contain;
+  container-type: inline-size;
 }
 .files-table {
   width: 100%;
@@ -380,9 +451,13 @@ async function accept() {
 .file-trigger {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   text-align: left;
+  white-space: normal;
   overflow-wrap: anywhere;
+  max-width: 100%;
+  height: auto;
   min-height: 32px;
   cursor: pointer;
 }
@@ -391,8 +466,18 @@ async function accept() {
   background: #f7f8fa;
   padding: 12px 16px;
 }
-.comparison .check-label {
+.comparison-content {
+  position: sticky;
+  inset-inline-start: 16px;
+  max-inline-size: min(100%, calc(100cqi - 32px));
+}
+.conflict-check {
   margin-top: 12px;
+}
+.conflict-check label {
+  cursor: pointer;
+  min-height: var(--yss-control-min-height);
+  align-items: center;
 }
 @media (width < 720px) {
   .file-trigger {

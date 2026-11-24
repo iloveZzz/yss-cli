@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
 import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import {
   getConfirmations,
@@ -32,7 +36,12 @@ const selectedFile = shallowRef<ArtifactChange>()
 const selectedPrototype = shallowRef('')
 const previewTarget = shallowRef<string | null>(null)
 const open = shallowRef(false)
-const loading = shallowRef(false)
+const pending = shallowRef<'versions' | 'comparison' | 'file'>()
+const loading = computed(() => !!pending.value)
+const loadingText = computed(() =>
+  pending.value === 'versions' ? '正在读取确认版本…' :
+    pending.value === 'file' ? '正在读取文件差异…' : '正在比较产物…'
+)
 const downloading = shallowRef(false)
 const capturing = shallowRef(false)
 const error = shallowRef('')
@@ -60,6 +69,7 @@ watch(
   [selected, basis],
   () => {
     generation++
+    pending.value = undefined
     loadedConfirmationId.value = ''
     diff.value = undefined
     artifacts.value = undefined
@@ -71,25 +81,32 @@ watch(
 )
 async function load() {
   open.value = !open.value
-  if (!open.value) return
+  if (!open.value) {
+    generation++
+    pending.value = undefined
+    return
+  }
   basis.value = 'candidate'
-  loading.value = true
+  const own = ++generation
+  pending.value = 'versions'
   error.value = ''
   try {
-    records.value = await getConfirmations(props.specId)
-    selected.value = records.value.at(-1)?.id ?? ''
+    const versions = await getConfirmations(props.specId)
+    if (own !== generation) return
+    records.value = versions
+    selected.value = versions.at(-1)?.id ?? ''
     if (selected.value) await compare()
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (own === generation) error.value = errorMessage(cause)
   } finally {
-    loading.value = false
+    if (own === generation) pending.value = undefined
   }
 }
 async function compare() {
   if (!selected.value) return
   const confirmationId = selected.value
   const own = ++generation
-  loading.value = true
+  pending.value = 'comparison'
   error.value = ''
   selectedFile.value = undefined
   previewTarget.value = null
@@ -109,14 +126,14 @@ async function compare() {
   } catch (cause) {
     if (own === generation) error.value = errorMessage(cause)
   } finally {
-    if (own === generation) loading.value = false
+    if (own === generation) pending.value = undefined
   }
 }
 async function readFile(path: string) {
   if (!loadedConfirmationId.value) return
   const confirmationId = loadedConfirmationId.value
   const own = ++generation
-  loading.value = true
+  pending.value = 'file'
   error.value = ''
   try {
     const result = await getConfirmationDiff(props.specId, confirmationId, path, basis.value)
@@ -124,31 +141,31 @@ async function readFile(path: string) {
   } catch (cause) {
     if (own === generation) error.value = errorMessage(cause)
   } finally {
-    if (own === generation) loading.value = false
+    if (own === generation) pending.value = undefined
   }
 }
 async function captureSnapshot() {
   const confirmationId = loadedConfirmationId.value
-  if (!confirmationId || capturing.value) return
+  if (!confirmationId || capturing.value || loading.value) return
   capturing.value = true
   error.value = ''
   notice.value = ''
   try {
     await captureConfirmationSnapshot(confirmationId)
-    if (selected.value !== confirmationId) return
+    if (!open.value || selected.value !== confirmationId) return
     const confirmations = await getConfirmations(props.specId)
-    if (selected.value !== confirmationId) return
+    if (!open.value || selected.value !== confirmationId) return
     records.value = confirmations
     await compare()
-    if (selected.value === confirmationId) notice.value = '已补存此确认记录的产物快照。'
+    if (open.value && selected.value === confirmationId) notice.value = '已补存此确认记录的产物快照。'
   } catch (cause) {
-    if (selected.value === confirmationId) error.value = errorMessage(cause)
+    if (open.value && selected.value === confirmationId) error.value = errorMessage(cause)
   } finally {
     capturing.value = false
   }
 }
 async function download(path: string, version: 'before' | 'after' = 'before') {
-  if (!loadedConfirmationId.value || downloading.value) return
+  if (!loadedConfirmationId.value || downloading.value || loading.value) return
   const confirmationId = loadedConfirmationId.value
   const current = selectedFile.value?.path === path ? selectedFile.value.after : null
   if (version === 'after' && !current) return
@@ -221,11 +238,13 @@ onBeforeUnmount(() => {
             @update:model-value="basis = $event as ComparisonBasis"
           />
         </label>
-        <Button variant="outline" :disabled="loading || !selected" @click="compare">比较</Button>
+        <Button variant="outline" :disabled="loading || capturing || !selected" @click="compare">比较</Button>
       </div>
-      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
       <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-      <p v-if="!records.length && !loading" class="muted">尚无可比较的确认版本</p>
+      <LoadingSkeleton v-if="loading && !diff" variant="table" :rows="3" :label="loadingText" />
+      <LoadingIndicator v-else :active="loading" :label="loadingText" />
+      <p v-if="!records.length && !loading && !error" class="muted">尚无可比较的确认版本</p>
       <p v-if="diff?.message" class="notice">{{ diff.message }}</p>
       <div v-if="diff?.baselineAvailable === false" class="snapshot-backfill">
         <p class="muted">当前全部产物与原确认摘要一致时，可补存用于后续比较的快照。</p>
@@ -235,6 +254,7 @@ onBeforeUnmount(() => {
           :disabled="capturing || loading"
           @click="captureSnapshot"
         >
+          <LoadingIndicator :active="capturing" />
           {{ capturing ? '正在核对并补存…' : '从当前内容补存快照' }}
         </Button>
       </div>
@@ -278,7 +298,7 @@ onBeforeUnmount(() => {
           <span class="muted">{{ file.before?.size ?? 0 }} → {{ file.after?.size ?? 0 }} 字节</span>
         </li>
       </ul>
-      <section v-if="selectedFile" class="diff-file">
+      <section v-if="selectedFile" class="diff-file" :aria-busy="pending === 'file'">
         <div class="section-heading">
           <h3>{{ selectedFile.path }}</h3>
           <div class="inline-actions">
@@ -286,7 +306,7 @@ onBeforeUnmount(() => {
               v-if="selectedFile.before"
               type="button"
               variant="outline"
-              :disabled="downloading"
+              :disabled="downloading || loading"
               @click="download(selectedFile.path)"
             >
               下载确认版本
@@ -295,7 +315,7 @@ onBeforeUnmount(() => {
               v-if="selectedFile.after"
               type="button"
               variant="outline"
-              :disabled="downloading"
+              :disabled="downloading || loading"
               @click="download(selectedFile.path, 'after')"
             >
               下载{{ basisLabel }}
@@ -336,22 +356,25 @@ onBeforeUnmount(() => {
       <p v-if="diff?.baselineAvailable && !diff.files.length" class="muted">
         当前版本与所选确认版本一致
       </p>
-      <details v-if="files.length" class="historical-files">
-        <summary>下载确认版本的文件（{{ files.length }}）</summary>
-        <ul class="changed-file-list">
-          <li v-for="file in files" :key="file.path">
-            <span class="path-text">{{ file.path }} · {{ file.size }} 字节</span>
-            <Button
-              type="button"
-              variant="ghost"
-              :disabled="downloading"
-              @click="download(file.path)"
-            >
-              下载历史文件
-            </Button>
-          </li>
-        </ul>
-      </details>
+      <Collapsible v-if="files.length" class="historical-files">
+        <CollapsibleTrigger>下载确认版本的文件（{{ files.length }}）</CollapsibleTrigger>
+        <CollapsibleContent>
+          <ul class="changed-file-list">
+            <li v-for="file in files" :key="file.path">
+              <span class="path-text">{{ file.path }} · {{ file.size }} 字节</span>
+              <Button
+                type="button"
+                variant="ghost"
+                :disabled="downloading || loading"
+                @click="download(file.path)"
+              >
+                下载历史文件
+              </Button>
+            </li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+      <LoadingIndicator :active="downloading" label="正在下载所选文件…" />
       <HistoricalPreview v-model="previewTarget" :confirmation-id="loadedConfirmationId" />
     </section>
   </div>
@@ -378,7 +401,7 @@ onBeforeUnmount(() => {
 .historical-files {
   margin: 16px 0;
 }
-.historical-files > summary {
+.historical-files > [data-slot='collapsible-trigger'] {
   cursor: pointer;
   font-size: 12px;
   color: #315dcf;

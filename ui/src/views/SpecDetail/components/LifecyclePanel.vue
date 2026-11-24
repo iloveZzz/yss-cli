@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, ref, shallowRef, watch, onBeforeUnmount, useId, toRaw } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useServerDraft } from '@/hooks/useServerDraft'
@@ -19,6 +24,8 @@ import { getTarget, type JsonObject } from '@/services/workbench-platform'
 import { Button } from '@/components/ui/button'
 import SingleSelect from '@/components/SingleSelect.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import ResourceEditor from './ResourceEditor.vue'
@@ -218,104 +225,113 @@ async function close() {
       <h2>全生命周期</h2>
       <p class="muted">阶段可并行、跳过和重开，记录当前实际进展。</p>
     </div>
-    <span v-if="loading" class="muted">正在刷新…</span>
+    <span v-if="loading && view" role="status" class="muted">正在刷新阶段记录…</span>
   </div>
-  <p v-if="error && !open" role="alert" class="notice error">{{ error }}</p>
+  <Alert v-if="error && !open" role="alert" class="notice error">{{ error }}</Alert>
+  <LoadingSkeleton v-if="loading && !view" variant="table" :rows="4" label="正在读取阶段记录…" />
   <template v-if="view">
-    <div
-      class="panel table-scroll stage-table-wrap"
-      tabindex="0"
-      role="region"
-      :aria-labelledby="id + '-stages'"
-    >
-      <table class="spec-table stage-table">
-        <caption :id="id + '-stages'" class="sr-only">生命周期阶段记录</caption>
-        <thead>
-          <tr>
-            <th scope="col">阶段</th>
-            <th scope="col">进度</th>
-            <th scope="col">阶段说明</th>
-            <th scope="col">资源</th>
-            <th scope="col">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="node in view.stages"
-            :key="node.stage"
-            :class="{ 'selected-stage': selected === node.stage }"
-          >
-            <th scope="row">
-              <button
-                type="button"
-                class="stage-name"
-                :aria-pressed="selected === node.stage"
-                @click="select(node.stage)"
-              >
-                {{ stages[node.stage] }}
-              </button>
-              <span v-if="view.spec.record.stage === node.stage" class="row-sub focus-label">
-                当前关注
-              </span>
-            </th>
-            <td class="stage-progress">
-              <span :data-progress="node.record?.progress ?? 'unmarked'">
-                {{ stageProgressLabels[node.record?.progress ?? 'unmarked'] }}
-              </span>
-              <time v-if="node.record" class="row-sub" :datetime="node.record.updatedAt">
-                {{ dateLabel(node.record.updatedAt) }}
-              </time>
-            </td>
-            <td class="stage-note">
-              <details v-if="node.record?.note">
-                <summary>{{ node.record.note.split('\n')[0] }}</summary>
-                <p class="preserve-lines">{{ node.record.note }}</p>
-              </details>
-              <span v-else class="muted">尚未记录</span>
-            </td>
-            <td class="stage-resources">
-              <details v-if="node.record?.resources.length">
-                <summary>{{ node.record.resources.length }} 项资源</summary>
-                <ul>
-                  <li v-for="(resource, index) in node.record.resources" :key="index">
-                    <strong>{{ resource.label }}</strong>
-                    <a
-                      v-if="resource.targetType === 'web' && /^https?:\/\//i.test(resource.target)"
-                      :href="resource.target"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {{ resource.target }} ↗
-                    </a>
-                    <code v-else>{{ resource.target }}</code>
-                  </li>
-                </ul>
-              </details>
-              <span v-else class="muted">—</span>
-            </td>
-            <td>
-              <div class="inline-actions stage-actions">
-                <Button
-                  type="button"
-                  variant="outline"
-                  :disabled="!enabled || saving"
-                  @click="edit(node.stage)"
-                >
-                  记录
-                </Button>
+    <div class="relative" :aria-busy="loading">
+      <div
+        class="panel table-scroll stage-table-wrap"
+        tabindex="0"
+        role="region"
+        :aria-labelledby="id + '-stages'"
+      >
+        <Table class="spec-table stage-table">
+          <TableCaption :id="id + '-stages'" class="sr-only">生命周期阶段记录</TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">阶段</TableHead>
+              <TableHead scope="col">进度</TableHead>
+              <TableHead scope="col">阶段说明</TableHead>
+              <TableHead scope="col">资源</TableHead>
+              <TableHead scope="col">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="node in view.stages"
+              :key="node.stage"
+              :class="{ 'selected-stage': selected === node.stage }"
+            >
+              <TableHead scope="row">
                 <Button
                   type="button"
                   variant="ghost"
-                  :disabled="!enabled || saving || view.spec.record.stage === node.stage"
-                  @click="focus(node.stage)"
+                  class="stage-name"
+                  :aria-pressed="selected === node.stage"
+                  @click="select(node.stage)"
                 >
-                  设为关注
+                  {{ stages[node.stage] }}
                 </Button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                <span v-if="view.spec.record.stage === node.stage" class="row-sub focus-label">
+                  当前关注
+                </span>
+              </TableHead>
+              <TableCell class="stage-progress">
+                <span :data-progress="node.record?.progress ?? 'unmarked'">
+                  {{ stageProgressLabels[node.record?.progress ?? 'unmarked'] }}
+                </span>
+                <time v-if="node.record" class="row-sub" :datetime="node.record.updatedAt">
+                  {{ dateLabel(node.record.updatedAt) }}
+                </time>
+              </TableCell>
+              <TableCell class="stage-note">
+                <Collapsible v-if="node.record?.note">
+                  <CollapsibleTrigger>{{ node.record.note.split('\n')[0] }}</CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <p class="preserve-lines">{{ node.record.note }}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+                <span v-else class="muted">尚未记录</span>
+              </TableCell>
+              <TableCell class="stage-resources">
+                <Collapsible v-if="node.record?.resources.length">
+                  <CollapsibleTrigger>{{ node.record.resources.length }} 项资源</CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ul>
+                      <li v-for="(resource, index) in node.record.resources" :key="index">
+                        <strong>{{ resource.label }}</strong>
+                        <a
+                          v-if="resource.targetType === 'web' && /^https?:\/\//i.test(resource.target)"
+                          :href="resource.target"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {{ resource.target }} ↗
+                        </a>
+                        <code v-else>{{ resource.target }}</code>
+                      </li>
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
+                <span v-else class="muted">—</span>
+              </TableCell>
+              <TableCell>
+                <div class="inline-actions stage-actions">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    :disabled="!enabled || saving"
+                    @click="edit(node.stage)"
+                  >
+                    记录
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    :disabled="!enabled || saving || view.spec.record.stage === node.stage"
+                    @click="focus(node.stage)"
+                  >
+                    设为关注
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      <LoadingIndicator :active="loading" placement="overlay" />
     </div>
   </template>
   <ModalDialog
@@ -356,7 +372,7 @@ async function close() {
       </label>
       <label :for="id + 'note'">
         阶段说明{{ ['blocked', 'skipped'].includes(draft.progress) ? '（必填）' : '' }}
-        <textarea
+        <Textarea
           :id="id + 'note'"
           v-model="draft.note"
           name="note"
@@ -366,14 +382,17 @@ async function close() {
       </label>
       <ResourceEditor v-model="draft.resources" />
       <label class="check-label">
-        <input v-model="focusAfter" type="checkbox" name="focusAfter" />
+        <Checkbox :model-value="focusAfter" @update:model-value="focusAfter = $event === true" name="focusAfter" />
         同时设为当前关注阶段
       </label>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
       <div class="form-actions">
         <Button type="button" variant="outline" :disabled="saving" @click="close">关闭</Button>
-        <Button :disabled="saving || !dirty">保存阶段</Button>
+        <Button :disabled="saving || !dirty">
+          <LoadingIndicator :active="saving" />
+          {{ saving ? '正在保存…' : '保存阶段' }}
+        </Button>
       </div>
     </form>
   </ModalDialog>
@@ -434,11 +453,11 @@ async function close() {
   max-width: 380px;
   overflow-wrap: anywhere;
 }
-.stage-note summary {
+.stage-note [data-slot='collapsible-trigger'] {
   cursor: pointer;
   color: #62666c;
 }
-.stage-note details:not([open]) summary {
+.stage-note [data-slot='collapsible'][data-state='closed'] [data-slot='collapsible-trigger'] {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 330px;
@@ -452,7 +471,7 @@ async function close() {
   min-width: 100px;
   max-width: 250px;
 }
-.stage-resources summary {
+.stage-resources [data-slot='collapsible-trigger'] {
   cursor: pointer;
   color: #62666c;
 }

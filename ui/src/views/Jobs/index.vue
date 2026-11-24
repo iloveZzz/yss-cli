@@ -1,11 +1,17 @@
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import AgentCommandPermission from '@/components/AgentCommandPermission.vue'
 import PiReadiness from '@/components/PiReadiness.vue'
-import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui'
 import { errorMessage, dateLabel, ApiError } from '@/services/workbench'
 import {
   getJobs,
@@ -28,6 +34,7 @@ import AgentDiffPanel from './components/AgentDiffPanel.vue'
 import JobActivity from './components/JobActivity.vue'
 import JobConversation from './components/JobConversation.vue'
 import JobList from './components/JobList.vue'
+import JobDisclosure from './components/JobDisclosure.vue'
 import JobStatus from './components/JobStatus.vue'
 import RunArtifacts from './components/RunArtifacts.vue'
 
@@ -38,13 +45,16 @@ const jobs = shallowRef<JobRecord[]>([])
 const job = shallowRef<JobRecord>()
 const run = shallowRef<AgentRun>()
 const error = shallowRef('')
-const busy = shallowRef(false)
+type JobOperation = { kind: 'stop' | 'resume' } | { kind: 'answer'; requestId: string }
+const operation = shallowRef<JobOperation>()
+const busy = computed(() => !!operation.value)
+const answeringRequest = computed(() => operation.value?.kind === 'answer' ? operation.value.requestId : undefined)
 const loading = shallowRef(false)
 const jobsLoaded = shallowRef(false)
 const selectedTab = shallowRef<string>()
 const tab = computed({
   get: () => selectedTab.value ?? (isPi.value ? 'conversation' : 'log'),
-  set: (value: string) => { selectedTab.value = value }
+  set: (value: string | number) => { selectedTab.value = String(value) }
 })
 const filesVisited = shallowRef(false)
 const continuationOpen = shallowRef(false)
@@ -96,7 +106,10 @@ let pendingRefresh: ReturnType<typeof setTimeout> | undefined
 let fetchingFor: string | undefined
 async function refresh(showLoading = true) {
   const target = jobId.value
-  if (fetchingFor === target) return
+  if (fetchingFor === target) {
+    if (showLoading) loading.value = true
+    return
+  }
   fetchingFor = target
   const own = ++refreshGeneration
   if (showLoading) loading.value = true
@@ -161,7 +174,7 @@ watch(
     continuationOpen.value = false
     continuation.value = defaultContinuation
     allowCommands.value = false
-    busy.value = false
+    operation.value = undefined
     stopRequestedFor.value = ''
     error.value = ''
     void refresh()
@@ -176,42 +189,48 @@ onBeforeUnmount(() => {
   refreshGeneration++
   clearTimeout(pendingRefresh)
 })
+function currentOperation(owner: JobOperation) {
+  return active && operation.value === owner
+}
 async function stop() {
   const current = job.value
   if (!current || operationBusy.value) return
-  busy.value = true
+  const owner: JobOperation = { kind: 'stop' }
+  operation.value = owner
   try {
     const value = await cancelJob(current.id)
-    if (jobId.value !== current.id) return
+    if (!currentOperation(owner)) return
     job.value = value
     stopRequestedFor.value = current.id
     error.value = ''
   } catch (cause) {
-    if (jobId.value === current.id) error.value = errorMessage(cause)
+    if (currentOperation(owner)) error.value = errorMessage(cause)
   } finally {
-    if (jobId.value === current.id) busy.value = false
+    if (currentOperation(owner)) operation.value = undefined
   }
 }
-async function answer(requestId: string, value: unknown) {
+async function answer(requestId: string, value: unknown, reportToPage = false) {
   const target = jobId.value
   if (operationBusy.value) return
-  busy.value = true
+  const owner: JobOperation = { kind: 'answer', requestId }
+  operation.value = owner
   error.value = ''
   try {
     await answerJob(target, requestId, value)
-    if (target !== jobId.value) return
+    if (!currentOperation(owner)) return
     eventStream.resolved(requestId)
     await refresh(false)
   } catch (cause) {
-    if (jobId.value === target) return errorMessage(cause)
+    if (!currentOperation(owner)) return
+    const message = errorMessage(cause)
+    if (reportToPage) error.value = message
+    else return message
   } finally {
-    if (jobId.value === target) busy.value = false
+    if (currentOperation(owner)) operation.value = undefined
   }
 }
 async function answerLegacy(requestId: string, value: unknown) {
-  const target = jobId.value
-  const message = await answer(requestId, value)
-  if (message && jobId.value === target) error.value = message
+  await answer(requestId, value, true)
 }
 function openPendingQuestion() {
   const pending = conversation.pending.value
@@ -244,7 +263,8 @@ async function resume() {
     !continuation.value.trim()
   )
     return
-  busy.value = true
+  const owner: JobOperation = { kind: 'resume' }
+  operation.value = owner
   error.value = ''
   try {
     const value = await startAgent({
@@ -256,12 +276,12 @@ async function resume() {
       expectedModel,
       allowCommands: allowCommands.value
     })
-    if (target !== jobId.value) return
+    if (!currentOperation(owner)) return
     await router.push({ path: `/jobs/${value.id}`, query: { run: current.id } })
   } catch (cause) {
-    if (jobId.value === target) error.value = errorMessage(cause)
+    if (currentOperation(owner)) error.value = errorMessage(cause)
   } finally {
-    if (jobId.value === target) busy.value = false
+    if (currentOperation(owner)) operation.value = undefined
   }
 }
 </script>
@@ -272,14 +292,24 @@ async function resume() {
       <RouterLink v-if="jobId" to="/jobs" class="back-link">← 执行记录</RouterLink>
       <h1>{{ jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录' }}</h1>
     </div>
-    <Button type="button" variant="outline" :disabled="loading" @click="refresh()">{{
-      loading ? '刷新中…' : '刷新'
-    }}</Button>
+    <Button type="button" variant="outline" :aria-disabled="loading" @click="!loading && refresh()">
+      <LoadingIndicator v-if="job" :active="loading" />
+      {{ loading ? '刷新中…' : '刷新' }}
+    </Button>
   </div>
-  <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-  <JobList v-if="!jobId" :jobs="jobs" :loaded="jobsLoaded" :project-names="projectNames" />
+  <Alert v-if="error" variant="destructive" class="notice error">
+    <AlertDescription class="text-current">{{ error }}</AlertDescription>
+  </Alert>
+  <JobList
+    v-if="!jobId"
+    :jobs="jobs"
+    :loaded="jobsLoaded"
+    :loading="loading"
+    :failed="!!error"
+    :project-names="projectNames"
+  />
   <template v-else-if="job">
-    <section class="platform-section job-overview">
+    <section class="platform-section job-overview" :aria-busy="loading">
       <div class="section-heading">
         <div class="job-overview-title">
           <h2>{{ terminalJob(job.status) ? '执行结果' : '当前进展' }}</h2>
@@ -292,21 +322,25 @@ async function resume() {
           variant="outline"
           :disabled="operationBusy"
           @click="stop"
-          >{{ stopping ? '正在停止…' : '停止运行' }}</Button
         >
+          <LoadingIndicator :active="operation?.kind === 'stop' || stopping" />
+          {{ operation?.kind === 'stop' || stopping ? '正在停止…' : '停止运行' }}
+        </Button>
         <Button
           v-else-if="currentRun?.canResume && !latestRunActive"
           type="button"
           variant="outline"
           :aria-expanded="continuationOpen"
-          aria-controls="continuation-form"
+          :aria-controls="continuationOpen ? 'continuation-form' : undefined"
           @click="toggleContinuation"
         >
           继续处理
         </Button>
       </div>
-      <p v-if="job.error" role="alert" class="notice error">{{ job.error.message }}</p>
-      <p v-if="stopping" class="muted">停止请求已提交，正在等待进程退出并保存本次记录。</p>
+      <Alert v-if="job.error" variant="destructive" class="notice error">
+        <AlertDescription class="text-current">{{ job.error.message }}</AlertDescription>
+      </Alert>
+      <p v-if="stopping" class="muted" role="status">停止请求已提交，正在等待进程退出并保存本次记录。</p>
       <p v-if="latestMessage && terminalJob(job.status) && tab === 'log'" class="job-final-message">
         {{ latestMessage }}
       </p>
@@ -324,11 +358,13 @@ async function resume() {
         id="continuation-form"
         class="form-stack continuation-form"
         aria-label="续接 Pi"
+        :aria-busy="operation?.kind === 'resume'"
         @submit.prevent="resume"
       >
         <PiReadiness v-model:ready-model="readyModel" :resume-run-id="currentRun.id" :busy="busy" />
-        <label for="job-continuation"
-          >继续处理的内容<textarea
+        <Field class="gap-1.5">
+          <FieldLabel for="job-continuation">继续处理的内容</FieldLabel>
+          <Textarea
             id="job-continuation"
             v-model="continuation"
             name="continuation"
@@ -336,12 +372,13 @@ async function resume() {
             required
             :disabled="busy"
           />
-        </label>
+        </Field>
         <AgentCommandPermission v-model="allowCommands" :disabled="busy || !readyModel" />
         <div class="form-actions">
-          <Button type="submit" :disabled="busy || !readyModel || !continuation.trim()">{{
-            busy ? '正在续接…' : '续接 Pi'
-          }}</Button>
+          <Button type="submit" :disabled="busy || !readyModel || !continuation.trim()">
+            <LoadingIndicator :active="operation?.kind === 'resume'" />
+            {{ operation?.kind === 'resume' ? '正在续接…' : '续接 Pi' }}
+          </Button>
         </div>
       </form>
       <p v-if="currentRun && terminalJob(job.status) && !currentRun.canResume" class="muted">
@@ -350,22 +387,25 @@ async function resume() {
           返回 Spec 发起新运行
         </RouterLink>
       </p>
-      <details class="execution-context">
-        <summary>工程位置与执行信息</summary>
-        <p v-for="root in job.roots" :key="root" class="path-text">{{ root }}</p>
-        <p class="muted">
-          开始于 {{ dateLabel(job.createdAt) }} · 最近更新 {{ dateLabel(job.updatedAt) }}
-        </p>
-        <p class="path-text">执行编号 {{ job.id }}</p>
-        <details v-if="currentRun?.hostSettings">
-          <summary>本次 {{ currentRun.host === 'pi' ? 'Pi' : 'Codex' }} 模型与权限</summary>
+      <Separator class="execution-separator" />
+      <JobDisclosure>
+        <template #label>工程位置与执行信息</template>
+        <div class="execution-facts">
+          <p v-for="root in job.roots" :key="root" class="path-text">{{ root }}</p>
+          <p class="muted">
+            开始于 {{ dateLabel(job.createdAt) }} · 最近更新 {{ dateLabel(job.updatedAt) }}
+          </p>
+          <p class="path-text">执行编号 {{ job.id }}</p>
+        </div>
+        <JobDisclosure v-if="currentRun?.hostSettings">
+          <template #label>本次 {{ currentRun.host === 'pi' ? 'Pi' : 'Codex' }} 模型与权限</template>
           <pre>{{ readableValue(currentRun.hostSettings) }}</pre>
-        </details>
-        <details v-if="job.result || job.error">
-          <summary>完整结果与错误详情</summary>
+        </JobDisclosure>
+        <JobDisclosure v-if="job.result || job.error">
+          <template #label>完整结果与错误详情</template>
           <pre>{{ readableValue(job.error ?? job.result) }}</pre>
-        </details>
-      </details>
+        </JobDisclosure>
+      </JobDisclosure>
     </section>
     <nav v-if="conversation.page.value?.previousJobId || (run && run.jobId !== job.id)" class="job-related" aria-label="相关执行">
       <RouterLink
@@ -389,10 +429,11 @@ async function resume() {
       :key="event.id"
       :event="event"
       :busy="operationBusy"
+      :answering-request="answeringRequest"
       @answer="answerLegacy"
     />
-    <TabsRoot v-model="tab" activation-mode="manual">
-      <TabsList class="tabs" aria-label="执行详情内容">
+    <Tabs v-model="tab" activation-mode="manual" class="job-tabs min-w-0 gap-0">
+      <TabsList class="tabs job-tablist w-full justify-start rounded-none bg-transparent p-0" aria-label="执行详情内容">
         <TabsTrigger v-if="isPi" value="conversation">会话</TabsTrigger>
         <TabsTrigger value="log">执行日志</TabsTrigger>
         <template v-if="currentRun">
@@ -414,6 +455,7 @@ async function resume() {
           :loading-history="conversation.loadingHistory.value"
           :history-error="conversation.historyError.value"
           :busy="operationBusy"
+          :answering-request="answeringRequest"
           :submit="answer"
           @retry="eventStream.retry"
           @older="conversation.older(jobId)"
@@ -450,9 +492,9 @@ async function resume() {
           />
         </TabsContent>
       </template>
-    </TabsRoot>
+    </Tabs>
   </template>
-  <p v-else-if="loading" class="empty">正在读取执行详情…</p>
+  <LoadingSkeleton v-else-if="loading" variant="detail" label="正在读取执行详情" />
 </template>
 
 <style scoped>
@@ -473,6 +515,9 @@ async function resume() {
 .jobs-heading h1 {
   overflow-wrap: anywhere;
 }
+.jobs-heading button[aria-disabled='true'] {
+  opacity: 0.65;
+}
 .job-overview-title {
   display: flex;
   align-items: center;
@@ -487,13 +532,22 @@ async function resume() {
   max-height: 6em;
   overflow: auto;
 }
-.execution-context {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--yss-colors-border);
+.execution-separator {
+  margin-block: 16px 8px;
 }
-.execution-context > p {
-  margin-block: 8px;
+.execution-facts {
+  display: grid;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+.job-tablist > [role='tab'] {
+  flex: none;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+}
+.job-tablist > [role='tab']:focus-visible {
+  outline-offset: -3px;
 }
 .outcome-facts {
   margin: 14px 0;
@@ -513,5 +567,11 @@ async function resume() {
 }
 .continuation-form {
   margin-block: 14px;
+}
+@media (width < 720px) {
+  .job-tablist {
+    min-height: 44px;
+    gap: 18px;
+  }
 }
 </style>

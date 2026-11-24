@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ProgressSummary from '@/components/ProgressSummary.vue'
 import LifecycleOverview from './components/LifecycleOverview.vue'
@@ -35,7 +44,7 @@ import { contentReminders } from '@/services/workbench-content'
 import { isWebLink } from './schemas/markdown'
 const route = useRoute()
 const router = useRouter()
-const { snapshot, submit } = useWorkbench()
+const { snapshot, submit, loading: snapshotLoading } = useWorkbench()
 const stageDirty = shallowRef(false)
 const questionDirty = shallowRef(false)
 const lifecycleDirty = shallowRef(false)
@@ -50,7 +59,7 @@ const {
   notice,
   initializing,
   saving,
-  save,
+  save: saveSpec,
   reload,
   confirmOpen,
   decide,
@@ -113,6 +122,9 @@ const editOpen = shallowRef(false)
 const resourceEdit = shallowRef(false)
 const copyNotice = shallowRef('')
 const syncError = shallowRef('')
+const savingSpec = shallowRef(false)
+const syncingResources = shallowRef(false)
+const editBusy = computed(() => saving.value || savingSpec.value || syncingResources.value)
 watch(
   () => spec.value?.record.id,
   () => {
@@ -132,15 +144,30 @@ function openResource(path: string, fragment = '') {
 function childSaved() {
   if (!dirty.value) void reset()
 }
+async function save() {
+  if (editBusy.value || !dirty.value) return
+  savingSpec.value = true
+  try {
+    await saveSpec()
+  } finally {
+    savingSpec.value = false
+  }
+}
 async function syncResources() {
-  if (!spec.value || !(await allowLeave())) return
+  if (!spec.value || editBusy.value) return
+  const specId = spec.value.record.id
+  if (!(await allowLeave()) || spec.value?.record.id !== specId || editBusy.value) return
+  syncingResources.value = true
   syncError.value = ''
   try {
-    await submit({ kind: 'refreshSpec', specId: spec.value.record.id })
+    await submit({ kind: 'refreshSpec', specId })
+    if (spec.value?.record.id !== specId) return
     await reset()
-    copyNotice.value = '已同步主规格关联。'
+    if (spec.value?.record.id === specId) copyNotice.value = '已同步主规格关联。'
   } catch (cause) {
-    syncError.value = errorMessage(cause)
+    if (spec.value?.record.id === specId) syncError.value = errorMessage(cause)
+  } finally {
+    syncingResources.value = false
   }
 }
 async function copyPath(path: string) {
@@ -149,24 +176,6 @@ async function copyPath(path: string) {
     copyNotice.value = '路径已复制'
   } catch {
     copyNotice.value = '复制失败，请手工选择路径复制'
-  }
-}
-function moveTab(event: KeyboardEvent) {
-  const index = tabs.findIndex((item) => item.id === tab.value)
-  const next =
-    event.key === 'ArrowRight'
-      ? (index + 1) % tabs.length
-      : event.key === 'ArrowLeft'
-        ? (index + tabs.length - 1) % tabs.length
-        : event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? tabs.length - 1
-            : -1
-  if (next >= 0) {
-    event.preventDefault()
-    tab.value = tabs[next]?.id ?? 'overview'
-    document.getElementById(`tab-${tab.value}`)?.focus()
   }
 }
 </script>
@@ -180,7 +189,7 @@ function moveTab(event: KeyboardEvent) {
           <span class="muted">个人标记</span>
           <StatusBadge :status="spec.record.status" />
           <span>{{ stages[spec.record.stage] }}</span>
-          <span>{{ contentStatuses[spec.content.status] }}</span>
+          <Badge variant="secondary">{{ contentStatuses[spec.content.status] }}</Badge>
           <span v-if="!spec.record.active">已停用</span>
           <span v-if="dirty" class="warning-text">有未保存修改</span>
         </div>
@@ -192,7 +201,7 @@ function moveTab(event: KeyboardEvent) {
           <Button
             type="button"
             variant="ghost"
-            aria-label="复制主规格完整路径"
+            title="复制主规格完整路径"
             @click="copyPath(spec.record.sourcePath)"
           >
             复制路径
@@ -209,309 +218,289 @@ function moveTab(event: KeyboardEvent) {
               (resourceEdit && tab === 'resources') ||
               tab === 'settings')
           "
-          :disabled="saving || !dirty"
+          :disabled="editBusy || !dirty"
           @click="save"
         >
-          {{ saving ? '保存中…' : '保存修改' }}
+          <LoadingIndicator :active="savingSpec" />
+          {{ savingSpec ? '正在保存…' : '保存修改' }}
         </Button>
       </div>
     </div>
     <ProgressSummary :progress="progress" />
-    <div class="tabs" role="tablist" aria-label="Spec 内容" @keydown="moveTab">
-      <button
-        v-for="item in tabs"
-        :id="`tab-${item.id}`"
-        :key="item.id"
-        role="tab"
-        :tabindex="tab === item.id ? 0 : -1"
-        :aria-selected="tab === item.id"
-        :aria-controls="`panel-${item.id}`"
-        @click="tab = item.id"
+    <Tabs :model-value="tab" :unmount-on-hide="false" @update:model-value="tab = String($event)">
+      <TabsList class="tabs" aria-label="Spec 内容">
+        <TabsTrigger v-for="item in tabs" :key="item.id" :value="item.id">
+          {{ item.label }}
+        </TabsTrigger>
+      </TabsList>
+      <p v-if="copyNotice" role="status" class="copy-path-notice">{{ copyNotice }}</p>
+      <div
+        v-if="reminders.some((item) => item.count)"
+        class="content-reminder-links"
       >
-        {{ item.label }}
-      </button>
-    </div>
-    <p v-if="copyNotice" role="status" class="copy-path-notice">{{ copyNotice }}</p>
-    <div
-      v-if="reminders.some((item) => item.count)"
-      class="content-reminder-links"
-    >
-      <Button
-        v-for="item in reminders.filter((item) => item.count)"
-        :key="item.id"
-        variant="ghost"
-        @click="setQuery({ tab: 'content', category: item.id, questionId: undefined })"
-      >
-        {{ item.label }}{{ item.id === 'ready' ? '' : ` ${item.count}` }}
-      </Button>
-    </div>
-    <DraftNotice
-      :status="drafts.status.value"
-      :error="drafts.error.value"
-      :drafts="drafts.recoverable.value"
-      :conflict="drafts.recoveryConflict.value"
-      @merge="drafts.mergeRecovered"
-      @cancel-recovery="drafts.cancelRecovery"
-      @restore="drafts.restore"
-      @discard="drafts.discard"
-    />
-    <ConflictResolver
-      v-if="conflict"
-      :base="conflict.base"
-      :local="conflict.local"
-      :current="conflict.current"
-      @resolve="resolveConflict"
-      @close="conflict = undefined"
-    />
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-    <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <section
-      v-show="tab === 'overview'"
-      id="panel-overview"
-      role="tabpanel"
-      aria-labelledby="tab-overview"
-    >
-      <section class="focus-summary">
-        <div>
-          <h2>下一步</h2>
-          <p class="preserve-lines">{{ spec.record.nextAction || '尚未填写下一步' }}</p>
-          <p v-if="spec.record.blocker" class="warning-text preserve-lines">
-            阻塞说明 · {{ spec.record.blocker }}
-          </p>
-        </div>
         <Button
-          type="button"
-          variant="outline"
-          :aria-expanded="editOpen"
-          @click="editOpen = !editOpen"
+          v-for="item in reminders.filter((item) => item.count)"
+          :key="item.id"
+          variant="ghost"
+          @click="setQuery({ tab: 'content', category: item.id, questionId: undefined })"
         >
-          {{ editOpen ? '收起编辑' : '编辑个人标记' }}
+          {{ item.label }}{{ item.id === 'ready' ? '' : ` ${item.count}` }}
         </Button>
-      </section>
-      <form
-        v-if="editOpen && draft && !initializing"
-        class="platform-section form-stack"
-        aria-label="个人标记"
-        @submit.prevent="save"
-      >
-        <div class="form-grid">
-          <label>
-            当前关注阶段
-            <SingleSelect
-              :model-value="draft.stage"
-              :options="Object.entries(stages).map(([value, label]) => ({ value, label }))"
-              aria-label="当前关注阶段"
-              @update:model-value="draft.stage = $event as Stage"
-            />
-          </label>
-          <label>
-            个人状态
-            <SingleSelect
-              :model-value="draft.status"
-              :options="Object.entries(statuses).map(([value, label]) => ({ value, label }))"
-              aria-label="个人状态"
-              @update:model-value="draft.status = $event as Status"
-            />
-          </label>
-        </div>
-        <label>
-          下一步
-          <Input v-model="draft.nextAction" name="nextAction" />
-        </label>
-        <label>
-          阻塞说明{{ draft.status === 'blocked' ? '（必填）' : '' }}
-          <textarea
-            v-model="draft.blocker"
-            name="blocker"
-            :required="draft.status === 'blocked'"
-            rows="3"
-          />
-        </label>
-        <label>
-          待决备注
-          <textarea v-model="draft.notes" name="notes" rows="3" />
-        </label>
-        <div class="form-actions">
-          <Button type="button" variant="outline" :disabled="saving" @click="reload">
-            重新载入
-          </Button>
-          <Button :disabled="saving || !dirty">保存标记</Button>
-        </div>
-      </form>
-      <div class="notice source-strip" :class="{ warning: spec.sourceHealth !== 'available' }">
-        <span>{{ healthLabels[spec.sourceHealth] }}</span>
-        <span>文件修改 {{ dateLabel(spec.sourceModifiedAt) }}</span>
       </div>
-      <div v-if="spec.resources.length" class="resource-shortcuts">
-        <strong>一并阅读</strong>
-        <template v-for="(resource, index) in spec.resources" :key="index">
-          <a
-            v-if="resource.record.targetType === 'web' && isWebLink(resource.record.target)"
-            :href="resource.record.target"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ resource.record.label }} ↗
-          </a>
-          <Button v-else variant="outline" @click="openResource(resource.record.target)">
-            {{ resource.record.label }}
-          </Button>
-        </template>
-      </div>
-      <SourcePreview
-        :spec-id="spec.record.id"
-        :source-path="spec.record.sourcePath"
-        :fragment="sourceSection"
-        :active="tab === 'overview'"
-        @navigate="openResource"
-        @position="setQuery({ section: $event })"
+      <DraftNotice
+        :status="drafts.status.value"
+        :error="drafts.error.value"
+        :drafts="drafts.recoverable.value"
+        :conflict="drafts.recoveryConflict.value"
+        @merge="drafts.mergeRecovered"
+        @cancel-recovery="drafts.cancelRecovery"
+        @restore="drafts.restore"
+        @discard="drafts.discard"
       />
-    </section>
-    <section
-      v-show="tab === 'content'"
-      id="panel-content"
-      role="tabpanel"
-      aria-labelledby="tab-content"
-    >
-      <ContentPanel
-        v-if="!initializing"
-        :key="spec.record.id"
-        :spec-id="spec.record.id"
-        :source-path="spec.record.sourcePath"
-        :project-root="project?.record.rootPath"
-        :content="spec.content"
-        :confirm-leave="allowLeave"
-        @dirty="questionDirty = $event"
-        @saved="childSaved"
+      <ConflictResolver
+        v-if="conflict"
+        :base="conflict.base"
+        :local="conflict.local"
+        :current="conflict.current"
+        @resolve="resolveConflict"
+        @close="conflict = undefined"
       />
-    </section>
-    <section
-      v-show="tab === 'lifecycle'"
-      id="panel-lifecycle"
-      role="tabpanel"
-      aria-labelledby="tab-lifecycle"
-    >
-      <LifecycleOverview
-        :key="spec.record.id"
-        :spec-id="spec.record.id"
-        :project-id="spec.record.projectId"
-        :spec-digest="spec.content.artifactDigest"
-        :progress="progress"
-        :initial-stage="selectedStage"
-        :confirm-leave="allowLeave"
-        @select="setQuery({ stage: $event })"
-        @dirty="lifecycleDirty = $event"
-        @saved="childSaved"
-        @confirm-content="tab = 'content'"
-      />
-      <details class="personal-lifecycle">
-        <summary>个人阶段记录</summary>
-        <LifecyclePanel
-          v-if="!initializing"
-          :key="spec.record.id"
-          :spec-id="spec.record.id"
-          :initial-stage="selectedStage"
-          :confirm-leave="allowLeave"
-          @select="setQuery({ stage: $event })"
-          @dirty="stageDirty = $event"
-          @saved="childSaved"
-        />
-      </details>
-    </section>
-    <section
-      v-show="tab === 'resources'"
-      id="panel-resources"
-      role="tabpanel"
-      aria-labelledby="tab-resources"
-    >
-      <div class="platform-section">
-        <div class="section-heading">
-          <h2>关联资源</h2>
-          <Button variant="outline" :disabled="saving" @click="syncResources">
-            同步主规格关联
-          </Button>
-        </div>
-        <p v-if="syncError" role="alert" class="notice error">{{ syncError }}</p>
-        <ResourceList :resources="spec.resources" @open="openResource" @copy="copyPath" />
-        <div class="resource-edit-toggle">
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
+      <p v-if="notice" role="status" class="notice">{{ notice }}</p>
+      <TabsContent value="overview" as="section">
+        <section class="focus-summary">
+          <div>
+            <h2>下一步</h2>
+            <p class="preserve-lines">{{ spec.record.nextAction || '尚未填写下一步' }}</p>
+            <p v-if="spec.record.blocker" class="warning-text preserve-lines">
+              阻塞说明 · {{ spec.record.blocker }}
+            </p>
+          </div>
           <Button
             type="button"
             variant="outline"
-            :aria-expanded="resourceEdit"
-            @click="resourceEdit = !resourceEdit"
+            :aria-expanded="editOpen"
+            @click="editOpen = !editOpen"
           >
-            {{ resourceEdit ? '收起个人资源编辑' : '编辑个人资源' }}
+            {{ editOpen ? '收起编辑' : '编辑个人标记' }}
           </Button>
-          <span class="muted">个人补充与主规格关联一同展示。</span>
+        </section>
+        <LoadingSkeleton v-if="editOpen && initializing" variant="form" :rows="3" label="正在准备个人标记…" />
+        <form
+          v-else-if="editOpen && draft"
+          class="platform-section form-stack"
+          aria-label="个人标记"
+          @submit.prevent="save"
+        >
+          <div class="form-grid">
+            <label>
+              当前关注阶段
+              <SingleSelect
+                :model-value="draft.stage"
+                :options="Object.entries(stages).map(([value, label]) => ({ value, label }))"
+                aria-label="当前关注阶段"
+                @update:model-value="draft.stage = $event as Stage"
+              />
+            </label>
+            <label>
+              个人状态
+              <SingleSelect
+                :model-value="draft.status"
+                :options="Object.entries(statuses).map(([value, label]) => ({ value, label }))"
+                aria-label="个人状态"
+                @update:model-value="draft.status = $event as Status"
+              />
+            </label>
+          </div>
+          <label>
+            下一步
+            <Input v-model="draft.nextAction" name="nextAction" />
+          </label>
+          <label>
+            阻塞说明{{ draft.status === 'blocked' ? '（必填）' : '' }}
+            <Textarea
+              v-model="draft.blocker"
+              name="blocker"
+              :required="draft.status === 'blocked'"
+              rows="3"
+            />
+          </label>
+          <label>
+            待决备注
+            <Textarea v-model="draft.notes" name="notes" rows="3" />
+          </label>
+          <div class="form-actions">
+            <Button type="button" variant="outline" :disabled="editBusy" @click="reload">
+              重新载入
+            </Button>
+            <Button :disabled="editBusy || !dirty">
+              <LoadingIndicator :active="savingSpec" />
+              {{ savingSpec ? '正在保存…' : '保存标记' }}
+            </Button>
+          </div>
+        </form>
+        <div class="notice source-strip" :class="{ warning: spec.sourceHealth !== 'available' }">
+          <span>{{ healthLabels[spec.sourceHealth] }}</span>
+          <span>文件修改 {{ dateLabel(spec.sourceModifiedAt) }}</span>
         </div>
-      </div>
-      <form
-        v-if="resourceEdit && draft"
-        class="platform-section form-stack"
-        aria-label="编辑个人资源"
-        @submit.prevent="save"
-      >
-        <ResourceEditor v-model="draft.resources" />
-        <div class="form-actions"><Button :disabled="saving || !dirty">保存个人资源</Button></div>
-      </form>
-    </section>
-    <section
-      v-if="tab === 'development'"
-      id="panel-development"
-      role="tabpanel"
-      aria-labelledby="tab-development"
-    >
-      <ExternalLinks :project-id="spec.record.projectId" :spec-id="spec.record.id" />
-    </section>
-    <section v-show="tab === 'run'" id="panel-run" role="tabpanel" aria-labelledby="tab-run">
-      <AgentLauncher
-        :key="spec.record.id"
-        :active="tab === 'run'"
-        :spec-id="spec.record.id"
-        :project-id="spec.record.projectId"
-        :lifecycle-stage="selectedStage"
-      />
-    </section>
-    <section
-      v-if="tab === 'history'"
-      id="panel-history"
-      role="tabpanel"
-      aria-labelledby="tab-history"
-    >
-      <PagedHistory :spec-id="spec.record.id" />
-    </section>
-    <section
-      v-show="tab === 'settings'"
-      id="panel-settings"
-      role="tabpanel"
-      aria-labelledby="tab-settings"
-    >
-      <form
-        v-if="draft"
-        class="platform-section form-stack"
-        aria-label="Spec 关联设置"
-        @submit.prevent="save"
-      >
-        <h2>关联设置</h2>
-        <label>
-          标题
-          <Input v-model="draft.title" name="title" required />
-        </label>
-        <label>
-          主规格相对路径
-          <Input v-model="draft.sourcePath" name="sourcePath" required spellcheck="false" />
-        </label>
-        <details class="settings-help">
-          <summary>主规格移动后如何处理</summary>
-          <p class="muted">文件移动后在这里更新路径，保留当前 Spec 身份与历史。</p>
-        </details>
-        <label class="check-label">
-          <input v-model="draft.active" type="checkbox" name="active" />
-          启用此 Spec
-        </label>
-        <div class="form-actions"><Button :disabled="saving || !dirty">保存设置</Button></div>
-      </form>
-    </section>
+        <div v-if="spec.resources.length" class="resource-shortcuts">
+          <strong>一并阅读</strong>
+          <template v-for="(resource, index) in spec.resources" :key="index">
+            <a
+              v-if="resource.record.targetType === 'web' && isWebLink(resource.record.target)"
+              :href="resource.record.target"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ resource.record.label }} ↗
+            </a>
+            <Button v-else variant="outline" @click="openResource(resource.record.target)">
+              {{ resource.record.label }}
+            </Button>
+          </template>
+        </div>
+        <SourcePreview
+          :spec-id="spec.record.id"
+          :source-path="spec.record.sourcePath"
+          :fragment="sourceSection"
+          :active="tab === 'overview'"
+          @navigate="openResource"
+          @position="setQuery({ section: $event })"
+        />
+      </TabsContent>
+      <TabsContent value="content" as="section">
+        <LoadingSkeleton v-if="initializing && tab === 'content'" variant="detail" :rows="3" label="正在读取待确认事项…" />
+        <ContentPanel
+          v-if="!initializing"
+          :key="spec.record.id"
+          :spec-id="spec.record.id"
+          :source-path="spec.record.sourcePath"
+          :project-root="project?.record.rootPath"
+          :content="spec.content"
+          :confirm-leave="allowLeave"
+          @dirty="questionDirty = $event"
+          @saved="childSaved"
+        />
+      </TabsContent>
+      <TabsContent value="lifecycle" as="section">
+        <LifecycleOverview
+          :key="spec.record.id"
+          :spec-id="spec.record.id"
+          :project-id="spec.record.projectId"
+          :spec-digest="spec.content.artifactDigest"
+          :progress="progress"
+          :initial-stage="selectedStage"
+          :confirm-leave="allowLeave"
+          @select="setQuery({ stage: $event })"
+          @dirty="lifecycleDirty = $event"
+          @saved="childSaved"
+          @confirm-content="tab = 'content'"
+        />
+        <Collapsible class="personal-lifecycle" :unmount-on-hide="false">
+          <CollapsibleTrigger>个人阶段记录</CollapsibleTrigger>
+          <CollapsibleContent>
+            <LifecyclePanel
+              v-if="!initializing"
+              :key="spec.record.id"
+              :spec-id="spec.record.id"
+              :initial-stage="selectedStage"
+              :confirm-leave="allowLeave"
+              @select="setQuery({ stage: $event })"
+              @dirty="stageDirty = $event"
+              @saved="childSaved"
+            />
+          </CollapsibleContent>
+        </Collapsible>
+      </TabsContent>
+      <TabsContent value="resources" as="section">
+        <div class="platform-section">
+          <div class="section-heading">
+            <h2>关联资源</h2>
+            <Button variant="outline" :disabled="editBusy" @click="syncResources">
+              <LoadingIndicator :active="syncingResources" />
+              {{ syncingResources ? '正在同步…' : '同步主规格关联' }}
+            </Button>
+          </div>
+          <Alert v-if="syncError" role="alert" class="notice error">{{ syncError }}</Alert>
+          <ResourceList :resources="spec.resources" @open="openResource" @copy="copyPath" />
+          <div class="resource-edit-toggle">
+            <Button
+              type="button"
+              variant="outline"
+              :aria-expanded="resourceEdit"
+              @click="resourceEdit = !resourceEdit"
+            >
+              {{ resourceEdit ? '收起个人资源编辑' : '编辑个人资源' }}
+            </Button>
+            <span class="muted">个人补充与主规格关联一同展示。</span>
+          </div>
+        </div>
+        <form
+          v-if="resourceEdit && draft"
+          class="platform-section form-stack"
+          aria-label="编辑个人资源"
+          @submit.prevent="save"
+        >
+          <ResourceEditor v-model="draft.resources" />
+          <div class="form-actions">
+            <Button :disabled="editBusy || !dirty">
+              <LoadingIndicator :active="savingSpec" />
+              {{ savingSpec ? '正在保存…' : '保存个人资源' }}
+            </Button>
+          </div>
+        </form>
+      </TabsContent>
+      <TabsContent value="development" as="section">
+        <ExternalLinks v-if="tab === 'development'" :project-id="spec.record.projectId" :spec-id="spec.record.id" />
+      </TabsContent>
+      <TabsContent value="run" as="section">
+        <AgentLauncher
+          :key="spec.record.id"
+          :active="tab === 'run'"
+          :spec-id="spec.record.id"
+          :project-id="spec.record.projectId"
+          :lifecycle-stage="selectedStage"
+        />
+      </TabsContent>
+      <TabsContent value="history" as="section">
+        <PagedHistory v-if="tab === 'history'" :spec-id="spec.record.id" />
+      </TabsContent>
+      <TabsContent value="settings" as="section">
+        <LoadingSkeleton v-if="initializing && tab === 'settings'" variant="form" :rows="3" label="正在读取关联设置…" />
+        <form
+          v-else-if="draft"
+          class="platform-section form-stack"
+          aria-label="Spec 关联设置"
+          @submit.prevent="save"
+        >
+          <h2>关联设置</h2>
+          <label>
+            标题
+            <Input v-model="draft.title" name="title" required />
+          </label>
+          <label>
+            主规格相对路径
+            <Input v-model="draft.sourcePath" name="sourcePath" required spellcheck="false" />
+          </label>
+          <Collapsible class="settings-help">
+            <CollapsibleTrigger>主规格移动后如何处理</CollapsibleTrigger>
+            <CollapsibleContent>
+              <p class="muted">文件移动后在这里更新路径，保留当前 Spec 身份与历史。</p>
+            </CollapsibleContent>
+          </Collapsible>
+          <label class="check-label">
+            <Checkbox :model-value="draft.active" @update:model-value="draft.active = $event === true" name="active" />
+            启用此 Spec
+          </label>
+          <div class="form-actions">
+            <Button :disabled="editBusy || !dirty">
+              <LoadingIndicator :active="savingSpec" />
+              {{ savingSpec ? '正在保存…' : '保存设置' }}
+            </Button>
+          </div>
+        </form>
+      </TabsContent>
+    </Tabs>
     <ResourceViewer
       v-model="resourceTarget"
       :refresh-key="spec.content.artifactDigest"
@@ -530,10 +519,16 @@ function moveTab(event: KeyboardEvent) {
       </div>
     </ModalDialog>
   </template>
-  <p v-else class="empty">
-    Spec 不存在。
-    <RouterLink to="/specs">返回全部 Spec</RouterLink>
-  </p>
+  <LoadingSkeleton v-else-if="snapshotLoading && !snapshot" variant="detail" :rows="4" label="正在读取 Spec…" />
+  <Empty v-else>
+    <EmptyHeader>
+      <EmptyTitle><h2>Spec 不存在</h2></EmptyTitle>
+      <EmptyDescription>可返回列表查看当前已关联的 Spec。</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+      <Button as-child variant="outline"><RouterLink to="/specs">返回全部 Spec</RouterLink></Button>
+    </EmptyContent>
+  </Empty>
 </template>
 <style scoped>
 .spec-detail-heading {
@@ -542,13 +537,17 @@ function moveTab(event: KeyboardEvent) {
 .spec-detail-heading > div:first-child {
   min-width: 0;
 }
+.spec-detail-heading .inline-meta {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
 .spec-origin {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 10px;
   margin-top: 10px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 .spec-origin > a {
@@ -563,7 +562,7 @@ function moveTab(event: KeyboardEvent) {
   min-height: 24px;
   padding: 0 6px;
   font-size: 11px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
 }
 .copy-path-notice {
   margin: 0 0 12px;
@@ -580,10 +579,10 @@ function moveTab(event: KeyboardEvent) {
 .resource-edit-toggle > span {
   font-size: 11px;
 }
-.settings-help summary {
+.settings-help [data-slot='collapsible-trigger'] {
   cursor: pointer;
   font-size: 12px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
 }
 .settings-help p {
   margin-top: 8px;
@@ -620,5 +619,14 @@ function moveTab(event: KeyboardEvent) {
 }
 .resource-shortcuts a {
   color: #315dcf;
+}
+@media (width < 720px) {
+  .focus-summary {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .spec-origin > button {
+    min-height: 44px;
+  }
 }
 </style>

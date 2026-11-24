@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, shallowRef, watch } from 'vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
+import { computed, onMounted, reactive, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { FieldLabel } from '@/components/ui/field'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { errorMessage } from '@/services/workbench'
 import { objectValue, readableValue, type JsonObject } from '@/services/workbench-platform'
@@ -17,8 +27,11 @@ import {
 } from '@/services/workbench-engineering'
 const props = defineProps<{ rootPath?: string }>()
 const router = useRouter()
+const id = useId()
 const route = useRoute()
 const catalog = shallowRef<EngineeringCatalog>()
+const catalogLoading = shallowRef(true)
+const catalogError = shallowRef('')
 const operation = shallowRef('doctor')
 const values = reactive<Record<string, string>>({
   root: props.rootPath ?? '',
@@ -45,7 +58,8 @@ const recipe = shallowRef('')
 const previewSource = shallowRef('')
 const preview = shallowRef<EngineeringPreview>()
 const inspection = shallowRef<EngineeringInspection>()
-const busy = shallowRef(false)
+const action = shallowRef<'inspect' | 'prepare' | 'execute'>()
+const busy = computed(() => !!action.value)
 const error = shallowRef('')
 const selected = computed(() =>
   catalog.value?.operations.find((item) => item.id === operation.value)
@@ -112,7 +126,9 @@ watch(recipe, (id) => {
     yssComponentsVersion: choice.bom.version
   })
 })
-onMounted(async () => {
+async function loadCatalog() {
+  catalogLoading.value = true
+  catalogError.value = ''
   try {
     catalog.value = await getEngineeringCatalog()
     if (
@@ -122,26 +138,29 @@ onMounted(async () => {
       operation.value = route.query.operation
     recipe.value = catalog.value.scaffold.defaultRecipeId ?? recipes.value[0]?.id ?? ''
   } catch (cause) {
-    error.value = errorMessage(cause)
+    catalogError.value = errorMessage(cause)
+  } finally {
+    catalogLoading.value = false
   }
-})
+}
+onMounted(loadCatalog)
 async function inspect() {
   if (busy.value) return
-  busy.value = true
+  action.value = 'inspect'
   error.value = ''
   try {
     inspection.value = await inspectEngineering(values.root ?? '')
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 async function prepare() {
   if (busy.value) return
   previewSource.value = ''
   changeLimit.value = 20
-  busy.value = true
+  action.value = 'prepare'
   error.value = ''
   try {
     const encoded = JSON.stringify(request.value)
@@ -150,12 +169,12 @@ async function prepare() {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 async function execute() {
   if (!preview.value || !previewCurrent.value || busy.value) return
-  busy.value = true
+  action.value = 'execute'
   error.value = ''
   try {
     const job = await executeEngineering(preview.value.id)
@@ -163,7 +182,7 @@ async function execute() {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 function options(value: unknown): string[] {
@@ -316,7 +335,7 @@ function fieldOptions(value: unknown) {
 }
 </script>
 <template>
-  <section class="platform-section engineering-panel">
+  <Card class="block gap-0 py-0 shadow-none platform-section engineering-panel">
     <div class="section-heading">
       <div>
         <h2>工程维护</h2>
@@ -324,12 +343,24 @@ function fieldOptions(value: unknown) {
           YSS {{ catalog.processVersion }} · Bundle {{ catalog.bundleDigest.slice(0, 12) }}
         </p>
       </div>
-      <Button type="button" variant="outline" :disabled="busy || !values.root" @click="inspect"
-        >读取工程状态</Button
-      >
+      <Button type="button" variant="outline" :disabled="busy || !values.root" @click="inspect">
+        <LoadingIndicator :active="action === 'inspect'" />
+        {{ action === 'inspect' ? '读取中…' : '读取工程状态' }}
+      </Button>
     </div>
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-    <p v-if="!catalog && !error" role="status" class="muted">正在读取可用操作…</p>
+    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
+    <Alert v-if="catalogError" class="notice error" variant="destructive">
+      {{ catalogError }}
+      <Button type="button" variant="outline" :disabled="catalogLoading" @click="loadCatalog">
+        重试读取可用操作
+      </Button>
+    </Alert>
+    <LoadingSkeleton
+      v-if="catalogLoading && !catalog"
+      variant="form"
+      :rows="2"
+      label="正在读取工程维护操作"
+    />
     <form
       v-if="catalog"
       class="form-stack"
@@ -361,7 +392,7 @@ function fieldOptions(value: unknown) {
               :required="field.required"
               :disabled="busy"
             />
-            <textarea
+            <Textarea
               v-else-if="field.type === 'skills'"
               v-model="skills"
               :name="field.name"
@@ -372,7 +403,7 @@ function fieldOptions(value: unknown) {
               autocapitalize="none"
               placeholder="技能名，每行一个或以逗号分隔"
             />
-            <input
+            <Input
               v-else
               v-model="values[field.name]"
               :name="field.name"
@@ -389,14 +420,16 @@ function fieldOptions(value: unknown) {
               "
             />
           </label>
-          <details v-else-if="field.type === 'object'" class="parameter-details">
-            <summary>项目资料变量（可选）</summary>
-            <div class="form-grid">
-              <label v-for="name in options(field.options)" :key="name"
-                >{{ variableLabels[name] ?? name }}<input v-model="variables[name]" :name="name"
-              /></label>
-            </div>
-          </details>
+          <Collapsible v-else-if="field.type === 'object'" class="parameter-details">
+            <CollapsibleTrigger>项目资料变量（可选）</CollapsibleTrigger>
+            <CollapsibleContent>
+              <div class="form-grid">
+                <label v-for="name in options(field.options)" :key="name"
+                  >{{ variableLabels[name] ?? name }}<Input v-model="variables[name]" :name="name"
+                /></label>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
           <fieldset v-else-if="field.type === 'backend'" class="plain-fieldset form-stack">
             <legend>后端工程配方</legend>
             <label
@@ -416,14 +449,14 @@ function fieldOptions(value: unknown) {
             </p>
             <div class="form-grid">
               <label v-for="item in backendLabels.slice(0, 4)" :key="item.name"
-                >{{ item.label }}（必填）<input
-                  :value="String(backend[item.name] ?? '')"
+                >{{ item.label }}（必填）<Input
+                  :model-value="String(backend[item.name] ?? '')"
                   :name="item.name"
                   required
                   spellcheck="false"
                   autocorrect="off"
                   autocapitalize="none"
-                  @input="backend[item.name] = ($event.target as HTMLInputElement).value"
+                  @update:model-value="backend[item.name] = String($event)"
               /></label>
             </div>
             <details :open="!recipe">
@@ -431,43 +464,37 @@ function fieldOptions(value: unknown) {
               <div class="form-grid">
                 <label v-for="item in backendLabels.slice(4)" :key="item.name"
                   >{{ item.label
-                  }}<input
-                    :value="String(backend[item.name] ?? '')"
+                  }}<Input
+                    :model-value="String(backend[item.name] ?? '')"
                     :name="item.name"
                     :type="item.name === 'javaVersion' ? 'number' : 'text'"
                     required
                     spellcheck="false"
                     autocorrect="off"
                     autocapitalize="none"
-                    @input="
-                      backend[item.name] =
-                        item.name === 'javaVersion'
-                          ? Number(($event.target as HTMLInputElement).value)
-                          : ($event.target as HTMLInputElement).value
+                    @update:model-value="
+                      backend[item.name] = item.name === 'javaVersion' ? Number($event) : String($event)
                     "
                 /></label>
               </div>
             </details>
           </fieldset>
           <fieldset v-else-if="field.type === 'upgrade'" class="plain-fieldset form-stack">
-            <legend>升级来源</legend>
-            <div class="inline-actions">
-              <label class="check-label"
-                ><input
-                  v-model="upgradeMode"
-                  type="radio"
-                  name="upgradeMode"
-                  value="online"
-                />在线发行</label
-              ><label class="check-label"
-                ><input
-                  v-model="upgradeMode"
-                  type="radio"
-                  name="upgradeMode"
-                  value="offline"
-                />离线归档</label
-              >
-            </div>
+            <legend :id="`${id}-upgrade-legend`">升级来源</legend>
+            <RadioGroup
+              v-model="upgradeMode"
+              name="upgradeMode"
+              class="flex flex-wrap gap-5"
+              :aria-labelledby="`${id}-upgrade-legend`"
+              :disabled="busy"
+            >
+              <FieldLabel :for="`${id}-upgrade-online`" class="check-label has-data-[state=checked]:bg-transparent has-data-[state=checked]:border-transparent">
+                <RadioGroupItem :id="`${id}-upgrade-online`" value="online" />在线发行
+              </FieldLabel>
+              <FieldLabel :for="`${id}-upgrade-offline`" class="check-label has-data-[state=checked]:bg-transparent has-data-[state=checked]:border-transparent">
+                <RadioGroupItem :id="`${id}-upgrade-offline`" value="offline" />离线归档
+              </FieldLabel>
+            </RadioGroup>
             <label v-if="upgradeMode === 'online'"
               >发行平台<SingleSelect
                 v-model="upgrade.source"
@@ -481,7 +508,7 @@ function fieldOptions(value: unknown) {
             /></label>
             <template v-else
               ><label
-                >离线归档绝对路径（必填）<input
+                >离线归档绝对路径（必填）<Input
                   v-model="upgrade.artifact"
                   name="artifact"
                   required
@@ -489,7 +516,7 @@ function fieldOptions(value: unknown) {
                   autocorrect="off"
                   autocapitalize="none" /></label
               ><label
-                >归档 SHA-256（必填）<input
+                >归档 SHA-256（必填）<Input
                   v-model="upgrade.sha256"
                   name="sha256"
                   required
@@ -499,7 +526,7 @@ function fieldOptions(value: unknown) {
                   autocapitalize="none" /></label
             ></template>
             <label
-              >目标版本<input
+              >目标版本<Input
                 v-model="upgrade.to"
                 name="to"
                 spellcheck="false"
@@ -512,23 +539,26 @@ function fieldOptions(value: unknown) {
           </fieldset>
         </template>
         <div class="form-actions">
-          <Button :disabled="busy">{{ busy ? '正在核对…' : '查看执行内容' }}</Button>
+          <Button type="submit" :disabled="busy">
+            <LoadingIndicator :active="action === 'prepare'" />
+            {{ action === 'prepare' ? '正在核对…' : '查看执行内容' }}
+          </Button>
         </div>
       </fieldset>
     </form>
-    <section v-if="inspection" class="result-details inspection" aria-label="工程状态">
+    <section v-if="inspection" class="result-details inspection" aria-label="工程状态" :aria-busy="action === 'inspect'">
       <div class="section-heading">
         <h3>工程状态</h3>
-        <span class="muted">{{ inspection.root }}</span>
+        <span class="path-text">{{ inspection.root }}</span>
       </div>
-      <table class="spec-table facts-table">
-        <caption class="sr-only">
+      <Table class="spec-table facts-table">
+        <TableCaption class="sr-only">
           安装身份与文件诊断摘要
-        </caption>
-        <tbody>
-          <tr>
-            <th scope="row">工程安装</th>
-            <td>
+        </TableCaption>
+        <TableBody>
+          <TableRow>
+            <TableHead scope="row">工程安装</TableHead>
+            <TableCell>
               {{
                 installation.profile
                   ? labels[String(installation.profile)]
@@ -536,176 +566,200 @@ function fieldOptions(value: unknown) {
                     ? '独立工具目录'
                     : errorText(inspection.doctorError) || '尚未接入'
               }}
-            </td>
-          </tr>
-          <tr v-if="installation.profile">
-            <th scope="row">受管内容</th>
-            <td>
+            </TableCell>
+          </TableRow>
+          <TableRow v-if="installation.profile">
+            <TableHead scope="row">受管内容</TableHead>
+            <TableCell>
               {{
                 inspectionDifferences.length
                   ? `${inspectionDifferences.length} 处本地差异`
                   : '与安装记录一致'
               }}
-            </td>
-          </tr>
-          <tr v-if="Array.isArray(pendingTransactions)">
-            <th scope="row">待恢复事务</th>
-            <td :class="pendingTransactions.length ? 'warning-text' : ''">
+            </TableCell>
+          </TableRow>
+          <TableRow v-if="Array.isArray(pendingTransactions)">
+            <TableHead scope="row">待恢复事务</TableHead>
+            <TableCell :class="pendingTransactions.length ? 'warning-text' : ''">
               {{ pendingTransactions.length }} 项
-            </td>
-          </tr>
-          <tr v-if="toolBuild.version">
-            <th scope="row">磁盘工具版本</th>
-            <td>{{ toolBuild.version }}</td>
-          </tr>
-          <tr>
-            <th scope="row">Issue tracker</th>
-            <td>
+            </TableCell>
+          </TableRow>
+          <TableRow v-if="toolBuild.version">
+            <TableHead scope="row">磁盘工具版本</TableHead>
+            <TableCell>{{ toolBuild.version }}</TableCell>
+          </TableRow>
+          <TableRow>
+            <TableHead scope="row">Issue tracker</TableHead>
+            <TableCell>
               <span v-for="[key, value] in trackerFields" :key="key" class="tracker-field"
                 >{{ key }} · {{ value }}</span
               ><span v-if="!trackerFields.length" class="muted">未配置</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <details v-if="skillRows.length">
-        <summary>技能安装状态（{{ skillRows.length }}）</summary>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="技能安装状态">
-          <table class="spec-table">
-            <thead>
-              <tr>
-                <th scope="col">技能</th>
-                <th scope="col">状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="[name, status] in skillRows" :key="name">
-                <th scope="row">{{ name }}</th>
-                <td>{{ skillStatus[String(status)] ?? status }}</td>
-              </tr>
-            </tbody>
-          </table>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      <Collapsible v-if="skillRows.length">
+        <CollapsibleTrigger>技能安装状态（{{ skillRows.length }}）</CollapsibleTrigger>
+        <CollapsibleContent>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="技能安装状态">
+            <Table class="spec-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">技能</TableHead>
+                  <TableHead scope="col">状态</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="[name, status] in skillRows" :key="name">
+                  <TableHead scope="row">{{ name }}</TableHead>
+                  <TableCell>{{ skillStatus[String(status)] ?? status }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+      <Collapsible v-if="inspectionDifferences.length">
+        <CollapsibleTrigger>查看本地文件差异</CollapsibleTrigger>
+        <CollapsibleContent>
+          <ul class="readable-list">
+            <li v-for="item in inspectionDifferences" :key="String(item.path)">
+              <span class="path-text">{{ item.path }}</span><span>{{
+                actionLabels[String(item.action)] ?? item.action
+              }}</span>
+            </li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+      <Collapsible>
+        <CollapsibleTrigger>完整诊断数据</CollapsibleTrigger>
+        <CollapsibleContent>
+          <p v-if="inspection.skillsError" class="warning-text">
+            {{ errorText(inspection.skillsError) }}
+          </p>
+          <p v-if="inspection.toolError" class="warning-text">
+            {{ errorText(inspection.toolError) }}
+          </p>
+          <pre>{{ readableValue(inspection) }}</pre>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+    <div v-if="preview" class="relative">
+      <section class="result-details execution-preview" aria-label="执行预览" :aria-busy="action === 'prepare'">
+        <div class="section-heading">
+          <h3>
+            {{
+              catalog?.operations.find((item) => item.id === preview?.request.operation)?.label
+            }}预览
+          </h3>
+          <span class="muted">{{ selected?.mutating ? '核对后执行' : '只读操作' }}</span>
         </div>
-      </details>
-      <details v-if="inspectionDifferences.length">
-        <summary>查看本地文件差异</summary>
-        <ul class="readable-list">
-          <li v-for="item in inspectionDifferences" :key="String(item.path)">
-            <span class="path-text">{{ item.path }}</span><span>{{
-              actionLabels[String(item.action)] ?? item.action
-            }}</span>
-          </li>
-        </ul>
-      </details>
-      <details>
-        <summary>完整诊断数据</summary>
-        <p v-if="inspection.skillsError" class="warning-text">
-          {{ errorText(inspection.skillsError) }}
+        <Table class="spec-table facts-table">
+          <TableCaption class="sr-only">
+            操作目标与版本
+          </TableCaption>
+          <TableBody>
+            <TableRow v-for="fact in facts" :key="fact.label">
+              <TableHead scope="row">{{ fact.label }}</TableHead>
+              <TableCell class="path-text">{{ fact.value }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        <p v-if="changes.length || preserved.length" class="change-summary">
+          {{ changes.length }} 项文件变更<span v-if="preserved.length">
+            · 保留 {{ preserved.length }} 项本地内容</span
+          >
         </p>
-        <p v-if="inspection.toolError" class="warning-text">
-          {{ errorText(inspection.toolError) }}
-        </p>
-        <pre>{{ readableValue(inspection) }}</pre>
-      </details>
-    </section>
-    <section v-if="preview" class="result-details execution-preview" aria-label="执行预览">
-      <div class="section-heading">
-        <h3>
-          {{
-            catalog?.operations.find((item) => item.id === preview?.request.operation)?.label
-          }}预览
-        </h3>
-        <span class="muted">{{ selected?.mutating ? '核对后执行' : '只读操作' }}</span>
-      </div>
-      <table class="spec-table facts-table">
-        <caption class="sr-only">
-          操作目标与版本
-        </caption>
-        <tbody>
-          <tr v-for="fact in facts" :key="fact.label">
-            <th scope="row">{{ fact.label }}</th>
-            <td class="path-text">{{ fact.value }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="changes.length || preserved.length" class="change-summary">
-        {{ changes.length }} 项文件变更<span v-if="preserved.length">
-          · 保留 {{ preserved.length }} 项本地内容</span
+        <p v-for="warning in warnings" :key="warning" class="warning-text">{{ warning }}</p>
+        <div
+          v-if="changes.length"
+          class="table-scroll change-table"
+          tabindex="0"
+          role="region"
+          aria-label="计划文件变化"
         >
-      </p>
-      <p v-for="warning in warnings" :key="warning" class="warning-text">{{ warning }}</p>
-      <div
-        v-if="changes.length"
-        class="table-scroll change-table"
-        tabindex="0"
-        role="region"
-        aria-label="计划文件变化"
-      >
-        <table class="spec-table">
-          <caption class="sr-only">
-            逐项计划文件变化
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">文件</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in visibleChanges" :key="item.path">
-              <td class="path-text">{{ item.path }}</td>
-              <td>{{ actionLabels[item.action] ?? item.action }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <Button
-          v-if="changes.length > changeLimit"
-          type="button"
-          variant="ghost"
-          @click="changeLimit += 50"
-          >继续显示（还有 {{ changes.length - changeLimit }} 项）</Button
+          <Table class="spec-table">
+            <TableCaption class="sr-only">
+              逐项计划文件变化
+            </TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">文件</TableHead>
+                <TableHead scope="col">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="item in visibleChanges" :key="item.path">
+                <TableCell class="path-text">{{ item.path }}</TableCell>
+                <TableCell>{{ actionLabels[item.action] ?? item.action }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <Button
+            v-if="changes.length > changeLimit"
+            type="button"
+            variant="ghost"
+            @click="changeLimit += 50"
+            >继续显示（还有 {{ changes.length - changeLimit }} 项）</Button
+          >
+        </div>
+        <div
+          v-if="resultSkillRows.length"
+          class="table-scroll"
+          tabindex="0"
+          role="region"
+          aria-label="可读取的技能状态"
         >
-      </div>
-      <div
-        v-if="resultSkillRows.length"
-        class="table-scroll"
-        tabindex="0"
-        role="region"
-        aria-label="可读取的技能状态"
-      >
-        <table class="spec-table">
-          <thead>
-            <tr>
-              <th scope="col">技能</th>
-              <th scope="col">状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="[name, status] in resultSkillRows" :key="name">
-              <th scope="row">{{ name }}</th>
-              <td>{{ skillStatus[String(status)] ?? status }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <details v-if="preserved.length">
-        <summary>保留的本地内容</summary>
-        <ul class="readable-list">
-          <li v-for="path in preserved" :key="String(path)" class="path-text">{{ path }}</li>
-        </ul>
-      </details>
-      <details>
-        <summary>原始报告与来源</summary>
-        <pre>{{ readableValue(preview.report) }}</pre>
-      </details>
-      <p v-if="!previewCurrent" class="notice warning">参数已变化，请重新查看执行内容。</p>
-      <div class="form-actions">
-        <Button type="button" :disabled="busy || !previewCurrent" @click="execute">{{
-          selected?.mutating ? '执行此操作' : '执行读取'
-        }}</Button>
-      </div>
-    </section>
-  </section>
+          <Table class="spec-table">
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">技能</TableHead>
+                <TableHead scope="col">状态</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="[name, status] in resultSkillRows" :key="name">
+                <TableHead scope="row">{{ name }}</TableHead>
+                <TableCell>{{ skillStatus[String(status)] ?? status }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+        <Collapsible v-if="preserved.length">
+          <CollapsibleTrigger>保留的本地内容</CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul class="readable-list">
+              <li v-for="path in preserved" :key="String(path)" class="path-text">{{ path }}</li>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
+        <Collapsible>
+          <CollapsibleTrigger>原始报告与来源</CollapsibleTrigger>
+          <CollapsibleContent>
+            <pre>{{ readableValue(preview.report) }}</pre>
+          </CollapsibleContent>
+        </Collapsible>
+        <Alert v-if="!previewCurrent && action !== 'prepare'" class="notice warning">参数已变化，请重新查看执行内容。</Alert>
+        <div class="form-actions">
+          <Button type="button" :disabled="busy || !previewCurrent" @click="execute">
+            <LoadingIndicator :active="action === 'execute'" />
+            {{ action === 'execute' ? '正在发起…' : selected?.mutating ? '执行此操作' : '执行读取' }}
+          </Button>
+        </div>
+      </section>
+      <LoadingIndicator
+        :active="action === 'prepare'"
+        placement="overlay"
+        label="正在核对，暂显示上次预览"
+      />
+    </div>
+    <LoadingSkeleton
+      v-else-if="action === 'prepare'"
+      variant="table"
+      :rows="3"
+      label="正在读取执行预览"
+    />
+  </Card>
 </template>
 <style scoped>
 .engineering-panel label {
@@ -717,12 +771,12 @@ function fieldOptions(value: unknown) {
 .parameter-details .form-grid {
   margin-top: 12px;
 }
-.facts-table th {
+.facts-table :deep(th) {
   width: 150px;
   white-space: nowrap;
   font-weight: 500;
 }
-.facts-table td {
+.facts-table :deep(td) {
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -743,18 +797,18 @@ function fieldOptions(value: unknown) {
 .change-table {
   max-height: 420px;
 }
-.change-table table {
+.change-table :deep(table) {
   min-width: 440px;
 }
-.change-table td:first-child {
+.change-table :deep(td:first-child) {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.change-table td:last-child {
+.change-table :deep(td:last-child) {
   white-space: nowrap;
   width: 100px;
 }
-.change-table thead {
+.change-table :deep(thead) {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -777,7 +831,7 @@ function fieldOptions(value: unknown) {
   border-top: 1px solid var(--yss-colors-border);
 }
 @media (width < 720px) {
-  .facts-table th {
+  .facts-table :deep(th) {
     width: 100px;
   }
   .inspection .section-heading {

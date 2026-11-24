@@ -1,11 +1,26 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
-import Workbench from '@/views/Workbench/index.vue'
-import Projects from '@/views/Projects/index.vue'
-import ProjectDetail from '@/views/ProjectDetail/index.vue'
-import Specs from '@/views/Specs/index.vue'
-import SpecDetail from '@/views/SpecDetail/index.vue'
-import Jobs from '@/views/Jobs/index.vue'
-import Settings from '@/views/Settings/index.vue'
+import { shallowReadonly, shallowRef } from 'vue'
+import { createRouter, createWebHashHistory, type RouteLocationNormalized } from 'vue-router'
+
+const Workbench = () => import('@/views/Workbench/index.vue')
+const Projects = () => import('@/views/Projects/index.vue')
+const ProjectDetail = () => import('@/views/ProjectDetail/index.vue')
+const Specs = () => import('@/views/Specs/index.vue')
+const SpecDetail = () => import('@/views/SpecDetail/index.vue')
+const Jobs = () => import('@/views/Jobs/index.vue')
+const Settings = () => import('@/views/Settings/index.vue')
+
+const pending = shallowRef<RouteLocationNormalized>()
+const failure = shallowRef<RouteLocationNormalized>()
+export const pendingRoute = shallowReadonly(pending)
+export const failedRoute = shallowReadonly(failure)
+
+const retrySearchKey = 'reload-workbench-view'
+const startUrl = new URL(window.location.href)
+if (startUrl.searchParams.has(retrySearchKey)) {
+  startUrl.searchParams.delete(retrySearchKey)
+  window.history.replaceState(window.history.state, '', startUrl)
+}
+
 const positions = new Map<string, number>()
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -46,4 +61,28 @@ router.beforeEach((to, from) => {
     changed = true
   }
   if (changed) return { path: to.path, query, hash: to.hash, replace: true }
+  failure.value = undefined
+  pending.value = to.path !== from.path ? to : undefined
 })
+
+router.afterEach((to) => {
+  if (pending.value === to) pending.value = undefined
+})
+
+router.onError((_cause, to) => {
+  if (pending.value !== to) return
+  pending.value = undefined
+  failure.value = to
+})
+
+export function retryFailedRoute() {
+  if (!failure.value) return
+  const destination = new URL(router.resolve(failure.value.fullPath).href, window.location.href)
+  if (destination.href === window.location.href) {
+    window.location.reload()
+    return
+  }
+  // A failed dynamic import can stay cached for the lifetime of the current document.
+  destination.searchParams.set(retrySearchKey, '1')
+  window.location.assign(destination)
+}

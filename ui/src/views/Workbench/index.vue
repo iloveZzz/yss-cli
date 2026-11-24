@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import WorkItemRows from '@/components/WorkItemRows.vue'
 import ContentAttention from './components/ContentAttention.vue'
 import ActiveJobs from './components/ActiveJobs.vue'
@@ -85,23 +90,28 @@ function target(event: ChangeEvent) {
     ? `${parent ?? '未知记录'} · ${stages[event.lifecycleStage]}阶段`
     : (parent ?? '未知记录')
 }
-function selectFocus(value: string) {
-  void router.replace({ query: { ...route.query, focus: value } })
+function selectFocus(value: string | number) {
+  if (typeof value === 'string' && value !== route.query.focus)
+    void router.replace({ query: { ...route.query, focus: value } })
 }
 </script>
 <template>
   <div class="page-heading">
     <h1>工作台</h1>
     <div class="inline-actions">
-      <RouterLink to="/projects" class="text-link">工程管理</RouterLink>
-      <RouterLink to="/specs" class="text-link">全部 Spec →</RouterLink>
+      <Button as-child variant="outline"><RouterLink to="/projects">工程管理</RouterLink></Button>
+      <Button as-child variant="ghost"><RouterLink to="/specs">全部 Spec →</RouterLink></Button>
     </div>
   </div>
-  <div v-if="!snapshot?.projects.length" class="empty panel welcome">
-    <h2>把本机 Spec 汇集到这里</h2>
-    <p>先登记工程，再从 Markdown 文件中选择要跟踪的 Spec。</p>
-    <RouterLink to="/projects" class="primary-link">登记第一个工程 →</RouterLink>
-  </div>
+  <Empty v-if="!snapshot?.projects.length" class="panel welcome">
+    <EmptyHeader>
+      <EmptyTitle role="heading" aria-level="2">把本机 Spec 汇集到这里</EmptyTitle>
+      <EmptyDescription>先登记工程，再从 Markdown 文件中选择要跟踪的 Spec。</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+      <Button as-child><RouterLink to="/projects">登记第一个工程 →</RouterLink></Button>
+    </EmptyContent>
+  </Empty>
   <template v-else>
     <ContentAttention :specs="activeSpecs" />
     <ActiveJobs />
@@ -110,36 +120,36 @@ function selectFocus(value: string) {
         <h2 id="progress-heading">Spec 推进</h2>
         <RouterLink :to="{ path: '/specs', query: focus.query }">查看筛选列表 →</RouterLink>
       </div>
-      <div class="progress-filters" role="group" aria-label="Spec 推进范围">
-        <button
-          v-for="group in groups"
-          :key="group.id"
-          type="button"
-          :aria-pressed="focus.id === group.id"
-          @click="selectFocus(group.id)"
-        >
-          {{ group.label }}
-          <span>{{ group.specs.length }}</span>
-        </button>
-      </div>
-      <div v-if="progressItems.length" class="panel">
-        <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" />
-      </div>
-      <p v-else class="quiet-empty">
-        {{
-          focus.id === 'attention'
-            ? '当前没有待确认或待核实事项'
-            : focus.id === 'blocked'
-            ? '当前没有阻塞事项'
-            : focus.id === 'doing'
-              ? '当前没有进行中的 Spec'
-              : '当前来源均可访问'
-        }}
-      </p>
+      <Tabs :model-value="focus.id" activation-mode="manual" @update:model-value="selectFocus">
+        <TabsList class="progress-filters" aria-label="Spec 推进范围">
+          <TabsTrigger v-for="group in groups" :key="group.id" :value="group.id">
+            {{ group.label }}
+            <Badge variant="secondary" class="tab-count">{{ group.specs.length }}</Badge>
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent v-for="group in groups" :key="group.id" :value="group.id" class="min-w-0">
+          <Card v-if="progressItems.length" class="panel block gap-0 py-0 shadow-none">
+            <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" />
+          </Card>
+          <Empty v-else class="quiet-empty">
+            <EmptyDescription>
+              {{
+                focus.id === 'attention'
+                  ? '当前没有待确认或待核实事项'
+                  : focus.id === 'blocked'
+                    ? '当前没有阻塞事项'
+                    : focus.id === 'doing'
+                      ? '当前没有进行中的 Spec'
+                      : '当前来源均可访问'
+              }}
+            </EmptyDescription>
+          </Empty>
+        </TabsContent>
+      </Tabs>
     </section>
     <div v-if="recent.length || activity.length" class="recent-panels">
-      <section v-if="recent.length" class="panel recent-panel" aria-labelledby="recent-heading">
-        <div class="recent-heading"><h2 id="recent-heading">最近访问</h2></div>
+      <Card v-if="recent.length" class="panel recent-panel gap-0 py-0 shadow-none" role="region" aria-labelledby="recent-heading">
+        <CardHeader class="recent-heading"><h2 id="recent-heading">最近访问</h2></CardHeader>
         <ul class="compact-records">
           <li v-for="spec in recent" :key="spec.record.id">
             <RouterLink
@@ -152,9 +162,9 @@ function selectFocus(value: string) {
             </time>
           </li>
         </ul>
-      </section>
-      <section v-if="activity.length" class="panel recent-panel" aria-labelledby="activity-heading">
-        <div class="recent-heading"><h2 id="activity-heading">最近操作</h2></div>
+      </Card>
+      <Card v-if="activity.length" class="panel recent-panel gap-0 py-0 shadow-none" role="region" aria-labelledby="activity-heading">
+        <CardHeader class="recent-heading"><h2 id="activity-heading">最近操作</h2></CardHeader>
         <ol class="compact-records activity-records">
           <li v-for="event in activity" :key="event.id">
             <div>
@@ -171,7 +181,7 @@ function selectFocus(value: string) {
             <time :datetime="event.at">{{ dateLabel(event.at) }}</time>
           </li>
         </ol>
-      </section>
+      </Card>
     </div>
   </template>
 </template>
@@ -181,35 +191,26 @@ function selectFocus(value: string) {
 }
 .progress-filters {
   display: flex;
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  width: 100%;
+  height: auto;
   gap: 4px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--yss-colors-border);
+  padding: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
-.progress-filters button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 7px 12px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: #717780;
-  font-size: 12px;
+.progress-filters :deep([data-slot='tabs-trigger']) {
+  flex: 0 0 auto;
+  min-height: var(--yss-control-min-height);
+  padding-inline: 10px;
 }
-.progress-filters button[aria-pressed='true'] {
-  border-bottom-color: var(--yss-color-primary-control);
-  color: var(--yss-color-primary-control);
-}
-.progress-filters span {
-  font-size: 11px;
-  color: #858d99;
+.tab-count {
+  min-width: 20px;
+  font-variant-numeric: tabular-nums;
 }
 .quiet-empty {
-  padding: 14px 0;
-  color: #717780;
-  font-size: 12px;
+  border: 0;
+  padding: 18px 10px;
 }
 .recent-panels {
   display: grid;
@@ -244,7 +245,7 @@ function selectFocus(value: string) {
 }
 .compact-records time {
   flex: none;
-  color: #939aa5;
+  color: var(--brand-color-text-secondary);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -253,7 +254,7 @@ function selectFocus(value: string) {
 }
 .activity-records p {
   margin-top: 4px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -267,9 +268,8 @@ function selectFocus(value: string) {
   .page-heading {
     flex-wrap: wrap;
   }
-  .progress-filters button {
-    min-height: 44px;
-    padding-inline: 9px;
+  .progress-filters {
+    flex-wrap: wrap;
   }
   .compact-records li {
     flex-wrap: wrap;

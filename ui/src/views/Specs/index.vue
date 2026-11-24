@@ -8,13 +8,19 @@ interface DisplayState {
 const displays = new Map<string, DisplayState>()
 </script>
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
 import { computed, reactive, shallowRef, watch, nextTick, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import WorkItemRows from '@/components/WorkItemRows.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
-import { isClosed } from '@/services/workbench'
+import { isClosed, type WorkQuery } from '@/services/workbench'
 import { useSpecFilters } from './hooks/useSpecFilters'
 import { useWorkItems } from './hooks/useWorkItems'
 import SpecBoard from './components/SpecBoard.vue'
@@ -24,7 +30,10 @@ const { snapshot } = useWorkbench()
 const { filters, layout, groupBy, viewId, update, toggle, apply, clear, detachView } =
   useSpecFilters()
 const id = useId()
-const { result, loading, error, refresh, loadMore } = useWorkItems(filters, layout)
+const { result, resultProgressBasis, resultsCurrent, loading, loadingMore, error, refresh, loadMore } = useWorkItems(filters, layout)
+const showPlaceholder = computed(() =>
+  loading.value && (!result.value || (!resultsCurrent.value && !result.value.items.length))
+)
 const displayKey = computed(() => JSON.stringify([filters.value, layout.value, groupBy.value]))
 const display = computed(() => {
   let value = displays.get(displayKey.value)
@@ -37,6 +46,14 @@ const display = computed(() => {
 const restorePosition = shallowRef(true)
 function rememberPosition() {
   display.value.scrollTop = window.scrollY
+}
+function updateFromFilters(patch: Partial<WorkQuery>) {
+  update(patch)
+  rememberPosition()
+}
+function toggleFromFilters(...args: Parameters<typeof toggle>) {
+  toggle(...args)
+  rememberPosition()
 }
 onBeforeRouteLeave(rememberPosition)
 watch(displayKey, (_next, previous) => {
@@ -92,7 +109,7 @@ function all() {
     <h1>全部 Spec</h1>
     <RouterLink to="/projects" class="text-link">关联更多 Spec ↗</RouterLink>
   </div>
-  <section class="spec-query" aria-label="Spec 查询与视图">
+  <Card class="spec-query gap-0 p-0 shadow-none" role="region" aria-label="Spec 查询与视图">
     <div class="query-toolbar">
       <SavedViews
         :query="filters"
@@ -104,8 +121,12 @@ function all() {
       />
       <div class="result-controls">
         <div class="segmented" role="group" aria-label="进度依据">
-          <button type="button" :aria-pressed="filters.progressBasis === 'effective'" @click="update({ progressBasis: 'effective' })">自动进度</button>
-          <button type="button" :aria-pressed="filters.progressBasis === 'personal'" @click="update({ progressBasis: 'personal' })">个人标记</button>
+          <Button type="button" variant="ghost" :aria-pressed="filters.progressBasis === 'effective'" @click="update({ progressBasis: 'effective' })">
+            自动进度
+          </Button>
+          <Button type="button" variant="ghost" :aria-pressed="filters.progressBasis === 'personal'" @click="update({ progressBasis: 'personal' })">
+            个人标记
+          </Button>
         </div>
         <label class="inline-field sort-control" :for="id + 'sort'">
           <span>排序</span>
@@ -122,20 +143,22 @@ function all() {
           />
         </label>
         <div class="segmented" role="group" aria-label="显示方式">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             :aria-pressed="layout === 'list'"
             @click="update({}, { layout: 'list' })"
           >
             列表
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
             :aria-pressed="layout === 'board'"
             @click="update({}, { layout: 'board' })"
           >
             看板
-          </button>
+          </Button>
         </div>
         <label v-if="layout === 'board'" class="inline-field group-control" :for="id + 'group'">
           <span>分组</span>
@@ -157,48 +180,58 @@ function all() {
       :projects="projects"
       :specs="snapshot?.specs ?? []"
       embedded
-      @update="update"
-      @toggle="toggle"
+      @update="updateFromFilters"
+      @toggle="toggleFromFilters"
       @clear="clear"
     />
-  </section>
+  </Card>
   <div class="results-toolbar">
-    <span class="result-count" role="status" aria-live="polite">
-      <strong>{{ result?.total ?? 0 }}</strong>
-      项结果
-      <span v-if="result && result.items.length < result.total">
-        · 已显示 {{ result.items.length }} 项
-      </span>
-      <span v-if="loading" class="muted">· 刷新中</span>
+    <span class="result-count" role="status">
+      <template v-if="result">
+        <strong>{{ result.total }}</strong>
+        项结果
+        <span v-if="result.items.length < result.total">· 已显示 {{ result.items.length }} 项</span>
+      </template>
+      <span v-if="loading" class="muted">{{ loadingMore ? ' · 正在追加' : result ? ' · 刷新中' : '正在读取 Spec…' }}</span>
     </span>
-    <Button type="button" variant="ghost" :disabled="loading" @click="refresh">刷新结果</Button>
+    <Button type="button" variant="ghost" :disabled="loading" @click="refresh">
+      {{ loading && !loadingMore && result ? '刷新中…' : '刷新结果' }}
+    </Button>
   </div>
-  <p v-if="missingScope" class="notice warning">
+  <Alert v-if="missingScope" class="notice warning" role="status">
     筛选引用的工程或 Spec 不存在，结果保持为空。请移除上方标记为“已失效”的条件。
-  </p>
-  <p v-if="error" role="alert" class="notice error">
+  </Alert>
+  <Alert v-if="error" role="alert" class="notice error">
     {{ error }} {{ result ? '保留上次查询结果。' : '' }}
     <Button type="button" variant="outline" @click="refresh">重试</Button>
-  </p>
-  <p v-else-if="loading && result" class="muted view-note">正在载入新结果，以下暂为上次查询。</p>
-  <p v-if="!result && loading" role="status" class="query-empty">正在读取 Spec…</p>
-  <template v-if="result">
-    <section v-if="!result.items.length" class="panel query-empty" aria-label="查询结果为空">
-      <h2>没有匹配的 Spec</h2>
-      <p>可清除筛选，或将已关闭与停用记录纳入当前查询。</p>
-      <div class="inline-actions">
+  </Alert>
+  <p v-else-if="loading && result?.items.length && !resultsCurrent" class="muted view-note">正在载入新结果，以下暂为上次查询。</p>
+  <Card v-if="showPlaceholder" class="query-placeholder gap-0 p-0 shadow-none" aria-busy="true">
+    <LoadingSkeleton :variant="layout === 'board' ? 'cards' : 'table'" :rows="layout === 'board' ? 3 : 4" />
+  </Card>
+  <template v-else-if="result">
+    <Empty v-if="!result.items.length" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空">
+      <EmptyHeader>
+        <EmptyTitle><h2>{{ resultsCurrent ? '没有匹配的 Spec' : '上次查询没有匹配的 Spec' }}</h2></EmptyTitle>
+        <EmptyDescription>可清除筛选，或将已关闭与停用记录纳入当前查询。</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent class="query-empty-actions">
         <Button type="button" variant="outline" @click="clear">清除筛选</Button>
         <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
+      </EmptyContent>
+    </Empty>
+    <Card v-else-if="layout === 'list'" class="panel result-list gap-0 p-0 shadow-none" :aria-busy="loading">
+      <div class="relative">
+        <WorkItemRows :items="result.items" :progress-basis="resultProgressBasis" />
+        <LoadingIndicator :active="loading && !loadingMore" placement="overlay" />
       </div>
-    </section>
-    <section v-else-if="layout === 'list'" class="panel" :aria-busy="loading">
-      <WorkItemRows :items="result.items" :progress-basis="filters.progressBasis" />
       <div v-if="result.total > result.items.length" class="load-more">
-        <Button type="button" variant="outline" :disabled="loading" @click="loadMore">
-          加载更多（已显示 {{ result.items.length }} / {{ result.total }}）
+        <Button type="button" variant="outline" :disabled="loading || !resultsCurrent" @click="loadMore">
+          <LoadingIndicator :active="loadingMore" />
+          {{ loadingMore ? '正在加载更多…' : '加载更多' }}（已显示 {{ result.items.length }} / {{ result.total }}）
         </Button>
       </div>
-    </section>
+    </Card>
     <SpecBoard
       v-else
       v-model:limits="display.columns"
@@ -206,27 +239,33 @@ function all() {
       :items="result.items"
       :group-by="groupBy"
       :revision="result.revision"
-      :progress-basis="filters.progressBasis"
+      :progress-basis="resultProgressBasis"
+      :readonly-results="!resultsCurrent || (loading && !loadingMore)"
+      :busy="loading"
+      :refreshing="loading && !loadingMore"
     />
     <div v-if="layout === 'board' && result.total > result.items.length" class="load-more">
-      <Button type="button" variant="outline" :disabled="loading" @click="loadMore">
-        加载更多（{{ result.items.length }} / {{ result.total }}）
+      <Button type="button" variant="outline" :disabled="loading || !resultsCurrent" @click="loadMore">
+        <LoadingIndicator :active="loadingMore" />
+        {{ loadingMore ? '正在加载更多…' : '加载更多' }}（{{ result.items.length }} / {{ result.total }}）
       </Button>
     </div>
   </template>
-  <details class="coverage-note">
-    <summary>纳管范围 · 当前工程范围共 {{ coverage.total }} 项</summary>
-    <div>
-      <p>
-        启用且已关闭 {{ coverage.closed }} 项，停用
-        {{ coverage.inactive }} 项。未登记目录和未接入平台不在当前覆盖范围。
-      </p>
-      <p v-if="!filters.includeClosed && !filters.needsReconfirmation && !filters.attention.length && !filters.reminderKinds.includes('ready')">
-        当前已隐藏已完成与已取消记录。
-      </p>
-      <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
-    </div>
-  </details>
+  <Collapsible class="coverage-note">
+    <CollapsibleTrigger>纳管范围 · 当前工程范围共 {{ coverage.total }} 项</CollapsibleTrigger>
+    <CollapsibleContent>
+      <div>
+        <p>
+          启用且已关闭 {{ coverage.closed }} 项，停用
+          {{ coverage.inactive }} 项。未登记目录和未接入平台不在当前覆盖范围。
+        </p>
+        <p v-if="!filters.includeClosed && !filters.needsReconfirmation && !filters.attention.length && !filters.reminderKinds.includes('ready')">
+          当前已隐藏已完成与已取消记录。
+        </p>
+        <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
+      </div>
+    </CollapsibleContent>
+  </Collapsible>
 </template>
 <style scoped>
 .spec-query {
@@ -259,7 +298,7 @@ function all() {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
 .sort-control :deep(.sort-select) {
@@ -279,7 +318,7 @@ function all() {
   margin-bottom: 10px;
 }
 .result-count {
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
 .result-count strong {
@@ -288,27 +327,33 @@ function all() {
   font-weight: 600;
 }
 .results-toolbar > button {
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
+.results-toolbar > button:disabled { opacity: 1; }
 .query-empty {
   padding: 28px 20px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
-.query-empty h2 {
-  color: #555d6a;
-  font-size: 14px;
+.query-empty-actions {
+  flex-flow: row wrap;
+  justify-content: center;
+  gap: 8px;
 }
-.query-empty p {
-  margin: 8px 0 16px;
+.query-placeholder {
+  border: 0;
+  background: transparent;
+}
+.result-list {
+  min-width: 0;
 }
 .coverage-note {
   margin: 16px 0 24px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
-.coverage-note summary {
+.coverage-note [data-slot='collapsible-trigger'] {
   cursor: pointer;
   width: fit-content;
 }
@@ -319,7 +364,7 @@ function all() {
   margin: 4px 0;
 }
 .coverage-note :deep(button) {
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
   margin-top: 4px;
   padding-left: 0;
@@ -340,7 +385,7 @@ function all() {
     gap: 10px;
   }
   .segmented button {
-    min-height: 36px;
+    min-height: 44px;
   }
   .sort-control :deep(.sort-select) {
     width: 126px;

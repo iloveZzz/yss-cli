@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, useId, useTemplateRef } from 'vue'
+import { computed, nextTick, shallowRef, useId, useTemplateRef } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { ListFilter } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Input } from '@/components/ui/input'
 import {
   stages,
@@ -28,6 +33,12 @@ const emit = defineEmits<{
   clear: []
 }>()
 const id = useId()
+const desktopFilters = useMediaQuery('(min-width: 720px)')
+const mobileFiltersOpen = shallowRef(false)
+const filtersOpen = computed({
+  get: () => desktopFilters.value || mobileFiltersOpen.value,
+  set: (open) => { mobileFiltersOpen.value = open }
+})
 const root = useTemplateRef<HTMLElement>('root')
 const chipList = useTemplateRef<HTMLDivElement>('chipList')
 const groups = computed(() => [
@@ -173,122 +184,113 @@ async function clear() {
           />
         </div>
       </div>
-      <div class="filter-selects">
-        <FilterPopover
-          v-for="group in groups"
-          :key="group.key"
-          :label="group.label"
-          :summary="summary(group)"
-          :count="query[group.key].length"
-          clearable
-          @clear="emit('update', { [group.key]: [] })"
-        >
-          <div v-if="!group.options.length" class="option-empty">暂无可选工程</div>
-          <label
-            v-for="option in group.options"
-            :key="option.value"
-            :for="`${id}-${group.key}-${option.value}`"
-            class="filter-option"
-            :class="{ checked: (query[group.key] as string[]).includes(option.value) }"
+      <Collapsible v-model:open="filtersOpen" class="filter-picker">
+        <CollapsibleTrigger v-if="!desktopFilters" as-child>
+          <Button type="button" variant="outline" class="filter-options-toggle">
+            <ListFilter :size="16" aria-hidden="true" />
+            {{ filtersOpen ? '收起筛选条件' : '展开筛选条件' }}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent class="filter-selects">
+          <FilterPopover
+            v-for="group in groups"
+            :key="group.key"
+            :label="group.label"
+            :summary="summary(group)"
+            :count="query[group.key].length"
+            clearable
+            @clear="emit('update', { [group.key]: [] })"
           >
-            <input
-              :id="`${id}-${group.key}-${option.value}`"
-              type="checkbox"
-              :name="group.key"
-              :value="option.value"
-              :checked="(query[group.key] as string[]).includes(option.value)"
-              @change="
-                emit('toggle', group.key, option.value, ($event.target as HTMLInputElement).checked)
-              "
-            />
-            <span>{{ option.label }}</span>
-          </label>
-        </FilterPopover>
-        <FilterPopover
-          label="更多条件"
-          :count="extraCount"
-          :clearable="extraCount > 0"
-          @clear="
-            emit('update', {
-              activity: 'active',
-              includeClosed: false,
-              sourceProblemsOnly: false,
-              needsReconfirmation: false
-            })
-          "
-        >
-          <fieldset class="scope-options">
-            <legend>启用范围</legend>
+            <div v-if="!group.options.length" class="option-empty">暂无可选工程</div>
             <label
-              v-for="option in [
-                { value: 'active', label: '启用记录' },
-                { value: 'inactive', label: '停用记录' },
-                { value: 'all', label: '全部记录' }
-              ]"
+              v-for="option in group.options"
               :key="option.value"
-              :for="`${id}-${option.value}`"
+              :for="`${id}-${group.key}-${option.value}`"
               class="filter-option"
+              :class="{ checked: (query[group.key] as string[]).includes(option.value) }"
             >
-              <input
-                :id="`${id}-${option.value}`"
-                type="radio"
-                :name="id + '-activity'"
-                :value="option.value"
-                :checked="query.activity === option.value"
-                @change="emit('update', { activity: option.value as WorkQuery['activity'] })"
+              <Checkbox
+                :id="`${id}-${group.key}-${option.value}`"
+                :model-value="(query[group.key] as string[]).includes(option.value)"
+                @update:model-value="emit('toggle', group.key, option.value, $event === true)"
               />
               <span>{{ option.label }}</span>
             </label>
-          </fieldset>
-          <div class="extra-options">
-            <label :for="id + '-closed'" class="filter-option">
-              <input
-                :id="id + '-closed'"
-                type="checkbox"
-                name="includeClosed"
-                :checked="query.includeClosed"
-                @change="
-                  emit('update', { includeClosed: ($event.target as HTMLInputElement).checked })
-                "
-              />
-              <span>显示已完成／已取消</span>
-            </label>
-            <label :for="id + '-source'" class="filter-option">
-              <input
-                :id="id + '-source'"
-                type="checkbox"
-                name="sourceProblemsOnly"
-                :checked="query.sourceProblemsOnly"
-                @change="
-                  emit('update', {
-                    sourceProblemsOnly: ($event.target as HTMLInputElement).checked
-                  })
-                "
-              />
-              <span>仅来源异常</span>
-            </label>
-            <label class="filter-option">
-              <input
-                type="checkbox"
-                :checked="query.needsReconfirmation"
-                @change="
-                  emit('update', {
-                    needsReconfirmation: ($event.target as HTMLInputElement).checked
-                  })
-                "
-              />
-              <span>新版待确认（含已完成）</span>
-            </label>
-          </div>
-        </FilterPopover>
-      </div>
+          </FilterPopover>
+          <FilterPopover
+            label="更多条件"
+            :count="extraCount"
+            :clearable="extraCount > 0"
+            @clear="
+              emit('update', {
+                activity: 'active',
+                includeClosed: false,
+                sourceProblemsOnly: false,
+                needsReconfirmation: false
+              })
+            "
+          >
+            <fieldset class="scope-options">
+              <legend :id="id + '-activity'">启用范围</legend>
+              <RadioGroup
+                :model-value="query.activity"
+                :aria-labelledby="id + '-activity'"
+                class="scope-radio-group"
+                @update:model-value="emit('update', { activity: $event as WorkQuery['activity'] })"
+              >
+                <label
+                  v-for="option in [
+                    { value: 'active', label: '启用记录' },
+                    { value: 'inactive', label: '停用记录' },
+                    { value: 'all', label: '全部记录' }
+                  ]"
+                  :key="option.value"
+                  :for="`${id}-${option.value}`"
+                  class="filter-option"
+                >
+                  <RadioGroupItem :id="`${id}-${option.value}`" :value="option.value" />
+                  <span>{{ option.label }}</span>
+                </label>
+              </RadioGroup>
+            </fieldset>
+            <div class="extra-options">
+              <label :for="id + '-closed'" class="filter-option">
+                <Checkbox
+                  :id="id + '-closed'"
+                  :model-value="query.includeClosed"
+                  @update:model-value="emit('update', { includeClosed: $event === true })"
+                />
+                <span>显示已完成／已取消</span>
+              </label>
+              <label :for="id + '-source'" class="filter-option">
+                <Checkbox
+                  :id="id + '-source'"
+                  :model-value="query.sourceProblemsOnly"
+                  @update:model-value="emit('update', { sourceProblemsOnly: $event === true })"
+                />
+                <span>仅来源异常</span>
+              </label>
+              <label :for="id + '-reconfirmation'" class="filter-option">
+                <Checkbox
+                  :id="id + '-reconfirmation'"
+                  :model-value="query.needsReconfirmation"
+                  @update:model-value="emit('update', { needsReconfirmation: $event === true })"
+                />
+                <span>新版待确认（含已完成）</span>
+              </label>
+            </div>
+          </FilterPopover>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
     <div v-if="chips.length" ref="chipList" class="selected-filters" aria-label="已选条件">
       <span class="selected-label">已选</span>
-      <button
+      <Button
         v-for="(chip, index) in chips"
         :key="chip.key"
         type="button"
+        variant="outline"
+        size="xs"
         class="filter-chip"
         :class="{ missing: chip.missing }"
         :aria-label="`移除${chip.label}`"
@@ -296,7 +298,7 @@ async function clear() {
       >
         <span>{{ chip.label }}</span>
         <span aria-hidden="true">×</span>
-      </button>
+      </Button>
       <Button type="button" variant="ghost" class="clear-filters" @click="clear">清空条件</Button>
     </div>
     <p :id="id + '-hint'" class="filter-hint">
@@ -345,7 +347,7 @@ async function clear() {
   left: 10px;
   top: 50%;
   transform: translateY(-50%);
-  color: #8a929f;
+  color: var(--brand-color-text-secondary);
   pointer-events: none;
 }
 .work-search {
@@ -354,6 +356,9 @@ async function clear() {
   padding-left: 33px;
   background: #fafbfc;
   border-color: var(--yss-colors-border-control);
+}
+.filter-picker {
+  min-width: 0;
 }
 .filter-selects {
   display: flex;
@@ -380,12 +385,11 @@ async function clear() {
   color: #315dcf;
   background: #f3f6ff;
 }
-.filter-option input {
+.filter-option :is([data-slot="checkbox"], [data-slot="radio-group-item"]) {
   flex: none;
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: #3e6ae1;
+}
+.scope-radio-group {
+  gap: 0;
 }
 .filter-option > span {
   min-width: 0;
@@ -398,7 +402,7 @@ async function clear() {
 }
 .scope-options legend {
   padding: 6px 8px 3px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
 .extra-options {
@@ -408,7 +412,7 @@ async function clear() {
 }
 .option-empty {
   padding: 16px 8px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
 }
 .selected-filters {
   display: flex;
@@ -421,7 +425,7 @@ async function clear() {
   min-width: 0;
 }
 .selected-label {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
   margin-right: 2px;
 }
@@ -463,12 +467,12 @@ async function clear() {
   height: 26px;
   min-height: 26px;
   padding: 0 6px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 .filter-hint {
   margin-top: 10px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 @media (width < 720px) {
@@ -482,11 +486,23 @@ async function clear() {
     min-height: 44px;
     font-size: 16px;
   }
+  .filter-picker {
+    flex-basis: 100%;
+  }
+  .filter-options-toggle {
+    min-height: 44px;
+  }
   .filter-selects {
     gap: 7px;
+    margin-top: 8px;
   }
-  .filter-option {
-    min-height: 48px;
+  .filter-selects[hidden] {
+    display: none;
+  }
+  .filter-option,
+  .filter-chip,
+  .clear-filters {
+    min-height: 44px;
   }
   .filter-chip {
     min-height: 36px;

@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
 import { computed, shallowRef } from 'vue'
 import { Button } from '@/components/ui/button'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
@@ -110,9 +112,9 @@ async function confirm() {
       <p>{{ input?.scope }}</p>
       <p>此次确认将绑定当前目标版本和凭证组合，并记录本次用户点击。</p>
       <code class="confirmation-version">{{ input?.goalVersion }}</code>
-      <p v-if="error" role="alert" class="notice error">
+      <Alert v-if="error" role="alert" class="notice error">
         {{ error }} 请关闭后重新核对当前依据。
-      </p>
+      </Alert>
       <div class="form-actions">
         <Button
           type="button"
@@ -122,7 +124,10 @@ async function confirm() {
         >
           取消
         </Button>
-        <Button :disabled="saving">{{ title }}</Button>
+        <Button :disabled="saving">
+          <LoadingIndicator :active="saving" />
+          {{ saving ? '正在确认…' : title }}
+        </Button>
       </div>
     </form>
   </ModalDialog>

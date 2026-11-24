@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
 import { computed, shallowRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import ModalDialog from '@/components/ModalDialog.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import SourcePreview from './SourcePreview.vue'
 import { prepareAgentPreview } from '@/services/workbench-agent'
 import { errorMessage, preparePreview } from '@/services/workbench'
@@ -29,11 +31,14 @@ watch(open, (value) => {
 const url = shallowRef('')
 const error = shallowRef('')
 const loading = shallowRef(false)
+const frameLoading = shallowRef(false)
+const previewLoading = computed(() => loading.value || frameLoading.value)
 const retry = shallowRef(0)
 watch(
   () => [props.specId, props.runId, props.refreshKey, target.value?.path, retry.value],
   async (_next, _old, cleanup) => {
     url.value = ''
+    frameLoading.value = false
     error.value = ''
     loading.value = false
     if (!target.value || markdown.value) return
@@ -54,15 +59,22 @@ watch(
           parsed.password
         )
           throw new Error('预览地址没有与工作台隔离，已阻止加载。')
-        url.value = result.url
+        frameLoading.value = true
+        url.value = parsed.href
       }
     } catch (e) {
       if (!controller.signal.aborted) error.value = errorMessage(e)
     } finally {
       if (!controller.signal.aborted) loading.value = false
     }
-  }
+  },
+  { immediate: true }
 )
+
+function frameLoaded(event: Event) {
+  const frame = event.currentTarget as HTMLIFrameElement
+  if (frame.src === url.value) frameLoading.value = false
+}
 </script>
 <template>
   <ModalDialog v-model="open" :title="title" class="resource-dialog" :class="{ maximized }">
@@ -109,16 +121,21 @@ watch(
         "
       />
       <template v-else>
-        <p v-if="loading" class="preview-status muted" role="status">正在加载原型…</p>
+        <LoadingSkeleton v-if="previewLoading" variant="detail" :rows="4" label="正在加载原型…" class="preview-status" />
         <div v-if="error" class="preview-status">
-          <p role="alert" class="notice warning">
+          <Alert role="alert" class="notice warning">
             {{ error }}
             <Button variant="outline" :disabled="loading" @click="retry++">重新读取</Button>
-          </p>
+          </Alert>
         </div>
         <iframe
           v-if="url"
+          :key="url"
           :src="url"
+          :class="{ 'frame-loading': frameLoading }"
+          :aria-hidden="frameLoading ? true : undefined"
+          :tabindex="frameLoading ? -1 : undefined"
+          @load="frameLoaded"
           :title="`原型预览：${target.path}`"
           sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
           referrerpolicy="no-referrer"
@@ -129,40 +146,35 @@ watch(
   </ModalDialog>
 </template>
 <style scoped>
-.resource-dialog {
+:global(.workbench-dialog.resource-dialog) {
   width: min(1280px, calc(100vw - 64px));
   height: min(860px, calc(100dvh - 64px));
   max-width: none;
   max-height: none;
   padding: 0;
+  gap: 0;
   overflow: hidden;
+  scrollbar-gutter: auto;
 }
-.resource-dialog[open] {
+:global(.workbench-dialog.resource-dialog[data-state="open"]) {
   display: flex;
   flex-direction: column;
 }
-.resource-dialog.maximized {
+:global(.workbench-dialog.resource-dialog.maximized) {
   width: 100vw;
   height: 100dvh;
   margin: 0;
   border: 0;
   border-radius: 0;
 }
-.resource-dialog:modal {
-  overscroll-behavior: contain;
-}
-.resource-dialog::backdrop {
-  overflow: hidden;
-  overscroll-behavior: contain;
-}
-.resource-dialog :deep(.dialog-header) {
+:global(.workbench-dialog.resource-dialog .dialog-header) {
   flex-shrink: 0;
   gap: 12px;
   margin: 0;
   padding: 10px 16px;
   border-bottom: 1px solid var(--yss-colors-border);
 }
-.resource-dialog :deep(.dialog-header h2) {
+:global(.workbench-dialog.resource-dialog .dialog-header h2) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -194,9 +206,14 @@ watch(
   background: white;
 }
 @media (width < 720px) {
-  .resource-dialog:not(.maximized) {
+  :global(.workbench-dialog.resource-dialog:not(.maximized)) {
     width: calc(100vw - 24px);
     height: calc(100dvh - 32px);
   }
+}
+.frame-loading {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
 }
 </style>

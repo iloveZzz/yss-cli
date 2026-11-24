@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, useId } from 'vue'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import ProgressSummary from './ProgressSummary.vue'
@@ -30,20 +32,20 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
 </script>
 <template>
   <div class="table-scroll work-items-scroll" tabindex="0" role="region" :aria-labelledby="id">
-    <table class="spec-table work-items">
-      <caption :id="id" class="sr-only">{{ caption }}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Spec / 工程</th>
-          <th scope="col">{{ progressBasis === 'effective' ? '自动进度' : '个人进度' }}</th>
-          <th scope="col">内容与待办</th>
-          <th scope="col">下一步与阻塞</th>
-          <th scope="col">最近更新</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="{ item, progress, reminders: pending } in rows" :key="item.id">
-          <th scope="row" class="item-title">
+    <Table class="spec-table work-items">
+      <TableCaption :id="id" class="sr-only">{{ caption }}</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Spec / 工程</TableHead>
+          <TableHead scope="col">{{ progressBasis === 'effective' ? '自动进度' : '个人进度' }}</TableHead>
+          <TableHead scope="col">内容与待办</TableHead>
+          <TableHead scope="col">下一步与阻塞</TableHead>
+          <TableHead scope="col">最近更新</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow v-for="{ item, progress, reminders: pending } in rows" :key="item.id">
+          <TableHead scope="row" class="item-title">
             <RouterLink :to="detail(item)" :title="item.sourcePath">{{ item.title }}</RouterLink>
             <span class="row-sub">{{ item.projectName }}{{ !item.active ? ' · 已停用' : '' }}</span>
             <RouterLink
@@ -53,12 +55,12 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
             >
               来源异常 · 查看
             </RouterLink>
-          </th>
-          <td class="item-progress">
+          </TableHead>
+          <TableCell class="item-progress">
             <StatusBadge :status="item.status" />
             <span class="row-sub">{{ stages[item.stage] }}</span>
-          </td>
-          <td class="item-content">
+          </TableCell>
+          <TableCell class="item-content">
             <RouterLink
               :to="detail(item, { tab: 'content', category: 'ready' })"
               :class="item.needsReconfirmation || item.materialReview ? 'reconfirm-link' : 'content-state'"
@@ -75,29 +77,29 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
                 {{ reminder.label }} {{ reminder.count }}
               </RouterLink>
             </div>
-          </td>
-          <td class="item-next">
+          </TableCell>
+          <TableCell class="item-next">
             <ProgressSummary v-if="progressBasis === 'effective'" :progress="progress" compact />
             <template v-else>
-            <p v-if="item.status === 'blocked'" class="row-blocker">
-              {{ item.blocker || '待补充阻塞说明' }}
-            </p>
-            <p :class="{ 'row-sub': item.status === 'blocked' }">
-              {{ item.nextAction || (item.status === 'blocked' ? '下一步尚未填写' : '—') }}
-            </p>
+              <p v-if="item.status === 'blocked'" class="row-blocker">
+                {{ item.blocker || '待补充阻塞说明' }}
+              </p>
+              <p :class="{ 'row-sub': item.status === 'blocked' }">
+                {{ item.nextAction || (item.status === 'blocked' ? '下一步尚未填写' : '—') }}
+              </p>
             </template>
-          </td>
-          <td class="item-updated">
+          </TableCell>
+          <TableCell class="item-updated">
             <time :datetime="item.updatedAt">{{ dateLabel(item.updatedAt) }}</time>
             <RouterLink :to="detail(item)" class="row-sub row-open">打开 Spec →</RouterLink>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <slot v-if="!items.length" name="empty">
-      <p class="empty">当前筛选没有匹配记录，可清除条件或查看全部记录。</p>
-    </slot>
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
   </div>
+  <slot v-if="!items.length" name="empty">
+      <Empty><EmptyDescription>当前筛选没有匹配记录，可清除条件或查看全部记录。</EmptyDescription></Empty>
+  </slot>
 </template>
 <style scoped>
 .work-items-scroll {
@@ -190,7 +192,7 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
 }
 .item-updated {
   min-width: 145px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
   vertical-align: top;
   white-space: nowrap;
@@ -201,8 +203,9 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
 }
 @media (width < 720px) {
   .work-items .item-title {
-    min-width: 170px;
-    max-width: 220px;
+    min-width: 150px;
+    max-width: 190px;
+    white-space: normal;
   }
   .work-items {
     min-width: 800px;

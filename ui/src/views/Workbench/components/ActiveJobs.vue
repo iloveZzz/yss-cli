@@ -1,7 +1,13 @@
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { Alert } from '@/components/ui/alert'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, onBeforeUnmount, onMounted, shallowRef, useId } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { dateLabel, errorMessage } from '@/services/workbench'
 import {
   getJobs,
@@ -11,7 +17,10 @@ import {
 } from '@/services/workbench-platform'
 const jobs = shallowRef<JobRecord[]>([])
 const error = shallowRef('')
-const loading = shallowRef(false)
+const pending = shallowRef<'initial' | 'retry' | 'poll' | null>('initial')
+const loading = computed(() => pending.value !== null)
+const loaded = shallowRef(false)
+const initialLoading = computed(() => !loaded.value && loading.value && pending.value !== 'poll')
 const id = useId()
 const priority: Record<string, number> = { waitingInput: 0, recoveryRequired: 1, failed: 3 }
 const active = computed(() =>
@@ -27,30 +36,29 @@ const active = computed(() =>
     )
     .slice(0, 6)
 )
-let generation = 0
-let mounted = true
-async function refresh() {
-  const own = ++generation
-  loading.value = true
+let controller: AbortController | undefined
+async function refresh(kind: 'initial' | 'retry' | 'poll') {
+  controller?.abort()
+  const current = new AbortController()
+  controller = current
+  pending.value = kind
   try {
-    const value = await getJobs()
-    if (mounted && own === generation) {
+    const value = await getJobs(current.signal)
+    if (!current.signal.aborted) {
       jobs.value = value
+      loaded.value = true
       error.value = ''
     }
   } catch (cause) {
-    if (mounted && own === generation) error.value = errorMessage(cause)
+    if (!current.signal.aborted) error.value = errorMessage(cause)
   } finally {
-    if (mounted && own === generation) loading.value = false
+    if (controller === current) pending.value = null
   }
 }
-onMounted(refresh)
-onBeforeUnmount(() => {
-  mounted = false
-  generation++
-})
+onMounted(() => refresh('initial'))
+onBeforeUnmount(() => controller?.abort())
 useIntervalFn(() => {
-  if (!document.hidden && !loading.value) void refresh()
+  if (!document.hidden && !loading.value) void refresh('poll')
 }, 5000)
 function action(job: JobRecord) {
   return job.status === 'waitingInput'
@@ -63,35 +71,39 @@ function action(job: JobRecord) {
 }
 </script>
 <template>
-  <section v-if="active.length || error" class="work-section" :aria-labelledby="id">
+  <section v-if="active.length || error || initialLoading" class="work-section" :aria-labelledby="id">
     <div class="section-heading">
       <h2 :id="id">执行与待处理</h2>
       <RouterLink to="/jobs">全部执行记录 →</RouterLink>
     </div>
-    <p v-if="error" role="alert" class="notice warning">
+    <Alert v-if="error" role="alert" class="notice warning">
       执行记录读取失败。{{ error }}
-      <Button type="button" variant="outline" :disabled="loading" @click="refresh">重试</Button>
-    </p>
-    <div
+      <Button type="button" variant="outline" :disabled="loading" @click="refresh('retry')">
+        <LoadingIndicator :active="pending === 'retry' && loaded" />
+        {{ pending === 'retry' ? '重试中…' : '重试' }}
+      </Button>
+    </Alert>
+    <Card
       v-if="active.length"
-      class="panel table-scroll active-jobs"
+      class="panel block gap-0 py-0 shadow-none table-scroll active-jobs"
+      :aria-busy="pending === 'retry'"
       tabindex="0"
       role="region"
       :aria-labelledby="id"
     >
-      <table class="spec-table">
-        <caption class="sr-only">执行与待处理记录</caption>
-        <thead>
-          <tr>
-            <th scope="col">执行</th>
-            <th scope="col">状态</th>
-            <th scope="col">最近更新</th>
-            <th scope="col">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="job in active" :key="job.id">
-            <th scope="row">
+      <Table class="spec-table">
+        <TableCaption class="sr-only">执行与待处理记录</TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">执行</TableHead>
+            <TableHead scope="col">状态</TableHead>
+            <TableHead scope="col">最近更新</TableHead>
+            <TableHead scope="col">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="job in active" :key="job.id">
+            <TableHead scope="row">
               <RouterLink :to="`/jobs/${job.id}`">{{ job.title }}</RouterLink>
               <span
                 v-if="job.roots.length"
@@ -100,38 +112,45 @@ function action(job: JobRecord) {
               >
                 {{ job.roots.join(' · ') }}
               </span>
-            </th>
-            <td
-              :class="
-                job.status === 'failed' || job.status === 'recoveryRequired'
-                  ? 'warning-text'
-                  : 'muted'
-              "
-            >
-              {{ jobStatusLabels[job.status] ?? job.status }}
-            </td>
-            <td class="job-time">
+            </TableHead>
+            <TableCell>
+              <Badge
+                v-if="job.status === 'failed' || job.status === 'recoveryRequired'"
+                variant="outline"
+                class="warning-text"
+              >
+                {{ jobStatusLabels[job.status] ?? job.status }}
+              </Badge>
+              <Badge v-else variant="secondary">{{ jobStatusLabels[job.status] ?? job.status }}</Badge>
+            </TableCell>
+            <TableCell class="job-time">
               <time :datetime="job.updatedAt">{{ dateLabel(job.updatedAt) }}</time>
-            </td>
-            <td>
+            </TableCell>
+            <TableCell>
               <RouterLink :to="`/jobs/${job.id}`" class="job-action">
                 {{ action(job) }} →
               </RouterLink>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </Card>
+    <LoadingSkeleton
+      v-else-if="initialLoading"
+      variant="table"
+      :rows="3"
+      label="正在读取执行记录"
+    />
   </section>
 </template>
 <style scoped>
-.active-jobs table {
+.active-jobs :deep(table) {
   min-width: 620px;
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
 }
-.active-jobs tbody th {
+.active-jobs :deep(tbody th) {
   position: sticky;
   inset-inline-start: 0;
   z-index: 1;
@@ -150,12 +169,12 @@ function action(job: JobRecord) {
   white-space: nowrap;
   font-weight: 400;
 }
-.active-jobs td {
+.active-jobs :deep(td) {
   font-size: 12px;
   white-space: nowrap;
 }
 .job-time {
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px !important;
 }
 .job-action {

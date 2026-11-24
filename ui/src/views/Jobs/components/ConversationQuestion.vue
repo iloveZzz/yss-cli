@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import { computed, nextTick, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Questionnaire,
   QuestionnaireChoice,
@@ -15,11 +20,13 @@ const props = defineProps<{
   row: JobActivity
   question: JobQuestion
   busy: boolean
+  submitting: boolean
   terminal: boolean
   submit: (requestId: string, value: unknown) => Promise<string | void>
 }>()
 
 const card = useTemplateRef<HTMLElement>('card')
+const answerId = useId()
 const selected = shallowRef('')
 const draft = shallowRef('')
 const formError = shallowRef('')
@@ -59,6 +66,7 @@ async function respond(event: Event) {
     <Questionnaire
       v-if="awaiting"
       aria-label="提交业务答复"
+      :aria-busy="submitting"
       class="gap-3"
       @submit="respond"
     >
@@ -85,28 +93,36 @@ async function respond(event: Event) {
             @update:checked="(checked) => { if (checked) selected = 'custom' }"
           >自填答复</QuestionnaireChoice>
         </QuestionnaireChoices>
-        <label v-if="custom" class="question-input">
-          答复
-          <textarea v-model="draft" :disabled="busy" rows="3" required />
-        </label>
+        <Field v-if="custom" class="gap-1">
+          <FieldLabel :for="answerId">答复</FieldLabel>
+          <Textarea :id="answerId" v-model="draft" :disabled="busy" rows="3" required />
+        </Field>
       </QuestionnaireItem>
       <div>
-        <Button type="submit" :disabled="busy || !answer">{{ busy ? '正在提交…' : '提交答复' }}</Button>
+        <Button type="submit" :disabled="busy || !answer">
+          <LoadingIndicator :active="submitting" />
+          {{ submitting ? '正在提交…' : '提交答复' }}
+        </Button>
       </div>
-      <p v-if="formError" role="alert" class="question-error">{{ formError }}</p>
+      <Alert v-if="formError" variant="destructive" class="question-error py-2">
+        <AlertDescription class="text-current">{{ formError }}</AlertDescription>
+      </Alert>
     </Questionnaire>
     <template v-else>
       <h3 class="question-title">{{ row.text }}</h3>
       <p v-if="question.reason" class="muted preserve-lines">{{ question.reason }}</p>
       <template v-if="row.status === 'saved'">
-        <p class="question-state" role="status">答复已保存</p>
+        <Badge class="question-state" variant="secondary" role="status">答复已保存</Badge>
         <p class="preserve-lines">{{ question.answer }}</p>
       </template>
-      <p v-else-if="row.status === 'failed'" role="alert" class="question-error">
-        {{ question.error || '答复保存失败' }}
-      </p>
+      <Alert v-else-if="row.status === 'failed'" variant="destructive" class="question-error py-2">
+        <AlertDescription class="text-current">{{ question.error || '答复保存失败' }}</AlertDescription>
+      </Alert>
       <p v-else-if="terminal" class="question-state muted">本轮已结束，未留存答复</p>
-      <p v-else class="question-state muted" role="status">正在保存…</p>
+      <p v-else class="question-state muted" role="status">
+        <LoadingIndicator :active="row.status === 'saving'" />
+        正在保存…
+      </p>
     </template>
   </article>
 </template>
@@ -128,14 +144,6 @@ async function respond(event: Event) {
   margin: 0;
   font-size: 14px;
   font-weight: 650;
-}
-.question-input {
-  display: grid;
-  gap: 4px;
-}
-.question-input textarea {
-  width: 100%;
-  min-width: 0;
 }
 .question-state, .question-error {
   margin-top: 8px;

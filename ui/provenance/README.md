@@ -12,4 +12,6 @@ DESIGN 与 `src/styles/tokens.css` 来自 YSS 模板的共享标准亮色主题�
 
 `components.json` 为 YSS 编写的工程配置，描述上述现有源码，不是上游复制文件，不加入 `copied-files.json`。后续按需取得的新组件在目标应用中记录其固定来源、原始摘要与实际适配；不能把本文件或旧清单当成其已安装/验证记录。
 
-`src/components/SingleSelect.vue` 为本工程组合组件，直接使用锁定依赖 `reka-ui@2.11.0` 的 Select primitives，未复制新的上游源码。沿用现有 YSS tokens，统一触发器与弹出菜单样式，并将原生 `dialog` 内的菜单留在其 top layer 容器；不加入 `copied-files.json`。
+工作台页面使用 New York v4 的表格、页签、表单、弹层及反馈组件。新增源码的固定 revision、原始字节和本地适配摘要记录在 `registry-manifest.json` 的 `additional_sources`。组件复用本地别名和 Tesla Light tokens，Lucide 图标随应用内嵌。
+
+`SingleSelect.vue` 和 `ModalDialog.vue` 是本工程组合组件。Select 保留空选项与表单校验，Dialog 保留保存期间的关闭保护、草稿确认和触发点焦点返回；两者通过 Reka 管理叠放和键盘交互。

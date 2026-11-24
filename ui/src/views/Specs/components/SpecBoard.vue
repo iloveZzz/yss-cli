@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, shallowRef, watch, useId, nextTick, useTemplateRef } from 'vue'
 import { useRoute } from 'vue-router'
 import {
@@ -11,6 +14,9 @@ import {
   type Status
 } from '@/services/workbench'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -19,7 +25,7 @@ import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { contentReminders } from '@/services/workbench-content'
 import { useWorkActions } from '../hooks/useWorkActions'
-const props = defineProps<{ items: WorkItem[]; groupBy: GroupBy; revision: number; progressBasis: 'effective' | 'personal' }>()
+const props = defineProps<{ items: WorkItem[]; groupBy: GroupBy; revision: number; progressBasis: 'effective' | 'personal'; readonlyResults?: boolean; busy?: boolean; refreshing?: boolean }>()
 const route = useRoute()
 const id = useId()
 const { snapshot } = useWorkbench()
@@ -54,11 +60,9 @@ const columns = computed(() =>
     }))
     .filter((c) => !hideEmpty.value || c.items.length)
 )
-watch([() => props.items, () => props.groupBy], () => {
-  dragging.value = undefined
-})
+watch([() => props.items, () => props.groupBy, () => props.readonlyResults], end)
 function start(event: DragEvent, item: WorkItem) {
-  if (!item.active || saving.value) {
+  if (props.readonlyResults || !item.active || saving.value) {
     event.preventDefault()
     return
   }
@@ -68,11 +72,15 @@ function start(event: DragEvent, item: WorkItem) {
     event.dataTransfer.setData('text/plain', item.id)
   }
 }
+function moveCard(item: WorkItem, value: Stage | Status) {
+  if (props.readonlyResults || !item.active) return
+  return move(item, props.groupBy, value, props.revision)
+}
 async function drop(key: string) {
   const current = dragging.value
   dragging.value = undefined
   hovered.value = ''
-  if (current && current.groupBy === props.groupBy)
+  if (!props.readonlyResults && current && current.groupBy === props.groupBy)
     await move(current.item, props.groupBy, key as Stage | Status, current.revision)
 }
 function end() {
@@ -83,113 +91,120 @@ function end() {
 <template>
   <div class="toolbar">
     <label class="check-label">
-      <input v-model="hideEmpty" type="checkbox" />
+      <Checkbox :model-value="hideEmpty" @update:model-value="hideEmpty = $event === true" />
       隐藏空列
     </label>
     <span class="muted">可拖动卡片，或用“移动到…”菜单；不改变列内排序。</span>
   </div>
   <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-  <p v-if="error && !open" role="alert" class="notice error">{{ error }}</p>
-  <div
-    ref="board"
-    tabindex="0"
-    role="region"
-    class="board"
-    @scroll.passive="scrollLeft = ($event.target as HTMLElement).scrollLeft"
-    :aria-label="groupBy === 'status' ? '按状态分组的看板' : '按阶段分组的看板'"
-  >
-    <section
-      v-for="column in columns"
-      :key="column.key"
-      :class="['board-column', { 'drop-target': hovered === column.key }]"
-      :aria-label="column.label"
-      @dragover.prevent="hovered = column.key"
-      @dragleave="hovered = ''"
-      @drop.prevent="drop(column.key)"
+  <Alert v-if="error && !open" role="alert" class="notice error">{{ error }}</Alert>
+  <div class="relative">
+    <div
+      ref="board"
+      tabindex="0"
+      role="region"
+      :aria-busy="busy"
+      class="board"
+      @scroll.passive="scrollLeft = ($event.target as HTMLElement).scrollLeft"
+      :aria-label="groupBy === 'status' ? '按状态分组的看板' : '按阶段分组的看板'"
     >
-      <header>
-        <h2>{{ column.label }}</h2>
-        <span class="count">{{ column.items.length }}</span>
-      </header>
-      <article
-        v-for="item in column.items.slice(0, limits[column.key] ?? 50)"
-        :key="item.id"
-        class="board-card"
-        :draggable="item.active && !saving"
-        @dragstart="start($event, item)"
-        @dragend="end"
+      <section
+        v-for="column in columns"
+        :key="column.key"
+        :class="['board-column', { 'drop-target': hovered === column.key }]"
+        :aria-label="column.label"
+        @dragover.prevent="hovered = column.key"
+        @dragleave="hovered = ''"
+        @drop.prevent="drop(column.key)"
       >
-        <span class="row-sub">{{ item.projectName }}</span>
-        <RouterLink
-          :to="{ path: '/specs/' + item.specId, query: { return: route.fullPath } }"
-          class="board-title"
+        <header>
+          <h2>{{ column.label }}</h2>
+          <Badge variant="secondary" class="count">{{ column.items.length }}</Badge>
+        </header>
+        <Card
+          v-for="item in column.items.slice(0, limits[column.key] ?? 50)"
+          :key="item.id"
+          class="board-card block shadow-none"
+          :draggable="item.active && !saving && !readonlyResults"
+          @dragstart="start($event, item)"
+          @dragend="end"
         >
-          {{ item.title }}
-        </RouterLink>
-        <div class="inline-meta">
-          <StatusBadge :status="item.status" />
-          <span>{{ stages[item.stage] }}</span>
-        </div>
-        <RouterLink
-          v-if="item.contentStatus"
-          :to="{ path: '/specs/' + item.specId, query: { return: route.fullPath, tab: 'content', category: 'ready' } }"
-          :class="['card-next', { 'warning-text': item.needsReconfirmation || item.materialReview }]"
+          <span class="row-sub">{{ item.projectName }}</span>
+          <RouterLink
+            :to="{ path: '/specs/' + item.specId, query: { return: route.fullPath } }"
+            class="board-title"
+          >
+            {{ item.title }}
+          </RouterLink>
+          <div class="inline-meta">
+            <StatusBadge :status="item.status" />
+            <span>{{ stages[item.stage] }}</span>
+          </div>
+          <RouterLink
+            v-if="item.contentStatus"
+            :to="{ path: '/specs/' + item.specId, query: { return: route.fullPath, tab: 'content', category: 'ready' } }"
+            :class="['card-next', { 'warning-text': item.needsReconfirmation || item.materialReview }]"
+          >
+            {{ item.needsReconfirmation ? '新版待确认' : item.materialReview
+              ? '材料待核实' : contentStatuses[item.contentStatus] }}
+          </RouterLink>
+          <div class="board-reminders">
+            <template v-for="reminder in reminders" :key="reminder.id">
+              <RouterLink
+                v-if="item.reminderCounts?.[reminder.id]"
+                :to="{
+                  path: '/specs/' + item.specId,
+                  query: { return: route.fullPath, tab: 'content', category: reminder.id }
+                }"
+              >
+                {{ reminder.label }} {{ item.reminderCounts[reminder.id] }}
+              </RouterLink>
+            </template>
+          </div>
+          <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress ?? snapshot?.progress?.[item.specId]" compact />
+          <p v-if="progressBasis === 'personal' && item.nextAction" class="card-next">{{ item.nextAction }}</p>
+          <p v-if="progressBasis === 'personal' && item.status === 'blocked'" class="blocker-text">{{ item.blocker }}</p>
+          <p v-if="item.hasSourceProblem" class="warning-text">来源异常</p>
+          <p v-if="!item.active" class="muted">已停用，请到详情恢复</p>
+          <SingleSelect
+            model-value=""
+            placeholder="移动到…"
+            :aria-label="'移动 ' + item.title + ' 到其他' + (groupBy === 'status' ? '状态' : '阶段')"
+            :options="
+              Object.entries(labels).map(([value, label]) => ({
+                value,
+                label,
+                disabled: item[groupBy] === value
+              }))
+            "
+            :disabled="!item.active || saving || readonlyResults"
+            @update:model-value="moveCard(item, $event as Stage | Status)"
+          />
+        </Card>
+        <Button
+          v-if="column.items.length > (limits[column.key] ?? 50)"
+          variant="outline"
+          @click="limits[column.key] = (limits[column.key] ?? 50) + 50"
         >
-          {{ item.needsReconfirmation ? '新版待确认' : item.materialReview
-            ? '材料待核实' : contentStatuses[item.contentStatus] }}
-        </RouterLink>
-        <div class="board-reminders">
-          <template v-for="reminder in reminders" :key="reminder.id">
-            <RouterLink
-              v-if="item.reminderCounts?.[reminder.id]"
-              :to="{
-                path: '/specs/' + item.specId,
-                query: { return: route.fullPath, tab: 'content', category: reminder.id }
-              }"
-            >
-              {{ reminder.label }} {{ item.reminderCounts[reminder.id] }}
-            </RouterLink>
-          </template>
-        </div>
-        <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress ?? snapshot?.progress?.[item.specId]" compact />
-        <p v-if="progressBasis === 'personal' && item.nextAction" class="card-next">{{ item.nextAction }}</p>
-        <p v-if="progressBasis === 'personal' && item.status === 'blocked'" class="blocker-text">{{ item.blocker }}</p>
-        <p v-if="item.hasSourceProblem" class="warning-text">来源异常</p>
-        <p v-if="!item.active" class="muted">已停用，请到详情恢复</p>
-        <SingleSelect
-          model-value=""
-          placeholder="移动到…"
-          :aria-label="'移动 ' + item.title + ' 到其他' + (groupBy === 'status' ? '状态' : '阶段')"
-          :options="
-            Object.entries(labels).map(([value, label]) => ({
-              value,
-              label,
-              disabled: item[groupBy] === value
-            }))
-          "
-          :disabled="!item.active || saving"
-          @update:model-value="move(item, groupBy, $event as Stage | Status, revision)"
-        />
-      </article>
-      <Button
-        v-if="column.items.length > (limits[column.key] ?? 50)"
-        variant="outline"
-        @click="limits[column.key] = (limits[column.key] ?? 50) + 50"
-      >
-        加载更多（{{ column.items.length }}）
-      </Button>
-      <p v-if="!column.items.length" class="column-empty">暂无 Spec</p>
-    </section>
+          加载更多（{{ column.items.length }}）
+        </Button>
+        <p v-if="!column.items.length" class="column-empty">暂无 Spec</p>
+      </section>
+    </div>
+    <LoadingIndicator :active="!!refreshing" placement="overlay" />
   </div>
   <ProgressOverrideForm v-if="correction" v-model="overrideOpen" :spec-id="correction.item.specId" :progress="snapshot?.progress?.[correction.item.specId] ?? correction.item.progress" :stage="correction.stage" :initial-progress="correction.progress" @saved="corrected" />
   <ModalDialog v-model="open" title="记录阻塞原因" :busy="saving">
     <form class="form-stack" @submit.prevent="confirm">
       <label :for="id + 'blocker'">阻塞说明（必填）</label>
-      <textarea :id="id + 'blocker'" v-model="blocker" required rows="3" />
-      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+      <Textarea :id="id + 'blocker'" v-model="blocker" required rows="3" />
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
       <div class="form-actions">
         <Button variant="outline" type="button" :disabled="saving" @click="cancel">取消</Button>
-        <Button :disabled="saving">确认阻塞</Button>
+        <Button :disabled="saving">
+          <LoadingIndicator :active="saving" />
+          {{ saving ? '正在记录…' : '确认阻塞' }}
+        </Button>
       </div>
     </form>
   </ModalDialog>
@@ -198,6 +213,7 @@ function end() {
 .board {
   min-height: 0;
   align-items: start;
+  scroll-padding-inline: 10px;
 }
 .board-column {
   min-width: 0;
@@ -245,5 +261,18 @@ function end() {
 }
 .toolbar > .muted {
   font-size: 11px;
+}
+@media (width < 720px) {
+  .board {
+    scroll-snap-type: x proximity;
+  }
+  .board-column {
+    scroll-snap-align: start;
+    max-width: calc(100vw - 48px);
+  }
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
 }
 </style>

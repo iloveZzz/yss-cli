@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { useId } from 'vue'
 import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { healthLabels, type SpecView } from '@/services/workbench'
 import { isWebLink } from '../schemas/markdown'
 defineProps<{ resources: SpecView['resources'] }>()
@@ -10,26 +12,26 @@ const kinds = { supplement: '规格补充', prototype: '原型', interaction: '�
 </script>
 <template>
   <div class="table-scroll resource-table-wrap" tabindex="0" role="region" :aria-labelledby="id">
-    <table class="spec-table resource-table">
-      <caption :id="id" class="sr-only">关联资源、来源与可访问状态</caption>
-      <thead>
-        <tr>
-          <th scope="col">资源</th>
-          <th scope="col">位置</th>
-          <th scope="col">来源状态</th>
-          <th scope="col">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(resource, index) in resources" :key="`${resource.record.target}:${index}`">
-          <th scope="row">
+    <Table class="spec-table resource-table">
+      <TableCaption :id="id" class="sr-only">关联资源、来源与可访问状态</TableCaption>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">资源</TableHead>
+          <TableHead scope="col">位置</TableHead>
+          <TableHead scope="col">来源状态</TableHead>
+          <TableHead scope="col">操作</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow v-for="(resource, index) in resources" :key="`${resource.record.target}:${index}`">
+          <TableHead scope="row">
             <strong>{{ resource.record.label }}</strong>
             <span class="row-sub">{{ kinds[resource.record.kind] }}</span>
-          </th>
-          <td class="resource-path">
+          </TableHead>
+          <TableCell class="resource-path">
             <code>{{ resource.record.target }}</code>
-          </td>
-          <td class="resource-health">
+          </TableCell>
+          <TableCell class="resource-health">
             <span
               :class="
                 ['available', 'external'].includes(resource.health) ? 'muted' : 'warning-text'
@@ -38,8 +40,8 @@ const kinds = { supplement: '规格补充', prototype: '原型', interaction: '�
               {{ healthLabels[resource.health] }}
             </span>
             <p v-if="resource.message" class="warning-text">{{ resource.message }}</p>
-          </td>
-          <td class="resource-actions">
+          </TableCell>
+          <TableCell class="resource-actions">
             <a
               v-if="resource.record.targetType === 'web' && isWebLink(resource.record.target)"
               :href="resource.record.target"
@@ -59,12 +61,14 @@ const kinds = { supplement: '规格补充', prototype: '原型', interaction: '�
                 复制路径
               </Button>
             </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-if="!resources.length" class="empty">暂无关联资源，可同步主规格关联或添加个人资源。</p>
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
   </div>
+  <Empty v-if="!resources.length">
+    <EmptyDescription>暂无关联资源，可同步主规格关联或添加个人资源。</EmptyDescription>
+  </Empty>
 </template>
 <style scoped>
 .resource-table-wrap {

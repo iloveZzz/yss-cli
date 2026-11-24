@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef } from 'vue'
+import { Badge } from '@/components/ui/badge'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import {
   Trace,
   TraceCollapsible,
@@ -43,7 +45,7 @@ const detail = computed(() =>
         <TraceLine class="tool-line">
           <TraceIcon><span class="tool-mark" aria-hidden="true" /></TraceIcon>
           <TraceTitle>{{ label }}</TraceTitle>
-          <span class="tool-state">{{ state }}</span>
+          <Badge variant="secondary" class="tool-state">{{ state }}</Badge>
           <code class="tool-detail">{{ detail }}</code>
         </TraceLine>
       </TraceCollapsibleTrigger>
@@ -55,7 +57,10 @@ const detail = computed(() =>
       <TraceLine class="tool-line">
         <TraceIcon><span class="tool-mark" aria-hidden="true" /></TraceIcon>
         <TraceTitle>{{ label }}</TraceTitle>
-        <span class="tool-state">{{ state }}</span>
+        <Badge variant="secondary" class="tool-state">
+          <LoadingIndicator :active="!finished && !terminal" />
+          {{ state }}
+        </Badge>
         <code v-if="detail" class="tool-detail">{{ detail }}</code>
       </TraceLine>
       <p v-if="row.error" class="tool-error">{{ row.error }}</p>

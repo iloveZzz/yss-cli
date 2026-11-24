@@ -1,21 +1,29 @@
-import { onMounted, shallowRef } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { getSystem, type SystemInfo } from '@/services/workbench-platform'
 import { errorMessage } from '@/services/workbench'
 export function useSystemInfo() {
   const info = shallowRef<SystemInfo>()
   const loading = shallowRef(false)
   const error = shallowRef('')
+  let controller: AbortController | undefined
   async function refresh() {
+    if (loading.value) return
+    const current = new AbortController()
+    controller = current
     loading.value = true
     try {
-      info.value = await getSystem()
-      error.value = ''
+      const result = await getSystem(current.signal)
+      if (!current.signal.aborted) {
+        info.value = result
+        error.value = ''
+      }
     } catch (cause) {
-      error.value = errorMessage(cause)
+      if (!current.signal.aborted) error.value = errorMessage(cause)
     } finally {
-      loading.value = false
+      if (controller === current) loading.value = false
     }
   }
   onMounted(refresh)
+  onBeforeUnmount(() => controller?.abort())
   return { info, loading, error, refresh }
 }

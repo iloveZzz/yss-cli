@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, shallowRef } from 'vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import ProjectForm from './components/ProjectForm.vue'
 import HomeManager from './components/HomeManager.vue'
@@ -37,7 +44,7 @@ function edit(project?: ProjectRecord) {
   <div class="page-heading">
     <h1>产品与工程</h1>
     <div class="inline-actions">
-      <RouterLink to="/settings?operation=init" class="text-link">初始化工程</RouterLink>
+      <Button as-child variant="outline"><RouterLink to="/settings?operation=init">初始化工程</RouterLink></Button>
       <Button @click="edit()">登记本机工程</Button>
     </div>
   </div>
@@ -49,60 +56,63 @@ function edit(project?: ProjectRecord) {
     </div>
     <div class="toolbar project-toolbar">
       <div role="search" aria-label="搜索工程" class="project-search">
-        <label class="inline-field"
-          >查找工程<input
+        <div class="inline-field">
+          <FieldLabel for="project-search" class="shrink-0">查找工程</FieldLabel>
+          <Input
+            id="project-search"
             v-model="search"
             name="projectSearch"
             type="search"
             placeholder="工程名或本机路径"
-        /></label>
+          />
+        </div>
       </div>
-      <label class="check-label"
-        ><input v-model="showInactive" name="showInactive" type="checkbox" />显示停用工程</label
-      >
+      <FieldLabel class="check-label has-data-[state=checked]:bg-transparent has-data-[state=checked]:border-transparent" for="include-inactive-projects">
+        <Checkbox id="include-inactive-projects" v-model="showInactive" name="showInactive" />
+        显示停用工程
+      </FieldLabel>
     </div>
-    <div
+    <Card
       v-if="projects.length"
-      class="panel table-scroll project-table-wrap"
+      class="panel block gap-0 py-0 shadow-none table-scroll project-table-wrap"
       tabindex="0"
       role="region"
       aria-labelledby="local-projects-heading"
     >
-      <table class="spec-table project-table">
-        <caption class="sr-only">
+      <Table class="spec-table project-table">
+        <TableCaption class="sr-only">
           本机工程、关联 Spec 与目录状态
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">工程</th>
-            <th scope="col">本机目录</th>
-            <th scope="col">关联 Spec</th>
-            <th scope="col">状态</th>
-            <th scope="col">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="project in projects" :key="project.record.id">
-            <th scope="row">
+        </TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">工程</TableHead>
+            <TableHead scope="col">本机目录</TableHead>
+            <TableHead scope="col">关联 Spec</TableHead>
+            <TableHead scope="col">状态</TableHead>
+            <TableHead scope="col">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="project in projects" :key="project.record.id">
+            <TableHead scope="row">
               <RouterLink :to="`/projects/${project.record.id}`" class="project-name">{{
                 project.record.name
               }}</RouterLink>
-            </th>
-            <td class="project-path">
+            </TableHead>
+            <TableCell class="project-path">
               <span class="path-text">{{ project.record.rootPath }}</span><span
                 v-if="!project.available"
                 class="row-sub warning-text"
                 >{{ project.message }}</span
               >
-            </td>
-            <td class="numeric">{{ specCounts.get(project.record.id) ?? 0 }}</td>
-            <td>
-              <span v-if="!project.record.active" class="muted">已停用</span
-              ><span v-else :class="project.available ? 'muted' : 'warning-text'">{{
-                project.available ? '可访问' : '目录不可访问'
-              }}</span>
-            </td>
-            <td>
+            </TableCell>
+            <TableCell class="numeric">{{ specCounts.get(project.record.id) ?? 0 }}</TableCell>
+            <TableCell>
+              <Badge v-if="!project.record.active" variant="secondary">已停用</Badge>
+              <Badge v-else-if="project.available" variant="outline">可访问</Badge>
+              <Badge v-else variant="outline" class="warning-text">目录不可访问</Badge>
+            </TableCell>
+            <TableCell>
               <Button
                 type="button"
                 variant="ghost"
@@ -110,29 +120,26 @@ function edit(project?: ProjectRecord) {
                 @click="edit(project.record)"
                 >编辑</Button
               >
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else class="empty panel">
-      <template v-if="search"
-        ><p>没有匹配“{{ search }}”的工程</p>
-        <Button type="button" variant="outline" @click="search = ''">清除搜索</Button></template
-      >
-      <template v-else-if="snapshot?.projects.length"
-        ><h2>当前没有启用工程</h2>
-        <p>已停用工程的个人记录仍保留。</p>
-        <Button type="button" variant="outline" @click="showInactive = true"
-          >显示停用工程</Button
-        ></template
-      >
-      <template v-else
-        ><h2>登记第一个本机工程</h2>
-        <p>选择工程目录后，可关联 Spec、维护技能或参与 Pi Agent 运行。</p>
-        <Button @click="edit()">登记本机工程</Button></template
-      >
-    </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </Card>
+    <Empty v-else class="panel">
+      <EmptyHeader>
+        <EmptyTitle role="heading" aria-level="2" v-if="search.trim()">没有匹配的工程</EmptyTitle>
+        <EmptyTitle role="heading" aria-level="2" v-else-if="snapshot?.projects.length">当前没有启用工程</EmptyTitle>
+        <EmptyTitle role="heading" aria-level="2" v-else>登记第一个本机工程</EmptyTitle>
+        <EmptyDescription v-if="search.trim()" class="break-all">当前搜索词为“{{ search.trim() }}”。</EmptyDescription>
+        <EmptyDescription v-else-if="snapshot?.projects.length">已停用工程的个人记录仍保留。</EmptyDescription>
+        <EmptyDescription v-else>选择工程目录后，可关联 Spec、维护技能或参与 Pi Agent 运行。</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button v-if="search.trim()" type="button" variant="outline" @click="search = ''">清除搜索</Button>
+        <Button v-else-if="snapshot?.projects.length" type="button" variant="outline" @click="showInactive = true">显示停用工程</Button>
+        <Button v-else type="button" @click="edit()">登记本机工程</Button>
+      </EmptyContent>
+    </Empty>
   </section>
   <ProjectForm v-model="open" :project="selected" />
 </template>
@@ -145,21 +152,18 @@ function edit(project?: ProjectRecord) {
   flex: 1;
   max-width: 420px;
 }
-.project-search label {
-  width: 100%;
-}
 .project-table {
   min-width: 680px;
 }
-.project-table th[scope='row'] {
+.project-table :deep(th[scope='row']) {
   position: sticky;
-  left: 0;
+  inset-inline-start: 0;
   background: var(--brand-color-bg-container, #fff);
   font-weight: 550;
   text-align: left;
   min-width: 150px;
 }
-.project-table thead {
+.project-table :deep(thead) {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -177,5 +181,16 @@ function edit(project?: ProjectRecord) {
 }
 .project-name {
   color: var(--yss-color-primary-control);
+}
+@media (width < 720px) {
+  .project-search {
+    max-width: none;
+    flex-basis: 100%;
+  }
+  .project-table :deep(th[scope='row']) {
+    max-width: 170px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

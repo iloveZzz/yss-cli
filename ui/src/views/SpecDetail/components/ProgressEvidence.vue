@@ -119,7 +119,7 @@ const currentVersionRows = computed(() =>
 }
 dt {
   font-size: 12px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
 }
 dd {
   margin: 0;
@@ -148,7 +148,7 @@ strong {
 }
 .outcome {
   margin-left: 8px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
 }
 @media (width < 600px) {
   .evidence-facts > div {

@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, nextTick, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import ModalDialog from '@/components/ModalDialog.vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { errorMessage, type AgentQuestion, type AgentRequest } from '@/services/workbench'
 import { questionState, responseText } from '@/services/workbench-content'
@@ -16,7 +21,7 @@ const copyError = shallowRef('')
 const copying = shallowRef(false)
 const notice = shallowRef('')
 const expanded = shallowRef(false)
-const rawText = useTemplateRef<HTMLTextAreaElement>('rawText')
+const rawText = useTemplateRef<InstanceType<typeof Textarea>>('rawText')
 let generation = 0
 onBeforeUnmount(() => {
   generation++
@@ -108,8 +113,8 @@ async function copy() {
 <template>
   <ModalDialog v-model="open" title="Agent 续办文本">
     <div class="form-stack handoff">
-      <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-      <p v-else-if="!request" role="status">正在读取当前问题与答复…</p>
+      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
+      <LoadingSkeleton v-else-if="!request" variant="detail" :rows="3" label="正在读取当前问题与答复…" />
       <template v-else>
         <template v-if="request.questions">
           <section v-for="section in sections" :key="section.title" :aria-label="section.title">
@@ -126,18 +131,23 @@ async function copy() {
             </article>
           </section>
           <QuestionHistory :entries="request.history ?? []" title="历史原文" show-question-id />
-          <details :open="expanded" @toggle="expanded = ($event.currentTarget as HTMLDetailsElement).open">
-            <summary>查看完整原文</summary>
-            <textarea ref="rawText" :value="request.text" readonly rows="12" aria-label="完整续办文本" />
-          </details>
+          <Collapsible v-model:open="expanded">
+            <CollapsibleTrigger>查看完整原文</CollapsibleTrigger>
+            <CollapsibleContent>
+              <Textarea ref="rawText" :model-value="request.text" readonly rows="12" aria-label="完整续办文本" />
+            </CollapsibleContent>
+          </Collapsible>
         </template>
-        <textarea v-else ref="rawText" :value="request.text" readonly rows="15" aria-label="完整续办文本" />
+        <Textarea v-else ref="rawText" :model-value="request.text" readonly rows="15" aria-label="完整续办文本" />
       </template>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="copyError" role="alert" class="notice error">{{ copyError }}</p>
+      <Alert v-if="copyError" role="alert" class="notice error">{{ copyError }}</Alert>
       <div class="form-actions">
         <Button v-if="error" type="button" variant="outline" @click="load()">重新读取</Button>
-        <Button v-if="request" type="button" variant="outline" :disabled="copying" @click="copy">复制完整原文</Button>
+        <Button v-if="request" type="button" variant="outline" :disabled="copying" @click="copy">
+          <LoadingIndicator :active="copying" />
+          {{ copying ? '正在核对并复制…' : '复制完整原文' }}
+        </Button>
         <Button type="button" variant="outline" @click="open = false">关闭</Button>
       </div>
     </div>
@@ -151,6 +161,6 @@ async function copy() {
 .handoff article p { margin-top: 4px; }
 .handoff article p:first-child { margin-top: 0; }
 .handoff .muted { font-size: 12px; }
-.handoff summary { cursor: pointer; }
-.handoff details textarea { margin-top: 8px; width: 100%; }
+.handoff [data-slot='collapsible-trigger'] { cursor: pointer; }
+.handoff [data-slot='collapsible'] textarea { margin-top: 8px; width: 100%; }
 </style>

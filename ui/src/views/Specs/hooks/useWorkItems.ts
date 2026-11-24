@@ -1,4 +1,4 @@
-import { shallowRef, watch, onBeforeUnmount, type Ref } from 'vue'
+import { computed, shallowRef, watch, onBeforeUnmount, type Ref } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
   errorMessage,
@@ -11,8 +11,17 @@ import { queryPage } from '@/services/workbench-platform'
 const requestedCounts = new Map<string, number>()
 export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<Ref<Layout>>) {
   const { snapshot, expired } = useWorkbench()
-  const result = shallowRef<QueryResult>()
-  const loading = shallowRef(false)
+  const settled = shallowRef<{ result: QueryResult; query: WorkQuery; layout?: Layout }>()
+  const result = computed(() => settled.value?.result)
+  const resultsCurrent = computed(() =>
+    !!settled.value &&
+    JSON.stringify(settled.value.query) === JSON.stringify(query.value) &&
+    settled.value.layout === layout?.value
+  )
+  const resultProgressBasis = computed(() => settled.value?.query.progressBasis ?? query.value.progressBasis)
+  const pending = shallowRef<'replace' | 'append'>()
+  const loading = computed(() => !!pending.value)
+  const loadingMore = computed(() => pending.value === 'append')
   const error = shallowRef('')
   let controller: AbortController | undefined
   let generation = 0
@@ -21,16 +30,24 @@ export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<
     const own = new AbortController()
     controller = own
     const current = ++generation
-    if (!snapshot.value || expired.value) return
-    loading.value = true
-    const key = JSON.stringify(query.value)
+    if (!snapshot.value || expired.value) {
+      pending.value = undefined
+      settled.value = undefined
+      return
+    }
+    pending.value = append ? 'append' : 'replace'
+    error.value = ''
+    const requestedQuery = query.value
+    const requestedLayout = layout?.value
+    const key = JSON.stringify(requestedQuery)
+    const settle = (value: QueryResult) => {
+      settled.value = { result: value, query: requestedQuery, layout: requestedLayout }
+      error.value = ''
+    }
     try {
-      if (layout?.value === 'board') {
-        const value = await queryWorkItems(query.value, own.signal)
-        if (current === generation && !own.signal.aborted) {
-          result.value = value
-          error.value = ''
-        }
+      if (requestedLayout === 'board') {
+        const value = await queryWorkItems(requestedQuery, own.signal)
+        if (current === generation && !own.signal.aborted) settle(value)
         return
       }
       const previous = append ? result.value : undefined
@@ -39,7 +56,7 @@ export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<
       let page: QueryResult | undefined
       do {
         const value = await queryPage(
-          query.value,
+          requestedQuery,
           items.length,
           Math.min(200, target - items.length),
           own.signal
@@ -55,22 +72,25 @@ export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<
         if (!value.items.length || items.length >= value.total) break
       } while (items.length < target)
       if (page) {
-        result.value = { ...page, items }
+        settle({ ...page, items })
         requestedCounts.set(key, items.length)
       }
       error.value = ''
     } catch (cause) {
       if (current === generation && !own.signal.aborted) error.value = errorMessage(cause)
     } finally {
-      if (current === generation) loading.value = false
+      if (current === generation) pending.value = undefined
     }
   }
   const refresh = () => read(false)
-  const loadMore = () => read(true)
+  const loadMore = () => {
+    if (resultsCurrent.value && !loading.value) return read(true)
+  }
   watch(
     [
       () => JSON.stringify(query.value),
       () => layout?.value,
+      expired,
       () => snapshot.value?.revision,
       () =>
         snapshot.value?.specs
@@ -92,5 +112,5 @@ export function useWorkItems(query: Readonly<Ref<WorkQuery>>, layout?: Readonly<
     generation++
     controller?.abort()
   })
-  return { result, loading, error, refresh, loadMore }
+  return { result, resultProgressBasis, resultsCurrent, loading, loadingMore, error, refresh, loadMore }
 }

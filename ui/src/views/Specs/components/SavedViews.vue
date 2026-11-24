@@ -1,12 +1,14 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
 import { computed,shallowRef,useId } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { errorMessage,type WorkQuery,type Layout,type GroupBy,type SavedView } from '@/services/workbench'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { Button } from '@/components/ui/button'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
-import { PopoverClose } from 'reka-ui'
+import { PopoverClose } from '@/components/ui/popover'
 import FilterPopover from './FilterPopover.vue'
 const props=defineProps<{query:WorkQuery;layout:Layout;groupBy:GroupBy;viewId?:string}>();const emit=defineEmits<{apply:[view:SavedView];removed:[]}>()
 const {snapshot,submit,saving}=useWorkbench();const id=useId();const open=shallowRef(false);const name=shallowRef('');const error=shallowRef('');const editing=shallowRef<string|null>(null);const removing=shallowRef(false)
@@ -35,19 +37,24 @@ function select(value:string){if(value==='temporary'){emit('removed');return}con
   <form class="form-stack" @submit.prevent="save">
    <p v-if="removing">仅移除这条查询收藏，保留所有 Spec 和历史。</p>
    <template v-else><label :for="id+'name'">视图名称</label><Input :id="id+'name'" v-model="name" required maxlength="80" /><p class="muted">保存当前查询、列表／看板布局及分组方式。</p></template>
-   <p v-if="error" class="notice error" role="alert">{{error}} 请关闭后基于最新数据重试。</p>
-   <div class="form-actions"><Button type="button" variant="outline" :disabled="saving" @click="open=false">取消</Button><Button :disabled="saving">{{removing?'确认移除':'确认保存'}}</Button></div>
+   <Alert v-if="error" class="notice error" role="alert">{{error}} 请关闭后基于最新数据重试。</Alert>
+   <div class="form-actions"><Button type="button" variant="outline" :disabled="saving" @click="open=false">取消</Button>
+    <Button :disabled="saving">
+      <LoadingIndicator :active="saving" />
+      {{ saving ? removing ? '正在移除…' : '正在保存…' : removing ? '确认移除' : '确认保存' }}
+    </Button>
+   </div>
   </form>
  </ModalDialog>
 </template>
 
 <style scoped>
 .saved-views { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0; min-width:0; }
-.view-label { color:#717780; font-size:12px; }
+.view-label { color:var(--brand-color-text-secondary); font-size:12px; }
 .saved-views :deep(.view-select) { width:180px; max-width:100%; min-width:0; height:32px; color:#555d6a; }
 .view-changed { color:#96601e; background:#fff5e5; border-radius:4px; padding:2px 5px; font-size:10px; }
 .save-button { gap:4px; color:#626d80; padding:0 7px; }
-.view-help { padding:6px 8px 10px; color:#717780; font-size:12px; }
+.view-help { padding:6px 8px 10px; color:var(--brand-color-text-secondary); font-size:12px; }
 .view-action { width:100%; justify-content:flex-start; height:34px; }
 .remove-view { color:#a12830; }
 @media (width < 720px) { .saved-views { margin-left:0; }.saved-views :deep(.view-select) { width:auto; flex:1; max-width:220px; }.save-button { margin-left:auto; }.view-action { min-height:44px; } }

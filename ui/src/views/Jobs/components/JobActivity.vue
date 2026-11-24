@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { computed, nextTick, onBeforeUnmount, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { dateLabel, errorMessage } from '@/services/workbench'
 import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
 import { activityLabels, stepResult } from '../schemas/job'
@@ -16,6 +21,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ retry: [] }>()
 const log = useTemplateRef<HTMLElement>('log')
+const pagination = useTemplateRef<HTMLElement>('pagination')
+const detailId = useId()
 const bounds = shallowRef<number[]>([])
 const history = shallowRef<ActivityPage>()
 const frozen = shallowRef<ActivityPage>()
@@ -28,6 +35,8 @@ const rows = computed(() => page.value?.items ?? [])
 let controller: AbortController | undefined
 onBeforeUnmount(() => controller?.abort())
 async function navigate(nextBounds: number[]) {
+  const focused = document.activeElement
+  const fromPagination = pagination.value?.contains(focused)
   controller?.abort()
   const request = new AbortController()
   controller = request
@@ -43,7 +52,10 @@ async function navigate(nextBounds: number[]) {
     frozen.value = undefined
     open.value = undefined
     await nextTick()
-    if (log.value) log.value.scrollTop = result ? 0 : log.value.scrollHeight
+    if (log.value) {
+      log.value.scrollTop = result ? 0 : log.value.scrollHeight
+      if (fromPagination && focused && !focused.isConnected) log.value.focus({ preventScroll: true })
+    }
   } catch (cause) {
     if (!request.signal.aborted) historyError.value = errorMessage(cause)
   } finally {
@@ -109,94 +121,108 @@ function summary(text: string, command: boolean) {
         <h2>执行活动</h2>
         <span v-if="page" class="muted">{{ page.total }} 条</span>
       </div>
-      <span class="muted">{{ status }}</span>
+      <span class="muted" role="status">{{ status }}</span>
     </div>
-    <p v-if="error || historyError" role="alert" class="notice warning">
-      {{ error || historyError }}
-      <Button v-if="error" type="button" variant="ghost" @click="emit('retry')">重新连接</Button>
-    </p>
-    <div
-      ref="log"
-      class="activity-scroll"
-      role="region"
-      aria-label="执行活动列表"
-      tabindex="0"
-      @scroll.passive="scrolled"
-    >
-      <table class="activity-table">
-        <caption class="sr-only">
-          本轮执行活动，按时间顺序排列
-        </caption>
-        <colgroup>
-          <col class="time-col" />
-          <col class="type-col" />
-          <col />
-          <col class="result-col" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th scope="col">时间</th>
-            <th scope="col">活动</th>
-            <th scope="col">内容摘要</th>
-            <th scope="col">单步结果</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="row in rows" :key="row.id">
-            <tr>
-              <td>
-                <time :datetime="row.createdAt" :title="dateLabel(row.createdAt)">{{
-                  dateLabel(row.createdAt).split(' ').at(-1)
-                }}</time>
-              </td>
-              <th scope="row">{{ activityLabels[row.kind] }}</th>
-              <td class="summary-cell">
-                <button
-                  type="button"
-                  :aria-expanded="open === row.id"
-                  :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${row.text.slice(0, 80)}`"
-                  @click="toggle(row.id)"
+    <Alert v-if="error || historyError" class="notice warning">
+      <AlertDescription class="text-current">
+        <p>{{ error || historyError }}</p>
+        <Button v-if="error" type="button" variant="ghost" @click="emit('retry')">重新连接</Button>
+      </AlertDescription>
+    </Alert>
+    <LoadingSkeleton v-if="!page && !error" variant="table" label="正在读取执行活动" />
+    <div class="activity-result">
+      <div
+        v-show="!!page"
+        ref="log"
+        class="activity-scroll"
+        role="region"
+        aria-label="执行活动列表"
+        tabindex="0"
+        :aria-busy="busy"
+        @scroll.passive="scrolled"
+      >
+        <Table class="activity-table">
+          <TableCaption class="sr-only">
+            本轮执行活动，按时间顺序排列
+          </TableCaption>
+          <colgroup>
+            <col class="time-col" />
+            <col class="type-col" />
+            <col />
+            <col class="result-col" />
+          </colgroup>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">时间</TableHead>
+              <TableHead scope="col">活动</TableHead>
+              <TableHead scope="col">内容摘要</TableHead>
+              <TableHead scope="col">单步结果</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <template v-for="row in rows" :key="row.id">
+              <TableRow>
+                <TableCell>
+                  <time :datetime="row.createdAt" :title="dateLabel(row.createdAt)">{{
+                    dateLabel(row.createdAt).split(' ').at(-1)
+                  }}</time>
+                </TableCell>
+                <TableHead scope="row">{{ activityLabels[row.kind] }}</TableHead>
+                <TableCell class="summary-cell">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    :aria-controls="`${detailId}-${row.id}`"
+                    :aria-disabled="busy"
+                    :aria-expanded="open === row.id"
+                    :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${row.text.slice(0, 80)}`"
+                    @click="!busy && toggle(row.id)"
+                  >
+                    <span aria-hidden="true" class="chevron">{{ open === row.id ? '▾' : '▸' }}</span>
+                    <span class="summary-text" :class="{ mono: row.kind === 'command' }">{{
+                      summary(row.text, row.kind === 'command') || '查看详情'
+                    }}</span>
+                  </Button>
+                </TableCell>
+                <TableCell
+                  :class="{
+                    'warning-text':
+                      (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error'
+                  }"
                 >
-                  <span aria-hidden="true" class="chevron">{{ open === row.id ? '▾' : '▸' }}</span>
-                  <span class="summary-text" :class="{ mono: row.kind === 'command' }">{{
-                    summary(row.text, row.kind === 'command') || '查看详情'
-                  }}</span>
-                </button>
-              </td>
-              <td
-                :class="{
-                  'warning-text':
-                    (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error'
-                }"
-              >
-                {{ stepResult(row) }}
-              </td>
-            </tr>
-            <tr v-if="open === row.id">
-              <td colspan="4" class="activity-detail">
-                <ActivityDetail :job-id="jobId" :row="row" />
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-      <p v-if="!rows.length" class="empty">
-        {{ latest?.terminal ? '此执行暂无可展示的活动' : '等待运行活动…' }}
-      </p>
+                  {{ stepResult(row) }}
+                </TableCell>
+              </TableRow>
+              <TableRow v-show="open === row.id" :id="`${detailId}-${row.id}`">
+                <TableCell colspan="4" class="activity-detail">
+                  <div v-if="open === row.id" class="activity-detail-content">
+                    <ActivityDetail :job-id="jobId" :row="row" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            </template>
+          </TableBody>
+        </Table>
+        <Empty v-if="!rows.length" class="p-5" role="status">
+          <EmptyDescription>{{ latest?.terminal ? '此执行暂无可展示的活动' : '等待运行活动…' }}</EmptyDescription>
+        </Empty>
+      </div>
+      <LoadingIndicator :active="busy && !!page" label="正在读取执行活动" placement="overlay" />
     </div>
-    <nav class="log-nav" aria-label="执行活动分页">
-      <Button type="button" variant="outline" :disabled="busy || !page?.hasOlder" @click="older"
+    <nav v-if="page" ref="pagination" class="log-nav" aria-label="执行活动分页">
+      <Button type="button" variant="outline" :aria-disabled="busy || !page.hasOlder" @click="!busy && page.hasOlder && older()"
         >较早活动</Button
       >
       <Button
         v-if="bounds.length"
         type="button"
         variant="outline"
-        :disabled="busy"
-        @click="navigate(bounds.slice(0, -1))"
+        :aria-disabled="busy"
+        @click="!busy && navigate(bounds.slice(0, -1))"
         >较新活动</Button
       >
-      <Button v-if="!following" type="button" variant="ghost" @click="navigate([])"
+      <Button v-if="!following" type="button" variant="ghost" :aria-disabled="busy" @click="!busy && navigate([])"
         >回到最新活动</Button
       >
     </nav>
@@ -212,15 +238,24 @@ function summary(text: string, command: boolean) {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .log-nav {
   margin-top: 12px;
+}
+.activity-result {
+  position: relative;
+}
+.log-nav button[aria-disabled='true'],
+.summary-cell button[aria-disabled='true'] {
+  opacity: 0.65;
 }
 .activity-scroll {
   max-height: min(54vh, 540px);
   overflow: auto;
   overscroll-behavior: contain;
   overflow-anchor: none;
+  container-type: inline-size;
 }
 .activity-table {
   width: 100%;
@@ -266,7 +301,9 @@ function summary(text: string, command: boolean) {
   align-items: center;
   width: 100%;
   text-align: left;
+  justify-content: flex-start;
   gap: 8px;
+  min-width: 0;
   min-height: 32px;
   cursor: pointer;
 }
@@ -282,6 +319,11 @@ function summary(text: string, command: boolean) {
   background: #f7f8fa;
   padding: 12px 16px;
   white-space: normal;
+}
+.activity-detail-content {
+  position: sticky;
+  inset-inline-start: 16px;
+  max-inline-size: min(100%, calc(100cqi - 32px));
 }
 @media (width < 720px) {
   .summary-cell button {

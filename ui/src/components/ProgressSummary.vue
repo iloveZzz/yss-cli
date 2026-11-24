@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import StatusBadge from './StatusBadge.vue'
 import {
   dateLabel,
@@ -20,9 +22,10 @@ const active = computed(() =>
 )
 </script>
 <template>
-  <section
-    class="progress-summary"
+  <Card
+    class="progress-summary block gap-0 shadow-none"
     :class="{ compact }"
+    role="region"
     aria-label="自动进展摘要"
   >
     <div class="summary-main">
@@ -32,15 +35,15 @@ const active = computed(() =>
           <StatusBadge :status="progress.status" />
         </span>
         <strong>{{ title }}</strong>
-        <span v-if="progress?.hasOverride" class="summary-tag">人工更正</span>
+        <Badge v-if="progress?.hasOverride" variant="outline" class="summary-tag">人工更正</Badge>
       </div>
       <p v-if="!compact && active" class="summary-active">
         当前并行 · {{ active }}
       </p>
       <div v-if="progress?.attention.length" class="summary-attention">
-        <span v-for="item in progress.attention" :key="item">
+        <Badge v-for="item in progress.attention" :key="item" variant="outline" class="summary-tag">
           {{ attentionLabels[item] ?? item }}
-        </span>
+        </Badge>
       </div>
     </div>
     <dl class="summary-facts">
@@ -68,7 +71,7 @@ const active = computed(() =>
         </dd>
       </div>
     </dl>
-  </section>
+  </Card>
 </template>
 <style scoped>
 .progress-summary {
@@ -95,14 +98,13 @@ const active = computed(() =>
   display: inline-flex;
   align-items: center;
 }
-.summary-tag,
-.summary-attention span {
+.summary-tag {
   font-size: 11px;
   color: #9b5a0e;
 }
 .summary-active {
   font-size: 12px;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   margin-top: 5px;
 }
 .summary-attention {
@@ -122,7 +124,7 @@ const active = computed(() =>
 }
 dt {
   font-size: 11px;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   margin-bottom: 4px;
 }
 dd {
@@ -141,7 +143,7 @@ dd {
 .compact .summary-heading strong {
   font-size: 12px;
   font-weight: 400;
-  color: #555d6a;
+  color: var(--brand-color-text-secondary);
 }
 .compact .summary-facts {
   display: block;

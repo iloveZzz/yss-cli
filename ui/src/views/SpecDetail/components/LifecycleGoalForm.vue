@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { Alert } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, reactive, shallowRef, watch, useId, toRaw } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Button } from '@/components/ui/button'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { Input } from '@/components/ui/input'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
@@ -151,7 +155,7 @@ async function save() {
       </p>
       <label :for="id + '-scope'">
         交付范围
-        <textarea :id="id + '-scope'" v-model="draft.scope" required rows="3" />
+        <Textarea :id="id + '-scope'" v-model="draft.scope" required rows="3" />
       </label>
       <div class="form-grid">
         <label :for="id + '-kind'">
@@ -191,7 +195,7 @@ async function save() {
           class="scope-entry"
         >
           <label class="check-label">
-            <input v-model="entry.applicable" type="checkbox" />
+            <Checkbox :model-value="entry.applicable" @update:model-value="entry.applicable = $event === true" />
             {{ stages[entry.stage] }}
           </label>
           <Input
@@ -258,7 +262,7 @@ async function save() {
       </fieldset>
       <label :for="id + '-acceptance'">
         验收引用
-        <textarea
+        <Textarea
           :id="id + '-acceptance'"
           v-model="acceptanceText"
           rows="3"
@@ -266,7 +270,7 @@ async function save() {
         />
       </label>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+      <Alert v-if="error" class="notice error" role="alert">{{ error }}</Alert>
       <p v-if="stale" class="notice warning">
         目标或工作台记录已变化，当前输入已保留。
         <Button type="button" variant="outline" @click="reload">
@@ -286,7 +290,10 @@ async function save() {
         >
           取消
         </Button>
-        <Button :disabled="saving || stale">保存目标</Button>
+        <Button :disabled="saving || stale">
+          <LoadingIndicator :active="saving" />
+          {{ saving ? '正在保存…' : '保存目标' }}
+        </Button>
       </div>
     </form>
   </ModalDialog>

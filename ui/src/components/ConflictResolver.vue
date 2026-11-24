@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, useId } from 'vue'
 import { contentEqual } from '@/services/workbench'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { FieldLabel } from '@/components/ui/field'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { readableValue, type JsonObject } from '@/services/workbench-platform'
 const props = defineProps<{ base: JsonObject; local: JsonObject; current: JsonObject }>()
 const emit = defineEmits<{ resolve: [value: JsonObject]; close: [] }>()
+const id = useId()
 const labels: Record<string, string> = {
   sourcePath: '主规格路径',
   title: '标题',
@@ -27,6 +31,11 @@ const labels: Record<string, string> = {
   reviewUtcOffsetMinutes: '复查时区'
 }
 const choices = reactive<Record<string, 'local' | 'current' | 'base'>>({})
+const options = [
+  { key: 'local', label: '当前输入' },
+  { key: 'current', label: '最新记录' },
+  { key: 'base', label: '开始编辑时' }
+] as const
 const fields = computed(() =>
   [
     ...new Set([
@@ -60,31 +69,25 @@ function resolve() {
 }
 </script>
 <template>
-  <section class="notice warning conflict-panel" aria-label="合并并发修改">
-    <h3>记录已被其他页面修改</h3>
-    <p>逐项选择保留内容，合并后再次保存。</p>
+  <section class="conflict-panel" :aria-labelledby="id">
+    <Alert class="notice warning">
+      <AlertTitle :id="id">记录已被其他页面修改</AlertTitle>
+      <AlertDescription>逐项选择保留内容，合并后再次保存。</AlertDescription>
+    </Alert>
     <fieldset v-for="field in fields.filter((item) => item.conflict)" :key="field.key">
-      <legend>{{ labels[field.key] ?? field.key }}</legend>
-      <label
-        v-for="option in [
-          { key: 'local', label: '当前输入' },
-          { key: 'current', label: '最新记录' },
-          { key: 'base', label: '开始编辑时' }
-        ] as const"
-        :key="option.key"
-        class="conflict-option"
+      <legend :id="`${id}-${field.key}`">{{ labels[field.key] ?? field.key }}</legend>
+      <RadioGroup
+        v-model="choices[field.key]"
+        :aria-labelledby="`${id}-${field.key}`"
       >
-        <input
-          v-model="choices[field.key]"
-          type="radio"
-          :name="`conflict-${field.key}`"
-          :value="option.key"
-        />
-        <span>
-          <strong>{{ option.label }}</strong>
-          <pre>{{ readableValue(props[option.key][field.key]) }}</pre>
-        </span>
-      </label>
+        <div v-for="option in options" :key="option.key" class="conflict-option">
+          <RadioGroupItem :id="`${id}-${field.key}-${option.key}`" :value="option.key" />
+          <div class="conflict-value">
+            <FieldLabel :for="`${id}-${field.key}-${option.key}`">{{ option.label }}</FieldLabel>
+            <pre>{{ readableValue(props[option.key][field.key]) }}</pre>
+          </div>
+        </div>
+      </RadioGroup>
     </fieldset>
     <div class="inline-actions">
       <Button type="button" :disabled="unresolved" @click="resolve">合并选中内容</Button>
@@ -94,21 +97,21 @@ function resolve() {
 </template>
 <style scoped>
 .conflict-panel fieldset {
+  min-width: 0;
   border: 1px solid #decda9;
   padding: 12px;
   margin: 12px 0;
   border-radius: 8px;
 }
 .conflict-option {
-  display: flex !important;
-  flex-direction: row !important;
+  display: flex;
   align-items: flex-start;
-  gap: 10px !important;
+  gap: 10px;
   padding: 8px 0;
 }
-.conflict-option input {
-  margin-top: 4px;
-}
+.conflict-option [data-slot='radio-group-item'] { flex: none; }
+.conflict-value { min-width: 0; }
+.conflict-value label { cursor: pointer; }
 .conflict-option pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

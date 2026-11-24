@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { reactive, shallowRef, computed, onMounted, ref, useId } from 'vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
+import { reactive, shallowRef, computed, nextTick, onMounted, ref, useId } from 'vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Separator } from '@/components/ui/separator'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { errorMessage } from '@/services/workbench'
 import {
@@ -12,6 +23,7 @@ import {
 } from '@/services/workbench-engineering'
 const { snapshot, refresh } = useWorkbench()
 const homes = shallowRef<HomeImport[]>([])
+const loading = shallowRef(true)
 const preview = shallowRef<HomeImport>()
 const manualRows = shallowRef('')
 const manualEntries = ref<HomeRow[]>([])
@@ -20,10 +32,13 @@ const sourceFingerprint = shallowRef('')
 const root = shallowRef('')
 const sourcePath = shallowRef('')
 const open = shallowRef(false)
+const sourceOpen = shallowRef(true)
+const previewHeading = shallowRef<HTMLHeadingElement>()
 const mapping = reactive<Record<string, string>>({})
 const bindings = reactive<Record<string, string>>({})
 const error = shallowRef('')
-const busy = shallowRef(false)
+const action = shallowRef<'inspect' | 'review' | 'bind'>()
+const busy = computed(() => !!action.value)
 const notice = shallowRef('')
 const sourceKey = computed(() =>
   JSON.stringify({ root: root.value, sourcePath: sourcePath.value, mapping })
@@ -47,16 +62,21 @@ const projectRoots = computed(
     })) ?? []
 )
 async function load() {
+  loading.value = true
   try {
     homes.value = (await getHomes()).homes
   } catch (cause) {
     error.value = errorMessage(cause)
+  } finally {
+    loading.value = false
   }
 }
 onMounted(load)
-async function inspect() {
+async function inspect(event: SubmitEvent) {
   if (busy.value) return
-  busy.value = true
+  const sourceForm = event.currentTarget as HTMLFormElement
+  const initialFocus = document.activeElement
+  action.value = 'inspect'
   error.value = ''
   notice.value = ''
   sourceFingerprint.value = ''
@@ -77,10 +97,14 @@ async function inspect() {
         (previous?.root === preview.value.root ? previousBindings[row.id] : '') ||
         known?.bindings?.find((item) => item.entryId === row.id)?.rootPath ||
         ''
+    const moveFocus = sourceForm.contains(initialFocus) &&
+      (document.activeElement === document.body || sourceForm.contains(document.activeElement))
+    sourceOpen.value = false
+    if (moveFocus) await nextTick(() => previewHeading.value?.focus())
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 function edit(home: HomeImport) {
@@ -89,9 +113,11 @@ function edit(home: HomeImport) {
   root.value = home.root
   sourcePath.value = home.sourcePath
   sourceFingerprint.value = sourceKey.value
+  sourceOpen.value = false
   open.value = true
   for (const row of home.rows)
     bindings[row.id] = home.bindings?.find((item) => item.entryId === row.id)?.rootPath ?? ''
+  void nextTick(() => previewHeading.value?.focus())
 }
 function setEntries(home: HomeImport) {
   manualEntries.value = structuredClone(home.rows)
@@ -132,7 +158,15 @@ function applyJson() {
   }
 }
 function beginImport() {
+  if (!open.value) sourceOpen.value = !preview.value
   open.value = !open.value
+}
+function focusImportTrigger() {
+  document.getElementById(`${formId}-trigger`)?.focus()
+}
+function dismissImport() {
+  open.value = false
+  void nextTick(focusImportTrigger)
 }
 async function reviewRows() {
   if (!preview.value || busy.value) return
@@ -140,7 +174,7 @@ async function reviewRows() {
     error.value = '地图来源已变化，请重新读取后继续。'
     return
   }
-  busy.value = true
+  action.value = 'review'
   error.value = ''
   try {
     preview.value = await importHome(
@@ -154,7 +188,7 @@ async function reviewRows() {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 async function save() {
@@ -163,7 +197,7 @@ async function save() {
     error.value = '地图来源已变化，请重新读取后继续。'
     return
   }
-  busy.value = true
+  action.value = 'bind'
   error.value = ''
   try {
     await bindHome(
@@ -181,18 +215,20 @@ async function save() {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
+    if (!open.value) await nextTick(focusImportTrigger)
   }
 }
 </script>
 <template>
-  <section class="platform-section home-manager" aria-labelledby="home-heading">
+  <Card class="block gap-0 py-0 shadow-none platform-section home-manager" role="region" aria-labelledby="home-heading">
     <div class="section-heading">
       <div>
         <h2 id="home-heading">产品 Home</h2>
         <p class="muted">沿用项目仓库地图，绑定本机工程目录。</p>
       </div>
       <Button
+        :id="`${formId}-trigger`"
         type="button"
         variant="outline"
         :aria-expanded="open"
@@ -202,9 +238,9 @@ async function save() {
         >{{ open ? '收起导入' : '导入 Home 地图' }}</Button
       >
     </div>
-    <p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-    <div v-if="homes.length" class="home-list">
+    <Alert v-if="notice" role="status" class="notice">{{ notice }}</Alert>
+    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
+    <div v-if="homes.length" class="home-list" :aria-busy="loading">
       <article v-for="home in homes" :key="home.id" class="home-record">
         <div class="home-record-heading">
           <div class="home-identity">
@@ -214,75 +250,87 @@ async function save() {
           </div>
           <span class="muted home-count"
             >{{ home.bindings?.length ?? 0 }} / {{ home.rows.length }} 已绑定</span
-          ><span :class="home.stale ? 'warning-text' : 'muted'">{{
+          ><Badge variant="outline" :class="{ 'warning-text': home.stale || home.requiresReview }">{{
             home.stale ? '地图已变化' : home.requiresReview ? '待核对' : '已读取'
-          }}</span
+          }}</Badge
           ><Button type="button" variant="ghost" :disabled="busy" @click="edit(home)">{{
             home.stale ? '重新核对' : '管理绑定'
           }}</Button>
         </div>
-        <details v-if="home.bindings?.length">
-          <summary>查看已绑定工程</summary>
-          <ul class="binding-list">
-            <li v-for="binding in home.bindings" :key="binding.entryId">
-              <RouterLink v-if="binding.projectId" :to="`/projects/${binding.projectId}`">{{
-                binding.entryId
-              }}</RouterLink><strong v-else>{{ binding.entryId }}</strong
-              ><span class="path-text">{{ binding.rootPath }}</span>
-            </li>
-          </ul>
-        </details>
+        <Collapsible v-if="home.bindings?.length">
+          <CollapsibleTrigger>查看已绑定工程</CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul class="binding-list">
+              <li v-for="binding in home.bindings" :key="binding.entryId">
+                <RouterLink v-if="binding.projectId" :to="`/projects/${binding.projectId}`">{{
+                  binding.entryId
+                }}</RouterLink><strong v-else>{{ binding.entryId }}</strong
+                ><span class="path-text">{{ binding.rootPath }}</span>
+              </li>
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       </article>
     </div>
     <div v-if="open" :id="formId" class="home-task">
-      <details class="source-step" :open="!preview">
-        <summary>{{ preview ? `地图来源 · ${preview.sourcePath}` : '选择地图来源' }}</summary>
-        <form class="form-stack" aria-label="导入 Home" @submit.prevent="inspect">
-          <fieldset :disabled="busy" class="plain-fieldset form-stack">
-            <legend class="sr-only">地图来源</legend>
-            <div class="form-grid">
-              <label
-                >Home 根目录（必填）<input
-                  v-model="root"
-                  name="root"
-                  required
-                  spellcheck="false"
-                  autocorrect="off"
-                  autocapitalize="none"
-                  placeholder="本机绝对路径" /></label
-              ><label
-                >地图相对路径<input
-                  v-model="sourcePath"
-                  name="sourcePath"
-                  spellcheck="false"
-                  autocorrect="off"
-                  autocapitalize="none"
-                  placeholder="REPOSITORIES.md 或已有 README"
-              /></label>
-            </div>
-            <details>
-              <summary>设置非标准表头</summary>
+      <Collapsible class="source-step" v-model:open="sourceOpen" :unmount-on-hide="false">
+        <CollapsibleTrigger>{{ preview ? `地图来源 · ${preview.sourcePath}` : '选择地图来源' }}</CollapsibleTrigger>
+        <CollapsibleContent>
+          <form class="form-stack" aria-label="导入 Home" @submit.prevent="inspect">
+            <fieldset :disabled="busy" class="plain-fieldset form-stack">
+              <legend class="sr-only">地图来源</legend>
               <div class="form-grid">
-                <label v-for="column in columns" :key="column.key"
-                  >{{ column.label }}<input v-model="mapping[column.key]" :name="column.key"
+                <label
+                  >Home 根目录（必填）<Input
+                    v-model="root"
+                    name="root"
+                    required
+                    spellcheck="false"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    placeholder="本机绝对路径" /></label
+                ><label
+                  >地图相对路径<Input
+                    v-model="sourcePath"
+                    name="sourcePath"
+                    spellcheck="false"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    placeholder="REPOSITORIES.md 或已有 README"
                 /></label>
               </div>
-            </details>
-            <div class="form-actions">
-              <Button :disabled="busy">{{ busy ? '读取中…' : '读取地图' }}</Button>
-            </div>
-          </fieldset>
-        </form>
-      </details>
+              <Collapsible :unmount-on-hide="false">
+                <CollapsibleTrigger>设置非标准表头</CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div class="form-grid">
+                    <label v-for="column in columns" :key="column.key"
+                      >{{ column.label }}<Input v-model="mapping[column.key]" :name="column.key"
+                    /></label>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+              <div class="form-actions">
+                <Button type="submit" :disabled="busy">
+                  <LoadingIndicator :active="action === 'inspect'" />
+                  {{ action === 'inspect' ? '读取中…' : '读取地图' }}
+                </Button>
+              </div>
+            </fieldset>
+          </form>
+        </CollapsibleContent>
+      </Collapsible>
       <section v-if="preview" class="home-preview" aria-label="核对工程并绑定目录">
+        <Separator class="mb-4" />
         <div class="section-heading">
-          <h3>{{ preview.requiresReview ? '核对地图条目' : '绑定本机工程' }}</h3>
+          <h3 ref="previewHeading" tabindex="-1">{{ preview.requiresReview ? '核对地图条目' : '绑定本机工程' }}</h3>
           <span class="muted">{{ preview.rows.length }} 个条目</span>
         </div>
-        <p v-if="!sourceCurrent" class="notice warning">地图来源已变化，请重新读取后继续绑定。</p>
-        <ul v-if="preview.warnings.length" class="notice warning">
-          <li v-for="warning in preview.warnings" :key="warning">{{ warning }}</li>
-        </ul>
+        <Alert v-if="!sourceCurrent" class="notice warning">地图来源已变化，请重新读取后继续绑定。</Alert>
+        <Alert v-if="preview.warnings.length" class="notice warning">
+          <ul>
+            <li v-for="warning in preview.warnings" :key="warning">{{ warning }}</li>
+          </ul>
+        </Alert>
         <form
           v-if="preview.requiresReview"
           class="form-stack"
@@ -298,48 +346,50 @@ async function save() {
               role="region"
               aria-label="人工核对的地图条目"
             >
-              <table class="spec-table">
-                <caption class="sr-only">
+              <Table class="spec-table">
+                <TableCaption class="sr-only">
                   可编辑的 Home 工程条目
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">工程身份</th>
-                    <th scope="col">职责与资料</th>
-                    <th scope="col">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, index) in manualEntries" :key="index">
-                    <td>
+                </TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">工程身份</TableHead>
+                    <TableHead scope="col">职责与资料</TableHead>
+                    <TableHead scope="col">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="(row, index) in manualEntries" :key="index">
+                    <TableCell>
                       <label
-                        >工程标识<input v-model="row.id" :name="`id-${index}`" required /></label
+                        >工程标识<Input v-model="row.id" :name="`id-${index}`" required /></label
                       ><label
-                        >Git 身份与子路径<input
+                        >Git 身份与子路径<Input
                           v-model="row.git"
                           :name="`git-${index}`"
                           spellcheck="false"
                           autocorrect="off"
                       /></label>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <label
-                        >职责<input
+                        >职责<Input
                           v-model="row.responsibility"
                           :name="`responsibility-${index}`" /></label
                       ><label
-                        >资料入口<input v-model="row.documents" :name="`documents-${index}`"
+                        >资料入口<Input v-model="row.documents" :name="`documents-${index}`"
                       /></label>
-                      <details>
-                        <summary>关联与定位提示</summary>
-                        <label
-                          >关联<input v-model="row.relations" :name="`relations-${index}`" /></label
-                        ><label
-                          >查找提示<input v-model="row.hints" :name="`hints-${index}`"
-                        /></label>
-                      </details>
-                    </td>
-                    <td>
+                      <Collapsible :unmount-on-hide="false">
+                        <CollapsibleTrigger>关联与定位提示</CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <label
+                            >关联<Input v-model="row.relations" :name="`relations-${index}`" /></label
+                          ><label
+                            >查找提示<Input v-model="row.hints" :name="`hints-${index}`"
+                          /></label>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </TableCell>
+                    <TableCell>
                       <Button
                         type="button"
                         variant="ghost"
@@ -348,30 +398,35 @@ async function save() {
                         @click="manualEntries.splice(index, 1)"
                         >移除</Button
                       >
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
             </div>
             <div class="inline-actions">
               <Button type="button" variant="outline" :disabled="busy" @click="addEntry"
                 >新增条目</Button
-              ><Button :disabled="busy || !sourceCurrent">采用核对后的条目</Button>
+              ><Button type="submit" :disabled="busy || !sourceCurrent">
+                <LoadingIndicator :active="action === 'review'" />
+                {{ action === 'review' ? '保存中…' : '采用核对后的条目' }}
+              </Button>
             </div>
-            <details>
-              <summary>使用 JSON 编辑条目</summary>
-              <label
-                >条目 JSON<textarea
-                  v-model="manualRows"
-                  name="rows"
-                  rows="8"
-                  spellcheck="false"
-                  autocorrect="off"
-                /></label
-              ><Button type="button" variant="outline" :disabled="busy" @click="applyJson"
-                >将 JSON 填入表格</Button
-              >
-            </details>
+            <Collapsible :unmount-on-hide="false">
+              <CollapsibleTrigger>使用 JSON 编辑条目</CollapsibleTrigger>
+              <CollapsibleContent>
+                <label
+                  >条目 JSON<Textarea
+                    v-model="manualRows"
+                    name="rows"
+                    rows="8"
+                    spellcheck="false"
+                    autocorrect="off"
+                  /></label
+                ><Button type="button" variant="outline" :disabled="busy" @click="applyJson"
+                  >将 JSON 填入表格</Button
+                >
+              </CollapsibleContent>
+            </Collapsible>
           </fieldset>
         </form>
         <template v-else>
@@ -381,35 +436,37 @@ async function save() {
             role="region"
             aria-label="Home 本机目录绑定"
           >
-            <table class="spec-table">
-              <caption class="sr-only">
+            <Table class="spec-table">
+              <TableCaption class="sr-only">
                 地图工程与本机目录
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">工程</th>
-                  <th scope="col">职责与资料</th>
-                  <th scope="col">本机绝对路径</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in preview.rows" :key="row.id">
-                  <th scope="row">
+              </TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">工程</TableHead>
+                  <TableHead scope="col">职责与资料</TableHead>
+                  <TableHead scope="col">本机绝对路径</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="row in preview.rows" :key="row.id">
+                  <TableHead scope="row">
                     {{ row.id }}<span class="row-sub path-text">{{ row.git }}</span>
-                  </th>
-                  <td>
+                  </TableHead>
+                  <TableCell>
                     {{ row.responsibility }}
-                    <details v-if="row.documents || row.relations || row.hints">
-                      <summary>资料与关联</summary>
-                      <p class="preserve-lines">{{ row.documents }}</p>
-                      <p class="muted">{{ row.relations }}</p>
-                      <p class="muted">{{ row.hints }}</p>
-                    </details>
-                  </td>
-                  <td>
+                    <Collapsible v-if="row.documents || row.relations || row.hints">
+                      <CollapsibleTrigger>资料与关联</CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <p class="preserve-lines">{{ row.documents }}</p>
+                        <p class="muted">{{ row.relations }}</p>
+                        <p class="muted">{{ row.hints }}</p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </TableCell>
+                  <TableCell>
                     <label :for="`${formId}-${row.id}`" class="sr-only"
                       >{{ row.id }} 的本机目录</label
-                    ><input
+                    ><Input
                       :id="`${formId}-${row.id}`"
                       v-model="bindings[row.id]"
                       :list="`${formId}-roots`"
@@ -420,10 +477,10 @@ async function save() {
                       autocapitalize="none"
                       placeholder="选择已登记目录或填写路径"
                     />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </div>
           <datalist :id="`${formId}-roots`">
             <option v-for="project in projectRoots" :key="project.root" :value="project.root">
@@ -431,17 +488,26 @@ async function save() {
             </option>
           </datalist>
           <div class="form-actions">
-            <Button type="button" variant="outline" :disabled="busy" @click="open = false"
+            <Button type="button" variant="outline" :disabled="busy" @click="dismissImport"
               >稍后绑定</Button
-            ><Button type="button" :disabled="busy || !sourceCurrent" @click="save">{{
-              busy ? '保存中…' : '保存工程绑定'
-            }}</Button>
+            ><Button type="button" :disabled="busy || !sourceCurrent" @click="save">
+              <LoadingIndicator :active="action === 'bind'" />
+              {{ action === 'bind' ? '保存中…' : '保存工程绑定' }}
+            </Button>
           </div>
         </template>
       </section>
     </div>
-    <p v-if="!homes.length && !open" class="muted">从现有仓库地图导入产品，集中找到关联工程。</p>
-  </section>
+    <LoadingSkeleton
+      v-if="loading && !homes.length && !open"
+      variant="text"
+      :rows="2"
+      label="正在读取产品 Home"
+    />
+    <Empty v-else-if="!homes.length && !open && !error" class="home-empty">
+      <EmptyDescription>尚未导入仓库地图。</EmptyDescription>
+    </Empty>
+  </Card>
 </template>
 <style scoped>
 .home-manager {
@@ -467,7 +533,7 @@ async function save() {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.home-record details {
+.home-record :deep([data-slot='collapsible']) {
   margin-top: 4px;
 }
 .binding-list {
@@ -488,37 +554,46 @@ async function save() {
 .home-preview {
   margin-top: 18px;
 }
-.home-bindings table,
-.home-review table {
+.home-bindings :deep(table),
+.home-review :deep(table) {
   min-width: 680px;
 }
-.home-bindings td,
-.home-bindings th {
+.home-bindings :deep(td),
+.home-bindings :deep(th) {
   white-space: normal;
   overflow-wrap: anywhere;
   min-width: 180px;
 }
-.home-bindings td:last-child {
+.home-bindings :deep(td:last-child) {
   width: 42%;
   min-width: 280px;
 }
-.home-review td {
+.home-review :deep(td) {
   min-width: 250px;
   vertical-align: top;
 }
-.home-review td:last-child {
+.home-review :deep(td:last-child) {
   min-width: 70px;
 }
-.home-review label {
+.home-review :deep(label) {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-bottom: 10px;
 }
-.source-step > summary {
+.source-step :deep([data-slot='collapsible-trigger']) {
   font-weight: 550;
 }
+.home-empty {
+  align-items: flex-start;
+  padding: 4px 0 0;
+  border: 0;
+  text-align: start;
+}
 @media (width < 720px) {
+  .home-manager .section-heading {
+    flex-wrap: wrap;
+  }
   .home-record-heading {
     flex-wrap: wrap;
     gap: 8px 16px;

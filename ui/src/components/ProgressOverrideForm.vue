@@ -5,6 +5,10 @@ import { useEventListener } from '@vueuse/core'
 import ModalDialog from './ModalDialog.vue'
 import SingleSelect from './SingleSelect.vue'
 import { Button } from './ui/button'
+import { Alert } from './ui/alert'
+import { Field, FieldLabel } from './ui/field'
+import { Textarea } from './ui/textarea'
+import LoadingIndicator from './LoadingIndicator.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
   ApiError,
@@ -40,6 +44,7 @@ const dirty = computed(
       reason.value !== baseline.value.reason)
 )
 const error = shallowRef('')
+const submitting = shallowRef(false)
 const notice = shallowRef('')
 const leaveOpen = shallowRef(false)
 let resolveLeave: ((value: boolean) => void) | undefined
@@ -108,6 +113,7 @@ async function save() {
     error.value = '请填写人工更正原因。'
     return
   }
+  submitting.value = true
   try {
     const submitted = { reason: reason.value, progress: value.value }
     const result = await submit(
@@ -133,6 +139,8 @@ async function save() {
   } catch (cause) {
     error.value = errorMessage(cause)
     stale.value = cause instanceof ApiError && cause.status === 409
+  } finally {
+    submitting.value = false
   }
 }
 </script>
@@ -143,7 +151,7 @@ async function save() {
     :busy="saving"
     :before-close="() => requestLeave(dirty)"
   >
-    <form class="form-stack" @submit.prevent="save">
+    <form class="form-stack" :aria-busy="submitting" @submit.prevent="save">
       <p>
         更正 {{ stages[stage] }} 阶段，绑定目标版本
         <code class="version">{{ goalVersion || '尚未建立' }}</code>
@@ -152,8 +160,8 @@ async function save() {
       <p class="muted">
         自动依据继续保留。可在生命周期详情清除更正，恢复自动汇总。
       </p>
-      <label :for="id + '-progress'">
-        更正为
+      <Field>
+        <FieldLabel :for="id + '-progress'">更正为</FieldLabel>
         <SingleSelect
           :id="id + '-progress'"
           :model-value="value"
@@ -165,19 +173,19 @@ async function save() {
           "
           @update:model-value="value = $event as Progress"
         />
-      </label>
-      <label :for="id + '-reason'">
-        更正原因
-        <textarea :id="id + '-reason'" v-model="reason" required rows="4" />
-      </label>
+      </Field>
+      <Field>
+        <FieldLabel :for="id + '-reason'">更正原因</FieldLabel>
+        <Textarea :id="id + '-reason'" v-model="reason" required rows="4" />
+      </Field>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-      <p v-if="stale" class="notice warning">
+      <Alert v-if="error" class="notice error" variant="destructive">{{ error }}</Alert>
+      <Alert v-if="stale" class="notice warning">
         依据已变化，当前输入已保留。
         <Button type="button" variant="outline" @click="reload">
           载入最新版本
         </Button>
-      </p>
+      </Alert>
       <RouterLink
         v-if="!goalVersion"
         :to="{ path: '/specs/' + specId, query: { tab: 'lifecycle' } }"
@@ -193,7 +201,10 @@ async function save() {
         >
           取消
         </Button>
-        <Button :disabled="saving || stale || !goalVersion">保存更正</Button>
+        <Button type="submit" :disabled="saving || stale || !goalVersion">
+          <LoadingIndicator :active="submitting" />
+          {{ submitting ? '保存中…' : '保存更正' }}
+        </Button>
       </div>
     </form>
   </ModalDialog>
@@ -209,7 +220,7 @@ async function save() {
   >
     <p>当前编辑包含未保存输入，继续操作将离开编辑。</p>
     <div class="form-actions">
-      <Button type="button" variant="outline" @click="decideLeave(false)">
+      <Button type="button" variant="outline" autofocus @click="decideLeave(false)">
         继续编辑
       </Button>
       <Button type="button" @click="decideLeave(true)">离开并继续</Button>

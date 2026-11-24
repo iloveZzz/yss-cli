@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { Badge } from '@/components/ui/badge'
 import { jobStatusLabels } from '@/services/workbench-platform'
 defineProps<{ status: string; stopping?: boolean }>()
 </script>
 <template>
-  <span class="job-state" :data-state="status">{{
+  <Badge variant="secondary" class="job-state" :data-state="status">{{
     stopping ? '正在停止…' : (jobStatusLabels[status] ?? status)
-  }}</span>
+  }}</Badge>
 </template>
 <style scoped>
 .job-state {

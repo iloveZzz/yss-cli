@@ -3,9 +3,15 @@
 const saved = { search: '', filter: 'all', kind: 'all', top: 0, left: 0, windowY: 0 }
 </script>
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { dateLabel } from '@/services/workbench'
@@ -17,6 +23,8 @@ import PendingRequests from './PendingRequests.vue'
 const props = defineProps<{
   jobs: JobRecord[]
   loaded: boolean
+  loading: boolean
+  failed: boolean
   projectNames: (job: JobRecord) => string
 }>()
 const search = shallowRef(saved.search)
@@ -104,80 +112,116 @@ function clearFilters() {
 </script>
 <template>
   <PendingRequests v-model:open="historyOpen" @count="requestCount = $event" />
-  <div class="toolbar jobs-filters">
-    <label for="job-search" class="inline-field job-search"
-      ><span>搜索</span
-      ><Input id="job-search" v-model="search" type="search" placeholder="操作名称或工程"
-    /></label>
-    <label for="job-range" class="inline-field"
-      ><span>状态</span><SingleSelect id="job-range" v-model="filter" :options="filterOptions"
-    /></label>
-    <label for="job-kind" class="inline-field"
-      ><span>类型</span><SingleSelect id="job-kind" v-model="kind" :options="kindOptions"
-    /></label>
-    <Button v-if="hasFilters" type="button" variant="ghost" @click="clearFilters">清除筛选</Button>
-    <span class="muted job-count">{{ visibleJobs.length }} 条执行</span>
-    <Button type="button" variant="outline" @click="historyOpen = true"
-      >请求历史{{ requestCount == null ? '' : `（${requestCount}）` }}</Button
-    >
-  </div>
-  <section class="panel jobs-panel">
-    <div
-      ref="scroll"
-      class="table-scroll jobs-table-scroll"
-      role="region"
-      aria-label="执行记录列表"
-      tabindex="0"
-    >
-      <table class="spec-table jobs-table">
-        <caption class="sr-only">
-          本机执行记录，按最近更新时间排列
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">执行内容</th>
-            <th scope="col">状态</th>
-            <th scope="col">类型</th>
-            <th scope="col">工程</th>
-            <th scope="col">最近更新</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in visibleJobs" :key="item.id">
-            <th scope="row">
-              <RouterLink :to="`/jobs/${item.id}`">{{ jobTitle(item) }}</RouterLink>
-            </th>
-            <td>
-              <JobStatus :status="item.status" />
-            </td>
-            <td>{{ jobKindLabels[item.kind] ?? item.kind }}</td>
-            <td>
-              {{ projectNames(item) || '本机工作台' }}
-            </td>
-            <td class="job-time">{{ dateLabel(item.updatedAt) }}</td>
-          </tr>
-        </tbody>
-      </table>
+  <Card class="jobs-panel gap-0 py-0 shadow-none">
+    <div class="jobs-filters">
+      <div class="jobs-filter-fields">
+        <Field class="job-search gap-1.5">
+          <FieldLabel for="job-search">搜索</FieldLabel>
+          <Input id="job-search" v-model="search" type="search" placeholder="操作名称或工程" />
+        </Field>
+        <Field class="gap-1.5">
+          <FieldLabel for="job-range">状态</FieldLabel>
+          <SingleSelect id="job-range" v-model="filter" :options="filterOptions" />
+        </Field>
+        <Field class="gap-1.5">
+          <FieldLabel for="job-kind">类型</FieldLabel>
+          <SingleSelect id="job-kind" v-model="kind" :options="kindOptions" />
+        </Field>
+      </div>
+      <div class="jobs-filter-actions">
+        <Button v-if="hasFilters" type="button" variant="ghost" @click="clearFilters">清除筛选</Button>
+        <Button type="button" variant="outline" @click="historyOpen = true">
+          请求历史{{ requestCount == null ? '' : `（${requestCount}）` }}
+        </Button>
+      </div>
     </div>
-    <div v-if="!visibleJobs.length" class="empty">
-      <p>{{ hasFilters ? '没有符合筛选条件的执行记录' : '暂无执行记录' }}</p>
-      <Button v-if="hasFilters" type="button" variant="ghost" @click="clearFilters"
-        >查看全部记录</Button
+    <p v-if="loaded" class="job-count muted" role="status">{{ visibleJobs.length }} 条执行</p>
+    <div v-if="loaded" class="jobs-table-result">
+      <div
+        ref="scroll"
+        class="table-scroll jobs-table-scroll"
+        :aria-busy="loading"
+        role="region"
+        aria-label="执行记录列表"
+        tabindex="0"
       >
+        <Table class="spec-table jobs-table">
+          <TableCaption class="sr-only">
+            本机执行记录，按最近更新时间排列
+          </TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">执行内容</TableHead>
+              <TableHead scope="col">状态</TableHead>
+              <TableHead scope="col">类型</TableHead>
+              <TableHead scope="col">工程</TableHead>
+              <TableHead scope="col">最近更新</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="item in visibleJobs" :key="item.id">
+              <TableHead scope="row">
+                <RouterLink :to="`/jobs/${item.id}`">{{ jobTitle(item) }}</RouterLink>
+              </TableHead>
+              <TableCell>
+                <JobStatus :status="item.status" />
+              </TableCell>
+              <TableCell>{{ jobKindLabels[item.kind] ?? item.kind }}</TableCell>
+              <TableCell>
+                {{ projectNames(item) || '本机工作台' }}
+              </TableCell>
+              <TableCell class="job-time">{{ dateLabel(item.updatedAt) }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      <LoadingIndicator :active="loading" label="正在刷新执行记录" placement="overlay" />
     </div>
-  </section>
+    <LoadingSkeleton v-if="!loaded && loading" variant="table" :rows="4" label="正在读取执行记录" />
+    <Empty v-else-if="(loaded || !failed) && !visibleJobs.length" class="gap-3 p-6 md:p-8">
+      <EmptyHeader>
+        <EmptyDescription>{{ hasFilters ? '没有符合筛选条件的执行记录' : '暂无执行记录' }}</EmptyDescription>
+      </EmptyHeader>
+      <Button v-if="hasFilters" type="button" variant="outline" @click="clearFilters">
+        查看全部记录
+      </Button>
+    </Empty>
+  </Card>
 </template>
 
 <style scoped>
+.jobs-panel {
+  min-width: 0;
+  overflow: hidden;
+}
 .jobs-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 16px;
+}
+.jobs-filter-fields {
+  flex: 1 1 360px;
+  max-width: 620px;
+  display: grid;
+  grid-template-columns: minmax(150px, 1.6fr) repeat(2, minmax(118px, 1fr));
   gap: 12px;
 }
-.job-search input {
-  min-width: 190px;
-  width: 230px;
+.jobs-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-inline-start: auto;
+  flex-wrap: wrap;
 }
 .job-count {
-  margin-left: auto;
+  margin: 0;
+  padding: 0 16px 10px;
+  font-size: 12px;
+}
+.jobs-table-result {
+  position: relative;
 }
 .jobs-table-scroll {
   max-height: 70vh;
@@ -186,12 +230,17 @@ function clearFilters() {
 .jobs-table {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 760px;
+  min-width: 640px;
 }
 .jobs-table thead {
   position: sticky;
   top: 0;
   z-index: 2;
+}
+.jobs-table thead th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
 }
 .jobs-table tbody th {
   position: sticky;
@@ -203,9 +252,14 @@ function clearFilters() {
   padding: 10px 16px;
   border-bottom: 1px solid var(--yss-colors-border);
   white-space: normal;
-  min-width: 220px;
+  min-width: 180px;
   max-width: 420px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.jobs-table tbody th a:hover {
+  color: var(--yss-color-primary-control);
+  text-decoration: underline;
 }
 .jobs-table tbody td {
   height: 48px;
@@ -222,17 +276,16 @@ function clearFilters() {
     max-width: 300px;
   }
 }
-@media (width < 720px) {
+@media (width < 580px) {
+  .jobs-filter-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .job-search {
-    width: 100%;
+    grid-column: 1 / -1;
   }
-  .job-search input {
-    flex: 1;
-    min-width: 0;
-    width: 100%;
-  }
-  .job-count {
-    margin-left: 0;
+  .jobs-table tbody th {
+    min-width: 148px;
+    max-width: min(50cqw, 220px);
   }
 }
 </style>

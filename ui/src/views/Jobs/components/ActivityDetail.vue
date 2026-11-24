@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { shallowRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { errorMessage } from '@/services/workbench'
 import { getActivityDetail, type JobActivity } from '@/services/workbench-platform'
 
@@ -8,6 +11,12 @@ const props = defineProps<{ jobId: string; row: JobActivity; commandOutput?: boo
 const detail = shallowRef<JobActivity>()
 const error = shallowRef('')
 const retry = shallowRef(0)
+const retrying = shallowRef(false)
+function retryDetail() {
+  if (retrying.value) return
+  retrying.value = true
+  retry.value++
+}
 watch(
   () => [props.jobId, props.row.id, props.row.updatedEventId, retry.value],
   async (_, __, onCleanup) => {
@@ -21,15 +30,28 @@ watch(
       }
     } catch (cause) {
       if (!controller.signal.aborted) error.value = errorMessage(cause)
+    } finally {
+      if (!controller.signal.aborted) retrying.value = false
     }
   },
   { immediate: true }
 )
 </script>
 <template>
-  <p v-if="error" role="alert">
-    {{ error }} <Button variant="ghost" @click="retry++">重试</Button>
-  </p>
+  <Alert v-if="error" variant="destructive" class="notice error">
+    <AlertDescription class="text-current">
+      <p>{{ error }}</p>
+      <Button
+        type="button"
+        variant="ghost"
+        :aria-disabled="retrying"
+        @click="retryDetail"
+      >
+        <LoadingIndicator :active="retrying" />
+        {{ retrying ? '正在重试…' : '重试' }}
+      </Button>
+    </AlertDescription>
+  </Alert>
   <template v-if="detail">
     <pre v-if="!commandOutput || detail.text !== row.text">{{ detail.text || '暂无活动正文' }}</pre>
     <template v-if="detail.kind === 'command'">
@@ -37,9 +59,11 @@ watch(
       <p v-if="commandOutput && detail.exitCode !== null" class="muted">退出码 {{ detail.exitCode }}</p>
       <pre>{{ detail.output || '暂无已留存的输出' }}</pre>
     </template>
-    <p v-if="detail.error" role="alert">{{ detail.error }}</p>
+    <Alert v-if="detail.error" variant="destructive" role="note" class="py-2">
+      <AlertDescription class="text-current">{{ detail.error }}</AlertDescription>
+    </Alert>
   </template>
-  <p v-else-if="!error" role="status">正在读取活动详情…</p>
+  <LoadingSkeleton v-else-if="!error" variant="text" :rows="2" label="正在读取活动详情" />
 </template>
 <style scoped>
 pre {

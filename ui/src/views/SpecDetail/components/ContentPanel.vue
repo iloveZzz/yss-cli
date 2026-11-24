@@ -1,7 +1,15 @@
 <script setup lang="ts">
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription } from '@/components/ui/empty'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { computed, nextTick, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
@@ -96,7 +104,7 @@ async function closeQuestion() {
     props.specId !== specId ||
     selected.value ||
     route.query.tab !== 'content' ||
-    document.querySelector('dialog[open]')
+    document.querySelector('[data-slot="dialog-content"][data-state="open"]')
   )
     return
   const original =
@@ -242,14 +250,14 @@ async function confirmContent() {
 </script>
 <template>
   <div class="content-panel">
-    <section class="panel confirmation-summary" aria-label="内容确认">
+    <Card class="confirmation-summary block shadow-none" role="region" aria-label="内容确认">
       <div class="section-heading">
         <div>
           <h2>
             内容确认
-            <span class="content-status" :data-status="content.status">
+            <Badge variant="secondary" class="content-status" :data-status="content.status">
               {{ content.needsReconfirmation ? '新版待确认' : contentStatuses[content.status] }}
-            </span>
+            </Badge>
           </h2>
           <p v-if="confirmedVersion" class="muted">
             已确认版本 {{ confirmedVersion.artifactDigest.slice(0, 12) }} ·
@@ -266,54 +274,60 @@ async function confirmContent() {
           </Button>
         </div>
       </div>
-      <details class="content-scope">
-        <summary>本次确认范围</summary>
-        <p class="preserve-lines">
-          {{ content.scope || '尚未标记。请让 Agent 在主规格中明确本次范围。' }}
-        </p>
-      </details>
+      <Collapsible class="content-scope">
+        <CollapsibleTrigger>本次确认范围</CollapsibleTrigger>
+        <CollapsibleContent>
+          <p class="preserve-lines">
+            {{ content.scope || '尚未标记。请让 Agent 在主规格中明确本次范围。' }}
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
       <div v-if="exclusions.length" class="notice warning">
         <strong>本次排除项</strong>
         <ul>
           <li v-for="(item, index) in exclusions" :key="index">{{ item }}</li>
         </ul>
       </div>
-      <p v-if="content.metadataError" role="alert" class="notice error">
+      <Alert v-if="content.metadataError" role="alert" class="notice error">
         {{ content.metadataError }}
-      </p>
+      </Alert>
       <p v-if="content.needsReconfirmation" class="notice warning">
         本 Spec 有新版材料或范围。核对本轮采用的内容后确认。
       </p>
       <p v-if="materialsNeedReview" class="notice warning">
         由 Agent 核实关联材料及相关条款。已确认版本可在下方回看。
       </p>
-      <details v-if="content.materialChanges?.length" class="confirmation-blockers" open>
-        <summary>确认材料与来源变化</summary>
-        <ul>
-          <li v-for="change in content.materialChanges" :key="`${change.kind}:${change.target}`">
-            <strong>{{ changeLabels[change.kind] }}</strong>
-            <code>{{ change.target }}</code>
-            <div>{{ change.reason }}</div>
-            <small v-if="change.confirmedDigest || change.observedDigest" class="muted">
-              已采用 {{ change.confirmedDigest?.slice(0, 12) ?? '—' }} ·
-              当前资料 {{ change.observedDigest?.slice(0, 12) ?? '—' }}
-            </small>
-          </li>
-        </ul>
-      </details>
-      <details v-if="content.blockers.length" class="confirmation-blockers">
-        <summary>查看确认限制（{{ content.blockers.length }}）</summary>
-        <ul>
-          <li v-for="blocker in content.blockers" :key="blocker">{{ blocker }}</li>
-        </ul>
-      </details>
+      <Collapsible v-if="content.materialChanges?.length" class="confirmation-blockers" default-open>
+        <CollapsibleTrigger>确认材料与来源变化</CollapsibleTrigger>
+        <CollapsibleContent>
+          <ul>
+            <li v-for="change in content.materialChanges" :key="`${change.kind}:${change.target}`">
+              <strong>{{ changeLabels[change.kind] }}</strong>
+              <code>{{ change.target }}</code>
+              <div>{{ change.reason }}</div>
+              <small v-if="change.confirmedDigest || change.observedDigest" class="muted">
+                已采用 {{ change.confirmedDigest?.slice(0, 12) ?? '—' }} ·
+                当前资料 {{ change.observedDigest?.slice(0, 12) ?? '—' }}
+              </small>
+            </li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+      <Collapsible v-if="content.blockers.length" class="confirmation-blockers">
+        <CollapsibleTrigger>查看确认限制（{{ content.blockers.length }}）</CollapsibleTrigger>
+        <CollapsibleContent>
+          <ul>
+            <li v-for="blocker in content.blockers" :key="blocker">{{ blocker }}</li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
       <ConfirmationDiff :spec-id="specId" />
-    </section>
+    </Card>
     <div class="section-heading questions-heading">
       <div>
         <h2 :id="id + '-questions'" tabindex="-1">
           待确认事项
-          <span class="count">{{ content.questions.length }}</span>
+          <Badge variant="secondary" class="count">{{ content.questions.length }}</Badge>
         </h2>
         <p class="muted">
           {{ pending.length }} 项未解决 · {{ content.questions.length - pending.length }} 项已解决
@@ -341,13 +355,13 @@ async function confirmContent() {
         />
       </label>
       <label v-if="category === 'all' && content.questions.length > pending.length" class="check-label">
-        <input v-model="showResolved" type="checkbox" name="resolved" />
+        <Checkbox :model-value="showResolved" @update:model-value="showResolved = $event === true" name="resolved" />
         显示已解决（{{ content.questions.length - pending.length }}）
       </label>
       <span v-if="category !== 'ready'" class="muted">显示 {{ visibleQuestions.length }} 项</span>
     </div>
     <p v-if="notice" role="status" class="copy-notice">{{ notice }}</p>
-    <p v-if="error && !confirmOpen" role="alert" class="notice error">{{ error }}</p>
+    <Alert v-if="error && !confirmOpen" role="alert" class="notice error">{{ error }}</Alert>
     <p v-if="category === 'ready' && !visibleQuestions.length" class="confirmation-category">
       “可确认”表示整份 Spec 的内容状态，请在上方核对范围与版本后确认。问题可通过其他事项范围查看。
     </p>
@@ -360,19 +374,21 @@ async function confirmContent() {
       @answer="openQuestion"
       @copy="copyReplies"
     />
-    <p v-else-if="!content.questions.length" class="question-empty">主规格尚未列出待确认事项。</p>
-    <p v-else class="question-empty">
-      {{
-        category === 'all' ? '当前没有未解决事项，可显示已解决记录。' : '当前类别没有待处理事项。'
-      }}
-      <Button v-if="category !== 'all'" type="button" variant="ghost" @click="category = 'all'">
-        查看全部事项
-      </Button>
-    </p>
-    <details v-if="content.questions.length" class="copy-help">
-      <summary>答复如何交给 Agent</summary>
-      <p>复制已保存的答复与延期安排，即可作为回复提示词交给 Agent。已变更或到期的事项请先复查。</p>
-    </details>
+    <Empty v-else class="question-empty">
+      <EmptyDescription v-if="!content.questions.length">主规格尚未列出待确认事项。</EmptyDescription>
+      <EmptyDescription v-else>
+        {{ category === 'all' ? '当前没有未解决事项，可显示已解决记录。' : '当前类别没有待处理事项。' }}
+      </EmptyDescription>
+      <EmptyContent v-if="content.questions.length && category !== 'all'">
+        <Button type="button" variant="ghost" @click="category = 'all'">查看全部事项</Button>
+      </EmptyContent>
+    </Empty>
+    <Collapsible v-if="content.questions.length" class="copy-help">
+      <CollapsibleTrigger>答复如何交给 Agent</CollapsibleTrigger>
+      <CollapsibleContent>
+        <p>复制已保存的答复与延期安排，即可作为回复提示词交给 Agent。已变更或到期的事项请先复查。</p>
+      </CollapsibleContent>
+    </Collapsible>
     <QuestionResponseForm
       :spec-id="specId"
       :item="selected"
@@ -385,9 +401,9 @@ async function confirmContent() {
     <ModalDialog v-model="manualOpen" title="手动复制答复">
       <p role="alert">无法访问剪贴板。请选中以下提示词，手动复制后粘贴给 Agent。</p>
       <label for="reply-prompt">答复提示词</label>
-      <textarea
+      <Textarea
         id="reply-prompt"
-        :value="manualCopy?.text"
+        :model-value="manualCopy?.text"
         readonly
         rows="12"
         class="manual-copy"
@@ -412,22 +428,24 @@ async function confirmContent() {
         </div>
         <p class="path-text">内容版本：{{ confirmation.artifactDigest }}</p>
         <label class="check-label" for="accept-content-confirmation">
-          <input
+          <Checkbox
             id="accept-content-confirmation"
-            v-model="accepted"
-            type="checkbox"
+            :model-value="accepted" @update:model-value="accepted = $event === true"
             required
             :disabled="saving"
           />
           我已阅读并确认上述范围、排除项与当前内容版本。
         </label>
         <p class="muted">记录仅适用于本次范围与版本；文件变化后须重新确认。</p>
-        <p v-if="error" role="alert" class="notice error">{{ error }}</p>
+        <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
         <div class="form-actions">
           <Button type="button" variant="outline" :disabled="saving" @click="confirmOpen = false">
             返回阅读
           </Button>
-          <Button :disabled="!accepted || saving">确认此范围与版本</Button>
+          <Button :disabled="!accepted || saving">
+            <LoadingIndicator :active="saving" />
+            {{ saving ? '正在确认…' : '确认此范围与版本' }}
+          </Button>
         </div>
       </form>
     </ModalDialog>
@@ -455,21 +473,21 @@ async function confirmContent() {
   padding: 2px 7px;
   border-radius: 5px;
   font-size: 11px;
-  color: var(--yss-color-primary-control);
+  color: var(--yss-color-primary-control-hover);
   background: var(--yss-colors-primary-bg);
   vertical-align: middle;
 }
 .content-status[data-status='confirmed'] {
-  color: #278064;
+  color: #1b6e52;
   background: #edf7f2;
 }
 .content-scope,
 .confirmation-blockers {
   margin-top: 10px;
 }
-.content-scope summary,
-.confirmation-blockers summary,
-.copy-help summary {
+.content-scope [data-slot='collapsible-trigger'],
+.confirmation-blockers [data-slot='collapsible-trigger'],
+.copy-help [data-slot='collapsible-trigger'] {
   width: fit-content;
   cursor: pointer;
   color: var(--brand-color-text-secondary);
@@ -517,7 +535,7 @@ async function confirmContent() {
 .confirmation-category,
 .question-empty {
   padding: 16px 0;
-  color: #717780;
+  color: var(--brand-color-text-secondary);
   font-size: 12px;
   line-height: 1.8;
 }
@@ -526,7 +544,7 @@ async function confirmContent() {
 }
 .copy-help p {
   margin: 8px 0 0;
-  color: #858d99;
+  color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
 .manual-copy {

@@ -1,8 +1,17 @@
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
+import { Input } from '@/components/ui/input'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, reactive, shallowRef, watch, onBeforeUnmount, useId } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { errorMessage, dateLabel, roleLabels } from '@/services/workbench'
 import { getJob, terminalJob, objectValue, readableValue } from '@/services/workbench-platform'
@@ -39,11 +48,13 @@ const form = reactive({
   number: 1
 })
 const error = shallowRef('')
-const busy = shallowRef(false)
+const action = shallowRef<{ kind: 'add' } | { kind: 'refresh'; id: string }>()
+const busy = computed(() => !!action.value)
 const jobId = shallowRef('')
 const pendingJobs = shallowRef<Record<string, string>>({})
 const expanded = shallowRef(false)
 const loading = shallowRef(false)
+const loaded = shallowRef(false)
 let generation = 0
 let active = true
 let polling = false
@@ -125,10 +136,16 @@ const entries = computed(() =>
       const truncated = ['checks', 'pipelines', 'jobs'].some(
         (key) => objectValue(link.data?.[key]).truncated === true
       )
+      const reading = !!pendingJobs.value[link.id]
+      const scheduling = action.value?.kind === 'refresh' && action.value.id === link.id
       return {
         link,
+        reading,
+        scheduling,
         projectName: snapshot.value?.projects.find((project) => project.record.id === link.projectId)?.record.name ?? link.projectId ?? '未绑定工程',
         url: linkUrl(link),
+        kindLabel: labels[link.kind],
+        readLabel: readLabels[link.status] ?? link.status,
         title: link.data?.title ?? `${labels[link.kind]} #${link.number}`,
         state: link.data
           ? state(link.data.conclusion ?? link.data.state ?? link.data.status)
@@ -152,6 +169,7 @@ async function refresh() {
     const result = await getExternalLinks()
     if (active && current === generation) {
       links.value = result
+      loaded.value = true
       error.value = ''
     }
   } catch (cause) {
@@ -171,7 +189,7 @@ onBeforeUnmount(() => {
 })
 async function add() {
   if (busy.value) return
-  busy.value = true
+  action.value = { kind: 'add' }
   error.value = ''
   try {
     await addExternalLink({ ...form, projectId: props.specId ? selectedProjectId.value : props.projectId, specId: props.specId })
@@ -180,12 +198,12 @@ async function add() {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 async function update(id: string) {
   if (busy.value || pendingJobs.value[id]) return
-  busy.value = true
+  action.value = { kind: 'refresh', id }
   error.value = ''
   try {
     const job = await refreshExternalLink(id)
@@ -195,7 +213,7 @@ async function update(id: string) {
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
-    busy.value = false
+    action.value = undefined
   }
 }
 useIntervalFn(async () => {
@@ -222,16 +240,17 @@ useIntervalFn(async () => {
 }, 2500)
 </script>
 <template>
-  <section class="platform-section external-links">
+  <Card class="block gap-0 py-0 shadow-none platform-section external-links">
     <div class="section-heading">
       <div>
         <h2>研发关联</h2>
         <p class="muted">读取 Issue、PR / MR 与 CI 状态，保留最近成功结果。</p>
       </div>
       <div class="inline-actions">
-        <Button type="button" variant="outline" :disabled="loading" @click="refresh">{{
-          loading ? '读取中…' : '重新读取'
-        }}</Button><Button
+        <Button type="button" variant="outline" :disabled="loading" @click="refresh">
+          <LoadingIndicator :active="loading && loaded" />
+          {{ loading ? '读取中…' : '重新读取' }}
+        </Button><Button
           type="button"
           :aria-expanded="expanded"
           :aria-controls="formId"
@@ -241,10 +260,10 @@ useIntervalFn(async () => {
         >
       </div>
     </div>
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-    <p v-if="jobId" role="status" class="notice">
-      已开始读取，<RouterLink :to="`/jobs/${jobId}`">查看执行进度</RouterLink>。
-    </p>
+    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
+    <Alert v-if="jobId" role="status" class="notice">
+      <div>已开始读取，<RouterLink :to="`/jobs/${jobId}`" class="text-link">查看执行进度</RouterLink>。</div>
+    </Alert>
     <form
       v-if="expanded"
       :id="formId"
@@ -276,7 +295,7 @@ useIntervalFn(async () => {
               :disabled="busy"
           /></label>
           <label
-            >实例地址（必填）<input
+            >实例地址（必填）<Input
               v-model="form.host"
               name="host"
               required
@@ -287,7 +306,7 @@ useIntervalFn(async () => {
             /><span class="field-hint">支持自建实例的协议与端口</span></label
           >
           <label
-            >远端项目（必填）<input
+            >远端项目（必填）<Input
               v-model="form.project"
               name="project"
               required
@@ -297,7 +316,7 @@ useIntervalFn(async () => {
               placeholder="owner/repository"
           /></label>
           <label
-            >{{ form.kind === 'pipeline' ? '运行 ID' : '事项编号' }}（必填）<input
+            >{{ form.kind === 'pipeline' ? '运行 ID' : '事项编号' }}（必填）<Input
               v-model.number="form.number"
               name="number"
               type="number"
@@ -308,88 +327,104 @@ useIntervalFn(async () => {
         </div>
         <p class="muted">使用本机 gh / glab 已有认证读取所选实例与项目。</p>
         <div class="form-actions">
-          <Button :disabled="busy">{{ busy ? '保存中…' : '保存关联' }}</Button>
+          <Button type="submit" :disabled="busy">
+            <LoadingIndicator :active="action?.kind === 'add'" />
+            {{ action?.kind === 'add' ? '保存中…' : '保存关联' }}
+          </Button>
         </div>
       </fieldset>
     </form>
     <div
       v-if="entries.length"
       class="table-scroll external-table-wrap"
+      :aria-busy="loading"
       tabindex="0"
       role="region"
       aria-label="研发关联事项与读取状态"
     >
-      <table class="spec-table external-table">
-        <caption class="sr-only">
+      <Table class="spec-table external-table">
+        <TableCaption class="sr-only">
           研发关联事项、远端状态及最近读取时间
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">关联事项</th>
-            <th scope="col">远端状态</th>
-            <th scope="col">读取状态</th>
-            <th scope="col">最近成功</th>
-            <th scope="col">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="entry in entries" :key="entry.link.id">
-            <th scope="row" class="external-title">
+        </TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">关联事项</TableHead>
+            <TableHead scope="col">远端状态</TableHead>
+            <TableHead scope="col">读取状态</TableHead>
+            <TableHead scope="col">最近成功</TableHead>
+            <TableHead scope="col">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="entry in entries" :key="entry.link.id">
+            <TableHead scope="row" class="external-title">
               <a v-if="entry.url" :href="entry.url" target="_blank" rel="noopener noreferrer">{{
                 entry.title
               }}</a><strong v-else>{{ entry.title }}</strong
               ><span class="row-sub"
-                >{{ labels[entry.link.kind] }} #{{ entry.link.number }} ·
+                >{{ entry.kindLabel }} #{{ entry.link.number }} ·
                 {{ entry.link.project }}</span
               >
               <span v-if="specId" class="row-sub">{{ entry.projectName }}</span>
-              <details class="external-detail">
-                <summary>
+              <Collapsible class="external-detail">
+                <CollapsibleTrigger>
                   关联信息<span v-if="entry.checks.length">
                     · {{ entry.checks.length }} 项检查</span
                   >
-                </summary>
-                <p class="path-text">{{ entry.link.provider }} · {{ entry.link.host }}</p>
-                <ul v-if="entry.checks.length" class="check-results">
-                  <li v-for="check in entry.checks" :key="check.id">
-                    <span>{{ check.name }}</span><span>{{ check.status }}</span>
-                  </li>
-                </ul>
-                <p v-if="entry.truncated" class="warning-text">
-                  检查列表达到分页上限，可打开远端继续查看。
-                </p>
-                <details v-if="entry.link.data">
-                  <summary>原始读取数据</summary>
-                  <pre>{{ readableValue(entry.link.data) }}</pre>
-                </details>
-              </details>
-            </th>
-            <td>{{ entry.state }}</td>
-            <td>
-              <span :class="entry.link.lastError ? 'warning-text' : 'muted'">{{
-                pendingJobs[entry.link.id]
-                  ? '读取中'
-                  : (readLabels[entry.link.status] ?? entry.link.status)
-              }}</span><span v-if="entry.link.lastError" class="row-sub warning-text">{{
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <p class="path-text">{{ entry.link.provider }} · {{ entry.link.host }}</p>
+                  <ul v-if="entry.checks.length" class="check-results">
+                    <li v-for="check in entry.checks" :key="check.id">
+                      <span>{{ check.name }}</span><span>{{ check.status }}</span>
+                    </li>
+                  </ul>
+                  <p v-if="entry.truncated" class="warning-text">
+                    检查列表达到分页上限，可打开远端继续查看。
+                  </p>
+                  <Collapsible v-if="entry.link.data">
+                    <CollapsibleTrigger>原始读取数据</CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <pre class="external-raw">{{ readableValue(entry.link.data) }}</pre>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </CollapsibleContent>
+              </Collapsible>
+            </TableHead>
+            <TableCell>{{ entry.state }}</TableCell>
+            <TableCell>
+              <Badge variant="outline" :class="{ 'warning-text': entry.link.lastError }">{{
+                entry.reading ? '读取中' : entry.readLabel
+              }}</Badge><span v-if="entry.link.lastError" class="row-sub warning-text">{{
                 entry.link.lastError
               }}</span>
-            </td>
-            <td class="external-date">{{ dateLabel(entry.link.lastSuccessAt ?? null) }}</td>
-            <td>
+            </TableCell>
+            <TableCell class="external-date">{{ dateLabel(entry.link.lastSuccessAt ?? null) }}</TableCell>
+            <TableCell>
               <Button
                 type="button"
                 variant="outline"
-                :disabled="busy || !!pendingJobs[entry.link.id]"
+                :disabled="busy || entry.reading"
                 @click="update(entry.link.id)"
-                >{{ pendingJobs[entry.link.id] ? '读取中…' : '更新状态' }}</Button
               >
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                <LoadingIndicator :active="entry.reading || entry.scheduling" />
+                {{ entry.reading ? '读取中…' : entry.scheduling ? '正在安排…' : '更新状态' }}
+              </Button>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
-    <p v-else-if="!expanded" class="empty">{{ loading ? '正在读取关联…' : '尚未关联外部事项' }}</p>
-  </section>
+    <LoadingSkeleton
+      v-else-if="loading && !loaded"
+      variant="table"
+      :rows="2"
+      label="正在读取研发关联"
+    />
+    <Empty v-else-if="!expanded && !error" class="border-0 px-4 py-6">
+      <EmptyDescription>尚未关联外部事项</EmptyDescription>
+    </Empty>
+  </Card>
 </template>
 <style scoped>
 .external-table {
@@ -405,10 +440,10 @@ useIntervalFn(async () => {
 .external-title > a {
   color: var(--yss-color-primary-control);
 }
-.external-table td {
+.external-table :deep(td) {
   vertical-align: top;
 }
-.external-table td:nth-child(3) {
+.external-table :deep(td:nth-child(3)) {
   max-width: 220px;
   white-space: normal;
 }
@@ -435,12 +470,27 @@ useIntervalFn(async () => {
   font-size: 11px;
   color: var(--brand-color-text-secondary);
 }
-.external-table thead {
+.external-table :deep(thead) {
   position: sticky;
   top: 0;
   z-index: 1;
 }
 .external-table-wrap {
   max-height: 65vh;
+}
+.external-raw {
+  max-height: 16rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--brand-color-bg-layout);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (width < 720px) {
+  .external-links .section-heading {
+    flex-wrap: wrap;
+  }
 }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { computed } from 'vue'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
 import { dateLabel } from '@/services/workbench'
@@ -34,7 +35,10 @@ const html = computed(() =>
         <p v-if="user" class="preserve-lines">{{ text }}</p>
         <!-- MarkdownIt: raw HTML and image loads are disabled. -->
         <div v-else class="source-markdown" v-html="html" />
-        <span v-if="streaming" class="muted conversation-streaming">正在生成…</span>
+        <span v-if="streaming" class="muted conversation-streaming">
+          <LoadingIndicator :active="streaming" />
+          正在生成…
+        </span>
       </MessageContent>
     </div>
   </Message>
