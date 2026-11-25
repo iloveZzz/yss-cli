@@ -1,0 +1,597 @@
+{
+  "repository": "https://github.com/unovue/shadcn-vue",
+  "revision": "d2684d84b945d0ef8a33793a285cb418d2c2d6e4",
+  "style": "new-york-v4",
+  "license": "MIT",
+  "licenseDigest": "sha256:69f84f4ad77be299dbf42d03d7fd862ab3ab05546c6e573c6c7c875b0168a94d",
+  "files": [
+    {
+      "path": "src/components/ui/badge/Badge.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/badge/Badge.vue",
+      "sourceDigest": "sha256:fea4cc90e930423455694f59b200cf0b9da654ffdb60044cdd55dd6c5a3b931e",
+      "adaptedDigest": "sha256:bf86ef1cef26f75cea0b885adb2e0c5f7521fe4e228e3f7e61b7c0f42fd4e58e"
+    },
+    {
+      "path": "src/components/ui/badge/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/badge/index.ts",
+      "sourceDigest": "sha256:40059c209ec5a43b52aed1339767bfb9801d76a837aeed9b5a6991608c501c67",
+      "adaptedDigest": "sha256:40059c209ec5a43b52aed1339767bfb9801d76a837aeed9b5a6991608c501c67"
+    },
+    {
+      "path": "src/components/ui/bubble/Bubble.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/bubble/Bubble.vue",
+      "sourceDigest": "sha256:8df911cf49229643fd221fe91667aa611ebae870d535b4479adb25e5c0df3d06",
+      "adaptedDigest": "sha256:2ecd50dbf19cbc725cb72293da0e38c71cbc5a0b7b35927cc537f4d9fb1c710c"
+    },
+    {
+      "path": "src/components/ui/bubble/BubbleContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/bubble/BubbleContent.vue",
+      "sourceDigest": "sha256:67a1cc3c07ed81a4e5aa2bd2126afdc264e33471d98af910a17c2488455813b4",
+      "adaptedDigest": "sha256:83ca843573c056a06f254fb2cb2d37301ca8760770ffee43594a187c0981e9a4"
+    },
+    {
+      "path": "src/components/ui/bubble/BubbleGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/bubble/BubbleGroup.vue",
+      "sourceDigest": "sha256:3d4cc1f5fe4a988170af9127ed4e2613e31308bf0eb048e94c03c58fe97456ba",
+      "adaptedDigest": "sha256:15c4409119097c26fb3d9cfe61d3336301c6fd567f2508f655a8d8e69c73824b"
+    },
+    {
+      "path": "src/components/ui/bubble/BubbleReactions.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/bubble/BubbleReactions.vue",
+      "sourceDigest": "sha256:8028b445b910ee8756e0ad77339ac15e55a23c020a75141667e846decaa38261",
+      "adaptedDigest": "sha256:e36f6e39ec79480d26047e121e69bf929ec4e306ed227783f878599512e179fc"
+    },
+    {
+      "path": "src/components/ui/bubble/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/bubble/index.ts",
+      "sourceDigest": "sha256:897bf537de3e037924c4f5ee6ee62513a3b352c3eaa9f3f55b9ed649e4fe025c",
+      "adaptedDigest": "sha256:897bf537de3e037924c4f5ee6ee62513a3b352c3eaa9f3f55b9ed649e4fe025c"
+    },
+    {
+      "path": "src/components/ui/button/Button.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/button/Button.vue",
+      "sourceDigest": "sha256:524555c91c024c0effb776b0af08fe2e8c15d44d01b15660d0b6b527d9bb21b3",
+      "adaptedDigest": "sha256:47b4a8d7c7c42c7070e460fe4edd3f729a2fb63dc7320f09cd9db46b1dbc52b8"
+    },
+    {
+      "path": "src/components/ui/button/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/button/index.ts",
+      "sourceDigest": "sha256:1710820182b3f7c91823da7f4f516026a124ec86f7a3a10a96fb55e518f12b41",
+      "adaptedDigest": "sha256:1710820182b3f7c91823da7f4f516026a124ec86f7a3a10a96fb55e518f12b41"
+    },
+    {
+      "path": "src/components/ui/checkbox/Checkbox.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/checkbox/Checkbox.vue",
+      "sourceDigest": "sha256:79ea8caf3304043dd333da8096f19b483e6eea433058a46720ebeaad94be01b5",
+      "adaptedDigest": "sha256:2642f824c27899c45e1546183ad83dc8d51fab66e3d5c5249a74e676edb17b5e"
+    },
+    {
+      "path": "src/components/ui/checkbox/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/checkbox/index.ts",
+      "sourceDigest": "sha256:5348cc51dbc04b363f3ac552969d85bcbf674764d5f3b6c265495c0cdbbef0f8",
+      "adaptedDigest": "sha256:5348cc51dbc04b363f3ac552969d85bcbf674764d5f3b6c265495c0cdbbef0f8"
+    },
+    {
+      "path": "src/components/ui/code-block/CodeBlock.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/code-block/CodeBlock.vue",
+      "sourceDigest": "sha256:7a4182609f6066b8ce4f13e6f352a03c7770c0571d529365695702529ac4a056",
+      "adaptedDigest": "sha256:eb54e827eba9913f2b0bc3016bc0cde7212d3b14724530e7f05427eb29b78666"
+    },
+    {
+      "path": "src/components/ui/code-block/CodeBlockContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/code-block/CodeBlockContent.vue",
+      "sourceDigest": "sha256:a078beca90e9cb9bfb1bbe6e36f4ee613ca79186a5d44c9049b1eacd1b6f2e3a",
+      "adaptedDigest": "sha256:a8e0d31bf9d9afc75e45809fa91a4cee62b6fbb9ef8dd2e2adebcf61edbd36dd"
+    },
+    {
+      "path": "src/components/ui/code-block/CodeBlockLine.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/code-block/CodeBlockLine.vue",
+      "sourceDigest": "sha256:70ea11332b2babe12d5b20767b97eaab97219be3dc33fc12dcff78832a6ff4e2",
+      "adaptedDigest": "sha256:cce88e41978e902bd2da7e67d7171f8b49f076e2b3f6f5d75400af6654cef3b8"
+    },
+    {
+      "path": "src/components/ui/code-block/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/code-block/index.ts",
+      "sourceDigest": "sha256:f83ec17711cfbba783aa494f6c0ce8bccf88cc8bcd4c45fe32806a34b1d3eb21",
+      "adaptedDigest": "sha256:a4161a711db866ff65142dc64775b84065f13b7cffe03b1a1cd853b6930e9a5d"
+    },
+    {
+      "path": "src/components/ui/collapsible/Collapsible.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/collapsible/Collapsible.vue",
+      "sourceDigest": "sha256:406994e9c3a494f3b381c9fc3938280118097710b99bc841153fc4132b5d5f94",
+      "adaptedDigest": "sha256:406994e9c3a494f3b381c9fc3938280118097710b99bc841153fc4132b5d5f94"
+    },
+    {
+      "path": "src/components/ui/collapsible/CollapsibleContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/collapsible/CollapsibleContent.vue",
+      "sourceDigest": "sha256:2181117891ba385deec2904fa6d2f44a8566c30855e20aeb89963a107aae1964",
+      "adaptedDigest": "sha256:2181117891ba385deec2904fa6d2f44a8566c30855e20aeb89963a107aae1964"
+    },
+    {
+      "path": "src/components/ui/collapsible/CollapsibleTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/collapsible/CollapsibleTrigger.vue",
+      "sourceDigest": "sha256:4f8db2f4016161fa39c91373e7f75522d7a24461072828827ecf04fbc385687a",
+      "adaptedDigest": "sha256:4f8db2f4016161fa39c91373e7f75522d7a24461072828827ecf04fbc385687a"
+    },
+    {
+      "path": "src/components/ui/collapsible/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/collapsible/index.ts",
+      "sourceDigest": "sha256:a34935867d65ede4cf683d8aa763a7983c089ae1dea8e82699fe3b34b8743592",
+      "adaptedDigest": "sha256:a34935867d65ede4cf683d8aa763a7983c089ae1dea8e82699fe3b34b8743592"
+    },
+    {
+      "path": "src/components/ui/dialog/Dialog.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/Dialog.vue",
+      "sourceDigest": "sha256:e42a0978a57dd1891ed40778e9c77f8b2feec3dd35ba1dd8acbb44c4f229f050",
+      "adaptedDigest": "sha256:e42a0978a57dd1891ed40778e9c77f8b2feec3dd35ba1dd8acbb44c4f229f050"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogClose.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogClose.vue",
+      "sourceDigest": "sha256:bd8526926a98c67f0efd358693eca331252271bf6ad78cd99abacf51184025c4",
+      "adaptedDigest": "sha256:bd8526926a98c67f0efd358693eca331252271bf6ad78cd99abacf51184025c4"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogContent.vue",
+      "sourceDigest": "sha256:5eed1130741789a5494dab9dff822d32829172f68e8b6f48bfef3771ae74c6e3",
+      "adaptedDigest": "sha256:634f091bb450f54131cc1a43f5682ca70c1c9af99d1241a30c77d2aa24e4be17"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogDescription.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogDescription.vue",
+      "sourceDigest": "sha256:2669737230a80b9dc9467c2b09447088f68444c9a9d12b8d0014b3439fe8fe61",
+      "adaptedDigest": "sha256:14bc989a44d2da8bd845f271b4847e9119a09f0861316f2fffc9d1e9c9f5f3af"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogFooter.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogFooter.vue",
+      "sourceDigest": "sha256:419fcc5cf11ca36eb693ab425c5d900ca6f21d45f7de7874a4ec00eadef55bc6",
+      "adaptedDigest": "sha256:610315308c4b836fd91c325879f1cd051d234f6a5e34187aba011a9e512fa9f2"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogHeader.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogHeader.vue",
+      "sourceDigest": "sha256:5d1a2725d6b8db23f1706ca3596ab2a12a867668ecfa70f8b076d88484b30638",
+      "adaptedDigest": "sha256:4fb8d011323046b26b423149fd0b074e47dd6db2eebf0d0aa8882694ee15923c"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogOverlay.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogOverlay.vue",
+      "sourceDigest": "sha256:81e3192c6dea84c7d26f7644d0640b8799fb8ab58b4e152e742eabde7c9e680f",
+      "adaptedDigest": "sha256:4d41c0c8910cce7cf6ba5152399bc449b4e244421266c2859ba3374aecd69b0b"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogScrollContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogScrollContent.vue",
+      "sourceDigest": "sha256:0975116ed0784ced1d9e85a0699c3566473a27f534e50058fab37753f87210a8",
+      "adaptedDigest": "sha256:ae2a4cd5006380e5b8cad84c74d7a13e08a13c8727dc4e4757ad339bf8b162b2"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogTitle.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogTitle.vue",
+      "sourceDigest": "sha256:00ba0157b9d0e6b5220e37a6259df67efb5112c28ebe6b3b84838fdf139d66cb",
+      "adaptedDigest": "sha256:f4239972827856b4f42c26d0ec4f565bdfbb331f0e734053945ce120101f3353"
+    },
+    {
+      "path": "src/components/ui/dialog/DialogTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/DialogTrigger.vue",
+      "sourceDigest": "sha256:6458b0ad97b9f9345942869d84a3b8a6ed22bc545760f5bd95d4949dadc0fae6",
+      "adaptedDigest": "sha256:6458b0ad97b9f9345942869d84a3b8a6ed22bc545760f5bd95d4949dadc0fae6"
+    },
+    {
+      "path": "src/components/ui/dialog/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dialog/index.ts",
+      "sourceDigest": "sha256:0eb610cf650df70f213447e4d86f818c22f3785f72dccbaf0d88b411c210b9bc",
+      "adaptedDigest": "sha256:0eb610cf650df70f213447e4d86f818c22f3785f72dccbaf0d88b411c210b9bc"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenu.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenu.vue",
+      "sourceDigest": "sha256:ad0759b7b6d57e02444a4ba3f00412400a77d49262fd6f2b186f18d83f7fb0cc",
+      "adaptedDigest": "sha256:ad0759b7b6d57e02444a4ba3f00412400a77d49262fd6f2b186f18d83f7fb0cc"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuCheckboxItem.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuCheckboxItem.vue",
+      "sourceDigest": "sha256:366e2fa384159392b14aa125c297d8a0b9a628e5ab694019f624a8c0c7f82803",
+      "adaptedDigest": "sha256:c1bdd4aa78a5f3402e70d55653c667cf02ad46006abc6459744d0cbb18dc4d5e"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuContent.vue",
+      "sourceDigest": "sha256:6c16fef3a3b15b534a14bd70bc48e2aa39baa267eec443b2eab845f7655bc16f",
+      "adaptedDigest": "sha256:f57cd3ad8df67f9f0b4e2610f003f365832f14acacfe11aa9c0ac69e9d0df67e"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuGroup.vue",
+      "sourceDigest": "sha256:24fd1c9c8a0e251a6cd4aaf77a6698d0af5314432809552c72b2123932351164",
+      "adaptedDigest": "sha256:24fd1c9c8a0e251a6cd4aaf77a6698d0af5314432809552c72b2123932351164"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuItem.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuItem.vue",
+      "sourceDigest": "sha256:d47310f7e26e9fca00690dde46b904b034b76f651b850ccd15a20ba34ef350de",
+      "adaptedDigest": "sha256:691faa787ae88e0a82d90366e04c96c2bee06275b2cefbb47c378314c4766005"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuLabel.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuLabel.vue",
+      "sourceDigest": "sha256:afa273d5906ad1e185e05fba56faa922d3935d43289f6a61dd35d9e8da63d727",
+      "adaptedDigest": "sha256:2de1b68683f7925bb4179fcc02551c895fe9baee3cfcf253fc7081874527c4ec"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuRadioGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuRadioGroup.vue",
+      "sourceDigest": "sha256:864ff5483045095d1d42c401e6774c891df2d1196b99d0ad60a71199fa2d54ff",
+      "adaptedDigest": "sha256:864ff5483045095d1d42c401e6774c891df2d1196b99d0ad60a71199fa2d54ff"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuRadioItem.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuRadioItem.vue",
+      "sourceDigest": "sha256:37fad342962ebcf59f27a140d226e503ac72c7d23a8394cd39c4493bf92b6674",
+      "adaptedDigest": "sha256:03940329fadccbe8234ea26cbbbff27617d39a3bf333c98de68432a649484eb2"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuSeparator.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuSeparator.vue",
+      "sourceDigest": "sha256:11c42c63c4b2739ff436c1c101ebadcbd8ddb95827f1b40f90473624990b0432",
+      "adaptedDigest": "sha256:fe91524e4b38edfa979507831a8884e969966bbb5656e8e366dad270111a0923"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuShortcut.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuShortcut.vue",
+      "sourceDigest": "sha256:949ef7a405aed30fdba04e79ed0ab8de7f4438f9477ea7d8881263450200e5c5",
+      "adaptedDigest": "sha256:6556695dce57e6b291126b920f4db8a84accdca79e030e772c75e0b1ad7c229d"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuSub.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuSub.vue",
+      "sourceDigest": "sha256:6aa6307d0cf7da4e55748ff90da006e210cda12517d4e444771d7f3b32ed1377",
+      "adaptedDigest": "sha256:6aa6307d0cf7da4e55748ff90da006e210cda12517d4e444771d7f3b32ed1377"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuSubContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuSubContent.vue",
+      "sourceDigest": "sha256:2b70fb975793226f5c369f96da29810e74c6dcd189c2aaef3da97520c214d822",
+      "adaptedDigest": "sha256:f863eb5093a69187e413951f706ce152c3836784c598da9d55a245816b3408cc"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuSubTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuSubTrigger.vue",
+      "sourceDigest": "sha256:dccfbed56c075bca65c59bb3935b46a97b9b4fb8c9ceadd7340b967aac1303ee",
+      "adaptedDigest": "sha256:198ba588c11d2f8d1d855ee750bfc48474f0cf1ec48f9a9ca8dd05e24c683277"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/DropdownMenuTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuTrigger.vue",
+      "sourceDigest": "sha256:052aeba71e7accc3f4b1e733f98592d7c7f9eabedaf82ba25caaac7f651e6ba2",
+      "adaptedDigest": "sha256:052aeba71e7accc3f4b1e733f98592d7c7f9eabedaf82ba25caaac7f651e6ba2"
+    },
+    {
+      "path": "src/components/ui/dropdown-menu/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/dropdown-menu/index.ts",
+      "sourceDigest": "sha256:19ee04e0a51375d18aa2d8310f86cdfcc4abe15439033df6a54a3134b3e1d415",
+      "adaptedDigest": "sha256:19ee04e0a51375d18aa2d8310f86cdfcc4abe15439033df6a54a3134b3e1d415"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroup.vue",
+      "sourceDigest": "sha256:5b3a6ac1bd6fe5b2f2673f7874a06b52599975b8981314d2f42c07ffdf3c7d16",
+      "adaptedDigest": "sha256:c10a16c9e9dfa3f01ab173f5b147d033ce0edefcced3c978b2ce1a334f7c2032"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroupAddon.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroupAddon.vue",
+      "sourceDigest": "sha256:050ad20783aad055e7b79a855afe913d607237c07e113b6506c53697fd683c07",
+      "adaptedDigest": "sha256:06c2bb9da5a8e2b75f4700f056af2b47c318c059c4f2c12f20d2613ad713b2e6"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroupButton.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroupButton.vue",
+      "sourceDigest": "sha256:1efbc414983ac2206fd4e7696e367003854533681d732721300a34dddb285d97",
+      "adaptedDigest": "sha256:744fa18c9c482708bfd7149baf2c19059e7eeef48b531e4a218ea1c21e237fa3"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroupInput.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroupInput.vue",
+      "sourceDigest": "sha256:d163bc02faf306279b09e14a7f712ab85210bae12a2a5376014411edacf62a80",
+      "adaptedDigest": "sha256:f23308c93c6b893ec8a5e3e6547064d484cfeb8801ae365c0c5169f652f812d5"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroupText.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroupText.vue",
+      "sourceDigest": "sha256:68156d0489bafe0c28be932fac7a9dfaeb63cb2b5419525ecdd23813f36fb0dd",
+      "adaptedDigest": "sha256:309244d5f884941d45c069ff06692c47a1b63f4114d984e1404c3af224121af6"
+    },
+    {
+      "path": "src/components/ui/input-group/InputGroupTextarea.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/InputGroupTextarea.vue",
+      "sourceDigest": "sha256:a9bd319d10aa1e422477ccaa03c40bb85aa6cf68c9ff2150fd91f926f972c61f",
+      "adaptedDigest": "sha256:efcb298d73276b1ee7935fbe3ecaac3f0ac15a9ed9efa9c95a8fab7d5d869f63"
+    },
+    {
+      "path": "src/components/ui/input-group/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input-group/index.ts",
+      "sourceDigest": "sha256:3bed121cfd8d98aca6a8182fc4d5eeda1bdc1c9861892eae34813f4a61951af5",
+      "adaptedDigest": "sha256:3bed121cfd8d98aca6a8182fc4d5eeda1bdc1c9861892eae34813f4a61951af5"
+    },
+    {
+      "path": "src/components/ui/input/Input.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input/Input.vue",
+      "sourceDigest": "sha256:f139b995951243c34bf94be82d97c2e737b72d75484d9e0485ebe1d41c42e81a",
+      "adaptedDigest": "sha256:795ead249ae5067c44f117346ed42fdc765aa13254245b4ac6e65fd61f272c1d"
+    },
+    {
+      "path": "src/components/ui/input/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/input/index.ts",
+      "sourceDigest": "sha256:ba728db29f97b894318836d094705b34c0f792352548189703224c694d29ed5b",
+      "adaptedDigest": "sha256:ba728db29f97b894318836d094705b34c0f792352548189703224c694d29ed5b"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScroller.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScroller.vue",
+      "sourceDigest": "sha256:26fed36ea99429601f30c79ba40237c7c680cb682154b089819aee09c9a1157b",
+      "adaptedDigest": "sha256:fe66e8a6b8f6bb353e40ffc562e05f9c33403ded4ec634827aeecab84af49c5c"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScrollerButton.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerButton.vue",
+      "sourceDigest": "sha256:0af271eeb533d619c3590cb6c1685c314d59340e72f795eed10e386708bd1696",
+      "adaptedDigest": "sha256:783d8c64a4c6c0c57606d85207bc417b8444a05eae9a530f8be1264fa33cc7a2"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScrollerContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerContent.vue",
+      "sourceDigest": "sha256:eab14fea6a8eb32b56c12496d31288686445f5d18fafb48506a540075e166ef4",
+      "adaptedDigest": "sha256:a3b34b66f4a0fa9ad560f44d5ecf2e4652ee9af0ca0b8173ecf7ccb980dfdc37"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScrollerItem.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerItem.vue",
+      "sourceDigest": "sha256:0b029f74f34ba82307e0244310eefcbe562fd9b80048a4d426ce24490465a1ad",
+      "adaptedDigest": "sha256:d40f9baf442ff2fe54c2b2f72a958d76e000b2a2148f074b64cd258761822d32"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScrollerProvider.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerProvider.vue",
+      "sourceDigest": "sha256:a9cf5be30a4ba0ab6ead7df6bba0beaae6ded5dc5e7921baf0cc245c768fe9ac",
+      "adaptedDigest": "sha256:a9cf5be30a4ba0ab6ead7df6bba0beaae6ded5dc5e7921baf0cc245c768fe9ac"
+    },
+    {
+      "path": "src/components/ui/message-scroller/MessageScrollerViewport.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/MessageScrollerViewport.vue",
+      "sourceDigest": "sha256:79cd512b4bd21753a13fa53c6dc1c51deb7444547c8ea2b990640a0977b2b32d",
+      "adaptedDigest": "sha256:6612704ab82cfd97aa9cf2c5a9290699570fed108050a075f02ec1631e7994e7"
+    },
+    {
+      "path": "src/components/ui/message-scroller/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/index.ts",
+      "sourceDigest": "sha256:f12dea33871c7ce632a9b9c864ed3cc651b14d496a8924ab9e15496aa787d5a1",
+      "adaptedDigest": "sha256:f12dea33871c7ce632a9b9c864ed3cc651b14d496a8924ab9e15496aa787d5a1"
+    },
+    {
+      "path": "src/components/ui/message-scroller/useMessageScroller.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message-scroller/useMessageScroller.ts",
+      "sourceDigest": "sha256:639cc602f52492f853562eeac71045549c069afc76199aea47b8a694d8fdd996",
+      "adaptedDigest": "sha256:639cc602f52492f853562eeac71045549c069afc76199aea47b8a694d8fdd996"
+    },
+    {
+      "path": "src/components/ui/message/Message.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/Message.vue",
+      "sourceDigest": "sha256:b0631388c9ad765913c87df526dc3609c299847399ae646ab0f6f359c6b960c8",
+      "adaptedDigest": "sha256:738eb8cc283de946653e1a8dcd2cca03b2908a2eb817cacf5a375f722ac92e4e"
+    },
+    {
+      "path": "src/components/ui/message/MessageAvatar.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/MessageAvatar.vue",
+      "sourceDigest": "sha256:70fa89449a910c342f0a27a8beb6cff63d68b930dfda772ca364c20c4677a75f",
+      "adaptedDigest": "sha256:3377a2463caf586789871ab6c50631832798944c1b74963e187e96c5a515d27e"
+    },
+    {
+      "path": "src/components/ui/message/MessageContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/MessageContent.vue",
+      "sourceDigest": "sha256:dfa5f2e594220384033f0d5cb429ebdb2900c80680d015b6bc3a2b339d1ef5fc",
+      "adaptedDigest": "sha256:b8f0c13358dc71280730c197e814a306c5f819fa0256f46cb6f598d34754a4b3"
+    },
+    {
+      "path": "src/components/ui/message/MessageFooter.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/MessageFooter.vue",
+      "sourceDigest": "sha256:1e80695b6e414c3f1fbbca0a4e6441951320417b41c6b32fbeeb48f0cb74a642",
+      "adaptedDigest": "sha256:441bc11aed810b8207d661f31d1af8383a1bd13d6568fb1b78f0834d60fa3c88"
+    },
+    {
+      "path": "src/components/ui/message/MessageGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/MessageGroup.vue",
+      "sourceDigest": "sha256:df25868739c14f60ffd07bf7dcd1c695c64f8e3993671f228ca438ffc4278a21",
+      "adaptedDigest": "sha256:0cd35c28494cf755d4b117e311d3e55acb3122c8815c322c565826d4e9153400"
+    },
+    {
+      "path": "src/components/ui/message/MessageHeader.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/MessageHeader.vue",
+      "sourceDigest": "sha256:350a27584ca2141f70765f974ec6f75dd0b6dece3c15bd1a98c145a905aa1efc",
+      "adaptedDigest": "sha256:93c46dae98f13ab9db28f5edd43efbba9ae7c9281800d36e7463ed8085e9347b"
+    },
+    {
+      "path": "src/components/ui/message/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/message/index.ts",
+      "sourceDigest": "sha256:e092c2b1b85a300589c534f17dbe07eeec4018c0b382125613454e02d1f85ca3",
+      "adaptedDigest": "sha256:e092c2b1b85a300589c534f17dbe07eeec4018c0b382125613454e02d1f85ca3"
+    },
+    {
+      "path": "src/components/ui/radio-group/RadioGroup.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/radio-group/RadioGroup.vue",
+      "sourceDigest": "sha256:c3f4b7a4bd821d1beaee6091d9597c3fa47218616c29f398f41d2b09de10ef94",
+      "adaptedDigest": "sha256:02d3aea553fbbe52c33b94fca472b58877fd38e0361eb282479b8a6cb32ca1bf"
+    },
+    {
+      "path": "src/components/ui/radio-group/RadioGroupItem.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/radio-group/RadioGroupItem.vue",
+      "sourceDigest": "sha256:6638ad52d914d67e7eacefcfafed23dd3df1f2400a58de873c6a91aa0a423ce4",
+      "adaptedDigest": "sha256:a97cd8e3a8e7a0d44bcd96cd5e843850127e43d3f43fe2dcef9e15dc37187655"
+    },
+    {
+      "path": "src/components/ui/radio-group/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/radio-group/index.ts",
+      "sourceDigest": "sha256:cb38f5cf77b270d6322b9ade8c2fd67a8be8c2c7a8b7344ae37d2a72194c59f0",
+      "adaptedDigest": "sha256:cb38f5cf77b270d6322b9ade8c2fd67a8be8c2c7a8b7344ae37d2a72194c59f0"
+    },
+    {
+      "path": "src/components/ui/sheet/Sheet.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/Sheet.vue",
+      "sourceDigest": "sha256:765fc0405d3b98658739e5019baa17bb914c5b8cd832a7daa4397f2bd2400cae",
+      "adaptedDigest": "sha256:765fc0405d3b98658739e5019baa17bb914c5b8cd832a7daa4397f2bd2400cae"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetClose.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetClose.vue",
+      "sourceDigest": "sha256:a9ae9e32f8154e17e3d14e1a9c4d1555edc8cecd2eb813e832f999b6e356a0bf",
+      "adaptedDigest": "sha256:a9ae9e32f8154e17e3d14e1a9c4d1555edc8cecd2eb813e832f999b6e356a0bf"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetContent.vue",
+      "sourceDigest": "sha256:60409b59e575b42e0ac2ee03023f3572db620f832e7136b3ebab5f719706f97e",
+      "adaptedDigest": "sha256:5ef8cc11cfc215d852ab7274cac1387ccd38801e0d5e449edaf9e2ca0a7f92b0"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetDescription.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetDescription.vue",
+      "sourceDigest": "sha256:cf25c4424c156f735fae30a8bda0b624f6d68f70c5c692f1875a083c849fb99a",
+      "adaptedDigest": "sha256:47e2a9b1f028c874864869f67e327dfc77829839d4d340a498d95ce0a983dcda"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetFooter.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetFooter.vue",
+      "sourceDigest": "sha256:cf44f07eb3cbd5ee5fad94bf8022f2b7fd59778c1d8d2a705313c3dcbcbed659",
+      "adaptedDigest": "sha256:6043806cee7dd6d80b78f6f922b11b4ac50531ef1c1b1adf285b766aaece83e8"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetHeader.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetHeader.vue",
+      "sourceDigest": "sha256:0e555ea7acf175c5b3e41381b2bd6a3303b1ca1eaf7b963a1139b7ea89b1d72f",
+      "adaptedDigest": "sha256:f7fa221e5ba3189df9cefed138f1f75e85861b253fcc28cb9a39f3d6700ac6a8"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetOverlay.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetOverlay.vue",
+      "sourceDigest": "sha256:e89b1573cede7275fb4ddf0a9b9c6c3b947ec464ef1bcf2ced7333a46c5e1010",
+      "adaptedDigest": "sha256:5808362f7dc8963b800d8eb3f23302e5dfd6c2f7b6ff088c9b93690a11d977ee"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetTitle.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetTitle.vue",
+      "sourceDigest": "sha256:c9997d0f9334d2160490878be4fd4977d98efc56f30176b63d9e7f3692012989",
+      "adaptedDigest": "sha256:7c7cfea4bd58df46ac4aee41f60a99045dfcfc1706549800b4fffc42ed3d43cc"
+    },
+    {
+      "path": "src/components/ui/sheet/SheetTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/SheetTrigger.vue",
+      "sourceDigest": "sha256:cac73faa1a4ac604675ac86c5dc24f9ee424979fcaa63a25b1a760e9aba1e79c",
+      "adaptedDigest": "sha256:cac73faa1a4ac604675ac86c5dc24f9ee424979fcaa63a25b1a760e9aba1e79c"
+    },
+    {
+      "path": "src/components/ui/sheet/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/sheet/index.ts",
+      "sourceDigest": "sha256:582344a7a7cb9156143fff5e3a898e31833970efac5b1ee6b1d2322938fe37f6",
+      "adaptedDigest": "sha256:582344a7a7cb9156143fff5e3a898e31833970efac5b1ee6b1d2322938fe37f6"
+    },
+    {
+      "path": "src/components/ui/tabs/Tabs.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/tabs/Tabs.vue",
+      "sourceDigest": "sha256:4127f1999834c7a460da6d3d16e7d38eafdac92a0ac04df7193168fd0da8bb3a",
+      "adaptedDigest": "sha256:4599fa7393a6c73b93214ed7a9221793c4732bad2bf77eb79add6d659548b4b5"
+    },
+    {
+      "path": "src/components/ui/tabs/TabsContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/tabs/TabsContent.vue",
+      "sourceDigest": "sha256:9bf9e4fdc2e1826a2717ffacfb7d3ab6f46896c695cc05a074d433b58e4d1eb2",
+      "adaptedDigest": "sha256:c9ce0d25b45543bb85c0622e29b72775897247aba5ec7406c74875cdc686ddaf"
+    },
+    {
+      "path": "src/components/ui/tabs/TabsList.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/tabs/TabsList.vue",
+      "sourceDigest": "sha256:8f5d6ad5bf132484993867b6e7f58dcc57cccec8019757cc456f82345dfcf776",
+      "adaptedDigest": "sha256:4852585b717c11cc829bd87aadbb3e55f14ed8b930b33cad60efcf27ba939306"
+    },
+    {
+      "path": "src/components/ui/tabs/TabsTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/tabs/TabsTrigger.vue",
+      "sourceDigest": "sha256:3c45abce5d7c76c5d3686dc445c54285f2b4c76042736b02a12b19611fe35d67",
+      "adaptedDigest": "sha256:0374dabd67265d209da283d41bb252e367be5ae7e606665f709c55e2fb6bd5df"
+    },
+    {
+      "path": "src/components/ui/tabs/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/tabs/index.ts",
+      "sourceDigest": "sha256:5e98735f90589ee6b48c4932a7b939b014d657ae346a7b07a99ffef6ba2fa437",
+      "adaptedDigest": "sha256:5e98735f90589ee6b48c4932a7b939b014d657ae346a7b07a99ffef6ba2fa437"
+    },
+    {
+      "path": "src/components/ui/textarea/Textarea.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/textarea/Textarea.vue",
+      "sourceDigest": "sha256:7828106d17155c4cf36a8772d0db1bc2390d592886e256b9cc9ae75fa655991d",
+      "adaptedDigest": "sha256:7dca60ac7225e5184e5e3fe9a4fa68581f4d2b5e0541881d61e5a54b89fd47a8"
+    },
+    {
+      "path": "src/components/ui/textarea/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/textarea/index.ts",
+      "sourceDigest": "sha256:9212587988979849b3bbcddebdf46d9b1f80a513c0cf92391d83c9d50b648007",
+      "adaptedDigest": "sha256:9212587988979849b3bbcddebdf46d9b1f80a513c0cf92391d83c9d50b648007"
+    },
+    {
+      "path": "src/components/ui/trace/Trace.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/Trace.vue",
+      "sourceDigest": "sha256:42f72b05478b13b2bdf64b56533981488c241b6bdaceca3f16fdceac35390228",
+      "adaptedDigest": "sha256:6785d6f490503f851eee5794932b24111820e849e4f19af07cdeeb512731c57e"
+    },
+    {
+      "path": "src/components/ui/trace/TraceCollapsible.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceCollapsible.vue",
+      "sourceDigest": "sha256:1c0ee5346c9b5402b49ecc90e0e5f3dc7d4e1329a93a650351265f7663697fb0",
+      "adaptedDigest": "sha256:0bb3a04c39d309db25bd2daae793093efd2ad83a54247a717057b1d240ed351f"
+    },
+    {
+      "path": "src/components/ui/trace/TraceCollapsibleContent.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceCollapsibleContent.vue",
+      "sourceDigest": "sha256:74753a9422a6270e1e956317c33d377c921cd05b2e417b4f3011f20eb48e1581",
+      "adaptedDigest": "sha256:d072554f2cc831f31b4e90f45f6f79157d5513407c3231b0a43c6756ade725da"
+    },
+    {
+      "path": "src/components/ui/trace/TraceCollapsibleTrigger.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceCollapsibleTrigger.vue",
+      "sourceDigest": "sha256:f453601f413192431176287a1e8e7f8896b8c70f4f67b2b8d4c2078d88a94a2a",
+      "adaptedDigest": "sha256:4b44702e7243fd1599bc4c8d93c007e99ad3040ef38f7564c011fc73c6c910fb"
+    },
+    {
+      "path": "src/components/ui/trace/TraceDescription.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceDescription.vue",
+      "sourceDigest": "sha256:ac1b74062d85c2adc8bd23eb6620d2f67b4a9fcca4b84216ead7c608fd41716d",
+      "adaptedDigest": "sha256:d929f3c1f8dd986a30fcf0f310fa8c0abd347f59ee5d7312d10e269ff3200140"
+    },
+    {
+      "path": "src/components/ui/trace/TraceIcon.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceIcon.vue",
+      "sourceDigest": "sha256:be4ea11c1ad85dcd3ba12c9705ab5226c15fe0b1439a20f4b33a768c755ad645",
+      "adaptedDigest": "sha256:da66c95e67566752842337beb9c0385bce1d67a6bfa39d40dbfb9f1bd2e4bbc9"
+    },
+    {
+      "path": "src/components/ui/trace/TraceLine.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceLine.vue",
+      "sourceDigest": "sha256:1419acc271691c59313b826de378a3683c10b625cc83085a97e79d38ac55649b",
+      "adaptedDigest": "sha256:537cf3f4aa788ab0a1e56a00f18a226248a7d500e1619a02d1ce8b8596cc101b"
+    },
+    {
+      "path": "src/components/ui/trace/TraceTitle.vue",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/TraceTitle.vue",
+      "sourceDigest": "sha256:ebce8073a4919fdf7e37a214f0edcc67777604a2bdd2d108af1727188c1b84d2",
+      "adaptedDigest": "sha256:36523159c5904b95cb7a2cabec11f36dc91996a7c2edd9e69d2a560b78edd780"
+    },
+    {
+      "path": "src/components/ui/trace/index.ts",
+      "upstreamPath": "apps/v4/registry/new-york-v4/ui/trace/index.ts",
+      "sourceDigest": "sha256:233b51696e318db4c13a1a935a9d4c2c70550e57f9608944c493a312feb07783",
+      "adaptedDigest": "sha256:233b51696e318db4c13a1a935a9d4c2c70550e57f9608944c493a312feb07783"
+    }
+  ]
+}
