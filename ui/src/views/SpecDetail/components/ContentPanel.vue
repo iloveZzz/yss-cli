@@ -136,9 +136,15 @@ const exclusions = computed(() =>
 )
 const confirmedVersion = computed(() => props.content.confirmedVersion ?? props.content.confirmations.at(-1))
 const materialsNeedReview = computed(() => materialNeedsReview(props.content))
+const sharedMaterialUpdates = computed(() =>
+  props.content.materialChanges?.filter((change) => change.kind === 'sharedUpdated') ?? []
+)
+const confirmationMaterialChanges = computed(() =>
+  props.content.materialChanges?.filter((change) => change.kind !== 'sharedUpdated') ?? []
+)
 const changeLabels = {
   changed: '确认材料已更新',
-  sharedUpdated: '共用资料有新版',
+  sharedUpdated: '关联资料更新',
   dependencyReview: '依赖待核实',
   unavailable: '来源异常',
   historyUnavailable: '当前适用性待核实'
@@ -297,11 +303,11 @@ async function confirmContent() {
       <p v-if="materialsNeedReview" class="notice warning">
         由 Agent 核实关联材料及相关条款。已确认版本可在下方回看。
       </p>
-      <Collapsible v-if="content.materialChanges?.length" class="confirmation-blockers" default-open>
+      <Collapsible v-if="confirmationMaterialChanges.length" class="confirmation-blockers" default-open>
         <CollapsibleTrigger>确认材料与来源变化</CollapsibleTrigger>
         <CollapsibleContent>
-          <ul>
-            <li v-for="change in content.materialChanges" :key="`${change.kind}:${change.target}`">
+          <ul class="material-change-list">
+            <li v-for="change in confirmationMaterialChanges" :key="`${change.kind}:${change.target}`">
               <strong>{{ changeLabels[change.kind] }}</strong>
               <code>{{ change.target }}</code>
               <div>{{ change.reason }}</div>
@@ -318,6 +324,26 @@ async function confirmContent() {
         <CollapsibleContent>
           <ul>
             <li v-for="blocker in content.blockers" :key="blocker">{{ blocker }}</li>
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+      <Collapsible v-if="sharedMaterialUpdates.length" class="shared-material-updates">
+        <div class="shared-material-summary">
+          <CollapsibleTrigger :aria-describedby="id + '-shared-material-status'">
+            {{ changeLabels.sharedUpdated }}（{{ sharedMaterialUpdates.length }}）
+          </CollapsibleTrigger>
+          <span :id="id + '-shared-material-status'">仍采用已确认版本</span>
+        </div>
+        <CollapsibleContent>
+          <ul class="material-change-list">
+            <li v-for="change in sharedMaterialUpdates" :key="change.target">
+              <code>{{ change.target }}</code>
+              <div>{{ change.reason }}</div>
+              <small v-if="change.confirmedDigest || change.observedDigest" class="muted">
+                已采用 {{ change.confirmedDigest?.slice(0, 12) ?? '—' }} ·
+                当前资料 {{ change.observedDigest?.slice(0, 12) ?? '—' }}
+              </small>
+            </li>
           </ul>
         </CollapsibleContent>
       </Collapsible>
@@ -436,7 +462,7 @@ async function confirmContent() {
           />
           我已阅读并确认上述范围、排除项与当前内容版本。
         </label>
-        <p class="muted">记录仅适用于本次范围与版本；文件变化后须重新确认。</p>
+        <p class="muted">本 Spec 的确认范围或采用的材料变化后，需要确认新版本。</p>
         <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
         <div class="form-actions">
           <Button type="button" variant="outline" :disabled="saving" @click="confirmOpen = false">
@@ -482,11 +508,13 @@ async function confirmContent() {
   background: #edf7f2;
 }
 .content-scope,
-.confirmation-blockers {
+.confirmation-blockers,
+.shared-material-updates {
   margin-top: 10px;
 }
 .content-scope [data-slot='collapsible-trigger'],
 .confirmation-blockers [data-slot='collapsible-trigger'],
+.shared-material-updates [data-slot='collapsible-trigger'],
 .copy-help [data-slot='collapsible-trigger'] {
   width: fit-content;
   cursor: pointer;
@@ -495,13 +523,34 @@ async function confirmContent() {
   padding: 3px 0;
 }
 .content-scope p,
-.confirmation-blockers ul {
+.confirmation-blockers ul,
+.shared-material-updates ul {
   margin: 8px 0 0;
 }
-.confirmation-blockers ul {
+.confirmation-blockers ul,
+.shared-material-updates ul {
   padding-left: 20px;
   list-style: disc;
+}
+.confirmation-blockers ul {
   color: #a15b12;
+}
+.shared-material-updates {
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+}
+.shared-material-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 10px;
+}
+.material-change-list li + li {
+  margin-top: 8px;
+}
+.material-change-list code {
+  display: block;
+  overflow-wrap: anywhere;
 }
 .questions-heading {
   margin: 22px 0 8px;
