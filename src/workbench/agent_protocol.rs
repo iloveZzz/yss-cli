@@ -24,6 +24,18 @@ pub struct PiModel {
     pub id: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingLevel {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
 impl PiModel {
     pub fn new(provider: &str, id: &str) -> Option<Self> {
         (Self::valid_part(provider) && Self::valid_part(id)).then(|| Self {
@@ -39,13 +51,7 @@ impl PiModel {
             && !value.chars().any(char::is_control)
     }
 
-    pub(crate) fn validate_selection(&self, resuming: bool) -> Result<()> {
-        if resuming {
-            return Err(YssError::new(
-                ErrorCode::InvalidInput,
-                "续接使用原会话模型，切换模型请从 Spec 发起新运行",
-            ));
-        }
+    pub(crate) fn validate_selection(&self) -> Result<()> {
         if !Self::valid_part(&self.provider) || !Self::valid_part(&self.id) {
             return Err(YssError::new(
                 ErrorCode::InvalidInput,
@@ -65,6 +71,7 @@ pub(crate) struct PiRuntime {
     pub config_dir: PathBuf,
     pub version: semver::Version,
     pub model: PiModel,
+    pub thinking_levels: Vec<ThinkingLevel>,
 }
 
 impl PiRuntime {
@@ -77,6 +84,17 @@ impl PiRuntime {
         }
         Ok(())
     }
+
+    pub fn verify_thinking(&self, selected: Option<ThinkingLevel>) -> Result<()> {
+        if selected.is_some_and(|level| !self.thinking_levels.contains(&level)) {
+            return Err(YssError::new(
+                ErrorCode::Conflict,
+                "所选模型不支持这个推理级别，请重新选择",
+            )
+            .context("piIssue", "thinkingLevelUnavailable"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default, Serialize)]
@@ -86,6 +104,9 @@ pub(crate) struct RuntimeStatus {
     pub sandbox_ready: bool,
     pub version: Option<semver::Version>,
     pub model: Option<PiModel>,
+    pub thinking_levels: Vec<ThinkingLevel>,
+    pub thinking_level: Option<ThinkingLevel>,
+    pub context_window: Option<u64>,
     pub credentials_ready: Option<bool>,
     pub config_dir: Option<String>,
     pub executable: Option<String>,
@@ -106,6 +127,8 @@ pub(crate) struct RunRequest<'a> {
     pub workspaces: &'a [Workspace],
     pub prompt: &'a str,
     pub resume: Option<&'a PiSession>,
+    pub thinking_level: Option<ThinkingLevel>,
+    pub read_only: bool,
     pub allow_commands: bool,
 }
 

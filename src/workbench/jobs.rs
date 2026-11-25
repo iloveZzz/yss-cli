@@ -19,6 +19,8 @@ pub struct JobRecord {
     pub kind: String,
     pub title: String,
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_run_id: Option<String>,
     pub request_id: String,
     pub roots: Vec<String>,
     pub created_at: String,
@@ -34,6 +36,17 @@ impl JobRecord {
             "completed" | "failed" | "canceled" | "interrupted" | "recoveryRequired"
         )
     }
+}
+
+pub(super) const DELETED_REQUEST: &str = "deletedJobRequest";
+
+pub(super) fn ensure_request_not_deleted(store: &mut Store, id: &str) -> Result<()> {
+    if store.record::<bool>(DELETED_REQUEST, id)?.is_some() {
+        return Err(
+            YssError::new(ErrorCode::Conflict, "该执行记录已删除").context("httpStatus", 410)
+        );
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -200,6 +213,29 @@ impl JobManager {
     where
         F: FnOnce(JobContext) -> Result<Value> + Send + 'static,
     {
+        self.start_checked(
+            kind,
+            title,
+            request_id,
+            roots,
+            |_, _| Ok(()),
+            |context, ()| work(context),
+        )
+    }
+
+    pub(super) fn start_checked<F, T>(
+        self: &Arc<Self>,
+        kind: String,
+        title: String,
+        request_id: String,
+        roots: Vec<String>,
+        check: impl FnOnce(&mut Store, &mut JobRecord) -> Result<T>,
+        work: F,
+    ) -> Result<JobRecord>
+    where
+        F: FnOnce(JobContext, T) -> Result<Value> + Send + 'static,
+        T: Send + 'static,
+    {
         self.stopping.check()?;
         if request_id.trim().is_empty() || request_id.len() > 128 {
             return Err(YssError::new(
@@ -239,11 +275,12 @@ impl JobManager {
         }
         let id = fs::unique_id()?;
         let at = now();
-        let job = JobRecord {
+        let mut job = JobRecord {
             id: id.clone(),
             kind,
             title,
             status: "preparing".into(),
+            agent_run_id: None,
             request_id,
             roots,
             created_at: at.clone(),
@@ -251,11 +288,14 @@ impl JobManager {
             result: None,
             error: None,
         };
-        {
+        let admission = {
             let mut store = lock_store(&self.store)?;
+            ensure_request_not_deleted(&mut store, &job.request_id)?;
             super::agent::ensure_roots_available(&mut store, &job.roots)?;
+            let admission = check(&mut store, &mut job)?;
             store.put_record("job", &id, &job)?;
-        }
+            admission
+        };
         let control = Arc::new(Control {
             cancel: Cancellation::new(),
             input: Mutex::new(InputState::default()),
@@ -273,7 +313,7 @@ impl JobManager {
         let handle = std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 context.set_status("running")?;
-                work(context.clone())
+                work(context.clone(), admission)
             }))
             .unwrap_or_else(|_| {
                 Err(YssError::new(

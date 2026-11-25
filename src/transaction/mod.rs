@@ -91,6 +91,8 @@ pub struct TransactionStatus {
     pub transactions: Vec<TransactionSummary>,
     pub pending: Vec<String>,
     pub retained_history: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cleanup_pending: Vec<String>,
 }
 fn required(message: &str) -> YssError {
     YssError::new(ErrorCode::RecoveryRequired, message)
@@ -113,6 +115,8 @@ fn status_root(root: &Root) -> Result<TransactionStatus> {
             journal::Inspection::Bound(loaded) => {
                 if !loaded.phase.terminal() {
                     status.pending.push(id.clone());
+                } else if journal::needs_cleanup(root, &loaded)? {
+                    status.cleanup_pending.push(id.clone());
                 }
                 status.transactions.push(TransactionSummary {
                     id,

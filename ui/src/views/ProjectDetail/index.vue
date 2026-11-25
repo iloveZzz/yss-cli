@@ -12,6 +12,7 @@ import { Empty, EmptyContent, EmptyTitle } from '@/components/ui/empty'
 import { FieldLabel } from '@/components/ui/field'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import WorkItemRows from '@/components/WorkItemRows.vue'
+import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { defaultWorkQuery, isClosed } from '@/services/workbench'
 import { useWorkItems } from '@/views/Specs/hooks/useWorkItems'
@@ -71,6 +72,8 @@ const projectResult = computed(() => {
     previous.items.length > 0 && previous.items.every((item) => item.projectId === projectId)
   return sameProject ? previous : undefined
 })
+const refreshing = useDelayedBusy(() => loading.value && !!projectResult.value?.items.length, () => 180)
+const refreshLabel = computed(() => resultsCurrent.value ? '正在更新项目 Spec' : '正在筛选，暂显示上次结果')
 const totals = computed(() => {
   const entries = specs.value.map((s) => ({
     active: !!project.value?.record.active && s.record.active,
@@ -105,7 +108,7 @@ const allLink = computed(() => ({
       }}
     </Alert>
     <Tabs :model-value="section" :unmount-on-hide="false" activation-mode="manual" @update:model-value="selectSection">
-      <TabsList class="detail-navigation" aria-label="工程详情分组">
+      <TabsList class="detail-navigation" aria-label="工程详情分组" moving-indicator>
         <TabsTrigger v-for="item in sections" :key="item.value" :value="item.value">{{ item.label }}</TabsTrigger>
       </TabsList>
       <TabsContent value="specs" class="min-w-0">
@@ -133,10 +136,11 @@ const allLink = computed(() => ({
         <p v-if="projectResult && !resultsCurrent && !loading" class="project-result-status muted">
           下方显示上次读取的记录，请重试以应用当前筛选。
         </p>
+        <p class="sr-only" role="status">{{ refreshing ? refreshLabel : '' }}</p>
         <div v-if="projectResult" class="relative">
           <Card class="panel block gap-0 py-0 shadow-none" :aria-busy="loading">
             <div :inert="!resultsCurrent">
-              <WorkItemRows :items="projectResult.items.slice(0, 50)" />
+              <WorkItemRows :items="projectResult.items.slice(0, 50)" :refreshing="loading" :refresh-label="refreshLabel" />
               <p v-if="projectResult.total > 50" class="empty">
                 当前显示前 50 项。
                 <RouterLink :to="allLink">查看全部 {{ projectResult.total }} 项 →</RouterLink>
@@ -144,9 +148,10 @@ const allLink = computed(() => ({
             </div>
           </Card>
           <LoadingIndicator
+            v-if="!projectResult.items.length"
             :active="loading"
             placement="overlay"
-            :label="resultsCurrent ? '正在更新项目 Spec' : '正在筛选，暂显示上次结果'"
+            :label="refreshLabel"
           />
         </div>
         <LoadingSkeleton v-else-if="loading" variant="table" :rows="4" label="正在读取项目 Spec" />

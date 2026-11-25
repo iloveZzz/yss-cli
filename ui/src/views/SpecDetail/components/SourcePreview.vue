@@ -26,6 +26,7 @@ const props = defineProps<{
   fragment?: string
   embedded?: boolean
   runId?: string
+  jobId?: string
   refreshKey?: string | number | null
   active?: boolean
 }>()
@@ -90,6 +91,7 @@ watch(
     props.specId,
     currentPath.value,
     props.runId,
+    props.jobId,
     props.refreshKey,
     props.runId ? undefined : sourceVersions.value[props.specId],
     props.runId
@@ -102,7 +104,7 @@ watch(
     const controller = new AbortController()
     cleanup(() => controller.abort())
     const changedDocument =
-      old?.[0] !== props.specId || old?.[1] !== currentPath.value || old?.[2] !== props.runId
+      old?.[0] !== props.specId || old?.[1] !== currentPath.value || old?.[2] !== props.runId || old?.[3] !== props.jobId
     if (changedDocument) {
       source.value = undefined
       emittedFragment = ''
@@ -116,9 +118,10 @@ watch(
               props.runId,
               props.specId,
               props.documentPath,
-              controller.signal
+              controller.signal,
+              props.jobId
             )
-          : await loadAgentSource(props.runId, props.specId, controller.signal)
+          : await loadAgentSource(props.runId, props.specId, controller.signal, props.jobId)
         : props.documentPath
           ? await loadDocument(props.specId, props.documentPath, controller.signal)
           : await loadSource(props.specId, controller.signal)

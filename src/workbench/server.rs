@@ -277,9 +277,12 @@ async fn dispatch(server: Server, request: Request) -> Response {
                     let reader = jobs.clone();
                     let job_id = id.clone();
                     let result = tokio::task::spawn_blocking(move || -> Result<_> {
-                        let events =
-                            super::jobs::lock_store(&reader.store)?.events(&job_id, after)?;
-                        let terminal = reader.get(&job_id)?.terminal();
+                        // Check both under one lock so completion cannot hide newly appended events.
+                        let mut store = super::jobs::lock_store(&reader.store)?;
+                        let events = store.events(&job_id, after)?;
+                        let terminal = store
+                            .record::<super::jobs::JobRecord>("job", &job_id)?
+                            .is_none_or(|job| job.terminal());
                         Ok((events, terminal))
                     })
                     .await;

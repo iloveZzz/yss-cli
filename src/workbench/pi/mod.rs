@@ -200,7 +200,14 @@ pub(super) fn run(
             )
         })
         .transpose()?;
-    let bridge = bridge::Bridge::start(private.path(), context, worktrees, sandbox, ask)?;
+    let bridge = bridge::Bridge::start(
+        private.path(),
+        context,
+        worktrees,
+        sandbox,
+        request.read_only,
+        ask,
+    )?;
     let protected = std::iter::once(request.data_dir.to_owned())
         .chain(
             request
@@ -228,9 +235,12 @@ pub(super) fn run(
         command.arg("--skill").arg(path);
     }
     bridge.configure(&mut command, request.allow_commands);
+    command.env(
+        "YSS_PI_READ_ONLY",
+        if request.read_only { "1" } else { "0" },
+    );
     let mut pi = rpc::Session::open(command, &context.cancel)?;
-    let state = pi.state(&context.cancel)?;
-    readiness::verify_model(&state, &request.runtime.model)?;
+    let mut state = pi.state(&context.cancel)?;
     bridge.await_ready()?;
     let session = session_ref(&directory, &state)?;
     if let Some(original) = request.resume
@@ -240,16 +250,43 @@ pub(super) fn run(
     {
         return Err(not_ready("Pi 打开的会话与原运行不匹配"));
     }
+    if request.resume.is_some() && readiness::verify_model(&state, &request.runtime.model).is_err()
+    {
+        pi.set_model(&request.runtime.model, &context.cancel)?;
+        state = pi.state(&context.cancel)?;
+    }
+    readiness::verify_model(&state, &request.runtime.model)?;
+    if let Some(level) = request.thinking_level {
+        if state["thinkingLevel"] != json!(level) {
+            pi.set_thinking_level(level, &context.cancel)?;
+            state = pi.state(&context.cancel)?;
+        }
+        if state["thinkingLevel"] != json!(level) {
+            return Err(not_ready("Pi 实际推理级别与本轮选择不符")
+                .context("piIssue", "thinkingLevelUnavailable"));
+        }
+    }
     let metadata = json!({
         "host": "pi", "version": request.runtime.version,
         "model": request.runtime.model.id,
         "provider": request.runtime.model.provider,
         "thinkingLevel": state["thinkingLevel"].as_str(),
+        "readOnly": request.read_only,
         "allowCommands": request.allow_commands
     });
     save_session(session, metadata.clone())?;
-    context.emit("piStatus", json!({ "message": "已连接 Pi 会话" }))?;
-    let commands = if request.allow_commands {
+    context.emit(
+        "piStatus",
+        json!({
+            "message": "已连接 Pi 会话", "model": request.runtime.model,
+            "thinkingLevel": metadata["thinkingLevel"],
+        "readOnly": request.read_only,
+            "contextWindow": state["model"]["contextWindow"].as_u64().filter(|value| *value > 0)
+        }),
+    )?;
+    let commands = if request.read_only {
+        "本轮只读。可以读取、搜索、更新展示计划和询问已登记业务问题。把建议写在答复里。"
+    } else if request.allow_commands {
         "命令沙箱断网。Maven 与 pnpm 构建使用本机已准备的离线依赖。"
     } else {
         "本次未授权命令工具，使用文件工具。"

@@ -209,7 +209,9 @@ async function copyPath(path: string) {
         </p>
       </div>
       <div class="inline-actions">
-        <Button variant="outline" @click="tab = 'run'">运行 Pi Agent</Button>
+        <Button variant="outline" as-child>
+          <RouterLink :to="{ name: 'pi-workspace', params: { specId: spec.record.id }, query: { stage: selectedStage } }">运行 Pi Agent</RouterLink>
+        </Button>
         <Button
           v-if="
             draft &&
@@ -228,7 +230,7 @@ async function copyPath(path: string) {
     </div>
     <ProgressSummary :progress="progress" />
     <Tabs :model-value="tab" :unmount-on-hide="false" @update:model-value="tab = String($event)">
-      <TabsList class="tabs" aria-label="Spec 内容">
+      <TabsList class="tabs" aria-label="Spec 内容" moving-indicator>
         <TabsTrigger v-for="item in tabs" :key="item.id" :value="item.id">
           {{ item.label }}
         </TabsTrigger>
@@ -455,10 +457,7 @@ async function copyPath(path: string) {
       </TabsContent>
       <TabsContent value="run" as="section">
         <AgentLauncher
-          :key="spec.record.id"
-          :active="tab === 'run'"
           :spec-id="spec.record.id"
-          :project-id="spec.record.projectId"
           :lifecycle-stage="selectedStage"
         />
       </TabsContent>

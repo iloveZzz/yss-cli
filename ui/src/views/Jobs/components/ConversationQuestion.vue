@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { computed, nextTick, shallowRef, useId, useTemplateRef, watch } from 'vue'
+import { StorageSerializers, useSessionStorage } from '@vueuse/core'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -27,8 +28,19 @@ const props = defineProps<{
 
 const card = useTemplateRef<HTMLElement>('card')
 const answerId = useId()
-const selected = shallowRef('')
-const draft = shallowRef('')
+const input = useSessionStorage<{ choice: string; text: string } | null>(
+  () => 'yss:pi-answer:' + props.question.requestId,
+  null,
+  { serializer: StorageSerializers.object, writeDefaults: false, flush: 'sync' }
+)
+const selected = computed({
+  get: () => input.value?.choice ?? '',
+  set: (choice: string) => { input.value = { choice, text: input.value?.text ?? '' } }
+})
+const draft = computed({
+  get: () => input.value?.text ?? '',
+  set: (text: string) => { input.value = { choice: input.value?.choice ?? '', text } }
+})
 const formError = shallowRef('')
 const awaiting = computed(() => !props.terminal && props.row.status === 'pending')
 const custom = computed(() => !props.question.options.length || selected.value === 'custom')
@@ -43,6 +55,9 @@ watch(awaiting, async (pending) => {
   await nextTick()
   card.value?.focus({ preventScroll: true })
 })
+watch(() => props.row.status, (status) => {
+  if (status === 'saved') input.value = null
+}, { immediate: true })
 
 async function respond(event: Event) {
   event.preventDefault()
@@ -114,6 +129,7 @@ async function respond(event: Event) {
       <template v-if="row.status === 'saved'">
         <Badge class="question-state" variant="secondary" role="status">答复已保存</Badge>
         <p class="preserve-lines">{{ question.answer }}</p>
+        <small v-if="question.responseId" class="muted">答复 ID {{ question.responseId }}</small>
       </template>
       <Alert v-else-if="row.status === 'failed'" variant="destructive" class="question-error py-2">
         <AlertDescription class="text-current">{{ question.error || '答复保存失败' }}</AlertDescription>
@@ -123,6 +139,8 @@ async function respond(event: Event) {
         <LoadingIndicator :active="row.status === 'saving'" />
         正在保存…
       </p>
+      <p v-if="row.status !== 'saved' && answer" class="question-state muted preserve-lines">本次填写：{{ answer }}</p>
+      <p v-if="row.status === 'failed'" class="question-state muted">可刷新核对问题状态，并查看本轮实际结果。</p>
     </template>
   </article>
 </template>

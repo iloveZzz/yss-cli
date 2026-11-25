@@ -8,11 +8,12 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '
 import { FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
+import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import ProjectForm from './components/ProjectForm.vue'
 import HomeManager from './components/HomeManager.vue'
 import type { ProjectRecord } from '@/services/workbench'
-const { snapshot } = useWorkbench()
+const { snapshot, loading } = useWorkbench()
 const open = shallowRef(false)
 const selected = shallowRef<ProjectRecord>()
 const showInactive = shallowRef(false)
@@ -78,6 +79,7 @@ function edit(project?: ProjectRecord) {
       tabindex="0"
       role="region"
       aria-labelledby="local-projects-heading"
+      :aria-busy="loading"
     >
       <Table class="spec-table project-table">
         <TableCaption class="sr-only">
@@ -124,8 +126,9 @@ function edit(project?: ProjectRecord) {
           </TableRow>
         </TableBody>
       </Table>
+      <TableLoadingOverlay :active="loading" label="正在刷新本机工程" />
     </Card>
-    <Empty v-else class="panel">
+    <Empty v-else class="panel" data-workbench-reveal>
       <EmptyHeader>
         <EmptyTitle role="heading" aria-level="2" v-if="search.trim()">没有匹配的工程</EmptyTitle>
         <EmptyTitle role="heading" aria-level="2" v-else-if="snapshot?.projects.length">当前没有启用工程</EmptyTitle>

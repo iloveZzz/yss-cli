@@ -6,24 +6,27 @@ import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { getPiRuntime, testPiConnection } from '@/services/workbench-agent'
+import { getPiRuntime, piModelKey, testPiConnection } from '@/services/workbench-agent'
 import { ApiError, errorMessage } from '@/services/workbench'
 import type { PiModel, PiRuntimeStatus } from '@/services/workbench-platform'
 
-const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resumeRunId?: string }>(), {
+const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resumeRunId?: string; allowModelSwitch?: boolean }>(), {
   active: true
 })
 const readyModel = defineModel<PiModel>('readyModel')
 const selectedModel = defineModel<PiModel>('selectedModel')
+const blockedReason = defineModel<string>('blockedReason')
+const modelRestrictions = defineModel<Record<string, string>>('modelRestrictions', { default: () => ({}) })
 const testDescription = useId()
-const status = shallowRef<PiRuntimeStatus>()
+const status = defineModel<PiRuntimeStatus>('runtimeStatus')
 const operation = shallowRef<'initial' | 'check' | 'selection' | 'test'>()
 const checkError = shallowRef('')
 const testResult = shallowRef<{ message: string; connected: boolean; issue?: string }>()
 const model = computed(() => status.value?.available ? status.value.model : undefined)
-const chosen = computed(() => props.resumeRunId ? undefined : selectedModel.value)
+const canChooseModel = computed(() => !props.resumeRunId || props.allowModelSwitch)
+const chosen = computed(() => canChooseModel.value ? selectedModel.value : undefined)
 const visibleModel = computed(() => chosen.value ?? status.value?.model)
-const modelLabel = computed(() => props.resumeRunId ? '原会话模型' : chosen.value ? '本次选择' : 'Pi 默认模型')
+const modelLabel = computed(() => chosen.value ? '本次选择' : props.resumeRunId ? '会话模型' : 'Pi 默认模型')
 const statusMessage = computed(() => {
   switch (operation.value) {
     case 'initial': return ''
@@ -31,7 +34,7 @@ const statusMessage = computed(() => {
     case 'selection': return '正在检测本次模型…'
     case 'test': return '正在请求模型…'
     default:
-      return testResult.value?.message || checkError.value || status.value?.message ||
+      return testResult.value?.message || checkError.value || blockedReason.value || status.value?.message ||
         (status.value?.credentialsReady ? '已找到本机凭证。' : '')
   }
 })
@@ -56,15 +59,21 @@ async function checkRuntime(kind: 'initial' | 'check' | 'selection' = 'check') {
   checkError.value = ''
   testResult.value = undefined
   readyModel.value = undefined
+  blockedReason.value = ''
   try {
     const result = await getPiRuntime({ resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     status.value = result
-    if (result.available && result.model) readyModel.value = result.model
+    if (result.available && result.model) {
+      const restriction = modelRestrictions.value[piModelKey(result.model)] ?? ''
+      blockedReason.value = restriction
+      if (!restriction) readyModel.value = result.model
+    } else blockedReason.value = result.message || 'Pi 模型未就绪'
   } catch (cause) {
     if (current.signal.aborted) return
     status.value = undefined
     checkError.value = errorMessage(cause)
+    blockedReason.value = checkError.value
   } finally {
     if (request === current) {
       request = undefined
@@ -85,15 +94,24 @@ async function testConnection() {
     await testPiConnection(target, { resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     testResult.value = { connected: true, message: '模型连接成功。' }
+    const remaining = { ...modelRestrictions.value }
+    delete remaining[piModelKey(target)]
+    modelRestrictions.value = remaining
     readyModel.value = target
+    blockedReason.value = ''
   } catch (cause) {
     if (!current.signal.aborted) {
       const value = cause instanceof ApiError ? cause.context.piIssue : undefined
       const issue = typeof value === 'string' ? value : undefined
       testResult.value = { connected: false, message: errorMessage(cause), issue }
-      if (!['subscription', 'configuration', 'credentials', 'modelAccess', 'modelUnavailable', 'modelChanged'].includes(issue ?? '')) {
-        readyModel.value = target
+      const key = piModelKey(target)
+      const hardFailure = ['subscription', 'configuration', 'credentials', 'modelAccess', 'modelUnavailable', 'modelChanged'].includes(issue ?? '')
+      const restriction = hardFailure ? testResult.value.message : modelRestrictions.value[key] ?? ''
+      if (hardFailure) {
+        modelRestrictions.value = { ...modelRestrictions.value, [key]: restriction }
       }
+      blockedReason.value = restriction
+      if (!restriction) readyModel.value = target
     }
   } finally {
     if (request === current) {
@@ -104,7 +122,7 @@ async function testConnection() {
 }
 
 function chooseModel(next?: PiModel) {
-  if (props.busy || props.resumeRunId || operation.value === 'test') return
+  if (props.busy || !canChooseModel.value || operation.value === 'test') return
   if (next?.provider === chosen.value?.provider && next?.id === chosen.value?.id) return
   readyModel.value = undefined
   selectedModel.value = next
@@ -150,7 +168,7 @@ onBeforeUnmount(() => request?.abort())
             内置供应商可在确认工作台使用的 Pi 程序和配置目录后，通过 <code>/login</code> 登录。
           </template>
         </li>
-        <li v-if="resumeRunId">确认本机 Pi 中仍有上方原会话使用的供应商和模型。要换模型，请从原 Spec 发起新运行。</li>
+        <li v-if="resumeRunId">确认本机 Pi 可用的供应商和模型。可在会话的输入区为下一轮选择其他模型。</li>
         <li v-else>
           用 <code>/model</code> 找到模型并按 <kbd>Ctrl+S</kbd> 保存为默认，或在 <code>settings.json</code> 中设置 <code>defaultProvider</code> 和 <code>defaultModel</code>。
           如果配置了 <code>enabledModels</code>，请确保启动范围包含所需模型。
@@ -164,7 +182,8 @@ onBeforeUnmount(() => request?.abort())
     </div>
     <p v-if="model" :id="testDescription" class="muted">连接测试会发送一条简短请求，可能使用模型额度。</p>
     <div class="model-actions">
-      <PiModelPicker v-if="!resumeRunId" :selected-model="chosen" :disabled="busy || operation === 'test'" @select="chooseModel" />
+      <PiModelPicker v-if="canChooseModel" :selected-model="chosen" :current-model="visibleModel ?? undefined"
+        :default-label="resumeRunId ? '沿用会话模型' : undefined" :disabled="busy || operation === 'test'" @select="chooseModel" />
       <Button type="button" variant="outline" size="sm" :aria-disabled="busy || !!operation" @click="!busy && checkRuntime()">
         <LoadingIndicator :active="operation === 'check' || operation === 'selection'" />
         重新检测

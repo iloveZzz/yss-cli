@@ -14,6 +14,7 @@ import { computed, reactive, shallowRef, watch, nextTick, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
@@ -103,6 +104,12 @@ const coverage = computed(() => {
 function all() {
   update({ activity: 'all', includeClosed: true, statuses: [] })
 }
+function selectBasis(value: unknown) {
+  if (value === 'effective' || value === 'personal') update({ progressBasis: value })
+}
+function selectLayout(value: unknown) {
+  if (value === 'list' || value === 'board') update({}, { layout: value })
+}
 </script>
 <template>
   <div class="page-heading specs-heading">
@@ -120,14 +127,10 @@ function all() {
         @removed="detachView"
       />
       <div class="result-controls">
-        <div class="segmented" role="group" aria-label="进度依据">
-          <Button type="button" variant="ghost" :aria-pressed="filters.progressBasis === 'effective'" @click="update({ progressBasis: 'effective' })">
-            自动进度
-          </Button>
-          <Button type="button" variant="ghost" :aria-pressed="filters.progressBasis === 'personal'" @click="update({ progressBasis: 'personal' })">
-            个人标记
-          </Button>
-        </div>
+        <ToggleGroup class="segmented" type="single" aria-label="进度依据" :model-value="filters.progressBasis" @update:model-value="selectBasis">
+          <ToggleGroupItem value="effective">自动进度</ToggleGroupItem>
+          <ToggleGroupItem value="personal">个人标记</ToggleGroupItem>
+        </ToggleGroup>
         <label class="inline-field sort-control" :for="id + 'sort'">
           <span>排序</span>
           <SingleSelect
@@ -142,25 +145,11 @@ function all() {
             @update:model-value="update({ sort: $event as 'updatedDesc' | 'titleAsc' })"
           />
         </label>
-        <div class="segmented" role="group" aria-label="显示方式">
-          <Button
-            type="button"
-            variant="ghost"
-            :aria-pressed="layout === 'list'"
-            @click="update({}, { layout: 'list' })"
-          >
-            列表
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            :aria-pressed="layout === 'board'"
-            @click="update({}, { layout: 'board' })"
-          >
-            看板
-          </Button>
-        </div>
-        <label v-if="layout === 'board'" class="inline-field group-control" :for="id + 'group'">
+        <ToggleGroup class="segmented" type="single" aria-label="显示方式" :model-value="layout" @update:model-value="selectLayout">
+          <ToggleGroupItem value="list">列表</ToggleGroupItem>
+          <ToggleGroupItem value="board">看板</ToggleGroupItem>
+        </ToggleGroup>
+        <label v-if="layout === 'board'" class="inline-field group-control" :for="id + 'group'" data-workbench-reveal>
           <span>分组</span>
           <SingleSelect
             :id="id + 'group'"
@@ -210,7 +199,7 @@ function all() {
     <LoadingSkeleton :variant="layout === 'board' ? 'cards' : 'table'" :rows="layout === 'board' ? 3 : 4" />
   </Card>
   <template v-else-if="result">
-    <Empty v-if="!result.items.length" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空">
+    <Empty v-if="!result.items.length" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空" data-workbench-reveal>
       <EmptyHeader>
         <EmptyTitle><h2>{{ resultsCurrent ? '没有匹配的 Spec' : '上次查询没有匹配的 Spec' }}</h2></EmptyTitle>
         <EmptyDescription>可清除筛选，或将已关闭与停用记录纳入当前查询。</EmptyDescription>
@@ -220,11 +209,8 @@ function all() {
         <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
       </EmptyContent>
     </Empty>
-    <Card v-else-if="layout === 'list'" class="panel result-list gap-0 p-0 shadow-none" :aria-busy="loading">
-      <div class="relative">
-        <WorkItemRows :items="result.items" :progress-basis="resultProgressBasis" />
-        <LoadingIndicator :active="loading && !loadingMore" placement="overlay" />
-      </div>
+    <Card v-else-if="layout === 'list'" class="panel result-list gap-0 p-0 shadow-none" data-workbench-reveal>
+      <WorkItemRows :items="result.items" :progress-basis="resultProgressBasis" :refreshing="loading && !loadingMore" />
       <div v-if="result.total > result.items.length" class="load-more">
         <Button type="button" variant="outline" :disabled="loading || !resultsCurrent" @click="loadMore">
           <LoadingIndicator :active="loadingMore" />

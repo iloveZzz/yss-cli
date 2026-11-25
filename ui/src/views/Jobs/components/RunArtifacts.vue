@@ -13,7 +13,7 @@ import SourcePreview from '@/views/SpecDetail/components/SourcePreview.vue'
 import ResourceViewer from '@/views/SpecDetail/components/ResourceViewer.vue'
 import { currentQuestionResponse, questionHistory, questionStateLabel, responseText, responseUse } from '@/services/workbench-content'
 import QuestionHistory from '@/views/SpecDetail/components/QuestionHistory.vue'
-const props = defineProps<{ runId: string; specId: string; running: boolean }>()
+const props = defineProps<{ runId: string; specId: string; running: boolean; jobId?: string }>()
 const view = shallowRef<SpecView>()
 const error = shallowRef('')
 const loading = shallowRef(false)
@@ -35,7 +35,7 @@ async function refresh(explicit = false) {
   const own = ++generation
   loading.value = true
   try {
-    const result = await getAgentSpecView(props.runId, props.specId)
+    const result = await getAgentSpecView(props.runId, props.specId, props.jobId)
     if (own === generation) {
       view.value = result
       error.value = ''
@@ -49,7 +49,7 @@ async function refresh(explicit = false) {
     }
   }
 }
-watch(() => [props.runId, props.specId], () => {
+watch(() => [props.runId, props.specId, props.jobId], () => {
   generation++
   view.value = undefined
   resource.value = null
@@ -105,6 +105,7 @@ function safeWeb(value: string) {
       </div>
       <SourcePreview
         :run-id="runId"
+        :job-id="jobId"
         :spec-id="specId"
         :source-path="view.record.sourcePath"
         :refresh-key="version"
@@ -137,6 +138,7 @@ function safeWeb(value: string) {
       <ResourceViewer
         v-model="resource"
         :run-id="runId"
+        :job-id="jobId"
         :spec-id="specId"
         :source-path="view.record.sourcePath"
         :refresh-key="version"

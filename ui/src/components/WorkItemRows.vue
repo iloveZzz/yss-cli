@@ -5,12 +5,20 @@ import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import ProgressSummary from './ProgressSummary.vue'
+import TableLoadingOverlay from './TableLoadingOverlay.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { dateLabel, stages, contentStatuses, type WorkItem } from '@/services/workbench'
 import { contentReminders } from '@/services/workbench-content'
-const props = withDefaults(defineProps<{ items: WorkItem[]; caption?: string; progressBasis?: 'effective' | 'personal' }>(), {
+const props = withDefaults(defineProps<{
+  items: WorkItem[]
+  caption?: string
+  progressBasis?: 'effective' | 'personal'
+  refreshing?: boolean
+  refreshLabel?: string
+}>(), {
   caption: 'Spec 查询结果',
-  progressBasis: 'effective'
+  progressBasis: 'effective',
+  refreshLabel: '正在刷新 Spec 结果'
 })
 const route = useRoute()
 const { snapshot } = useWorkbench()
@@ -31,7 +39,7 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
 }
 </script>
 <template>
-  <div class="table-scroll work-items-scroll" tabindex="0" role="region" :aria-labelledby="id">
+  <div class="table-scroll work-items-scroll" tabindex="0" role="region" :aria-labelledby="id" :aria-busy="refreshing">
     <Table class="spec-table work-items">
       <TableCaption :id="id" class="sr-only">{{ caption }}</TableCaption>
       <TableHeader>
@@ -96,6 +104,7 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
         </TableRow>
       </TableBody>
     </Table>
+    <TableLoadingOverlay :active="!!refreshing && !!items.length" :label="refreshLabel" />
   </div>
   <slot v-if="!items.length" name="empty">
       <Empty><EmptyDescription>当前筛选没有匹配记录，可清除条件或查看全部记录。</EmptyDescription></Empty>

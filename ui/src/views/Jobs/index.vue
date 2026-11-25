@@ -84,6 +84,14 @@ const legacyInputs = computed(() =>
 const runId = computed(
   () => eventStream.latest.value?.runId || String(objectValue(job.value?.result).runId ?? '')
 )
+const piRoute = computed(() => isPi.value && run.value && job.value && {
+  name: 'pi-workspace',
+  params: { specId: run.value.specId },
+  query: { session: run.value.id, round: job.value.id }
+})
+watch(piRoute, (target) => {
+  if (target && route.query.detail !== '1') void router.replace(target)
+})
 const currentRun = computed(() => (run.value?.jobId === jobId.value ? run.value : undefined))
 const latestRunActive = computed(() => !!run.value && !terminalJob(run.value.status))
 const stopping = computed(
@@ -169,7 +177,7 @@ watch(
     fetchingFor = undefined
     job.value = undefined
     run.value = undefined
-    selectedTab.value = undefined
+    selectedTab.value = route.query.tab === 'log' ? 'log' : undefined
     filesVisited.value = false
     continuationOpen.value = false
     continuation.value = defaultContinuation
@@ -290,6 +298,7 @@ async function resume() {
   <div class="page-heading jobs-heading">
     <div>
       <RouterLink v-if="jobId" to="/jobs" class="back-link">← 执行记录</RouterLink>
+      <RouterLink v-if="piRoute && route.query.detail === '1'" :to="piRoute" class="back-link ml-3">打开 Pi 会话</RouterLink>
       <h1>{{ jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录' }}</h1>
     </div>
     <Button type="button" variant="outline" :aria-disabled="loading" @click="!loading && refresh()">
@@ -439,7 +448,8 @@ async function resume() {
       @answer="answerLegacy"
     />
     <Tabs v-model="tab" activation-mode="manual" class="job-tabs min-w-0 gap-0">
-      <TabsList class="tabs job-tablist w-full justify-start rounded-none bg-transparent p-0" aria-label="执行详情内容">
+      <TabsList class="tabs job-tablist w-full justify-start rounded-none bg-transparent p-0"
+        aria-label="执行详情内容" moving-indicator>
         <TabsTrigger v-if="isPi" value="conversation">会话</TabsTrigger>
         <TabsTrigger value="log">执行日志</TabsTrigger>
         <template v-if="currentRun">

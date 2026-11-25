@@ -70,11 +70,36 @@ export function conversationEvent(
       ...row('tool', text(payload.message), text(payload.status) || 'completed'),
       itemId: text(payload.id) || undefined,
       operation: text(payload.operation) || undefined,
-      path: text(payload.path) || undefined,
+      projectId: text(payload.projectId) || undefined,
+      path: text(payload.reviewPath) || text(payload.path) || undefined,
       error: text(payload.error) || undefined
     }
   }
   const itemId = text(item.id) || text(payload.itemId)
+  if (itemId && event.kind === 'item/commandExecution/outputDelta') {
+    const previous = find('command', itemId)
+    return previous ? update(previous, {}) : undefined
+  }
+  if (itemId && (item.type === 'piReasoning' || event.kind === 'item/piReasoning/delta')) {
+    const previous = find('reasoning', itemId)
+    const delta = event.kind === 'item/piReasoning/delta'
+    const status = text(item.status) || (event.kind === 'item/completed' ? 'completed' : 'inProgress')
+    const body = typeof item.text === 'string' ? item.text : (previous?.text ?? '') + (delta ? text(payload.delta) : '')
+    const durationMs = typeof item.durationMs === 'number' ? item.durationMs : previous?.durationMs
+    return previous
+      ? update(previous, { text: body, status, durationMs })
+      : { ...row('reasoning', body, status), itemId, durationMs }
+  }
+  if (itemId && item.type === 'piCompaction') {
+    const kind = 'tool'
+    const previous = find(kind, itemId)
+    const status = text(item.status) || (event.kind === 'item/started' ? 'inProgress' : 'completed')
+    const body = text(item.text)
+    const details = { operation: text(item.operation) || undefined }
+    return previous
+      ? update(previous, { text: body, status, ...details })
+      : { ...row(kind, body, status), itemId, ...details }
+  }
   if (itemId && (event.kind === 'item/agentMessage/delta' || item.type === 'agentMessage')) {
     const previous = find('message', itemId)
     const delta = event.kind === 'item/agentMessage/delta'
@@ -98,6 +123,8 @@ export function conversationEvent(
     return {
       ...row('files', paths.join('\n'), text(item.status) || 'completed'),
       itemId,
+      projectId: text(item.projectId) || undefined,
+      path: text(item.reviewPath) || undefined,
       operation: text(item.operation) || undefined
     }
   }

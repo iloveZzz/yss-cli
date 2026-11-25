@@ -305,11 +305,14 @@ impl PiProbe {
         })
     }
 
-    fn open(&self, cancel: &Cancellation) -> Result<Session> {
+    fn open(&self, cancel: &Cancellation, model: Option<&PiModel>) -> Result<Session> {
         let mut command = rpc_command(&self.executable, &self.config_dir, &self.protected)?;
         command
             .current_dir(self.private.path())
             .args(["--no-session", "--no-tools"]);
+        if let Some(model) = model {
+            select_model(&mut command, model);
+        }
         Session::open(command, cancel)
     }
 
@@ -335,7 +338,7 @@ pub(crate) fn available_models(
     protected: &[PathBuf],
 ) -> Result<Vec<PiModel>> {
     let probe = PiProbe::new(cancel, &mut RuntimeStatus::default(), protected)?;
-    let response = probe.open(cancel)?.available_models(cancel)?;
+    let response = probe.open(cancel, None)?.available_models(cancel)?;
     let mut models: Vec<_> = response["models"]
         .as_array()
         .ok_or_else(|| not_ready("Pi 未返回有效的本机模型列表"))?
@@ -367,7 +370,8 @@ pub(crate) fn check_runtime(
         check_credentials(probe.credentials_command(model)?, cancel, status)?;
     }
 
-    let mut session = probe.open(cancel)?;
+    let mut session = probe.open(cancel, status.model.as_ref())?;
+    let mut state = session.state(cancel)?;
     let model = match &status.model {
         Some(model) => {
             let available = session.available_models(cancel)?;
@@ -378,10 +382,14 @@ pub(crate) fn check_runtime(
             }) {
                 return Err(model_unavailable());
             }
+            if verify_model(&state, model).is_err() {
+                session.set_model(model, cancel)?;
+                state = session.state(cancel)?;
+                verify_model(&state, model)?;
+            }
             model.clone()
         }
         None => {
-            let state = session.state(cancel)?;
             let model = model_identity(&state["model"]).ok_or_else(|| {
                 not_ready("Pi 没有可用模型，请在本机 Pi 中选择模型并配置凭证")
                     .context("piIssue", "modelUnavailable")
@@ -391,11 +399,18 @@ pub(crate) fn check_runtime(
             model
         }
     };
+    let thinking_levels = session.thinking_levels(cancel)?;
+    status.thinking_levels.clone_from(&thinking_levels);
+    status.thinking_level = serde_json::from_value(state["thinkingLevel"].clone()).ok();
+    status.context_window = state["model"]["contextWindow"]
+        .as_u64()
+        .filter(|value| *value > 0);
     Ok(PiRuntime {
         executable: probe.executable,
         config_dir: probe.config_dir,
         version: probe.version,
         model,
+        thinking_levels,
     })
 }
 

@@ -640,6 +640,20 @@ fn validate_private(root: &Root, loaded: &Loaded) -> Result<()> {
     }
     Ok(())
 }
+pub(super) fn needs_cleanup(root: &Root, loaded: &Loaded) -> Result<bool> {
+    for path in loaded
+        .identity
+        .private_files
+        .iter()
+        .chain(&loaded.identity.private_directories)
+    {
+        if root.inspect(path)? != FileSnapshot::Missing {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(super) fn cleanup(root: &Root, loaded: &mut Loaded) -> Result<bool> {
     ensure_current_binding(root, loaded)?;
     if !loaded.phase.terminal() {

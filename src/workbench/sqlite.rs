@@ -6,10 +6,14 @@ use crate::{
     model::RelPath,
 };
 use rusqlite::{
-    Connection, OpenFlags, TransactionBehavior, params, params_from_iter, types::Value,
+    Connection, OpenFlags, OptionalExtension, TransactionBehavior, params, params_from_iter,
+    types::Value,
 };
 use serde::{Serialize, de::DeserializeOwned};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 const APPLICATION_ID: i64 = 0x59535357;
 const SCHEMA: &str = "CREATE TABLE workbench_meta (id INTEGER PRIMARY KEY CHECK(id=1), database_id TEXT NOT NULL, source_sha256 TEXT, initial_revision INTEGER NOT NULL, model_version INTEGER NOT NULL, revision INTEGER NOT NULL);
@@ -43,6 +47,14 @@ pub(crate) struct EventWrite<'a> {
     pub job_id: &'a str,
     pub kind: &'a str,
     pub payload: &'a serde_json::Value,
+}
+
+pub(crate) enum ExtensionChange<'a> {
+    Event(EventWrite<'a>),
+    DeleteAgentHistory {
+        run_id: &'a str,
+        job_ids: &'a BTreeSet<String>,
+    },
 }
 
 pub(crate) type ExtensionRecords = BTreeMap<String, Vec<(String, String)>>;
@@ -842,6 +854,31 @@ impl Database {
         }
         Ok(())
     }
+    pub(crate) fn read_record(&self, kind: &str, id: &str) -> Result<Option<String>> {
+        if scalar(&self.connection, "PRAGMA user_version")? < 2 {
+            return Ok(None);
+        }
+        self.connection
+            .query_row(
+                "SELECT payload FROM workbench_records WHERE kind=?1 AND id=?2",
+                params![kind, id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sql_error)
+    }
+    pub(crate) fn has_record(&self, kind: &str, id: &str) -> Result<bool> {
+        if scalar(&self.connection, "PRAGMA user_version")? < 2 {
+            return Ok(false);
+        }
+        self.connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM workbench_records WHERE kind=?1 AND id=?2)",
+                params![kind, id],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)
+    }
     pub(crate) fn read_records(&self, kind: &str) -> Result<Vec<(String, String)>> {
         if scalar(&self.connection, "PRAGMA user_version")? < 2 {
             return Ok(Vec::new());
@@ -860,7 +897,7 @@ impl Database {
         &mut self,
         root: &Root,
         effects: &CommitEffects,
-        event: Option<EventWrite<'_>>,
+        change: Option<ExtensionChange<'_>>,
     ) -> Result<()> {
         self.revalidate(root)?;
         let transaction = self
@@ -874,14 +911,30 @@ impl Database {
             ));
         }
         write_effects(&transaction, effects)?;
-        if let Some(event) = event {
-            insert_event(
-                &transaction,
-                event.job_id,
-                event.kind,
-                &serde_json::to_string(event.payload).map_err(|_| invalid("作业事件编码失败"))?,
-                &super::sources::now(),
-            )?;
+        match change {
+            Some(ExtensionChange::Event(event)) => {
+                insert_event(
+                    &transaction,
+                    event.job_id,
+                    event.kind,
+                    &serde_json::to_string(event.payload)
+                        .map_err(|_| invalid("作业事件编码失败"))?,
+                    &super::sources::now(),
+                )?;
+            }
+            Some(ExtensionChange::DeleteAgentHistory { run_id, job_ids }) => {
+                for id in job_ids {
+                    transaction
+                        .execute("DELETE FROM job_events WHERE job_id=?1", [id])
+                        .map_err(sql_error)?;
+                }
+                let prefix = format!("{run_id}/");
+                transaction.execute(
+                    "DELETE FROM workbench_records WHERE kind=?1 AND substr(id,1,length(?2))=?2",
+                    params![super::agent::REVIEW_RECEIPT, prefix],
+                ).map_err(sql_error)?;
+            }
+            None => {}
         }
         if let Err(error) = transaction.commit() {
             let error = sql_error(error);
@@ -990,6 +1043,21 @@ impl Database {
             )
             .map(|id| id as u64)
             .map_err(sql_error)
+    }
+
+    pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
+        let payload: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT payload FROM job_events WHERE job_id=?1 AND kind='run' ORDER BY id LIMIT 1",
+                [job_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sql_error)?;
+        payload
+            .map(|value| serde_json::from_str(&value).map_err(|_| invalid("执行轮次记录无效")))
+            .transpose()
     }
     pub(crate) fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.connection

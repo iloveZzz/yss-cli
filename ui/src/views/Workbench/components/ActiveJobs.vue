@@ -71,7 +71,7 @@ function action(job: JobRecord) {
 }
 </script>
 <template>
-  <section v-if="active.length || error || initialLoading" class="work-section" :aria-labelledby="id">
+  <section class="work-section" :aria-labelledby="id">
     <div class="section-heading">
       <h2 :id="id">执行与待处理</h2>
       <RouterLink to="/jobs">全部执行记录 →</RouterLink>

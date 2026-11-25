@@ -192,18 +192,23 @@ pub(crate) fn stop(child: &mut std::process::Child, tree: &mut ProcessTree) {
     let _ = child.wait();
 }
 
-fn reader(
-    mut stream: impl Read + Send + 'static,
-    stdout: bool,
-    tx: mpsc::Sender<(bool, std::io::Result<Vec<u8>>)>,
-) {
+type OutputChunk = (bool, std::io::Result<Option<Vec<u8>>>);
+
+fn reader(mut stream: impl Read + Send + 'static, stdout: bool, tx: mpsc::SyncSender<OutputChunk>) {
     thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stream
-            .by_ref()
-            .take((OUTPUT_LIMIT + 1) as u64)
-            .read_to_end(&mut bytes);
-        let _ = tx.send((stdout, result.map(|_| bytes)));
+        let mut bytes = [0; 8192];
+        loop {
+            let chunk = match stream.read(&mut bytes) {
+                Ok(0) => Ok(None),
+                Ok(size) => Ok(Some(bytes[..size].to_vec())),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => Err(error),
+            };
+            let end = !matches!(&chunk, Ok(Some(_)));
+            if tx.send((stdout, chunk)).is_err() || end {
+                break;
+            }
+        }
     });
 }
 
@@ -266,9 +271,18 @@ pub(crate) fn run_command(
 }
 
 pub(crate) fn capture_command(
+    command: Command,
+    cancel: &Cancellation,
+    timeout: Duration,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>)> {
+    capture_command_output(command, cancel, timeout, |_| Ok(()))
+}
+
+pub(crate) fn capture_command_output(
     mut command: Command,
     cancel: &Cancellation,
     timeout: Duration,
+    mut on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>)> {
     cancel.check()?;
     let program = command.get_program().to_string_lossy().into_owned();
@@ -284,12 +298,14 @@ pub(crate) fn capture_command(
         )
     })?;
     let mut tree = ProcessTree::attach(&mut child, scope)?;
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(16);
     reader(child.stdout.take().expect("piped stdout"), true, tx.clone());
     reader(child.stderr.take().expect("piped stderr"), false, tx);
     let started = Instant::now();
-    let (mut stdout, mut stderr, mut status) = (None, None, None);
-    while stdout.is_none() || stderr.is_none() || status.is_none() {
+    let mut buffers = [Vec::new(), Vec::new()];
+    let mut done = [false, false];
+    let mut status = None;
+    while !done.iter().all(|done| *done) || status.is_none() {
         if cancel.is_cancelled() {
             stop(&mut child, &mut tree);
             cancel.check()?;
@@ -305,9 +321,17 @@ pub(crate) fn capture_command(
             // Descendants can otherwise keep pipes open and continue writing after the command exits.
             stop(&mut child, &mut tree);
         }
-        match rx.recv_timeout(Duration::from_millis(30)) {
-            Ok((true, Ok(bytes))) if bytes.len() <= OUTPUT_LIMIT => stdout = Some(bytes),
-            Ok((false, Ok(bytes))) if bytes.len() <= OUTPUT_LIMIT => stderr = Some(bytes),
+        let chunk = match rx.recv_timeout(Duration::from_millis(30)) {
+            Ok((stdout, Ok(Some(bytes))))
+                if buffers[usize::from(!stdout)].len() + bytes.len() <= OUTPUT_LIMIT =>
+            {
+                buffers[usize::from(!stdout)].extend_from_slice(&bytes);
+                Some((stdout, bytes))
+            }
+            Ok((stdout, Ok(None))) => {
+                done[usize::from(!stdout)] = true;
+                None
+            }
             Ok(_) => {
                 stop(&mut child, &mut tree);
                 return Err(YssError::new(
@@ -315,17 +339,28 @@ pub(crate) fn capture_command(
                     "外部查询输出超过限制或读取失败",
                 ));
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) if stdout.is_some() && stderr.is_some() => {
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) if done.iter().all(|done| *done) => {
                 if status.is_none() {
                     thread::sleep(Duration::from_millis(20));
                 }
+                None
             }
             Err(_) => {
                 stop(&mut child, &mut tree);
                 return Err(YssError::new(ErrorCode::Network, "外部查询输出中断"));
             }
+        };
+        // Idle ticks let a throttled consumer flush a short burst while the process still runs.
+        if let Err(error) = on_output(
+            chunk
+                .as_ref()
+                .map(|(stdout, bytes)| (*stdout, bytes.as_slice())),
+        ) {
+            stop(&mut child, &mut tree);
+            return Err(error);
         }
     }
-    Ok((status.unwrap(), stdout.unwrap(), stderr.unwrap()))
+    let [stdout, stderr] = buffers;
+    Ok((status.unwrap(), stdout, stderr))
 }

@@ -8,7 +8,7 @@ use crate::{
     fs::unique_id,
     workbench::jobs::JobContext,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
@@ -23,8 +23,29 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TOOLS: &[&str] = &["read", "ls", "grep", "write", "edit", "ask_spec_question"];
+const TOOLS: &[&str] = &["read", "ls", "grep", "ask_spec_question", "update_plan"];
 const MAX_REQUEST: u64 = 4 * 1024 * 1024;
+const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024;
+
+fn append_output(output: &mut String, text: &str) {
+    if output.len() > COMMAND_OUTPUT_LIMIT {
+        return;
+    }
+    let take = text.floor_char_boundary(text.len().min(COMMAND_OUTPUT_LIMIT - output.len()));
+    output.push_str(&text[..take]);
+    if take < text.len() {
+        output.push_str("\n[达到命令输出长度上限]");
+    }
+}
+
+fn complete_utf8_prefix(bytes: &[u8]) -> usize {
+    (bytes.len().saturating_sub(3)..bytes.len())
+        .find(|&start| {
+            std::str::from_utf8(&bytes[start..])
+                .is_err_and(|error| error.valid_up_to() == 0 && error.error_len().is_none())
+        })
+        .unwrap_or(bytes.len())
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +61,29 @@ struct Request {
     id: Option<String>,
     #[serde(flatten)]
     operation: Operation,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlanStep {
+    title: String,
+    status: PlanStatus,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PlanStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum CompactionStatus {
+    InProgress,
+    Completed,
+    Failed,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +130,17 @@ enum Operation {
     AskSpecQuestion {
         question_id: String,
     },
+    UpdatePlan {
+        steps: Vec<PlanStep>,
+    },
+    ReportContext {
+        used_tokens: Option<u64>,
+        context_window: u64,
+    },
+    ReportCompaction {
+        sequence: u32,
+        status: CompactionStatus,
+    },
 }
 
 pub(super) struct Bridge {
@@ -102,6 +157,7 @@ impl Bridge {
         context: &JobContext,
         worktrees: Worktrees,
         sandbox: Option<Sandbox>,
+        read_only: bool,
         ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
     ) -> Result<Self> {
         let path = private.join("tools.sock");
@@ -116,6 +172,7 @@ impl Bridge {
             context,
             worktrees,
             sandbox,
+            read_only,
             token: token.clone(),
             ready: ready.clone(),
         };
@@ -181,6 +238,7 @@ struct Broker {
     context: JobContext,
     worktrees: Worktrees,
     sandbox: Option<Sandbox>,
+    read_only: bool,
     token: String,
     ready: Arc<AtomicBool>,
 }
@@ -206,9 +264,11 @@ impl Broker {
         mut stream: UnixStream,
         ask: &impl Fn(&JobContext, &str) -> Result<String>,
     ) {
-        if stream
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .is_err()
+        // BSD can inherit nonblocking mode from the listener and bypass the read timeout.
+        if stream.set_nonblocking(false).is_err()
+            || stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .is_err()
             || stream
                 .set_write_timeout(Some(Duration::from_secs(1)))
                 .is_err()
@@ -232,6 +292,9 @@ impl Broker {
         }
         if let Operation::Ready { tools } = &request.operation {
             let mut expected: BTreeSet<&str> = TOOLS.iter().copied().collect();
+            if !self.read_only {
+                expected.extend(["write", "edit"]);
+            }
             if self.sandbox.is_some() {
                 expected.insert("bash");
             }
@@ -246,6 +309,46 @@ impl Broker {
         if !self.ready.load(Ordering::Acquire) {
             return Err(invalid("Pi 工具尚未就绪"));
         }
+        if self.read_only
+            && matches!(
+                &request.operation,
+                Operation::Write { .. } | Operation::Edit { .. } | Operation::Bash { .. }
+            )
+        {
+            return Err(invalid("只读模式未授权编辑文件或执行命令"));
+        }
+        match &request.operation {
+            Operation::ReportContext {
+                used_tokens,
+                context_window,
+            } => {
+                if *context_window == 0
+                    || *context_window > 1_000_000_000
+                    || used_tokens.is_some_and(|used| used > 1_000_000_000)
+                {
+                    return Err(invalid("Pi 上下文用量无效"));
+                }
+                self.context.emit(
+                    "piContext",
+                    json!({"usedTokens":used_tokens,"contextWindow":context_window}),
+                )?;
+                return Ok(json!({"text":"已更新上下文用量"}));
+            }
+            Operation::ReportCompaction { sequence, status } => {
+                let kind = if matches!(status, CompactionStatus::InProgress) {
+                    "item/started"
+                } else {
+                    "item/completed"
+                };
+                self.context.emit(
+                    kind,
+                    json!({"item":{"id":format!("pi-compact-{sequence}"),
+                    "type":"piCompaction","operation":"compact","status":status}}),
+                )?;
+                return Ok(json!({"text":"已更新上下文压缩状态"}));
+            }
+            _ => {}
+        }
         let id = request
             .id
             .as_deref()
@@ -257,7 +360,26 @@ impl Broker {
         };
         let cancel = &self.context.cancel;
         let result = match request.operation {
-            Operation::Ready { .. } => unreachable!(),
+            Operation::Ready { .. }
+            | Operation::ReportContext { .. }
+            | Operation::ReportCompaction { .. } => unreachable!(),
+            Operation::UpdatePlan { mut steps } => {
+                for step in &mut steps {
+                    step.title = step.title.trim().into();
+                }
+                if steps.is_empty()
+                    || steps.len() > 20
+                    || steps.iter().any(|step| {
+                        step.title.is_empty()
+                            || step.title.len() > 1024
+                            || step.title.chars().any(char::is_control)
+                    })
+                {
+                    return Err(invalid("请提供 1 至 20 个单行计划步骤"));
+                }
+                self.context.emit("piPlan", json!({"steps":steps}))?;
+                "已更新本轮执行计划".into()
+            }
             Operation::Read {
                 location,
                 offset,
@@ -312,11 +434,16 @@ impl Broker {
         call: impl FnOnce(&WorktreeLocation<'_>) -> Result<(String, Option<&'static str>)>,
     ) -> Result<String> {
         let mut path = None;
+        let mut review = None;
         let result = self
             .worktrees
             .locate(location.project_id.as_deref(), &location.path)
             .and_then(|target| {
                 path = Some(target.display());
+                review = self
+                    .worktrees
+                    .review_location(&target)
+                    .map(|(project, path)| (project.to_owned(), path.to_owned()));
                 call(&target)
             });
         let message = path.as_ref().map_or_else(
@@ -326,12 +453,19 @@ impl Broker {
         match result {
             Ok((text, change)) => {
                 if let Some(action) = change {
-                    self.context.emit("item/completed", json!({
-                        "item": { "id": id, "type": "fileChange", "operation": operation, "changes": [{ "path": path, "kind": action }] }
-                    }))?;
+                    self.context.emit(
+                        "item/completed",
+                        json!({
+                            "item": { "id": id, "type": "fileChange", "operation": operation,
+                                "projectId": review.as_ref().map(|(id, _)| id),
+                                "reviewPath": review.as_ref().map(|(_, path)| path),
+                                "changes": [{ "path": path, "kind": action }] }
+                        }),
+                    )?;
                 } else {
                     self.context.emit("piTool", json!({
-                        "id": id, "operation": operation, "path": path, "status": "completed", "message": message
+                        "id": id, "operation": operation, "path": path, "status": "completed", "message": message,
+                        "projectId": review.as_ref().map(|(id, _)| id), "reviewPath": review.as_ref().map(|(_, path)| path)
                     }))?;
                 }
                 Ok(text)
@@ -356,29 +490,47 @@ impl Broker {
         let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd });
         self.context
             .emit("item/started", json!({ "item": base.clone() }))?;
-        let (mut item, result) = (base, sandbox.run(cwd, command, &self.context.cancel));
-        let (output, code) = match result {
-            Ok((status, stdout, stderr)) => {
-                let mut combined = stdout;
-                if !combined.is_empty() && !stderr.is_empty() && combined.last() != Some(&b'\n') {
-                    combined.push(b'\n');
-                }
-                combined.extend_from_slice(&stderr);
-                let text = String::from_utf8_lossy(&combined);
-                let limit = text.floor_char_boundary(text.len().min(256 * 1024));
-                let mut output = text[..limit].to_owned();
-                if limit < text.len() {
-                    output.push_str("\n[达到命令输出长度上限]");
-                }
-                (output, status.code().unwrap_or(-1))
+        let mut item = base;
+        let mut output = String::new();
+        let mut fragments = [Vec::new(), Vec::new()];
+        let mut published = 0;
+        let mut last_publish: Option<Instant> = None;
+        let result = sandbox.run(cwd, command, &self.context.cancel, |chunk| {
+            if let Some((stdout, bytes)) = chunk {
+                let pending = &mut fragments[usize::from(!stdout)];
+                pending.extend_from_slice(bytes);
+                let prefix = complete_utf8_prefix(pending);
+                append_output(&mut output, &String::from_utf8_lossy(&pending[..prefix]));
+                pending.drain(..prefix);
             }
+            if output.len() > published
+                && last_publish.is_none_or(|at| at.elapsed() >= Duration::from_millis(100))
+            {
+                self.context.emit(
+                    "item/commandExecution/outputDelta",
+                    json!({"itemId":id,"delta":&output[published..]}),
+                )?;
+                published = output.len();
+                last_publish = Some(Instant::now());
+            }
+            Ok(())
+        });
+        for fragment in fragments {
+            append_output(&mut output, &String::from_utf8_lossy(&fragment));
+        }
+        let code = match result {
+            Ok((status, _, _)) => status.code().unwrap_or(-1),
             Err(error) => {
                 item["status"] = json!(if error.code == ErrorCode::Cancelled {
                     "canceled"
                 } else {
                     "failed"
                 });
-                item["aggregatedOutput"] = json!(error.message);
+                if !output.is_empty() && !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str(&error.message);
+                item["aggregatedOutput"] = json!(output);
                 self.context
                     .emit("item/completed", json!({ "item": item }))?;
                 return Err(error);

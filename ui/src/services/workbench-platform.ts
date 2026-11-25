@@ -11,6 +11,7 @@ import {
   type QueryResult,
   type WorkQuery
 } from './workbench'
+import type { ReviewExcerpt } from './workbench-agent'
 
 export type JsonObject = Record<string, unknown>
 export interface JobRecord {
@@ -56,6 +57,10 @@ export interface PiModel {
   provider: string
   id: string
 }
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export const piThinkingLabels: Record<PiThinkingLevel, string> = {
+  off: '关闭', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高'
+}
 export interface PiRuntimeStatus {
   available: boolean
   sandboxReady: boolean
@@ -63,6 +68,9 @@ export interface PiRuntimeStatus {
   executable: string | null
   configDir: string | null
   model: PiModel | null
+  thinkingLevels?: PiThinkingLevel[]
+  thinkingLevel?: PiThinkingLevel | null
+  contextWindow?: number | null
   credentialsReady: boolean | null
   issue: string | null
   message: string | null
@@ -172,7 +180,7 @@ export interface JobActivity {
   id: number
   updatedEventId: number
   createdAt: string
-  kind: 'message' | 'user' | 'info' | 'command' | 'files' | 'tool' | 'question' | 'status' | 'error'
+  kind: 'message' | 'user' | 'info' | 'command' | 'files' | 'tool' | 'question' | 'status' | 'error' | 'reasoning'
   text: string
   status: string
   exitCode: number | null
@@ -180,8 +188,24 @@ export interface JobActivity {
   itemId?: string
   operation?: string
   path?: string
+  projectId?: string
   error?: string
+  durationMs?: number
   question?: JobQuestion
+}
+export interface PiRoundSettings {
+  model: PiModel
+  thinkingLevel?: PiThinkingLevel | null
+  readOnly?: boolean | null
+  contextWindow?: number | null
+}
+export interface PiContextUsage {
+  usedTokens: number | null
+  contextWindow: number
+}
+export interface PiPlanStep {
+  title: string
+  status: 'pending' | 'inProgress' | 'completed'
 }
 export interface JobQuestion {
   requestId: string
@@ -202,6 +226,9 @@ export interface ActivityPage {
   host: 'pi' | 'codex' | null
   latestMessage: string | null
   pendingInputs: JobEvent[]
+  piSettings?: PiRoundSettings | null
+  piContext?: PiContextUsage | null
+  piPlan?: PiPlanStep[] | null
 }
 export interface ConversationPage {
   items: JobActivity[]
@@ -210,6 +237,8 @@ export interface ConversationPage {
   terminal: boolean
   prompt: string | null
   previousJobId: string | null
+  allowCommands?: boolean
+  citations?: ReviewExcerpt[]
 }
 export function getJobActivities(id: string, before?: number, signal?: AbortSignal) {
   const query = before === undefined ? '' : `?before=${before}`

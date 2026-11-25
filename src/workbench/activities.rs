@@ -19,6 +19,7 @@ const CONVERSATION_PAGE_TEXT_BYTES: usize = 2 * 1024 * 1024;
 #[serde(rename_all = "camelCase")]
 enum Kind {
     Message,
+    Reasoning,
     User,
     Info,
     Command,
@@ -91,6 +92,8 @@ fn item_kind(event: &JobEvent) -> Option<Kind> {
         .unwrap_or(&event.kind)
     {
         "agentMessage" | "item/agentMessage/delta" => Some(Kind::Message),
+        "piReasoning" | "item/piReasoning/delta" => Some(Kind::Reasoning),
+        "piCompaction" => Some(Kind::Tool),
         "userMessage" => Some(Kind::User),
         "commandExecution" | "item/commandExecution/outputDelta" => Some(Kind::Command),
         "fileChange" => Some(Kind::Files),
@@ -137,7 +140,11 @@ struct Activity {
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     question: Option<Box<Question>>,
 }
@@ -156,7 +163,9 @@ impl Activity {
             item_id: key(event, kind).map(|key| key.item),
             operation: None,
             path: None,
+            project_id: None,
             error: None,
+            duration_ms: None,
             question: None,
         }
     }
@@ -189,6 +198,21 @@ impl Activity {
             self.status = "inProgress".into();
         }
         match self.kind {
+            Kind::Reasoning => {
+                if event.kind == "item/piReasoning/delta" {
+                    if let Some(delta) = event_text(payload) {
+                        self.append(delta, full);
+                    }
+                    if self.status.is_empty() {
+                        self.status = "inProgress".into();
+                    }
+                } else {
+                    self.duration_ms = item["durationMs"].as_u64();
+                    if let Some(text) = item["text"].as_str() {
+                        self.replace(text, full);
+                    }
+                }
+            }
             Kind::Message | Kind::User => {
                 if let Some(text) = item["text"].as_str().filter(|text| !text.is_empty()) {
                     self.replace(text, full);
@@ -237,6 +261,8 @@ impl Activity {
             }
             Kind::Files => {
                 self.operation = text_field(&item["operation"]).or(self.operation.take());
+                self.project_id = text_field(&item["projectId"]).or(self.project_id.take());
+                self.path = text_field(&item["reviewPath"]).or(self.path.take());
                 if let Some(changes) = item["changes"].as_array() {
                     self.replace(
                         &changes
@@ -249,6 +275,9 @@ impl Activity {
                 }
             }
             Kind::Question => self.update_question(event, full),
+            Kind::Tool => {
+                self.operation = text_field(&item["operation"]);
+            }
             _ => {}
         }
     }
@@ -301,14 +330,26 @@ impl Activity {
     fn in_conversation(&self) -> bool {
         matches!(
             self.kind,
-            Kind::Message | Kind::User | Kind::Command | Kind::Files | Kind::Tool | Kind::Error
+            Kind::Message
+                | Kind::User
+                | Kind::Command
+                | Kind::Files
+                | Kind::Tool
+                | Kind::Error
+                | Kind::Reasoning
         ) || self.question.is_some()
     }
 
     fn needs_body(&self) -> bool {
         matches!(
             self.kind,
-            Kind::Message | Kind::User | Kind::Question | Kind::Command | Kind::Files | Kind::Tool
+            Kind::Message
+                | Kind::User
+                | Kind::Question
+                | Kind::Command
+                | Kind::Files
+                | Kind::Tool
+                | Kind::Reasoning
         )
     }
 }
@@ -350,7 +391,8 @@ fn standalone(event: &JobEvent, full: bool) -> Option<Activity> {
     if row.kind == Kind::Tool {
         row.item_id = text_field(&p["id"]);
         row.operation = text_field(&p["operation"]);
-        row.path = text_field(&p["path"]);
+        row.project_id = text_field(&p["projectId"]);
+        row.path = text_field(&p["reviewPath"]).or_else(|| text_field(&p["path"]));
         row.error = text_field(&p["error"]);
         if row.status.is_empty() {
             row.status = "completed".into();
@@ -378,6 +420,11 @@ struct Index {
     host: Option<String>,
     prompt: Option<String>,
     previous_job_id: Option<String>,
+    citations: Vec<Value>,
+    allow_commands: Option<bool>,
+    pi_settings: Option<Value>,
+    pi_context: Option<Value>,
+    pi_plan: Option<Value>,
     pending: BTreeMap<String, JobEvent>,
     last_status: String,
 }
@@ -392,7 +439,16 @@ impl Index {
                 self.host = text_field(&p["host"]);
                 self.prompt = text_field(&p["prompt"]);
                 self.previous_job_id = text_field(&p["previousJobId"]);
+                self.citations = p["citations"].as_array().cloned().unwrap_or_default();
+                self.allow_commands = p["allowCommands"].as_bool();
             }
+            "piStatus" if p["model"].is_object() => {
+                self.pi_settings = Some(
+                    json!({"model":p["model"],"thinkingLevel":p["thinkingLevel"],"contextWindow":p["contextWindow"],"readOnly":p["readOnly"]}),
+                );
+            }
+            "piContext" => self.pi_context = Some(p.clone()),
+            "piPlan" => self.pi_plan = Some(p["steps"].clone()),
             "inputRequested" => {
                 if let Some(id) = p["requestId"].as_str() {
                     self.pending.insert(id.into(), event.clone());
@@ -511,6 +567,7 @@ pub(crate) fn page(jobs: &JobManager, id: &str, before: Option<u64>) -> Result<V
             "items": &index.rows[start..stop], "hasOlder": start > 0, "total": index.rows.len(),
             "cursor": index.cursor, "terminal": terminal, "runId": index.run_id, "host": index.host,
             "latestMessage": index.last_message.map(|pos| &index.rows[pos].text),
+            "piSettings": index.pi_settings, "piContext": index.pi_context, "piPlan": index.pi_plan,
             "pendingInputs": if terminal { Vec::new() } else { index.pending.values().collect() }
         }))
     })
@@ -552,8 +609,41 @@ pub(crate) fn conversation(jobs: &JobManager, id: &str, before: Option<u64>) -> 
         Ok(json!({
             "items": items, "hasOlder": has_older || matching.next().is_some(), "cursor": index.cursor,
             "terminal": terminal, "runId": index.run_id, "host": index.host,
-            "prompt": index.prompt, "previousJobId": index.previous_job_id
+            "prompt": index.prompt, "previousJobId": index.previous_job_id,
+            "citations": index.citations, "allowCommands": index.allow_commands
         }))
+    })
+}
+
+pub(crate) fn agent_attention(jobs: &JobManager, id: &str) -> Result<Vec<Value>> {
+    with_index(jobs, id, |index, terminal| {
+        let questions: Vec<_> = index
+            .rows
+            .iter()
+            .rev()
+            .filter(|row| row.question.is_some())
+            .collect();
+        let mut items: Vec<_> = questions
+            .iter()
+            .filter_map(|row| {
+                let kind = match row.status.as_str() {
+                    "pending" | "saving" if !terminal => "question",
+                    "failed"
+                        if !questions.iter().any(|next| {
+                            next.id > row.id
+                                && next.question.as_ref().map(|q| &q.question_id)
+                                    == row.question.as_ref().map(|q| &q.question_id)
+                        }) =>
+                    {
+                        "answerFailed"
+                    }
+                    _ => return None,
+                };
+                Some(json!({"kind":kind,"activityId":row.id,"status":row.status}))
+            })
+            .collect();
+        items.sort_by_key(|item| item["kind"] != "question");
+        Ok(items)
     })
 }
 

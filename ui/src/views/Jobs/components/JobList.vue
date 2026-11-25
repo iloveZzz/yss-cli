@@ -3,8 +3,8 @@
 const saved = { search: '', filter: 'all', kind: 'all', top: 0, left: 0, windowY: 0 }
 </script>
 <script setup lang="ts">
-import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
 import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { Button } from '@/components/ui/button'
@@ -174,11 +174,11 @@ function clearFilters() {
             </TableRow>
           </TableBody>
         </Table>
+        <TableLoadingOverlay :active="loading && !!visibleJobs.length" label="正在刷新执行记录" />
       </div>
-      <LoadingIndicator :active="loading" label="正在刷新执行记录" placement="overlay" />
     </div>
     <LoadingSkeleton v-if="!loaded && loading" variant="table" :rows="4" label="正在读取执行记录" />
-    <Empty v-else-if="(loaded || !failed) && !visibleJobs.length" class="gap-3 p-6 md:p-8">
+    <Empty v-else-if="(loaded || !failed) && !visibleJobs.length" class="gap-3 p-6 md:p-8" data-workbench-reveal>
       <EmptyHeader>
         <EmptyDescription>{{ hasFilters ? '没有符合筛选条件的执行记录' : '暂无执行记录' }}</EmptyDescription>
       </EmptyHeader>

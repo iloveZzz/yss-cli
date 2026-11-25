@@ -12,6 +12,7 @@ const props = defineProps<{
   sourcePath: string
   label?: string
   runId?: string
+  jobId?: string
   refreshKey?: string | number | null
 }>()
 const target = defineModel<{ path: string; fragment: string } | null>({ required: true })
@@ -35,7 +36,7 @@ const frameLoading = shallowRef(false)
 const previewLoading = computed(() => loading.value || frameLoading.value)
 const retry = shallowRef(0)
 watch(
-  () => [props.specId, props.runId, props.refreshKey, target.value?.path, retry.value],
+  () => [props.specId, props.runId, props.jobId, props.refreshKey, target.value?.path, retry.value],
   async (_next, _old, cleanup) => {
     url.value = ''
     frameLoading.value = false
@@ -47,7 +48,7 @@ watch(
     loading.value = true
     try {
       const result = props.runId
-        ? await prepareAgentPreview(props.runId, props.specId, target.value.path, controller.signal)
+        ? await prepareAgentPreview(props.runId, props.specId, target.value.path, controller.signal, props.jobId)
         : await preparePreview(props.specId, target.value.path, controller.signal)
       if (!controller.signal.aborted) {
         const parsed = new URL(result.url)
@@ -110,6 +111,7 @@ function frameLoaded(event: Event) {
         :spec-id="specId"
         :source-path="sourcePath"
         :run-id="runId"
+        :job-id="jobId"
         :refresh-key="refreshKey"
         :document-path="target.path"
         :fragment="target.fragment"

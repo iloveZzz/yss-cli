@@ -22,6 +22,7 @@ export function jobTitle(job: JobRecord): string {
 }
 export const activityLabels = {
   message: 'Agent 答复',
+  reasoning: '推理',
   user: '用户消息',
   info: '运行消息',
   command: '执行命令',

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
+import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -105,6 +106,7 @@ function end() {
       role="region"
       :aria-busy="busy"
       class="board"
+      data-workbench-reveal
       @scroll.passive="scrollLeft = ($event.target as HTMLElement).scrollLeft"
       :aria-label="groupBy === 'status' ? '按状态分组的看板' : '按阶段分组的看板'"
     >
@@ -121,6 +123,7 @@ function end() {
           <h2>{{ column.label }}</h2>
           <Badge variant="secondary" class="count">{{ column.items.length }}</Badge>
         </header>
+        <TransitionGroup name="workbench-list" tag="div" class="board-cards">
         <Card
           v-for="item in column.items.slice(0, limits[column.key] ?? 50)"
           :key="item.id"
@@ -181,6 +184,7 @@ function end() {
             @update:model-value="moveCard(item, $event as Stage | Status)"
           />
         </Card>
+        </TransitionGroup>
         <Button
           v-if="column.items.length > (limits[column.key] ?? 50)"
           variant="outline"
@@ -190,8 +194,8 @@ function end() {
         </Button>
         <p v-if="!column.items.length" class="column-empty">暂无 Spec</p>
       </section>
+      <TableLoadingOverlay :active="!!refreshing" label="正在刷新看板" />
     </div>
-    <LoadingIndicator :active="!!refreshing" placement="overlay" />
   </div>
   <ProgressOverrideForm v-if="correction" v-model="overrideOpen" :spec-id="correction.item.specId" :progress="snapshot?.progress?.[correction.item.specId] ?? correction.item.progress" :stage="correction.stage" :initial-progress="correction.progress" @saved="corrected" />
   <ModalDialog v-model="open" title="记录阻塞原因" :busy="saving">
@@ -210,6 +214,8 @@ function end() {
   </ModalDialog>
 </template>
 <style scoped>
+.board { position: relative; }
+.board-cards { min-width: 0; }
 .board {
   min-height: 0;
   align-items: start;

@@ -19,7 +19,7 @@ import {
 } from '@/services/workbench'
 import { contentReminders, materialNeedsReview } from '@/services/workbench-content'
 import { eventDescription } from '@/services/workbench-history'
-const { activeSpecs, snapshot } = useWorkbench()
+const { activeSpecs, loading, snapshot } = useWorkbench()
 const route = useRoute()
 const router = useRouter()
 const progressFor = (id: string) => snapshot.value?.progress?.[id]
@@ -112,16 +112,16 @@ function selectFocus(value: string | number) {
       <Button as-child><RouterLink to="/projects">登记第一个工程 →</RouterLink></Button>
     </EmptyContent>
   </Empty>
-  <template v-else>
-    <ContentAttention :specs="activeSpecs" />
-    <ActiveJobs />
+  <ContentAttention v-else :specs="activeSpecs" />
+  <ActiveJobs />
+  <template v-if="snapshot?.projects.length">
     <section class="work-section progress-section" aria-labelledby="progress-heading">
       <div class="section-heading">
         <h2 id="progress-heading">Spec 推进</h2>
         <RouterLink :to="{ path: '/specs', query: focus.query }">查看筛选列表 →</RouterLink>
       </div>
       <Tabs :model-value="focus.id" activation-mode="manual" @update:model-value="selectFocus">
-        <TabsList class="progress-filters" aria-label="Spec 推进范围">
+        <TabsList class="progress-filters" aria-label="Spec 推进范围" moving-indicator>
           <TabsTrigger v-for="group in groups" :key="group.id" :value="group.id">
             {{ group.label }}
             <Badge variant="secondary" class="tab-count">{{ group.specs.length }}</Badge>
@@ -129,7 +129,7 @@ function selectFocus(value: string | number) {
         </TabsList>
         <TabsContent v-for="group in groups" :key="group.id" :value="group.id" class="min-w-0">
           <Card v-if="progressItems.length" class="panel block gap-0 py-0 shadow-none">
-            <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" />
+            <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" :refreshing="loading" />
           </Card>
           <Empty v-else class="quiet-empty">
             <EmptyDescription>

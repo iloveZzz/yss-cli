@@ -340,8 +340,14 @@ impl Sandbox {
         cwd: &Path,
         script: &str,
         cancel: &Cancellation,
+        on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
     ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-        process::capture_command(self.command(cwd, script), cancel, Duration::from_secs(600))
+        process::capture_command_output(
+            self.command(cwd, script),
+            cancel,
+            Duration::from_secs(600),
+            on_output,
+        )
     }
 }
 

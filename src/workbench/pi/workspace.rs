@@ -39,6 +39,25 @@ pub(super) fn tool_path(path: &RelPath) -> bool {
 }
 
 impl Worktrees {
+    pub fn review_location<'a>(&'a self, target: &'a Location<'_>) -> Option<(&'a str, &'a str)> {
+        let path = target.path.as_ref()?.as_str();
+        self.projects
+            .iter()
+            .filter_map(|(id, (index, prefix))| {
+                if !std::ptr::eq(&self.roots[*index], target.root) {
+                    return None;
+                }
+                let relative = if prefix.is_empty() {
+                    path
+                } else {
+                    path.strip_prefix(prefix)?.strip_prefix('/')?
+                };
+                Some((prefix.len(), id.as_str(), relative))
+            })
+            .max_by_key(|(length, _, _)| *length)
+            .map(|(_, id, relative)| (id, relative))
+    }
+
     pub fn new(workspaces: &[Workspace], primary: &str) -> Result<Self> {
         let mut roots = Vec::new();
         let mut projects = BTreeMap::new();

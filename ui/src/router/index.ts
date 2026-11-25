@@ -6,6 +6,8 @@ const Projects = () => import('@/views/Projects/index.vue')
 const ProjectDetail = () => import('@/views/ProjectDetail/index.vue')
 const Specs = () => import('@/views/Specs/index.vue')
 const SpecDetail = () => import('@/views/SpecDetail/index.vue')
+const PiWorkspace = () => import('@/views/PiWorkspace/index.vue')
+const AgentEntry = () => import('@/views/PiWorkspace/AgentEntry.vue')
 const Jobs = () => import('@/views/Jobs/index.vue')
 const Settings = () => import('@/views/Settings/index.vue')
 
@@ -31,6 +33,9 @@ export const router = createRouter({
     { path: '/projects/:projectId', component: ProjectDetail },
     { path: '/specs', component: Specs },
     { path: '/specs/:specId', component: SpecDetail },
+    { path: '/specs/:specId/agent', name: 'pi-workspace', component: PiWorkspace, props: true, meta: { piWorkspace: true } },
+    { path: '/agent', component: AgentEntry, meta: { piWorkspace: true } },
+    { path: '/agent/:specId', name: 'agent-workbench', component: PiWorkspace, props: true, meta: { piWorkspace: true } },
     { path: '/jobs', component: Jobs },
     { path: '/jobs/:jobId', component: Jobs },
     { path: '/settings', component: Settings },

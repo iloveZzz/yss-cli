@@ -768,7 +768,7 @@
           "path": "ui/tabs/TabsList.vue",
           "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tabs/TabsList.vue",
           "source_digest": "sha256:0ef4e8ccf104fc168f2fd990f5774b9fa4bade8afc8350878205a92ce91268e7",
-          "adapted_digest": "sha256:0ef4e8ccf104fc168f2fd990f5774b9fa4bade8afc8350878205a92ce91268e7"
+          "adapted_digest": "sha256:c2d815d930168c1d68de010b52025b78c92310a78740ce9cf1e35225d79a50ec"
         },
         {
           "path": "ui/tabs/TabsTrigger.vue",
@@ -793,6 +793,159 @@
           "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/textarea/index.ts",
           "source_digest": "sha256:9212587988979849b3bbcddebdf46d9b1f80a513c0cf92391d83c9d50b648007",
           "adapted_digest": "sha256:9212587988979849b3bbcddebdf46d9b1f80a513c0cf92391d83c9d50b648007"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/unovue/shadcn-vue",
+      "revision": "67c9a3926dc0a854507b325c6337ff2210d16379",
+      "style": "new-york-v4",
+      "component_groups": [
+        "tooltip",
+        "dropdown-menu",
+        "progress",
+        "marker",
+        "toggle",
+        "toggle-group"
+      ],
+      "components": [
+        {
+          "path": "ui/tooltip/Tooltip.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tooltip/Tooltip.vue",
+          "source_digest": "sha256:674df497bf245dcbbcdccd5f35e0b349276241f8fcde9a75e4e7900da0e72088",
+          "adapted_digest": "sha256:674df497bf245dcbbcdccd5f35e0b349276241f8fcde9a75e4e7900da0e72088"
+        },
+        {
+          "path": "ui/tooltip/TooltipProvider.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tooltip/TooltipProvider.vue",
+          "source_digest": "sha256:80df7529706596c9f5df586e4a4c23efb774dc45961680da83864e76c2f139d1",
+          "adapted_digest": "sha256:80df7529706596c9f5df586e4a4c23efb774dc45961680da83864e76c2f139d1"
+        },
+        {
+          "path": "ui/tooltip/TooltipTrigger.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tooltip/TooltipTrigger.vue",
+          "source_digest": "sha256:c904e72f5f8602337e67765d2bb1d8939232abb98966c6a437dcfd03c66165c6",
+          "adapted_digest": "sha256:0d5d1a131ed71e06ec50464f1d814084b4cbea6c3a30543307e939e15885f3a1"
+        },
+        {
+          "path": "ui/tooltip/TooltipContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tooltip/TooltipContent.vue",
+          "source_digest": "sha256:6bb1adcf1f856e18245d2e4f3952c07dfae9a692c5e441b63a5793c286c1311a",
+          "adapted_digest": "sha256:6bb1adcf1f856e18245d2e4f3952c07dfae9a692c5e441b63a5793c286c1311a"
+        },
+        {
+          "path": "ui/tooltip/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/tooltip/index.ts",
+          "source_digest": "sha256:3fe07cbcde58fa5cb95582566192e833d4c171184c7d3d338519c2b95784f627",
+          "adapted_digest": "sha256:3fe07cbcde58fa5cb95582566192e833d4c171184c7d3d338519c2b95784f627"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenu.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenu.vue",
+          "source_digest": "sha256:ad0759b7b6d57e02444a4ba3f00412400a77d49262fd6f2b186f18d83f7fb0cc",
+          "adapted_digest": "sha256:ad0759b7b6d57e02444a4ba3f00412400a77d49262fd6f2b186f18d83f7fb0cc"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenuTrigger.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuTrigger.vue",
+          "source_digest": "sha256:052aeba71e7accc3f4b1e733f98592d7c7f9eabedaf82ba25caaac7f651e6ba2",
+          "adapted_digest": "sha256:052aeba71e7accc3f4b1e733f98592d7c7f9eabedaf82ba25caaac7f651e6ba2"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenuContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuContent.vue",
+          "source_digest": "sha256:52ac6984ea00ea3b710dfbcc39ca403b8431e6d1ee47d0ecb5af01705ac8d2ef",
+          "adapted_digest": "sha256:52ac6984ea00ea3b710dfbcc39ca403b8431e6d1ee47d0ecb5af01705ac8d2ef"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenuItem.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuItem.vue",
+          "source_digest": "sha256:3284fde316e77ab23c650ec242333e8a685b56eef4d3692e1a875d0d6a8b7521",
+          "adapted_digest": "sha256:3284fde316e77ab23c650ec242333e8a685b56eef4d3692e1a875d0d6a8b7521"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenuLabel.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuLabel.vue",
+          "source_digest": "sha256:4158b4ec3f7cf4da14fa7adade7ff87a5e78d31ae9d3ea3cc0ebe45af78e80f2",
+          "adapted_digest": "sha256:4158b4ec3f7cf4da14fa7adade7ff87a5e78d31ae9d3ea3cc0ebe45af78e80f2"
+        },
+        {
+          "path": "ui/dropdown-menu/DropdownMenuSeparator.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/DropdownMenuSeparator.vue",
+          "source_digest": "sha256:03b94000ea1d6d1d8b0adead07d3d38ed6f8382564cc3a30d1ce8e08e45c20f6",
+          "adapted_digest": "sha256:03b94000ea1d6d1d8b0adead07d3d38ed6f8382564cc3a30d1ce8e08e45c20f6"
+        },
+        {
+          "path": "ui/dropdown-menu/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/dropdown-menu/index.ts",
+          "source_digest": "sha256:19ee04e0a51375d18aa2d8310f86cdfcc4abe15439033df6a54a3134b3e1d415",
+          "adapted_digest": "sha256:17a6ff45671063775f8ec36fa0f914cf49bf833f67d3bc42416785a4641ea861"
+        },
+        {
+          "path": "ui/progress/Progress.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/progress/Progress.vue",
+          "source_digest": "sha256:4a286a0b6febb8c44b8b1399346dfa6c7f2fb6719d14a6db70df838866710a70",
+          "adapted_digest": "sha256:4f7ae0c9a9d66156b4ab4340eaec95c476acdc7edc3a790c006d027faf14b38c"
+        },
+        {
+          "path": "ui/progress/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/progress/index.ts",
+          "source_digest": "sha256:c7a63e05c3f5851c0f7be1a91d57062aa833448ac649d7b974f43ac66bd54e96",
+          "adapted_digest": "sha256:c7a63e05c3f5851c0f7be1a91d57062aa833448ac649d7b974f43ac66bd54e96"
+        },
+        {
+          "path": "ui/marker/Marker.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/marker/Marker.vue",
+          "source_digest": "sha256:8ffe756991e1f5c5f364c2ec7faf921794a7a313ab0eefa93702a799513182c3",
+          "adapted_digest": "sha256:8ffe756991e1f5c5f364c2ec7faf921794a7a313ab0eefa93702a799513182c3"
+        },
+        {
+          "path": "ui/marker/MarkerContent.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/marker/MarkerContent.vue",
+          "source_digest": "sha256:3426272bba59d554e5479e792a738b2367e1a00896a5da0f413649a750662de7",
+          "adapted_digest": "sha256:3426272bba59d554e5479e792a738b2367e1a00896a5da0f413649a750662de7"
+        },
+        {
+          "path": "ui/marker/MarkerIcon.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/marker/MarkerIcon.vue",
+          "source_digest": "sha256:dd4b1c0431efb22b263bdf208bdde28573d1868c23aa989fce29e25001e7d760",
+          "adapted_digest": "sha256:dd4b1c0431efb22b263bdf208bdde28573d1868c23aa989fce29e25001e7d760"
+        },
+        {
+          "path": "ui/marker/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/marker/index.ts",
+          "source_digest": "sha256:7aa5d8d4a68f612c947c90a8277eef94833406ffc6875857ed9ba8eb2df84a80",
+          "adapted_digest": "sha256:7aa5d8d4a68f612c947c90a8277eef94833406ffc6875857ed9ba8eb2df84a80"
+        },
+        {
+          "path": "ui/toggle/Toggle.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/toggle/Toggle.vue",
+          "source_digest": "sha256:9207ff9c04cea0875dfb2d5773defffd8a22600763f144aaf6780b67ff55f937",
+          "adapted_digest": "sha256:9207ff9c04cea0875dfb2d5773defffd8a22600763f144aaf6780b67ff55f937"
+        },
+        {
+          "path": "ui/toggle/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/toggle/index.ts",
+          "source_digest": "sha256:690920e8bbafb2606c83f79b8b378df389d8bc9ff2bbba0a0633a4e2fc3e507a",
+          "adapted_digest": "sha256:690920e8bbafb2606c83f79b8b378df389d8bc9ff2bbba0a0633a4e2fc3e507a"
+        },
+        {
+          "path": "ui/toggle-group/ToggleGroup.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/toggle-group/ToggleGroup.vue",
+          "source_digest": "sha256:18cf7f764210e8b995af1f03a5cab567fc6f7d9c8842f2fa68feed48db9899d6",
+          "adapted_digest": "sha256:03a09a8bf7a8f86a04e2f45a660b952c34b4140efae5245df49b6cbce971e982"
+        },
+        {
+          "path": "ui/toggle-group/ToggleGroupItem.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/toggle-group/ToggleGroupItem.vue",
+          "source_digest": "sha256:71744834dada6d4ddbb71119d3860b6a32bd3469db6ead38879ba3edf4f06e09",
+          "adapted_digest": "sha256:f6918dcf0ada640216a147cd1230f9475f8b4188b0a3e049cde04e8061a4caa9"
+        },
+        {
+          "path": "ui/toggle-group/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/toggle-group/index.ts",
+          "source_digest": "sha256:e3340e7550873fea4d20f512e9d84e8bc4f5dfcd674a9866c0e59226bd07c129",
+          "adapted_digest": "sha256:e3340e7550873fea4d20f512e9d84e8bc4f5dfcd674a9866c0e59226bd07c129"
         }
       ]
     }

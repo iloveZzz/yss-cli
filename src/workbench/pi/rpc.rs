@@ -1,10 +1,15 @@
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    workbench::{jobs::JobContext, process},
+    workbench::{
+        agent_protocol::{PiModel, ThinkingLevel},
+        jobs::JobContext,
+        process,
+    },
 };
 use serde_json::{Value, json};
 use std::{
+    collections::{BTreeMap, btree_map::Entry},
     io::{BufRead, BufReader, Read, Write},
     os::fd::AsRawFd,
     process::{Child, ChildStdin, Command, Stdio},
@@ -14,6 +19,7 @@ use std::{
 };
 
 const FRAME_LIMIT: u64 = 8 * 1024 * 1024;
+const REASONING_LIMIT: usize = 6_000;
 
 pub(super) struct Session {
     child: Child,
@@ -139,21 +145,61 @@ impl Session {
         self.query("get_available_models", cancel)
     }
 
-    fn query(&mut self, command: &str, cancel: &Cancellation) -> Result<Value> {
-        self.send(
-            json!({ "type": command, "id": command }),
+    pub fn thinking_levels(&mut self, cancel: &Cancellation) -> Result<Vec<ThinkingLevel>> {
+        let data = self.query("get_available_thinking_levels", cancel)?;
+        let levels: Vec<ThinkingLevel> = serde_json::from_value(data["levels"].clone())
+            .map_err(|_| protocol("Pi 推理级别列表格式无效"))?;
+        if levels.is_empty() || levels.len() > 7 {
+            return Err(protocol("Pi 推理级别列表格式无效"));
+        }
+        Ok(levels)
+    }
+
+    pub fn set_thinking_level(
+        &mut self,
+        level: ThinkingLevel,
+        cancel: &Cancellation,
+    ) -> Result<()> {
+        self.request(
+            "set_thinking_level",
+            json!({"type":"set_thinking_level", "id":"set_thinking_level", "level":level}),
             cancel,
-            Duration::from_secs(5),
         )?;
+        Ok(())
+    }
+
+    pub fn set_model(&mut self, model: &PiModel, cancel: &Cancellation) -> Result<()> {
+        self.request(
+            "set_model",
+            json!({"type":"set_model", "id":"set_model", "provider":model.provider, "modelId":model.id}),
+            cancel,
+        )?;
+        Ok(())
+    }
+
+    fn query(&mut self, command: &str, cancel: &Cancellation) -> Result<Value> {
+        let data = self.request(command, json!({ "type": command, "id": command }), cancel)?;
+        if !data.is_object() {
+            return Err(protocol("Pi 状态或模型查询响应不兼容"));
+        }
+        Ok(data)
+    }
+
+    fn request(&mut self, command: &str, payload: Value, cancel: &Cancellation) -> Result<Value> {
+        self.send(payload, cancel, Duration::from_secs(5))?;
         let deadline = Some(Instant::now() + Duration::from_secs(20));
         loop {
             let value = self.receive(cancel, deadline)?;
             if value["type"] == "response" && value["id"] == command {
-                if value["command"] == command
-                    && value["success"] == true
-                    && value["data"].is_object()
-                {
+                if value["command"] == command && value["success"] == true {
                     return Ok(value["data"].clone());
+                }
+                if command == "set_model" {
+                    return Err(YssError::new(
+                        ErrorCode::NotReady,
+                        "Pi 未能切换到所选模型，请核对配置",
+                    )
+                    .context("piIssue", "modelUnavailable"));
                 }
                 return Err(protocol("Pi 状态或模型查询响应不兼容"));
             }
@@ -192,7 +238,20 @@ impl Session {
         let deadline = Instant::now() + Duration::from_secs(30);
         while !accepted || settled.is_none() {
             let event =
-                self.receive(cancel, finish_deadline.or((!accepted).then_some(deadline)))?;
+                match self.receive(cancel, finish_deadline.or((!accepted).then_some(deadline))) {
+                    Ok(event) => event,
+                    Err(error) => {
+                        if let Some(context) = context {
+                            let status = if error.code == ErrorCode::Cancelled {
+                                "canceled"
+                            } else {
+                                "failed"
+                            };
+                            let _ = messages.finish_reasoning(context, &Value::Null, status);
+                        }
+                        return Err(error);
+                    }
+                };
             match event["type"].as_str() {
                 Some("response") if event["id"] == "prompt" => {
                     if event["command"] != "prompt" || event["success"] != true {
@@ -333,12 +392,141 @@ struct Messages {
     current: bool,
     reason: Option<String>,
     error: Option<YssError>,
+    reasoning: BTreeMap<u64, ReasoningBlock>,
+    reasoning_seq: u64,
+}
+
+fn reasoning_excerpt(text: &str, limit: usize) -> String {
+    let mut chars = text.chars();
+    let mut excerpt = chars.by_ref().take(limit).collect::<String>();
+    if chars.next().is_some() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+struct ReasoningBlock {
+    id: String,
+    started_at: Instant,
+    published_chars: usize,
+    finished: bool,
+}
+
+impl ReasoningBlock {
+    fn append(&mut self, context: &JobContext, delta: &str) -> Result<()> {
+        if self.finished || delta.is_empty() || self.published_chars > REASONING_LIMIT {
+            return Ok(());
+        }
+        let delta = reasoning_excerpt(delta, REASONING_LIMIT - self.published_chars);
+        self.published_chars += delta.chars().count();
+        context.emit(
+            "item/piReasoning/delta",
+            json!({"itemId":self.id,"delta":delta}),
+        )
+    }
+
+    fn finish(&mut self, context: &JobContext, text: Option<&str>, status: &str) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
+        self.finished = true;
+        let text = text.map(|value| reasoning_excerpt(value, REASONING_LIMIT));
+        context.emit(
+            "item/completed",
+            json!({"item":{
+                "id":self.id, "type":"piReasoning", "text":text, "status":status,
+                "durationMs":self.started_at.elapsed().as_millis() as u64
+            }}),
+        )
+    }
 }
 
 impl Messages {
+    fn reasoning_block(&mut self, index: u64, context: &JobContext) -> Result<&mut ReasoningBlock> {
+        Ok(match self.reasoning.entry(index) {
+            Entry::Occupied(block) => block.into_mut(),
+            Entry::Vacant(entry) => {
+                self.reasoning_seq += 1;
+                let id = format!("pi-reasoning-{}", self.reasoning_seq);
+                context.emit(
+                    "item/started",
+                    json!({"item":{"id":id,"type":"piReasoning"}}),
+                )?;
+                entry.insert(ReasoningBlock {
+                    id,
+                    started_at: Instant::now(),
+                    published_chars: 0,
+                    finished: false,
+                })
+            }
+        })
+    }
+
+    fn finish_reasoning(
+        &mut self,
+        context: &JobContext,
+        message: &Value,
+        status: &str,
+    ) -> Result<()> {
+        if let Some(parts) = message["content"].as_array() {
+            for (index, part) in parts.iter().enumerate() {
+                if part["type"] == "thinking"
+                    && part["redacted"] != true
+                    && let Some(text) = part["thinking"]
+                        .as_str()
+                        .filter(|text| !text.trim().is_empty())
+                {
+                    self.reasoning_block(index as u64, context)?.finish(
+                        context,
+                        Some(text),
+                        status,
+                    )?;
+                }
+            }
+        }
+        for block in self.reasoning.values_mut() {
+            block.finish(context, None, status)?;
+        }
+        self.reasoning.clear();
+        Ok(())
+    }
+
+    fn thinking(&mut self, event: &Value, context: &JobContext) -> Result<()> {
+        let Some(index) = event["contentIndex"].as_u64() else {
+            return Ok(());
+        };
+        let block = self.reasoning_block(index, context)?;
+        match event["type"].as_str() {
+            Some("thinking_delta") => {
+                block.append(context, event["delta"].as_str().unwrap_or_default())
+            }
+            Some("thinking_end") => block.finish(context, event["content"].as_str(), "completed"),
+            _ => Ok(()),
+        }
+    }
+
     fn record(&mut self, event: &Value, context: Option<&JobContext>) -> Result<()> {
         let message = &event["message"];
         let kind = event["type"].as_str().unwrap_or_default();
+        let update = &event["assistantMessageEvent"];
+        if let Some(context) = context {
+            if kind == "message_update"
+                && matches!(
+                    update["type"].as_str(),
+                    Some("thinking_start" | "thinking_delta" | "thinking_end")
+                )
+            {
+                return self.thinking(update, context);
+            }
+            if kind == "message_end" && message["role"] == "assistant" {
+                let status = match message["stopReason"].as_str() {
+                    Some("aborted") => "canceled",
+                    Some("error") => "failed",
+                    _ => "completed",
+                };
+                self.finish_reasoning(context, message, status)?;
+            }
+        }
         if kind == "message_start" && message["role"] == "assistant" {
             self.seq += 1;
             self.current = true;

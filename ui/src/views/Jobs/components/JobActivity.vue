@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
 import { computed, nextTick, onBeforeUnmount, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { dateLabel, errorMessage } from '@/services/workbench'
 import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
 import { activityLabels, stepResult } from '../schemas/job'
@@ -28,6 +29,7 @@ const history = shallowRef<ActivityPage>()
 const frozen = shallowRef<ActivityPage>()
 const open = shallowRef<number>()
 const busy = shallowRef(false)
+const loadingHistory = useDelayedBusy(busy, () => 180)
 const historyError = shallowRef('')
 const page = computed(() => history.value ?? frozen.value ?? props.latest)
 const following = computed(() => !history.value && !frozen.value)
@@ -121,7 +123,7 @@ function summary(text: string, command: boolean) {
         <h2>执行活动</h2>
         <span v-if="page" class="muted">{{ page.total }} 条</span>
       </div>
-      <span class="muted" role="status">{{ status }}</span>
+      <span class="muted" role="status">{{ loadingHistory ? '正在读取执行活动' : status }}</span>
     </div>
     <Alert v-if="error || historyError" class="notice warning">
       <AlertDescription class="text-current">
@@ -196,7 +198,7 @@ function summary(text: string, command: boolean) {
               </TableRow>
               <TableRow v-show="open === row.id" :id="`${detailId}-${row.id}`">
                 <TableCell colspan="4" class="activity-detail">
-                  <div v-if="open === row.id" class="activity-detail-content">
+                  <div v-if="open === row.id" class="activity-detail-content" data-workbench-reveal>
                     <ActivityDetail :job-id="jobId" :row="row" />
                   </div>
                 </TableCell>
@@ -207,8 +209,8 @@ function summary(text: string, command: boolean) {
         <Empty v-if="!rows.length" class="p-5" role="status">
           <EmptyDescription>{{ latest?.terminal ? '此执行暂无可展示的活动' : '等待运行活动…' }}</EmptyDescription>
         </Empty>
+        <TableLoadingOverlay :active="busy && !!page" label="正在读取执行活动" />
       </div>
-      <LoadingIndicator :active="busy && !!page" label="正在读取执行活动" placement="overlay" />
     </div>
     <nav v-if="page" ref="pagination" class="log-nav" aria-label="执行活动分页">
       <Button type="button" variant="outline" :aria-disabled="busy || !page.hasOlder" @click="!busy && page.hasOlder && older()"
@@ -251,6 +253,7 @@ function summary(text: string, command: boolean) {
   opacity: 0.65;
 }
 .activity-scroll {
+  position: relative;
   max-height: min(54vh, 540px);
   overflow: auto;
   overscroll-behavior: contain;

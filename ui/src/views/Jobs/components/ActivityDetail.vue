@@ -57,7 +57,7 @@ watch(
     <template v-if="detail.kind === 'command'">
       <strong>命令输出</strong>
       <p v-if="commandOutput && detail.exitCode !== null" class="muted">退出码 {{ detail.exitCode }}</p>
-      <pre>{{ detail.output || '暂无已留存的输出' }}</pre>
+      <pre class="terminal-output" tabindex="0" aria-label="命令输出">{{ detail.output || (detail.status === 'inProgress' ? '等待命令输出…' : '暂无已留存的输出') }}</pre>
     </template>
     <Alert v-if="detail.error" variant="destructive" role="note" class="py-2">
       <AlertDescription class="text-current">{{ detail.error }}</AlertDescription>
@@ -76,5 +76,13 @@ pre {
 strong {
   display: block;
   margin-top: 12px;
+}
+.terminal-output {
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #242526;
+  color: #f0f0f0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overscroll-behavior: contain;
 }
 </style>

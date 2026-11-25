@@ -21,7 +21,8 @@ const operations: Record<string, string> = {
   ls: '列出目录',
   grep: '搜索文件',
   write: '写入文件',
-  edit: '编辑文件'
+  edit: '编辑文件',
+  compact: '压缩上下文'
 }
 const command = computed(() => props.row.kind === 'command')
 const finished = computed(() => props.row.status !== 'inProgress')
@@ -40,12 +41,12 @@ const detail = computed(() =>
 
 <template>
   <Trace class="conversation-tool" :data-failed="state === '失败' || undefined">
-    <TraceCollapsible v-if="command && finished" v-model:open="expanded">
+    <TraceCollapsible v-if="command" v-model:open="expanded">
       <TraceCollapsibleTrigger class="conversation-tool-trigger">
         <TraceLine class="tool-line">
           <TraceIcon><span class="tool-mark" aria-hidden="true" /></TraceIcon>
           <TraceTitle>{{ label }}</TraceTitle>
-          <Badge variant="secondary" class="tool-state">{{ state }}</Badge>
+          <Badge variant="secondary" class="tool-state"><LoadingIndicator :active="!finished && !terminal" />{{ state }}</Badge>
           <code class="tool-detail">{{ detail }}</code>
         </TraceLine>
       </TraceCollapsibleTrigger>

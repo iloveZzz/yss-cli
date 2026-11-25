@@ -1,6 +1,6 @@
 use super::{
     model::{MAX_STATE, WorkbenchState},
-    sqlite::{CommitEffects, Database, EventWrite, ExtensionRecords, RecordWrite},
+    sqlite::{CommitEffects, Database, EventWrite, ExtensionChange, ExtensionRecords, RecordWrite},
     storage_migration::{self, DATABASE_NAME, StorageState},
 };
 use crate::{
@@ -395,12 +395,8 @@ impl Store {
         id: &str,
     ) -> Result<Option<T>> {
         self.database
-            .read_records(kind)?
-            .into_iter()
-            .find(|(key, _)| key == id)
-            .map(|(_, payload)| {
-                serde_json::from_str(&payload).map_err(|_| invalid("扩展记录格式无效"))
-            })
+            .read_record(kind, id)?
+            .map(|payload| serde_json::from_str(&payload).map_err(|_| invalid("扩展记录格式无效")))
             .transpose()
     }
     pub fn record_entries<T: serde::de::DeserializeOwned>(
@@ -417,6 +413,9 @@ impl Store {
                 ))
             })
             .collect()
+    }
+    pub(crate) fn has_record(&self, kind: &str, id: &str) -> Result<bool> {
+        self.database.has_record(kind, id)
     }
     pub fn records<T: serde::de::DeserializeOwned>(&mut self, kind: &str) -> Result<Vec<T>> {
         self.database
@@ -452,7 +451,7 @@ impl Store {
             }],
             blobs: Vec::new(),
         };
-        self.write_extensions_with_event(&effects, event)
+        self.write_extensions_with(&effects, event.map(ExtensionChange::Event))
     }
     pub fn delete_record(&mut self, kind: &str, id: &str) -> Result<()> {
         self.write_extensions(&CommitEffects {
@@ -465,12 +464,28 @@ impl Store {
         })
     }
     pub(crate) fn write_extensions(&mut self, effects: &CommitEffects) -> Result<()> {
-        self.write_extensions_with_event(effects, None)
+        self.write_extensions_with(effects, None)
     }
-    fn write_extensions_with_event(
+
+    pub(super) fn delete_agent_history(
+        &mut self,
+        run_id: &str,
+        job_ids: &BTreeSet<String>,
+        records: Vec<RecordWrite>,
+    ) -> Result<()> {
+        self.write_extensions_with(
+            &CommitEffects {
+                records,
+                blobs: Vec::new(),
+            },
+            Some(ExtensionChange::DeleteAgentHistory { run_id, job_ids }),
+        )
+    }
+
+    fn write_extensions_with(
         &mut self,
         effects: &CommitEffects,
-        event: Option<EventWrite<'_>>,
+        change: Option<ExtensionChange<'_>>,
     ) -> Result<()> {
         if self.uncertain {
             return Err(YssError::new(
@@ -490,7 +505,9 @@ impl Store {
                 "存储标记已改变，请重启核实",
             ));
         }
-        let result = self.database.write_records(&self.lock.root, effects, event);
+        let result = self
+            .database
+            .write_records(&self.lock.root, effects, change);
         if result
             .as_ref()
             .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
@@ -551,6 +568,9 @@ impl Store {
     }
     pub(crate) fn last_event_id(&self, job_id: &str) -> Result<u64> {
         self.database.last_event_id(job_id)
+    }
+    pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
+        self.database.run_event(job_id)
     }
     pub fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.database.has_events_after(job_id, after)

@@ -225,6 +225,7 @@ impl PlatformApi {
             .as_str()
             .to_owned();
             let mut store = jobs::lock_store(&self.jobs.store)?;
+            jobs::ensure_request_not_deleted(&mut store, id)?;
             if let Some(previous) = store.record::<String>("jobRequest", id)? {
                 if previous != fingerprint {
                     return Err(crate::error::YssError::new(
@@ -591,6 +592,7 @@ impl PlatformApi {
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
             }
+            ("GET", ["api", "specs", id, "agent-sessions"]) => agent::sessions(&self.jobs, id)?,
             ("GET", ["api", "agent", "models"]) => {
                 let protected = agent::pi_protected_paths(&*jobs::lock_store(&self.jobs.store)?);
                 let models = agent_protocol::available_models(&self.cancel, &protected)?;
@@ -641,6 +643,12 @@ impl PlatformApi {
             ("GET", ["api", "agent", id]) => {
                 agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
             }
+            ("DELETE", ["api", "agent", id]) => {
+                agent::delete_session(&self.jobs, id, decode(bytes)?)?
+            }
+            ("GET", ["api", "agent", id, "rounds"]) => {
+                agent::rounds(&mut *jobs::lock_store(&self.jobs.store)?, id)?
+            }
             ("POST", ["api", "agent", id, "document"]) => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -649,26 +657,31 @@ impl PlatformApi {
                     path: String,
                 }
                 let request: Request = decode(bytes)?;
-                encode(agent::document(
+                let state = agent::artifact_state(
                     &mut *jobs::lock_store(&self.jobs.store)?,
                     id,
+                    query.get("jobId").map(String::as_str),
+                    &request.spec_id,
+                )?;
+                encode(super::registration::read_document(
+                    &state,
                     &request.spec_id,
                     &request.path,
                 )?)?
             }
             ("GET", ["api", "agent", id, "specs", spec_id, "view"]) => {
                 let mut store = jobs::lock_store(&self.jobs.store)?;
-                let original = sources::spec(store.state(), spec_id)?.clone();
-                let root = agent::project_root(&mut store, id, &original.project_id)?;
-                let mut state = store.state().clone();
-                let project = state
-                    .projects
-                    .iter_mut()
-                    .find(|project| project.id == original.project_id)
-                    .ok_or_else(|| sources::invalid("运行工程不存在"))?;
-                project.root_path = root.to_string_lossy().into_owned();
-                let mut view = sources::spec_view(&state, &original, &Root::open(&root), None);
-                view.content = agent::content(&mut store, id, spec_id)?;
+                let state = agent::artifact_state(
+                    &mut store,
+                    id,
+                    query.get("jobId").map(String::as_str),
+                    spec_id,
+                )?;
+                let spec = sources::spec(&state, spec_id)?;
+                let project = sources::project(&state, &spec.project_id)?;
+                let root = Root::open(std::path::Path::new(&project.root_path));
+                let mut view = sources::spec_view(&state, spec, &root, None);
+                view.content = super::content::read_view(&state, spec_id)?;
                 encode(view)?
             }
             ("POST", ["api", "agent", id, "preview"]) => {
@@ -681,13 +694,18 @@ impl PlatformApi {
                 let request: Request = decode(bytes)?;
                 let (root, target) = {
                     let mut store = jobs::lock_store(&self.jobs.store)?;
-                    let document = agent::source(&mut store, id, &request.spec_id)?;
+                    let state = agent::artifact_state(
+                        &mut store,
+                        id,
+                        query.get("jobId").map(String::as_str),
+                        &request.spec_id,
+                    )?;
+                    let document = sources::read_source(&state, &request.spec_id)?;
                     let metadata = super::content::metadata(&document.text)?;
-                    let spec = sources::spec(store.state(), &request.spec_id)?;
-                    let project_id = spec.project_id.clone();
-                    let path = agent::project_root(&mut store, id, &project_id)?;
+                    let spec = sources::spec(&state, &request.spec_id)?;
+                    let project = sources::project(&state, &spec.project_id)?;
+                    let path = std::path::PathBuf::from(&project.root_path);
                     let root = Root::open(&path)?;
-                    let spec = sources::spec(store.state(), &request.spec_id)?;
                     let target = super::content::preview_target(
                         spec,
                         metadata.as_ref(),
@@ -705,8 +723,33 @@ impl PlatformApi {
                     &self.cancel,
                 )?)?
             }
-            ("GET", ["api", "agent", id, "diff"]) => {
-                encode(agent::diff_shared(&self.jobs.store, id)?)?
+            ("GET", ["api", "agent", id, "diff"]) => encode(agent::round_diff(
+                &self.jobs.store,
+                id,
+                query.get("jobId").map(String::as_str),
+            )?)?,
+            ("GET", ["api", "agent", id, "acceptance"]) => agent::acceptance_view(
+                &self.jobs.store,
+                id,
+                None,
+                query.get("attemptId").map(String::as_str),
+                false,
+            )?,
+            ("POST", ["api", "agent", id, "verify-acceptance"]) => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Request {
+                    job_id: String,
+                    attempt_id: Option<String>,
+                }
+                let request: Request = decode(bytes)?;
+                agent::acceptance_view(
+                    &self.jobs.store,
+                    id,
+                    Some(&request.job_id),
+                    request.attempt_id.as_deref(),
+                    true,
+                )?
             }
             ("GET", ["api", "agent", id, "rebind-preview"]) => {
                 encode(agent::rebind_preview(&self.jobs.store, id)?)?
@@ -717,16 +760,29 @@ impl PlatformApi {
             ("POST", ["api", "agent", id, "accept"]) => {
                 agent::accept_shared(&self.jobs.store, id, decode(bytes)?, &self.cancel)?
             }
-            ("GET", ["api", "agent", id, "specs", spec_id, "source"]) => encode(agent::source(
-                &mut *jobs::lock_store(&self.jobs.store)?,
-                id,
-                spec_id,
-            )?)?,
-            ("GET", ["api", "agent", id, "specs", spec_id, "content"]) => encode(agent::content(
-                &mut *jobs::lock_store(&self.jobs.store)?,
-                id,
-                spec_id,
-            )?)?,
+            (
+                "GET",
+                [
+                    "api",
+                    "agent",
+                    id,
+                    "specs",
+                    spec_id,
+                    kind @ ("source" | "content"),
+                ],
+            ) => {
+                let state = agent::artifact_state(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    id,
+                    query.get("jobId").map(String::as_str),
+                    spec_id,
+                )?;
+                if *kind == "source" {
+                    encode(sources::read_source(&state, spec_id)?)?
+                } else {
+                    encode(super::content::read_view(&state, spec_id)?)?
+                }
+            }
             ("POST", ["api", "agent", id, "respond"]) => encode(agent::respond(
                 &mut *jobs::lock_store(&self.jobs.store)?,
                 id,

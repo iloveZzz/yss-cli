@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, shallowRef, watch } from 'vue'
-import { useEventListener } from '@vueuse/core'
+import { computed, nextTick, onMounted, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
+import { useEventListener, useLocalStorage, useMediaQuery, usePreferredReducedMotion } from '@vueuse/core'
 import { useRoute } from 'vue-router'
+import { PanelLeftClose, PanelLeftOpen } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { failedRoute, pendingRoute, retryFailedRoute } from '@/router'
 import { dateLabel } from '@/services/workbench'
+import { useAgentScope } from '@/views/PiWorkspace/useAgentScope'
 const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges } =
   useWorkbench()
 useQuestionReviewDeadline(() => {
@@ -22,6 +27,19 @@ useQuestionReviewDeadline(() => {
   return { readAt: value.readAt, questions: value.specs.flatMap((spec) => spec.content.questions) }
 }, refresh)
 const route = useRoute()
+const { scopeOptions, preferredSpecId } = useAgentScope()
+const agentTarget = computed(() => {
+  const current = route.params.specId
+  const specId = scopeOptions.value.find((option) => option.value === current)?.value ?? preferredSpecId.value
+  return specId ? { name: 'agent-workbench', params: { specId } } : '/agent'
+})
+const piWorkspace = computed(() => route.meta.piWorkspace === true)
+const desktop = useMediaQuery('(width >= 720px)')
+const preferredMotion = usePreferredReducedMotion()
+const collapsed = useLocalStorage('yss:workbench-sidebar-compact', false, { writeDefaults: false })
+const compactNavigation = computed(() => desktop.value && collapsed.value)
+const surface = useTemplateRef<HTMLElement>('surface')
+let pageMotion: Animation | undefined
 const refreshAction = shallowRef<'header' | 'retry'>()
 const recentProjects = computed(() =>
   (snapshot.value?.projects ?? [])
@@ -36,14 +54,15 @@ const navigation = [
     icon: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z'
   },
   { path: '/projects', label: '产品与工程', icon: 'M3 7h7l2 2h9v11H3z M3 7V4h7l2 3' },
-  { path: '/specs', label: 'Spec', icon: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7' },
-  { path: '/jobs', label: '执行记录', icon: 'M4 5h16v15H4z M8 3v4 M16 3v4 M8 12l2 2 5-5 M8 17h8' },
+  { path: '/specs', label: '规格管理', icon: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7' },
+  { path: '/agent', label: 'AI Agent', icon: 'M12 8V4H8 M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z M2 14h2 M20 14h2 M9 13v2 M15 13v2' },
   { path: '/settings', label: '设置', icon: 'M4 7h16 M4 17h16 M8 4v6 M16 14v6' }
 ]
 const routeReady = computed(() => route.matched.length > 0)
 const availableRoute = computed(() =>
-  routeReady.value && (!!snapshot.value || /^\/(settings|jobs)(\/|$)/.test(route.path))
+  routeReady.value && (!!snapshot.value || piWorkspace.value || /^\/(settings|jobs)(\/|$)/.test(route.path))
 )
+const navigationBusy = useDelayedBusy(() => !!pendingRoute.value && availableRoute.value, () => 160)
 const initialLoading = computed(() =>
   !availableRoute.value &&
   !expired.value &&
@@ -78,18 +97,46 @@ const isCurrent = (path: string) => route.path === path || route.path.startsWith
 watch(() => route.path, (_path, previous) => {
   if (previous !== '/') focusMain()
 }, { flush: 'post' })
+watch([() => route.path, surface, preferredMotion], ([path, element, preference], [previousPath, previousElement]) => {
+  pageMotion?.cancel()
+  if (!element?.animate || preference === 'reduce' || (path === previousPath && element === previousElement)) return
+  const tokens = getComputedStyle(element)
+  pageMotion = element.animate([{ opacity: .58 }, { opacity: 1 }], {
+    duration: Number.parseFloat(tokens.getPropertyValue('--workbench-motion-panel')) || 180,
+    easing: tokens.getPropertyValue('--workbench-motion-ease').trim() || 'ease-out'
+  })
+}, { flush: 'post' })
 onMounted(() => {
   if (!expired.value) {
     void refresh()
     startChanges()
   }
 })
-onBeforeUnmount(stopChanges)
+onBeforeUnmount(() => {
+  pageMotion?.cancel()
+  stopChanges()
+})
 useEventListener(window, 'focus', checkChanges)
 </script>
 <template>
+  <TooltipProvider :delay-duration="220">
+  <div class="app-shell" :data-navigation-compact="compactNavigation">
   <a class="skip-link" href="#main" @click.prevent="focusMain">跳到主内容</a>
-  <header class="app-header">
+  <Transition name="workbench-feedback">
+    <Progress v-if="navigationBusy" :model-value="null" aria-label="正在打开页面" class="workbench-route-progress" />
+  </Transition>
+  <header v-if="!piWorkspace" class="app-header">
+    <Tooltip v-if="desktop">
+      <TooltipTrigger as-child>
+        <Button type="button" size="icon" variant="ghost" class="navigation-trigger"
+          :aria-label="compactNavigation ? '展开主导航' : '收起主导航'" aria-controls="workbench-sidebar"
+          :aria-expanded="!compactNavigation" @click="collapsed = !collapsed">
+          <PanelLeftOpen v-if="compactNavigation" :size="17" aria-hidden="true" />
+          <PanelLeftClose v-else :size="17" aria-hidden="true" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{{ compactNavigation ? '展开主导航' : '收起主导航' }}</TooltipContent>
+    </Tooltip>
     <RouterLink to="/workbench" class="brand">
       <span class="brand-mark">Y</span>
       YSS
@@ -103,43 +150,49 @@ useEventListener(window, 'focus', checkChanges)
       <LoadingIndicator :active="refreshAction === 'header'" />
       {{ refreshAction === 'header' ? '刷新中…' : '刷新' }}
     </Button>
-    <LoadingIndicator
-      class="route-activity"
-      :active="!!pendingRoute && availableRoute"
-      label="正在打开页面…"
-    />
   </header>
-  <aside class="sidebar">
+  <aside v-if="!piWorkspace" id="workbench-sidebar" class="sidebar">
     <nav aria-label="主导航">
-      <Button v-for="item in navigation" :key="item.path" as-child variant="ghost">
-        <RouterLink :to="item.path" :class="{ 'section-active': isCurrent(item.path) }">
-          <svg
-            width="17"
-            height="17"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path :d="item.icon" />
-          </svg>
-          <span>{{ item.label }}</span>
-        </RouterLink>
-      </Button>
+      <Tooltip v-for="item in navigation" :key="item.path">
+        <TooltipTrigger as-child>
+          <Button as-child variant="ghost">
+            <RouterLink :to="item.path === '/agent' ? agentTarget : item.path" class="navigation-link" :class="{ 'section-active': isCurrent(item.path) }"
+              :aria-current="isCurrent(item.path) ? (route.path === item.path ? 'page' : 'location') : undefined">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path :d="item.icon" />
+              </svg>
+              <span class="navigation-label">{{ item.label }}</span>
+            </RouterLink>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent v-if="compactNavigation" side="right">{{ item.label }}</TooltipContent>
+      </Tooltip>
     </nav>
     <template v-if="recentProjects.length">
       <div class="nav-caption recent-caption">最近更新工程</div>
       <ScrollArea class="recent-projects">
         <nav aria-label="最近项目">
-          <Button v-for="project in recentProjects" :key="project.record.id" as-child variant="ghost">
-            <RouterLink :to="`/projects/${project.record.id}`">
-              <span class="project-dot" aria-hidden="true">{{ project.record.name.slice(0, 1).toUpperCase() }}</span>
-              <span class="ellipsis">{{ project.record.name }}</span>
-            </RouterLink>
-          </Button>
+          <Tooltip v-for="project in recentProjects" :key="project.record.id">
+            <TooltipTrigger as-child>
+              <Button as-child variant="ghost">
+                <RouterLink :to="`/projects/${project.record.id}`" class="navigation-link">
+                  <span class="project-dot" aria-hidden="true">{{ project.record.name.slice(0, 1).toUpperCase() }}</span>
+                  <span class="ellipsis navigation-label">{{ project.record.name }}</span>
+                </RouterLink>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent v-if="compactNavigation" side="right">{{ project.record.name }}</TooltipContent>
+          </Tooltip>
         </nav>
       </ScrollArea>
     </template>
@@ -150,12 +203,12 @@ useEventListener(window, 'focus', checkChanges)
       Agent 使用隔离工作区
     </div>
   </aside>
-  <main id="main" class="main" tabindex="-1">
+  <main id="main" :class="piWorkspace ? 'pi-main' : 'main'" tabindex="-1">
     <Alert v-if="expired" variant="destructive" class="notice error">
       <AlertTitle>会话已失效</AlertTitle>
       <AlertDescription>请从终端重新打开完整工作台链接。当前输入仍保留。</AlertDescription>
     </Alert>
-    <Alert v-else-if="error" variant="destructive" class="notice error">
+    <Alert v-else-if="error && !piWorkspace" variant="destructive" class="notice error">
       <AlertTitle>{{ error }}</AlertTitle>
       <AlertDescription v-if="snapshot">显示上次快照 {{ dateLabel(snapshot.readAt) }}</AlertDescription>
       <Button
@@ -176,16 +229,20 @@ useEventListener(window, 'focus', checkChanges)
     <div v-if="initialLoading" class="app-loading">
       <LoadingSkeleton :variant="initialLayout" :rows="3" label="正在读取本机工作台…" />
     </div>
-    <RouterView v-if="availableRoute" />
+    <div v-if="availableRoute && (!piWorkspace || !expired)" ref="surface" class="workbench-view">
+      <RouterView />
+    </div>
     <Empty v-else-if="!initialLoading && !loading && !error && !expired && !failedRoute">
       <EmptyHeader><EmptyTitle>尚未读取工作台</EmptyTitle></EmptyHeader>
     </Empty>
-    <footer v-if="snapshot" class="page-footer">最近读取 {{ dateLabel(snapshot.readAt) }}</footer>
+    <footer v-if="snapshot && !piWorkspace" class="page-footer">最近读取 {{ dateLabel(snapshot.readAt) }}</footer>
   </main>
+  </div>
+  </TooltipProvider>
 </template>
 
 <style scoped>
-.sidebar nav > a[data-slot='button'] { justify-content: flex-start; }
+.sidebar .navigation-link { justify-content: flex-start; }
 .sidebar nav > a.section-active {
   color: #315dcf;
   background: var(--yss-colors-primary-bg);
@@ -194,19 +251,43 @@ useEventListener(window, 'focus', checkChanges)
 .sidebar-foot { border-top: 0; }
 .sidebar-separator { margin-bottom: 12px; }
 .recent-projects { min-height: 0; margin-bottom: 12px; }
+.navigation-trigger { flex: none; width: 34px; padding: 0; }
 .refresh-action { min-width: 84px; }
 .app-loading { min-height: 14rem; padding-block: 10px 20px; }
-.route-activity {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 16px;
-  padding: 6px 10px;
-  border-radius: var(--brand-border-radius);
+.workbench-view { min-width: 0; }
+.workbench-route-progress[data-slot='progress'] {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 45;
+  height: 3px;
+  border-radius: 0;
   pointer-events: none;
 }
-.route-activity[data-visible='true'] {
-  background: var(--brand-color-bg-container);
-  box-shadow: 0 0 0 1px var(--yss-colors-border), 0 3px 14px #17213617;
+.workbench-route-progress :deep([data-slot='progress-indicator']) {
+  width: 29%;
+  opacity: .85;
+}
+@media (width >= 720px) {
+  .app-shell .sidebar { width: var(--sidebar-width); }
+  .app-shell .main { margin-inline-start: var(--sidebar-width); }
+  .app-shell[data-navigation-compact='true'] { --sidebar-width: 62px; }
+  .sidebar nav > a > svg { flex: none; }
+  .navigation-label { max-width: 182px; overflow: hidden; white-space: nowrap; }
+  .app-shell[data-navigation-compact='true'] .sidebar .navigation-link {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+  }
+  .app-shell[data-navigation-compact='true'] :is(.recent-caption, .sidebar-foot) { display: none; }
+  .app-shell[data-navigation-compact='true'] .navigation-label { max-width: 0; opacity: 0; }
+}
+@media (720px <= width < 900px) {
+  .app-shell { --sidebar-width: 180px; }
+}
+@media (width >= 720px) and (prefers-reduced-motion: no-preference) {
+  .app-shell .sidebar { transition: width var(--workbench-motion-panel) var(--workbench-motion-ease); }
+  .app-shell .main { transition: margin-inline-start var(--workbench-motion-panel) var(--workbench-motion-ease); }
+  .navigation-label { transition: opacity var(--workbench-motion-fast), max-width var(--workbench-motion-panel) var(--workbench-motion-ease); }
 }
 @media (width < 720px) {
   .recent-projects { display: none; }

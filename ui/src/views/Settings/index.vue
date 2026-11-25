@@ -73,7 +73,7 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
     </Button>
   </div>
   <Tabs :model-value="group" :unmount-on-hide="false" activation-mode="manual" @update:model-value="selectGroup">
-    <TabsList class="settings-navigation" aria-label="设置分组">
+    <TabsList class="settings-navigation" aria-label="设置分组" moving-indicator>
       <TabsTrigger v-for="item in groups" :key="item.value" :value="item.value">{{ item.label }}</TabsTrigger>
     </TabsList>
     <Alert v-if="error" class="notice error" role="alert" variant="destructive">{{ error }}</Alert>
@@ -209,7 +209,7 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
       />
     </TabsContent>
     <TabsContent value="backup" class="min-w-0"><BackupForms /></TabsContent>
-    <TabsContent value="engineering" class="min-w-0"><EngineeringPanel /></TabsContent>
+    <TabsContent value="engineering" class="min-w-0"><EngineeringPanel :root-path="typeof route.query.root === 'string' ? route.query.root : undefined" /></TabsContent>
     <TabsContent value="external" class="min-w-0"><ExternalLinks /></TabsContent>
   </Tabs>
 </template>
