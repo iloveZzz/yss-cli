@@ -434,8 +434,8 @@ impl PlatformApi {
             }
             ("GET", ["api", "system"]) => {
                 let (data_dir, usage, protected) = {
-                    let mut store = jobs::lock_store(&self.jobs.store)?;
-                    let (protected, _) = agent::runtime_target(&mut store, None)?;
+                    let store = jobs::lock_store(&self.jobs.store)?;
+                    let protected = agent::pi_protected_paths(&store);
                     (
                         store.data_dir().to_owned(),
                         store.storage_usage()?,
@@ -591,10 +591,24 @@ impl PlatformApi {
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
             }
+            ("GET", ["api", "agent", "models"]) => {
+                let protected = agent::pi_protected_paths(&*jobs::lock_store(&self.jobs.store)?);
+                let models = agent_protocol::available_models(&self.cancel, &protected)?;
+                json!({"models": models})
+            }
             ("GET", ["api", "agent", "runtime"]) => {
+                let selected = match (query.get("selectedProvider"), query.get("selectedModel")) {
+                    (None, None) => None,
+                    (Some(provider), Some(id)) => Some(
+                        agent_protocol::PiModel::new(provider, id)
+                            .ok_or_else(|| sources::invalid("Pi 供应商或模型 ID 无效"))?,
+                    ),
+                    _ => return Err(sources::invalid("请选择完整的 Pi 供应商和模型")),
+                };
                 let (protected, model) = agent::runtime_target(
                     &mut *jobs::lock_store(&self.jobs.store)?,
                     query.get("resumeRunId").map(String::as_str),
+                    selected,
                 )?;
                 encode(agent_protocol::runtime_status(
                     &self.cancel,
@@ -607,12 +621,14 @@ impl PlatformApi {
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Request {
                     resume_run_id: Option<String>,
+                    selected_model: Option<agent_protocol::PiModel>,
                     expected_model: agent_protocol::PiModel,
                 }
                 let request: Request = decode(bytes)?;
                 let (protected, model) = agent::runtime_target(
                     &mut *jobs::lock_store(&self.jobs.store)?,
                     request.resume_run_id.as_deref(),
+                    request.selected_model,
                 )?;
                 agent_protocol::test_model(
                     &self.cancel,

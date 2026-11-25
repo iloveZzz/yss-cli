@@ -340,6 +340,12 @@ async function resume() {
       <Alert v-if="job.error" variant="destructive" class="notice error">
         <AlertDescription class="text-current">{{ job.error.message }}</AlertDescription>
       </Alert>
+      <p v-if="isPi && job.status === 'failed' && currentRun?.canResume" class="muted">
+        如需更换模型，可
+        <RouterLink :to="{ path: '/specs/' + encodeURIComponent(currentRun.specId), query: { tab: 'run' } }" class="underline">
+          返回原 Spec 选择模型并发起新运行
+        </RouterLink>。
+      </p>
       <p v-if="stopping" class="muted" role="status">停止请求已提交，正在等待进程退出并保存本次记录。</p>
       <p v-if="latestMessage && terminalJob(job.status) && tab === 'log'" class="job-final-message">
         {{ latestMessage }}

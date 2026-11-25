@@ -37,6 +37,8 @@ pub struct AgentStartRequest {
     pub request_id: String,
     pub resume_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model: Option<PiModel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_model: Option<PiModel>,
     #[serde(default)]
     pub allow_commands: bool,
@@ -206,7 +208,7 @@ fn recorded_model(run: &AgentRun) -> Result<PiModel> {
         })
 }
 
-fn pi_protected_paths(store: &Store) -> Vec<PathBuf> {
+pub(crate) fn pi_protected_paths(store: &Store) -> Vec<PathBuf> {
     std::iter::once(store.data_dir().to_owned())
         .chain(
             store
@@ -221,7 +223,11 @@ fn pi_protected_paths(store: &Store) -> Vec<PathBuf> {
 pub(crate) fn runtime_target(
     store: &mut Store,
     resume_id: Option<&str>,
+    selected_model: Option<PiModel>,
 ) -> Result<(Vec<PathBuf>, Option<PiModel>)> {
+    if let Some(selected) = &selected_model {
+        selected.validate_selection(resume_id.is_some())?;
+    }
     let model = resume_id
         .map(|id| {
             let run = load(store, id)?;
@@ -230,7 +236,8 @@ pub(crate) fn runtime_target(
             }
             recorded_model(&run)
         })
-        .transpose()?;
+        .transpose()?
+        .or(selected_model);
     Ok((pi_protected_paths(store), model))
 }
 
@@ -246,6 +253,9 @@ pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
 pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result<JobRecord> {
     if request.prompt.trim().is_empty() || request.prompt.len() > 128 * 1024 {
         return Err(invalid("请填写 128 KiB 以内的续办要求"));
+    }
+    if let Some(selected) = &request.selected_model {
+        selected.validate_selection(request.resume_run_id.is_some())?;
     }
     let (projects, prior, spec, mut protected) = {
         let mut store = lock_store(&manager.store)?;
@@ -338,7 +348,15 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         .collect();
     protected.extend(roots.iter().map(PathBuf::from));
     let original_model = prior.as_ref().map(recorded_model).transpose()?;
-    let pi = agent_protocol::require_runtime(&cancel, &protected, original_model.as_ref())?;
+    let model = original_model.as_ref().or(request.selected_model.as_ref());
+    let pi = agent_protocol::require_runtime(&cancel, &protected, model).map_err(|error| {
+        if request.selected_model.is_some() && error.code == ErrorCode::NotReady {
+            // This request was rejected before creating a job.
+            error.context("httpStatus", 409)
+        } else {
+            error
+        }
+    })?;
     pi.verify_expected(request.expected_model.as_ref())?;
     let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
     let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);

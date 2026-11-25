@@ -4,7 +4,7 @@ mod rpc;
 mod sandbox;
 mod workspace;
 
-pub(super) use readiness::{check_runtime, test_model};
+pub(super) use readiness::{available_models, check_runtime, test_model};
 
 use super::{PiSession, RunRequest};
 use crate::{

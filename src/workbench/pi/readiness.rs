@@ -250,60 +250,74 @@ pub(super) fn verify_model(state: &Value, expected: &PiModel) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn check_runtime(
-    cancel: &Cancellation,
-    status: &mut RuntimeStatus,
-    protected: &[PathBuf],
-    model: Option<&PiModel>,
-) -> Result<PiRuntime> {
-    let protected: Vec<_> = protected
-        .iter()
-        .map(|path| fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
-        .collect();
-    let private = sandbox::PrivateDir::new()?;
-    let executable = locate_pi()?;
-    let mut probe = pi_command(&executable, &protected)?;
-    let executable_name = executable.to_str().ok_or_else(|| {
-        configuration_error("Pi 可执行文件路径须为有效 UTF-8，请核对 YSS_PI_EXECUTABLE")
-    })?;
-    let config_dir = config_directory(&protected)?;
-    let config_name = config_dir.to_str().ok_or_else(|| {
-        configuration_error("Pi 配置目录须为有效 UTF-8，请核对 PI_CODING_AGENT_DIR")
-    })?;
-    status.executable = Some(executable_name.to_owned());
-    status.config_dir = Some(config_name.to_owned());
-    probe
-        .current_dir(private.path())
-        .env("PI_CODING_AGENT_DIR", &config_dir)
-        .arg("--version");
-    let (exit, stdout, _) = process::capture_command(probe, cancel, Duration::from_secs(5))?;
-    let version = std::str::from_utf8(&stdout)
-        .ok()
-        .and_then(|text| Version::parse(text.trim()).ok())
-        .filter(|_| exit.success())
-        .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
-    status.version = Some(version.clone());
-    if !SUPPORTED_VERSIONS.contains(&version) {
-        return Err(not_ready(
-            "工作台当前支持 Pi 1.5.2 和 1.6.0，请核对本机 Pi 版本",
-        ));
-    }
-    sandbox::probe(cancel)?;
-    status.sandbox_ready = true;
+struct PiProbe {
+    private: sandbox::PrivateDir,
+    protected: Vec<PathBuf>,
+    executable: PathBuf,
+    config_dir: PathBuf,
+    version: Version,
+}
 
-    status.model = match model {
-        Some(model) => Some(model.clone()),
-        None => fixed_default_model(&config_dir)?,
-    };
-    let mut command = rpc_command(&executable, &config_dir, &protected)?;
-    command
-        .current_dir(private.path())
-        .args(["--no-session", "--no-tools"]);
-    let credentials_command = |model: &PiModel| -> Result<Command> {
-        let mut command = pi_command(&executable, &protected)?;
-        command
+impl PiProbe {
+    fn new(
+        cancel: &Cancellation,
+        status: &mut RuntimeStatus,
+        protected: &[PathBuf],
+    ) -> Result<Self> {
+        let protected: Vec<_> = protected
+            .iter()
+            .map(|path| fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
+            .collect();
+        let private = sandbox::PrivateDir::new()?;
+        let executable = locate_pi()?;
+        let mut probe = pi_command(&executable, &protected)?;
+        let executable_name = executable.to_str().ok_or_else(|| {
+            configuration_error("Pi 可执行文件路径须为有效 UTF-8，请核对 YSS_PI_EXECUTABLE")
+        })?;
+        let config_dir = config_directory(&protected)?;
+        let config_name = config_dir.to_str().ok_or_else(|| {
+            configuration_error("Pi 配置目录须为有效 UTF-8，请核对 PI_CODING_AGENT_DIR")
+        })?;
+        status.executable = Some(executable_name.to_owned());
+        status.config_dir = Some(config_name.to_owned());
+        probe
             .current_dir(private.path())
             .env("PI_CODING_AGENT_DIR", &config_dir)
+            .arg("--version");
+        let (exit, stdout, _) = process::capture_command(probe, cancel, Duration::from_secs(5))?;
+        let version = std::str::from_utf8(&stdout)
+            .ok()
+            .and_then(|text| Version::parse(text.trim()).ok())
+            .filter(|_| exit.success())
+            .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
+        status.version = Some(version.clone());
+        if !SUPPORTED_VERSIONS.contains(&version) {
+            return Err(not_ready(
+                "工作台当前支持 Pi 1.5.2 和 1.6.0，请核对本机 Pi 版本",
+            ));
+        }
+        Ok(Self {
+            private,
+            protected,
+            executable,
+            config_dir,
+            version,
+        })
+    }
+
+    fn open(&self, cancel: &Cancellation) -> Result<Session> {
+        let mut command = rpc_command(&self.executable, &self.config_dir, &self.protected)?;
+        command
+            .current_dir(self.private.path())
+            .args(["--no-session", "--no-tools"]);
+        Session::open(command, cancel)
+    }
+
+    fn credentials_command(&self, model: &PiModel) -> Result<Command> {
+        let mut command = pi_command(&self.executable, &self.protected)?;
+        command
+            .current_dir(self.private.path())
+            .env("PI_CODING_AGENT_DIR", &self.config_dir)
             .args([
                 "auth",
                 "check",
@@ -313,12 +327,47 @@ pub(crate) fn check_runtime(
                 "--no-refresh",
             ]);
         Ok(command)
+    }
+}
+
+pub(crate) fn available_models(
+    cancel: &Cancellation,
+    protected: &[PathBuf],
+) -> Result<Vec<PiModel>> {
+    let probe = PiProbe::new(cancel, &mut RuntimeStatus::default(), protected)?;
+    let response = probe.open(cancel)?.available_models(cancel)?;
+    let mut models: Vec<_> = response["models"]
+        .as_array()
+        .ok_or_else(|| not_ready("Pi 未返回有效的本机模型列表"))?
+        .iter()
+        .filter_map(model_identity)
+        .collect();
+    models.sort_unstable_by(|left, right| {
+        (&left.provider, &left.id).cmp(&(&right.provider, &right.id))
+    });
+    models.dedup();
+    Ok(models)
+}
+
+pub(crate) fn check_runtime(
+    cancel: &Cancellation,
+    status: &mut RuntimeStatus,
+    protected: &[PathBuf],
+    model: Option<&PiModel>,
+) -> Result<PiRuntime> {
+    let probe = PiProbe::new(cancel, status, protected)?;
+    sandbox::probe(cancel)?;
+    status.sandbox_ready = true;
+
+    status.model = match model {
+        Some(model) => Some(model.clone()),
+        None => fixed_default_model(&probe.config_dir)?,
     };
     if let Some(model) = &status.model {
-        check_credentials(credentials_command(model)?, cancel, status)?;
+        check_credentials(probe.credentials_command(model)?, cancel, status)?;
     }
 
-    let mut session = Session::open(command, cancel)?;
+    let mut session = probe.open(cancel)?;
     let model = match &status.model {
         Some(model) => {
             let available = session.available_models(cancel)?;
@@ -338,14 +387,14 @@ pub(crate) fn check_runtime(
                     .context("piIssue", "modelUnavailable")
             })?;
             status.model = Some(model.clone());
-            check_credentials(credentials_command(&model)?, cancel, status)?;
+            check_credentials(probe.credentials_command(&model)?, cancel, status)?;
             model
         }
     };
     Ok(PiRuntime {
-        executable,
-        config_dir,
-        version,
+        executable: probe.executable,
+        config_dir: probe.config_dir,
+        version: probe.version,
         model,
     })
 }

@@ -26,16 +26,33 @@ pub struct PiModel {
 
 impl PiModel {
     pub fn new(provider: &str, id: &str) -> Option<Self> {
-        let valid = |value: &str| {
-            !value.trim().is_empty()
-                && value.len() <= 256
-                && !value.starts_with('-')
-                && !value.chars().any(char::is_control)
-        };
-        (valid(provider) && valid(id)).then(|| Self {
+        (Self::valid_part(provider) && Self::valid_part(id)).then(|| Self {
             provider: provider.into(),
             id: id.into(),
         })
+    }
+
+    fn valid_part(value: &str) -> bool {
+        !value.trim().is_empty()
+            && value.len() <= 256
+            && !value.starts_with('-')
+            && !value.chars().any(char::is_control)
+    }
+
+    pub(crate) fn validate_selection(&self, resuming: bool) -> Result<()> {
+        if resuming {
+            return Err(YssError::new(
+                ErrorCode::InvalidInput,
+                "续接使用原会话模型，切换模型请从 Spec 发起新运行",
+            ));
+        }
+        if !Self::valid_part(&self.provider) || !Self::valid_part(&self.id) {
+            return Err(YssError::new(
+                ErrorCode::InvalidInput,
+                "Pi 供应商或模型 ID 无效",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -140,6 +157,21 @@ pub(crate) fn require_runtime(
     model: Option<&PiModel>,
 ) -> Result<PiRuntime> {
     check(cancel, &mut RuntimeStatus::default(), protected, model)
+}
+
+pub(crate) fn available_models(
+    cancel: &Cancellation,
+    protected: &[PathBuf],
+) -> Result<Vec<PiModel>> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        pi::available_models(cancel, protected)
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        let _ = (cancel, protected);
+        Err(unsupported())
+    }
 }
 
 pub(crate) fn test_model(

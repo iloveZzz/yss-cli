@@ -80,14 +80,29 @@ export interface AgentStart {
   projectIds: string[]
   carryFiles: Record<string, string[]>
   resumeRunId?: string
+  selectedModel?: PiModel
   expectedModel?: PiModel
   allowCommands?: boolean
 }
-export const getPiRuntime = (resumeRunId?: string, signal?: AbortSignal) =>
-  apiRequest<PiRuntimeStatus>(`/api/agent/runtime${resumeRunId ? `?resumeRunId=${encodeURIComponent(resumeRunId)}` : ''}`, { signal })
-export const testPiConnection = (expectedModel: PiModel, resumeRunId?: string, signal?: AbortSignal) =>
+type PiRunTarget = Pick<AgentStart, 'resumeRunId' | 'selectedModel'>
+
+export const getPiModels = (signal?: AbortSignal) =>
+  apiRequest<{ models: PiModel[] }>('/api/agent/models', { signal })
+
+export function getPiRuntime({ resumeRunId, selectedModel }: PiRunTarget, signal?: AbortSignal) {
+  const query = new URLSearchParams()
+  if (resumeRunId) query.set('resumeRunId', resumeRunId)
+  if (selectedModel) {
+    query.set('selectedProvider', selectedModel.provider)
+    query.set('selectedModel', selectedModel.id)
+  }
+  const params = query.toString()
+  return apiRequest<PiRuntimeStatus>(`/api/agent/runtime${params ? `?${params}` : ''}`, { signal })
+}
+
+export const testPiConnection = (expectedModel: PiModel, target: PiRunTarget, signal?: AbortSignal) =>
   apiRequest<{ connected: boolean }>('/api/agent/test-model', {
-    body: { expectedModel, resumeRunId },
+    body: { expectedModel, ...target },
     signal
   })
 export const startAgent = (value: AgentStart) =>

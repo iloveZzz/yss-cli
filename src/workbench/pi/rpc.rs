@@ -272,7 +272,15 @@ fn provider_error(raw: Option<&str>) -> YssError {
         )
         .context("piIssue", "subscription")
         .context("providerCode", "InvalidSubscription");
-    } else if raw.contains("model") && (raw.contains("not found") || raw.contains("no model")) {
+    } else if raw.contains("not supported when using codex with a chatgpt account") {
+        (
+            ErrorCode::NotReady,
+            "modelAccess",
+            "当前 ChatGPT 登录不支持此模型，请选择账号支持的模型后发起新运行",
+        )
+    } else if raw.contains("model_not_found")
+        || (raw.contains("model") && (raw.contains("not found") || raw.contains("no model")))
+    {
         (
             ErrorCode::NotReady,
             "modelUnavailable",

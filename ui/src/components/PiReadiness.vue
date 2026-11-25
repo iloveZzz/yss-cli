@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import PiModelPicker from '@/components/PiModelPicker.vue'
 import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -13,16 +14,21 @@ const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resum
   active: true
 })
 const readyModel = defineModel<PiModel>('readyModel')
+const selectedModel = defineModel<PiModel>('selectedModel')
 const testDescription = useId()
 const status = shallowRef<PiRuntimeStatus>()
-const operation = shallowRef<'initial' | 'check' | 'test'>()
+const operation = shallowRef<'initial' | 'check' | 'selection' | 'test'>()
 const checkError = shallowRef('')
 const testResult = shallowRef<{ message: string; connected: boolean; issue?: string }>()
 const model = computed(() => status.value?.available ? status.value.model : undefined)
+const chosen = computed(() => props.resumeRunId ? undefined : selectedModel.value)
+const visibleModel = computed(() => chosen.value ?? status.value?.model)
+const modelLabel = computed(() => props.resumeRunId ? '原会话模型' : chosen.value ? '本次选择' : 'Pi 默认模型')
 const statusMessage = computed(() => {
   switch (operation.value) {
     case 'initial': return ''
     case 'check': return '正在重新检测…'
+    case 'selection': return '正在检测本次模型…'
     case 'test': return '正在请求模型…'
     default:
       return testResult.value?.message || checkError.value || status.value?.message ||
@@ -42,7 +48,7 @@ const piCommand = computed(() => {
 })
 let request: AbortController | undefined
 
-async function checkRuntime(kind: 'initial' | 'check' = 'check') {
+async function checkRuntime(kind: 'initial' | 'check' | 'selection' = 'check') {
   if (request) return
   const current = new AbortController()
   request = current
@@ -51,7 +57,7 @@ async function checkRuntime(kind: 'initial' | 'check' = 'check') {
   testResult.value = undefined
   readyModel.value = undefined
   try {
-    const result = await getPiRuntime(props.resumeRunId, current.signal)
+    const result = await getPiRuntime({ resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     status.value = result
     if (result.available && result.model) readyModel.value = result.model
@@ -76,7 +82,7 @@ async function testConnection() {
   testResult.value = undefined
   readyModel.value = undefined
   try {
-    await testPiConnection(target, props.resumeRunId, current.signal)
+    await testPiConnection(target, { resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     testResult.value = { connected: true, message: '模型连接成功。' }
     readyModel.value = target
@@ -97,13 +103,20 @@ async function testConnection() {
   }
 }
 
-watch([() => props.active, () => props.resumeRunId], ([active]) => {
+function chooseModel(next?: PiModel) {
+  if (props.busy || props.resumeRunId || operation.value === 'test') return
+  if (next?.provider === chosen.value?.provider && next?.id === chosen.value?.id) return
+  readyModel.value = undefined
+  selectedModel.value = next
+}
+
+watch([() => props.active, () => props.resumeRunId, chosen], ([active, resumeRunId], previous) => {
   request?.abort()
   request = undefined
   operation.value = undefined
   status.value = undefined
   readyModel.value = undefined
-  if (active) void checkRuntime('initial')
+  if (active) void checkRuntime(previous?.[0] && previous[1] === resumeRunId ? 'selection' : 'initial')
 }, { immediate: true })
 onBeforeUnmount(() => request?.abort())
 </script>
@@ -112,8 +125,8 @@ onBeforeUnmount(() => request?.abort())
   <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || status?.available === false || testResult?.connected === false }">
     <p class="model-label">
       <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : 'Pi' }}</Badge>
-      <span v-if="status?.model">
-        {{ resumeRunId ? '原会话模型' : '本机模型' }} · {{ status.model.provider }} / {{ status.model.id }}
+      <span v-if="visibleModel">
+        {{ modelLabel }} · {{ visibleModel.provider }} / {{ visibleModel.id }}
       </span>
     </p>
     <p v-if="status?.configDir" class="config-directory">本机 Pi 配置目录 <code>{{ status.configDir }}</code></p>
@@ -137,7 +150,7 @@ onBeforeUnmount(() => request?.abort())
             内置供应商可在确认工作台使用的 Pi 程序和配置目录后，通过 <code>/login</code> 登录。
           </template>
         </li>
-        <li v-if="resumeRunId">确认本机 Pi 中仍有上方原会话使用的供应商和模型。</li>
+        <li v-if="resumeRunId">确认本机 Pi 中仍有上方原会话使用的供应商和模型。要换模型，请从原 Spec 发起新运行。</li>
         <li v-else>
           用 <code>/model</code> 找到模型并按 <kbd>Ctrl+S</kbd> 保存为默认，或在 <code>settings.json</code> 中设置 <code>defaultProvider</code> 和 <code>defaultModel</code>。
           如果配置了 <code>enabledModels</code>，请确保启动范围包含所需模型。
@@ -151,8 +164,9 @@ onBeforeUnmount(() => request?.abort())
     </div>
     <p v-if="model" :id="testDescription" class="muted">连接测试会发送一条简短请求，可能使用模型额度。</p>
     <div class="model-actions">
+      <PiModelPicker v-if="!resumeRunId" :selected-model="chosen" :disabled="busy || operation === 'test'" @select="chooseModel" />
       <Button type="button" variant="outline" size="sm" :aria-disabled="busy || !!operation" @click="!busy && checkRuntime()">
-        <LoadingIndicator :active="operation === 'check'" />
+        <LoadingIndicator :active="operation === 'check' || operation === 'selection'" />
         重新检测
       </Button>
       <Button

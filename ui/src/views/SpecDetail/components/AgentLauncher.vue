@@ -33,6 +33,7 @@ const busy = shallowRef(false)
 const allowCommands = shallowRef(false)
 const error = shallowRef('')
 const readyModel = shallowRef<PiModel>()
+const selectedModel = shallowRef<PiModel>()
 const primary = computed(() =>
   snapshot.value?.projects.find((project) => project.record.id === props.projectId)
 )
@@ -71,6 +72,8 @@ watch([() => props.specId, () => props.projectId], () => {
   error.value = ''
   busy.value = false
   allowCommands.value = false
+  readyModel.value = undefined
+  selectedModel.value = undefined
 })
 function toggleProject(projectId: string, checked: boolean) {
   selected.value = checked
@@ -96,7 +99,7 @@ async function run() {
       ])
     )
     const job = await startAgent({
-      specId, prompt: prompt.value, projectIds: ids, carryFiles, expectedModel,
+      specId, prompt: prompt.value, projectIds: ids, carryFiles, expectedModel, selectedModel: selectedModel.value,
       lifecycleStage: trackedStage.value, allowCommands: allowCommands.value
     })
     if (own === generation) await router.push({ path: `/jobs/${job.id}`, query: { run: job.id } })
@@ -112,7 +115,13 @@ async function run() {
     <h2 :id="heading">运行 Pi Agent</h2>
     <p v-if="trackedStage" class="view-note muted">本次跟进 · {{ stages[trackedStage] }} · 已绑定当前交付目标</p>
     <form class="form-stack" :aria-labelledby="heading" @submit.prevent="run">
-      <PiReadiness v-model:ready-model="readyModel" :active="active" :busy="busy" />
+      <PiReadiness
+        :key="specId"
+        v-model:ready-model="readyModel"
+        v-model:selected-model="selectedModel"
+        :active="active"
+        :busy="busy"
+      />
       <label>
         本次任务
         <Textarea v-model="prompt" name="prompt" rows="4" required />
