@@ -15,20 +15,38 @@ const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resum
 const readyModel = defineModel<PiModel>('readyModel')
 const testDescription = useId()
 const status = shallowRef<PiRuntimeStatus>()
-const operation = shallowRef<'check' | 'test'>()
+const operation = shallowRef<'initial' | 'check' | 'test'>()
 const checkError = shallowRef('')
-const testResult = shallowRef<{ message: string; connected: boolean }>()
+const testResult = shallowRef<{ message: string; connected: boolean; issue?: string }>()
 const model = computed(() => status.value?.available ? status.value.model : undefined)
-const detail = computed(() =>
-  checkError.value || status.value?.message || (status.value?.credentialsReady ? '已找到本机凭证。' : '')
-)
+const statusMessage = computed(() => {
+  switch (operation.value) {
+    case 'initial': return ''
+    case 'check': return '正在重新检测…'
+    case 'test': return '正在请求模型…'
+    default:
+      return testResult.value?.message || checkError.value || status.value?.message ||
+        (status.value?.credentialsReady ? '已找到本机凭证。' : '')
+  }
+})
+const showSetup = computed(() => {
+  const issue = testResult.value?.issue ?? status.value?.issue
+  return !operation.value && ['configuration', 'credentials', 'modelUnavailable', 'modelAccess'].includes(issue ?? '')
+})
+const piCommand = computed(() => {
+  const configDir = status.value?.configDir
+  const executable = status.value?.executable
+  if (!configDir || !executable) return undefined
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+  return `PI_CODING_AGENT_DIR=${quote(configDir)} ${quote(executable)} --no-extensions --no-approve`
+})
 let request: AbortController | undefined
 
-async function checkRuntime() {
+async function checkRuntime(kind: 'initial' | 'check' = 'check') {
   if (request) return
   const current = new AbortController()
   request = current
-  operation.value = 'check'
+  operation.value = kind
   checkError.value = ''
   testResult.value = undefined
   readyModel.value = undefined
@@ -64,9 +82,10 @@ async function testConnection() {
     readyModel.value = target
   } catch (cause) {
     if (!current.signal.aborted) {
-      testResult.value = { connected: false, message: errorMessage(cause) }
-      const issue = cause instanceof ApiError ? cause.context.piIssue : undefined
-      if (!['subscription', 'credentials', 'modelAccess', 'modelUnavailable', 'modelChanged'].includes(String(issue))) {
+      const value = cause instanceof ApiError ? cause.context.piIssue : undefined
+      const issue = typeof value === 'string' ? value : undefined
+      testResult.value = { connected: false, message: errorMessage(cause), issue }
+      if (!['subscription', 'configuration', 'credentials', 'modelAccess', 'modelUnavailable', 'modelChanged'].includes(issue ?? '')) {
         readyModel.value = target
       }
     }
@@ -84,7 +103,7 @@ watch([() => props.active, () => props.resumeRunId], ([active]) => {
   operation.value = undefined
   status.value = undefined
   readyModel.value = undefined
-  if (active) void checkRuntime()
+  if (active) void checkRuntime('initial')
 }, { immediate: true })
 onBeforeUnmount(() => request?.abort())
 </script>
@@ -93,16 +112,47 @@ onBeforeUnmount(() => request?.abort())
   <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || status?.available === false || testResult?.connected === false }">
     <p class="model-label">
       <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : 'Pi' }}</Badge>
-      <span v-if="status?.model">{{ status.model.provider }} / {{ status.model.id }}</span>
+      <span v-if="status?.model">
+        {{ resumeRunId ? '原会话模型' : '本机模型' }} · {{ status.model.provider }} / {{ status.model.id }}
+      </span>
     </p>
-    <LoadingSkeleton v-if="operation === 'check' && !status" variant="text" :rows="2" label="正在检查 Pi 版本、模型和本机凭证" />
-    <AlertDescription v-else role="status" aria-atomic="true" class="col-start-1 text-current">
-      {{ operation === 'check' ? '正在重新检测…' : operation === 'test' ? '正在请求模型…' : testResult?.message || detail }}
+    <p v-if="status?.configDir" class="config-directory">本机 Pi 配置目录 <code>{{ status.configDir }}</code></p>
+    <LoadingSkeleton v-if="operation === 'initial'" variant="text" :rows="2" label="正在检查 Pi 版本、模型和本机凭证" />
+    <AlertDescription role="status" aria-atomic="true" class="col-start-1 text-current">
+      {{ statusMessage }}
     </AlertDescription>
+    <div v-if="showSetup" class="model-setup">
+      <p class="font-medium">{{ resumeRunId ? '如何恢复原会话模型' : '如何配置模型' }}</p>
+      <p v-if="!status?.configDir">
+        检查启动工作台时的 <code>PI_CODING_AGENT_DIR</code> 设置。Pi 默认使用 <code>~/.pi/agent</code>。
+      </p>
+      <ol class="list-decimal space-y-1 pl-5">
+        <li>
+          在本机 Pi 配置目录的 <code>models.json</code> 中声明自定义供应商、模型和凭证。
+          <template v-if="piCommand">
+            内置供应商可执行以下命令打开工作台所用的 Pi，再用 <code>/login</code> 登录。
+            <code class="model-command">{{ piCommand }}</code>
+          </template>
+          <template v-else>
+            内置供应商可在确认工作台使用的 Pi 程序和配置目录后，通过 <code>/login</code> 登录。
+          </template>
+        </li>
+        <li v-if="resumeRunId">确认本机 Pi 中仍有上方原会话使用的供应商和模型。</li>
+        <li v-else>
+          用 <code>/model</code> 找到模型并按 <kbd>Ctrl+S</kbd> 保存为默认，或在 <code>settings.json</code> 中设置 <code>defaultProvider</code> 和 <code>defaultModel</code>。
+          如果配置了 <code>enabledModels</code>，请确保启动范围包含所需模型。
+        </li>
+        <li v-if="piCommand">
+          可离线核对可用模型。
+          <code class="model-command">{{ piCommand }} --offline --list-models</code>
+        </li>
+      </ol>
+      <p>配置保存后点击「重新检测」。修改 <code>PI_CODING_AGENT_DIR</code> 或凭证环境变量后，请从设有新值的终端重新启动工作台。</p>
+    </div>
     <p v-if="model" :id="testDescription" class="muted">连接测试会发送一条简短请求，可能使用模型额度。</p>
     <div class="model-actions">
       <Button type="button" variant="outline" size="sm" :aria-disabled="busy || !!operation" @click="!busy && checkRuntime()">
-        <LoadingIndicator :active="operation === 'check' && !!status" />
+        <LoadingIndicator :active="operation === 'check'" />
         重新检测
       </Button>
       <Button
@@ -125,7 +175,9 @@ onBeforeUnmount(() => request?.abort())
 .pi-readiness { display: grid; gap: 6px; }
 .pi-readiness p { margin: 0; }
 .model-label, .model-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
-.model-label span { min-width: 0; overflow-wrap: anywhere; }
+.model-label span, .config-directory, .model-setup { min-width: 0; overflow-wrap: anywhere; }
+.model-setup { display: grid; gap: 4px; }
+.model-command { display: block; margin-block: 2px; white-space: pre-wrap; }
 .model-actions { margin-top: 4px; }
 .model-actions button[aria-disabled='true'] { opacity: 0.65; }
 </style>

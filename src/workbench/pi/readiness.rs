@@ -11,11 +11,15 @@ use semver::Version;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    env, fs,
+    env,
+    ffi::{CStr, OsStr},
+    fs,
     io::{ErrorKind, Read},
-    os::unix::fs::MetadataExt,
+    mem::MaybeUninit,
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
     process::Command,
+    ptr,
     sync::Mutex,
     time::Duration,
 };
@@ -61,7 +65,10 @@ fn pi_command(executable: &Path, protected: &[PathBuf]) -> Result<Command> {
     )
     .map_err(|_| not_ready("Pi 运行环境的 PATH 无效"))?;
     let mut command = Command::new(executable);
-    command.env("PATH", path).env("PI_TELEMETRY", "0");
+    command
+        .env("PATH", path)
+        .env("HOME", host_home()?)
+        .env("PI_TELEMETRY", "0");
     for variable in [
         "NODE_OPTIONS",
         "NODE_PATH",
@@ -74,38 +81,72 @@ fn pi_command(executable: &Path, protected: &[PathBuf]) -> Result<Command> {
     Ok(command)
 }
 
-fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
-    let home = || {
-        directories::BaseDirs::new()
-            .map(|dirs| dirs.home_dir().to_owned())
-            .ok_or_else(|| not_ready("无法定位 Pi 配置目录，请设置 PI_CODING_AGENT_DIR"))
+fn configuration_error(message: &str) -> YssError {
+    not_ready(message).context("piIssue", "configuration")
+}
+
+fn host_home() -> Result<PathBuf> {
+    // A workbench launcher can supply a temporary HOME. Ask macOS for the current account home.
+    let mut account = MaybeUninit::<libc::passwd>::uninit();
+    let mut result = ptr::null_mut();
+    let size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut buffer = vec![0; usize::try_from(size).unwrap_or(0).max(16 * 1024)];
+    let code = unsafe {
+        libc::getpwuid_r(
+            libc::geteuid(),
+            account.as_mut_ptr(),
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
     };
+    if code == 0 && !result.is_null() {
+        let directory = unsafe { (*result).pw_dir };
+        if !directory.is_null() {
+            let home = Path::new(OsStr::from_bytes(
+                unsafe { CStr::from_ptr(directory) }.to_bytes(),
+            ));
+            if home.is_absolute() {
+                return Ok(home.to_owned());
+            }
+        }
+    }
+    Err(configuration_error(
+        "无法定位当前 macOS 用户的主目录，请用配置 Pi 的账户启动工作台",
+    ))
+}
+
+fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
     let path = match env::var_os("PI_CODING_AGENT_DIR").filter(|value| !value.is_empty()) {
         Some(value) => {
             let path = PathBuf::from(value);
             match path.strip_prefix("~") {
-                Ok(relative) => home()?.join(relative),
+                Ok(relative) => host_home()?.join(relative),
                 Err(_) => std::path::absolute(path)?,
             }
         }
-        None => home()?.join(".pi/agent"),
+        None => host_home()?.join(".pi/agent"),
     };
     let path = fs::canonicalize(&path).unwrap_or(path);
     if protected.iter().any(|root| path.starts_with(root)) {
-        return Err(not_ready("Pi 配置目录须在工程和工作台数据目录之外"));
+        return Err(configuration_error(
+            "Pi 配置目录须在工程和工作台数据目录之外，请核对 PI_CODING_AGENT_DIR",
+        ));
     }
     Ok(path)
 }
 
-fn configured_model(config_dir: &Path) -> Result<Option<PiModel>> {
+fn fixed_default_model(config_dir: &Path) -> Result<Option<PiModel>> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Settings {
         default_provider: Option<String>,
         default_model: Option<String>,
+        enabled_models: Option<Vec<String>>,
     }
 
-    let unavailable = || not_ready("无法读取 Pi 默认模型配置，请在 Pi 中重新选择模型");
+    let unavailable =
+        || configuration_error("无法读取 Pi 默认模型，请核对 settings.json 中的供应商和模型 ID");
     let file = match fs::File::open(config_dir.join("settings.json")) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
@@ -118,13 +159,20 @@ fn configured_model(config_dir: &Path) -> Result<Option<PiModel>> {
     if bytes.len() as u64 > SETTINGS_LIMIT {
         return Err(unavailable());
     }
-    let settings: Settings = serde_json::from_slice(&bytes).map_err(|_| unavailable())?;
+    let json = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let settings: Settings = serde_json::from_slice(json).map_err(|_| unavailable())?;
+    // Ask Pi to resolve startup patterns and partial defaults using its own selection rules.
+    if settings
+        .enabled_models
+        .is_some_and(|models| !models.is_empty())
+    {
+        return Ok(None);
+    }
     match (settings.default_provider, settings.default_model) {
-        (None, None) => Ok(None),
         (Some(provider), Some(id)) => PiModel::new(&provider, &id)
             .map(Some)
             .ok_or_else(unavailable),
-        _ => Err(unavailable()),
+        _ => Ok(None),
     }
 }
 
@@ -140,7 +188,12 @@ fn check_credentials(
         return Ok(());
     }
     match result["reason"].as_str() {
-        Some("provider_not_found") => Err(model_unavailable()),
+        Some("provider_not_found") => {
+            Err(not_ready("本机 Pi 中未找到该模型供应商").context("piIssue", "modelUnavailable"))
+        }
+        Some("invalid_state") => Err(configuration_error(
+            "Pi 无法读取有效的供应商或凭证配置，请核对 models.json 和登录状态",
+        )),
         Some("credentials_not_configured" | "credential_not_available") => {
             status.credentials_ready = Some(false);
             Err(
@@ -210,7 +263,19 @@ pub(crate) fn check_runtime(
     let private = sandbox::PrivateDir::new()?;
     let executable = locate_pi()?;
     let mut probe = pi_command(&executable, &protected)?;
-    probe.current_dir(private.path()).arg("--version");
+    let executable_name = executable.to_str().ok_or_else(|| {
+        configuration_error("Pi 可执行文件路径须为有效 UTF-8，请核对 YSS_PI_EXECUTABLE")
+    })?;
+    let config_dir = config_directory(&protected)?;
+    let config_name = config_dir.to_str().ok_or_else(|| {
+        configuration_error("Pi 配置目录须为有效 UTF-8，请核对 PI_CODING_AGENT_DIR")
+    })?;
+    status.executable = Some(executable_name.to_owned());
+    status.config_dir = Some(config_name.to_owned());
+    probe
+        .current_dir(private.path())
+        .env("PI_CODING_AGENT_DIR", &config_dir)
+        .arg("--version");
     let (exit, stdout, _) = process::capture_command(probe, cancel, Duration::from_secs(5))?;
     let version = std::str::from_utf8(&stdout)
         .ok()
@@ -226,10 +291,9 @@ pub(crate) fn check_runtime(
     sandbox::probe(cancel)?;
     status.sandbox_ready = true;
 
-    let config_dir = config_directory(&protected)?;
     status.model = match model {
         Some(model) => Some(model.clone()),
-        None => configured_model(&config_dir)?,
+        None => fixed_default_model(&config_dir)?,
     };
     let mut command = rpc_command(&executable, &config_dir, &protected)?;
     command

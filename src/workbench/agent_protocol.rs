@@ -70,6 +70,9 @@ pub(crate) struct RuntimeStatus {
     pub version: Option<semver::Version>,
     pub model: Option<PiModel>,
     pub credentials_ready: Option<bool>,
+    pub config_dir: Option<String>,
+    pub executable: Option<String>,
+    pub issue: Option<String>,
     pub message: Option<String>,
 }
 
@@ -123,7 +126,10 @@ pub(crate) fn runtime_status(
     let mut status = RuntimeStatus::default();
     match check(cancel, &mut status, protected, model) {
         Ok(_) => status.available = true,
-        Err(error) => status.message = Some(error.message),
+        Err(mut error) => {
+            status.issue = error.context.remove("piIssue");
+            status.message = Some(error.message);
+        }
     }
     status
 }

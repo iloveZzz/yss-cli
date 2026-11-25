@@ -60,8 +60,11 @@ export interface PiRuntimeStatus {
   available: boolean
   sandboxReady: boolean
   version: string | null
+  executable: string | null
+  configDir: string | null
   model: PiModel | null
   credentialsReady: boolean | null
+  issue: string | null
   message: string | null
 }
 export interface SystemInfo {
