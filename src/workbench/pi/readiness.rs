@@ -24,7 +24,11 @@ use std::{
     time::Duration,
 };
 
-const SUPPORTED_VERSIONS: [Version; 2] = [Version::new(1, 5, 2), Version::new(1, 6, 0)];
+const SUPPORTED_VERSIONS: [Version; 3] = [
+    Version::new(1, 5, 2),
+    Version::new(1, 6, 0),
+    Version::new(1, 6, 1),
+];
 const SETTINGS_LIMIT: u64 = 1024 * 1024;
 static CONNECTION_TEST: Mutex<()> = Mutex::new(());
 
@@ -44,7 +48,7 @@ fn locate_pi() -> Result<PathBuf> {
     pi.and_then(|path| fs::canonicalize(path).ok())
         .filter(|path| is_executable(path))
         .ok_or_else(|| {
-            not_ready("未找到本机 Pi，请安装 Pi 1.5.2 或 1.6.0，或设置 YSS_PI_EXECUTABLE")
+            not_ready("未找到本机 Pi，请安装 Pi 1.5.2、1.6.0 或 1.6.1，或设置 YSS_PI_EXECUTABLE")
         })
 }
 
@@ -293,7 +297,7 @@ impl PiProbe {
         status.version = Some(version.clone());
         if !SUPPORTED_VERSIONS.contains(&version) {
             return Err(not_ready(
-                "工作台当前支持 Pi 1.5.2 和 1.6.0，请核对本机 Pi 版本",
+                "工作台当前支持 Pi 1.5.2、1.6.0 和 1.6.1，请核对本机 Pi 版本",
             ));
         }
         Ok(Self {

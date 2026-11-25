@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "yss-cli"
-version = "3.17.1"
+version = "3.18.0"
 dependencies = [
  "axum",
  "cap-fs-ext",
