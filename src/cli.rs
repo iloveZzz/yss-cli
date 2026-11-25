@@ -4,7 +4,10 @@ use crate::{
     model::{BuildInfo, InstallationKind, Profile},
     output::{self, OutputEnvelope},
 };
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{
+    Args, CommandFactory, FromArgMatches, Parser, Subcommand,
+    error::{ContextKind, ContextValue, ErrorKind},
+};
 use serde::Serialize;
 use std::{
     ffi::OsString,
@@ -15,8 +18,8 @@ use std::{
 #[derive(Parser)]
 #[command(
     name = "yss",
-    about = "安装项目模板、管理技能并生成 Java / Vue 工程",
-    after_help = "常用示例：\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n写入命令直接执行；添加 --dry-run 可先预览。CLI 安装文件与技能，完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实 Git、远程、Issue tracker 和按需 Home 关系。仅安装 CLI/skills 不自动执行这些接入动作。",
+    about = "管理 YSS 项目资源、生成 Java / Vue 工程并运行本机 Spec 工作台",
+    after_help = "常用命令\n  yss version --json\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n子命令帮助列出 --dry-run 时可用该参数预览，去掉该参数执行写入。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实 Git、远程和 Issue tracker，并按需配置 Home 关系。",
     disable_version_flag = true
 )]
 pub struct Cli {
@@ -34,21 +37,24 @@ pub struct Cli {
 }
 #[derive(Subcommand)]
 pub enum Command {
-    #[command(about = "启动个人本地 Spec 工作台，或读取快照")]
+    #[command(
+        about = "启动个人本地 Spec 工作台，或查询、登记和续办 Spec",
+        after_help = WORKBENCH_HELP
+    )]
     Workbench(WorkbenchArgs),
     #[command(
         about = "在新目录或空目录安装 YSS 项目资源",
-        after_help = "示例：\n  yss init --root ./my-project --profile spec --dry-run\n\n去掉 --dry-run 执行；已有内容的目录使用 yss attach，已接入 YSS 则使用 yss sync。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查真实 Git 边界，复用或按授权创建适用本地仓，核实远程、Issue tracker，再按需配置 Home。若已知远程先核实是否有内容；非空远程先复用 checkout 或 clone，不另建历史。init 不执行 Git 初始化、远程创建或推送；仅安装技能不自动开展完整接入。"
+        after_help = "示例\n  yss init --root ./my-project --profile spec --dry-run\n\n--root 指向空目录或待创建的目录，新目录的父目录须已存在。去掉 --dry-run 执行安装。\n已有内容的目录使用 yss attach，已接入 YSS 的项目使用 yss sync。\n完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实真实 Git 边界、远程和 Issue tracker，并按需配置 Home。已知远程已有内容时，先复用 checkout 或 clone。"
     )]
     Init(InstallArgs),
     #[command(
-        about = "将 YSS 接入已有普通项目",
-        after_help = "示例：\n  yss attach --root ./existing-project --profile backend --installation skills --dry-run\n\n已接入 YSS 的项目使用 yss sync。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 检查真实 Git 边界，复用所属仓并核实远程、Issue tracker，再按需补齐 Home 关系。保留已有 tracker；新工程尚无已确认 tracker 且已核实唯一 GitHub/GitLab 项目时，可默认采用该项目 Issues 并明确报告。attach 仅安装文件与技能，不代表 Git、远程或 tracker 已配置完成。"
+        about = "将 YSS 项目资源安装到已有目录",
+        after_help = "示例\n  yss attach --root ./existing-project --profile backend --installation skills --dry-run\n\n--root 指向已有且尚未接入 YSS 的项目根目录。去掉 --dry-run 执行安装。已接入 YSS 的项目使用 yss sync。\n完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实真实 Git 边界、复用所属仓、核实远程和 Issue tracker，并按需补齐 Home 关系。保留已有 tracker。新工程尚无已确认 tracker 且已核实唯一 GitHub/GitLab 项目时，可采用该项目 Issues 并明确报告。"
     )]
     Attach(InstallArgs),
     #[command(
-        about = "同步已接入项目的内嵌模板与技能",
-        after_help = "示例：\n  yss sync --root ./my-project --dry-run\n  yss sync --root ./my-project --installation skills --dry-run"
+        about = "将当前 CLI 内嵌的模板与技能同步到已接入项目",
+        after_help = "示例\n  yss sync --root ./my-project --dry-run --json\n  yss sync --root ./my-project --installation skills --dry-run --json\n\n预览后查看 result.changes 和 result.preserved，再去掉 --dry-run 执行。\n安装范围或内嵌模板变化时，已移出安装范围且与原收据一致的受管文件可能被删除。用户维护的文件予以保留，本地内容与模板变更冲突时停止并报告路径。"
     )]
     Sync(SyncArgs),
     #[command(about = "查看或补装项目内的受管技能", subcommand)]
@@ -56,13 +62,13 @@ pub enum Command {
     #[command(about = "查看平台或生成 Java / Vue 工程", subcommand)]
     Scaffold(ScaffoldCommand),
     #[command(
-        about = "检查项目或 CLI 安装及本地差异",
-        after_help = "示例：\n  yss doctor --root ./my-project"
+        about = "只读检查项目或 CLI 的安装、本地差异与事务状态",
+        after_help = "示例\n  yss doctor --root ./my-project --json\n  yss doctor --root ./yss-tools --json\n\n--root 指向项目根目录或 CLI 工具目录，省略时检查当前目录。--profile 用于校验已有项目安装的类型。\n查看 result.installation 的安装记录、result.differences 的本地文件差异，以及 result.transactions.pending 的未完成事务。待清理的事务列在 result.transactions.cleanupPending。\n项目的 result.installation 为 null 表示没有项目安装收据。使用 yss sync --dry-run 预览当前 CLI 内嵌资源对项目的更新。"
     )]
     Doctor(RootArgs),
     #[command(
         about = "恢复未完成事务或重试已提交事务的清理",
-        after_help = "示例：\n  yss recover --root ./my-project --dry-run"
+        after_help = "示例\n  yss doctor --root ./my-project --json\n  yss recover --root ./my-project --dry-run\n  yss recover --root ./my-project\n\n有未完成事务时，--dry-run 检查回滚条件并预览操作数，去掉该参数执行回滚。\n没有未完成事务且仍有待清理材料时，实际运行会重试清理。已提交的文件变更继续生效。"
     )]
     Recover(RecoverArgs),
     #[command(
@@ -132,58 +138,282 @@ pub struct WorkbenchArgs {
 }
 #[derive(Subcommand)]
 pub enum WorkbenchCommand {
-    #[command(about = "登记目标、上报实际成果并核实生命周期进度", subcommand)]
+    #[command(
+        about = "登记目标、上报实际成果并核实生命周期进度",
+        subcommand,
+        after_help = WORKBENCH_PROGRESS_HELP
+    )]
     Progress(WorkbenchProgressCommand),
-    #[command(about = "登记或刷新一个主 Spec 及关联产物，保留个人备注与历史")]
+    #[command(
+        about = "登记或刷新一个主 Spec 及关联产物，保留个人备注与历史",
+        after_help = WORKBENCH_REGISTER_HELP
+    )]
     Register {
-        #[arg(long)]
+        #[arg(long, help = "主 Spec 所在工程根目录")]
         root: PathBuf,
-        #[arg(long)]
+        #[arg(long, help = "主 Spec 相对工程根的路径")]
         source: String,
     },
-    #[command(about = "只读生成包含问题答复的 Agent 续办要求")]
+    #[command(
+        about = "只读生成包含问题答复的 Agent 续办要求",
+        after_help = WORKBENCH_REQUEST_HELP
+    )]
     Request {
-        #[arg(long)]
+        #[arg(long, help = "已登记的实际 Spec ID")]
         spec_id: String,
     },
     #[command(about = "保存用户已明确给出的答复或延期；答复不等于解决")]
     Respond(WorkbenchResponseArgs),
-    #[command(about = "核实一个 Spec 的材料，记录参考、依赖或采用版本")]
+    #[command(
+        about = "核实一个 Spec 的材料，记录参考、依赖或采用版本",
+        after_help = REVIEW_MATERIALS_HELP
+    )]
     ReviewMaterials(ProgressInputArgs),
-    #[command(about = "只读输出个人状态与来源健康；可配合 --json")]
+    #[command(
+        about = "只读输出个人状态与来源健康",
+        after_help = WORKBENCH_SNAPSHOT_HELP
+    )]
     Snapshot,
-    #[command(about = "只读筛选已纳管的 Spec 或任务")]
+    #[command(
+        about = "只读筛选已纳管的 Spec 或任务",
+        after_help = WORKBENCH_QUERY_HELP
+    )]
     Query(WorkbenchQueryArgs),
-    #[command(about = "只读查看 Spec 八阶段、任务与实际历史")]
+    #[command(
+        about = "只读查看 Spec 八阶段、任务与实际历史",
+        after_help = WORKBENCH_LIFECYCLE_HELP
+    )]
     Lifecycle {
-        #[arg(long)]
+        #[arg(long, help = "已登记的实际 Spec ID")]
         spec: String,
     },
 }
 
 #[derive(Subcommand)]
 pub enum WorkbenchProgressCommand {
-    #[command(about = "只读采集检查采用的文件和目录摘要")]
+    #[command(
+        about = "只读采集检查采用的文件和目录摘要",
+        after_help = PROGRESS_OBSERVE_INPUTS_HELP
+    )]
     ObserveInputs {
-        #[arg(long)]
+        #[arg(long, help = "已登记的实际工程 ID")]
         project: String,
-        #[arg(long = "path", required = true)]
+        #[arg(
+            long = "path",
+            required = true,
+            help = "工程相对文件或目录路径，可重复指定"
+        )]
         paths: Vec<String>,
     },
-    #[command(about = "登记本次目标、适用阶段、参与工程和规格版本")]
+    #[command(
+        about = "登记本次目标、适用阶段、参与工程和规格版本",
+        after_help = PROGRESS_SET_GOAL_HELP
+    )]
     SetGoal(ProgressInputArgs),
-    #[command(about = "上报带版本与证据的阶段成果，重复上报使用原 ID")]
+    #[command(
+        about = "上报带版本与证据的阶段成果，重复上报使用原 ID",
+        after_help = PROGRESS_REPORT_HELP
+    )]
     Report(ProgressInputArgs),
-    #[command(about = "记录用户对当前范围、版本和证据的明确确认")]
+    #[command(
+        about = "记录用户对当前范围、版本和证据的明确决定",
+        after_help = PROGRESS_CONFIRM_HELP
+    )]
     Confirm(ProgressInputArgs),
-    #[command(about = "复核已登记 Spec 的当前事实，历史时间缺失时保留未知")]
+    #[command(
+        about = "复核已登记 Spec 的当前事实，历史时间缺失时保留未知",
+        after_help = PROGRESS_RECONCILE_HELP
+    )]
     Reconcile {
-        #[arg(long)]
+        #[arg(long, help = "已登记的实际 Spec ID")]
         spec_id: String,
         #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
         request_id: String,
     },
 }
+
+const WORKBENCH_HELP: &str = r#"启动本机浏览器工作台
+  yss workbench
+  yss workbench --no-open
+
+只读定位、查看或续办已登记的 Spec
+  yss workbench snapshot --json
+  yss workbench query --entity spec --q "<标题或主文件路径关键词>" --json
+  yss workbench lifecycle --spec "<实际 Spec ID>" --json
+  yss workbench request --spec-id "<实际 Spec ID>" --json
+
+启动持续服务时不能使用 --json。读取数据时使用对应子命令。
+如原工作台使用自定义数据目录，每条命令都在 workbench 后加原 --data-dir "<绝对路径>"。
+续办时核对查询结果对应的工程根与主文件，沿用已登记的 Spec ID。"#;
+
+const WORKBENCH_REGISTER_HELP: &str = r#"以实际工程根及主 Spec 路径登记或刷新
+  yss workbench register --root "/absolute/project" --source "docs/spec/topic/spec.md" --json
+
+替换示例路径。--source 相对 --root，沿用同一主文件刷新已有登记。
+保存 result.projectId 和 result.specId 供后续操作使用。result.revision 为返回的工作台修订号。
+使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
+const WORKBENCH_REQUEST_HELP: &str = r#"生成已登记 Spec 的续办要求
+  yss workbench request --spec-id "<实际 Spec ID>" --json
+
+--json 在 result 中返回续办对象，result.text 可复制给接手者，
+result.questions 和 result.history 可分别读取当前问题及历史答复。
+result.projectRoot 和 result.sourcePath 标明工程根及相对主文件路径。
+省略 --json 时直接输出格式化的续办对象，续办文本在顶层 text。
+沿用原 --data-dir，并通过 lifecycle 查看当前目标版本和采用的 Spec 摘要。"#;
+
+const WORKBENCH_SNAPSHOT_HELP: &str = r#"  yss workbench snapshot --json
+
+在 result.projects 和 result.specs 中查看工程与 Spec。各项的 record.id 为登记 ID，
+Spec 的 record.sourcePath 为工程相对主文件路径。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
+const WORKBENCH_QUERY_HELP: &str = r#"按标题或主文件路径定位现有 Spec，包含停用和已结束项
+  yss workbench query --entity spec --q "<标题或路径关键词>" --activity all --include-closed --json
+
+查询有效进度待复核的 Spec
+  yss workbench query --entity spec --progress-basis effective --attention needsReview --json
+
+默认查询启用的 Spec，隐藏已完成和已取消项，按最近更新排序。
+personal 使用个人标记。effective 用证据和当前版本的人工更正汇总 Spec 进度，
+缺少有效进度汇总时沿用个人标记。--attention 筛选进度汇总中的关注项。
+在 result.items 查看命中条目，specId 为所属 Spec ID，projectId 为所属工程 ID，
+id 为当前 Spec 或任务 ID。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
+const WORKBENCH_LIFECYCLE_HELP: &str = r#"  yss workbench lifecycle --spec "<实际 Spec ID>" --json
+
+result.spec.record 和 result.stages 各项的 record 保存个人标记，各阶段的 taskCounts 为任务计数。
+result.progress.stages 展示基于实际证据的有效阶段进度，result.progressHistory 保留目标、报告、更正和决定。
+result.spec.content.artifactDigest 为当前产物摘要。已登记目标的采用摘要在 result.progress.goal.specDigest，
+目标版本在 result.progress.goalVersion。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
+const WORKBENCH_PROGRESS_HELP: &str = r#"先用 yss workbench lifecycle --spec "<实际 Spec ID>" --json 核对当前产物及已登记目标。
+用 set-goal 登记目标，再读 lifecycle 取得目标版本后上报实际进展。
+核实当前证据与用户明确决定后，使用 confirm 保存该决定。
+参与工程或产物变化后使用 reconcile，再读 lifecycle 核对影响。
+使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
+写入时用稳定的 --request-id，同一写入重试沿用原 ID 和原输入。"#;
+
+const PROGRESS_SET_GOAL_HELP: &str = r#"先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
+specId 取 result.spec.record.id，specDigest 取 result.spec.content.artifactDigest。
+使用 snapshot 时，在 result.specs 中按 record.id 定位同一 Spec，再取该项的 content.artifactDigest。
+
+将以下 JSON 保存为 goal.json，替换占位值并按实际目标填写。
+{
+  "specId": "<实际 Spec ID>",
+  "scope": "<本次已授权范围>",
+  "target": {"kind": "local", "label": "<本次本地终点>"},
+  "stages": [
+    {"stage": "spec", "applicable": true, "reason": "<适用依据>"}
+  ],
+  "participants": [
+    {"projectId": "<实际 Spec 所属工程 ID>", "role": "spec", "label": "<工程名称>"}
+  ],
+  "acceptanceRefs": ["<原任务或 FR/AC 的实际引用>"],
+  "specDigest": "<当前实际 Spec 摘要>"
+}
+
+  yss workbench progress set-goal --input goal.json --request-id "<本次写入的稳定请求 ID>" --json
+
+target.kind 可用 local、merged、environment。environment 须填 target.reference 指明实际环境。
+stage 可用 research、analysis、spec、prototype、handoff、implementation、verification、delivery。
+每阶段只列一次，至少一项 applicable 为 true。applicable 为 false 时填写 reason。
+participants 使用已登记的工程 ID，见 snapshot 的 result.projects 各项的 record.id。
+role 可用 spec、backend、frontend、integration。spec 角色的 projectId 取 result.spec.record.projectId。
+相同写入重试沿用 --request-id 和原 JSON。保存后从 lifecycle 的 result.progress.goalVersion 读取目标版本。"#;
+
+const PROGRESS_REPORT_HELP: &str = r#"先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
+specId 取 result.spec.record.id，goalVersion 取 result.progress.goalVersion，
+specDigest 取 result.progress.goal.specDigest。选择已登记目标中的适用阶段。
+
+将以下 JSON 保存为 report.json，替换占位值并按实际进展填写。
+{
+  "id": "<本次报告的稳定 ID>",
+  "specId": "<实际 Spec ID>",
+  "goalVersion": "<实际目标版本>",
+  "specDigest": "<目标采用的 Spec 摘要>",
+  "stage": "spec",
+  "role": "spec",
+  "progress": "doing",
+  "validity": "current",
+  "summary": "<已取得的实际进展>"
+}
+
+  yss workbench progress report --input report.json --request-id "<本次写入的稳定请求 ID>" --json
+
+stage 可用 research、analysis、spec、prototype、handoff、implementation、verification、delivery。
+role 为 spec 时可省略 projectId。backend、frontend、integration 须填目标中与该角色匹配的实际工程 ID。
+progress 可用 unmarked、todo、doing、blocked、done、skipped。blocked 须填 blocker，skipped 须填 scopeRefs。
+validity 可用 current、unverified、needsSync、needsReview。
+在 evidence 中记录实际证据项的 kind、label、reference 及可选的 outcome。
+kind 可用 document、artifact、command、test、merge、environment、acceptance、other。
+outcome 可用 passed、failed、observed。按需使用以下命令采集检查前的实际输入。
+
+  yss workbench progress observe-inputs --project "<实际工程 ID>" --path "<工程相对路径>" --json
+
+把返回的 result.inputs 和 result.version 分别加入 inputPaths 和 versions 数组，保留原 observedDigest。
+相同写入重试沿用报告 id、--request-id 和原 JSON。新报告使用新的 id 和 --request-id。"#;
+
+const PROGRESS_CONFIRM_HELP: &str = r#"先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
+specId 取 result.spec.record.id，goalVersion 取 result.progress.goalVersion。
+scope 与 result.progress.goal.scope 逐字相同，evidenceDigest 取用户本次核对的 result.progress.evidenceDigest。
+
+将以下 JSON 保存为 confirmation.json，按用户已明确表达的实际决定替换占位值。
+{
+  "specId": "<实际 Spec ID>",
+  "goalVersion": "<当前目标版本>",
+  "stage": "verification",
+  "scope": "<用户核对的当前完整目标范围>",
+  "evidenceDigest": "<用户核对的当前证据摘要>",
+  "source": "<实际确认人或原始答复出处>",
+  "decision": "confirm"
+}
+
+  yss workbench progress confirm --input confirmation.json --request-id "<本次写入的稳定请求 ID>" --json
+
+stage 可用 spec（规格）、verification（业务验收）、delivery（最终交付）。
+decision 可用 confirm 或 reject。确认覆盖当前目标的完整范围。
+证据变化时先重读 lifecycle，按用户对相应范围和证据的实际决定填写。
+相同写入重试沿用 --request-id 和原 JSON。保存后可查 lifecycle 的 result.progressHistory.decisions。"#;
+
+const PROGRESS_OBSERVE_INPUTS_HELP: &str = r#"在执行检查前采集该检查采用的实际工程输入
+  yss workbench progress observe-inputs --project "<实际工程 ID>" --path "src" --path "config/check.yml" --json
+
+--project 使用已登记工程的 ID，见 snapshot 的 result.projects 各项的 record.id。
+替换示例路径，可重复传入工程相对文件或目录。使用自定义目录时，在 workbench 后加原 --data-dir。
+把 result.inputs 和 result.version 分别作为条目加入 report 的 inputPaths 和 versions 数组。
+保留检查前的 observedDigest。输入发生变化后重新采集并执行检查。"#;
+
+const PROGRESS_RECONCILE_HELP: &str = r#"Spec、参与工程或采用版本变化后，写入一次复核请求，再只读查看当前汇总
+  yss workbench progress reconcile --spec-id "<实际 Spec ID>" --request-id "<本次复核的稳定请求 ID>" --json
+  yss workbench lifecycle --spec "<同一实际 Spec ID>" --json
+
+相同写入重试沿用原 --request-id。使用自定义目录时，两条命令都在 workbench 后加原 --data-dir。
+在 lifecycle 的 result.progress 核对有效进度及受影响项，历史依据可查 result.progressHistory。"#;
+
+const REVIEW_MATERIALS_HELP: &str = r#"先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
+specId 取 result.spec.record.id，observedDigest 取 result.spec.content.materialReviewDigest。
+摘要缺失时记录材料核实待同步。
+材料路径取 result.spec.resources 各项的 record.target 或 result.spec.content.materialChanges 各项的 target。
+
+将以下 JSON 保存为 material-review.json，替换占位值并按实际核实结果填写。
+{
+  "specId": "<实际 Spec ID>",
+  "observedDigest": "<当前材料核实摘要>",
+  "reason": "<具体核实依据>",
+  "adoptLatest": ["<已关联且当前可读的本地材料路径>"]
+}
+
+  yss workbench review-materials --input material-review.json --request-id "<本次写入的稳定请求 ID>" --json
+
+adoptLatest 选择当前可读的本地材料新版。keepConfirmed 用于仍采用原确认版本的共用资料或依赖，
+须有原确认且当前材料可核对。每个路径只选一种处理方式。
+普通核实省略 bindings，沿用现有绑定。调整时传入完整显式绑定列表，usage 可用 reference、
+follow、dependency。dependency 须填 scopeRef，可为文本指定 section 的 start 和 end。
+相同写入重试沿用 --request-id 和原 JSON。新版内容确认由用户在工作台完成。"#;
 
 #[derive(Args)]
 pub struct ProgressInputArgs {
@@ -193,7 +423,11 @@ pub struct ProgressInputArgs {
     pub request_id: String,
 }
 
-fn progress_input<T: serde::de::DeserializeOwned>(input: &str) -> Result<T> {
+fn progress_input<T: serde::de::DeserializeOwned>(
+    input: &str,
+    help: &str,
+    required_fields: &[&str],
+) -> Result<T> {
     const LIMIT: u64 = 1024 * 1024;
     let bytes = if input == "-" {
         let mut bytes = Vec::new();
@@ -219,6 +453,26 @@ fn progress_input<T: serde::de::DeserializeOwned>(input: &str) -> Result<T> {
             ..crate::codec::Limits::manifest()
         },
     )
+    .map_err(|mut error| {
+        // Only typed decode errors carry a path once strict JSON validation has passed.
+        let Some(path) = error.path.as_deref() else {
+            return error;
+        };
+        if path == "."
+            && let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(&bytes)
+        {
+            let missing: Vec<_> = required_fields
+                .iter()
+                .copied()
+                .filter(|field| !object.contains_key(*field))
+                .collect();
+            if !missing.is_empty() {
+                error.message = format!("缺少必填字段 {}", missing.join("、"));
+            }
+        }
+        error.message.push_str(&format!("。请运行 {help} 查看示例"));
+        error
+    })
 }
 
 fn progress_action(
@@ -228,19 +482,49 @@ fn progress_action(
     Ok(match command {
         WorkbenchProgressCommand::SetGoal(args) => (
             Action::SetLifecycleGoal {
-                input: progress_input(&args.input)?,
+                input: progress_input(
+                    &args.input,
+                    "yss workbench progress set-goal --help",
+                    &["specId", "scope", "target", "specDigest"],
+                )?,
             },
             args.request_id.clone(),
         ),
         WorkbenchProgressCommand::Report(args) => (
             Action::ReportProgress {
-                input: progress_input(&args.input)?,
+                input: progress_input(
+                    &args.input,
+                    "yss workbench progress report --help",
+                    &[
+                        "id",
+                        "specId",
+                        "goalVersion",
+                        "specDigest",
+                        "stage",
+                        "role",
+                        "progress",
+                        "validity",
+                        "summary",
+                    ],
+                )?,
             },
             args.request_id.clone(),
         ),
         WorkbenchProgressCommand::Confirm(args) => (
             Action::ConfirmProgress {
-                input: progress_input(&args.input)?,
+                input: progress_input(
+                    &args.input,
+                    "yss workbench progress confirm --help",
+                    &[
+                        "specId",
+                        "goalVersion",
+                        "stage",
+                        "scope",
+                        "evidenceDigest",
+                        "source",
+                        "decision",
+                    ],
+                )?,
             },
             args.request_id.clone(),
         ),
@@ -283,17 +567,21 @@ pub struct WorkbenchResponseArgs {
 }
 #[derive(Args)]
 pub struct WorkbenchQueryArgs {
-    #[arg(long, value_enum, default_value = "personal")]
+    #[arg(long, value_enum, default_value = "personal", help = "Spec 进度口径")]
     pub progress_basis: crate::workbench::progress::ProgressBasis,
-    #[arg(long, value_parser = ["awaitingConfirmation", "unverified", "needsSync", "needsReview", "conflict"])]
+    #[arg(
+        long,
+        value_parser = ["awaitingConfirmation", "unverified", "needsSync", "needsReview", "conflict"],
+        help = "有效进度关注项，可重复指定"
+    )]
     pub attention: Vec<String>,
-    #[arg(long, value_enum, default_value = "spec")]
+    #[arg(long, value_enum, default_value = "spec", help = "查询 Spec 或任务")]
     pub entity: crate::workbench::model::WorkEntity,
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", help = "按标题、主文件路径等字段搜索关键词")]
     pub q: String,
-    #[arg(long = "project")]
+    #[arg(long = "project", help = "按已登记工程 ID 筛选，可重复指定")]
     pub project_ids: Vec<String>,
-    #[arg(long = "spec")]
+    #[arg(long = "spec", help = "按已登记 Spec ID 筛选，可重复指定")]
     pub spec_ids: Vec<String>,
     #[arg(long = "stage", value_enum)]
     pub stages: Vec<crate::workbench::model::Stage>,
@@ -305,9 +593,9 @@ pub struct WorkbenchQueryArgs {
     pub reminder_kinds: Vec<String>,
     #[arg(long)]
     pub needs_reconfirmation: bool,
-    #[arg(long, value_enum, default_value = "active")]
+    #[arg(long, value_enum, default_value = "active", help = "按启用状态筛选")]
     pub activity: crate::workbench::model::ActivityScope,
-    #[arg(long)]
+    #[arg(long, help = "包含已完成及已取消项")]
     pub include_closed: bool,
     #[arg(long = "source-problems")]
     pub source_problems_only: bool,
@@ -325,7 +613,7 @@ pub struct Variables {
 }
 #[derive(Args)]
 pub struct InstallArgs {
-    #[arg(long, help = "目标项目目录；init 要求新目录或空目录")]
+    #[arg(long, help = "目标项目的根目录")]
     pub root: PathBuf,
     #[arg(
         long,
@@ -359,11 +647,7 @@ pub struct SyncArgs {
 }
 #[derive(Args)]
 pub struct RootArgs {
-    #[arg(
-        long,
-        default_value = ".",
-        help = "受管项目目录；doctor 也接受 CLI 工具目录"
-    )]
+    #[arg(long, default_value = ".", help = "本次操作的根目录")]
     pub root: PathBuf,
     #[arg(long, value_enum, help = "校验项目类型；须与已安装 profile 一致")]
     pub profile: Option<Profile>,
@@ -378,13 +662,13 @@ pub struct RecoverArgs {
 #[derive(Subcommand)]
 pub enum SkillsCommand {
     #[command(
-        about = "列出可用技能及其安装状态",
-        after_help = "示例：\n  yss skills list --root ./my-project"
+        about = "只读列出当前 Profile 可用的技能及其项目安装状态",
+        after_help = "示例\n  yss skills list --root ./my-project --json\n\n--root 指向已接入 YSS 的项目根目录，省略时使用当前目录。\nresult.available 列出可用技能，result.installed 按项目安装收据和 .agents/skills 下的实际文件列出状态。\n宿主还可通过个人目录或链接发现技能。要核实宿主能否调用，请检查该宿主启用的入口及其来源。"
     )]
     List(RootArgs),
     #[command(
         about = "补装指定技能及其依赖资源",
-        after_help = "示例：\n  yss skills ensure setup-yss-harness --root ./my-project --dry-run\n\n仅补装技能与必要资源，不自动配置 Git、远程或 Issue tracker。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 及已有授权继续。"
+        after_help = "示例\n  yss skills list --root ./my-project --json\n  yss skills ensure setup-yss-harness --root ./my-project --dry-run\n\n显式指定 --root 为已接入 YSS 的项目根目录，省略时使用当前目录。\n从同一目录的 skills list 结果选择一个或多个可用技能，去掉 --dry-run 补装。"
     )]
     Ensure(EnsureArgs),
 }
@@ -533,7 +817,11 @@ fn dispatch<'a>(
                         WorkbenchCommand::Progress(command) => progress_action(command)?,
                         WorkbenchCommand::ReviewMaterials(input) => (
                             crate::workbench::model::Action::ReviewMaterials {
-                                input: progress_input(&input.input)?,
+                                input: progress_input(
+                                    &input.input,
+                                    "yss workbench review-materials --help",
+                                    &["specId", "observedDigest", "reason"],
+                                )?,
                             },
                             input.request_id.clone(),
                         ),
@@ -816,6 +1104,156 @@ fn project_report<'a>(
     )?)))
 }
 
+fn context_strings(error: &clap::Error, kind: ContextKind) -> &[String] {
+    match error.get(kind) {
+        Some(ContextValue::String(value)) => std::slice::from_ref(value),
+        Some(ContextValue::Strings(values)) => values,
+        _ => &[],
+    }
+}
+
+fn public_arg<'a>(command: &'a clap::Command, label: &str) -> Option<&'a clap::Arg> {
+    let long = label.strip_prefix("--");
+    command.get_arguments().find(|arg| {
+        !arg.is_hide_set()
+            && (arg.to_string() == label || long.is_some_and(|name| arg.get_long() == Some(name)))
+    })
+}
+
+fn arg_label(arg: &clap::Arg) -> String {
+    if let Some(long) = arg.get_long() {
+        format!("--{long}")
+    } else if let Some(short) = arg.get_short() {
+        format!("-{short}")
+    } else {
+        arg.to_string()
+    }
+}
+
+fn argument_error(root: &clap::Command, error: &clap::Error) -> YssError {
+    let mut command = root;
+    let mut command_path = root.get_name().to_owned();
+    // Clap sets the binary name of each subcommand it actually enters during parsing.
+    while let Some(child) = command
+        .get_subcommands()
+        .find(|sc| sc.get_bin_name().is_some())
+    {
+        command = child;
+        command_path.push(' ');
+        command_path.push_str(command.get_name());
+    }
+    // Built-in help visits targets in a clone, so validate the usage prefix against the command tree.
+    if error.kind() == ErrorKind::InvalidSubcommand
+        && let Some(ContextValue::StyledStr(usage)) = error.get(ContextKind::Usage)
+    {
+        let usage = usage.to_string();
+        let mut tokens = usage.split_whitespace();
+        if tokens.next() == Some("Usage:")
+            && command_path
+                .split_whitespace()
+                .all(|name| tokens.next() == Some(name))
+        {
+            for token in tokens {
+                let Some(child) = command.get_subcommands().find(|child| {
+                    child.get_name() == token && token != "help" && !child.is_hide_set()
+                }) else {
+                    break;
+                };
+                command = child;
+                command_path.push(' ');
+                command_path.push_str(command.get_name());
+            }
+        }
+    }
+
+    let operands = |kind| {
+        context_strings(error, kind)
+            .iter()
+            .filter_map(|label| public_arg(command, label))
+            .map(arg_label)
+            .collect::<Vec<_>>()
+            .join("、")
+    };
+    let args = operands(ContextKind::InvalidArg);
+    let subject = if args.is_empty() {
+        "参数".to_owned()
+    } else {
+        format!("参数 {args}")
+    };
+    let mut message = match error.kind() {
+        ErrorKind::MissingRequiredArgument if !args.is_empty() => format!("缺少必填参数 {args}"),
+        ErrorKind::MissingRequiredArgument => "缺少必填参数".into(),
+        ErrorKind::MissingSubcommand => "缺少子命令".into(),
+        ErrorKind::ArgumentConflict => {
+            let prior = operands(ContextKind::PriorArg);
+            if !args.is_empty() && args == prior {
+                format!("{subject} 重复出现")
+            } else if !args.is_empty() && !prior.is_empty() {
+                format!("{subject} 与 {prior} 不能同时使用")
+            } else {
+                "参数不能同时使用".into()
+            }
+        }
+        ErrorKind::InvalidValue | ErrorKind::ValueValidation => {
+            let missing = error.kind() == ErrorKind::InvalidValue
+                && context_strings(error, ContextKind::InvalidValue)
+                    .first()
+                    .is_some_and(String::is_empty);
+            let mut message = if missing {
+                format!("{subject} 缺少值")
+            } else {
+                format!("{subject} 的值无效")
+            };
+            if let Some(arg) = context_strings(error, ContextKind::InvalidArg)
+                .first()
+                .and_then(|label| public_arg(command, label))
+            {
+                let choices = arg.get_possible_values();
+                let choices: Vec<_> = choices
+                    .iter()
+                    .filter(|choice| !choice.is_hide_set())
+                    .map(|choice| choice.get_name())
+                    .collect();
+                if !choices.is_empty() {
+                    message.push_str(&format!("，可选值为 {}", choices.join("、")));
+                }
+            }
+            message
+        }
+        ErrorKind::NoEquals => format!("{subject} 的值须用等号连接"),
+        ErrorKind::TooFewValues => format!("{subject} 缺少值"),
+        ErrorKind::TooManyValues | ErrorKind::WrongNumberOfValues => {
+            format!("{subject} 的值数量不正确")
+        }
+        ErrorKind::InvalidSubcommand => {
+            let suggestions: Vec<_> = context_strings(error, ContextKind::SuggestedSubcommand)
+                .iter()
+                .filter_map(|name| command.find_subcommand(name))
+                .filter(|child| !child.is_hide_set())
+                .map(clap::Command::get_name)
+                .collect();
+            if suggestions.is_empty() {
+                "无法识别子命令".into()
+            } else {
+                format!("无法识别子命令，可用子命令为 {}", suggestions.join("、"))
+            }
+        }
+        ErrorKind::UnknownArgument => {
+            let suggestions = operands(ContextKind::SuggestedArg);
+            if suggestions.is_empty() {
+                "无法识别参数".into()
+            } else {
+                format!("无法识别参数，可用参数为 {suggestions}")
+            }
+        }
+        ErrorKind::InvalidUtf8 => "参数包含无效的 UTF-8 文本".into(),
+        _ => "参数不正确".into(),
+    };
+    let help_command = format!("{command_path} --help");
+    message.push_str(&format!("。请运行 {help_command} 查看用法"));
+    YssError::new(ErrorCode::Argument, message).context("helpCommand", help_command)
+}
+
 pub fn run(
     mut args: Vec<OsString>,
     bundle_bytes: &[u8],
@@ -846,7 +1284,10 @@ pub fn run(
     {
         args.retain(|a| !matches!(a.to_str(), Some("--json" | "--json=true" | "--json=false")));
     }
-    let parsed = Cli::try_parse_from(std::iter::once(OsString::from("yss")).chain(args));
+    let mut parser = Cli::command();
+    let parsed = parser
+        .try_get_matches_from_mut(std::iter::once(OsString::from("yss")).chain(args))
+        .and_then(|mut matches| Cli::from_arg_matches_mut(&mut matches));
     let (name, result) = match parsed {
         Ok(cli) if cli.version => ("version", Ok(Report::Version(build))),
         Ok(cli) => match cli.command {
@@ -889,23 +1330,17 @@ pub fn run(
             None => (
                 "help",
                 Ok(Report::Help {
-                    help: Cli::command().render_long_help().to_string(),
+                    help: parser.render_long_help().to_string(),
                 }),
             ),
         },
-        Err(e) if e.kind() == clap::error::ErrorKind::DisplayHelp => (
+        Err(e) if e.kind() == ErrorKind::DisplayHelp => (
             "help",
             Ok(Report::Help {
                 help: e.to_string(),
             }),
         ),
-        Err(_) => (
-            "arguments",
-            Err(YssError::new(
-                ErrorCode::Argument,
-                "参数不正确；请运行 yss --help 查看用法",
-            )),
-        ),
+        Err(error) => ("arguments", Err(argument_error(&parser, &error))),
     };
     let exit = result.as_ref().err().map_or(0, YssError::exit_code);
     let written = if json {

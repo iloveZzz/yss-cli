@@ -1,5 +1,5 @@
 use super::{
-    Action, PathChange, ProjectPlan, ProjectReport, ProjectRequest,
+    Action, ISSUE_TRACKER_PATH, PathChange, ProjectPlan, ProjectReport, ProjectRequest,
     state::{self, ManagedFile, ProjectState, STATE_PATH},
     unavailable_skills,
 };
@@ -8,7 +8,7 @@ use crate::{
     codec,
     error::{ErrorCode, Result, YssError},
     fs::{self, FileSnapshot, Root},
-    model::{FileDescriptor, InstallationKind, RelPath, RenderedFile, RenderedTree},
+    model::{FileDescriptor, InstallationKind, Ownership, RelPath, RenderedFile, RenderedTree},
     transaction::{self, ChangeSet, Operation},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -271,7 +271,14 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
                 } else {
                     report.preserved.push(path.clone());
                     if let Some(previous) = previous {
-                        managed.insert(path.clone(), previous.clone());
+                        let mut receipt = previous.clone();
+                        if path.as_str() == ISSUE_TRACKER_PATH
+                            && receipt.ownership == Ownership::ManagedCustomizable
+                            && *ownership == Ownership::UserOwned
+                        {
+                            receipt.ownership = Ownership::UserOwned;
+                        }
+                        managed.insert(path.clone(), receipt);
                     }
                 }
             } else if let Some(previous) = previous {

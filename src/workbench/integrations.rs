@@ -8,6 +8,7 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     fs::{self, Root},
     model::{RelPath, Sha256},
+    project::ISSUE_TRACKER_PATH,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -462,7 +463,7 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
 
 pub fn tracker(root: &str) -> Result<Value> {
     let root = Root::open(Path::new(root))?;
-    let path = ".template-spec/agents/issue-tracker.md";
+    let path = ISSUE_TRACKER_PATH;
     if root.inspect(&RelPath::new(path)?)? == fs::FileSnapshot::Missing {
         return Ok(Value::Null);
     }
@@ -510,6 +511,15 @@ pub fn tracker(root: &str) -> Result<Value> {
                 }
             }
         }
+    }
+    // 旧模板的 GitHub 空仓库和可选 root 只是占位。
+    if fields.get("platform").map(String::as_str) == Some("github")
+        && fields.get("repository").map(String::as_str) == Some("")
+        && fields
+            .keys()
+            .all(|key| matches!(key.as_str(), "platform" | "repository" | "root"))
+    {
+        fields.clear();
     }
     Ok(json!({"sourcePath":path,"fields":fields,"sourceDigest":Sha256::of(source.as_bytes())}))
 }

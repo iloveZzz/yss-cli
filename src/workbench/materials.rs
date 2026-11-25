@@ -881,7 +881,7 @@ pub(super) fn prepare_review(
     fn conflict() -> YssError {
         YssError::new(
             ErrorCode::ConcurrentChange,
-            "核实期间来源材料已变化，请重新读取",
+            "核实期间来源材料已变化。运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，如使用自定义目录，在 `workbench` 后沿用原 `--data-dir`。从 `result.spec.content.materialReviewDigest` 重新读取摘要，重新核实材料后将其填入 `observedDigest`。",
         )
         .context("httpStatus", 409)
     }

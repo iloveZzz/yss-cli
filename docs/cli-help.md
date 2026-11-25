@@ -1,6 +1,6 @@
 # YSS CLI 使用与命令参考
 
-本指南适用于 Rust YSS CLI `3.18.0` 源码，正式产物以 GitHub Release 为准。`3.18.0` 支持 Pi 连续会话、按轮次审阅和接收成果，并在隔离续办中提供两侧材料版本。`3.17.1` 支持在工作台为本次 Pi Agent 新运行搜索和选择本机模型。`3.17.0` 统一工作台加载反馈，完善 Pi 配置目录与模型就绪检查，并在 Spec 详情标明关联资料仍采用的已确认版本。`3.16.1` 更新工作台输入聚焦以及内嵌模板原型示例；命令接口不变。`3.16.0` 按 Spec 的实际材料、检查范围和目标版本处理确认及交付，并补充 Pi 就绪诊断。`3.15.0` 修正技能安装状态，并完善失效答复复查和续办成果校验。`3.14.0` 更新 Spec 自动发现、已构建原型预览和 Pi 排队前的 Git 检查。`3.13.0` 在 macOS ARM64 切换到 Pi Agent 并更新执行会话。`3.12.0` 增加自动生命周期汇总和 `workbench progress` 上报入口。`3.11.0` 增加工作台工程维护、隔离运行、成果接收和备份恢复。`3.3.0` 新增 `scaffold frontend`。`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板。此前的 `3.1.4` 构建仅支持 `spec` 和 `backend`。先运行 `yss version` 和 `yss --help`，以实际命令、参数和内嵌模板为准。
+本指南适用于 Rust YSS CLI `3.18.1` 源码，正式产物以 GitHub Release 为准。`3.18.1` 为命令参数与工作台进度请求提供可定位的错误提示，并将工单配置迁移为项目自有。`3.18.0` 支持 Pi 连续会话、按轮次审阅和接收成果，并在隔离续办中提供两侧材料版本。`3.17.1` 支持在工作台为本次 Pi Agent 新运行搜索和选择本机模型。`3.17.0` 统一工作台加载反馈，完善 Pi 配置目录与模型就绪检查，并在 Spec 详情标明关联资料仍采用的已确认版本。`3.16.1` 更新工作台输入聚焦以及内嵌模板原型示例；命令接口不变。`3.16.0` 按 Spec 的实际材料、检查范围和目标版本处理确认及交付，并补充 Pi 就绪诊断。`3.15.0` 修正技能安装状态，并完善失效答复复查和续办成果校验。`3.14.0` 更新 Spec 自动发现、已构建原型预览和 Pi 排队前的 Git 检查。`3.13.0` 在 macOS ARM64 切换到 Pi Agent 并更新执行会话。`3.12.0` 增加自动生命周期汇总和 `workbench progress` 上报入口。`3.11.0` 增加工作台工程维护、隔离运行、成果接收和备份恢复。`3.3.0` 新增 `scaffold frontend`。`3.2.0` 已支持 `frontend` Profile，构建时需使用对应模板。此前的 `3.1.4` 构建仅支持 `spec` 和 `backend`。先运行 `yss version` 和 `yss --help`，以实际命令、参数和内嵌模板为准。
 
 ## 选择操作
 
@@ -18,7 +18,7 @@
 | 上报生命周期进展 | `workbench progress set-goal` / `report` / `confirm` / `reconcile` | 主 Spec 的目标、证据和明确确认 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
-`yss help <命令>` 或 `yss <命令> --help` 查看命令帮助，例如 `yss skills ensure --help`。写入命令默认执行；支持预览的命令可加 `--dry-run`，查看结果后重新运行并去掉该参数。预览不创建目标、锁或可保存的执行计划；在线升级预览仍会访问发行信息。
+`yss help <命令>` 或 `yss <命令> --help` 查看命令帮助，例如 `yss skills ensure --help`。确认子命令帮助列出 `--dry-run` 后，可加该参数预览。查看结果后去掉该参数执行。预览不创建目标、锁或可保存的执行计划。在线升级预览仍会访问发行信息。使用独立的 `yss version --json` 核对正在运行的程序及内嵌 Bundle。
 
 ## 初始化或接入项目
 
@@ -84,7 +84,7 @@ yss sync --root ./my-spec --dry-run
 yss sync --root ./my-spec
 ```
 
-`skills list` 列出当前 Profile 库中的技能。`result.installed` 按项目 `.agents/skills/<名称>/SKILL.md` 的安装收据和现场文件判断，工作台使用同一结果。
+`skills list` 和 `skills ensure` 的 `--root` 指向已接入的项目。`skills list --json` 返回当前 Profile 可选技能 `result.available`，以及按技能名索引的受管状态 `result.installed`。受管状态按项目 `.agents/skills/<名称>/SKILL.md` 的安装收据和现场文件判断，工作台使用同一结果。
 
 | 工程现场 | CLI 状态 | 工作台 |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ yss sync --root ./my-spec
 
 退役技能目录由链接占用时，`result.diagnostics[].paths` 会指出链接本身的位置。查询保留这个现场，同时列出其他技能的状态。
 
-`sync` 使用当前 CLI **内嵌**的模板和技能，不会自动拉取模板仓库。要改变安装范围，可先预览 `yss sync --root ./my-spec --installation skills --dry-run`；确认后去掉 `--dry-run`。受管文件发生冲突时查看诊断，不要强制覆盖。
+`sync --dry-run` 预览当前 CLI **内嵌**的模板和技能会给项目带来的变更。`result.changes` 列出计划动作，`result.status` 为 `unchanged` 时无需同步。要改变安装范围，可先运行 `yss sync --root ./my-spec --installation skills --dry-run`，检查移出新范围的旧受管文件是否会删除，再按预期执行。受管文件发生冲突时按诊断逐项核实并保留项目定制。
 
 ## 生成 Java 工程
 
@@ -162,7 +162,9 @@ yss recover --root <项目或工具目录> --dry-run
 
 工具目录不能位于 Git 工作树内，也不能兼作项目目录。首次安装应使用已核验的新程序和发行归档，明确指定新目录或已有空目录作为工具目录；旧 Go 安装与 Rust 格式不兼容。升级 CLI 后，项目只有另行执行 `sync` 才会使用新程序内嵌的资源。
 
-`recover` 处理未提交事务；对已提交事务只重试安全清理，不是已完成操作的通用回滚。中断后用户若又修改了相关文件，恢复可能报告冲突；保留现场并按诊断处理。
+项目的 `doctor --json` 对照安装收据和当前文件，返回 `result.installation`、`result.differences` 和 `result.transactions.pending`。`installation` 为 `null` 表示没有项目安装收据，`status: ok` 表示诊断命令执行成功。要判断当前 Bundle 会更新哪些文件，使用 `sync --dry-run`。
+
+先用 `doctor` 核对待恢复事务，再用 `recover --dry-run` 查看拟恢复的操作。`recover` 处理未提交事务，对已提交事务只重试安全清理。中断后用户若又修改了相关文件，按实际冲突诊断处理并保留现场。
 
 3.6.0 支持保留目录身份变化后的已提交历史：事务元数据须完整有效，私有材料须全部清理。`doctor` 的事务状态新增 `retainedHistory` ID 数组，历史仍列在 `transactions`，不进入 `pending`；没有历史时输出 `[]`。仅有这类历史时，`recover` 返回 unchanged，不创建锁、不写日志、不清理原材料。身份不匹配的未完成或 rolled-back 事务、有残留或损坏的记录仍拒绝处理。
 
@@ -194,6 +196,8 @@ dry-run、sync、skills ensure 的 `nextSteps` 为 `[]`；错误或取消仍返�
 
 失败时 `status` 为 `error`、`result` 为 `null`；`error` 包含错误码、中文消息及可用的路径和上下文。未启用 `--json` 时，普通错误写入 stderr。成功退出码为 0，参数错误为 2，其他失败及取消为 1。
 
+命令行参数解析失败时，`ARGUMENT` 提示缺失、冲突或不合法的公开参数信息。`error.context.helpCommand` 指向对应命令的帮助。普通错误正文也提示该命令。
+
 常见错误码：`ARGUMENT`、`UNSUPPORTED_FORMAT`、`INVALID_INPUT`、`SKILL_RETIRED`、`CONFLICT`、`UNSAFE_PATH`、`LOCKED`、`CONCURRENT_CHANGE`、`RECOVERY_REQUIRED`、`CANCELLED`、`NETWORK`、`NOT_READY`、`DIGEST_MISMATCH`、`UNSUPPORTED_PLATFORM`、`VERSION_CONFLICT`、`IO`。网络错误不会回显令牌、任意远程 URL 或远程错误正文。
 
 遇到不支持的参数先核对版本和帮助；遇到文件、路径或摘要冲突时保留现场。旧插件、`plan/apply` 和通用回滚接口不属于该版本的命令范围。
@@ -206,6 +210,7 @@ CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-di
 
 ```sh
 yss workbench snapshot --json
+yss workbench query --q "$YSS_SPEC_TITLE" --activity all --include-closed --json
 yss workbench query --entity task --stage verification --json
 yss workbench query --entity spec --activity all --include-closed --json
 yss workbench query --entity spec --content-status ready --reminder ready --json
@@ -215,6 +220,10 @@ yss workbench lifecycle --spec <SpecID> --json
 ```
 
 `query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`，以及可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`。`--progress-basis effective` 使用自动证据与当前版本人工更正汇总的有效进度；缺省 `personal` 延续个人标记语义。`--attention` 可重复传入 `awaitingConfirmation`、`unverified`、`needsSync`、`needsReview`、`conflict`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录。参数完整枚举以 `yss workbench query --help` 为准。
+
+`YSS_SPEC_TITLE` 使用要定位的规格名称。`query` 从 `result.items[]` 读取匹配的 `specId`、`projectId`。`lifecycle` 的 `result.stages` 展示个人阶段与任务计数，`result.progress.stages` 展示基于证据和当前目标的有效阶段进度。单纯查看使用 `lifecycle`，`progress reconcile` 会保存写入回执并重新核对已登记事实。
+
+首次登记时，`register --root` 指定工程根，`--source` 使用相对该根的主 Spec 路径。成功后从 `result.specId` 和 `result.projectId` 取得身份。接续时使用 `workbench request --spec-id "$YSS_PROGRESS_SPEC_ID" --json`。`result.text` 供 Agent 或人员直接阅读，`result.projectRoot`、`result.sourcePath` 和 `result.questions` 可供结构化处理。使用自定义工作台目录的所有命令沿用同一 `--data-dir`。
 
 ### 上报生命周期进展
 
@@ -227,13 +236,31 @@ yss workbench --data-dir /absolute/personal-data progress confirm --input /absol
 yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <SpecID> --request-id reconcile-request-001 --json
 ```
 
-`--input -` 从标准输入读取 JSON，最大 1 MiB。写入沿用同一 `data-dir`，优先交给运行中的服务；离线写入使用现有独占锁。`requestId` 标识一次逻辑操作，重试沿用原 ID 和原载荷；同 ID 不同内容返回冲突。响应不确定时先查询回执，命令错误中的 `requestId` 可用于核对。每次成功响应返回统一信封和事务 revision，随后查询 `lifecycle` 取得最新 `goalVersion`、`specDigest` 与 `evidenceDigest`。
+`--input -` 从标准输入读取 JSON，最大 1 MiB。写入沿用同一 `data-dir`，优先交给运行中的服务；离线写入使用现有独占锁。`--request-id` 标识一次逻辑操作，重试沿用原 ID 和原载荷。同 ID 不同内容返回冲突。响应不确定时先查询回执，命令错误中的 `requestId` 可用于核对。每次成功响应返回统一信封和事务 revision。
 
-目标输入包括 `specId`、`scope`、`target`、八阶段适用性、参与工程及角色、`acceptanceRefs` 和实际 `specDigest`。报告携带稳定 `id`、目标版本、阶段、范围引用、工程与角色、执行状态、证据适用性、代码提交与工作树摘要、实际检查凭证。工作树摘要覆盖 Git diff 与未忽略的未跟踪文件；采用程序返回的当前版本信息或按共享协议核实生成。Backend、Frontend 和联调分别关联真实工程 ID，避免工作树别名生成重复主 Spec。
+`set-goal` 的 JSON 示例见对应 `--help`。使用 `result.spec.content.artifactDigest` 作为新目标的 `specDigest`。选择至少一个适用阶段，目标类型为 `environment` 时填写 `target.reference`。上报前对同一数据目录运行 `yss workbench lifecycle --spec "$YSS_PROGRESS_SPEC_ID" --json`，`YSS_PROGRESS_SPEC_ID` 使用已登记的 Spec ID。从 `result.spec.record.id`、`result.progress.goalVersion` 和 `result.progress.goal.specDigest` 分别取得报告的 `specId`、`goalVersion` 和目标采用的 `specDigest`。
 
-局部报告可追加 `inputPaths`。执行检查前使用 `yss workbench progress observe-inputs --project <工程ID> --path <工程相对路径> --json`，可重复指定 `--path`。将结果的 `inputs` 放入 `inputPaths`，将 `version` 放入对应的 `versions`。核实检查前后采用的是同一份输入，保留检查前采集的 `observedDigest`。输入覆盖实际共享代码、配置及生成输入，包括被 Git 忽略的文件。保存报告时会校验摘要，变化后需要重新检查。联调、合并和环境结果继续核对精确版本组合。
+以下 `report.json` 示例用于目标范围内的规格阶段。替换占位值并按实际进展填写。`id` 标识一份报告，重试使用原报告 `id`、`--request-id` 和原 JSON，新报告使用新的 `id` 和 `--request-id`。
 
-确认输入绑定 `goalVersion`、阶段、范围和当前 `evidenceDigest`，并在 `source` 记录用户明确决定的出处。规格、验证和最终目标确认由真实用户决定产生。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
+```json
+{
+  "id": "<本次报告的稳定 ID>",
+  "specId": "<实际 Spec ID>",
+  "goalVersion": "<实际目标版本>",
+  "specDigest": "<目标采用的 Spec 摘要>",
+  "stage": "spec",
+  "role": "spec",
+  "progress": "doing",
+  "validity": "current",
+  "summary": "<已取得的实际进展>"
+}
+```
+
+`role` 为 `spec` 时可省略 `projectId`，`backend`、`frontend` 和 `integration` 须填目标中与该角色匹配的实际工程 ID。按实际情况附 `scopeRefs`、`versions` 和 `evidence`。每个证据项填写 `kind`、`label`、`reference` 和可选的 `outcome`。`versions` 可从 `result.progress.currentVersions` 选择本次采用的工程版本，工作树摘要覆盖 Git diff 与未忽略的未跟踪文件。
+
+局部报告可追加 `inputPaths`。执行检查前使用 `yss workbench progress observe-inputs --project <工程ID> --path <工程相对路径> --json`，可重复指定 `--path`。将输出的 `result.inputs` 和 `result.version` 分别加入 `inputPaths` 和 `versions` 数组。核实检查前后采用的是同一份输入，保留检查前采集的 `observedDigest`。输入覆盖实际共享代码、配置及生成输入，包括被 Git 忽略的文件。保存报告时会校验摘要，变化后需要重新检查。联调、合并和环境结果继续核对精确版本组合。
+
+`confirm` 的 JSON 示例见对应 `--help`。确认取同一响应的 `result.progress.goalVersion`、原样 `result.progress.goal.scope` 和 `result.progress.evidenceDigest`。`source` 记录用户明确决定的出处。规格、验证和最终目标确认由真实用户决定产生。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
 
 详细 JSON 约定随模板分发到 `.template-spec/agents/workbench-progress.md`。工作台生成的 Agent 请求也携带当前身份和实际上报程序路径。能力缺失或报告失败时继续原已授权工作，记录待同步材料后核实补报。
 
@@ -243,12 +270,23 @@ yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <S
 yss workbench review-materials --input /absolute/material-review.json --request-id material-review-001 --json
 ```
 
-输入取当前 `lifecycle` 的 `result.spec.content.materialReviewDigest`，填写 `specId`、`observedDigest` 和具体 `reason`。摘要含当前来源、已确认版本和已有材料绑定。绑定或来源发生变化时重新读取并核实。可按需填写以下字段。
+先对同一数据目录运行 `yss workbench lifecycle --spec "$YSS_PROGRESS_SPEC_ID" --json`。`specId` 取 `result.spec.record.id`，`observedDigest` 取 `result.spec.content.materialReviewDigest`。该摘要覆盖当前来源、已确认版本和已有材料绑定。绑定或来源发生变化时重新读取并核实。材料目标路径取 `result.spec.resources` 各项的 `record.target`，或 `result.spec.content.materialChanges` 各项的 `target`。
 
-- `bindings` 是这份 Spec 的完整显式绑定列表，省略时沿用已有绑定。每项填当前已关联的 `target` 和 `usage`。可选值为 `reference`（普通参考）、`follow`（整项属于本 Spec 的确认材料）和 `dependency`（实际依赖）。`dependency` 填可核对的 `scopeRef`，文本可另填 `section: {"start":"<唯一完整起始行>","end":"<唯一完整结束行>"}`。候选对比和确认快照采用该选区，包含起止行。
-- `keepConfirmed` 填已核实本 Spec 仍适用原确认材料的目标路径。`adoptLatest` 填本轮确需采用的最新版目标路径。两者按实际核实的原确认和当前资料版本适用，后续有变化时重新判断。
+以下 `material-review.json` 示例记录一项采用新版的材料核实。替换占位值，`reason` 写本次具体核实依据。相同写入重试沿用 `--request-id` 和原 JSON。
 
-该命令记录适用性和材料采用依据。新版内容确认仍在工作台由用户完成。已有确认、交付决定和问题答复继续按各自版本读取。
+```json
+{
+  "specId": "<实际 Spec ID>",
+  "observedDigest": "<当前材料核实摘要>",
+  "reason": "<具体核实依据>",
+  "adoptLatest": ["<已关联且当前可读的本地材料路径>"]
+}
+```
+
+- `adoptLatest` 填本次采用的新版材料路径，材料须已关联且当前可读。`keepConfirmed` 填仍采用原确认版本的共用资料或依赖的路径，须有原确认且当前材料可核对。每个路径只选一种处理方式。
+- 普通核实省略 `bindings`，沿用已有绑定。调整绑定时传入完整显式绑定列表，每项填当前已关联的 `target` 和 `usage`。可选值为 `reference`（普通参考）、`follow`（整项属于本 Spec 的确认材料）和 `dependency`（实际依赖）。`dependency` 填可核对的 `scopeRef`，文本可另填 `section`，其 `start` 和 `end` 使用唯一完整行。候选对比和确认快照采用该选区，包含起止行。
+
+该命令记录适用性和材料采用依据。新版内容确认仍在工作台由用户完成。已有确认、交付决定和问题答复继续按各自版本读取。`progress set-goal`、`progress report`、`progress confirm` 和 `review-materials` 的字段格式错误会提示对应的 `--help`，缺少顶层必填字段时会列出字段名。
 
 当前源码使用 SQLite 保存个人数据。旧 JSON v1/v2/v3 的纯查询保持只读；首次启动新版工作台或执行写入命令时先备份原字节并迁移，即使该业务操作最后没有状态变化也会完成迁移。迁移后 `state.json` 仅为存储标记，旧版程序不能读写同一数据目录。纳管范围、独立进度语义、来源边界及恢复方法见[工作台说明](workbench.md)。
 

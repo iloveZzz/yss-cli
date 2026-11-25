@@ -88,7 +88,14 @@ pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> 
             .map(|project| &project.record),
     });
     Ok(format!(
-        "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n在实际工作开始、产物与适用检查完成、遇到阻塞及版本影响核实后，依据当前程序的 workbench progress 帮助上报。目标和验收沿本次用户授权，报告关联实际成果、采用版本和检查结果。共享材料的影响待核实时，先核对原条款和验收，再根据 workbench review-materials 帮助记录影响及采用依据。该操作不产生人工确认。隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。进度能力暂不可用时，在原任务结果中保留待同步事实并继续已授权工作。\n",
+        "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n\
+        使用实际安装的 CLI（优先取 `cliExecutable`），通过 `yss workbench progress --help` 核对公开命令，并从项目根读取 `.template-spec/agents/workbench-progress.md`。\
+        运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，从 `result.progress.goalVersion` 和 `result.progress.goal.specDigest` 读取当前已登记目标的版本与采用摘要。自定义数据目录通过 `workbench --data-dir` 沿用同一 `dataDir`。\
+        上下文顶层的 `specDigest` 表示当前产物摘要，对应 `result.spec.content.artifactDigest`。\n\
+        按本次授权的目标和原验收核对实际参与的仓库及其相关范围、采用版本、成果和检查结果。工作开始、产物与适用检查完成、遇到阻塞及核实版本影响后，按实际进展上报。\
+        共享材料影响待核实时，核对原条款和验收，参考 `yss workbench review-materials --help`，使用 `result.spec.content.materialReviewDigest` 记录核实依据。就绪的新版内容由用户在工作台明确确认。\
+        隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。\n\n\
+        进度能力不可用或上报失败时，在原任务记录待同步的事项、命令、CLI 版本和实际错误，继续已授权范围内的工作。\n",
         serde_json::to_string_pretty(&context).map_err(|_| invalid("进度上下文编码失败"))?
     ))
 }

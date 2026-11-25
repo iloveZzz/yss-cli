@@ -5,7 +5,7 @@ use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::{self, Root},
-    model::{InstallationKind, Profile, RelPath, RenderedTree},
+    model::{InstallationKind, Ownership, Profile, RelPath, RenderedTree},
     transaction::{self, ChangeSet, TransactionReport, TransactionStatus},
 };
 pub use plan::plan;
@@ -14,6 +14,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
+
+pub(crate) const ISSUE_TRACKER_PATH: &str = ".template-spec/agents/issue-tracker.md";
 
 pub struct InstallRequest {
     pub root: PathBuf,
@@ -190,6 +192,15 @@ pub fn doctor(path: &Path, _bundle: &Bundle) -> Result<DoctorReport> {
     if let Some(state) = &state {
         for (path, managed) in &state.managed {
             let actual = root.inspect(path)?;
+            if path.as_str() == ISSUE_TRACKER_PATH
+                && managed.ownership == Ownership::UserOwned
+                && matches!(
+                    actual,
+                    fs::FileSnapshot::File { .. } | fs::FileSnapshot::Missing
+                )
+            {
+                continue;
+            }
             if actual.descriptor() != Some(&managed.last_installed) {
                 differences.push(PathChange {
                     path: path.clone(),

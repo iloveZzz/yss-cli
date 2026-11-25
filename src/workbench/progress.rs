@@ -871,9 +871,15 @@ pub(crate) fn prepare_report(
         .goals
         .iter()
         .find(|g| g.goal.spec_id == input.spec_id && g.goal_version == input.goal_version)
-        .ok_or_else(|| sources::invalid("报告引用的目标版本不存在"))?;
+        .ok_or_else(|| {
+            sources::invalid(
+                "报告引用的目标版本不存在。运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，如使用自定义目录，在 `workbench` 后沿用原 `--data-dir`。从 `result.progress.goalVersion` 读取当前目标版本。历史目标可查 `result.progressHistory.goals`。",
+            )
+        })?;
     if input.spec_digest != target.goal.spec_digest {
-        return Err(sources::invalid("报告规格摘要与引用目标不一致"));
+        return Err(sources::invalid(
+            "报告规格摘要与引用目标不一致。运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，如使用自定义目录，在 `workbench` 后沿用原 `--data-dir`。当前目标的摘要取 `result.progress.goal.specDigest`。历史目标在 `result.progressHistory.goals` 中按报告的 `goalVersion` 核对 `specDigest`。",
+        ));
     }
     if input.stage != Stage::Delivery
         && !target
