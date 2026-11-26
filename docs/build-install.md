@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码为 Rust CLI `3.18.4`，发行内嵌 Template 5.18.4。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。构建过程需要 Rust 工具链及目标平台链接工具。yss 二进制包含 CLI、工作台界面和模板资源。macOS ARM64 的 Agent 作业使用独立安装的 Pi 1.5.2、1.6.0 或 1.6.1 及其运行依赖。
+当前源码为 Rust CLI `3.19.0`，构建固定 Template 5.19.0。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。构建过程需要 Rust 工具链及目标平台链接工具。yss 二进制包含 CLI、工作台界面和模板资源。macOS ARM64 的 Agent 作业使用独立安装的 Pi 1.5.2、1.6.0 或 1.6.1 及其运行依赖。
 
 工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 
@@ -24,8 +24,8 @@ Bundle 缺失时用户程序编译失败；内部 Bundle 工具可先独立构�
 ## 打包
 
 ```text
-cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.18.4 --target aarch64-apple-darwin --out /absolute/dist/yss_3.18.4_aarch64-apple-darwin.tar.gz
-shasum -a 256 /absolute/dist/yss_3.18.4_aarch64-apple-darwin.tar.gz
+cargo run --locked --bin yss-bundle -- package --binary target/aarch64-apple-darwin/release/yss --version 3.19.0 --target aarch64-apple-darwin --out /absolute/dist/yss_3.19.0_aarch64-apple-darwin.tar.gz
+shasum -a 256 /absolute/dist/yss_3.19.0_aarch64-apple-darwin.tar.gz
 ```
 
 输出父目录应存在，已有归档不会被覆盖。内部工具读取实际 ELF/Mach-O/PE 程序的专用构建记录，核对目标架构、版本、Bundle 和源码来源，不能通过参数伪造来源或执行外平台程序。压缩包只包含程序与 `release-manifest.json`；Windows 使用 ZIP。以真实归档生成统一 SHA256SUMS，完整归档和逐条载荷均校验 SHA-256、长度、路径与模式。
@@ -72,9 +72,9 @@ Windows 使用日志登记的候选、旧程序保留路径和发布步骤；当
 
 CI 镜像锁定 `rust:1.99.1-trixie@sha256:09027f873d45b8ecd1dc86f1fa13b7a62b875c961f017a0e331267b350430137`，摘要已从 registry 核验。保留固定 GitLab CA、`/api/v4/job` Job Token 身份核验；模板从 GitHub 固定公开仓库按完整提交读取；不向 CI 注入 PAT。
 
-GitHub 构建使用 Template `v5.18.4` 对应的提交 `9e2e1cb84a743eb8c31461e1b69cc3cef8f0f3f1`。默认技能数为 Spec 20、Backend 44、Frontend 21。GitLab 默认使用同一提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交。推送触发 CLI CI 前，先确认固定的远端模板仓可获取该提交。发行产物记录实际模板来源，`docs/template-release.json` 记录模板发行标签。
+GitHub 构建使用 Template `v5.19.0` 对应的提交 `d8b45cba9e53b1332083accc1acdae861a2d211a`。默认技能数为 Spec 20、Backend 44、Frontend 21。GitLab 默认使用同一提交，也可通过 `YSS_TEMPLATE_COMMIT` 覆盖。两者均核对实际检出提交。推送触发 CLI CI 前，先确认固定的远端模板仓可获取该提交。发行产物记录实际模板来源，`docs/template-release.json` 记录模板发行标签。
 
-CLI `3.18.4` 的发行目标为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，由内部打包器静态核对来源、架构和摘要。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS。
+CLI `3.19.0` 的发行目标为 `aarch64-apple-darwin` 和 `x86_64-pc-windows-msvc`。GitHub Actions 的 Windows 工作流固定 Rust 1.99.1，从触发提交和固定模板提交构建，由内部打包器静态核对来源、架构和摘要。Windows 发行构建为指定 `--target` 的 Cargo build 设置 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 C 运行库。正式发行使用最终主分支提交的产物，统一提供两个归档的 SHA256SUMS。
 
 现有 `yss-linux` 作业按 ARM64 原生主机校验。其他原生作业使用实际注册 runner 的变量 `YSS_RUNNER_LINUX_X86_64`、`YSS_RUNNER_MACOS_ARM64`、`YSS_RUNNER_MACOS_X86_64`、`YSS_RUNNER_WINDOWS_ARM64`、`YSS_RUNNER_WINDOWS_X86_64`；变量缺失意味着对应目标未验证，不代表整个矩阵完成。CI artifacts 不自动发布为正式 Release。
 
