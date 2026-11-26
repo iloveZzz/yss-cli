@@ -4,6 +4,7 @@ import type {
   GroupBy,
   ProjectRecord,
   SavedView,
+  Snapshot,
   SpecRecord,
   WorkItem,
   WorkQuery
@@ -26,6 +27,12 @@ export interface WorkbenchCatalog {
   projects: ProjectRecord[]
   specs: CatalogSpec[]
   savedViews: SavedView[]
+}
+
+export interface SpecDetailRead {
+  snapshot: Snapshot
+  specVersion: string
+  observationId: number
 }
 
 export type CatalogSpec = Pick<
@@ -90,6 +97,12 @@ export const loadWorkbenchCatalog = (signal?: AbortSignal) =>
 
 export const loadWorkbenchOverview = (signal?: AbortSignal) =>
   apiRequest<WorkbenchOverview>('/api/workbench/overview', { signal })
+
+export const loadSpecDetail = (id: string, fresh: boolean, signal: AbortSignal) =>
+  apiRequest<SpecDetailRead>(
+    `/api/specs/${encodeURIComponent(id)}/detail${fresh ? '?fresh=1' : ''}`,
+    { signal }
+  )
 
 export const loadCompactWorkPage = (
   query: WorkQuery,

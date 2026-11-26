@@ -4,8 +4,9 @@ use super::{
     content as spec_content,
     jobs::{JobContext, JobManager, JobRecord, lock_store},
     model::{
-        QuestionKind, QuestionResponse, QuestionState, QuestionStatus, ResourceHealth,
-        ResourceKind, ResponseKind, SpecMetadata, SpecRecord, Stage, TargetType, WorkbenchState,
+        Action, MutationRequest, QuestionKind, QuestionResponse, QuestionState, QuestionStatus,
+        ResourceHealth, ResourceKind, ResponseKind, SpecMetadata, SpecRecord, Stage, TargetType,
+        WorkbenchState,
     },
     progress_agent::{self, RoundBinding},
     sources,
@@ -1403,7 +1404,7 @@ fn execute(
                 .collect::<Result<Vec<_>>>()?
         };
         instructions.push_str(&format!(
-            "\n运行 ID：{}\n本轮参与原工程：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。业务确认由用户操作。\n用户本次要求：\n{}\n",
+            "\n运行 ID：{}\n本轮参与原工程：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
             run.id, serde_json::to_string_pretty(&participating).map_err(|e|invalid(e.to_string()))?, request.prompt
         ));
         if !citations.is_empty() {
@@ -1482,10 +1483,27 @@ fn execute(
         .is_ok()
         .then(|| refresh_direct_spec(&mut store, &latest, &spec))
         .transpose();
+    let reconciliation = if work.is_ok()
+        && !request.read_only
+        && !context.cancel.is_cancelled()
+        && frozen.is_ok()
+        && refresh.is_ok()
+        && latest.job_id == run.job_id
+        && latest.binding_revision == run.binding_revision
+    {
+        reconcile_direct_progress(&mut store, &latest, &spec)
+    } else {
+        Ok(())
+    };
     drop(store);
     if let Err(error) = refresh {
         let _ = context.emit("progressError", json!({
             "activity":"refreshSpec","runId":run.id,"message":"原工程已保留，请核对 Spec 刷新结果","error":error
+        }));
+    }
+    if let Err(error) = reconciliation {
+        let _ = context.emit("progressError", json!({
+            "activity":"reconcileProgress","runId":run.id,"message":"本轮已结束，请核对生命周期同步结果","error":error
         }));
     }
     match work {
@@ -1526,6 +1544,39 @@ fn refresh_direct_spec(store: &mut Store, run: &AgentRun, spec: &SpecRecord) -> 
         return Err(stale_round(run));
     }
     store.commit(store.state().revision, state)?;
+    Ok(())
+}
+
+fn reconcile_direct_progress(store: &mut Store, run: &AgentRun, spec: &SpecRecord) -> Result<()> {
+    let Some(goal_version) = run.goal_version.as_deref() else {
+        return Ok(());
+    };
+    if super::progress::load_goal_version(store, &spec.id)?.as_deref() != Some(goal_version) {
+        return Ok(());
+    }
+    check_spec_binding(sources::spec(store.state(), &spec.id)?, spec)?;
+    for workspace in &run.workspaces {
+        agent_workspace::validate(workspace)?;
+        for (id, prefix) in &workspace.project_prefixes {
+            let project = sources::project(store.state(), id)?;
+            let round_root = Path::new(&workspace.original_root).join(prefix);
+            if !project.active || Path::new(&project.root_path) != round_root {
+                return Err(stale_round(run));
+            }
+        }
+    }
+    let expected_revision = store.state().revision;
+    super::service::mutate(
+        store,
+        MutationRequest {
+            expected_revision,
+            expected_target: None,
+            request_id: None,
+            action: Action::ReconcileProgress {
+                spec_id: spec.id.clone(),
+            },
+        },
+    )?;
     Ok(())
 }
 

@@ -20,7 +20,7 @@ import LifecycleOverview from './components/LifecycleOverview.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import ExternalLinks from '@/components/ExternalLinks.vue'
-import { useWorkbench } from '@/hooks/useWorkbench'
+import { provideSpecDetailWorkbench } from '@/hooks/useSpecDetailWorkbench'
 import {
   stages,
   statuses,
@@ -44,31 +44,13 @@ import { contentReminders } from '@/services/workbench-content'
 import { isWebLink } from './schemas/markdown'
 const route = useRoute()
 const router = useRouter()
-const { snapshot, submit, loading: snapshotLoading } = useWorkbench()
+const workbench = provideSpecDetailWorkbench(() =>
+  typeof route.params.specId === 'string' ? route.params.specId : undefined
+)
+const { snapshot, submit, loading: snapshotLoading, error: snapshotError, refresh } = workbench
 const stageDirty = shallowRef(false)
 const questionDirty = shallowRef(false)
 const lifecycleDirty = shallowRef(false)
-const editor = useSpecEditor(
-  computed(() => stageDirty.value || questionDirty.value || lifecycleDirty.value)
-)
-const {
-  spec,
-  draft,
-  dirty,
-  error,
-  notice,
-  initializing,
-  saving,
-  save: saveSpec,
-  reload,
-  confirmOpen,
-  decide,
-  allowLeave,
-  reset,
-  drafts,
-  conflict,
-  resolveConflict
-} = editor
 const tabs = [
   { id: 'overview', label: '规格' },
   { id: 'content', label: '待确认事项' },
@@ -87,6 +69,38 @@ const tab = computed({
     tabs.some((item) => item.id === route.query.tab) ? String(route.query.tab) : 'overview',
   set: (value) => setQuery({ tab: value === 'overview' ? undefined : value })
 })
+const editOpen = shallowRef(false)
+const resourceEdit = shallowRef(false)
+const personalLifecycleOpen = shallowRef(false)
+const showEditor = computed(() =>
+  tab.value === 'settings' ||
+  (tab.value === 'overview' && editOpen.value) ||
+  (tab.value === 'resources' && resourceEdit.value)
+)
+const {
+  spec,
+  draft,
+  dirty,
+  error,
+  notice,
+  initializing,
+  saving,
+  save: saveSpec,
+  reload,
+  refreshIdle,
+  confirmOpen,
+  decide,
+  allowLeave,
+  drafts,
+  restoreDraft,
+  cancelRecovery,
+  conflict,
+  resolveConflict
+} = useSpecEditor(
+  workbench,
+  showEditor,
+  computed(() => stageDirty.value || questionDirty.value || lifecycleDirty.value)
+)
 const resourceTarget = computed({
   get: () =>
     typeof route.query.doc === 'string'
@@ -118,18 +132,19 @@ const back = computed(() =>
     ? route.query.return
     : '/specs'
 )
-const editOpen = shallowRef(false)
-const resourceEdit = shallowRef(false)
 const copyNotice = shallowRef('')
 const syncError = shallowRef('')
 const savingSpec = shallowRef(false)
 const syncingResources = shallowRef(false)
-const editBusy = computed(() => saving.value || savingSpec.value || syncingResources.value)
+const editBusy = computed(() =>
+  initializing.value || saving.value || savingSpec.value || syncingResources.value
+)
 watch(
-  () => spec.value?.record.id,
+  () => route.params.specId,
   () => {
     editOpen.value = false
     resourceEdit.value = false
+    personalLifecycleOpen.value = false
     copyNotice.value = ''
     syncError.value = ''
     stageDirty.value = false
@@ -140,9 +155,6 @@ watch(
 )
 function openResource(path: string, fragment = '') {
   resourceTarget.value = { path, fragment }
-}
-function childSaved() {
-  if (!dirty.value) void reset()
 }
 async function save() {
   if (editBusy.value || !dirty.value) return
@@ -162,7 +174,7 @@ async function syncResources() {
   try {
     await submit({ kind: 'refreshSpec', specId })
     if (spec.value?.record.id !== specId) return
-    await reset()
+    await refreshIdle()
     if (spec.value?.record.id === specId) copyNotice.value = '已同步主规格关联。'
   } catch (cause) {
     if (spec.value?.record.id === specId) syncError.value = errorMessage(cause)
@@ -215,10 +227,7 @@ async function copyPath(path: string) {
         <Button
           v-if="
             draft &&
-            (dirty ||
-              (editOpen && tab === 'overview') ||
-              (resourceEdit && tab === 'resources') ||
-              tab === 'settings')
+            (dirty || showEditor)
           "
           :disabled="editBusy || !dirty"
           @click="save"
@@ -229,6 +238,10 @@ async function copyPath(path: string) {
       </div>
     </div>
     <ProgressSummary :progress="progress" />
+    <Alert v-if="snapshotError" role="alert" class="notice error">
+      {{ snapshotError }}
+      <Button variant="outline" :disabled="snapshotLoading" @click="refresh()">重试</Button>
+    </Alert>
     <Tabs :model-value="tab" :unmount-on-hide="false" @update:model-value="tab = String($event)">
       <TabsList class="tabs" aria-label="Spec 内容" moving-indicator>
         <TabsTrigger v-for="item in tabs" :key="item.id" :value="item.id">
@@ -250,24 +263,28 @@ async function copyPath(path: string) {
         </Button>
       </div>
       <DraftNotice
+        v-if="draft && !initializing && !savingSpec"
         :status="drafts.status.value"
         :error="drafts.error.value"
         :drafts="drafts.recoverable.value"
         :conflict="drafts.recoveryConflict.value"
         @merge="drafts.mergeRecovered"
-        @cancel-recovery="drafts.cancelRecovery"
-        @restore="drafts.restore"
+        @cancel-recovery="cancelRecovery"
+        @restore="restoreDraft"
         @discard="drafts.discard"
       />
       <ConflictResolver
-        v-if="conflict"
+        v-if="conflict && draft"
         :base="conflict.base"
-        :local="conflict.local"
+        :local="{ ...draft }"
         :current="conflict.current"
         @resolve="resolveConflict"
         @close="conflict = undefined"
       />
-      <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
+      <Alert v-if="error" role="alert" class="notice error">
+        {{ error }}
+        <Button v-if="showEditor && !draft" variant="outline" @click="reload">重新读取</Button>
+      </Alert>
       <p v-if="notice" role="status" class="notice">{{ notice }}</p>
       <TabsContent value="overview" as="section">
         <section class="focus-summary">
@@ -287,9 +304,9 @@ async function copyPath(path: string) {
             {{ editOpen ? '收起编辑' : '编辑个人标记' }}
           </Button>
         </section>
-        <LoadingSkeleton v-if="editOpen && initializing" variant="form" :rows="3" label="正在准备个人标记…" />
+        <LoadingSkeleton v-if="tab === 'overview' && editOpen && initializing" variant="form" :rows="3" label="正在准备个人标记…" />
         <form
-          v-else-if="editOpen && draft"
+          v-else-if="editOpen && draft && !drafts.recoveryConflict.value"
           class="platform-section form-stack"
           aria-label="个人标记"
           @submit.prevent="save"
@@ -371,9 +388,8 @@ async function copyPath(path: string) {
         />
       </TabsContent>
       <TabsContent value="content" as="section">
-        <LoadingSkeleton v-if="initializing && tab === 'content'" variant="detail" :rows="3" label="正在读取待确认事项…" />
         <ContentPanel
-          v-if="!initializing"
+          v-if="tab === 'content' || questionDirty"
           :key="spec.record.id"
           :spec-id="spec.record.id"
           :source-path="spec.record.sourcePath"
@@ -381,12 +397,13 @@ async function copyPath(path: string) {
           :content="spec.content"
           :confirm-leave="allowLeave"
           @dirty="questionDirty = $event"
-          @saved="childSaved"
         />
       </TabsContent>
       <TabsContent value="lifecycle" as="section">
         <LifecycleOverview
+          v-if="tab === 'lifecycle' || lifecycleDirty"
           :key="spec.record.id"
+          :active="tab === 'lifecycle'"
           :spec-id="spec.record.id"
           :project-id="spec.record.projectId"
           :spec-digest="spec.content.artifactDigest"
@@ -395,21 +412,23 @@ async function copyPath(path: string) {
           :confirm-leave="allowLeave"
           @select="setQuery({ stage: $event })"
           @dirty="lifecycleDirty = $event"
-          @saved="childSaved"
           @confirm-content="tab = 'content'"
         />
-        <Collapsible class="personal-lifecycle" :unmount-on-hide="false">
+        <Collapsible
+          v-model:open="personalLifecycleOpen"
+          class="personal-lifecycle"
+          :unmount-on-hide="false"
+        >
           <CollapsibleTrigger>个人阶段记录</CollapsibleTrigger>
           <CollapsibleContent>
             <LifecyclePanel
-              v-if="!initializing"
+              v-if="(tab === 'lifecycle' && personalLifecycleOpen) || stageDirty"
               :key="spec.record.id"
               :spec-id="spec.record.id"
               :initial-stage="selectedStage"
               :confirm-leave="allowLeave"
               @select="setQuery({ stage: $event })"
               @dirty="stageDirty = $event"
-              @saved="childSaved"
             />
           </CollapsibleContent>
         </Collapsible>
@@ -437,8 +456,9 @@ async function copyPath(path: string) {
             <span class="muted">个人补充与主规格关联一同展示。</span>
           </div>
         </div>
+        <LoadingSkeleton v-if="tab === 'resources' && resourceEdit && initializing" variant="form" :rows="3" label="正在准备个人资源…" />
         <form
-          v-if="resourceEdit && draft"
+          v-else-if="resourceEdit && draft && !drafts.recoveryConflict.value"
           class="platform-section form-stack"
           aria-label="编辑个人资源"
           @submit.prevent="save"
@@ -467,7 +487,7 @@ async function copyPath(path: string) {
       <TabsContent value="settings" as="section">
         <LoadingSkeleton v-if="initializing && tab === 'settings'" variant="form" :rows="3" label="正在读取关联设置…" />
         <form
-          v-else-if="draft"
+          v-else-if="draft && !drafts.recoveryConflict.value"
           class="platform-section form-stack"
           aria-label="Spec 关联设置"
           @submit.prevent="save"
@@ -518,7 +538,17 @@ async function copyPath(path: string) {
       </div>
     </ModalDialog>
   </template>
-  <LoadingSkeleton v-else-if="snapshotLoading && !snapshot" variant="detail" :rows="4" label="正在读取 Spec…" />
+  <LoadingSkeleton v-else-if="snapshotLoading" variant="detail" :rows="4" label="正在读取 Spec…" />
+  <Empty v-else-if="snapshotError">
+    <EmptyHeader>
+      <EmptyTitle><h2>读取 Spec 失败</h2></EmptyTitle>
+      <EmptyDescription role="alert">{{ snapshotError }}</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+      <Button variant="outline" @click="refresh()">重试</Button>
+      <Button as-child variant="outline"><RouterLink :to="back">返回</RouterLink></Button>
+    </EmptyContent>
+  </Empty>
   <Empty v-else>
     <EmptyHeader>
       <EmptyTitle><h2>Spec 不存在</h2></EmptyTitle>

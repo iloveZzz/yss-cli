@@ -385,6 +385,8 @@ export interface SourceState {
   revision: number
   sourceVersions: Record<string, string>
   projectionVersion?: string | null
+  projectionRevision?: number | null
+  projectionObservationId?: number | null
   verification?: import('./workbench-read').Verification
   verificationError?: string | null
   activityVersions?: Record<string, string>

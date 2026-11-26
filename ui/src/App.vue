@@ -26,6 +26,7 @@ const routeReads = provideWorkbenchRouteReads()
 const { catalog, refreshCatalog } = useWorkbenchCatalog()
 const route = useRoute()
 const lightweight = computed(() => route.meta.lightweight === true)
+const specDetail = computed(() => route.meta.specDetail === true)
 useQuestionReviewDeadline(() => {
   const value = snapshot.value
   if (!value || expired.value || lightweight.value) return
@@ -33,7 +34,7 @@ useQuestionReviewDeadline(() => {
 }, refresh)
 const { scopeOptions, preferredSpecId } = useAgentScope()
 const agentTarget = computed(() => {
-  if (lightweight.value) return '/agent'
+  if (lightweight.value && !specDetail.value) return '/agent'
   const current = route.params.specId
   const specId = scopeOptions.value.find((option) => option.value === current)?.value ?? preferredSpecId.value
   return specId ? { name: 'agent-workbench', params: { specId } } : '/agent'
@@ -99,7 +100,8 @@ async function refreshFrom(action: 'header' | 'retry', event?: MouseEvent) {
   refreshAction.value = action
   try {
     if (lightweight.value) {
-      await Promise.all([routeReads.value?.refresh(), refreshCatalog()])
+      if (specDetail.value) await routeReads.value?.refresh()
+      else await Promise.all([routeReads.value?.refresh(), refreshCatalog()])
       return
     }
     const recovered = await refresh()
@@ -293,11 +295,9 @@ useEventListener(window, 'focus', checkChanges)
   opacity: .85;
 }
 @media (width >= 720px) {
-  .app-shell .sidebar { width: var(--sidebar-width); }
-  .app-shell .main { margin-inline-start: var(--sidebar-width); }
   .app-shell[data-navigation-compact='true'] { --sidebar-width: 62px; }
   .sidebar nav > a > svg { flex: none; }
-  .navigation-label { max-width: 182px; overflow: hidden; white-space: nowrap; }
+  .navigation-label { max-width: calc(var(--sidebar-width) - 48px); overflow: hidden; white-space: nowrap; }
   .app-shell[data-navigation-compact='true'] .sidebar .navigation-link {
     justify-content: center;
     gap: 0;
@@ -307,7 +307,7 @@ useEventListener(window, 'focus', checkChanges)
   .app-shell[data-navigation-compact='true'] .navigation-label { max-width: 0; opacity: 0; }
 }
 @media (720px <= width < 900px) {
-  .app-shell { --sidebar-width: 180px; }
+  .app-shell { --sidebar-width: 168px; }
 }
 @media (width >= 720px) and (prefers-reduced-motion: no-preference) {
   .app-shell .sidebar { transition: width var(--workbench-motion-panel) var(--workbench-motion-ease); }

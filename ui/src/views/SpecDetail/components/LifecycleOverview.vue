@@ -23,6 +23,7 @@ import LifecycleProgressHistory from './LifecycleProgressHistory.vue'
 import LifecycleRunActivities from './LifecycleRunActivities.vue'
 const props = defineProps<{
   specId: string
+  active: boolean
   projectId: string
   specDigest: string | null
   progress?: ProgressSummary
@@ -85,9 +86,10 @@ async function clearOverride(projectId?: string) {
 }
 async function reconcile() {
   error.value = ''
+  notice.value = ''
   try {
     await submit({ kind: 'reconcileProgress', specId: props.specId })
-    notice.value = '已重新核实当前凭证。'
+    notice.value = '已根据当前证据重新核实进展。'
     emit('saved')
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -121,7 +123,10 @@ async function reconcile() {
       </div>
     </div>
     <Collapsible v-if="progress?.lastDelivery" class="goal-strip">
-      <CollapsibleTrigger>最近已验收目标 · {{ dateLabel(progress.lastDelivery.recordedAt) }}</CollapsibleTrigger>
+      <CollapsibleTrigger>
+        {{ progress.lastDelivery.origin === 'automatic' ? '最近自动核实完成的目标' : '最近已验收目标' }}
+        · {{ dateLabel(progress.lastDelivery.recordedAt) }}
+      </CollapsibleTrigger>
       <CollapsibleContent>
         <p>{{ progress.lastDelivery.scope }}</p>
         <code>{{ progress.lastDelivery.goalVersion }}</code>
@@ -163,7 +168,7 @@ async function reconcile() {
         {{ conflict }}
       </li>
     </ul>
-    <p v-if="notice" role="status" class="notice">{{ notice }}</p>
+    <p role="status" :class="{ notice }">{{ notice }}</p>
     <Alert v-if="error" role="alert" class="notice error">
       {{ error }}
     </Alert>
@@ -183,6 +188,7 @@ async function reconcile() {
         :aria-controls="id + '-detail'"
         :data-validity="stage.validity"
         :data-progress="stage.progress"
+        :data-verified="!stage.confirmationRequired || stage.confirmation?.decision === 'confirm'"
         @click="select(stage.stage)"
       >
         <span>
@@ -190,11 +196,11 @@ async function reconcile() {
             stage.stage === 'delivery' &&
             !stage.applicable &&
             stage.confirmationRequired
-              ? '目标结果确认'
+              ? '目标结果核实'
               : stages[stage.stage]
           }}
         </span>
-        <span class="stage-state">{{ stageState(stage) }}</span>
+        <span class="stage-state">{{ stageState(stage, progress.autoConfirmableStages) }}</span>
       </Button>
     </div>
     <section
@@ -209,10 +215,10 @@ async function reconcile() {
             selected.stage === 'delivery' &&
             !selected.applicable &&
             selected.confirmationRequired
-              ? '本次目标结果确认'
+              ? '本次目标结果核实'
               : stages[selected.stage]
           }}
-          <span class="detail-state">{{ stageState(selected) }}</span>
+          <span class="detail-state">{{ stageState(selected, progress.autoConfirmableStages) }}</span>
         </h3>
         <div class="inline-actions">
           <Button
@@ -240,7 +246,7 @@ async function reconcile() {
           selected.applicable
             ? selected.summary || '阶段进展待核实'
             : selected.stage === 'delivery' && selected.confirmationRequired
-              ? '本次目标结果确认。执行范围说明 · ' +
+              ? '执行范围 · ' +
                 (selected.scopeReason || '交付阶段未纳入执行范围')
               : selected.scopeReason || '未纳入当前目标'
         }}
@@ -257,7 +263,7 @@ async function reconcile() {
         </li>
       </ul>
       <LifecycleRunActivities
-        v-if="selected.applicable && progress.goalVersion && progress.goal && specDigest === progress.goal.specDigest"
+        v-if="active && selected.applicable && progress.goalVersion && progress.goal && specDigest === progress.goal.specDigest"
         :key="specId + ':' + progress.goalVersion + ':' + progress.goal.specDigest"
         :spec-id="specId" :stage="selected.stage" :goal-version="progress.goalVersion" :spec-digest="progress.goal.specDigest"
       />
@@ -269,18 +275,8 @@ async function reconcile() {
       />
       <dl class="stage-meta">
         <div>
-          <dt>确认方式</dt>
-          <dd>
-            {{ sourceLabels[selected.source] }}
-            <span v-if="selected.confirmationRequired">
-              ·
-              {{
-                selected.stage === 'spec'
-                  ? '通过待确认事项完成内容确认'
-                  : '由用户明确确认'
-              }}
-            </span>
-          </dd>
+          <dt>进展来源</dt>
+          <dd>{{ sourceLabels[selected.source] }}</dd>
         </div>
         <div>
           <dt>最近核实</dt>
@@ -304,6 +300,7 @@ async function reconcile() {
       />
     </section>
     <LifecycleProgressHistory
+      v-if="active"
       :spec-id="specId"
       :goal-version="progress?.goalVersion ?? null"
     />
@@ -398,7 +395,7 @@ async function reconcile() {
   color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
-.stage-button[data-progress='done'][data-validity='current'] .stage-state {
+.stage-button[data-progress='done'][data-validity='current'][data-verified='true'] .stage-state {
   color: #278064;
 }
 .stage-button[data-progress='doing'][data-validity='current'] .stage-state {

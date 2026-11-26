@@ -1,6 +1,7 @@
 use super::history::changes;
 use super::{
     model::*,
+    progress::{ConfirmationDecision, ConfirmationInput},
     sources::{self, invalid, missing, now},
     store::Store,
 };
@@ -58,15 +59,21 @@ pub fn snapshot_from_store(store: &mut Store, cancel: &Cancellation) -> Result<S
 }
 
 pub fn read_snapshot(data_dir: &Path, cancel: &Cancellation) -> Result<Snapshot> {
+    read_snapshot_scoped(data_dir, None, cancel)
+}
+
+pub(super) fn read_snapshot_scoped(
+    data_dir: &Path,
+    spec_id: Option<&str>,
+    cancel: &Cancellation,
+) -> Result<Snapshot> {
     let (state, records) = super::store::read_state_with_records(data_dir, &record_kinds())?;
     let materials = super::materials::Records::from_raw(&records)?;
-    build_snapshot(
-        &state,
-        super::progress::ProgressRecords::from_raw(&records)?,
-        &materials,
-        None,
-        cancel,
-    )
+    let mut progress = super::progress::ProgressRecords::from_raw(&records)?;
+    if let Some(id) = spec_id {
+        scope_progress(&mut progress, id);
+    }
+    build_snapshot(&state, progress, &materials, spec_id, cancel)
 }
 
 pub(super) fn build_snapshot(
@@ -131,9 +138,10 @@ pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> 
         使用实际安装的 CLI（优先取 `cliExecutable`），通过 `yss workbench progress --help` 核对公开命令，并从项目根读取 `.template-spec/agents/workbench-progress.md`。\
         运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，从 `result.progress.goalVersion` 和 `result.progress.goal.specDigest` 读取当前已登记目标的版本与采用摘要。自定义数据目录通过 `workbench --data-dir` 沿用同一 `dataDir`。\
         上下文顶层的 `specDigest` 表示当前产物摘要，对应 `result.spec.content.artifactDigest`。\n\
+        核实当前 Spec 或生命周期状态可用 `workbench spec-status` 或 `workbench lifecycle-status`，无人值守查询可用 `workbench recommend-status`，均传入同一 `--spec-id` 和原工作台数据目录。\n\
         按本次授权的目标和原验收核对实际参与的仓库及其相关范围、采用版本、成果和检查结果。工作开始、产物与适用检查完成、遇到阻塞及核实版本影响后，按实际进展上报。\
-        共享材料影响待核实时，核对原条款和验收，参考 `yss workbench review-materials --help`，使用 `result.spec.content.materialReviewDigest` 记录核实依据。就绪的新版内容由用户在工作台明确确认。\
-        隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。关键确认记录用户对当前范围与版本的明确决定及真实来源。\n\n\
+        共享材料影响待核实时，核对原条款和验收，参考 `yss workbench review-materials --help`，使用 `result.spec.content.materialReviewDigest` 记录核实依据。\
+        隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。上报和 `workbench progress reconcile` 会依据当前目标范围、版本和有效证据自动确认适用阶段。业务问题及手工确认沿用真实答复和出处。\n\n\
         进度能力不可用或上报失败时，在原任务记录待同步的事项、命令、CLI 版本和实际错误，继续已授权范围内的工作。\n",
         serde_json::to_string_pretty(&context).map_err(|_| invalid("进度上下文编码失败"))?
     ))
@@ -522,10 +530,14 @@ fn mutate_inner(
             .collect();
         project_ids.insert(project_id.clone());
         records.current_versions = super::progress::current_versions(&state, &project_ids);
-        super::progress::refresh_inputs(&mut records, &state, &Cancellation::new());
+        let cancel = Cancellation::new();
+        let manual_confirmation = matches!(&request.action, Action::ConfirmProgress { .. });
+        if manual_confirmation {
+            super::progress::refresh_inputs(&mut records, &state, &cancel);
+        }
         let materials = super::materials::Records::load(store)?;
-        let view = snapshot(&state, &materials, Some(&spec_id), &Cancellation::new())?;
-        let effects = match request.action.clone() {
+        let view = snapshot(&state, &materials, Some(&spec_id), &cancel)?;
+        let mut effects = match request.action.clone() {
             Action::SetLifecycleGoal { input } => {
                 super::progress::prepare_goal(&view, &records, input, &at)?
             }
@@ -546,15 +558,56 @@ fn mutate_inner(
             }
             _ => unreachable!("progress action was selected above"),
         };
+        let automatic_confirmations = match &request.action {
+            Action::SetLifecycleGoal { .. }
+            | Action::ReportProgress { .. }
+            | Action::ReconcileProgress { .. }
+            | Action::ClearProgressOverride { .. }
+            | Action::ConfirmProgress {
+                input:
+                    ConfirmationInput {
+                        decision: ConfirmationDecision::Confirm,
+                        ..
+                    },
+            } => {
+                super::progress::include_pending(&mut records, &effects)?;
+                if !manual_confirmation {
+                    super::progress::refresh_inputs(&mut records, &state, &cancel);
+                }
+                let first_decision = records.decisions.len();
+                let automatic = super::progress::prepare_automatic_confirmations(
+                    &view,
+                    &mut records,
+                    &spec_id,
+                    &at,
+                )?;
+                effects.records.extend(automatic.records);
+                effects.blobs.extend(automatic.blobs);
+                records.decisions[first_decision..]
+                    .iter()
+                    .map(|decision| {
+                        serde_json::json!({
+                            "stage": decision.confirmation.stage,
+                            "decisionId": decision.id,
+                            "goalVersion": decision.confirmation.goal_version,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+            _ => Vec::new(),
+        };
         if !effects.records.is_empty() {
             let operation =
                 serde_json::to_value(&request.action).map_err(|_| invalid("进展操作编码失败"))?;
-            let details = serde_json::json!({
+            let mut details = serde_json::json!({
                 "operation": operation["kind"],
                 "goalVersion": operation.pointer("/input/goalVersion"),
                 "reportId": operation.pointer("/input/id"),
                 "stage": operation.pointer("/input/stage")
             });
+            if !automatic_confirmations.is_empty() {
+                details["automaticConfirmations"] = serde_json::json!(automatic_confirmations);
+            }
             super::history::record_change(
                 &mut state,
                 super::history::EventTarget {

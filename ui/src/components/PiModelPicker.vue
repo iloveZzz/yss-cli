@@ -158,7 +158,7 @@ onBeforeUnmount(() => request?.abort())
   display: flex; flex-direction: column; width: 28rem; padding: 0; overflow: hidden; border-radius: 12px;
   max-width: min(calc(100vw - 24px), var(--reka-popover-content-available-width, 100vw));
   max-height: min(29rem, var(--reka-popover-content-available-height, calc(100dvh - 24px)));
-  background: var(--brand-color-bg-container, #fff); color: var(--brand-color-text-primary, #222);
+  color: var(--brand-color-text-primary, #222);
 }
 .model-picker-content { display: flex; flex-direction: column; min-height: 0; }
 .model-picker-body { min-height: 0; display: flex; flex-direction: column; }

@@ -9,7 +9,6 @@ const scopeOptions = computed(() => {
   return (catalog.value?.specs ?? [])
     .filter((spec) => spec.active && projects.has(spec.projectId))
     .toSorted((left, right) =>
-      (right.lastVisitedAt ?? '').localeCompare(left.lastVisitedAt ?? '') ||
       right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title, 'zh-CN'))
     .map((record) => ({ value: record.id, label: `${record.title} · ${projects.get(record.projectId)}` }))
 })

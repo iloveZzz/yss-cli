@@ -8,6 +8,7 @@ import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
   dateLabel,
+  decisionLabel,
   errorMessage,
   loadLifecycle,
   stages,
@@ -99,8 +100,7 @@ const entries = computed<HistoryEntry[]>(() => {
 const labels = {
   goal: '交付目标',
   report: '阶段上报',
-  override: '人工更正',
-  decision: '用户确认'
+  override: '人工更正'
 }
 function projectName(id: string | null | undefined) {
   return (
@@ -122,7 +122,7 @@ function participantsFor(goalVersion: string) {
     class="progress-history"
     v-model:open="expanded"
   >
-    <CollapsibleTrigger>版本与上报历史</CollapsibleTrigger>
+    <CollapsibleTrigger>版本与进展历史</CollapsibleTrigger>
     <CollapsibleContent>
       <div v-if="expanded" class="history-body">
         <LoadingSkeleton v-if="loading && !history" variant="text" :rows="4" label="正在读取历史…" />
@@ -132,7 +132,7 @@ function participantsFor(goalVersion: string) {
           <Button type="button" variant="outline" @click="read">重试</Button>
         </Alert>
         <p v-if="!loading && !entries.length" class="muted">
-          暂无版本与上报历史。
+          暂无进展记录。
         </p>
         <ol v-if="entries.length" class="history-entries">
           <li
@@ -142,7 +142,7 @@ function participantsFor(goalVersion: string) {
             <Collapsible class="history-entry">
               <CollapsibleTrigger>
                 <span>
-                  <strong>{{ labels[entry.kind] }}</strong>
+                  <strong>{{ entry.kind === 'decision' ? decisionLabel(entry.record) : labels[entry.kind] }}</strong>
                   <span v-if="entry.kind !== 'goal'">
                     · {{ stages[entry.record.stage] }}
                   </span>
@@ -232,12 +232,7 @@ function participantsFor(goalVersion: string) {
                   </p>
                 </template>
                 <template v-else>
-                  <p>
-                    {{
-                      entry.record.decision === 'confirm' ? '已确认' : '已退回'
-                    }}
-                    · {{ entry.record.source }}
-                  </p>
+                  <p>{{ entry.record.source }}</p>
                   <p class="preserve-lines">{{ entry.record.scope }}</p>
                   <code>凭证摘要 {{ entry.record.evidenceDigest }}</code>
                   <code v-if="entry.record.stageEvidenceDigest">

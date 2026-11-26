@@ -32,7 +32,7 @@ export const router = createRouter({
     { path: '/projects', component: Projects },
     { path: '/projects/:projectId', component: ProjectDetail },
     { path: '/specs', component: Specs, meta: { lightweight: true } },
-    { path: '/specs/:specId', component: SpecDetail },
+    { path: '/specs/:specId', component: SpecDetail, meta: { lightweight: true, specDetail: true } },
     { path: '/specs/:specId/agent', name: 'pi-workspace', component: PiWorkspace, props: true, meta: { piWorkspace: true, lightweight: true } },
     { path: '/agent', component: AgentEntry, meta: { piWorkspace: true, lightweight: true } },
     { path: '/agent/:specId', name: 'agent-workbench', component: PiWorkspace, props: true, meta: { piWorkspace: true, lightweight: true } },

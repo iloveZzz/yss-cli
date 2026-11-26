@@ -19,7 +19,7 @@ import { useWorkbench } from '@/hooks/useWorkbench'
 import { renderMarkdown, resolveDocumentLink } from '../schemas/markdown'
 import { loadAgentSource, loadAgentDocument } from '@/services/workbench-agent'
 import { useMermaid } from '../hooks/useMermaid'
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   specId: string
   sourcePath: string
   documentPath?: string
@@ -29,7 +29,7 @@ const props = defineProps<{
   jobId?: string
   refreshKey?: string | number | null
   active?: boolean
-}>()
+}>(), { active: true })
 const emit = defineEmits<{
   navigate: [path: string, fragment: string]
   position: [fragment: string]
@@ -44,6 +44,20 @@ const article = useTemplateRef<HTMLElement>('article')
 const currentPath = computed(() => props.documentPath ?? props.sourcePath)
 const html = computed(() => renderMarkdown(source.value?.text ?? ''))
 useMermaid(article, html)
+const documentKey = computed(() =>
+  JSON.stringify([props.specId, currentPath.value, props.runId, props.jobId])
+)
+const readVersion = computed(() =>
+  JSON.stringify([
+    documentKey.value,
+    props.refreshKey,
+    props.runId ? undefined : sourceVersions.value[props.specId],
+    props.runId ? undefined : snapshot.value?.specs.find((spec) => spec.record.id === props.specId)?.content.artifactDigest,
+    retry.value
+  ])
+)
+let displayedDocument: string | undefined
+let displayedVersion: string | undefined
 let emittedFragment = ''
 let scrollTimer: ReturnType<typeof setTimeout> | undefined
 const scrollTarget = computed(() =>
@@ -53,9 +67,10 @@ useEventListener(
   scrollTarget,
   'scroll',
   () => {
-    if (props.active === false) return
+    if (!props.active) return
     clearTimeout(scrollTimer)
     scrollTimer = setTimeout(() => {
+      if (!props.active) return
       const headings = Array.from(
         article.value?.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id]') ?? []
       ).filter((heading) => heading.getClientRects().length)
@@ -71,7 +86,7 @@ useEventListener(
 )
 onBeforeUnmount(() => clearTimeout(scrollTimer))
 async function scrollFragment(fragment?: string, signal?: AbortSignal) {
-  const canScroll = () => !signal?.aborted && props.active !== false
+  const canScroll = () => !signal?.aborted && props.active
   if (!fragment || !canScroll()) return
   await nextTick()
   if (!canScroll()) return
@@ -87,28 +102,20 @@ async function scrollFragment(fragment?: string, signal?: AbortSignal) {
   } else error.value = `已打开文档，但没有找到章节“${fragment}”。`
 }
 watch(
-  () => [
-    props.specId,
-    currentPath.value,
-    props.runId,
-    props.jobId,
-    props.refreshKey,
-    props.runId ? undefined : sourceVersions.value[props.specId],
-    props.runId
-      ? undefined
-      : snapshot.value?.specs.find((spec) => spec.record.id === props.specId)?.content
-          .artifactDigest,
-    retry.value
-  ],
-  async (_value, old, cleanup) => {
-    const controller = new AbortController()
-    cleanup(() => controller.abort())
-    const changedDocument =
-      old?.[0] !== props.specId || old?.[1] !== currentPath.value || old?.[2] !== props.runId || old?.[3] !== props.jobId
+  [readVersion, () => props.active],
+  async ([version, active], _previous, cleanup) => {
+    const document = documentKey.value
+    const changedDocument = document !== displayedDocument
     if (changedDocument) {
       source.value = undefined
       emittedFragment = ''
     }
+    if (!active || (source.value && displayedVersion === version)) {
+      loading.value = false
+      return
+    }
+    const controller = new AbortController()
+    cleanup(() => controller.abort())
     loading.value = true
     error.value = ''
     try {
@@ -126,6 +133,8 @@ watch(
           ? await loadDocument(props.specId, props.documentPath, controller.signal)
           : await loadSource(props.specId, controller.signal)
       if (!controller.signal.aborted) {
+        displayedDocument = document
+        displayedVersion = version
         source.value = next
         if (changedDocument || props.fragment !== emittedFragment)
           await scrollFragment(props.fragment, controller.signal)

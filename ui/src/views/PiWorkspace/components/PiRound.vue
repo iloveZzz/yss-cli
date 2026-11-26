@@ -256,7 +256,13 @@ watch(events.statusLabel, (status) => {
       本轮没有留存成果快照。
       <Button v-if="canReviewLatest" type="button" variant="ghost" size="sm" @click="emit('reviewLatest')">查看最新成果</Button>
     </div>
-    <p v-if="latest && !terminal && page" class="pi-round-note" role="status">{{ events.statusLabel.value }}</p>
+    <p v-if="latest && !terminal && page" class="pi-round-note" role="status">
+      <template v-if="events.statusLabel.value === '实时连接'">
+        <LoadingIndicator :active="true" />
+        <span class="sr-only">正在接收 Pi 更新</span>
+      </template>
+      <template v-else>{{ events.statusLabel.value }}</template>
+    </p>
   </article>
 </template>
 

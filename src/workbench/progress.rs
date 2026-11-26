@@ -213,6 +213,18 @@ pub enum ConfirmationDecision {
     Confirm,
     Reject,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DecisionOrigin {
+    #[default]
+    Manual,
+    Automatic,
+}
+impl DecisionOrigin {
+    fn is_manual(&self) -> bool {
+        *self == Self::Manual
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfirmationInput {
@@ -230,6 +242,8 @@ pub struct DecisionRecord {
     pub schema_version: u32,
     pub id: String,
     pub recorded_at: String,
+    #[serde(default, skip_serializing_if = "DecisionOrigin::is_manual")]
+    pub origin: DecisionOrigin,
     #[serde(default)]
     pub stage_evidence_digest: Option<String>,
     #[serde(flatten)]
@@ -348,6 +362,8 @@ pub struct ProgressSummary {
     pub next_action: String,
     pub last_verified_at: Option<String>,
     pub evidence_digest: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto_confirmable_stages: Vec<Stage>,
     pub has_override: bool,
     pub conflicts: Vec<String>,
     #[serde(default)]
@@ -358,11 +374,14 @@ pub struct ProgressSummary {
     pub material_review: bool,
 }
 
+const AUTOMATIC_DECISION_KIND: &str = "automaticProgressDecision";
+
 pub const RECORD_KINDS: &[&str] = &[
     "lifecycleGoal",
     "progressEvidence",
     "progressOverride",
     "progressDecision",
+    AUTOMATIC_DECISION_KIND,
 ];
 
 impl ProgressRecords {
@@ -380,11 +399,13 @@ impl ProgressRecords {
                 })
                 .collect()
         }
+        let mut decisions = decode(raw, RECORD_KINDS[3])?;
+        decisions.extend(decode(raw, AUTOMATIC_DECISION_KIND)?);
         let records = Self {
             goals: decode(raw, RECORD_KINDS[0])?,
             reports: decode(raw, RECORD_KINDS[1])?,
             overrides: decode(raw, RECORD_KINDS[2])?,
-            decisions: decode(raw, RECORD_KINDS[3])?,
+            decisions,
             current_versions: Vec::new(),
             checked_inputs: BTreeMap::new(),
         };
@@ -404,16 +425,49 @@ impl ProgressRecords {
 }
 
 pub fn load(store: &mut Store) -> Result<ProgressRecords> {
+    let mut decisions = store.records(RECORD_KINDS[3])?;
+    decisions.extend(store.records(AUTOMATIC_DECISION_KIND)?);
     let records = ProgressRecords {
         goals: store.records(RECORD_KINDS[0])?,
         reports: store.records(RECORD_KINDS[1])?,
         overrides: store.records(RECORD_KINDS[2])?,
-        decisions: store.records(RECORD_KINDS[3])?,
+        decisions,
         current_versions: Vec::new(),
         checked_inputs: BTreeMap::new(),
     };
     records.validate_schema()?;
     Ok(records)
+}
+
+pub(crate) fn include_pending(
+    records: &mut ProgressRecords,
+    effects: &CommitEffects,
+) -> Result<()> {
+    fn decode<T: serde::de::DeserializeOwned>(write: &RecordWrite) -> Result<T> {
+        let invalid = || sources::invalid("待保存的生命周期记录格式无效");
+        let payload = write.payload.as_deref().ok_or_else(invalid)?;
+        serde_json::from_str(payload).map_err(|_| invalid())
+    }
+    for write in &effects.records {
+        let kind = write.kind.as_str();
+        if kind == RECORD_KINDS[0] {
+            let goal: GoalRecord = decode(write)?;
+            records.goals.retain(|old| {
+                old.goal.spec_id != goal.goal.spec_id || old.goal_version != goal.goal_version
+            });
+            records.goals.push(goal);
+        } else if kind == RECORD_KINDS[1] {
+            records.reports.retain(|old| old.report.id != write.id);
+            records.reports.push(decode(write)?);
+        } else if kind == RECORD_KINDS[2] {
+            records.overrides.retain(|old| old.id != write.id);
+            records.overrides.push(decode(write)?);
+        } else if kind == RECORD_KINDS[3] {
+            records.decisions.retain(|old| old.id != write.id);
+            records.decisions.push(decode(write)?);
+        }
+    }
+    Ok(())
 }
 
 /// Read only participating repositories. An unavailable repository stays unknown.
@@ -1090,9 +1144,20 @@ pub(crate) fn prepare_confirmation(
     if input.scope != goal.goal.scope {
         return Err(sources::invalid("确认范围与当前目标不一致").context("httpStatus", 409));
     }
-    let summary = project_one(snapshot, records, spec);
+    let mut summary = project_one(snapshot, records, spec);
     if !valid_digest(&input.evidence_digest) || summary.evidence_digest != input.evidence_digest {
         return Err(sources::invalid("证据已变化，请刷新后重新确认").context("httpStatus", 409));
+    }
+    if input.decision == ConfirmationDecision::Confirm
+        && latest_manual_rejection(records, Some(goal), input.stage).is_some()
+    {
+        // An explicit new user decision can supersede a previous rejection of this stage.
+        let mut basis = records.clone();
+        basis.decisions.retain(|record| {
+            !(is_manual_stage_decision(record, goal, input.stage)
+                && record.confirmation.decision == ConfirmationDecision::Reject)
+        });
+        summary = project_one(snapshot, &basis, spec);
     }
     let stage = summary
         .stages
@@ -1128,6 +1193,7 @@ pub(crate) fn prepare_confirmation(
             schema_version: 1,
             id,
             recorded_at: at.into(),
+            origin: DecisionOrigin::Manual,
             stage_evidence_digest: Some(stage_evidence_digest(
                 records,
                 spec,
@@ -1138,6 +1204,58 @@ pub(crate) fn prepare_confirmation(
             confirmation: input,
         },
     )
+}
+
+pub(crate) fn prepare_automatic_confirmations(
+    snapshot: &Snapshot,
+    records: &mut ProgressRecords,
+    spec_id: &str,
+    at: &str,
+) -> Result<CommitEffects> {
+    let spec = spec_view(snapshot, spec_id)?;
+    let mut effects = CommitEffects::default();
+    let mut summary = project_one(snapshot, records, spec);
+    for stage in [Stage::Spec, Stage::Verification, Stage::Delivery] {
+        if !summary.auto_confirmable_stages.contains(&stage) {
+            continue;
+        }
+        let goal = summary
+            .goal
+            .as_ref()
+            .expect("automatic confirmation requires a goal");
+        let stage_digest = stage_evidence_digest(records, spec, Some(goal), stage, false);
+        let id = digest(&(
+            spec_id,
+            &goal.goal_version,
+            stage,
+            &stage_digest,
+            DecisionOrigin::Automatic,
+        ));
+        let record = DecisionRecord {
+            schema_version: 1,
+            id: id.clone(),
+            recorded_at: at.into(),
+            origin: DecisionOrigin::Automatic,
+            stage_evidence_digest: Some(stage_digest),
+            confirmation: ConfirmationInput {
+                spec_id: spec_id.into(),
+                goal_version: goal.goal_version.clone(),
+                stage,
+                scope: goal.goal.scope.clone(),
+                evidence_digest: summary.evidence_digest.clone(),
+                source: "YSS 自动核实".into(),
+                decision: ConfirmationDecision::Confirm,
+            },
+        };
+        effects
+            .records
+            .extend(write(AUTOMATIC_DECISION_KIND, id, &record)?.records);
+        records.decisions.push(record);
+        if stage != Stage::Delivery {
+            summary = project_one(snapshot, records, spec);
+        }
+    }
+    Ok(effects)
 }
 
 /// Reconciliation uses verified facts in projection and preserves unknown historical times.
@@ -1388,7 +1506,13 @@ fn matching_decision<'a>(
                     })
                 })
                 .iter()
+                .take(if decision.origin == DecisionOrigin::Automatic {
+                    1
+                } else {
+                    2
+                })
                 .any(|value| value == digest),
+            None if decision.origin == DecisionOrigin::Automatic => false,
             None => {
                 let digest = &decision.confirmation.evidence_digest;
                 digest == global_digest
@@ -1401,6 +1525,28 @@ fn matching_decision<'a>(
             }
         })
         .max_by_key(|decision| decision_order(decision))
+}
+
+fn is_manual_stage_decision(record: &DecisionRecord, goal: &GoalRecord, stage: Stage) -> bool {
+    record.origin == DecisionOrigin::Manual
+        && record.confirmation.spec_id == goal.goal.spec_id
+        && record.confirmation.goal_version == goal.goal_version
+        && record.confirmation.stage == stage
+        && record.confirmation.scope == goal.goal.scope
+}
+
+fn latest_manual_rejection<'a>(
+    records: &'a ProgressRecords,
+    goal: Option<&GoalRecord>,
+    stage: Stage,
+) -> Option<&'a DecisionRecord> {
+    let goal = goal?;
+    records
+        .decisions
+        .iter()
+        .filter(|record| is_manual_stage_decision(record, goal, stage))
+        .max_by_key(|record| decision_order(record))
+        .filter(|record| record.confirmation.decision == ConfirmationDecision::Reject)
 }
 
 pub(super) fn stage_participants(goal: Option<&GoalRecord>, stage: Stage) -> Vec<&Participant> {
@@ -1977,6 +2123,42 @@ fn aggregate_validity(values: impl Iterator<Item = Validity>) -> Validity {
     }
 }
 
+fn main_stage_report<'a>(
+    records: &'a ProgressRecords,
+    spec: &SpecView,
+    goal: Option<&GoalRecord>,
+    stage: Stage,
+) -> Option<&'a ReportRecord> {
+    let reports = [None, Some(spec.record.project_id.as_str())]
+        .into_iter()
+        .filter_map(|project_id| {
+            latest_report(
+                records,
+                &spec.record.id,
+                goal,
+                stage,
+                project_id,
+                ParticipantRole::Spec,
+            )
+        });
+    let scoped = reports.clone().any(|r| {
+        !r.report.id.starts_with("remote:")
+            && !r.checked_inputs.is_empty()
+            && goal.is_some_and(|g| r.report.goal_version == g.goal_version)
+    });
+    reports
+        .filter(|report| !scoped || !omits_scoped_dependency(report))
+        .max_by(|a, b| {
+            let current =
+                |r: &ReportRecord| goal.is_some_and(|g| r.report.goal_version == g.goal_version);
+            (current(a), &a.recorded_at, &a.report.id).cmp(&(
+                current(b),
+                &b.recorded_at,
+                &b.report.id,
+            ))
+        })
+}
+
 fn stage_summary(
     snapshot: &Snapshot,
     records: &ProgressRecords,
@@ -2053,34 +2235,6 @@ fn stage_summary(
         }
         return view;
     }
-    let reports = [None, Some(spec.record.project_id.as_str())]
-        .into_iter()
-        .filter_map(|project_id| {
-            latest_report(
-                records,
-                &spec.record.id,
-                goal,
-                stage,
-                project_id,
-                ParticipantRole::Spec,
-            )
-        });
-    let scoped = reports.clone().any(|r| {
-        !r.report.id.starts_with("remote:")
-            && !r.checked_inputs.is_empty()
-            && goal.is_some_and(|g| r.report.goal_version == g.goal_version)
-    });
-    let report = reports
-        .filter(|report| !scoped || !omits_scoped_dependency(report))
-        .max_by(|a, b| {
-            let current =
-                |r: &ReportRecord| goal.is_some_and(|g| r.report.goal_version == g.goal_version);
-            (current(a), &a.recorded_at, &a.report.id).cmp(&(
-                current(b),
-                &b.recorded_at,
-                &b.report.id,
-            ))
-        });
     let content_fits_goal = spec
         .content
         .artifact_digest
@@ -2090,7 +2244,7 @@ fn stage_summary(
                 goal.goal.spec_digest == digest && goal.goal.scope == spec.content.scope
             })
         });
-    let report = report.filter(|report| {
+    let report = main_stage_report(records, spec, goal, stage).filter(|report| {
         if stage != Stage::Spec || !content_fits_goal {
             return true;
         }
@@ -2140,8 +2294,8 @@ fn stage_summary(
                 view.progress = Progress::Done;
                 view.validity = Validity::Current;
                 view.source = ProgressSource::Content;
-                view.summary = "规格材料已就绪，待人工确认".into();
-                view.next_action = "确认当前目标范围的规格内容".into();
+                view.summary = "规格材料已就绪".into();
+                view.next_action = "核对当前目标范围的规格材料".into();
                 view.evidence.push(Evidence {
                     kind: EvidenceKind::Document,
                     label: "当前规格材料".into(),
@@ -2254,7 +2408,8 @@ fn stage_summary(
             view.blocker = manual.value.reason.clone();
         }
     }
-    let decision = matching_decision(records, spec, goal, stage, evidence_digest);
+    let decision = latest_manual_rejection(records, goal, stage)
+        .or_else(|| matching_decision(records, spec, goal, stage, evidence_digest));
     if let Some(decision) = decision {
         view.confirmation = Some(decision.clone());
         if decision.confirmation.decision == ConfirmationDecision::Reject {
@@ -2299,16 +2454,103 @@ fn stage_completed(stage: &StageSummary) -> bool {
     completed(stage) && stage.participants.iter().all(participant_completed)
 }
 
+fn automatic_context(snapshot: &Snapshot, spec: &SpecView) -> bool {
+    spec.record.active
+        && snapshot.projects.iter().any(|project| {
+            project.record.id == spec.record.project_id
+                && project.record.active
+                && project.available
+        })
+        && spec.source_health == SourceHealth::Available
+        && spec.content.metadata_error.is_none()
+        && spec.content.artifact_digest.is_some()
+        && !spec.content.material_review()
+        && spec.content.questions.iter().all(|view| {
+            !view.question.blocking
+                || matches!(
+                    view.state,
+                    QuestionState::Resolved | QuestionState::Deferred
+                )
+        })
+}
+
+fn usable_stage_evidence(stage: &StageSummary) -> bool {
+    stage.validity == Validity::Current
+        && matches!(stage.progress, Progress::Done | Progress::Skipped)
+        && !stage.has_override
+        && stage.blocker.is_empty()
+        && stage.conflicts.is_empty()
+        && stage
+            .participants
+            .iter()
+            .all(|participant| participant_completed(participant) && participant.blocker.is_empty())
+        && stage
+            .evidence
+            .iter()
+            .all(|e| e.outcome != Some(EvidenceOutcome::Failed))
+}
+
+fn verification_evidence_covers(
+    records: &ProgressRecords,
+    spec: &SpecView,
+    goal: &GoalRecord,
+    stage: &StageSummary,
+) -> bool {
+    let reports: Vec<_> = main_stage_report(records, spec, Some(goal), Stage::Verification)
+        .into_iter()
+        .chain(stage.participants.iter().filter_map(|participant| {
+            let id = participant.report_id.as_deref()?;
+            records.reports.iter().find(|report| report.report.id == id)
+        }))
+        .filter(|report| report_validity(records, spec, Some(goal), report) == Validity::Current)
+        .map(|record| &record.report)
+        .collect();
+    if stage.progress == Progress::Skipped {
+        return goal.goal.acceptance_refs.is_empty()
+            && !reports.is_empty()
+            && reports.iter().all(|report| {
+                report.progress == Progress::Skipped && !report.scope_refs.is_empty()
+            });
+    }
+    let reports: Vec<_> = reports
+        .into_iter()
+        .filter(|report| report.progress == Progress::Done && has_stage_evidence(report, goal))
+        .collect();
+    !reports.is_empty()
+        && goal.goal.acceptance_refs.iter().all(|reference| {
+            reports.iter().any(|report| {
+                report.scope_refs.contains(reference)
+                    || report.evidence.iter().any(|e| {
+                        e.outcome == Some(EvidenceOutcome::Passed) && e.reference == *reference
+                    })
+            })
+        })
+}
+
+fn automatic_delivery_ready(stages: &[StageSummary]) -> bool {
+    stages
+        .iter()
+        .filter(|stage| stage.applicable || stage.stage == Stage::Delivery)
+        .all(|stage| {
+            usable_stage_evidence(stage)
+                && if stage.stage == Stage::Delivery {
+                    stage.progress == Progress::Done
+                } else {
+                    stage_completed(stage)
+                }
+        })
+}
+
 fn delivery_decisions<'a>(
     records: &'a ProgressRecords,
     spec: &str,
 ) -> BTreeMap<&'a str, &'a DecisionRecord> {
     let mut latest = BTreeMap::new();
-    for decision in records
-        .decisions
-        .iter()
-        .filter(|d| d.confirmation.spec_id == spec && d.confirmation.stage == Stage::Delivery)
-    {
+    for decision in records.decisions.iter().filter(|d| {
+        d.origin == DecisionOrigin::Manual
+            && d.confirmation.spec_id == spec
+            && d.confirmation.stage == Stage::Delivery
+    }) {
         let version = decision.confirmation.goal_version.as_str();
         if latest
             .get(version)
@@ -2335,9 +2577,16 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         .filter(|decision| decision.confirmation.decision == ConfirmationDecision::Confirm);
     let last_delivery = delivery
         .values()
+        .copied()
+        .chain(records.decisions.iter().filter(|decision| {
+            decision.origin == DecisionOrigin::Automatic
+                && decision.confirmation.stage == Stage::Delivery
+                && decision.confirmation.spec_id == spec.record.id
+                && !delivery.contains_key(decision.confirmation.goal_version.as_str())
+        }))
         .filter(|decision| decision.confirmation.decision == ConfirmationDecision::Confirm)
         .max_by_key(|d| decision_order(d))
-        .map(|d| (**d).clone());
+        .cloned();
     let evidence_digest = evidence_digest(records, spec, goal, EvidenceDigestKind::Current);
     let mut stages: Vec<_> = Stage::LIFECYCLE
         .into_iter()
@@ -2355,7 +2604,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             )
         })
         .any(|record| !matches!(record.value.progress, Progress::Done | Progress::Skipped));
-    let retains_completion = accepted.is_some() && !corrected;
+    let retains_manual_completion = accepted.is_some() && !corrected;
     if goal.is_some()
         && stages
             .iter()
@@ -2387,7 +2636,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         };
         delivery.summary = "目标结果确认".into();
         delivery.next_action = if ready {
-            "请用户确认当前目标范围与实际成果".into()
+            "可按当前范围和成果证据自动确认".into()
         } else if !scope_ready {
             "核对目标适用阶段及参与工程后确认本次目标结果".into()
         } else {
@@ -2422,12 +2671,59 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             stage.blocker = "用户已退回本次目标结果，请由原 Agent 继续处理".into();
         }
     }
+    let can_automate = goal.is_some() && automatic_context(snapshot, spec);
+    let auto_delivery_ready = can_automate && automatic_delivery_ready(&stages);
+    let mut retains_completion = retains_manual_completion;
+    if current_delivery.is_none()
+        && let Some(stage) = stages
+            .iter_mut()
+            .find(|stage| stage.stage == Stage::Delivery)
+        && stage
+            .confirmation
+            .as_ref()
+            .is_some_and(|d| d.origin == DecisionOrigin::Automatic)
+    {
+        if auto_delivery_ready {
+            retains_completion = true;
+            stage.next_action.clear();
+        } else {
+            stage.confirmation = None;
+        }
+    }
+    let mut auto_confirmable_stages = Vec::new();
+    if let Some(goal) = goal.filter(|_| can_automate && !retains_completion) {
+        for stage in &stages {
+            if !stage.confirmation_required
+                || stage.confirmation.is_some()
+                || !(stage.applicable || stage.stage == Stage::Delivery)
+                || !usable_stage_evidence(stage)
+            {
+                continue;
+            }
+            let ready = match stage.stage {
+                Stage::Spec => {
+                    (spec.content.can_confirm || spec.content.status == ContentStatus::Confirmed)
+                        && (stage.source != ProgressSource::Content
+                            || (spec.content.scope == goal.goal.scope
+                                && spec.content.artifact_digest.as_deref()
+                                    == Some(goal.goal.spec_digest.as_str())))
+                }
+                Stage::Verification => verification_evidence_covers(records, spec, goal, stage),
+                Stage::Delivery => auto_delivery_ready,
+                _ => false,
+            };
+            if ready {
+                auto_confirmable_stages.push(stage.stage);
+            }
+        }
+    }
     let in_scope = |stage: &&StageSummary| {
         stage.applicable || goal.is_some() && stage.stage == Stage::Delivery
     };
     let material_review = spec.content.material_review();
     let awaiting = |stage: &StageSummary| {
         !retains_completion
+            && goal.is_some()
             && !material_review
             && stage.confirmation_required
             && !confirmation_satisfied(stage)
@@ -2480,7 +2776,11 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             attention.insert("blocked".into());
         }
         if awaiting(stage) {
-            attention.insert("awaitingConfirmation".into());
+            attention.insert(if auto_confirmable_stages.contains(&stage.stage) {
+                "awaitingConfirmation".into()
+            } else {
+                "unverified".into()
+            });
         }
         if stage.has_override {
             attention.insert("manualOverride".into());
@@ -2572,7 +2872,11 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
                 if material_review {
                     "由 Agent 核实关联材料和适用范围".into()
                 } else if awaiting(s) {
-                    "请人工确认当前范围与证据".into()
+                    if auto_confirmable_stages.contains(&s.stage) {
+                        "按当前证据自动确认".into()
+                    } else {
+                        "补齐阶段的范围与验收证据，再自动确认".into()
+                    }
                 } else {
                     s.next_action.clone()
                 }
@@ -2583,6 +2887,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             .filter_map(|s| s.last_verified_at.clone())
             .max(),
         evidence_digest,
+        auto_confirmable_stages,
         has_override: stages.iter().any(|s| s.has_override),
         conflicts: stages.iter().flat_map(|s| s.conflicts.clone()).collect(),
         current_versions: records

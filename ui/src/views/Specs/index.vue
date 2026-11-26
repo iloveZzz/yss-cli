@@ -285,8 +285,8 @@ function selectLayout(value: unknown) {
 .spec-query {
   min-width: 0;
   margin-bottom: 16px;
-  background: #fff;
-  border: 1px solid var(--yss-colors-border);
+  background: var(--workbench-glass-pane);
+  border: 1px solid var(--workbench-glass-edge);
   border-radius: 10px;
 }
 .query-toolbar {

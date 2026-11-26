@@ -3,7 +3,6 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCap
 import { computed, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -72,17 +71,17 @@ function location(specId: string, questionId?: string) {
         查看筛选列表 →
       </RouterLink>
     </div>
-    <Tabs :model-value="selected" activation-mode="manual" @update:model-value="select">
-      <TabsList class="attention-filters" aria-label="内容提醒类别">
+    <Tabs class="panel home-tab-panel" :model-value="selected" activation-mode="manual" @update:model-value="select">
+      <TabsList class="attention-filters home-tabs" aria-label="内容提醒类别">
         <TabsTrigger v-for="group in counts" :key="group.id" :value="group.id">
           {{ group.label }}
           <Badge variant="secondary" class="tab-count">{{ group.count }}</Badge>
         </TabsTrigger>
       </TabsList>
       <TabsContent v-for="group in counts" :key="group.id" :value="group.id" class="min-w-0">
-        <Card
+        <div
           v-if="items.length"
-          class="panel block gap-0 py-0 shadow-none table-scroll attention-table"
+          class="table-scroll attention-table"
           tabindex="0"
           role="region"
           :aria-label="selectedLabel + '事项'"
@@ -137,7 +136,7 @@ function location(specId: string, questionId?: string) {
               </TableRow>
             </TableBody>
           </Table>
-        </Card>
+        </div>
         <Empty v-else class="attention-empty">
           <EmptyDescription>当前没有{{ selectedLabel }}事项</EmptyDescription>
         </Empty>
@@ -159,9 +158,8 @@ function location(specId: string, questionId?: string) {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px 16px;
-  padding: 12px 0 20px;
-  border-bottom: 1px solid var(--yss-colors-border);
-  margin-bottom: 20px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--yss-colors-border);
 }
 .attention-zero h2 {
   font-size: 13px;
@@ -177,41 +175,23 @@ function location(specId: string, questionId?: string) {
   color: #315dcf;
   font-size: 12px;
 }
-.attention-filters {
-  display: flex;
-  width: 100%;
-  height: auto;
-  justify-content: flex-start;
-  gap: 4px;
-  padding: 4px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-.attention-filters :deep([data-slot='tabs-trigger']) {
-  flex: 0 0 auto;
-  min-height: var(--yss-control-min-height);
-  padding-inline: 10px;
-}
-.tab-count {
-  min-width: 20px;
-  font-variant-numeric: tabular-nums;
-}
-.attention-table :deep(table) {
-  min-width: 650px;
+.attention-table :deep(table.spec-table) {
+  min-width: 0;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
 }
+.attention-table :deep(thead th:first-child) { width: 27%; }
+.attention-table :deep(thead th:last-child) { width: 112px; }
+.attention-table :deep(:is(th, td)) { white-space: normal; overflow-wrap: anywhere; }
 .attention-table :deep(tbody th) {
   position: sticky;
   inset-inline-start: 0;
   z-index: 1;
-  min-width: 190px;
-  max-width: 280px;
   background: #fff;
   text-align: left;
   font-weight: 400;
   vertical-align: top;
-  padding: 13px 16px;
 }
 .attention-table :deep(tbody th > a) {
   display: block;
@@ -227,12 +207,13 @@ function location(specId: string, questionId?: string) {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 7px;
+  gap: 4px;
 }
 .attention-questions li {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
 }
 .attention-questions a {
   color: #315dcf;
@@ -251,55 +232,35 @@ function location(specId: string, questionId?: string) {
   font-size: 11px;
 }
 .attention-action {
-  white-space: nowrap;
   font-size: 12px;
   color: #315dcf;
 }
 .attention-action span {
+  display: inline-block;
   font-size: 11px;
+  white-space: nowrap;
 }
 .attention-empty {
   border: 0;
-  padding: 18px 10px;
+  padding: 14px 10px;
 }
 .reminder-help {
-  margin-top: 10px;
+  margin-top: 2px;
   color: var(--brand-color-text-secondary);
   font-size: 11px;
 }
+.reminder-help :deep([data-slot='collapsible-trigger']) { min-height: 28px; }
 .reminder-help p {
   max-width: 760px;
   margin-top: 8px;
   line-height: 1.8;
 }
 @media (width<720px) {
-  .attention-filters {
-    flex-wrap: wrap;
-  }
-  .attention-table :deep(table) {
-    min-width: 0;
-    table-layout: fixed;
-  }
-  .attention-table :deep(th),
-  .attention-table :deep(td) {
-    white-space: normal;
-    padding-inline: 9px;
-    overflow-wrap: anywhere;
-  }
   .attention-table :deep(thead th:first-child) {
     width: 30%;
   }
   .attention-table :deep(thead th:last-child) {
     width: 25%;
-  }
-  .attention-table :deep(tbody th) {
-    position: static;
-    width: auto;
-    min-width: 0;
-  }
-  .attention-questions li {
-    flex-wrap: wrap;
-    gap: 3px;
   }
   .attention-zero a {
     margin-left: 0;

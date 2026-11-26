@@ -439,6 +439,13 @@ impl PlatformApi {
                 let catalog = read_model::catalog(jobs::lock_store(&self.jobs.store)?.state());
                 encode(catalog)?
             }
+            ("GET", ["api", "specs", id, "detail"]) => encode(read_model::read_spec_detail(
+                &self.jobs.store,
+                &self.reads,
+                id,
+                query.get("fresh").is_some_and(|value| value == "1"),
+                &self.cancel,
+            )?)?,
             ("GET", ["api", "workbench", "overview"]) => {
                 let (base, published) = {
                     let store = jobs::lock_store(&self.jobs.store)?;

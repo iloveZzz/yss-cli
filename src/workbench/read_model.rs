@@ -18,13 +18,19 @@ use serde_json::{Value, json};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use time::{Date, OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 use tokio::sync::{Notify, watch};
 
+static NEXT_OBSERVATION_ID: AtomicU64 = AtomicU64::new(1);
+
 pub(super) struct ReadInputs {
     pub(super) stamp: (u64, u64),
+    observation_id: u64,
     state: WorkbenchState,
     records: ExtensionRecords,
 }
@@ -33,6 +39,7 @@ pub(super) fn capture(store: &mut Store) -> Result<ReadInputs> {
     let records = store.capture_read_records(&service::record_kinds())?;
     Ok(ReadInputs {
         stamp: store.projection_stamp(),
+        observation_id: NEXT_OBSERVATION_ID.fetch_add(1, Ordering::Relaxed),
         state: store.state().clone(),
         records,
     })
@@ -51,8 +58,75 @@ pub(super) fn build_snapshot(
     service::build_snapshot(&inputs.state, records, &materials, spec_id, cancel)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SpecDetail {
+    snapshot: Snapshot,
+    spec_version: String,
+    observation_id: u64,
+}
+
+pub(super) fn read_spec_detail(
+    store: &Arc<Mutex<Store>>,
+    reads: &ReadModel,
+    id: &str,
+    fresh: bool,
+    cancel: &Cancellation,
+) -> Result<SpecDetail> {
+    let mut store = super::jobs::lock_store(store)?;
+    let record = sources::spec(store.state(), id)?;
+    let project = sources::project(store.state(), &record.project_id)?;
+    if !fresh {
+        let published = reads.latest();
+        if let Some(projection) = published.projection.as_deref()
+            && let Some(spec_version) = projection.spec_versions.get(id)
+            && let Some(spec) = projection.snapshot.specs.iter().find(|spec| {
+                spec.record.id == record.id
+                    && spec.record.project_id == record.project_id
+                    && spec.record.source_path == record.source_path
+            })
+            && projection.snapshot.projects.iter().any(|observed| {
+                observed.record.id == project.id && observed.record.root_path == project.root_path
+            })
+        {
+            store.capture_read_records(&[])?;
+            drop(store);
+            return Ok(projection.spec_detail(spec, spec_version));
+        }
+    }
+    let inputs = capture(&mut store)?;
+    drop(store);
+
+    let observation_id = inputs.observation_id;
+    let mut snapshot = build_snapshot(inputs, Some(id), cancel)?;
+    snapshot.history.clear();
+    snapshot.stage_records.retain(|record| record.spec_id == id);
+    let spec = snapshot
+        .specs
+        .first()
+        .ok_or_else(|| sources::missing("Spec 不存在"))?;
+    let project = snapshot
+        .projects
+        .iter()
+        .find(|project| project.record.id == spec.record.project_id);
+    let source_version = fingerprint_source(spec)?;
+    let spec_version = fingerprint_spec(
+        spec,
+        project.map(|project| &project.record),
+        &source_version,
+        &snapshot.tasks.iter().collect::<Vec<_>>(),
+        &snapshot.stage_records.iter().collect::<Vec<_>>(),
+    )?;
+    Ok(SpecDetail {
+        snapshot,
+        spec_version,
+        observation_id,
+    })
+}
+
 pub(super) struct Projection {
     pub(super) stamp: (u64, u64),
+    observation_id: u64,
     pub(super) snapshot: Snapshot,
     pub(super) next_review_at: Option<OffsetDateTime>,
     version: String,
@@ -62,14 +136,79 @@ pub(super) struct Projection {
     overview: Overview,
 }
 
+impl Projection {
+    fn spec_detail(&self, spec: &SpecView, spec_version: &str) -> SpecDetail {
+        let snapshot = &self.snapshot;
+        let id = &spec.record.id;
+        SpecDetail {
+            snapshot: Snapshot {
+                progress_records: progress::ProgressRecords::default(),
+                progress: spec
+                    .progress
+                    .iter()
+                    .map(|progress| (id.clone(), progress.clone()))
+                    .collect(),
+                revision: snapshot.revision,
+                read_at: snapshot.read_at.clone(),
+                projects: snapshot.projects.clone(),
+                specs: vec![spec.clone()],
+                history: Vec::new(),
+                tasks: snapshot
+                    .tasks
+                    .iter()
+                    .filter(|task| &task.record.spec_id == id)
+                    .cloned()
+                    .collect(),
+                stage_records: snapshot
+                    .stage_records
+                    .iter()
+                    .filter(|record| &record.spec_id == id)
+                    .cloned()
+                    .collect(),
+                saved_views: snapshot.saved_views.clone(),
+            },
+            spec_version: spec_version.to_owned(),
+            observation_id: self.observation_id,
+        }
+    }
+}
+
 pub(super) fn fingerprint(value: &impl Serialize) -> Result<String> {
     Ok(Sha256::of(&crate::codec::encode_json(value)?)
         .as_str()
         .to_owned())
 }
 
+fn fingerprint_source(spec: &SpecView) -> Result<String> {
+    fingerprint(&(
+        &spec.source_version,
+        spec.source_health,
+        &spec.source_modified_at,
+        &spec.resources,
+        &spec.content,
+    ))
+}
+
+fn fingerprint_spec(
+    spec: &SpecView,
+    project: Option<&ProjectRecord>,
+    source_version: &str,
+    tasks: &[&TaskView],
+    stage_records: &[&StageRecord],
+) -> Result<String> {
+    fingerprint(&(
+        &spec.record,
+        project,
+        source_version,
+        &spec.progress,
+        tasks,
+        stage_records,
+    ))
+}
+
 pub(super) fn build(inputs: ReadInputs, cancel: &Cancellation) -> Result<Projection> {
     let stamp = inputs.stamp;
+    let observation_id = inputs.observation_id;
     let snapshot = build_snapshot(inputs, None, cancel)?;
     let next_review_at = next_review_at(&snapshot);
     let input_versions = progress::input_versions_digest(&snapshot.progress_records);
@@ -78,25 +217,32 @@ pub(super) fn build(inputs: ReadInputs, cancel: &Cancellation) -> Result<Project
         .iter()
         .map(|project| (&project.record.id, project))
         .collect();
+    let mut tasks = BTreeMap::<&str, Vec<&TaskView>>::new();
+    for task in &snapshot.tasks {
+        tasks.entry(&task.record.spec_id).or_default().push(task);
+    }
+    let mut stage_records = BTreeMap::<&str, Vec<&StageRecord>>::new();
+    for record in &snapshot.stage_records {
+        stage_records
+            .entry(&record.spec_id)
+            .or_default()
+            .push(record);
+    }
     let mut source_versions = BTreeMap::new();
     let mut spec_versions = BTreeMap::new();
     for spec in &snapshot.specs {
         cancel.check()?;
-        let source_version = fingerprint(&(
-            &spec.source_version,
-            spec.source_health,
-            &spec.source_modified_at,
-            &spec.resources,
-            &spec.content,
-        ))?;
-        let spec_version = fingerprint(&(
-            &spec.record,
+        let id = spec.record.id.as_str();
+        let source_version = fingerprint_source(spec)?;
+        let spec_version = fingerprint_spec(
+            spec,
             projects
                 .get(&spec.record.project_id)
                 .map(|project| &project.record),
             &source_version,
-            &spec.progress,
-        ))?;
+            tasks.get(id).map_or(&[], Vec::as_slice),
+            stage_records.get(id).map_or(&[], Vec::as_slice),
+        )?;
         source_versions.insert(spec.record.id.clone(), source_version);
         spec_versions.insert(spec.record.id.clone(), spec_version);
     }
@@ -111,6 +257,7 @@ pub(super) fn build(inputs: ReadInputs, cancel: &Cancellation) -> Result<Project
     let overview = overview(&snapshot)?;
     Ok(Projection {
         stamp,
+        observation_id,
         snapshot,
         version,
         source_versions,
@@ -266,15 +413,8 @@ impl ReadModel {
     }
 
     pub(super) fn publish(&self, projection: Projection) {
-        self.changes.send_if_modified(|current| {
-            if current.verification == Verification::Current
-                && current
-                    .projection
-                    .as_ref()
-                    .is_some_and(|previous| previous.version == projection.version)
-            {
-                return false;
-            }
+        // A scoped read may have observed an intermediate file change between identical projections.
+        self.changes.send_modify(|current| {
             let current = Arc::make_mut(current);
             current.sequence += 1;
             current.revision = projection.snapshot.revision;
@@ -282,7 +422,6 @@ impl ReadModel {
             current.agent_contexts.clear();
             current.verification = Verification::Current;
             current.verification_error = None;
-            true
         });
     }
 
@@ -457,6 +596,8 @@ impl ReadStatus {
             "agentQueueVersions": self.activity.agent_queue_versions,
             "jobsVersion": self.activity.jobs_version,
             "projectionVersion": projection.map(|view| &view.version),
+            "projectionRevision": projection.map(|view| view.snapshot.revision),
+            "projectionObservationId": projection.map(|view| view.observation_id),
             "verification": self.verification,
             "verificationError": self.verification_error,
             "nextReviewAt": projection.and_then(|view| view.next_review_at).and_then(|at| at.format(&Rfc3339).ok()),
@@ -737,8 +878,12 @@ pub(super) fn overview_base(state: &WorkbenchState, stamp: (u64, u64)) -> Overvi
         .filter(|spec| spec.active && active_projects.contains(&spec.project_id))
         .collect();
     let active_spec_count = active.len();
-    active.retain(|spec| spec.last_visited_at.is_some());
-    active.sort_by_key(|spec| Reverse(spec.last_visited_at.as_deref()));
+    active.sort_by_cached_key(|spec| {
+        Reverse((
+            OffsetDateTime::parse(&spec.updated_at, &Rfc3339).ok(),
+            spec.updated_at.as_str(),
+        ))
+    });
     OverviewBase {
         stamp,
         recent: active.into_iter().take(5).cloned().collect(),

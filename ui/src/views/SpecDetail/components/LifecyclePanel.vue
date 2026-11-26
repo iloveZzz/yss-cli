@@ -4,28 +4,26 @@ import { Alert } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import { computed, ref, shallowRef, watch, onBeforeUnmount, useId, toRaw } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch, onBeforeUnmount, useId, toRaw } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useServerDraft } from '@/hooks/useServerDraft'
 import {
-  loadLifecycle,
+  lifecycleStages,
   contentEqual,
   stages,
   stageProgressLabels,
   dateLabel,
   errorMessage,
   ApiError,
-  type LifecycleView,
   type Stage,
   type StageRecord,
   type StageProgress
 } from '@/services/workbench'
-import { getTarget, type JsonObject } from '@/services/workbench-platform'
+import { getTarget, type DraftRecord, type EditableTarget, type JsonObject } from '@/services/workbench-platform'
 import { Button } from '@/components/ui/button'
 import SingleSelect from '@/components/SingleSelect.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
-import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
 import ConflictResolver from '@/components/ConflictResolver.vue'
 import ResourceEditor from './ResourceEditor.vue'
@@ -37,9 +35,19 @@ const props = defineProps<{
 const emit = defineEmits<{ saved: []; dirty: [value: boolean]; select: [stage: Stage] }>()
 const { snapshot, submit, saving } = useWorkbench()
 const id = useId()
-const view = shallowRef<LifecycleView>()
+const spec = computed(() => snapshot.value?.specs.find(({ record }) => record.id === props.specId))
+const stageNodes = computed(() => {
+  const records = new Map(snapshot.value?.stageRecords
+    .filter((record) => record.specId === props.specId)
+    .map((record) => [record.stage, record]))
+  return lifecycleStages.map((stage) => ({ stage, record: records.get(stage) }))
+})
 const error = shallowRef('')
-const loading = shallowRef(false)
+const openingStage = shallowRef<Stage>()
+const restoring = shallowRef(false)
+const submitting = shallowRef(false)
+const focusing = shallowRef(false)
+const busy = computed(() => saving.value || submitting.value || restoring.value || focusing.value)
 const notice = shallowRef('')
 const selected = shallowRef<Stage>(
   props.initialStage && props.initialStage !== 'unmarked' ? props.initialStage : 'research'
@@ -60,71 +68,70 @@ const dirty = computed(
 )
 const conflict = shallowRef<{
   base: JsonObject
-  local: JsonObject
   current: JsonObject
   token: string
 }>()
+let revision = 0
+let generation = 0
+let expectedTarget = ''
+let restoreTarget: EditableTarget<StageDraft> | undefined
 const drafts = useServerDraft<StageDraft>({
   targetType: 'stage',
   targetId: () => (open.value ? `${props.specId}:${draft.value.stage}` : ''),
   payload: computed(() => (open.value ? draft.value : undefined)),
   restore: (value) => {
+    if (restoreTarget) {
+      baseline.value = JSON.stringify(restoreTarget.values)
+      expectedTarget = restoreTarget.token
+      revision = snapshot.value?.revision ?? revision
+      drafts.setBase(restoreTarget.values, restoreTarget.token)
+      restoreTarget = undefined
+    }
     draft.value = value
   },
-  refreshBase: () => getTarget<StageDraft>({ kind: 'setStageRecord', ...draft.value })
+  refreshBase: async () => {
+    const own = generation
+    const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...draft.value })
+    if (own !== generation) throw new Error('当前 Spec 已切换。')
+    restoreTarget = target
+    return target
+  }
 })
-let controller: AbortController | undefined
-let revision = 0
-let generation = 0
+async function restoreDraft(record: DraftRecord<StageDraft>) {
+  if (busy.value || drafts.recoveryConflict.value) return
+  const own = generation
+  restoring.value = true
+  try {
+    await drafts.restore(record)
+    if (own === generation && drafts.recoveryConflict.value && expectedTarget && baseline.value)
+      drafts.setBase(JSON.parse(baseline.value), expectedTarget)
+  } finally {
+    if (own === generation) restoring.value = false
+  }
+}
+function cancelRecovery() {
+  drafts.cancelRecovery()
+  restoreTarget = undefined
+  if (expectedTarget && baseline.value) drafts.setBase(JSON.parse(baseline.value), expectedTarget)
+}
 watch(dirty, (value) => emit('dirty', value), { flush: 'sync' })
 watch(
-  () => props.initialStage,
-  (stage) => {
-    if (stage && stage !== 'unmarked') selected.value = stage
-  }
-)
-watch(
-  () => props.specId,
-  () => {
-    generation++
-    view.value = undefined
-    open.value = false
-  }
-)
-watch(
-  [() => props.specId, () => snapshot.value?.revision, () => snapshot.value?.progress?.[props.specId]?.evidenceDigest],
-  async () => {
-    controller?.abort()
-    const own = new AbortController()
-    controller = own
-    loading.value = true
-    try {
-      const result = await loadLifecycle(props.specId, own.signal)
-      if (!own.signal.aborted) {
-        view.value = result
-        error.value = ''
-        if (!props.initialStage)
-          selected.value =
-            result.spec.record.stage === 'unmarked' ? 'research' : result.spec.record.stage
-      }
-    } catch (cause) {
-      if (!own.signal.aborted) error.value = errorMessage(cause)
-    } finally {
-      if (controller === own) loading.value = false
-    }
+  [() => props.initialStage, () => spec.value?.record.stage],
+  ([initialStage, currentStage]) => {
+    const stage = initialStage ?? currentStage
+    selected.value = stage && stage !== 'unmarked' ? stage : 'research'
   },
   { immediate: true }
 )
 onBeforeUnmount(() => {
-  controller?.abort()
   emit('dirty', false)
   generation++
 })
 const enabled = computed(
   () =>
-    view.value?.spec.record.active &&
+    spec.value?.record.active &&
     snapshot.value?.projects.some(
-      (project) => project.record.id === view.value?.spec.record.projectId && project.record.active
+      (project) => project.record.id === spec.value?.record.projectId && project.record.active
     )
 )
 function select(stage: Stage) {
@@ -132,9 +139,12 @@ function select(stage: Stage) {
   emit('select', stage)
 }
 async function edit(stage = selected.value) {
+  if (openingStage.value || busy.value || open.value) return
+  const own = generation
+  openingStage.value = stage
   select(stage)
-  const record = view.value?.stages.find((node) => node.stage === stage)?.record
-  draft.value = record
+  const record = stageNodes.value.find((node) => node.stage === stage)?.record
+  const values: StageDraft = record
     ? {
         specId: record.specId,
         stage: record.stage,
@@ -142,79 +152,125 @@ async function edit(stage = selected.value) {
         note: record.note,
         resources: structuredClone(record.resources)
       }
-    : { specId: props.specId, stage: selected.value, progress: 'unmarked', note: '', resources: [] }
-  baseline.value = JSON.stringify(draft.value)
-  revision = view.value?.revision ?? 0
+    : { specId: props.specId, stage, progress: 'unmarked', note: '', resources: [] }
   error.value = ''
   notice.value = ''
   conflict.value = undefined
+  expectedTarget = ''
+  restoreTarget = undefined
   focusAfter.value = false
-  open.value = true
   try {
-    const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...draft.value })
-    drafts.setBase({ ...toRaw(draft.value) }, target.token)
+    const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...values })
+    if (own !== generation) return
+    draft.value = target.values
+    baseline.value = JSON.stringify(target.values)
+    revision = snapshot.value?.revision ?? 0
+    open.value = true
+    await nextTick()
+    if (own === generation && open.value) {
+      expectedTarget = target.token
+      drafts.setBase(target.values, target.token)
+    }
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (own === generation) error.value = errorMessage(cause)
+  } finally {
+    if (own === generation) openingStage.value = undefined
   }
 }
 async function focus(stage = selected.value) {
+  if (focusing.value || openingStage.value) return
+  const own = generation
+  focusing.value = true
   const action = { kind: 'setWorkStage' as const, entity: 'spec' as const, id: props.specId, stage }
   try {
     const target = await getTarget(action)
-    await submit(action, view.value?.revision, target.token)
-    emit('saved')
+    if (own !== generation) return
+    await submit(action, snapshot.value?.revision, target.token)
+    if (own === generation) emit('saved')
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (own === generation) error.value = errorMessage(cause)
+  } finally {
+    if (own === generation) focusing.value = false
   }
 }
 async function save() {
+  if (!expectedTarget || busy.value || openingStage.value || conflict.value || drafts.recoveryConflict.value) return
   const submitted = structuredClone(toRaw(draft.value))
   const own = generation
   error.value = ''
-  await drafts.flush()
+  submitting.value = true
+  let committed = false
   try {
+    await drafts.flush()
+    if (own !== generation) return
     const result = await submit(
       { kind: 'setStageRecord', ...submitted },
       revision,
-      drafts.baseToken.value || undefined
+      expectedTarget
     )
     if (own !== generation) return
-    baseline.value = JSON.stringify(submitted)
+    committed = true
     revision = result.revision
     const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...submitted })
-    await drafts.accepted(submitted, submitted, target.token)
+    if (own !== generation) return
+    const unchangedInput = contentEqual(draft.value, submitted)
+    const changesSinceCommit = !contentEqual(target.values, submitted)
+    const canAdopt = unchangedInput || !changesSinceCommit
+    if (canAdopt) {
+      baseline.value = JSON.stringify(target.values)
+      expectedTarget = target.token
+      if (unchangedInput && changesSinceCommit) draft.value = target.values
+      await drafts.accepted(target.values, target.values, target.token)
+    } else {
+      await drafts.flush()
+    }
+    if (own !== generation) return
     emit('saved')
     if (focusAfter.value) await focus(submitted.stage)
+    if (own !== generation) return
+    if (!canAdopt) {
+      error.value = '阶段已保存。读取到更新的阶段记录，请合并本次新增输入。'
+      conflict.value = {
+        base: { ...submitted },
+        current: { ...target.values },
+        token: target.token
+      }
+      return
+    }
     if (!dirty.value) open.value = false
     else notice.value = '阶段已保存，新增输入已保留。'
   } catch (cause) {
     if (own !== generation) return
-    error.value = errorMessage(cause)
-    if (cause instanceof ApiError && cause.status === 409) {
+    error.value = committed ? `阶段已保存，重新读取编辑基线失败。${errorMessage(cause)}` : errorMessage(cause)
+    if (!committed && cause instanceof ApiError && cause.status === 409) {
       try {
         const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...submitted })
+        if (own !== generation) return
         conflict.value = {
           base: JSON.parse(baseline.value),
-          local: { ...toRaw(draft.value) },
           current: { ...target.values },
           token: target.token
         }
       } catch (readError) {
-        error.value = errorMessage(readError)
+        if (own === generation) error.value = errorMessage(readError)
       }
     }
+  } finally {
+    if (own === generation) submitting.value = false
   }
 }
 function merge(value: JsonObject) {
   if (!conflict.value) return
   baseline.value = JSON.stringify(conflict.value.current)
+  expectedTarget = conflict.value.token
   drafts.setBase(conflict.value.current as unknown as StageDraft, conflict.value.token)
-  draft.value = value as unknown as StageDraft
+  draft.value = JSON.parse(JSON.stringify(value)) as StageDraft
   revision = snapshot.value?.revision ?? revision
   conflict.value = undefined
   error.value = ''
 }
 async function close() {
+  if (busy.value) return
   await drafts.flush()
   if (await props.confirmLeave(dirty.value)) open.value = false
 }
@@ -225,12 +281,10 @@ async function close() {
       <h2>全生命周期</h2>
       <p class="muted">阶段可并行、跳过和重开，记录当前实际进展。</p>
     </div>
-    <span v-if="loading && view" role="status" class="muted">正在刷新阶段记录…</span>
   </div>
   <Alert v-if="error && !open" role="alert" class="notice error">{{ error }}</Alert>
-  <LoadingSkeleton v-if="loading && !view" variant="table" :rows="4" label="正在读取阶段记录…" />
-  <template v-if="view">
-    <div class="relative" :aria-busy="loading">
+  <template v-if="spec">
+    <div class="relative">
       <div
         class="panel table-scroll stage-table-wrap"
         tabindex="0"
@@ -250,7 +304,7 @@ async function close() {
           </TableHeader>
           <TableBody>
             <TableRow
-              v-for="node in view.stages"
+              v-for="node in stageNodes"
               :key="node.stage"
               :class="{ 'selected-stage': selected === node.stage }"
             >
@@ -264,7 +318,7 @@ async function close() {
                 >
                   {{ stages[node.stage] }}
                 </Button>
-                <span v-if="view.spec.record.stage === node.stage" class="row-sub focus-label">
+                <span v-if="spec.record.stage === node.stage" class="row-sub focus-label">
                   当前关注
                 </span>
               </TableHead>
@@ -312,15 +366,16 @@ async function close() {
                   <Button
                     type="button"
                     variant="outline"
-                    :disabled="!enabled || saving"
+                    :disabled="!enabled || busy || !!openingStage"
                     @click="edit(node.stage)"
                   >
-                    记录
+                    <LoadingIndicator :active="openingStage === node.stage" />
+                    {{ openingStage === node.stage ? '正在读取…' : '记录' }}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
-                    :disabled="!enabled || saving || view.spec.record.stage === node.stage"
+                    :disabled="!enabled || busy || !!openingStage || spec.record.stage === node.stage"
                     @click="focus(node.stage)"
                   >
                     设为关注
@@ -331,67 +386,69 @@ async function close() {
           </TableBody>
         </Table>
       </div>
-      <LoadingIndicator :active="loading" placement="overlay" />
     </div>
   </template>
   <ModalDialog
     v-model="open"
     title="记录阶段进度"
-    :busy="saving"
+    :busy="busy"
     :before-close="() => confirmLeave(dirty)"
   >
     <form class="form-stack" aria-label="阶段记录" @submit.prevent="save">
       <h3>{{ stages[draft.stage] }}</h3>
       <DraftNotice
+        v-if="!submitting && !restoring"
         :status="drafts.status.value"
         :error="drafts.error.value"
         :drafts="drafts.recoverable.value"
         :conflict="drafts.recoveryConflict.value"
         @merge="drafts.mergeRecovered"
-        @cancel-recovery="drafts.cancelRecovery"
-        @restore="drafts.restore"
+        @cancel-recovery="cancelRecovery"
+        @restore="restoreDraft"
         @discard="drafts.discard"
       />
       <ConflictResolver
         v-if="conflict"
         :base="conflict.base"
-        :local="conflict.local"
+        :local="{ ...draft }"
         :current="conflict.current"
         @resolve="merge"
         @close="conflict = undefined"
       />
-      <label :for="id + 'progress'">
-        阶段记录
-        <SingleSelect
-          :id="id + 'progress'"
-          :model-value="draft.progress"
-          :options="Object.entries(stageProgressLabels).map(([value, label]) => ({ value, label }))"
-          aria-label="阶段记录"
-          @update:model-value="draft.progress = $event as StageProgress"
-        />
-      </label>
-      <label :for="id + 'note'">
-        阶段说明{{ ['blocked', 'skipped'].includes(draft.progress) ? '（必填）' : '' }}
-        <Textarea
-          :id="id + 'note'"
-          v-model="draft.note"
-          name="note"
-          rows="4"
-          :required="['blocked', 'skipped'].includes(draft.progress)"
-        />
-      </label>
-      <ResourceEditor v-model="draft.resources" />
-      <label class="check-label">
-        <Checkbox :model-value="focusAfter" @update:model-value="focusAfter = $event === true" name="focusAfter" />
-        同时设为当前关注阶段
-      </label>
+      <fieldset class="plain-fieldset form-stack" :disabled="restoring || !!drafts.recoveryConflict.value">
+        <label :for="id + 'progress'">
+          阶段记录
+          <SingleSelect
+            :id="id + 'progress'"
+            :model-value="draft.progress"
+            :options="Object.entries(stageProgressLabels).map(([value, label]) => ({ value, label }))"
+            aria-label="阶段记录"
+            @update:model-value="draft.progress = $event as StageProgress"
+          />
+        </label>
+        <label :for="id + 'note'">
+          阶段说明{{ ['blocked', 'skipped'].includes(draft.progress) ? '（必填）' : '' }}
+          <Textarea
+            :id="id + 'note'"
+            v-model="draft.note"
+            name="note"
+            rows="4"
+            :required="['blocked', 'skipped'].includes(draft.progress)"
+          />
+        </label>
+        <ResourceEditor v-model="draft.resources" />
+        <label class="check-label">
+          <Checkbox :model-value="focusAfter" @update:model-value="focusAfter = $event === true" name="focusAfter" />
+          同时设为当前关注阶段
+        </label>
+      </fieldset>
       <p v-if="notice" role="status">{{ notice }}</p>
       <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
       <div class="form-actions">
-        <Button type="button" variant="outline" :disabled="saving" @click="close">关闭</Button>
-        <Button :disabled="saving || !dirty">
-          <LoadingIndicator :active="saving" />
-          {{ saving ? '正在保存…' : '保存阶段' }}
+        <Button type="button" variant="outline" :disabled="busy" @click="close">关闭</Button>
+        <Button :disabled="busy || !dirty || !!conflict || !!drafts.recoveryConflict.value">
+          <LoadingIndicator :active="submitting" />
+          {{ submitting ? '正在保存…' : '保存阶段' }}
         </Button>
       </div>
     </form>

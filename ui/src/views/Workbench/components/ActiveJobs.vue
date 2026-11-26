@@ -67,8 +67,9 @@ function action(job: WorkbenchJob) {
 </script>
 <template>
   <section class="work-section" :aria-labelledby="id">
-    <div class="section-heading">
+    <div class="section-heading jobs-heading">
       <h2 :id="id">执行与待处理</h2>
+      <span v-if="loaded && !jobs.length && !error" class="jobs-empty-note muted">暂无待处理的执行</span>
       <RouterLink to="/jobs">全部执行记录 →</RouterLink>
     </div>
     <Alert v-if="error" role="alert" class="notice warning">
@@ -139,6 +140,9 @@ function action(job: WorkbenchJob) {
   </section>
 </template>
 <style scoped>
+.jobs-heading { flex-wrap: wrap; column-gap: 10px; row-gap: 2px; }
+.jobs-heading:has(.jobs-empty-note) { margin-block-end: 0; }
+.jobs-empty-note { margin-inline-end: auto; font-size: 11px; }
 .active-jobs :deep(table) {
   min-width: 620px;
   width: 100%;

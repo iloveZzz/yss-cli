@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Input } from '@/components/ui/input'
 import {
+  attentionLabels,
   stages,
   statuses,
   contentStatuses,
@@ -70,7 +71,7 @@ const groups = computed(() => [
     key: 'attention' as const,
     label: '进展提醒',
     options: [
-      { value: 'awaitingConfirmation', label: '待确认' },
+      { value: 'awaitingConfirmation', label: attentionLabels.awaitingConfirmation },
       { value: 'unverified', label: '未核实' },
       { value: 'needsSync', label: '待同步' },
       { value: 'needsReview', label: '需复核' },

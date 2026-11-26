@@ -1,12 +1,15 @@
 # 个人 Spec 工作台
 
-当前工作树提供本机多项目的 Spec 阅读、自动生命周期汇总、个人标记、工程维护、Pi Agent 原工程运行和历史成果接收入口。目标、证据、人工更正、用户确认、问题答复、草稿及执行记录保存在独立数据目录。工程维护和成果接收按所选目标执行文件写入。已安装版本须核对实际程序、帮助与 Bundle。
+当前工作树提供本机多项目的 Spec 阅读与状态核实、自动生命周期汇总和确认、个人标记、工程维护、Pi Agent 原工程运行和历史成果接收入口。目标、证据、人工更正、确认记录、问题答复、草稿及执行记录保存在独立数据目录。工程维护和成果接收按所选目标执行文件写入。已安装版本须核对实际程序、帮助与 Bundle。
 
 ```text
 yss workbench
 yss workbench --no-open --port 0
 yss workbench snapshot --json
 yss workbench query --entity spec --stage verification --json
+yss workbench spec-status --spec-id <SpecID> --json
+yss workbench lifecycle-status --spec-id <SpecID> --json
+yss workbench recommend-status --spec-id <SpecID> --json
 yss workbench lifecycle --spec <SpecID> --json
 yss workbench --data-dir /absolute/personal-data
 ```
@@ -35,13 +38,17 @@ yss workbench --data-dir /absolute/personal-data
 
 本次目标绑定主 Spec、规格摘要、适用阶段、多个参与工程与交付目标。同一目标可采用本地实现、合并或环境验证条件。普通 Codex／终端工作使用 `workbench progress` 写入相同身份；具体输入见随模板分发的 `.template-spec/agents/workbench-progress.md`。运行 `yss workbench progress --help` 核实当前程序能力。
 
-阶段同时记录执行进度与证据适用性。存在进行中工程时整体显示进行中，并保留其他工程的局部阻塞；其余存在明确阻塞时显示受阻。部分完成或等待关键确认时保持进行中。Backend、Frontend 和联调按实际工程分别展开，验证报告核对实际参与版本组合。最终目标证据齐备后由用户明确确认，再进入完成状态。交付执行阶段被排除时仍保留“目标结果确认”入口。
+`progress set-goal`、`progress report` 和 `progress reconcile` 核对当前目标和证据，达到条件时自动记录规格、验证及最终目标确认。自动记录标为「YSS 自动核实」。当前仍适用的人工退回由工作台保留，也可用 `workbench lifecycle-confirm` 记录用户另行作出的明确决定。业务问题答复、主 Spec 内容确认和 Pi 编辑授权继续走各自入口。
 
-交付确认记录目标版本、当时的范围和凭证。该目标已验收时继续显示「已完成」，候选内容和材料影响另有提醒。登记新一轮目标后显示该轮进展。明确退回和当前有效的人工更正按实际决定显示，详情可回看已验收目标。
+`yss workbench lifecycle-status --spec-id <SpecID> --json` 只读查看当前目标、阶段证据及确认。`recommend-status` 只读提供 `recommendedStatus`、`recommendedStage` 和 `recommendedAction`。当 `recommendedAction` 为 `autoConfirm` 时，可运行 `yss workbench lifecycle-auto-confirm --spec-id <SpecID> --request-id <本次操作的稳定ID> --json`，对已经保存的证据补记确认。所有命令沿用原数据目录。具体参数见 [命令参考](cli-help.md#自动核实并确认生命周期)。
 
-规格与相关代码变化会触发适用性核实。局部报告通过 `progress observe-inputs` 在执行检查前采集实际输入，通过 `inputPaths` 随凭证上报。工作台按文件集合、字节和文件模式复核。范围内的输入一致时可沿用局部凭证和对应人工确认。范围证据缺失时显示待核实，真实的联调、合并和环境验证仍核对实际版本组合。首次发现文件只记产物来源，缺失的历史起止时间继续显示未知。
+阶段同时记录执行进度与证据适用性。存在进行中工程时整体显示进行中，并保留其他工程的局部阻塞。其余存在明确阻塞时显示受阻。Backend、Frontend 和联调按实际工程分别展开，验证报告核对实际参与版本组合。工作台在当前目标的有效证据齐备后确认最终结果。证据缺失、过期或检查失败时，查看阶段诊断并补齐所需证据。目标结果也可在「目标结果确认」入口查看。
 
-自动看板的拖动与“移动到”打开人工更正，填写原因并绑定当前目标版本。人工更正优先，冲突证据持续展示，可选择恢复自动判定。目标换版后重新核实原更正。规格、验证和目标确认绑定真实用户决定、范围及适用证据；旧页面保存冲突时保留输入，重新核对后提交。
+交付确认记录目标版本、当时的范围和凭证。自动确认随当前证据失效，旧记录仍可在历史中查看。已有明确人工验收的目标保留其历史完成状态，候选内容和材料影响另有提醒。登记新一轮目标后显示该轮进展。同一目标版本的明确退回优先于自动确认。
+
+规格与相关代码变化会触发适用性核实。局部报告通过 `progress observe-inputs` 在执行检查前采集实际输入，通过 `inputPaths` 随凭证上报。工作台按文件集合、字节和文件模式复核。范围内的输入一致时可沿用局部凭证和对应确认。范围证据缺失时显示待核实，真实的联调、合并和环境验证仍核对实际版本组合。首次发现文件只记产物来源，缺失的历史起止时间继续显示未知。
+
+自动看板的拖动与“移动到”打开人工更正，填写原因并绑定当前目标版本。人工更正优先，冲突证据持续展示，可选择恢复自动判定。目标换版后重新核实原更正。确认记录绑定目标版本、阶段范围及适用证据。旧页面保存冲突时保留输入，重新核对后提交。
 
 新界面默认有效进度。旧查询及未携带 `progressBasis` 的保存视图继续按个人标记解释，切换有效进度后可另存或更新视图。待确认、待核实、待同步、需复核和证据冲突可独立筛选。个人关注、备注及旧记录在个人标记区域继续查看。
 
@@ -49,7 +56,7 @@ yss workbench --data-dir /absolute/personal-data
 
 活跃 Spec 已明确绑定的远端关联每六十秒刷新，同一关联通过原作业锁串行读取。瞬态失败指数退避至十分钟，认证异常等待核实连接后手工刷新。PR／MR、CI 的状态补充已关联工程及阶段角色的证据，完成条件依据本次目标及实际版本。
 
-工作台从已保存的作业、冻结成果及按工程保存的接收回执显示本轮活动。实际进度由成果、检查报告及真实确认更新。续接沿原会话开展，新一轮默认采用当前目标的主阶段，也可明确选择当前目标中的适用阶段。已启动轮次保留原绑定。
+工作台从已保存的作业、冻结成果及按工程保存的接收回执显示本轮活动。实际进度由成果、检查报告和适用的确认记录汇总。续接沿原会话开展，新一轮默认采用当前目标的主阶段，也可明确选择当前目标中的适用阶段。已启动轮次保留原绑定。
 
 ## 工程维护与产品 Home
 
@@ -80,7 +87,7 @@ yss workbench --data-dir /absolute/personal-data
 
 已有 Codex 或 Pi 隔离会话继续保留日志、差异、预览及历史成果接收。后续执行从原 Spec 新建 Pi 会话。Windows 的其他工作台功能与历史记录可用，Pi 运行入口显示平台限制。
 
-1. 从主导航“AI Agent”打开 Pi 工作区，或从 Spec 详情打开“运行 Pi Agent”。主导航优先使用当前可用规格，其次是上次打开的可用 Agent 规格，首次进入按最近访问和更新时间选择。左栏可切换规格并查看其会话，“待处理”可定位需要答复、核对执行状态或审阅成果的会话。新会话在“运行设置”核对参与工程和本轮权限。可以直接读取原工程中未提交的主 Spec 和当前原型。需要跨工程时先选入工程，文件工具使用工程 ID 和工程内相对路径。
+1. 从主导航“AI Agent”打开 Pi 工作区，或从 Spec 详情打开“运行 Pi Agent”。主导航优先使用当前可用规格，其次是上次打开的可用 Agent 规格，首次进入按规格更新时间选择。左栏可切换规格并查看其会话，“待处理”可定位需要答复、核对执行状态或审阅成果的会话。新会话在“运行设置”核对参与工程和本轮权限。可以直接读取原工程中未提交的主 Spec 和当前原型。需要跨工程时先选入工程，文件工具使用工程 ID 和工程内相对路径。
 2. 进入后可先查看登记会话与编辑草稿，来源核验和 Pi 环境准备分别显示。发送后先收到作业回执，准备期间可停止。会话按顺序展示本轮要求、答复和工具活动。点击“上下文”可查看模型窗口及估算用量，轮次详情显示 Pi 返回的本轮用量和会话累计。Pi 返回可展示的推理片段时，推理项随片段展开和更新，结束后默认折叠并显示用时。手动展开或折叠后沿用该选择。每段保留前 6,000 字符，超出部分以省略号提示。计划和上下文压缩也随运行更新。命令可在执行中展开输出，退出后显示退出码。上翻可加载更早的内容，也可回到最新。业务问题在原轮作答，保存后显示答复 ID。“本轮日志”可查原始事件。
 3. Pi 结束后，工作台固化本轮成果。“执行成果”按工程显示文件清单，展开文件查看变化，按需打开全文或选行返工。只读轮次留存主 Spec 和关联材料。编辑轮次按运行前和结束版本展示文件变化，轮前已有的未提交内容纳入起点。原型有可用构建入口时可打开预览，交互结果以实际操作为准。采集失败时查阅本轮日志并核对原工程。
 4. 历史隔离成果仍可选中文件后接收。冲突需明确采用隔离结果，文件版本改变后须重新核对。直连编辑后的结果已经写入原工程，可直接从执行成果审阅。
@@ -187,6 +194,12 @@ yss workbench lifecycle --spec <SpecID> --json
 `--project`、`--spec`、`--stage`、`--status`、`--content-status`、`--reminder` 可重复；未知项目／Spec ID 返回空结果，不扩大范围。`--activity active|inactive|all` 默认 active；任务有效启用同时要求任务、父 Spec、父项目启用。排序支持 `updatedDesc`（默认）和 `titleAsc`，相同键以 ID 稳定排序。内容状态为 `unmarked|draft|ready|confirmed`，提醒为 `decision|research|overdue|writeback|ready`，`--needs-reconfirmation` 筛选确认后产物已变化的 Spec。内容筛选用于 Spec，已有任务的对应内容字段为空。外部链接不计为来源异常。CLI、HTTP 和界面复用相同查询语义；读取不创建数据目录。
 
 JSON 信封 command 分别为 `workbench.snapshot`、`workbench.query`、`workbench.lifecycle`。query 返回 revision、readAt、total、items；lifecycle 返回 Spec、八节点、任务和真实历史。HTTP 的 `/api/query`、`/api/specs/{id}/lifecycle` 使用相同的本机会话保护。没有通过 CLI 自动执行任务、提交 Git 或写回第三方平台的功能。
+
+### 核实已登记的 Spec
+
+在终端运行 `yss workbench spec-status --spec-id <SpecID> --json`，即可只读核对一条已登记的 Spec，包括其来源诊断、内容确认条件、问题状态和有效进度。自定义数据目录沿用启动工作台时的 `yss workbench --data-dir <目录>`。只知道标题或路径时，先用 `query --entity spec --q <关键词> --activity all --include-closed --json` 获取 `result.items[].specId`。
+
+先查 `result.sourceHealth` 和 `result.sourceMessage` 确认来源是否可读，再用 `content.status`、`content.canConfirm` 和 `content.blockers` 核对内容确认条件。已有确认的范围和版本见 `content.confirmedVersion`，可对照 `content.artifactDigest` 和 `content.observedArtifactDigest` 核实当前采用版本及登记工程的材料变化。隔离工作区的实际可读版本应在对应执行记录核对。有效阶段和下一步见 `progress`。需要阶段记录、任务和历史时用 `lifecycle`，需要接续要求和问题答复详情时用 `request`。完整参数及字段见 [命令参考](cli-help.md#核实单个-spec-状态)。
 
 ## 3.4.0 原发行记录
 

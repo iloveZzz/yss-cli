@@ -45,8 +45,8 @@ export const sourceLabels: Record<ProgressSource, string> = {
   historical: '历史凭证'
 }
 export const attentionLabels: Record<string, string> = {
-  awaitingConfirmation: '待确认',
-  confirmationRequired: '待确认',
+  awaitingConfirmation: '待自动核实',
+  confirmationRequired: '待核实',
   goalMissing: '目标待核实',
   manualOverride: '人工更正',
   blocked: '受阻',
@@ -141,6 +141,7 @@ export interface ConfirmationInput {
   decision: 'confirm' | 'reject'
 }
 export interface DecisionRecord extends ConfirmationInput {
+  origin?: 'automatic' | 'manual'
   stageEvidenceDigest?: string | null
   schemaVersion: number
   id: string
@@ -207,6 +208,7 @@ export interface StageSummary {
   overrideRecord: OverrideRecord | null
 }
 export interface ProgressSummary {
+  autoConfirmableStages?: Stage[]
   currentVersions?: ProjectVersion[]
   lastDelivery?: DecisionRecord
   materialReview?: boolean
@@ -235,16 +237,27 @@ export type ProgressAction =
   | { kind: 'clearProgressOverride'; input: ClearOverrideInput }
   | { kind: 'reconcileProgress'; specId: string }
 
-export function stageState(stage: StageSummary) {
+export function decisionLabel(record: DecisionRecord) {
+  if (record.decision === 'reject') return '用户已退回'
+  return record.origin === 'automatic' ? '已自动核实' : '用户已确认'
+}
+
+export function stageState(stage: StageSummary, autoConfirmableStages?: Stage[]) {
   if (
     !stage.applicable &&
     !(stage.stage === 'delivery' && stage.confirmationRequired)
   )
     return '不适用'
   if (stage.confirmation?.decision === 'reject') return '已退回'
-  if (stage.stage === 'delivery' && stage.confirmation?.decision === 'confirm' && stage.source === 'historical')
-    return '该版本已验收'
+  if (stage.stage === 'delivery' && stage.confirmation?.decision === 'confirm' && stage.source === 'historical') {
+    return stage.confirmation.origin === 'automatic' ? '该版本已自动核实' : '该版本已验收'
+  }
   if (stage.validity !== 'current') return validityLabels[stage.validity]
-  if (stage.confirmationRequired && !stage.confirmation) return '待确认'
+  if (stage.progress === 'done' || stage.progress === 'skipped') {
+    if (stage.confirmationRequired && !stage.confirmation) {
+      return autoConfirmableStages?.includes(stage.stage) ? '待自动核实' : '待补证据'
+    }
+    if (stage.confirmation?.origin === 'automatic') return '已自动核实'
+  }
   return progressLabels[stage.progress]
 }

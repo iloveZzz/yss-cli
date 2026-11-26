@@ -590,7 +590,7 @@ async fn observe_workbench(
                 None
             }
         };
-        let interval = Duration::from_secs(5);
+        let interval = Duration::from_secs(30);
         let delay = review_at
             .and_then(|at| Duration::try_from(at - time::OffsetDateTime::now_utc()).ok())
             .map_or(interval, |duration| duration.min(interval));

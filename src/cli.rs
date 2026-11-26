@@ -3,6 +3,11 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     model::{BuildInfo, InstallationKind, Profile},
     output::{self, OutputEnvelope},
+    workbench::{
+        model::{Action, Stage},
+        progress::{ConfirmationDecision, ConfirmationInput},
+        status::ReportKind,
+    },
 };
 use clap::{
     Args, CommandFactory, FromArgMatches, Parser, Subcommand,
@@ -19,7 +24,7 @@ use std::{
 #[command(
     name = "yss",
     about = "管理 YSS 项目资源、生成 Java / Vue 工程并运行本机 Spec 工作台",
-    after_help = "常用命令\n  yss version --json\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss help init\n\n子命令帮助列出 --dry-run 时可用该参数预览，去掉该参数执行写入。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实 Git、远程和 Issue tracker，并按需配置 Home 关系。",
+    after_help = "常用命令\n  yss version --json\n  yss init --root ./my-project --profile spec --dry-run\n  yss skills list --root ./my-project\n  yss workbench spec-status --help\n  yss help init\n\n子命令帮助列出 --dry-run 时可用该参数预览，去掉该参数执行写入。完整工程接入由 Agent 按 setup-yss-harness 的 references/project-onboarding.md 核实 Git、远程和 Issue tracker，并按需配置 Home 关系。",
     disable_version_flag = true
 )]
 pub struct Cli {
@@ -86,6 +91,13 @@ impl Command {
                 None => "workbench",
                 Some(WorkbenchCommand::Snapshot) => "workbench.snapshot",
                 Some(WorkbenchCommand::Query(_)) => "workbench.query",
+                Some(WorkbenchCommand::SpecStatus { .. }) => "workbench.spec-status",
+                Some(WorkbenchCommand::LifecycleStatus { .. }) => "workbench.lifecycle-status",
+                Some(WorkbenchCommand::LifecycleConfirm(_)) => "workbench.lifecycle-confirm",
+                Some(WorkbenchCommand::LifecycleAutoConfirm { .. }) => {
+                    "workbench.lifecycle-auto-confirm"
+                }
+                Some(WorkbenchCommand::RecommendStatus { .. }) => "workbench.recommend-status",
                 Some(WorkbenchCommand::Lifecycle { .. }) => "workbench.lifecycle",
                 Some(WorkbenchCommand::Register { .. }) => "workbench.register",
                 Some(WorkbenchCommand::Request { .. }) => "workbench.request",
@@ -180,6 +192,45 @@ pub enum WorkbenchCommand {
     )]
     Query(WorkbenchQueryArgs),
     #[command(
+        about = "只读核实已登记 Spec 的来源、内容、材料与有效进度",
+        after_help = WORKBENCH_SPEC_STATUS_HELP
+    )]
+    SpecStatus {
+        #[arg(long, help = "已登记的实际 Spec ID")]
+        spec_id: String,
+    },
+    #[command(
+        about = "只读核实 Spec 生命周期阶段、证据、目标和确认状态",
+        after_help = WORKBENCH_LIFECYCLE_STATUS_HELP
+    )]
+    LifecycleStatus {
+        #[arg(long, help = "已登记的实际 Spec ID")]
+        spec_id: String,
+    },
+    #[command(
+        about = "记录用户对 Spec 生命周期当前范围和证据的明确决定",
+        after_help = WORKBENCH_LIFECYCLE_CONFIRM_HELP
+    )]
+    LifecycleConfirm(LifecycleConfirmArgs),
+    #[command(
+        about = "核实当前证据并自动记录适用的生命周期确认",
+        after_help = WORKBENCH_LIFECYCLE_AUTO_CONFIRM_HELP
+    )]
+    LifecycleAutoConfirm {
+        #[arg(long, help = "已登记的实际 Spec ID")]
+        spec_id: String,
+        #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
+        request_id: String,
+    },
+    #[command(
+        about = "自动根据当前证据推荐 Spec 生命周期状态及下一步",
+        after_help = WORKBENCH_RECOMMEND_STATUS_HELP
+    )]
+    RecommendStatus {
+        #[arg(long, help = "已登记的实际 Spec ID")]
+        spec_id: String,
+    },
+    #[command(
         about = "只读查看 Spec 八阶段、任务与实际历史",
         after_help = WORKBENCH_LIFECYCLE_HELP
     )]
@@ -239,9 +290,14 @@ const WORKBENCH_HELP: &str = r#"启动本机浏览器工作台
 只读定位、查看或续办已登记的 Spec
   yss workbench snapshot --json
   yss workbench query --entity spec --q "<标题或主文件路径关键词>" --json
+  yss workbench spec-status --spec-id "<实际 Spec ID>" --json
+  yss workbench lifecycle-status --spec-id "<实际 Spec ID>" --json
+  yss workbench recommend-status --spec-id "<实际 Spec ID>" --json
   yss workbench lifecycle --spec "<实际 Spec ID>" --json
   yss workbench request --spec-id "<实际 Spec ID>" --json
 
+目标或进度写入时核实并自动确认有效证据。主动触发可用 yss workbench lifecycle-auto-confirm --help。
+需要记录用户明确决定时，可用 yss workbench lifecycle-confirm --help。
 启动持续服务时不能使用 --json。读取数据时使用对应子命令。
 如原工作台使用自定义数据目录，每条命令都在 workbench 后加原 --data-dir "<绝对路径>"。
 续办时核对查询结果对应的工程根与主文件，沿用已登记的 Spec ID。"#;
@@ -279,6 +335,57 @@ personal 使用个人标记。effective 用证据和当前版本的人工更正�
 在 result.items 查看命中条目，specId 为所属 Spec ID，projectId 为所属工程 ID，
 id 为当前 Spec 或任务 ID。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
+const WORKBENCH_SPEC_STATUS_HELP: &str = r#"核实一个已登记的 Spec
+  yss workbench spec-status --spec-id "<实际 Spec ID>"
+  yss workbench --data-dir "/absolute/personal-data" spec-status --spec-id "<实际 Spec ID>" --json
+
+未知 ID 可先用 query --entity spec --q "<标题或路径关键词>" --activity all --include-closed --json 定位。
+核对 projectRoot 和 sourcePath，并沿用原工作台的 --data-dir。
+
+查看 sourceHealth、content.status、content.questions、content.blockers、content.materialChanges 及 progress。
+content.artifactDigest 是当前采用的产物摘要，content.observedArtifactDigest 是登记工程当前可观察的产物摘要，
+content.confirmedVersion 是已有内容确认，progress.goalSpecDigest 是已登记目标采用的摘要。
+来源缺失会在结果中显示，未登记的 Spec ID 会报错。此命令只读，旧数据保持原格式。
+默认输出格式化 JSON，--json 将报告放在统一信封的 result。阶段的当前证据可用 lifecycle-status 查看。"#;
+
+const WORKBENCH_LIFECYCLE_STATUS_HELP: &str = r#"只读核实当前生命周期
+  yss workbench lifecycle-status --spec-id "<实际 Spec ID>" --json
+
+result.progress.stages 各项包含 progress、validity、evidence 及适用的确认信息。
+confirmation.origin 为 automatic 时，表示由当前证据自动核实。
+进度与证据有效性分别判断。progress.autoConfirmableStages 列出当前可自动确认的阶段，无候选时可省略。
+使用自定义目录时，在 workbench 后加原 --data-dir。完整任务与历史可用 lifecycle 查看。"#;
+
+const WORKBENCH_LIFECYCLE_CONFIRM_HELP: &str = r#"需要记录用户明确决定时，先用 lifecycle-status --spec-id "<实际 Spec ID>" --json 核对当前范围及证据。
+按用户实际核对并明确给出的决定填写参数。--scope 须与 progress.goal.scope 逐字相同。
+
+  yss workbench lifecycle-confirm --spec-id "<实际 Spec ID>" --goal-version "<目标版本>" \
+    --stage verification --scope "<用户核对的完整范围>" --evidence-digest "<证据摘要>" \
+    --decision confirm --source "<实际确认人或答复出处>" --request-id "<稳定请求 ID>" --json
+
+spec 对应规格，verification 对应业务验收，delivery 对应最终交付。
+写入前复核当前版本、范围和证据，变化后须重新读取并核对用户决定。重试沿用同一请求 ID 和参数。
+使用自定义目录时，在 workbench 后加原 --data-dir。保存的决定可用 lifecycle 查历史。"#;
+
+const WORKBENCH_LIFECYCLE_AUTO_CONFIRM_HELP: &str = r#"核实当前证据，并自动记录符合条件的规格、验证及交付确认
+  yss workbench lifecycle-auto-confirm --spec-id "<实际 Spec ID>" --request-id "<本次写入的稳定请求 ID>" --json
+
+程序读取当前目标、范围、有效证据和已有决定。同一目标的明确退回优先于自动确认。
+验证报告须包含通过凭证，并覆盖目标中登记的验收引用。没有验收引用时，可自动确认有范围依据的验证跳过。
+证据缺失、失败或过期时保留待核实状态。
+核实后的阶段与确认来源见 lifecycle-status。请求重试沿用原 --request-id；证据更新后重新触发用新 ID。
+使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
+const WORKBENCH_RECOMMEND_STATUS_HELP: &str = r#"自动推荐当前生命周期状态及下一步
+  yss workbench recommend-status --spec-id "<实际 Spec ID>" --json
+
+自动核对登记工程的当前来源、目标和已保存证据，无需交互输入，只读返回推荐。
+recommendedStatus、recommendedStage 和 validity 给出建议状态、阶段和证据有效性。
+停用、来源不可用、内容无法核实或缺少目标时，建议状态和阶段为 null，
+已有交付完成但当前证据需复核时，也保留历史 observedStatus，建议状态和阶段为 null。
+recommendedAction 给出下一步。autoConfirm 表示当前主要阶段可用 lifecycle-auto-confirm 写入。
+使用自定义目录时，在 workbench 后加原 --data-dir。"#;
+
 const WORKBENCH_LIFECYCLE_HELP: &str = r#"  yss workbench lifecycle --spec "<实际 Spec ID>" --json
 
 result.spec.record 和 result.stages 各项的 record 保存个人标记，各阶段的 taskCounts 为任务计数。
@@ -287,8 +394,8 @@ result.spec.content.artifactDigest 为当前产物摘要。已登记目标的采
 目标版本在 result.progress.goalVersion。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
 const WORKBENCH_PROGRESS_HELP: &str = r#"先用 yss workbench lifecycle --spec "<实际 Spec ID>" --json 核对当前产物及已登记目标。
-用 set-goal 登记目标，再读 lifecycle 取得目标版本后上报实际进展。
-核实当前证据与用户明确决定后，使用 confirm 保存该决定。
+用 set-goal 登记目标，再读 lifecycle 取得目标版本后上报实际进展。证据符合条件时自动记录生命周期确认。
+需要记录用户明确决定时可使用 confirm。
 参与工程或产物变化后使用 reconcile，再读 lifecycle 核对影响。
 使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
 写入时用稳定的 --request-id，同一写入重试沿用原 ID 和原输入。"#;
@@ -355,7 +462,8 @@ outcome 可用 passed、failed、observed。按需使用以下命令采集检查
 把返回的 result.inputs 和 result.version 分别加入 inputPaths 和 versions 数组，保留原 observedDigest。
 相同写入重试沿用报告 id、--request-id 和原 JSON。新报告使用新的 id 和 --request-id。"#;
 
-const PROGRESS_CONFIRM_HELP: &str = r#"先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+const PROGRESS_CONFIRM_HELP: &str = r#"需要记录用户明确决定时，先运行 yss workbench lifecycle --spec "<实际 Spec ID>" --json。
+也可运行 yss workbench lifecycle-confirm --help，查看直接传入确认字段的用法。
 使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
 specId 取 result.spec.record.id，goalVersion 取 result.progress.goalVersion。
 scope 与 result.progress.goal.scope 逐字相同，evidenceDigest 取用户本次核对的 result.progress.evidenceDigest。
@@ -386,7 +494,7 @@ const PROGRESS_OBSERVE_INPUTS_HELP: &str = r#"在执行检查前采集该检查�
 把 result.inputs 和 result.version 分别作为条目加入 report 的 inputPaths 和 versions 数组。
 保留检查前的 observedDigest。输入发生变化后重新采集并执行检查。"#;
 
-const PROGRESS_RECONCILE_HELP: &str = r#"Spec、参与工程或采用版本变化后，写入一次复核请求，再只读查看当前汇总
+const PROGRESS_RECONCILE_HELP: &str = r#"Spec、参与工程或采用版本变化后，写入一次复核请求。证据符合条件时自动记录生命周期确认。
   yss workbench progress reconcile --spec-id "<实际 Spec ID>" --request-id "<本次复核的稳定请求 ID>" --json
   yss workbench lifecycle --spec "<同一实际 Spec ID>" --json
 
@@ -421,6 +529,57 @@ pub struct ProgressInputArgs {
     pub input: String,
     #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
     pub request_id: String,
+}
+
+#[derive(Args)]
+pub struct LifecycleConfirmArgs {
+    #[arg(long, help = "已登记的实际 Spec ID")]
+    spec_id: String,
+    #[arg(long, help = "用户核对的目标版本，取 progress.goalVersion")]
+    goal_version: String,
+    #[arg(long, value_enum, help = "用户本次决定对应的阶段")]
+    stage: LifecycleConfirmationStage,
+    #[arg(long, help = "用户核对的完整范围，须与 progress.goal.scope 逐字相同")]
+    scope: String,
+    #[arg(long, help = "用户核对的证据摘要，取 progress.evidenceDigest")]
+    evidence_digest: String,
+    #[arg(long, help = "实际确认人或确定该决定的答复出处")]
+    source: String,
+    #[arg(long, value_enum, help = "用户已明确给出的确认或退回决定")]
+    decision: ConfirmationDecision,
+    #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
+    request_id: String,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum LifecycleConfirmationStage {
+    Spec,
+    Verification,
+    Delivery,
+}
+
+impl LifecycleConfirmArgs {
+    fn action(&self) -> (Action, String) {
+        let stage = match self.stage {
+            LifecycleConfirmationStage::Spec => Stage::Spec,
+            LifecycleConfirmationStage::Verification => Stage::Verification,
+            LifecycleConfirmationStage::Delivery => Stage::Delivery,
+        };
+        (
+            Action::ConfirmProgress {
+                input: ConfirmationInput {
+                    spec_id: self.spec_id.clone(),
+                    goal_version: self.goal_version.clone(),
+                    stage,
+                    scope: self.scope.clone(),
+                    evidence_digest: self.evidence_digest.clone(),
+                    source: self.source.clone(),
+                    decision: self.decision,
+                },
+            },
+            self.request_id.clone(),
+        )
+    }
 }
 
 fn progress_input<T: serde::de::DeserializeOwned>(
@@ -777,6 +936,7 @@ enum Report<'a> {
     WorkbenchMutation(crate::workbench::model::MutationResult),
     WorkbenchRequest(crate::workbench::model::AgentRequest),
     WorkbenchQuery(crate::workbench::model::QueryResult),
+    WorkbenchStatus(serde_json::Value),
     WorkbenchLifecycle(Box<crate::workbench::model::LifecycleView>),
     WorkbenchInputs(crate::workbench::progress::InputObservation),
     Help { help: String },
@@ -812,9 +972,21 @@ fn dispatch<'a>(
                     ));
                 }
                 Some(WorkbenchCommand::Progress(_))
-                | Some(WorkbenchCommand::ReviewMaterials(_)) => {
+                | Some(WorkbenchCommand::ReviewMaterials(_))
+                | Some(WorkbenchCommand::LifecycleAutoConfirm { .. })
+                | Some(WorkbenchCommand::LifecycleConfirm(_)) => {
                     let (action, request_id) = match args.command.as_ref().expect("write command") {
                         WorkbenchCommand::Progress(command) => progress_action(command)?,
+                        WorkbenchCommand::LifecycleConfirm(input) => input.action(),
+                        WorkbenchCommand::LifecycleAutoConfirm {
+                            spec_id,
+                            request_id,
+                        } => (
+                            Action::ReconcileProgress {
+                                spec_id: spec_id.clone(),
+                            },
+                            request_id.clone(),
+                        ),
                         WorkbenchCommand::ReviewMaterials(input) => (
                             crate::workbench::model::Action::ReviewMaterials {
                                 input: progress_input(
@@ -869,6 +1041,30 @@ fn dispatch<'a>(
                     return Ok(Report::WorkbenchRequest(
                         crate::workbench::service::read_agent_request(&path, spec_id, cancel)?,
                     ));
+                }
+                Some(WorkbenchCommand::SpecStatus { spec_id }) => {
+                    return Ok(Report::WorkbenchStatus(crate::workbench::status::read(
+                        &path,
+                        spec_id,
+                        ReportKind::Spec,
+                        cancel,
+                    )?));
+                }
+                Some(WorkbenchCommand::LifecycleStatus { spec_id }) => {
+                    return Ok(Report::WorkbenchStatus(crate::workbench::status::read(
+                        &path,
+                        spec_id,
+                        ReportKind::Lifecycle,
+                        cancel,
+                    )?));
+                }
+                Some(WorkbenchCommand::RecommendStatus { spec_id }) => {
+                    return Ok(Report::WorkbenchStatus(crate::workbench::status::read(
+                        &path,
+                        spec_id,
+                        ReportKind::Recommendation,
+                        cancel,
+                    )?));
                 }
                 Some(WorkbenchCommand::Respond(r)) => {
                     let action = crate::workbench::model::Action::RespondQuestion {

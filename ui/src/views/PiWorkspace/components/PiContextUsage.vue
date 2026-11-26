@@ -20,7 +20,7 @@ const percentText = (value: number) => value > 0 && value < 1 ? '< 1%' : Math.ro
         <Gauge :size="14" aria-hidden="true" />上下文<template v-if="percent !== null"> {{ percentText(percent) }}</template>
       </Button>
     </PopoverTrigger>
-    <PopoverContent align="start" :collision-padding="12" class="pi-context-popover space-y-2">
+    <PopoverContent align="start" :collision-padding="12" class="space-y-2">
       <p class="font-medium">Pi 上下文窗口</p>
       <meter v-if="used !== null" aria-label="上下文 token 用量" :max="limit" :value="Math.min(used, limit)" class="w-full" />
       <p class="text-xs text-muted-foreground" v-if="used !== null">已用约 {{ number.format(used) }} / {{ number.format(limit) }} token</p>
@@ -28,7 +28,3 @@ const percentText = (value: number) => value > 0 && value < 1 ? '< 1%' : Math.ro
     </PopoverContent>
   </Popover>
 </template>
-
-<style>
-.pi-context-popover[data-slot='popover-content'] { background: var(--brand-color-bg-container, #fff); }
-</style>

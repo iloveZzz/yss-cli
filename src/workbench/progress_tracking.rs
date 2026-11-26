@@ -536,7 +536,7 @@ fn observation_reports(
                     String::new()
                 },
                 next_action: if validity == Validity::Current && progress == Progress::Done {
-                    "核对当前范围的人工验收与最终交付确认".into()
+                    "核对目标验收引用和交付凭证，满足条件时自动确认".into()
                 } else {
                     "由原 Agent 核对目标、代码版本和远程执行范围后上报".into()
                 },

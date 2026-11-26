@@ -16,6 +16,7 @@ pub mod service;
 pub mod session;
 pub mod sources;
 pub(crate) mod sqlite;
+pub(crate) mod status;
 pub(crate) mod storage_migration;
 pub mod store;
 pub mod tasks;

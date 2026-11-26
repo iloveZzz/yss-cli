@@ -1,4 +1,4 @@
-import { computed, shallowReadonly, shallowRef } from 'vue'
+import { computed, inject, provide, shallowReadonly, shallowRef, type InjectionKey, type Ref } from 'vue'
 import {
   ApiError,
   errorMessage,
@@ -15,6 +15,7 @@ const changesError = shallowRef('')
 const sourceVersions = computed(() => sourceState.value?.sourceVersions ?? {})
 const externalVersion = computed(() => sourceState.value?.externalVersion ?? '')
 let changesController: AbortController | undefined
+let changesConnected = false
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 let reconnectDelay = 500
 
@@ -106,7 +107,7 @@ function applySourceState(value: SourceState) {
 }
 
 async function checkChanges() {
-  if (expired.value) return
+  if (expired.value || changesConnected) return
   try {
     applySourceState(await getSourceState())
     if (snapshotRequired && loadedAt !== observed) await refresh()
@@ -121,6 +122,7 @@ function startChanges() {
   changesController = own
   void readNdjson<SourceState>('/api/changes', own.signal, (value) => {
     if (own.signal.aborted) return
+    changesConnected = true
     reconnectDelay = 500
     applySourceState(value)
     if (snapshotRequired && loadedAt !== observed && !pendingSnapshot) void refresh()
@@ -131,6 +133,7 @@ function startChanges() {
     .finally(() => {
       if (changesController !== own) return
       changesController = undefined
+      changesConnected = false
       if (!own.signal.aborted && !expired.value) {
         changesError.value ||= '实时状态连接中断，正在重连。'
         reconnectTimer = setTimeout(startChanges, reconnectDelay)
@@ -143,6 +146,7 @@ function stopChanges() {
   clearTimeout(reconnectTimer)
   changesController?.abort()
   changesController = undefined
+  changesConnected = false
 }
 
 const activeSpecs = computed(
@@ -153,23 +157,40 @@ const activeSpecs = computed(
         snapshot.value?.projects.some((p) => p.record.id === s.record.projectId && p.record.active)
     ) ?? []
 )
+const workbench = {
+  snapshot: shallowReadonly(snapshot),
+  loading: shallowReadonly(loading),
+  saving: shallowReadonly(saving),
+  error: shallowReadonly(error),
+  expired: shallowReadonly(expired),
+  activeSpecs,
+  sourceState: shallowReadonly(sourceState),
+  changesError: shallowReadonly(changesError),
+  sourceVersions,
+  externalVersion,
+  startChanges,
+  stopChanges,
+  checkChanges,
+  requireSnapshot,
+  refresh,
+  submit
+}
+
+interface WorkbenchScope {
+  snapshot: Readonly<Ref<Snapshot | null>>
+  loading: Readonly<Ref<boolean>>
+  error: Readonly<Ref<string>>
+  refresh: () => Promise<boolean>
+  submit: typeof submit
+}
+
+const workbenchScopeKey: InjectionKey<WorkbenchScope> = Symbol('scoped workbench')
+
+export function provideWorkbenchScope(scope: WorkbenchScope) {
+  provide(workbenchScopeKey, scope)
+  return { ...workbench, ...scope }
+}
+
 export function useWorkbench() {
-  return {
-    snapshot: shallowReadonly(snapshot),
-    loading: shallowReadonly(loading),
-    saving: shallowReadonly(saving),
-    error: shallowReadonly(error),
-    expired: shallowReadonly(expired),
-    activeSpecs,
-    sourceState: shallowReadonly(sourceState),
-    changesError: shallowReadonly(changesError),
-    sourceVersions,
-    externalVersion,
-    startChanges,
-    stopChanges,
-    checkChanges,
-    requireSnapshot,
-    refresh,
-    submit
-  }
+  return { ...workbench, ...inject(workbenchScopeKey, undefined) }
 }

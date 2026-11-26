@@ -15,7 +15,12 @@
 | 排查差异或恢复 | `doctor` / `recover` | 受管项目目录或 CLI 工具目录 |
 | 本机 Spec 与工程工作台 | `workbench` | 个人数据、工程维护与 Pi Agent 运行入口 |
 | 查询任务和生命周期 | `workbench snapshot` / `query` / `lifecycle` | 已纳管记录 |
-| 上报生命周期进展 | `workbench progress set-goal` / `report` / `confirm` / `reconcile` | 主 Spec 的目标、证据和明确确认 |
+| 核实单个 Spec 状态 | `workbench spec-status` | 登记来源、内容确认、问题和有效进度 |
+| 核实生命周期状态 | `workbench lifecycle-status` | 已登记目标、有效阶段、证据与确认 |
+| 获取状态建议 | `workbench recommend-status` | 自动建议生命周期状态、阶段和下一步 |
+| 自动核实并确认 | `workbench lifecycle-auto-confirm` | 为已保存且仍有效的阶段证据补记确认 |
+| 记录人工决定 | `workbench lifecycle-confirm` | 记录用户明确作出的确认或退回 |
+| 上报生命周期进展 | `workbench progress set-goal` / `report` / `reconcile` | 主 Spec 的目标、证据和自动确认 |
 | 更新 CLI 本身 | `upgrade` | CLI 工具目录，与项目同步分开执行 |
 
 `yss help <命令>` 或 `yss <命令> --help` 查看命令帮助，例如 `yss skills ensure --help`。确认子命令帮助列出 `--dry-run` 后，可加该参数预览。查看结果后去掉该参数执行。预览不创建目标、锁或可保存的执行计划。在线升级预览仍会访问发行信息。使用独立的 `yss version --json` 核对正在运行的程序及内嵌 Bundle。
@@ -219,11 +224,96 @@ yss workbench query --entity spec --progress-basis effective --attention needsRe
 yss workbench lifecycle --spec <SpecID> --json
 ```
 
-`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`，以及可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`。`--progress-basis effective` 使用自动证据与当前版本人工更正汇总的有效进度；缺省 `personal` 延续个人标记语义。`--attention` 可重复传入 `awaitingConfirmation`、`unverified`、`needsSync`、`needsReview`、`conflict`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。snapshot/query/lifecycle/request 只读、不创建缺失目录。参数完整枚举以 `yss workbench query --help` 为准。
+`query` 支持 `--entity spec|task`、`--q`、可重复的 `--project` / `--spec` / `--stage` / `--status`、`--activity active|inactive|all`、`--include-closed`、`--source-problems`、`--sort updatedDesc|titleAsc`，以及可重复的 `--content-status unmarked|draft|ready|confirmed`、`--reminder decision|research|overdue|writeback|ready` 和布尔参数 `--needs-reconfirmation`。`--progress-basis effective` 使用自动证据与当前版本人工更正汇总的有效进度；缺省 `personal` 延续个人标记语义。`--attention` 可重复传入 `awaitingConfirmation`、`unverified`、`needsSync`、`needsReview`、`conflict`。默认启用记录、隐藏终态、最近更新排序；显式选择 done/canceled 时会包含终态。参数完整枚举以 `yss workbench query --help` 为准。
 
-`YSS_SPEC_TITLE` 使用要定位的规格名称。`query` 从 `result.items[]` 读取匹配的 `specId`、`projectId`。`lifecycle` 的 `result.stages` 展示个人阶段与任务计数，`result.progress.stages` 展示基于证据和当前目标的有效阶段进度。单纯查看使用 `lifecycle`，`progress reconcile` 会保存写入回执并重新核对已登记事实。
+`snapshot`、`query`、`lifecycle`、`spec-status`、`lifecycle-status`、`recommend-status` 和 `request` 以只读方式打开工作台数据目录，并可直接查询兼容的旧 JSON 数据。
+
+`YSS_SPEC_TITLE` 使用要定位的规格名称。`query` 从 `result.items[]` 读取匹配的 `specId`、`projectId`。`lifecycle` 的 `result.stages` 展示个人阶段与任务计数，`result.progress.stages` 展示基于证据和当前目标的有效阶段进度。单纯查看使用 `lifecycle`，`progress reconcile` 会重新核对已登记事实并保存自动确认和写入回执。
 
 首次登记时，`register --root` 指定工程根，`--source` 使用相对该根的主 Spec 路径。成功后从 `result.specId` 和 `result.projectId` 取得身份。接续时使用 `workbench request --spec-id "$YSS_PROGRESS_SPEC_ID" --json`。`result.text` 供 Agent 或人员直接阅读，`result.projectRoot`、`result.sourcePath` 和 `result.questions` 可供结构化处理。使用自定义工作台目录的所有命令沿用同一 `--data-dir`。
+
+### 核实单个 Spec 状态
+
+当前源码提供 `spec-status`。先运行 `yss workbench spec-status --help` 核对已安装程序是否支持。命令按已登记的 Spec ID 精确读取，涵盖停用、已完成和已取消的记录。只知道标题时，先在同一数据目录执行 `query` 搜索关键字，将匹配项的 `specId` 作为 `YSS_SPEC_ID`。
+
+```sh
+yss workbench query --entity spec --q "$YSS_SPEC_TITLE" --activity all --include-closed --json
+yss workbench spec-status --spec-id "$YSS_SPEC_ID" --json
+yss workbench --data-dir /absolute/personal-data spec-status --spec-id "$YSS_SPEC_ID" --json
+```
+
+省略 `--json` 时直接打印格式化的状态对象。使用 `--json` 时从 `yss.output` 信封的 `result` 取同一对象，`command` 为 `workbench.spec-status`。
+
+| 输出字段 | 用途 |
+| --- | --- |
+| `revision`、`readAt`、`specId`、`projectId`、`title`、`active` | 核对记录身份、数据修订号和读取时间。项目与 Spec 均启用时 `active` 为 `true`。 |
+| `projectRoot`、`sourcePath`、`sourceHealth`、`sourceMessage`、`sourceModifiedAt` | 核对登记工程、相对来源路径及本次读取诊断。 |
+| `content.status`、`content.scope`、`content.canConfirm`、`content.blockers`、`content.metadataError` | 核对内容状态、确认范围、当前确认条件及对应阻塞原因。 |
+| `content.artifactDigest`、`content.observedArtifactDigest`、`content.confirmedVersion` | 分别核对当前采用的产物摘要、原工程当前可观察的产物摘要及已有确认版本。 |
+| `content.materialReviewDigest`、`content.materialChanges`、`content.needsReconfirmation` | 查看材料核实摘要、材料变化及当前范围是否已就绪并需重新确认。 |
+| `content.questions` | 按 `id`、`title`、`state`、`blocking` 查看问题及处理状态。 |
+| `progress` | 汇总有效进度的 `status`、`primaryStage`、`activeStages`、`validity` 和 `attention`，以及 `goalVersion`、`goalSpecDigest`、`lastVerifiedAt`、`blocker`、`nextAction` 和 `currentVersions`。汇总不可用时为 `null`。 |
+
+未知 ID 返回命令错误。已登记的 Spec 来源缺失或不可读时，命令仍返回该记录及 `sourceHealth`、`sourceMessage` 等诊断。成功退出表示状态读取完成，内容能否确认与目标是否已验收须查看各自字段及记录。
+
+### 核实生命周期状态
+
+```sh
+yss workbench lifecycle-status --help
+yss workbench lifecycle-status --spec-id "$YSS_SPEC_ID" --json
+```
+
+`lifecycle-status` 按登记的 Spec ID 读取当前生命周期，沿用原工作台的数据目录。JSON 信封的 `command` 为 `workbench.lifecycle-status`。在 `result` 查看 `sourceHealth`、`sourceMessage` 和 `contentStatus`，在 `result.progress` 查看目标 `goal`、目标版本 `goalVersion`、整体状态 `status`、证据适用性 `validity`、提醒 `attention` 和证据摘要 `evidenceDigest`。各 `stages` 项提供阶段范围、进度、证据及确认记录。存在可自动确认的阶段时，`autoConfirmableStages` 会列出这些阶段。通过 `lifecycle --spec <SpecID> --json` 可查看完整任务、阶段记录和历史。
+
+### 自动获取生命周期状态建议
+
+```sh
+yss workbench recommend-status --help
+yss workbench recommend-status --spec-id "$YSS_SPEC_ID" --json
+```
+
+`recommend-status` 适用于脚本中的只读、非交互核实，按当前主要阶段推荐下一步。JSON 信封的 `command` 为 `workbench.recommend-status`。`result.observedStatus` 为基于当前证据及适用决定得到的有效进度。建议状态和阶段见 `recommendedStatus`、`recommendedStage`，证据适用性及提醒见 `validity`、`attention`。可用 `goalVersion` 和 `evidenceDigest` 对照生命周期状态的同版本结果。当前产物和目标采用的摘要分别见 `artifactDigest`、`goalSpecDigest`。
+
+记录停用、来源异常、内容无法核实或当前目标缺失时，`recommendedStatus` 和 `recommendedStage` 为 `null`，按 `recommendedAction` 处理对应条件。历史已验收但当前证据需复核时仍可看到 `observedStatus: done`，建议状态和阶段为 `null`。诊断见 `sourceHealth`、`sourceMessage`、`metadataError` 和 `blockers`。
+
+| `recommendedAction` | 处理事项 |
+| --- | --- |
+| `restoreRegistration` / `checkSource` / `reviewContent` / `registerGoal` | 恢复登记，核实来源或内容，或者登记当前目标。 |
+| `reviewEvidence` / `syncEvidence` / `collectEvidence` | 复核、同步或补采集证据。 |
+| `resolveBlocker` | 查看并处理阻塞。 |
+| `autoConfirm` | 运行 `workbench lifecycle-auto-confirm`，复核已保存的证据并写入适用的确认。 |
+| `complete` / `continue` | 当前证据与适用决定支持完成或继续推进。 |
+
+### 自动核实并确认生命周期
+
+`progress set-goal`、`progress report` 和 `progress reconcile` 在同一写入事务内核对当前目标和证据，依次记录达到条件的规格、验证和最终目标确认。对已经保存的证据，可直接运行以下命令，效果与 `progress reconcile` 相同。
+
+```sh
+yss workbench lifecycle-auto-confirm --help
+yss workbench lifecycle-auto-confirm --spec-id "$YSS_SPEC_ID" \
+  --request-id "$YSS_AUTO_CONFIRM_REQUEST_ID" --json
+```
+
+沿用原 `--data-dir`。命令返回写入回执，阶段状态和证据提示通过 `lifecycle-status` 查看。自动记录的 `origin` 为 `automatic`，`source` 为 `YSS 自动核实`。旧记录和人工决定可省略 `origin`。对同一目标版本明确作出的退回优先于自动确认。响应不确定时用同一 `--request-id` 和原参数重试。
+
+验证需要通过凭证。通过报告的 `scopeRefs` 或通过凭证的 `reference` 核对目标中登记的全部验收引用。目标未登记验收引用时，当前版本带明确范围依据的验证跳过也可自动确认。自动确认随当前证据失效，历史通过 `lifecycle` 查看。
+
+### 记录生命周期的人工决定
+
+```sh
+yss workbench lifecycle-confirm --help
+yss workbench lifecycle-confirm --spec-id "$YSS_SPEC_ID" \
+  --goal-version "$YSS_GOAL_VERSION" --stage verification \
+  --scope="$YSS_GOAL_SCOPE" --evidence-digest "$YSS_EVIDENCE_DIGEST" \
+  --source="$YSS_DECISION_SOURCE" --decision confirm \
+  --request-id "$YSS_CONFIRM_REQUEST_ID" --json
+```
+
+用户对实际范围与版本另有明确决定时，可使用 `lifecycle-confirm` 记录。阶段可选 `spec`、`verification`、`delivery`，分别对应规格、业务验收、最终目标。`--decision` 按真实决定传入 `confirm` 或 `reject`，`--source` 填实际确认人或决定出处。
+
+在同一数据目录用 `lifecycle-status --json` 读取 `result.specId`、`result.progress.goalVersion`、`result.progress.goal.scope` 和 `result.progress.evidenceDigest`，分别传给 `--spec-id`、`--goal-version`、`--scope` 和 `--evidence-digest`。范围原样传入。写入时会核对当前目标、范围、证据和阶段条件，变化后重新核实用户决定适用的版本。
+
+JSON 信封的 `command` 为 `workbench.lifecycle-confirm`。响应不确定时，可在同一数据目录沿用原参数和 `--request-id` 重试。原请求已提交时返回原回执，同 ID 参数变化时返回冲突。新决定使用新的请求 ID。生命周期确认绑定目标及阶段证据，主 Spec 的内容确认入口见 [工作台说明](workbench.md#主-spec-与内容确认)。
 
 ### 上报生命周期进展
 
@@ -260,7 +350,7 @@ yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <S
 
 局部报告可追加 `inputPaths`。执行检查前使用 `yss workbench progress observe-inputs --project <工程ID> --path <工程相对路径> --json`，可重复指定 `--path`。将输出的 `result.inputs` 和 `result.version` 分别加入 `inputPaths` 和 `versions` 数组。核实检查前后采用的是同一份输入，保留检查前采集的 `observedDigest`。输入覆盖实际共享代码、配置及生成输入，包括被 Git 忽略的文件。保存报告时会校验摘要，变化后需要重新检查。联调、合并和环境结果继续核对精确版本组合。
 
-`confirm` 的 JSON 示例见对应 `--help`。确认取同一响应的 `result.progress.goalVersion`、原样 `result.progress.goal.scope` 和 `result.progress.evidenceDigest`。`source` 记录用户明确决定的出处。规格、验证和最终目标确认由真实用户决定产生。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
+`progress confirm` 可用 JSON 记录明确的人工决定，示例见对应 `--help`。从同一状态响应取 `result.progress.goalVersion`、原样 `result.progress.goal.scope` 和 `result.progress.evidenceDigest`，`source` 填实际出处。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
 
 详细 JSON 约定随模板分发到 `.template-spec/agents/workbench-progress.md`。工作台生成的 Agent 请求也携带当前身份和实际上报程序路径。能力缺失或报告失败时继续原已授权工作，记录待同步材料后核实补报。
 
