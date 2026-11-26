@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。CLI 命令与工作台界面由单个 `yss`（Windows 为 `yss.exe`）提供，无需 Go、Bun、Node 或 Python；当前源码的 Pi Agent 作业另需本机 Pi 1.5.2、1.6.0 或 1.6.1 及其运行环境。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.18.2`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.18.3`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
 
 `3.2.0` 新增 `frontend` Profile，构建时需使用包含该 Profile 的模板。此前的 `3.1.4` 构建仅支持 `spec`/`backend`，模板文档更新不会改变已安装程序；使用前查看实际 `yss help init`。
 
@@ -63,6 +63,8 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 `3.14.0` 内嵌 Template `5.14.0`。工作台启动和登记项目时自动发现主 Spec，识别同目录的交互说明和已构建原型。Pi 作业排队前核对所有参与工程的 Git HEAD，并要求显式带入尚未提交的主规格。模板细化 Spec 两项确认与研发写入前的 Git 核对。
 
+`3.18.3` 内嵌 Template `5.18.3`。工作台采用紧凑的浅色毛玻璃布局，支持查询生命周期状态、核实下一步及确认阶段。Pi 按工程选择读取、编辑或执行权限，可查看关联 GitLab CI 作业证据并续接历史运行。
+
 `3.18.2` 内嵌 Template `5.18.2`。Pi Agent 在所选原工程运行，每轮默认只读，可明确授权编辑并审阅本轮变化。会话支持排入后续任务，工作台在后台核对来源并分页查询。
 
 `3.18.1` 内嵌 Template `5.18.1`。参数错误给出对应帮助命令，工作台进度上报区分已登记目标摘要与当前产物摘要。项目同步保留自有的 Issue tracker 配置。
@@ -83,7 +85,7 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 ## 个人 Spec 工作台
 
-配套 Template 5.18.2，提供自动生命周期汇总、主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认。三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
+配套 Template 5.18.3，提供自动生命周期汇总、主 Spec 登记、关联文档与原型阅读、草稿问题提醒、答复与延期、Agent 回写及范围版本确认。三个 Profile 均可取得所需设计模板。来源声明与个人工作标记分别保存，草稿始终可阅读。
 
 ```text
 yss workbench
