@@ -12,7 +12,7 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     fs::{FileSnapshot, Root},
     model::RelPath,
-    workbench::jobs::JobContext,
+    workbench::{agent::ProjectMode, jobs::JobContext},
 };
 use cap_std::fs::MetadataExt as _;
 use serde_json::{Value, json};
@@ -189,11 +189,17 @@ pub(super) fn run(
         .resume
         .map(|session| verify_session(request.data_dir, request.run_id, request.cwd, session))
         .transpose()?;
+    let legacy_mode = match (request.read_only, request.allow_commands) {
+        (true, _) => ProjectMode::Read,
+        (false, true) => ProjectMode::Execute,
+        (false, false) => ProjectMode::Edit,
+    };
     let projects = workspace::Projects::new(
         request.workspaces,
         request.primary_project,
         request.data_dir,
         &request.runtime.config_dir,
+        legacy_mode,
     )?;
     let (rules, skills) = project_context(&request, &projects, &context.cancel)?;
     let private = sandbox::PrivateDir::new()?;
@@ -206,6 +212,8 @@ pub(super) fn run(
                 &private,
                 &request.runtime.config_dir,
                 &projects,
+                request.unselected_projects,
+                request.explicit_access,
                 &context.cancel,
             )
         })
@@ -297,6 +305,8 @@ pub(super) fn run(
     context.trace("piReady");
     let commands = if request.read_only {
         "本轮只读。可以读取、搜索、更新展示计划和询问已登记业务问题。把建议写在答复里。"
+    } else if request.explicit_access {
+        "按每个工程列出的权限操作。read 可读取和搜索，edit 可直接编辑，execute 另可运行离线命令。修改已有文件前先用 read 确认最新内容。离线命令可以读取其他所选工程，只能写入实际执行工程和临时目录。Maven 与 pnpm 构建使用本机已准备的离线依赖。"
     } else if allow_commands {
         "本轮直接编辑原工程。修改已有文件前先用 read 确认最新内容。离线命令仍限于已选工程和临时目录。Maven 与 pnpm 构建使用本机已准备的离线依赖。"
     } else {

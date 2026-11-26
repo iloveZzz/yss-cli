@@ -1,4 +1,7 @@
-use super::model::{ResourceKind, ResourceRef, SpecRecord, TargetType};
+use super::{
+    agent::{ProjectAccess, ProjectMode},
+    model::{ResourceKind, ResourceRef, SpecRecord, TargetType},
+};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
@@ -47,6 +50,8 @@ pub struct Workspace {
 pub struct DirectWorkspace {
     pub baseline: GitBaseline,
     pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_modes: Option<BTreeMap<String, ProjectMode>>,
     pub project_identities: BTreeMap<String, RootIdentity>,
     pub excluded_prefixes: BTreeSet<String>,
 }
@@ -143,6 +148,14 @@ pub struct GitBaseline {
     pub common_dir: String,
     pub common_dir_identity: RootIdentity,
 }
+impl GitBaseline {
+    pub(super) fn branch_name(&self) -> Option<&str> {
+        self.branch
+            .as_deref()
+            .map(|name| name.strip_prefix("refs/heads/").unwrap_or(name))
+    }
+}
+
 pub fn git_baseline(root: &Path, cancel: &Cancellation) -> Result<GitBaseline> {
     let head = git_text_cancel(root, &["rev-parse", "--verify", "HEAD"], cancel)?;
     let symbolic = git_text_cancel(root, &["rev-parse", "--symbolic-full-name", "HEAD"], cancel)?;
@@ -474,17 +487,38 @@ pub(super) fn direct_path_allowed(workspace: &Workspace, path: &RelPath) -> bool
     {
         return false;
     }
-    let selected = workspace
-        .project_prefixes
-        .values()
-        .filter(|prefix| path_under(path.as_str(), prefix))
-        .map(|prefix| prefix.split('/').filter(|part| !part.is_empty()).count())
-        .max();
-    selected.is_some_and(|depth| {
+    let selected = matching_project(workspace, &key);
+    selected.is_some_and(|(depth, _)| {
         !direct.excluded_prefixes.iter().any(|prefix| {
             prefix.split('/').count() >= depth && path_under(&key, &crate::fs::alias_key(prefix))
         })
     })
+}
+
+fn matching_project<'a>(workspace: &'a Workspace, path_key: &str) -> Option<(usize, &'a str)> {
+    workspace
+        .project_prefixes
+        .iter()
+        .filter(|(_, prefix)| path_under(path_key, &crate::fs::alias_key(prefix)))
+        .map(|(id, prefix)| {
+            (
+                prefix.split('/').filter(|part| !part.is_empty()).count(),
+                id.as_str(),
+            )
+        })
+        .max_by_key(|(depth, _)| *depth)
+}
+
+pub(super) fn path_in_write_scope(workspace: &Workspace, path: &str) -> bool {
+    workspace
+        .direct
+        .as_ref()
+        .and_then(|direct| direct.project_modes.as_ref())
+        .is_none_or(|modes| {
+            matching_project(workspace, &crate::fs::alias_key(path))
+                .and_then(|(_, id)| modes.get(id))
+                .is_some_and(|mode| *mode != ProjectMode::Read)
+        })
 }
 
 fn concurrent(message: &str) -> YssError {
@@ -601,9 +635,20 @@ fn direct_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snaps
     check_baseline(&root.path, &direct.baseline, cancel)?;
     let mut snapshot = BTreeMap::new();
     if !direct.read_only {
-        let scopes: Vec<_> = workspace
+        let writable: Vec<_> = workspace
             .project_prefixes
-            .values()
+            .iter()
+            .filter(|(id, _)| {
+                direct.project_modes.as_ref().is_none_or(|modes| {
+                    modes
+                        .get(*id)
+                        .is_some_and(|mode| *mode != ProjectMode::Read)
+                })
+            })
+            .map(|(_, prefix)| prefix)
+            .collect();
+        let scopes: Vec<_> = writable
+            .iter()
             .filter(|prefix| !prefix.is_empty())
             .map(|prefix| format!(":(literal){prefix}"))
             .collect();
@@ -615,7 +660,7 @@ fn direct_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snaps
             "--exclude-standard",
             "--",
         ];
-        if scopes.len() == workspace.project_prefixes.len() {
+        if scopes.len() == writable.len() {
             args.extend(scopes.iter().map(String::as_str));
         }
         let names = git_cancel(&root.path, &args, cancel, Duration::from_secs(30))?;
@@ -626,7 +671,10 @@ fn direct_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snaps
             cancel.check()?;
             let name = std::str::from_utf8(name).map_err(|_| invalid("工程包含非 UTF-8 路径"))?;
             if !name.ends_with('/') {
-                record_direct_file(&root, workspace, RelPath::new(name)?, &mut snapshot)?;
+                let path = RelPath::new(name)?;
+                if path_in_write_scope(workspace, path.as_str()) {
+                    record_direct_file(&root, workspace, path, &mut snapshot)?;
+                }
             }
             if snapshot.len() > 200_000 {
                 return Err(invalid("工程文件数量超过快照限制"));
@@ -650,15 +698,24 @@ fn direct_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snaps
     Ok(snapshot)
 }
 
+pub(super) enum DirectAccess<'a> {
+    Legacy { read_only: bool },
+    PerProject(&'a [ProjectAccess]),
+}
+
 pub(super) fn prepare_direct(
     data_dir: &Path,
     projects: &[(String, String)],
     prior: Option<&[Workspace]>,
     spec: &SpecRecord,
     excluded_projects: &[PathBuf],
-    read_only: bool,
+    access: DirectAccess<'_>,
     cancel: &Cancellation,
 ) -> Result<Vec<Workspace>> {
+    let (read_only, grants) = match access {
+        DirectAccess::Legacy { read_only } => (read_only, None),
+        DirectAccess::PerProject(grants) => (true, Some(grants)),
+    };
     let mut grouped = BTreeMap::<PathBuf, Vec<(&str, Root)>>::new();
     for (id, path) in projects {
         cancel.check()?;
@@ -680,7 +737,42 @@ pub(super) fn prepare_direct(
         let root_path = path.to_str().ok_or_else(|| invalid("Git 根不是 UTF-8"))?;
         let mut prefixes = BTreeMap::new();
         let mut identities = BTreeMap::new();
+        let mut project_modes = grants.map(|_| BTreeMap::new());
+        let mut unique_prefixes = BTreeSet::new();
         for (id, project) in &projects {
+            if let Some((grants, modes)) = grants.zip(project_modes.as_mut()) {
+                let grant = grants
+                    .iter()
+                    .find(|grant| &grant.project_id == id)
+                    .ok_or_else(|| invalid("运行工程缺少授权"))?;
+                if grant
+                    .expected_head
+                    .as_ref()
+                    .is_some_and(|head| head != &baseline.head)
+                {
+                    return Err(concurrent("原工程 HEAD 已变化，请刷新本轮工程范围")
+                        .context("httpStatus", 409)
+                        .context("projectId", id)
+                        .context(
+                            "expectedHead",
+                            grant.expected_head.as_deref().unwrap_or_default(),
+                        )
+                        .context("currentHead", &baseline.head));
+                }
+                if let Some(expected_branch) = &grant.expected_branch
+                    && expected_branch.as_deref() != baseline.branch_name()
+                {
+                    return Err(concurrent("原工程 Git 分支已变化，请刷新本轮工程范围")
+                        .context("httpStatus", 409)
+                        .context("projectId", id)
+                        .context(
+                            "expectedBranch",
+                            expected_branch.as_deref().unwrap_or("HEAD"),
+                        )
+                        .context("currentBranch", baseline.branch_name().unwrap_or("HEAD")));
+                }
+                modes.insert((*id).to_owned(), grant.mode);
+            }
             let prefix = project
                 .path
                 .strip_prefix(&path)
@@ -691,6 +783,15 @@ pub(super) fn prepare_direct(
                 .replace(std::path::MAIN_SEPARATOR, "/");
             if !prefix.is_empty() {
                 RelPath::new(&prefix)?;
+                if crate::fs::alias_key(&prefix)
+                    .split('/')
+                    .any(|part| matches!(part, ".git" | ".gitmodules" | ".yss"))
+                {
+                    return Err(invalid("受保护的 Git 或 YSS 目录不能作为运行工程"));
+                }
+            }
+            if grants.is_some() && !unique_prefixes.insert(crate::fs::alias_key(&prefix)) {
+                return Err(invalid("同一路径的登记工程只能选择一个"));
             }
             prefixes.insert((*id).to_owned(), prefix);
             identities.insert((*id).to_owned(), project.identity.clone());
@@ -751,7 +852,10 @@ pub(super) fn prepare_direct(
             result_snapshot: None,
             direct: Some(DirectWorkspace {
                 baseline,
-                read_only,
+                read_only: project_modes.as_ref().map_or(read_only, |modes| {
+                    modes.values().all(|mode| *mode == ProjectMode::Read)
+                }),
+                project_modes,
                 project_identities: identities,
                 excluded_prefixes,
             }),

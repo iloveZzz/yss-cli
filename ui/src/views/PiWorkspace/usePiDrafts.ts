@@ -1,15 +1,36 @@
 import { computed, onScopeDispose, reactive, shallowRef, watch, type Ref } from 'vue'
 import { useDebounceFn, useEventListener } from '@vueuse/core'
-import type { AgentStart, ReviewExcerpt } from '@/services/workbench-agent'
+import type { AgentCiJob, AgentCiMode, AgentCiPreview, AgentContinuation, AgentStart, ProjectAccessMode, ReviewExcerpt } from '@/services/workbench-agent'
 import type { Stage } from '@/services/workbench'
 import type { PiModel, PiThinkingLevel } from '@/services/workbench-platform'
+import type { PiCheckout } from './usePiProjects'
 
-type DraftText = { prompt: string; citations: ReviewExcerpt[] }
+type DraftText = {
+  prompt: string
+  citations: ReviewExcerpt[]
+  handoff?: Omit<AgentContinuation, 'prompt'>
+  selected?: string[]
+  ciRecovery?: PiCiRecovery
+}
+export type PiCiRecovery = Omit<AgentCiJob, 'expectedSha'>
+export interface PiCiAttachment {
+  job: AgentCiPreview
+  mode: AgentCiMode
+  checkout: PiCheckout
+}
+export function ciSelection(draft: Pick<PiDraft, 'ciAttachment' | 'ciRecovery'>): PiCiRecovery | undefined {
+  const attachment = draft.ciAttachment
+  if (!attachment) return draft.ciRecovery
+  const { projectId, linkId, jobId } = attachment.job
+  return { projectId, linkId, jobId, mode: attachment.mode }
+}
 
 export interface PiDraft extends DraftText {
   selected: string[]
   readOnly: boolean
   allowCommands: boolean
+  projectGrants: Record<string, { mode: Exclude<ProjectAccessMode, 'read'>; checkout: PiCheckout }>
+  ciAttachment?: PiCiAttachment
   selectedModel?: PiModel
   thinkingLevel?: PiThinkingLevel
   error: string
@@ -57,7 +78,12 @@ function draftText(value?: DraftText): DraftText {
       typeof item.note === 'string' && typeof item.snippet === 'string' &&
       (item.side === 'initial' || item.side === 'result') &&
       Number.isSafeInteger(item.startLine) && Number.isSafeInteger(item.endLine)
-    ).slice(0, 12) : []
+    ).slice(0, 12) : [],
+    selected: Array.isArray(value?.selected) ? value.selected.filter((id) => typeof id === 'string') : undefined,
+    ciRecovery: value?.ciRecovery && typeof value.ciRecovery.projectId === 'string' && typeof value.ciRecovery.linkId === 'string' &&
+      Number.isSafeInteger(value.ciRecovery.jobId) && ['reproduce', 'compare'].includes(value.ciRecovery.mode) ? value.ciRecovery : undefined,
+    handoff: value?.handoff && typeof value.handoff.runId === 'string' && typeof value.handoff.jobId === 'string' &&
+      Array.isArray(value.handoff.projectIds) && Array.isArray(value.handoff.workspaces) ? value.handoff : undefined
   }
 }
 
@@ -67,12 +93,17 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
   const dirty = new Set<string>()
   const storageIssue = shallowRef('')
   const pendingVersion = shallowRef(0)
+  const admittedVersion = shallowRef(0)
 
   function getDraft(id: string) {
     if (!drafts.has(id)) {
+      const stored = read<DraftText>('draft', id)
+      const text = draftText(stored)
+      const selected = text.selected ?? text.handoff?.projectIds
       drafts.set(id, {
-        ...draftText(read('draft', id)), selected: [], readOnly: true,
-        allowCommands: false, error: ''
+        ...text,
+        selected: selected ?? [],
+        projectGrants: {}, readOnly: true, allowCommands: false, error: ''
       })
     }
     return drafts.get(id)!
@@ -83,18 +114,19 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
     for (const id of dirty) {
       const value = drafts.get(id)
       if (!value) continue
-      const text = draftText(value)
-      if (!write('draft', id, text.prompt || text.citations.length ? text : undefined)) ok = false
+      const text = draftText({ ...value, ciRecovery: ciSelection(value) })
+      if (!write('draft', id, text.prompt || text.citations.length || text.handoff || text.ciRecovery || text.selected?.length ? text : undefined)) ok = false
     }
     dirty.clear()
     storageIssue.value = ok ? '' : '此标签页无法保存草稿，当前输入仍保留。'
+    return ok
   }
   const persistSoon = useDebounceFn(flushDrafts, 160)
   function persistDraft(id: string) {
     dirty.add(id)
-    flushDrafts()
+    return flushDrafts()
   }
-  watch(() => [key.value, draft.value.prompt, draft.value.citations] as const, ([id], prior) => {
+  watch(() => [key.value, draft.value.prompt, draft.value.citations, draft.value.handoff, draft.value.selected, draft.value.ciRecovery, draft.value.ciAttachment] as const, ([id], prior) => {
     dirty.add(id)
     if (prior[0] !== id) flushDrafts()
     else void persistSoon()
@@ -115,8 +147,11 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
     void pendingVersion.value
     const value = read<PendingPiRequest>('pending', key.value)
     if (value?.id && value.key === key.value && typeof value.input?.prompt === 'string' &&
-      Array.isArray(value.input.projectIds) && value.input.specId + ':' + (value.input.resumeRunId || 'new') === key.value)
-      return value
+      (Array.isArray(value.input.projectIds) || Array.isArray(value.input.projectAccess))) {
+      const target = value.input.resumeRunId || (value.input.continuationSource
+        ? 'handoff:' + value.input.continuationSource.jobId : 'new')
+      if (value.input.specId + ':' + target === key.value) return value
+    }
     return undefined
   })
   function setPending(id: string, value?: PendingPiRequest) {
@@ -128,20 +163,23 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
   function rememberAdmitted(id: string, draftKey: string, text: DraftText) {
     const saved = { key: draftKey, text: draftText(text) }
     admitted.set(id, saved)
+    admittedVersion.value++
     const stored = read<string[]>('admitted', 'recent')
     const recent = [...(Array.isArray(stored) ? stored.filter((entry) => entry !== id) : []), id]
     for (const expired of recent.slice(0, -12)) forgetAdmitted(expired)
     if (admitted.size > 12) admitted.delete(admitted.keys().next().value!)
     write('admitted', 'recent', recent.slice(-12))
-    write('admitted', id, saved)
+    return write('admitted', id, saved)
   }
   function admittedDraft(id: string) {
+    void admittedVersion.value
     const saved = admitted.get(id) ?? read<{ key: string; text: DraftText }>('admitted', id)
     return saved && typeof saved.key === 'string' ? { key: saved.key, text: draftText(saved.text) } : undefined
   }
   function forgetAdmitted(id: string) {
     admitted.delete(id)
     write('admitted', id)
+    admittedVersion.value++
   }
   return { draft, getDraft, removeDraft, persistDraft, storageIssue, pending, setPending,
     rememberAdmitted, admittedDraft, forgetAdmitted }

@@ -1,11 +1,11 @@
 use super::*;
 use crate::workbench::{jobs::DeferredAgent, read_model};
 
-struct Target {
-    spec: SpecRecord,
-    projects: Vec<(String, String)>,
-    prior: Option<AgentRun>,
-    protected: Vec<PathBuf>,
+pub(super) struct Target {
+    pub(super) spec: SpecRecord,
+    pub(super) projects: Vec<(String, String)>,
+    pub(super) prior: Option<AgentRun>,
+    pub(super) protected: Vec<PathBuf>,
 }
 
 pub(in crate::workbench) fn start_async(
@@ -30,7 +30,7 @@ fn start(
     fingerprint: String,
     queued: bool,
 ) -> Result<JobRecord> {
-    validate_start_request(&request)?;
+    validate_start_request(&request, queued)?;
     if request.carry_files.values().any(|paths| !paths.is_empty()) {
         return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
     }
@@ -68,29 +68,15 @@ fn start(
     )
 }
 
-fn capture_target(store: &mut Store, request: &mut AgentStartRequest) -> Result<Target> {
+pub(super) fn capture_target(store: &mut Store, request: &mut AgentStartRequest) -> Result<Target> {
     let spec = sources::spec(store.state(), &request.spec_id)?.clone();
     check_spec_binding(&spec, &spec)?;
-    request.project_ids.push(spec.project_id.clone());
-    request.project_ids.sort();
-    request.project_ids.dedup();
-    let projects = request
-        .project_ids
-        .iter()
-        .map(|id| {
-            let project = sources::project(store.state(), id)?;
-            if !project.active {
-                return Err(invalid("运行工程已归档"));
-            }
-            Ok((id.clone(), project.root_path.clone()))
-        })
-        .collect::<Result<Vec<_>>>()?;
     let prior = request
         .resume_run_id
         .as_ref()
         .map(|id| {
             let prior = load(store, id)?;
-            if prior.spec_id != request.spec_id || prior.project_ids != request.project_ids {
+            if prior.spec_id != request.spec_id {
                 return Err(invalid("续接必须使用原 Spec 与原工程范围"));
             }
             if !terminal(&prior.status) {
@@ -109,6 +95,95 @@ fn capture_target(store: &mut Store, request: &mut AgentStartRequest) -> Result<
             Ok(prior)
         })
         .transpose()?;
+    if let Some(entries) = request.project_access.as_mut() {
+        entries.sort_by(|left, right| left.project_id.cmp(&right.project_id));
+        let ids: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.project_id.clone())
+            .collect();
+        if ids.windows(2).any(|pair| pair[0] == pair[1]) || !ids.contains(&spec.project_id) {
+            return Err(invalid(
+                "工程授权须明确包含主 Spec 工程，且每个工程只能指定一次",
+            ));
+        }
+        if entries.iter().any(|entry| {
+            entry.expected_head.as_ref().is_some_and(|head| {
+                !matches!(head.len(), 40 | 64)
+                    || !head
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            })
+        }) {
+            return Err(invalid("工程预期 HEAD 须为完整的 Git 提交 SHA"));
+        }
+        if !request.project_ids.is_empty() {
+            request.project_ids.sort();
+            request.project_ids.dedup();
+            if request.project_ids != ids {
+                return Err(invalid("工程授权与旧格式工程列表不一致"));
+            }
+        }
+        request.project_ids = ids;
+    } else {
+        if request.project_ids.is_empty()
+            && let Some(prior) = &prior
+            && prior.project_access.is_some()
+        {
+            request.project_ids.clone_from(&prior.project_ids);
+        }
+        request.project_ids.push(spec.project_id.clone());
+        request.project_ids.sort();
+        request.project_ids.dedup();
+        request.project_access = prior
+            .as_ref()
+            .and_then(|prior| prior.project_access.as_ref())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| entry.narrowed(request.read_only, request.allow_commands))
+                    .collect()
+            });
+    }
+    if prior
+        .as_ref()
+        .is_some_and(|prior| prior.project_ids != request.project_ids)
+    {
+        return Err(invalid("续接必须使用原 Spec 与原工程范围"));
+    }
+    if let Some(entries) = &request.project_access {
+        request.read_only = entries.iter().all(|entry| entry.mode == ProjectMode::Read);
+        request.allow_commands = entries
+            .iter()
+            .any(|entry| entry.mode == ProjectMode::Execute);
+    }
+    let projects = request
+        .project_ids
+        .iter()
+        .map(|id| {
+            let project = sources::project(store.state(), id)?;
+            if !project.active {
+                return Err(invalid("运行工程已归档"));
+            }
+            let expected_root = request
+                .project_access
+                .as_ref()
+                .and_then(|entries| entries.iter().find(|entry| &entry.project_id == id))
+                .and_then(|grant| grant.expected_root_path.as_deref());
+            if let Some(expected_root) = expected_root
+                && expected_root != project.root_path
+            {
+                return Err(YssError::new(
+                    ErrorCode::ConcurrentChange,
+                    "工程登记路径已变化，请刷新本轮工程范围",
+                )
+                .context("httpStatus", 409)
+                .context("projectId", id)
+                .context("expectedRootPath", expected_root)
+                .context("currentRootPath", &project.root_path));
+            }
+            Ok((id.clone(), project.root_path.clone()))
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(Target {
         spec,
         projects,

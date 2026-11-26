@@ -169,10 +169,19 @@ fn save_enqueued(
 }
 
 fn request_for(run: &AgentRun, entry: &Entry) -> Result<AgentStartRequest> {
+    let access = run.queue_access();
     Ok(AgentStartRequest {
         spec_id: run.spec_id.clone(),
         prompt: entry.prompt.clone(),
         project_ids: run.project_ids.clone(),
+        project_access: access.map(|entries| {
+            entries
+                .iter()
+                .map(|grant| grant.narrowed(entry.read_only, false))
+                .collect()
+        }),
+        continuation_source: None,
+        ci_job: None,
         carry_files: Default::default(),
         request_id: entry.request_id().to_owned(),
         resume_run_id: Some(run.id.clone()),
@@ -243,7 +252,7 @@ pub(in crate::workbench) fn put(
         attempt_id: None,
         job_id: None,
     };
-    validate_start_request(&request_for(&run, &entry)?)?;
+    validate_start_request(&request_for(&run, &entry)?, true)?;
     if let Some(entry_id) = entry_id {
         let item = queue
             .items
@@ -342,10 +351,11 @@ fn is_active_for(jobs: &[JobRecord], run_id: &str) -> bool {
 
 fn has_changes(run: &AgentRun) -> bool {
     run.workspaces.iter().any(|workspace| {
-        workspace
-            .result_snapshot
-            .as_ref()
-            .is_some_and(|result| result != &workspace.initial)
+        workspace.result_snapshot.as_ref().is_some_and(|result| {
+            review_paths(run, workspace, result)
+                .into_iter()
+                .any(|path| result.get(path) != workspace.initial.get(path))
+        })
     })
 }
 
@@ -442,6 +452,7 @@ fn dispatch(manager: &Arc<JobManager>, id: &str, user: Option<Resume>) -> Result
             Some("reviewRequired")
         } else if run.workspace_mode == WorkspaceMode::Direct
             && !head.read_only
+            && run.can_edit_queued_projects()
             && !user.as_ref().is_some_and(|user| user.confirm_direct_edit)
         {
             Some("directEditConfirmation")

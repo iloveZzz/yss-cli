@@ -30,7 +30,9 @@ pub mod jobs;
 
 pub mod agent;
 pub mod agent_protocol;
+mod agent_scope;
 pub mod agent_workspace;
+mod ci_job;
 pub mod engineering;
 pub mod integrations;
 pub mod process;

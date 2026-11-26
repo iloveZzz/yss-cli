@@ -795,6 +795,9 @@ impl Store {
     pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
         self.database.run_event(job_id)
     }
+    pub(super) fn ci_evidence(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
+        self.database.ci_evidence(job_id)
+    }
     pub(crate) fn agent_question_events(&self, job_id: &str) -> Result<Vec<super::jobs::JobEvent>> {
         self.database.agent_question_events(job_id)
     }

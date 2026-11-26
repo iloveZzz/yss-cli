@@ -2,6 +2,49 @@ import { apiRequest, type SpecView, type SourceDocument, type SpecRecord, type S
 import { requestId, type JobRecord, type JsonObject, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
 import type { Verification } from './workbench-read'
 export type AgentWorkspaceMode = 'direct' | 'isolated'
+export type ProjectAccessMode = 'read' | 'edit' | 'execute'
+export interface AgentProjectAccess {
+  projectId: string
+  mode: ProjectAccessMode
+  expectedHead: string
+  expectedRootPath?: string
+  expectedBranch?: string | null
+}
+export interface AgentContinuationSource {
+  runId: string
+  jobId: string
+}
+export interface AgentContinuation extends AgentContinuationSource {
+  prompt: string
+  projectIds: string[]
+  workspaces: { projectIds: string[]; branch: string | null; head: string }[]
+}
+export type AgentCiMode = 'reproduce' | 'compare'
+export interface AgentCiJob {
+  projectId: string
+  linkId: string
+  jobId: number
+  mode: AgentCiMode
+  expectedSha: string
+}
+export interface AgentCiEvidence extends AgentCiJob {
+  sha: string
+  name?: string
+  url?: string
+  traceStatus?: string
+  localHead?: string
+  localBranch?: string | null
+}
+export interface AgentCiPreview {
+  projectId: string
+  linkId: string
+  jobId: number
+  sha: string
+  pipelineId: number
+  name: string
+  status: string
+  url: string
+}
 
 export interface FileDescriptor {
   sha256: string
@@ -94,6 +137,10 @@ export interface AgentRun {
   workspaceMode?: AgentWorkspaceMode
   snapshotError?: string
   readOnly?: boolean | null
+  projectAccess?: AgentProjectAccess[]
+  canEditQueuedProjects?: boolean
+  continuationSource?: AgentContinuationSource
+  ciJob?: AgentCiEvidence
   canResume: boolean
   resumeIssue?: string
   recoveryJobId?: string
@@ -113,7 +160,10 @@ export interface AgentStart {
   expectedGoalVersion?: string
   specId: string
   prompt: string
-  projectIds: string[]
+  projectIds?: string[]
+  projectAccess?: AgentProjectAccess[]
+  continuationSource?: AgentContinuationSource
+  ciJob?: AgentCiJob
   resumeRunId?: string
   expectedJobId?: string
   citations?: ReviewCitation[]
@@ -220,6 +270,24 @@ export interface AgentProject {
   rootPath: string
   active: boolean
 }
+export interface AgentProjectCandidate extends AgentProject {
+  status: 'ready' | 'inactive' | 'unavailable'
+  branch: string | null
+  head: string | null
+  repositoryKey?: string | null
+}
+export interface AgentHomeEntry {
+  id: string
+  projectId: string | null
+  projectIds: string[]
+  status: 'ready' | 'inactive' | 'unbound' | 'unavailable' | 'stale'
+  name?: string
+  rootPath?: string
+}
+export interface AgentProjects {
+  projects: AgentProjectCandidate[]
+  homes: { id: string; root: string; sourcePath: string; stale: boolean; entries: AgentHomeEntry[] }[]
+}
 export interface AgentWorkspace {
   spec: SpecRecord
   sourceError: string | null
@@ -285,6 +353,15 @@ export const admitAgent = (value: AgentStart, id: string = requestId()) =>
     body: { ...value, requestId: id },
     retryUncertain: false
   })
+export const getAgentProjects = (specId: string, signal?: AbortSignal) =>
+  apiRequest<AgentProjects>(`/api/specs/${encodeURIComponent(specId)}/agent-projects`, { signal })
+export function getAgentContinuation(specId: string, source: AgentContinuationSource, signal?: AbortSignal) {
+  const query = new URLSearchParams({ runId: source.runId, jobId: source.jobId })
+  return apiRequest<AgentContinuation>(`/api/specs/${encodeURIComponent(specId)}/agent-continuation?${query}`, { signal })
+}
+export const previewAgentCiJob = (
+  specId: string, body: { projectId: string; linkId: string; jobRef: string }, signal?: AbortSignal
+) => apiRequest<AgentCiPreview>(`/api/specs/${encodeURIComponent(specId)}/agent-ci-job/preview`, { body, signal })
 export const getAgentRun = (id: string, signal?: AbortSignal) =>
   apiRequest<AgentRun>(`/api/agent/${encodeURIComponent(id)}`, { signal })
 export const getAgentWorkspace = (specId: string, signal?: AbortSignal) =>
@@ -302,7 +379,9 @@ export function getAgentSessionPage(
   return apiRequest<AgentSessionPage>(`/api/specs/${encodeURIComponent(specId)}/agent-sessions?${query}`, { signal })
 }
 export const getAgentRounds = (id: string, signal?: AbortSignal) =>
-  apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[] }>(`/api/agent/${encodeURIComponent(id)}/rounds`, { signal })
+  apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[]; roundCiJobs?: Record<string, AgentCiEvidence> }>(
+    `/api/agent/${encodeURIComponent(id)}/rounds`, { signal }
+  )
 export const deleteAgentSession = (id: string, expectedJobId: string) =>
   apiRequest<{ deleted: boolean; runId: string }>(`/api/agent/${encodeURIComponent(id)}`, {
     method: 'DELETE', body: { expectedJobId }

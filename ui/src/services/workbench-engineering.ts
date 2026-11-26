@@ -120,7 +120,7 @@ export const bindHome = (
   sourceDigest: string,
   bindings: { entryId: string; rootPath: string }[]
 ) => apiRequest<HomeImport>('/api/home/bind', { body: { homeId, sourceDigest, bindings } })
-export const getExternalLinks = () => apiRequest<ExternalLink[]>('/api/external')
+export const getExternalLinks = (signal?: AbortSignal) => apiRequest<ExternalLink[]>('/api/external', { signal })
 export const addExternalLink = (value: Omit<ExternalLink, 'id' | 'status'>) =>
   apiRequest<ExternalLink>('/api/external', { body: value })
 export const refreshExternalLink = (id: string) =>

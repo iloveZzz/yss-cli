@@ -21,7 +21,9 @@ import ControlTooltip from '@/components/ControlTooltip.vue'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { acknowledgeRequest, ApiError, contentEqual, errorMessage, resolvePendingRequest, type Stage } from '@/services/workbench'
 import {
-  admitAgent, deleteAgentSession, getPiRuntime, piModelKey, type AgentAttention, type AgentSummary, type ReviewExcerpt
+  admitAgent, deleteAgentSession, getAgentContinuation, getPiRuntime, piModelKey,
+  type AgentAttention, type AgentContinuationSource, type AgentProjectAccess, type AgentSummary,
+  type ProjectAccessMode, type ReviewExcerpt
 } from '@/services/workbench-agent'
 import { cancelJob, getReceipt, jobStatusLabels, piThinkingLabels, requestId, terminalJob,
   type JobRecord, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from '@/services/workbench-platform'
@@ -32,8 +34,9 @@ import PiReview from './components/PiReview.vue'
 import PiQueuePanel from './components/PiQueuePanel.vue'
 import { useAgentScope } from './useAgentScope'
 import { usePiWorkspace } from './usePiWorkspace'
-import { usePiDrafts, type PendingPiRequest } from './usePiDrafts'
+import { ciSelection, usePiDrafts, type PendingPiRequest, type PiCiAttachment } from './usePiDrafts'
 import { usePiQueue, type PiEnqueueInput } from './usePiQueue'
+import { projectCheckout, usePiProjects } from './usePiProjects'
 import './workspace.css'
 
 const props = defineProps<{ specId: string }>()
@@ -45,11 +48,15 @@ const fromAgentWorkbench = computed(() => route.name === 'agent-workbench')
 const backLabel = computed(() => fromAgentWorkbench.value ? '返回工作台' : '返回原 Spec')
 const spec = computed(() => props.specId)
 const session = computed(() => typeof route.query.session === 'string' ? route.query.session : '')
+const handoffJob = computed(() => !session.value && typeof route.query.handoff === 'string' ? route.query.handoff : '')
 const linkedRound = computed(() => typeof route.query.round === 'string' ? route.query.round : '')
 const { context, contextError, pageNotice, listBusy, listCurrent, search, attentionOnly,
-  run, runError, launchError, rounds, latest, summary, snapshotJobs, reading,
+  run, runError, launchError, rounds, latest, summary, snapshotJobs, roundCiJobs, reading,
   refresh, recordAccepted, forgetSession, scheduleRefresh, loadMore } = usePiWorkspace(spec, session)
-const projectNames = computed(() => Object.fromEntries(context.value?.projects.map((project) => [project.id, project.name]) ?? []))
+const { projectScope, projectBusy, projectError, refreshProjects } = usePiProjects(spec)
+const projectNames = computed(() => Object.fromEntries(
+  (projectScope.value?.projects ?? context.value?.projects ?? []).map((project) => [project.id, project.name])
+))
 const sourceSpec = computed(() => context.value?.spec ?? catalog.value?.specs.find((item) => item.id === spec.value))
 const mainId = computed(() => sourceSpec.value?.projectId ?? '')
 const mainName = computed(() => projectNames.value[mainId.value] ??
@@ -90,24 +97,111 @@ const focusActivity = shallowRef<{ jobId: string; id: number }>()
 const compact = useMediaQuery('(width < 960px)')
 const inlineSummary = useMediaQuery('(width >= 1280px)')
 const conversation = useTemplateRef<HTMLElement>('conversation')
-const draftKey = computed(() => spec.value + ':' + (session.value || 'new'))
+const draftKey = computed(() => spec.value + ':' + (session.value || (handoffJob.value ? 'handoff:' + handoffJob.value : 'new')))
 const { draft, getDraft, removeDraft, persistDraft, storageIssue, pending, setPending, rememberAdmitted, admittedDraft, forgetAdmitted } =
   usePiDrafts(draftKey)
-const recoverableDraft = computed(() => {
-  if (!launchError.value || !latest.value) return undefined
-  const saved = admittedDraft(latest.value.id)
-  return saved && !getDraft(saved.key).prompt.trim() && !getDraft(saved.key).citations.length ? saved : undefined
+const perProject = computed(() => !session.value || !!run.value?.projectAccess?.length)
+const selectedProjectIds = computed(() => [...new Set([mainId.value, ...(session.value ? run.value?.projectIds ?? [] : draft.value.selected)])])
+const candidates = computed(() => new Map(projectScope.value?.projects.map((project) => [project.id, project])))
+const staleProjectGrants = computed(() => projectScope.value
+  ? Object.keys(draft.value.projectGrants).filter((id) =>
+    !contentEqual(draft.value.projectGrants[id].checkout, projectCheckout(candidates.value.get(id))))
+  : [])
+const projectGrantIssue = computed(() => staleProjectGrants.value.length
+  ? '工程检出已变化，请重新选择权限或清除过期授权。' : '')
+const projectModes = computed<Record<string, ProjectAccessMode>>({
+  get: () => Object.fromEntries(Object.entries(draft.value.projectGrants)
+    .filter(([id]) => !staleProjectGrants.value.includes(id))
+    .map(([id, grant]) => [id, grant.mode])),
+  set: (modes) => {
+    const current = { ...draft.value.projectGrants }
+    for (const [id, mode] of Object.entries(modes)) {
+      if (mode === projectModes.value[id]) continue
+      const checkout = projectCheckout(candidates.value.get(id))
+      if (mode === 'read' || !checkout) delete current[id]
+      else current[id] = { mode, checkout }
+    }
+    draft.value.projectGrants = Object.fromEntries(Object.entries(current)
+      .filter(([id]) => selectedProjectIds.value.includes(id)))
+    draft.value.error = ''
+  }
 })
+function clearStaleProjectGrants() {
+  draft.value.projectGrants = Object.fromEntries(Object.entries(draft.value.projectGrants)
+    .filter(([id]) => !staleProjectGrants.value.includes(id)))
+  draft.value.error = ''
+}
+const ciIssue = computed(() => {
+  if (draft.value.ciRecovery) return '请重新核对原 GitLab 作业并附加，或移除作业。'
+  const attachment = draft.value.ciAttachment
+  if (!attachment || !projectScope.value) return ''
+  const checkout = projectCheckout(candidates.value.get(attachment.job.projectId))
+  if (!selectedProjectIds.value.includes(attachment.job.projectId) || !checkout)
+    return 'CI 作业的工程已移除或不可用，请重新选择作业或移除附件。'
+  if (checkout.head !== attachment.checkout.head)
+    return 'CI 作业所选工程的 HEAD 已变化，请重新核对并附加作业。'
+  if (!contentEqual(checkout, attachment.checkout))
+    return 'CI 作业所选工程的检出已变化，请重新核对并附加作业。'
+  return ''
+})
+const permissionLabel = computed(() => {
+  if (!perProject.value)
+    return draft.value.readOnly ? '只读原工程' : draft.value.allowCommands ? '编辑原工程 · 已授予离线命令' : '编辑原工程'
+  const modes = selectedProjectIds.value.map((id) => projectModes.value[id] ?? 'read')
+  const execute = modes.filter((mode) => mode === 'execute').length
+  const edit = modes.filter((mode) => mode === 'edit').length
+  if (execute || edit) return [edit ? edit + ' 个工程可编辑' : '', execute ? execute + ' 个工程可运行离线命令' : ''].filter(Boolean).join(' · ')
+  return selectedProjectIds.value.length > 1 ? selectedProjectIds.value.length + ' 个工程只读' : '只读原工程'
+})
+const handoffBusy = shallowRef('')
+const handoffError = shallowRef('')
+let handoffRequest: AbortController | undefined
+const recoverableDraft = computed(() => {
+  const job = latest.value
+  if (!job || !terminalJob(job.status) || job.agentStartedAt || job.status === 'completed') return undefined
+  const saved = admittedDraft(job.id)
+  if (!saved) return undefined
+  const current = getDraft(saved.key)
+  return (!current.prompt.trim() && !current.citations.length) ||
+    (current.prompt === saved.text.prompt && contentEqual(current.citations, saved.text.citations)) ? saved : undefined
+})
+const preparationFailure = computed(() => launchError.value || (recoverableDraft.value
+  ? latest.value?.error?.message || '准备结束，任务草稿仍可恢复。' : ''))
 async function restoreSubmittedDraft() {
   const saved = recoverableDraft.value
-  if (!saved || !latest.value) return
+  const job = latest.value
+  const owner = draftKey.value
+  if (!saved || !job || projectBusy.value) return
+  const scope = await refreshProjects()
+  if (!alive || owner !== draftKey.value || job.id !== latest.value?.id || !recoverableDraft.value) return
   const target = getDraft(saved.key)
   target.prompt = saved.text.prompt
   target.citations = saved.text.citations
-  forgetAdmitted(latest.value.id)
-  persistDraft(saved.key)
-  if (saved.key !== draftKey.value) await newSession()
+  target.handoff = saved.text.handoff
+  target.selected = (saved.text.selected ?? []).filter((id) => !scope || scope.projects.some((item) =>
+    item.id === id && item.status === 'ready' && item.head))
+  target.readOnly = true
+  target.allowCommands = false
+  target.projectGrants = {}
+  target.ciAttachment = undefined
+  target.ciRecovery = saved.text.ciRecovery
+  target.error = ''
+  if (persistDraft(saved.key)) forgetAdmitted(job.id)
+  if (saved.key !== draftKey.value && target.handoff) {
+    await router.push(handoffLink(target.handoff.jobId))
+    await nextTick()
+    focusDraft()
+  } else if (saved.key !== draftKey.value) await newSession()
   else focusDraft()
+}
+function changeCiAttachment(value?: PiCiAttachment) {
+  draft.value.ciAttachment = value
+  if (value) draft.value.ciRecovery = undefined
+  draft.value.error = ''
+}
+function removeCiRecovery() {
+  draft.value.ciRecovery = undefined
+  draft.value.error = ''
 }
 const stageNeedsReview = computed(() => {
   const selection = draft.value.stageSelection
@@ -199,10 +293,11 @@ const queueVerified = computed(() => context.value?.verification === 'current' &
   !context.value.sourceError && !contextError.value && !pending.value)
 const canEnqueue = computed(() => !!queueRun.value && queueVerified.value && !!queue.value &&
   !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value && !sending.value && !deleteTarget.value && !!draft.value.prompt.trim())
+const canEditQueueProjects = computed(() => run.value?.canEditQueuedProjects)
 const queuePreparing = computed(() => !!queue.value?.items.some((item) => item.dispatching && item.jobId))
 const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !verificationIssue.value && !sending.value && !pending.value &&
   (!queueRun.value || (!!queue.value && !queue.value.items.length && !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value)) &&
-  !checking.value && !settingsOpen.value && !deleteTarget.value &&
+  !checking.value && !projectBusy.value && !settingsOpen.value && !deleteTarget.value &&
   !reviewState.value.busy && !reviewState.value.pending && !!readyModel.value && !!draft.value.prompt.trim())
 const roundEnd = computed(() => {
   const index = lastVisibleRound.value ? rounds.value.findIndex((job) => job.id === lastVisibleRound.value) : -1
@@ -240,6 +335,7 @@ function returnFocus(key: string) {
 function openSettings() {
   rememberFocus('settings')
   settingsOpen.value = true
+  void refreshProjects()
 }
 function toggleHistory(event: MouseEvent) {
   if (compact.value) {
@@ -288,6 +384,53 @@ function sessionLink(id = '', round?: string) {
   return { name, params: { specId: spec.value }, query: id
     ? { session: id, round, stage: route.query.stage }
     : { new: '1', stage: route.query.stage } }
+}
+function handoffLink(jobId: string) {
+  const target = sessionLink()
+  return { ...target, query: { ...target.query, handoff: jobId } }
+}
+function sourceLink(source: AgentContinuationSource) {
+  return sessionLink(source.runId, source.jobId)
+}
+async function createHandoff(job: JobRecord) {
+  const runId = session.value
+  const specId = spec.value
+  if (!runId || !terminalJob(job.status) || handoffBusy.value) return
+  const request = new AbortController()
+  handoffRequest = request
+  handoffBusy.value = job.id
+  handoffError.value = ''
+  const stillCurrent = () => alive && !request.signal.aborted && session.value === runId && spec.value === specId
+  try {
+    const [result, scope] = await Promise.all([
+      getAgentContinuation(specId, { runId, jobId: job.id }, request.signal),
+      refreshProjects()
+    ])
+    if (!stillCurrent()) return
+    if (!scope) throw new Error(projectError.value || '请重新核对参与工程。')
+    const key = specId + ':handoff:' + result.jobId
+    const target = getDraft(key)
+    if (!target.handoff) {
+      const { prompt, ...handoff } = result
+      target.handoff = handoff
+      target.selected = result.projectIds.filter((id) => id !== mainId.value && scope.projects.some((candidate) =>
+        candidate.id === id && candidate.status === 'ready' && candidate.head))
+      target.prompt = prompt
+      persistDraft(key)
+    }
+    historyDrawer.value = false
+    summaryDrawer.value = false
+    await router.push(handoffLink(result.jobId))
+    await nextTick()
+    focusDraft()
+  } catch (cause) {
+    if (stillCurrent()) handoffError.value = errorMessage(cause)
+  } finally {
+    if (handoffRequest === request) {
+      handoffRequest = undefined
+      handoffBusy.value = ''
+    }
+  }
 }
 function selectAgentScope(specId: string) {
   if (specId === spec.value || !scopeOptions.value.some((option) => option.value === specId)) return
@@ -405,6 +548,8 @@ watch([spec, session], () => {
   reviewOpen.value = false
   focusActivity.value = undefined
   draft.value.allowCommands = false
+  handoffRequest?.abort()
+  handoffError.value = ''
 })
 let requestedRound = ''
 watch([rounds, linkedRound], async ([items, id]) => {
@@ -449,6 +594,7 @@ watch(latest, (job) => {
 onScopeDispose(() => {
   alive = false
   receiptRead?.abort()
+  handoffRequest?.abort()
 })
 
 function matchingReceipt(value: unknown, item: PendingPiRequest): value is JobRecord {
@@ -464,17 +610,42 @@ async function settlePending(item: PendingPiRequest, job: JobRecord) {
   const next = job.agentRunId || item.input.resumeRunId || job.id
   const current = getDraft(item.key)
   const excerpts = item.excerpts ?? []
-  if (run.value?.jobId !== job.id)
-    rememberAdmitted(job.id, item.key, { prompt: item.input.prompt, citations: excerpts })
-  if (current.prompt === item.input.prompt && contentEqual(current.citations, excerpts)) {
+  const started = !!job.agentStartedAt || job.status === 'completed'
+  const ci = item.input.ciJob
+  const expectedCi = ci ? { projectId: ci.projectId, linkId: ci.linkId, jobId: ci.jobId, mode: ci.mode } : undefined
+  const expectedSelected = (item.input.projectAccess?.map((entry) => entry.projectId) ?? item.input.projectIds)
+    ?.filter((id) => id !== mainId.value)
+  const sameProjectGrants = Object.entries(current.projectGrants).every(([projectId, grant]) => {
+    const submitted = item.input.projectAccess?.find((entry) => entry.projectId === projectId)
+    return submitted?.mode === grant.mode && submitted.expectedHead === grant.checkout.head &&
+      submitted.expectedRootPath === grant.checkout.rootPath && submitted.expectedBranch === grant.checkout.branch
+  })
+  const sameStage = current.stageSelection === undefined || (current.stageSelection?.stage === item.input.lifecycleStage &&
+    current.stageSelection?.goalVersion === item.input.expectedGoalVersion)
+  const submittedDraftMatches = current.prompt === item.input.prompt && contentEqual(current.citations, excerpts) &&
+    contentEqual(ciSelection(current), expectedCi) &&
+    (item.input.resumeRunId || contentEqual(current.selected.toSorted(), (expectedSelected ?? []).toSorted())) &&
+    sameProjectGrants && sameStage && (!current.selectedModel || contentEqual(current.selectedModel, item.input.selectedModel)) &&
+    current.handoff?.jobId === item.input.continuationSource?.jobId &&
+    current.handoff?.runId === item.input.continuationSource?.runId
+  const saved = started || rememberAdmitted(job.id, item.key, {
+    prompt: item.input.prompt, citations: excerpts, handoff: current.handoff,
+    selected: expectedSelected, ciRecovery: expectedCi
+  })
+  if (saved && submittedDraftMatches) {
     current.prompt = ''
     current.citations = []
+    current.ciAttachment = undefined
+    current.ciRecovery = undefined
+    current.handoff = undefined
+    if (!item.input.resumeRunId) current.selected = []
+    current.readOnly = true
+    current.allowCommands = false
+    current.stageSelection = null
+    current.error = ''
     persistDraft(item.key)
   }
-  current.readOnly = true
-  current.allowCommands = false
-  current.stageSelection = null
-  current.error = ''
+  current.projectGrants = {}
   setPending(item.key)
   resolvePendingRequest(item.id)
   recordAccepted(source, next, job)
@@ -524,8 +695,8 @@ watch(draftKey, () => {
   receiptError.value = ''
   void checkPending()
 }, { immediate: true })
-watch([() => latest.value?.id, () => run.value?.jobId], ([id, materialized]) => {
-  if (id && id === materialized) forgetAdmitted(id)
+watch([() => latest.value?.id, () => latest.value?.agentStartedAt, () => latest.value?.status], ([id, started, status]) => {
+  if (id && (started || status === 'completed')) forgetAdmitted(id)
 })
 
 async function dispatch(item: PendingPiRequest) {
@@ -569,22 +740,67 @@ function retryPending() {
 async function send() {
   if (!canSend.value || !readyModel.value) return
   const current = draft.value
+  const key = draftKey.value
+  const id = session.value
+  let projectAccess: AgentProjectAccess[] | undefined
+  if (perProject.value) {
+    const scope = projectScope.value && !projectError.value ? projectScope.value : await refreshProjects()
+    if (!alive || draftKey.value !== key || !canSend.value || !readyModel.value) return
+    if (!scope || projectError.value) {
+      current.error = projectError.value || '尚未核对参与工程，请重试。'
+      openSettings()
+      return
+    }
+    if (projectGrantIssue.value) {
+      current.error = projectGrantIssue.value
+      openSettings()
+      return
+    }
+    projectAccess = []
+    for (const projectId of selectedProjectIds.value) {
+      const candidate = candidates.value.get(projectId)
+      if (!candidate?.head || candidate.status !== 'ready') {
+        current.error = '参与工程 ' + (candidate?.name ?? projectId) + ' 当前不可用，请检查运行范围。'
+        openSettings()
+        return
+      }
+      projectAccess.push({
+        projectId, mode: projectModes.value[projectId] ?? 'read',
+        expectedHead: candidate.head, expectedRootPath: candidate.rootPath, expectedBranch: candidate.branch
+      })
+    }
+  }
   if (stageNeedsReview.value) {
     current.error = '目标版本或适用阶段已变化，请重新选择本轮跟进阶段。'
     openSettings()
     return
   }
-  const key = draftKey.value
-  const id = session.value
+  if (ciIssue.value) {
+    current.error = ciIssue.value
+    openSettings()
+    return
+  }
+  if (handoffJob.value && !current.handoff) {
+    current.error = '此接续草稿已用完或不在此标签页，请从来源轮次重新生成。'
+    return
+  }
+  const attachment = current.ciAttachment
   const item: PendingPiRequest = {
     id: requestId(),
     key,
     input: {
-      specId: spec.value, projectIds: id ? run.value?.projectIds ?? [] : [mainId.value, ...current.selected],
+      specId: spec.value,
+      ...(projectAccess ? { projectAccess } : {
+        projectIds: selectedProjectIds.value, readOnly: current.readOnly, allowCommands: !current.readOnly && current.allowCommands
+      }),
+      continuationSource: current.handoff ? { runId: current.handoff.runId, jobId: current.handoff.jobId } : undefined,
+      ciJob: attachment ? {
+        projectId: attachment.job.projectId, linkId: attachment.job.linkId, jobId: attachment.job.jobId,
+        mode: attachment.mode, expectedSha: attachment.job.sha
+      } : undefined,
       resumeRunId: id || undefined, expectedJobId: id ? run.value?.jobId : undefined,
       selectedModel: current.selectedModel ? { ...current.selectedModel } : undefined, expectedModel: { ...readyModel.value },
-      thinkingLevel: current.thinkingLevel, readOnly: current.readOnly,
-      allowCommands: !current.readOnly && current.allowCommands, prompt: current.prompt,
+      thinkingLevel: current.thinkingLevel, prompt: current.prompt,
       lifecycleStage: current.stageSelection?.stage, expectedGoalVersion: current.stageSelection?.goalVersion,
       citations: current.citations.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
         ({ reviewToken, projectId, path, side, startLine, endLine, note }))
@@ -620,6 +836,7 @@ async function enqueue(retrying = false) {
     current.citations = []
     current.allowCommands = false
     current.readOnly = true
+    current.projectGrants = {}
     persistDraft(key)
   }
 }
@@ -703,17 +920,21 @@ function onEnter(event: KeyboardEvent) {
         <LoadingIndicator :active="true" />{{ stoppingFor ? '正在取消准备' : '正在准备 Pi 运行' }}
         <Button type="button" variant="ghost" size="sm" :disabled="stopBusy || !!stoppingFor" @click="stop">取消准备</Button>
       </div>
-      <div v-if="launchError" class="pi-top-note" role="status">
-        {{ launchError }}
-        <Button v-if="recoverableDraft" type="button" variant="ghost" size="sm" @click="restoreSubmittedDraft">恢复任务草稿</Button>
+      <div v-if="preparationFailure" class="pi-top-note" role="status">
+        {{ preparationFailure }}
+        <Button v-if="recoverableDraft" type="button" variant="ghost" size="sm" :disabled="projectBusy" @click="restoreSubmittedDraft">
+          <LoadingIndicator :active="projectBusy" />恢复任务草稿
+        </Button>
         <RouterLink v-if="latest" :to="'/jobs/' + latest.id">查看执行记录</RouterLink>
       </div>
       <div v-if="pending" class="pi-top-note" role="status">
         {{ sending ? '正在提交 Pi 任务…' : receiptBusy ? '正在核对受理记录…' : receiptError || '本次请求的受理结果待核对。' }}
-        <span v-if="pending.input.readOnly === false">原请求允许编辑原工程<template v-if="pending.input.allowCommands">并运行离线命令</template>。</span>
+        <span v-if="pending.input.projectAccess?.some((item) => item.mode !== 'read')">原请求包含工程编辑或离线命令权限。</span>
+        <span v-else-if="pending.input.readOnly === false">原请求允许编辑原工程<template v-if="pending.input.allowCommands">并运行离线命令</template>。</span>
         <Button type="button" variant="ghost" size="sm" :disabled="sending || receiptBusy" @click="checkPending">核对回执</Button>
         <Button type="button" variant="outline" size="sm" :disabled="sending || receiptBusy" @click="retryPending">按同一请求重试</Button>
       </div>
+      <div v-if="handoffError" class="pi-top-note" role="status">{{ handoffError }}</div>
       <div v-if="direct && snapshotIssue" class="pi-top-note" role="status">
         本轮差异待核实。{{ snapshotIssue }}
       </div>
@@ -757,6 +978,19 @@ function onEnter(event: KeyboardEvent) {
                     :review-targets="job.id === summary?.jobId ? summary.reviewTargets : undefined"
                     @updated="scheduleRefresh" @focus="focusNode" @review="(project, path) => openReview(job.id, project, path)"
                     @review-latest="openReview()" />
+                  <aside v-if="roundCiJobs[job.id]" class="pi-ci-evidence" aria-label="本轮 GitLab CI 证据">
+                    <p>GitLab CI #{{ roundCiJobs[job.id]?.jobId }} ·
+                      {{ roundCiJobs[job.id]?.mode === 'reproduce' ? '同提交复现' : '差异对照' }}</p>
+                    <p>CI 提交 <code>{{ roundCiJobs[job.id]?.sha }}</code></p>
+                    <p v-if="roundCiJobs[job.id]?.localHead">
+                      本机 {{ roundCiJobs[job.id]?.localBranch || '游离 HEAD' }} · <code>{{ roundCiJobs[job.id]?.localHead }}</code>
+                    </p>
+                    <p v-if="roundCiJobs[job.id]?.traceStatus">{{ roundCiJobs[job.id]?.traceStatus }}</p>
+                  </aside>
+                  <Button v-if="run && terminalJob(job.status)"
+                    type="button" variant="ghost" size="sm" :disabled="!!handoffBusy" @click="createHandoff(job)">
+                    <LoadingIndicator :active="handoffBusy === job.id" />{{ handoffBusy === job.id ? '正在生成接续草稿…' : '生成接续草稿' }}
+                  </Button>
                 </MessageScrollerItem>
                 <div v-if="roundEnd < rounds.length" class="pi-more-rounds">
                   <Button type="button" variant="ghost" size="sm" @click="moveRounds(false)">加载较新轮次</Button>
@@ -782,6 +1016,27 @@ function onEnter(event: KeyboardEvent) {
         </Button>
         <form aria-label="发送 Pi 任务" @submit.prevent="send">
           <InputGroup class="pi-composer">
+            <div v-if="draft.handoff || draft.ciAttachment || draft.ciRecovery" class="pi-draft-excerpts">
+              <div v-if="draft.handoff" class="pi-draft-excerpt">
+                <details>
+                  <summary>接续来源 · {{ draft.handoff.jobId.slice(0, 8) }}</summary>
+                  <RouterLink :to="sourceLink(draft.handoff)">查看来源轮次</RouterLink>
+                  <p v-for="workspace in draft.handoff.workspaces" :key="workspace.projectIds.join(',')">
+                    {{ workspace.projectIds.map((id) => projectNames[id] ?? id).join('、') }} ·
+                    {{ workspace.branch || '游离 HEAD' }} · <code>{{ workspace.head }}</code>
+                  </p>
+                </details>
+              </div>
+              <div v-if="draft.ciAttachment" class="pi-draft-excerpt">
+                <span>CI #{{ draft.ciAttachment.job.jobId }} · {{ draft.ciAttachment.mode === 'reproduce' ? '同提交复现' : '差异对照' }}</span>
+                <Button type="button" size="sm" variant="ghost" @click="changeCiAttachment()">移除作业</Button>
+              </div>
+              <div v-if="draft.ciRecovery" class="pi-draft-excerpt">
+                <span>CI #{{ draft.ciRecovery.jobId }} · 作业待重新核对</span>
+                <Button type="button" size="sm" variant="ghost" @click="openSettings">重新核对作业</Button>
+                <Button type="button" size="sm" variant="ghost" @click="removeCiRecovery">移除作业</Button>
+              </div>
+            </div>
             <div v-if="draft.citations.length" class="pi-draft-excerpts">
               <div v-for="(excerpt, index) in draft.citations" :key="index" class="pi-draft-excerpt">
                 <details>
@@ -797,7 +1052,7 @@ function onEnter(event: KeyboardEvent) {
               :placeholder="active ? '准备下一轮要求' : '给 Pi 发一项任务'" rows="2" :disabled="sending" @keydown="onEnter" />
             <InputGroupAddon align="block-end" class="pi-composer-tools">
               <Button type="button" variant="ghost" size="sm" :disabled="!context || (!!session && !direct)" @click="openSettings">
-                <Settings2 :size="15" /><span>{{ draft.readOnly ? '只读原工程' : draft.allowCommands ? '编辑原工程 · 离线命令已授权' : '编辑原工程' }}</span>
+                <Settings2 :size="15" /><span>{{ permissionLabel }}</span>
               </Button>
               <PiModelPicker :selected-model="selectedModel" :current-model="currentModel"
                 show-thinking :thinking-levels="thinkingLevels" :thinking-level="currentThinking" :checking-thinking="checking"
@@ -811,7 +1066,7 @@ function onEnter(event: KeyboardEvent) {
                 </template>
               </PiModelPicker>
               <Button v-if="queueRun" type="button" variant="ghost" size="sm" :disabled="!canEnqueue"
-                aria-label="加入续办队列" title="沿用本会话范围与模型，离线命令关闭" @click="enqueue()">
+                aria-label="加入续办队列" :title="perProject ? '按本会话范围排队，默认只读' : '沿用本会话范围与模型，离线命令关闭'" @click="enqueue()">
                 <ListPlus :size="15" />排队
               </Button>
               <Button v-if="active" type="button" size="icon" class="pi-send" aria-label="停止运行" title="停止运行"
@@ -847,6 +1102,8 @@ function onEnter(event: KeyboardEvent) {
         <section>
           <h2>会话摘要</h2>
           <p v-if="status">{{ status }}</p>
+          <RouterLink v-if="run?.continuationSource" :to="sourceLink(run.continuationSource)">查看接续来源</RouterLink>
+          <p v-if="run?.ciJob">CI #{{ run.ciJob.jobId }} · {{ run.ciJob.mode === 'reproduce' ? '同提交复现' : '差异对照' }} · <code>{{ run.ciJob.sha }}</code><br v-if="run.ciJob.traceStatus">{{ run.ciJob.traceStatus }}</p>
           <p v-if="summary?.reviewError" class="pi-issue">{{ summary.reviewError }}</p>
           <Button v-if="latest && (summary?.hasSnapshot || summary?.hasAcceptance)" type="button" variant="ghost" class="pi-summary-action"
             @click="openReview()"><FileDiff :size="15" /> {{ summary.pendingFiles ? summary.pendingFiles + ' 个文件待审阅' : '执行成果' }}</Button>
@@ -855,6 +1112,7 @@ function onEnter(event: KeyboardEvent) {
         </section>
         <PiQueuePanel v-if="queueRun" :queue="queue" :busy="queueBusy" :error="queueError" :uncertain="queueUncertain || !!pendingEnqueue"
           :active="active" :verified="queueVerified" :goal-version="progression?.goalVersion"
+          :per-project="perProject" :can-edit-projects="canEditQueueProjects"
           :refresh="refreshQueue" :put="putQueueTask" :remove="removeQueueTask" :resume="resumeQueue" />
         <section>
           <h2>来源</h2>
@@ -901,15 +1159,18 @@ function onEnter(event: KeyboardEvent) {
         <SheetHeader class="pi-sheet-header"><SheetTitle>运行设置</SheetTitle>
           <SheetDescription>{{ context?.spec.title }}</SheetDescription></SheetHeader>
         <div v-if="context" class="pi-sheet-body">
-          <PiWorkspaceSettings :key="session || 'new'" v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
+          <PiWorkspaceSettings :key="draftKey" v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
             v-model:runtime-status="runtimeStatus"
             v-model:blocked-reason="modelIssue" v-model:model-restrictions="modelRestrictions"
-            v-model:selected="draft.selected" v-model:allow-commands="draft.allowCommands"
+            v-model:selected="draft.selected" v-model:allow-commands="draft.allowCommands" v-model:project-modes="projectModes"
             v-model:read-only="draft.readOnly" v-model:stage="selectedStage"
-            :main-id="mainId" :projects="context.projects"
+            :ci-attachment="draft.ciAttachment" :ci-recovery="draft.ciRecovery" @update:ci-attachment="changeCiAttachment"
+            :spec-id="spec" :main-id="mainId" :projects="context.projects" :project-scope="projectScope"
+            :project-busy="projectBusy" :project-error="projectError" :per-project="perProject" :ci-issue="ciIssue"
+            :project-grant-issue="projectGrantIssue" @clear-stale-project-grants="clearStaleProjectGrants"
             :review-resume-id="session || undefined" :busy="sending"
             :participating-ids="run?.projectIds" :available-stages="availableStages" :automatic-stage="automaticStage"
-            :stage-needs-review="stageNeedsReview" />
+            :stage-needs-review="stageNeedsReview" @refresh-projects="refreshProjects" />
         </div>
       </SheetContent>
     </Sheet>
@@ -918,6 +1179,8 @@ function onEnter(event: KeyboardEvent) {
         <SheetHeader class="pi-sheet-header"><SheetTitle>会话摘要</SheetTitle><SheetDescription>{{ title }}</SheetDescription></SheetHeader>
         <div class="pi-sheet-body pi-mobile-summary">
           <p v-if="status">{{ status }}</p>
+          <RouterLink v-if="run?.continuationSource" :to="sourceLink(run.continuationSource)">查看接续来源</RouterLink>
+          <p v-if="run?.ciJob">CI #{{ run.ciJob.jobId }} · {{ run.ciJob.mode === 'reproduce' ? '同提交复现' : '差异对照' }} · <code>{{ run.ciJob.sha }}</code><br v-if="run.ciJob.traceStatus">{{ run.ciJob.traceStatus }}</p>
           <RouterLink :to="{ path: '/specs/' + spec }" class="pi-summary-link"><FileText :size="15" />{{ context?.spec.title || '原 Spec' }}</RouterLink>
           <Button v-if="latest && (summary?.hasSnapshot || summary?.hasAcceptance)" type="button" variant="outline"
             @click="openReview()"><FileDiff :size="15" />执行成果</Button>
@@ -926,6 +1189,7 @@ function onEnter(event: KeyboardEvent) {
           </Button>
           <PiQueuePanel v-if="queueRun" :queue="queue" :busy="queueBusy" :error="queueError" :uncertain="queueUncertain || !!pendingEnqueue"
             :active="active" :verified="queueVerified" :goal-version="progression?.goalVersion"
+          :per-project="perProject" :can-edit-projects="canEditQueueProjects"
             :refresh="refreshQueue" :put="putQueueTask" :remove="removeQueueTask" :resume="resumeQueue" />
         </div>
       </SheetContent>
@@ -935,3 +1199,15 @@ function onEnter(event: KeyboardEvent) {
       @changed="refresh" @latest="openReview()" @closed="reviewClosed" @review-state="reviewState = $event" />
   </div>
 </template>
+
+<style scoped>
+.pi-ci-evidence {
+  margin-block: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+</style>

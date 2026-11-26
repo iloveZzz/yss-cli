@@ -125,11 +125,13 @@ pub(crate) struct RunRequest<'a> {
     pub cwd: &'a Path,
     pub primary_project: &'a str,
     pub workspaces: &'a [Workspace],
+    pub unselected_projects: &'a [PathBuf],
     pub prompt: &'a str,
     pub resume: Option<&'a PiSession>,
     pub thinking_level: Option<ThinkingLevel>,
     pub read_only: bool,
     pub allow_commands: bool,
+    pub explicit_access: bool,
 }
 
 pub(crate) const fn supported() -> bool {

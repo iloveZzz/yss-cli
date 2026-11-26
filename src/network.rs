@@ -374,7 +374,7 @@ fn asset(
     allowed.extend(scoped);
     Ok(selected)
 }
-fn run<T>(
+pub(crate) fn run<T>(
     cancel: &Cancellation,
     duration: Duration,
     future: impl Future<Output = Result<T>>,

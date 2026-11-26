@@ -13,6 +13,8 @@ const props = defineProps<{
   error: string
   uncertain: boolean
   active: boolean
+  perProject?: boolean
+  canEditProjects?: boolean
   verified: boolean
   goalVersion?: string
   refresh: () => Promise<void>
@@ -40,7 +42,11 @@ const editStale = computed(() => !!editing.value && (editing.value.version !== p
   editing.value.draft.expectedGoalVersion !== props.goalVersion))
 const allowWrites = computed(() => !props.busy && !props.uncertain && props.verified)
 const head = computed(() => props.queue?.items[0])
-const requireApproval = computed(() => !!head.value && !head.value.dispatching && !head.value.readOnly)
+const queueEditingAllowed = computed(() => !props.perProject || props.canEditProjects === true)
+function mayEdit(item: PiQueueEntry) {
+  return !item.readOnly && queueEditingAllowed.value
+}
+const requireApproval = computed(() => !!head.value && !head.value.dispatching && mayEdit(head.value))
 const pauseLabel = computed(() => {
   const reason = props.queue?.pausedReason
   return reason ? pauseLabels[reason] ?? '队列已暂停，请核对后继续。' : ''
@@ -67,7 +73,8 @@ function rebaseEdit() {
 async function save() {
   const current = editing.value
   if (!current || !allowWrites.value || editStale.value || !editTarget.value || editTarget.value.dispatching) return
-  if (await props.put({ ...current.draft, version: current.version }, current.id) && editing.value === current)
+  if (await props.put({ ...current.draft, readOnly: current.draft.readOnly || !queueEditingAllowed.value,
+    version: current.version }, current.id) && editing.value === current)
     editing.value = undefined
 }
 async function confirmRemoval() {
@@ -97,7 +104,7 @@ watch(() => props.queue?.runId, () => {
 <template>
   <section aria-label="续办队列" class="pi-queue-panel">
     <h2>续办队列<template v-if="queue?.items.length"> · {{ queue.items.length }}</template></h2>
-    <p class="muted">沿用本会话的工程和模型，关闭离线命令。</p>
+    <p class="muted">沿用本会话的工程和模型，关闭离线命令。<template v-if="perProject">编辑仅限会话已授权的工程。</template></p>
     <p v-if="pauseLabel" class="pi-issue" role="status">{{ pauseLabel }}</p>
     <p v-if="error" class="pi-issue" role="alert">{{ error }}</p>
     <Button v-if="error || uncertain" type="button" variant="outline" size="sm" :disabled="busy" @click="refresh">读取最新队列</Button>
@@ -106,7 +113,7 @@ watch(() => props.queue?.runId, () => {
     <ol v-else-if="queue" class="pi-queue-items">
       <li v-for="item in queue.items" :key="item.id">
         <p class="pi-queue-prompt" :title="item.prompt">{{ item.prompt }}</p>
-        <small>{{ item.dispatching ? '正在核对派发' : item.readOnly ? '只读原工程' : '编辑原工程 · 需确认' }}</small>
+        <small>{{ item.dispatching ? '正在核对派发' : mayEdit(item) ? '编辑原工程 · 需确认' : '只读原工程' }}</small>
         <div class="pi-queue-actions">
           <Button type="button" variant="ghost" size="sm" :disabled="!allowWrites || item.dispatching" @click="edit(item)">编辑</Button>
           <Button type="button" variant="ghost" size="sm" :disabled="!allowWrites || item.dispatching"
@@ -126,7 +133,8 @@ watch(() => props.queue?.runId, () => {
       <form v-if="editing" class="form-stack" @submit.prevent="save">
         <label>任务要求<Textarea :model-value="editing.draft.prompt" :disabled="busy" required rows="5"
           @update:model-value="patchDraft({ prompt: String($event) })" /></label>
-        <label class="pi-queue-permission"><Checkbox :model-value="editing.draft.readOnly" :disabled="busy"
+        <label class="pi-queue-permission"><Checkbox :model-value="editing.draft.readOnly || !queueEditingAllowed"
+          :disabled="busy || !queueEditingAllowed"
           @update:model-value="patchDraft({ readOnly: $event === true })" />只读原工程</label>
         <ul v-if="editing.draft.citations?.length">
           <li v-for="(cite, index) in editing.draft.citations" :key="index">
@@ -159,7 +167,7 @@ watch(() => props.queue?.runId, () => {
   <Dialog :open="!!approval" @update:open="!$event && !busy && (approval = undefined)">
     <DialogContent class="workbench-dialog">
       <DialogHeader><DialogTitle>允许下一条编辑原工程？</DialogTitle>
-        <DialogDescription>本轮会直接写入原工程，执行失败或停止后，已写入的内容会保留。</DialogDescription></DialogHeader>
+        <DialogDescription>本轮可写入已授权的原工程。执行失败或停止后，已写入的内容会保留。</DialogDescription></DialogHeader>
       <p v-if="head" class="pi-queue-prompt">{{ head.prompt }}</p>
       <DialogFooter><Button type="button" variant="outline" :disabled="busy" @click="approval = undefined">取消</Button>
         <Button type="button" :disabled="!allowWrites || active || approval?.version !== queue?.version"
