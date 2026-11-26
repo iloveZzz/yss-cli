@@ -4,7 +4,7 @@ import { useWorkbench } from '@/hooks/useWorkbench'
 import { ApiError, errorMessage } from '@/services/workbench'
 import {
   getAgentRun, getAgentRounds, getAgentSessionPage,
-  type AgentRun, type AgentSessionPage
+  type AgentCiEvidence, type AgentRun, type AgentSessionPage
 } from '@/services/workbench-agent'
 import { getJob, terminalJob, type JobRecord } from '@/services/workbench-platform'
 
@@ -34,6 +34,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
   const run = shallowRef<AgentRun>()
   const rounds = shallowRef<JobRecord[]>([])
   const snapshotJobs = shallowRef(new Set<string>())
+  const roundCiJobs = shallowRef<Record<string, AgentCiEvidence>>({})
   const runError = shallowRef('')
   const launchError = shallowRef('')
   const accepted = shallowRef<{ spec: string; session: string; job: JobRecord }>()
@@ -138,12 +139,14 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
       if (nextRun.host !== 'pi' || nextRun.specId !== spec) {
         rounds.value = []
         snapshotJobs.value = new Set()
+        roundCiJobs.value = {}
         run.value = undefined
         throw new Error('此 Pi 会话不属于当前 Spec')
       }
       run.value = nextRun
       rounds.value = list.rounds
       snapshotJobs.value = new Set(list.snapshotJobIds)
+      roundCiJobs.value = list.roundCiJobs ?? (nextRun.ciJob ? { [nextRun.jobId]: nextRun.ciJob } : {})
       if (jobId && nextRun.jobId !== jobId) {
         const job = list.rounds.find((item) => item.id === jobId) ?? await getJob(jobId, request.signal)
         if (!stillCurrent()) return
@@ -233,6 +236,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     launchError.value = ''
     reading.value = false
     snapshotJobs.value = new Set()
+    roundCiJobs.value = {}
     rounds.value = id && accepted.value?.session === id && accepted.value.spec === spec ? [accepted.value.job] : []
     void refreshRounds()
   }, { immediate: true })
@@ -250,7 +254,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
 
   return {
     context, contextError, pageNotice, listBusy, listCurrent, search, attentionOnly,
-    run, rounds, latest, summary, snapshotJobs, runError, launchError, reading,
+    run, rounds, latest, summary, snapshotJobs, roundCiJobs, runError, launchError, reading,
     refresh, scheduleRefresh, recordAccepted, forgetSession, loadMore: () => refreshContext(true)
   }
 }

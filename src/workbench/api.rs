@@ -1,5 +1,6 @@
 use super::{
-    agent, agent_protocol, artifacts, backup, drafts, engineering, integrations,
+    agent, agent_protocol, agent_scope, artifacts, backup, ci_job, drafts, engineering,
+    integrations,
     jobs::{self, JobManager},
     model::*,
     read_model, sources,
@@ -684,6 +685,40 @@ impl PlatformApi {
             }
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
+            }
+            ("GET", ["api", "specs", id, "agent-projects"]) => {
+                integrations::agent_projects(&self.jobs.store, id, &self.cancel)?
+            }
+            ("GET", ["api", "specs", id, "agent-continuation"]) => {
+                let source = agent_scope::ContinuationSource {
+                    run_id: query
+                        .get("runId")
+                        .cloned()
+                        .ok_or_else(|| sources::invalid("缺少来源会话"))?,
+                    job_id: query
+                        .get("jobId")
+                        .cloned()
+                        .ok_or_else(|| sources::invalid("缺少来源轮次"))?,
+                };
+                encode(agent_scope::preview(&self.jobs.store, id, &source)?)?
+            }
+            ("POST", ["api", "specs", id, "agent-ci-job", "preview"]) => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Preview {
+                    project_id: String,
+                    link_id: String,
+                    job_ref: String,
+                }
+                let request: Preview = decode(bytes)?;
+                ci_job::preview(
+                    &self.jobs.store,
+                    id,
+                    &request.project_id,
+                    &request.link_id,
+                    &request.job_ref,
+                    &self.cancel,
+                )?
             }
             ("GET", ["api", "specs", id, "agent-sessions"]) => {
                 if query.get("compact").is_some_and(|value| value == "1") {

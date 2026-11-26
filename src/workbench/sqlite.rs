@@ -1086,11 +1086,19 @@ impl Database {
     }
 
     pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
+        self.first_event_payload(job_id, "run")
+    }
+
+    pub(crate) fn ci_evidence(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
+        self.first_event_payload(job_id, "ciEvidence")
+    }
+
+    fn first_event_payload(&self, job_id: &str, kind: &str) -> Result<Option<serde_json::Value>> {
         let payload: Option<String> = self
             .connection
             .query_row(
-                "SELECT payload FROM job_events WHERE job_id=?1 AND kind='run' ORDER BY id LIMIT 1",
-                [job_id],
+                "SELECT payload FROM job_events WHERE job_id=?1 AND kind=?2 ORDER BY id LIMIT 1",
+                [job_id, kind],
                 |row| row.get(0),
             )
             .optional()

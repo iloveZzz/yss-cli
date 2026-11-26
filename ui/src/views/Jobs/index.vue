@@ -267,7 +267,7 @@ async function resume() {
   const target = jobId.value
   const expectedModel = readyModel.value
   if (
-    !current?.canResume ||
+    !current?.canResume || current.projectAccess?.length ||
     current.jobId !== target ||
     latestRunActive.value ||
     busy.value ||
@@ -340,8 +340,12 @@ async function resume() {
           <LoadingIndicator :active="operation?.kind === 'stop' || stopping" />
           {{ operation?.kind === 'stop' || stopping ? '正在停止…' : '停止运行' }}
         </Button>
+        <Button v-else-if="currentRun?.canResume && currentRun.projectAccess?.length && !latestRunActive && piRoute"
+          variant="outline" as-child>
+          <RouterLink :to="piRoute">在 Pi 工作区继续处理</RouterLink>
+        </Button>
         <Button
-          v-else-if="currentRun?.canResume && !latestRunActive"
+          v-else-if="currentRun?.canResume && !currentRun.projectAccess?.length && !latestRunActive"
           type="button"
           variant="outline"
           :aria-expanded="continuationOpen"

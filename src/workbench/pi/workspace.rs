@@ -4,7 +4,10 @@ use crate::{
     fs::{FileSnapshot, Root, alias_key, git},
     model::{FileDescriptor, RelPath, RenderedFile, Sha256},
     transaction::{self, Operation},
-    workbench::agent_workspace::{self, GitBaseline, Workspace},
+    workbench::{
+        agent::ProjectMode,
+        agent_workspace::{self, GitBaseline, Workspace},
+    },
 };
 use cap_std::fs::MetadataExt;
 use std::{
@@ -33,10 +36,12 @@ struct Repository {
 struct Project {
     root: Root,
     repository: usize,
+    mode: ProjectMode,
     blocked: BTreeSet<String>,
 }
 
 pub(super) struct Location<'a> {
+    pub project_id: &'a str,
     project: &'a Project,
     repository: &'a Repository,
     path: Option<RelPath>,
@@ -85,13 +90,8 @@ fn relative_input(path: &str) -> Result<Option<RelPath>> {
         .map_err(|error| error.context("piErrorCode", "invalid_path"))
 }
 
-fn absolute_suffix<'a>(root: &Path, input: &'a str) -> Option<&'a str> {
-    let rest = input.strip_prefix(root.to_str()?)?;
-    if rest.is_empty() {
-        Some(rest)
-    } else {
-        rest.strip_prefix('/')
-    }
+fn absolute_suffix<'a>(root: &Path, input: &'a Path) -> Option<&'a str> {
+    input.strip_prefix(root).ok()?.to_str()
 }
 
 impl Project {
@@ -109,9 +109,10 @@ impl Project {
 
 impl Projects {
     pub fn review_location(&self, target: &Location<'_>) -> Option<(String, String)> {
-        let absolute = target.display();
-        let (path, id, _) = self.absolute_project(absolute.to_str()?)?;
-        (!path.is_empty()).then(|| (id.to_owned(), path.to_owned()))
+        Some((
+            target.project_id.to_owned(),
+            target.path.as_ref()?.as_str().to_owned(),
+        ))
     }
 
     pub fn new(
@@ -119,6 +120,7 @@ impl Projects {
         primary: &str,
         data_dir: &Path,
         pi_config: &Path,
+        legacy_mode: ProjectMode,
     ) -> Result<Self> {
         let mut repositories = Vec::new();
         let mut projects = BTreeMap::new();
@@ -153,6 +155,9 @@ impl Projects {
                     Project {
                         root,
                         repository: repositories.len(),
+                        mode: direct.project_modes.as_ref().map_or(legacy_mode, |modes| {
+                            modes.get(id).copied().unwrap_or(ProjectMode::Read)
+                        }),
                         blocked: BTreeSet::new(),
                     },
                 );
@@ -163,6 +168,10 @@ impl Projects {
                 recorded_paths: workspace.initial.keys().cloned().collect(),
             });
         }
+        let project_roots: BTreeSet<_> = projects
+            .values()
+            .map(|project| project.root.path.clone())
+            .collect();
         for project in projects.values_mut() {
             if protected
                 .iter()
@@ -174,6 +183,7 @@ impl Projects {
                 protected
                     .iter()
                     .chain(&excluded)
+                    .chain(&project_roots)
                     .filter_map(|path| path.strip_prefix(&project.root.path).ok())
                     .filter(|path| !path.as_os_str().is_empty())
                     .filter_map(Path::to_str)
@@ -183,7 +193,7 @@ impl Projects {
         if !projects.contains_key(primary) {
             return Err(outside_scope());
         }
-        protected.extend(excluded);
+        protected.extend(project_roots.iter().map(|path| path.join(".yss")));
         Ok(Self {
             repositories,
             projects,
@@ -226,7 +236,7 @@ impl Projects {
 
     fn absolute_project<'a, 'b>(
         &'a self,
-        path: &'b str,
+        path: &'b Path,
     ) -> Option<(&'b str, &'a str, &'a Project)> {
         self.projects
             .iter()
@@ -237,23 +247,34 @@ impl Projects {
             .min_by_key(|(rest, _, _)| rest.len())
     }
 
-    pub fn locate(&self, project: Option<&str>, path: &str) -> Result<Location<'_>> {
-        let absolute = Path::new(path).is_absolute();
-        let (project, relative) = if absolute && project.is_none() {
-            let (relative, _, project) = self.absolute_project(path).ok_or_else(outside_scope)?;
-            (project, relative)
+    pub fn locate(&self, project: Option<&str>, input: &str) -> Result<Location<'_>> {
+        let input_path = Path::new(input);
+        // A supplied project ID bounds the initial path. Within it the deepest
+        // selected root owns the path and supplies the effective permission.
+        let absolute = if input_path.is_absolute() && project.is_none() {
+            relative_input(
+                self.absolute_project(input_path)
+                    .ok_or_else(outside_scope)?
+                    .0,
+            )?;
+            input_path.to_owned()
         } else {
             let project = self
                 .projects
                 .get(project.unwrap_or(&self.primary))
                 .ok_or_else(outside_scope)?;
-            let relative = if absolute {
-                absolute_suffix(&project.root.path, path).ok_or_else(outside_scope)?
+            let relative = if input_path.is_absolute() {
+                absolute_suffix(&project.root.path, input_path).ok_or_else(outside_scope)?
             } else {
-                path
+                input
             };
-            (project, relative)
+            match relative_input(relative)? {
+                Some(relative) => project.root.path.join(relative.as_str()),
+                None => project.root.path.clone(),
+            }
         };
+        let (relative, project_id, project) =
+            self.absolute_project(&absolute).ok_or_else(outside_scope)?;
         let path = relative_input(relative)?;
         if let Some(path) = &path {
             if !tool_path(path) {
@@ -265,6 +286,7 @@ impl Projects {
         }
         project.root.revalidate()?;
         Ok(Location {
+            project_id,
             project,
             repository: &self.repositories[project.repository],
             path,
@@ -281,8 +303,10 @@ impl Projects {
                 Some(id) => self
                     .projects
                     .get(id)
-                    .and_then(|project| absolute_suffix(&project.root.path, path)),
-                None => self.absolute_project(path).map(|(path, _, _)| path),
+                    .and_then(|project| absolute_suffix(&project.root.path, Path::new(path))),
+                None => self
+                    .absolute_project(Path::new(path))
+                    .map(|(path, _, _)| path),
             }
         } else {
             Some(path)
@@ -311,6 +335,14 @@ fn bounded(value: &str, limit: usize) -> &str {
 }
 
 impl Location<'_> {
+    pub fn mode(&self) -> ProjectMode {
+        self.project.mode
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.project.root.path
+    }
+
     fn file(&self) -> Result<&RelPath> {
         self.path.as_ref().ok_or_else(|| {
             YssError::new(ErrorCode::InvalidInput, "Pi 工具需要指定文件路径")
@@ -556,7 +588,16 @@ impl Location<'_> {
         ))
     }
 
+    fn require_edit(&self) -> Result<()> {
+        if self.mode() == ProjectMode::Read {
+            return Err(YssError::new(ErrorCode::InvalidInput, "此工程仅授权读取")
+                .context("piErrorCode", "permission_denied"));
+        }
+        Ok(())
+    }
+
     pub fn write(&self, text: String, cancel: &Cancellation) -> Result<(&'static str, Sha256)> {
+        self.require_edit()?;
         let path = self.file()?;
         self.check_review_scope()?;
         let before = self.project.root.inspect(path)?;
@@ -573,6 +614,7 @@ impl Location<'_> {
         new: &str,
         cancel: &Cancellation,
     ) -> Result<(&'static str, Sha256)> {
+        self.require_edit()?;
         let path = self.file()?;
         self.check_review_scope()?;
         let (text, before) = self.read_text(path)?;

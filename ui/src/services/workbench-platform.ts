@@ -18,6 +18,7 @@ export interface JobRecord {
   id: string
   agentRunId?: string
   agentSpecId?: string
+  agentStartedAt?: string
   kind: string
   title: string
   status: string

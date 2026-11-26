@@ -7,7 +7,7 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     fs::unique_id,
     model::Sha256,
-    workbench::jobs::JobContext,
+    workbench::{agent::ProjectMode, jobs::JobContext},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -430,7 +430,6 @@ impl Broker {
             }
             Operation::Write { location, content } => {
                 self.file_call(id, "write", "写入", &location, |target| {
-                    self.require_edit()?;
                     let change = target.write(content, cancel)?;
                     Ok(("已写入原工程文件".into(), Some(change)))
                 })?
@@ -440,7 +439,6 @@ impl Broker {
                 old_text,
                 new_text,
             } => self.file_call(id, "edit", "编辑", &location, |target| {
-                self.require_edit()?;
                 let change = target.edit(&old_text, &new_text, cancel)?;
                 Ok(("已编辑原工程文件".into(), Some(change)))
             })?,
@@ -451,7 +449,7 @@ impl Broker {
                 let cwd = target.directory().map_err(|error| {
                     self.record_failure(id, "bash", "执行离线命令", &location, None, error)
                 })?;
-                return self.run_command(id, &cwd, &command);
+                return self.run_command(id, target.project_id, target.root(), &cwd, &command);
             }
             Operation::AskSpecQuestion { question_id } => ask(&self.context, &question_id)?,
         };
@@ -527,16 +525,7 @@ impl Broker {
         error.context("piDisplayPath", display_path)
     }
 
-    fn require_edit(&self) -> Result<()> {
-        if self.read_only {
-            return Err(invalid("只读模式未授权编辑文件或执行命令")
-                .context("piErrorCode", "permission_denied"));
-        }
-        Ok(())
-    }
-
     fn prepare_command(&self, location: &Location, command: &str) -> Result<ProjectLocation<'_>> {
-        self.require_edit()?;
         if self.sandbox.is_none() {
             return Err(invalid("本轮未授权离线命令").context("piErrorCode", "permission_denied"));
         }
@@ -546,16 +535,26 @@ impl Broker {
         let target = self
             .projects
             .locate(location.project_id.as_deref(), &location.path)?;
+        if target.mode() != ProjectMode::Execute {
+            return Err(invalid("此工程未授权离线命令").context("piErrorCode", "permission_denied"));
+        }
         self.projects.check_baselines(&self.context.cancel)?;
         Ok(target)
     }
 
-    fn run_command(&self, id: &str, cwd: &Path, command: &str) -> Result<Value> {
+    fn run_command(
+        &self,
+        id: &str,
+        project_id: &str,
+        root: &Path,
+        cwd: &Path,
+        command: &str,
+    ) -> Result<Value> {
         let sandbox = self
             .sandbox
             .as_ref()
             .ok_or_else(|| invalid("本轮未授权离线命令"))?;
-        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd });
+        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd, "projectId": project_id });
         self.context
             .emit("item/started", json!({ "item": base.clone() }))?;
         let mut item = base;
@@ -563,7 +562,7 @@ impl Broker {
         let mut fragments = [Vec::new(), Vec::new()];
         let mut published = 0;
         let mut last_publish: Option<Instant> = None;
-        let result = sandbox.run(cwd, command, &self.context.cancel, |chunk| {
+        let result = sandbox.run(root, cwd, command, &self.context.cancel, |chunk| {
             if let Some((stdout, bytes)) = chunk {
                 let pending = &mut fragments[usize::from(!stdout)];
                 pending.extend_from_slice(bytes);

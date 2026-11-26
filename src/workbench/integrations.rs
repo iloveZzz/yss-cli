@@ -19,6 +19,9 @@ use std::{
     time::Duration,
 };
 
+mod agent_projects;
+pub(super) use agent_projects::agent_projects;
+
 fn invalid(message: &str) -> YssError {
     YssError::new(ErrorCode::InvalidInput, message)
 }
@@ -90,6 +93,8 @@ pub struct BindHome {
 struct BoundHome {
     pub home_id: String,
     pub source_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rows_digest: Option<String>,
     pub bindings: Vec<HomeBinding>,
     pub updated_at: String,
 }
@@ -116,16 +121,32 @@ fn parse_rows(source: &str, mapping: &ColumnMapping) -> (Vec<HomeRow>, Vec<Strin
             continue;
         }
         let headers = cells(line);
-        let Some(id) = index(&headers, &mapping.id, &["仓库标识", "工程标识"]) else {
+        let Some(id) = index(&headers, &mapping.id, &["仓库标识", "工程标识", "标识"])
+        else {
             continue;
         };
         let responsibility = index(&headers, &mapping.responsibility, &["职责"]);
-        let git = index(&headers, &mapping.git, &["Git 身份", "Git 身份与子路径"]);
-        let documents = index(&headers, &mapping.documents, &["资料入口", "资料入口示意"]);
-        let relations = index(&headers, &mapping.relations, &["关联", "已知关系示意"]);
+        let git = index(
+            &headers,
+            &mapping.git,
+            &["Git 身份", "Git 身份与子路径", "已核实的 Git 身份"],
+        );
+        let documents = index(
+            &headers,
+            &mapping.documents,
+            &["资料入口", "资料入口示意", "资料入口（路径属于所列仓）"],
+        );
+        let relations = index(
+            &headers,
+            &mapping.relations,
+            &["关联", "已知关系示意", "关系与查找提示"],
+        );
         let hints = index(&headers, &mapping.hints, &["查找提示（可选）", "查找提示"]);
         if responsibility.is_none() || git.is_none() || documents.is_none() || relations.is_none() {
-            warnings.push(format!("第 {} 行表头需要核对字段映射", line_number + 1));
+            // “标识” is also used by unrelated tables elsewhere in a Home document.
+            if mapping.id.is_some() || headers[id] != "标识" || git.is_some() {
+                warnings.push(format!("第 {} 行表头需要核对字段映射", line_number + 1));
+            }
             continue;
         }
         let mut first = true;
@@ -169,6 +190,12 @@ fn parse_rows(source: &str, mapping: &ColumnMapping) -> (Vec<HomeRow>, Vec<Strin
         if row_remote(row).is_none() {
             warnings.push(format!(
                 "{} 的 Git 身份需要人工核对，请提供核对后的 rows",
+                row.id
+            ));
+        }
+        if row_subpath(row).is_err() {
+            warnings.push(format!(
+                "{} 的仓内子路径需要人工核对，请提供核对后的 rows",
                 row.id
             ));
         }
@@ -269,11 +296,8 @@ pub fn homes(store: &Arc<Mutex<Store>>) -> Result<Value> {
     let mut views = Vec::new();
     for home in imports {
         let current = Root::open(Path::new(&home.root)).and_then(|r| text(&r, &home.source_path));
-        let stale = current
-            .as_ref()
-            .map(|t| Sha256::of(t.as_bytes()).as_str() != home.source_digest)
-            .unwrap_or(true);
         let binding = bindings.iter().find(|b| b.home_id == home.id);
+        let stale = home_stale(&home, binding, current.as_deref().ok())?;
         let mut view = serde_json::to_value(&home).map_err(|_| invalid("无法编码Home"))?;
         view["stale"] = json!(stale);
         view["bindings"] = json!(binding.map(|b| &b.bindings).cloned().unwrap_or_default());
@@ -281,6 +305,28 @@ pub fn homes(store: &Arc<Mutex<Store>>) -> Result<Value> {
         views.push(view);
     }
     Ok(json!({"homes":views}))
+}
+
+fn home_rows_digest(home: &HomeImport) -> Result<String> {
+    let bytes = serde_json::to_vec(&home.rows).map_err(|_| invalid("无法编码 Home 地图行"))?;
+    Ok(Sha256::of(&bytes).as_str().to_owned())
+}
+
+fn home_stale(
+    home: &HomeImport,
+    binding: Option<&BoundHome>,
+    current: Option<&str>,
+) -> Result<bool> {
+    let rows_digest = home_rows_digest(home)?;
+    Ok(home.requires_review
+        || current.is_none_or(|text| Sha256::of(text.as_bytes()).as_str() != home.source_digest)
+        || binding.is_some_and(|binding| {
+            binding.source_digest != home.source_digest
+                || match &binding.rows_digest {
+                    Some(digest) => digest != &rows_digest,
+                    None => binding.updated_at < home.imported_at,
+                }
+        }))
 }
 fn remote_identity(raw: &str) -> Option<String> {
     let raw = raw.trim().trim_matches('`');
@@ -315,7 +361,32 @@ fn row_remote(row: &HomeRow) -> Option<String> {
         })
         .find_map(remote_identity)
 }
-fn row_subpath(row: &HomeRow) -> Option<String> {
+fn row_subpath(row: &HomeRow) -> Result<Option<String>> {
+    let mut explicit = None;
+    for suffix in row.git.split("子路径").skip(1) {
+        let Some(value) = suffix
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '：'))
+            .strip_prefix('`')
+        else {
+            continue;
+        };
+        // Imported table cells may already have had their outer backticks removed.
+        let path = value
+            .split('`')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('/');
+        if path != "." && RelPath::new(path).is_err() {
+            return Err(invalid("地图中的仓内子路径无效").at(&row.id));
+        }
+        if explicit.replace(path).is_some() {
+            return Err(invalid("地图中的仓内子路径不唯一").at(&row.id));
+        }
+    }
+    if let Some(path) = explicit {
+        return Ok(Some(path.to_owned()));
+    }
     let paths: Vec<_> = row
         .git
         .split('`')
@@ -329,9 +400,9 @@ fn row_subpath(row: &HomeRow) -> Option<String> {
         })
         .collect();
     if paths.len() == 1 {
-        Some(paths[0].trim_end_matches('/').to_owned())
+        Ok(Some(paths[0].to_owned()))
     } else {
-        None
+        Ok(None)
     }
 }
 pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Value> {
@@ -386,7 +457,7 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
                 );
             }
         }
-        if let Some(subpath) = row_subpath(row) {
+        if let Some(subpath) = row_subpath(row)? {
             let output = process::run(
                 "git",
                 &[
@@ -450,6 +521,7 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
     let record = BoundHome {
         home_id: home.id.clone(),
         source_digest: home.source_digest.clone(),
+        rows_digest: Some(home_rows_digest(&home)?),
         bindings: request.bindings,
         updated_at: sources::now(),
     };
@@ -566,8 +638,8 @@ pub struct RefreshExternal {
     pub id: String,
     pub request_id: String,
 }
-struct Instance {
-    origin: String,
+pub(super) struct Instance {
+    pub(super) origin: String,
     hostname: String,
 }
 fn instance(host: &str) -> Result<Instance> {
@@ -596,7 +668,7 @@ fn instance(host: &str) -> Result<Instance> {
         hostname,
     })
 }
-fn validate_external(target: &AddExternal) -> Result<Instance> {
+pub(super) fn validate_external(target: &AddExternal) -> Result<Instance> {
     let host = instance(&target.host)?;
     if target.number == 0
         || target.project.len() > 512
