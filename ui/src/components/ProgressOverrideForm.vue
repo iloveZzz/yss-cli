@@ -16,15 +16,18 @@ import {
   progressLabels,
   stages,
   type Progress,
-  type ProgressSummary,
   type Stage
 } from '@/services/workbench'
+import type { CompactProgress } from '@/services/workbench-read'
 const props = defineProps<{
   specId: string
-  progress?: ProgressSummary
+  progress?: CompactProgress
   stage: Stage
   projectId?: string
   initialProgress?: Progress
+  expectedRevision?: number
+  writeDisabled?: boolean
+  refreshAfter?: (revision?: number) => Promise<unknown>
   confirmLeave?: (dirty: boolean) => boolean | Promise<boolean>
 }>()
 const open = defineModel<boolean>({ required: true })
@@ -51,18 +54,21 @@ let resolveLeave: ((value: boolean) => void) | undefined
 const stale = shallowRef(false)
 const goalVersion = shallowRef('')
 let revision = 0
-function reload() {
-  value.value =
-    props.initialProgress ??
-    props.progress?.stages.find((stage) => stage.stage === props.stage)
-      ?.progress ??
-    'doing'
-  reason.value = ''
-  baseline.value = { progress: value.value, reason: '' }
+function reload(keepDraft = false) {
+  if (keepDraft && props.writeDisabled) return
+  if (!keepDraft) {
+    value.value =
+      props.initialProgress ??
+      props.progress?.stages.find((stage) => stage.stage === props.stage)
+        ?.progress ??
+      'doing'
+    reason.value = ''
+    baseline.value = { progress: value.value, reason: '' }
+  }
   error.value = ''
   notice.value = ''
   stale.value = false
-  revision = snapshot.value?.revision ?? 0
+  revision = props.expectedRevision ?? snapshot.value?.revision ?? 0
   goalVersion.value = props.progress?.goalVersion ?? ''
 }
 watch(
@@ -102,7 +108,7 @@ useEventListener(window, 'beforeunload', (event) => {
   }
 })
 async function save() {
-  if (stale.value || saving.value) return
+  if (stale.value || saving.value || props.writeDisabled) return
   error.value = ''
   notice.value = ''
   if (!goalVersion.value) {
@@ -128,7 +134,9 @@ async function save() {
           projectId: props.projectId
         }
       },
-      revision
+      revision,
+      undefined,
+      props.refreshAfter
     )
     revision = result.revision
     baseline.value = submitted
@@ -182,7 +190,7 @@ async function save() {
       <Alert v-if="error" class="notice error" variant="destructive">{{ error }}</Alert>
       <Alert v-if="stale" class="notice warning">
         依据已变化，当前输入已保留。
-        <Button type="button" variant="outline" @click="reload">
+        <Button type="button" variant="outline" :disabled="writeDisabled" @click="reload(true)">
           载入最新版本
         </Button>
       </Alert>
@@ -201,7 +209,7 @@ async function save() {
         >
           取消
         </Button>
-        <Button type="submit" :disabled="saving || stale || !goalVersion">
+        <Button type="submit" :disabled="saving || stale || !goalVersion || writeDisabled">
           <LoadingIndicator :active="submitting" />
           {{ submitting ? '保存中…' : '保存更正' }}
         </Button>

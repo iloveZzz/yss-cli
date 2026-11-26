@@ -1,6 +1,7 @@
 use super::{
-    AcceptFile, AcceptRequest, AcceptanceLease, AgentRun, Store, current_descriptor, invalid,
-    lease_owner,
+    AcceptFile, AcceptRequest, AcceptanceLease, AgentRun, Store,
+    activity::{AcceptanceStatus, ProjectActivity},
+    current_descriptor, invalid, lease_owner,
 };
 use crate::{
     error::{ErrorCode, Result, YssError},
@@ -130,6 +131,68 @@ pub(super) fn requires_verification(disposition: &str) -> bool {
         disposition,
         "unverified" | "recoveryRequired" | "committedPendingCleanup"
     )
+}
+
+pub(super) fn round_activity(
+    store: &mut Store,
+    run_id: &str,
+    job_id: &str,
+    binding_revision: u64,
+    applied: &BTreeSet<&str>,
+) -> Result<Vec<ProjectActivity>> {
+    let attempt = Attempt::load(store, run_id)?;
+    let eligible = attempt.as_ref().is_none_or(|attempt| {
+        attempt.job_id == job_id && attempt.binding_revision == binding_revision
+    });
+    let mut statuses: BTreeMap<String, AcceptanceStatus> = if eligible && binding_revision == 0 {
+        applied
+            .iter()
+            .map(|id| ((*id).to_owned(), AcceptanceStatus::Accepted))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    if let Some(attempt) = attempt.filter(|_| eligible) {
+        for report in attempt
+            .projects
+            .as_deref()
+            .or(attempt.previous_reports.as_deref())
+            .unwrap_or_default()
+        {
+            let Some(id) = report["projectId"].as_str() else {
+                continue;
+            };
+            if report["jobId"]
+                .as_str()
+                .is_some_and(|value| value != job_id)
+            {
+                continue;
+            }
+            let status = match report["disposition"].as_str() {
+                Some("applied") if applied.contains(id) => AcceptanceStatus::Accepted,
+                Some("noWrite" | "rolledBack") if report["status"] == "failed" => {
+                    AcceptanceStatus::Failed
+                }
+                Some("noWrite" | "rolledBack") => AcceptanceStatus::NoWrite,
+                _ => AcceptanceStatus::NeedsVerification,
+            };
+            statuses.insert(id.to_owned(), status);
+        }
+        if attempt.projects.is_none() {
+            let status = if lease_active(store, run_id)? {
+                AcceptanceStatus::Writing
+            } else {
+                AcceptanceStatus::NeedsVerification
+            };
+            for file in &attempt.files {
+                statuses.insert(file.project_id.clone(), status);
+            }
+        }
+    }
+    Ok(statuses
+        .into_iter()
+        .map(|(project_id, status)| ProjectActivity { project_id, status })
+        .collect())
 }
 
 fn unresolved_report(report: &Value) -> bool {
@@ -457,14 +520,22 @@ pub(super) fn ensure_recovered(store: &mut Store, roots: &[String]) -> Result<()
 }
 
 pub(super) fn summary(store: &mut Store, run: &AgentRun) -> Result<Option<Value>> {
-    let Some(attempt) = Attempt::load(store, &run.id)? else {
+    summary_for_round(store, &run.id, &run.job_id, run.binding_revision)
+}
+
+pub(super) fn summary_for_round(
+    store: &mut Store,
+    run_id: &str,
+    job_id: &str,
+    binding_revision: u64,
+) -> Result<Option<Value>> {
+    let Some(attempt) = Attempt::load(store, run_id)? else {
         return Ok(None);
     };
-    let active = lease_active(store, &run.id)?;
-    let attempt = attempt.with_bindings(store, &run.id)?;
+    let active = lease_active(store, run_id)?;
+    let attempt = attempt.with_bindings(store, run_id)?;
     let reports = attempt.reports(active)?;
-    let belongs_to_round =
-        attempt.job_id == run.job_id && attempt.binding_revision == run.binding_revision;
+    let belongs_to_round = attempt.job_id == job_id && attempt.binding_revision == binding_revision;
     Ok((belongs_to_round || reports.iter().any(unresolved_report))
         .then(|| json!({"jobId": attempt.job_id, "projects": reports})))
 }

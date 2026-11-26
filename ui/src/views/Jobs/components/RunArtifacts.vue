@@ -8,12 +8,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getAgentSpecView } from '@/services/workbench-agent'
-import { errorMessage, contentStatuses, type SpecView } from '@/services/workbench'
+import { errorMessage, contentStatuses, healthLabels, type SpecView } from '@/services/workbench'
 import SourcePreview from '@/views/SpecDetail/components/SourcePreview.vue'
 import ResourceViewer from '@/views/SpecDetail/components/ResourceViewer.vue'
 import { currentQuestionResponse, questionHistory, questionStateLabel, responseText, responseUse } from '@/services/workbench-content'
 import QuestionHistory from '@/views/SpecDetail/components/QuestionHistory.vue'
-const props = defineProps<{ runId: string; specId: string; running: boolean; jobId?: string }>()
+const props = defineProps<{ runId: string; specId: string; running: boolean; jobId?: string; direct?: boolean }>()
 const view = shallowRef<SpecView>()
 const error = shallowRef('')
 const loading = shallowRef(false)
@@ -49,7 +49,7 @@ async function refresh(explicit = false) {
     }
   }
 }
-watch(() => [props.runId, props.specId, props.jobId], () => {
+watch(() => [props.runId, props.specId, props.jobId, props.running], () => {
   generation++
   view.value = undefined
   resource.value = null
@@ -76,7 +76,7 @@ function safeWeb(value: string) {
 <template>
   <section class="platform-section">
     <div class="section-heading">
-      <h2>隔离工作区产物</h2>
+      <h2>{{ direct ? '本轮材料与产物' : '隔离工作区产物' }}</h2>
       <Button type="button" variant="outline" :aria-disabled="refreshing" @click="!refreshing && refresh(true)">
         <LoadingIndicator :active="refreshing && !!view" />
         {{ refreshing ? '正在读取…' : '重新读取' }}
@@ -85,14 +85,15 @@ function safeWeb(value: string) {
     <Alert v-if="error" class="notice warning">
       <AlertDescription class="text-current">{{ error }}</AlertDescription>
     </Alert>
+    <p v-if="direct && running" class="muted">当前显示原工程材料，轮次结束后可查看快照。</p>
     <LoadingSkeleton v-if="loading && !view" variant="detail" label="正在读取本次产物" />
     <template v-if="view">
       <div class="artifact-status">
         <Badge variant="secondary">{{ contentStatuses[view.content.status] }}</Badge>
         <span class="muted">{{ view.content.scope }}</span>
       </div>
-      <div v-if="view.resources.length" class="inline-actions resource-shortcuts">
-        <template v-for="(item, index) in view.resources" :key="index">
+      <ul v-if="view.resources.length" class="inline-actions resource-shortcuts" aria-label="关联材料">
+        <li v-for="(item, index) in view.resources" :key="index">
           <Button v-if="item.record.targetType === 'web' && safeWeb(item.record.target)" variant="outline" class="artifact-link" as-child>
             <a :href="item.record.target" target="_blank" rel="noopener noreferrer">
               {{ item.record.label }} <span aria-hidden="true">↗</span>
@@ -101,8 +102,13 @@ function safeWeb(value: string) {
           <Button v-else type="button" variant="outline" class="artifact-link" @click="navigate(item.record.target)">
             {{ item.record.label }}
           </Button>
-        </template>
-      </div>
+          <template v-if="direct">
+            <code class="path-text">{{ item.record.target }}</code>
+            <p class="muted">{{ healthLabels[item.health] }}<template v-if="item.message"> · {{ item.message }}</template></p>
+            <p v-if="item.record.kind === 'prototype' && item.record.targetType === 'local' && item.health !== 'available'" class="muted">浏览器交互待验证。</p>
+          </template>
+        </li>
+      </ul>
       <SourcePreview
         :run-id="runId"
         :job-id="jobId"
@@ -157,6 +163,10 @@ function safeWeb(value: string) {
   align-items: baseline;
   flex-wrap: wrap;
   margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.resource-shortcuts .path-text {
+  display: block;
   overflow-wrap: anywhere;
 }
 .artifact-link {

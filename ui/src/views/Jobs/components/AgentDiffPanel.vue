@@ -21,7 +21,7 @@ import { ApiError, errorMessage } from '@/services/workbench'
 import { objectValue, readableValue } from '@/services/workbench-platform'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import AgentRebindPanel from './AgentRebindPanel.vue'
-const props = defineProps<{ runId: string; running: boolean; visible: boolean }>()
+const props = defineProps<{ runId: string; jobId: string; direct: boolean; running: boolean; visible: boolean }>()
 const emit = defineEmits<{ accepted: [] }>()
 const { snapshot } = useWorkbench()
 const comparisonId = useId()
@@ -73,12 +73,12 @@ function clearReview() {
   readFailed.value = false
 }
 async function refresh(resetSelection = false) {
-  if (reading.value) return
+  if (reading.value || (props.direct && props.running)) return
   const own = ++generation
   reading.value = true
   error.value = ''
   try {
-    const value = await getAgentDiff(props.runId)
+    const value = await getAgentDiff(props.runId, props.jobId)
     if (own !== generation) return
     if (!value.reviewToken) throw new Error('服务端未提供审阅版本，请刷新工作台后重新读取差异。')
     if (resetSelection || diff.value?.reviewToken !== value.reviewToken) {
@@ -98,7 +98,7 @@ async function refresh(resetSelection = false) {
   }
 }
 watch(
-  () => [props.runId, props.running],
+  () => [props.runId, props.jobId, props.running],
   () => {
     // A running view and a finished snapshot use different review baselines.
     generation++
@@ -128,13 +128,13 @@ function bindingUpdated() {
 }
 async function accept() {
   const reviewed = diff.value
-  if (busy.value || props.running || !canReview.value || !reviewed || !chosen.value.length) return
+  if (props.direct || busy.value || props.running || !canReview.value || !reviewed || !chosen.value.length) return
   const reviewedFiles = chosen.value
   const own = ++acceptGeneration
   accepting.value = true
   error.value = ''
   try {
-    const value = await acceptAgentFiles(props.runId, reviewed.reviewToken, reviewedFiles)
+    const value = await acceptAgentFiles(props.runId, reviewed.reviewToken, reviewedFiles, props.jobId)
     if (own !== acceptGeneration) return
     result.value = value
     emit('accepted')
@@ -157,19 +157,20 @@ async function accept() {
   <section class="platform-section">
     <div class="section-heading">
       <div>
-        <h2>变更文件</h2>
+        <h2>{{ direct ? '运行期间的文件变化' : '变更文件' }}</h2>
       </div>
-      <Button type="button" variant="outline" :aria-disabled="busy" @click="!busy && refresh()">
+      <Button type="button" variant="outline" :aria-disabled="busy || (direct && running)" @click="!busy && refresh()">
         重新读取差异
       </Button>
     </div>
     <Alert v-if="error" variant="destructive" class="notice error">
       <AlertDescription class="text-current">
         <p>{{ error }}</p>
-        <p v-if="readFailed && diff">当前显示上次读取的差异。请重新读取后再接收文件。</p>
+        <p v-if="readFailed && diff">{{ direct ? '当前显示上次读取的差异。' : '当前显示上次读取的差异，请重新读取后再接收文件。' }}</p>
       </AlertDescription>
     </Alert>
     <AgentRebindPanel
+      v-if="!direct"
       :key="runId"
       :run-id="runId"
       :busy="reading || accepting || running"
@@ -178,10 +179,10 @@ async function accept() {
     />
     <LoadingSkeleton v-if="reading && !diff && !accepting" variant="table" :rows="4" label="正在读取变更文件" />
     <Alert v-if="running" role="status" class="notice">
-      <AlertDescription class="text-current">正在展示隔离工作区的变更。运行结束后可接收文件。</AlertDescription>
+      <AlertDescription class="text-current">{{ direct ? '运行结束后可查看运行期间的文件变化。' : '正在展示隔离工作区的变更。运行结束后可接收文件。' }}</AlertDescription>
     </Alert>
     <Card v-if="targets.length" class="accept-targets gap-2 py-4 shadow-none">
-      <CardHeader class="px-4"><CardTitle>接收目标</CardTitle></CardHeader>
+      <CardHeader class="px-4"><CardTitle>{{ direct ? '运行基线' : '接收目标' }}</CardTitle></CardHeader>
       <CardContent class="px-4">
         <dl>
           <div v-for="[root, baseline] in targets" :key="root">
@@ -200,11 +201,11 @@ async function accept() {
     </Card>
     <div v-if="files.length" class="diff-toolbar">
       <span
-        >{{ files.length }} 个文件<span v-if="conflicts">
+        >{{ files.length }} 个文件<span v-if="!direct && conflicts">
           · {{ conflicts }} 项需要核对冲突</span
         ></span
       >
-      <div class="inline-actions">
+      <div v-if="!direct" class="inline-actions">
         <Button type="button" variant="ghost" :disabled="busy || running || !canReview" @click="selectSafeFiles"
           >选择无冲突文件</Button
         >
@@ -228,21 +229,21 @@ async function accept() {
       >
         <Table class="files-table">
           <TableCaption class="sr-only">
-            可审阅的文件变更与冲突状态
+            {{ direct ? '运行期间的文件变化' : '可审阅的文件变更与冲突状态' }}
           </TableCaption>
           <TableHeader>
             <TableRow>
-              <TableHead scope="col" class="select-col">选择</TableHead>
+              <TableHead v-if="!direct" scope="col" class="select-col">选择</TableHead>
               <TableHead scope="col">文件</TableHead>
               <TableHead scope="col">工程</TableHead>
               <TableHead scope="col">变更</TableHead>
-              <TableHead scope="col">核对状态</TableHead>
+              <TableHead v-if="!direct" scope="col">核对状态</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <template v-for="(file, index) in files" :key="key(file)">
               <TableRow>
-                <TableCell class="select-col">
+                <TableCell v-if="!direct" class="select-col">
                   <Checkbox
                     :model-value="selected.includes(key(file))"
                     @update:model-value="selectFile(file, $event === true)"
@@ -271,7 +272,7 @@ async function accept() {
                 </TableHead>
                 <TableCell>{{ projectName(file.projectId) }}</TableCell>
                 <TableCell>{{ file.result ? (file.initial ? '修改' : '新增') : '删除' }}</TableCell>
-                <TableCell>
+                <TableCell v-if="!direct">
                   <Badge
                     :variant="file.conflict && !acknowledged.includes(key(file)) ? 'destructive' : 'secondary'"
                   >
@@ -280,9 +281,9 @@ async function accept() {
                 </TableCell>
               </TableRow>
               <TableRow v-show="expanded === key(file)" :id="`${comparisonId}-${index}`">
-                <TableCell v-if="expanded === key(file)" colspan="5" class="comparison">
+                <TableCell v-if="expanded === key(file)" :colspan="direct ? 3 : 5" class="comparison">
                   <div class="comparison-content">
-                    <Alert v-if="file.conflict" role="note" class="notice warning">
+                    <Alert v-if="!direct && file.conflict" role="note" class="notice warning">
                       <AlertDescription class="text-current">原工程与运行基线已有差异，请核对原工程当前内容和运行结果。</AlertDescription>
                     </Alert>
                     <p v-if="file.binary" class="muted">二进制文件 · SHA-256</p>
@@ -293,20 +294,20 @@ async function accept() {
                           (file.binary ? file.initial?.sha256 : file.initialText) ?? '文件不存在'
                         }}</pre>
                       </section>
-                      <section>
+                      <section v-if="!direct">
                         <h3>原工程当前内容</h3>
                         <pre>{{
                           (file.binary ? file.current?.sha256 : file.currentText) ?? '文件不存在'
                         }}</pre>
                       </section>
                       <section>
-                        <h3>运行结果</h3>
+                        <h3>{{ direct ? '本轮结束' : '运行结果' }}</h3>
                         <pre>{{
                           (file.binary ? file.result?.sha256 : file.resultText) ?? '文件已删除'
                         }}</pre>
                       </section>
                     </div>
-                    <Field v-if="file.conflict" orientation="horizontal" class="conflict-check">
+                    <Field v-if="!direct && file.conflict" orientation="horizontal" class="conflict-check">
                       <Checkbox
                         :id="`${comparisonId}-ack-${index}`"
                         :model-value="acknowledged.includes(key(file))"
@@ -325,11 +326,11 @@ async function accept() {
         </Table>
       </div>
       <Empty v-if="!files.length" class="p-5">
-        <EmptyDescription>当前没有可接收的文件差异</EmptyDescription>
+        <EmptyDescription>{{ direct ? '本轮没有文件变更' : '当前没有可接收的文件差异' }}</EmptyDescription>
       </Empty>
       <LoadingIndicator :active="reading && !accepting" placement="overlay" label="正在重新读取差异" />
     </div>
-    <div class="form-actions">
+    <div v-if="!direct" class="form-actions">
       <Button
         type="button"
         :disabled="busy || running || !canReview || !chosen.length"
@@ -339,7 +340,7 @@ async function accept() {
         {{ accepting ? '正在接收…' : `接收选中文件（${chosen.length}）` }}
       </Button>
     </div>
-    <section v-if="result" class="acceptance-result" aria-label="最近接收结果">
+    <section v-if="!direct && result" class="acceptance-result" aria-label="最近接收结果">
       <h3>最近接收结果</h3>
       <p
         v-for="(project, index) in resultProjects"

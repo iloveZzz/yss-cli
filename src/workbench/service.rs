@@ -14,7 +14,7 @@ use std::{collections::BTreeMap, path::Path};
 
 pub use super::sources::{discover, read_source};
 
-fn record_kinds() -> Vec<&'static str> {
+pub(super) fn record_kinds() -> Vec<&'static str> {
     let mut kinds = super::progress::RECORD_KINDS.to_vec();
     kinds.extend([super::materials::SNAPSHOTS, super::materials::REVIEWS]);
     kinds
@@ -24,6 +24,7 @@ fn attach_progress(
     snapshot: &mut Snapshot,
     mut records: super::progress::ProgressRecords,
     state: &WorkbenchState,
+    cancel: &Cancellation,
 ) {
     let mut project_ids: std::collections::BTreeSet<String> = records
         .goals
@@ -40,8 +41,9 @@ fn attach_progress(
             project_ids.insert(spec.project_id.clone());
         }
     }
-    records.current_versions = super::progress::current_versions(state, &project_ids);
-    super::progress::refresh_inputs(&mut records, state, &Cancellation::new());
+    records.current_versions =
+        super::progress::current_versions_with_cancel(state, &project_ids, cancel);
+    super::progress::refresh_inputs(&mut records, state, cancel);
     snapshot.progress = super::progress::project(snapshot, &records);
     for spec in &mut snapshot.specs {
         spec.progress = snapshot.progress.get(&spec.record.id).cloned();
@@ -52,21 +54,58 @@ fn attach_progress(
 pub fn snapshot_from_store(store: &mut Store, cancel: &Cancellation) -> Result<Snapshot> {
     let records = super::progress::load(store)?;
     let materials = super::materials::Records::load(store)?;
-    let mut value = snapshot(store.state(), &materials, cancel)?;
-    attach_progress(&mut value, records, store.state());
-    Ok(value)
+    build_snapshot(store.state(), records, &materials, None, cancel)
 }
 
 pub fn read_snapshot(data_dir: &Path, cancel: &Cancellation) -> Result<Snapshot> {
     let (state, records) = super::store::read_state_with_records(data_dir, &record_kinds())?;
     let materials = super::materials::Records::from_raw(&records)?;
-    let mut value = snapshot(&state, &materials, cancel)?;
-    attach_progress(
-        &mut value,
-        super::progress::ProgressRecords::from_raw(&records)?,
+    build_snapshot(
         &state,
-    );
+        super::progress::ProgressRecords::from_raw(&records)?,
+        &materials,
+        None,
+        cancel,
+    )
+}
+
+pub(super) fn build_snapshot(
+    state: &WorkbenchState,
+    records: super::progress::ProgressRecords,
+    materials: &super::materials::Records,
+    spec_id: Option<&str>,
+    cancel: &Cancellation,
+) -> Result<Snapshot> {
+    let mut value = snapshot(state, materials, spec_id, cancel)?;
+    attach_progress(&mut value, records, state, cancel);
+    cancel.check()?;
     Ok(value)
+}
+
+pub(super) fn scope_progress(records: &mut super::progress::ProgressRecords, spec_id: &str) {
+    records
+        .goals
+        .retain(|record| record.goal.spec_id == spec_id);
+    records
+        .reports
+        .retain(|record| record.report.spec_id == spec_id);
+    records
+        .overrides
+        .retain(|record| record.value.spec_id == spec_id);
+    records
+        .decisions
+        .retain(|record| record.confirmation.spec_id == spec_id);
+}
+
+pub(super) fn snapshot_for_spec(
+    store: &mut Store,
+    spec_id: &str,
+    cancel: &Cancellation,
+) -> Result<Snapshot> {
+    let mut records = super::progress::load(store)?;
+    scope_progress(&mut records, spec_id);
+    let materials = super::materials::Records::load(store)?;
+    build_snapshot(store.state(), records, &materials, Some(spec_id), cancel)
 }
 
 pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> Result<String> {
@@ -107,12 +146,9 @@ pub fn read_agent_request(
 ) -> Result<AgentRequest> {
     let (state, raw) = super::store::read_state_with_records(data_dir, &record_kinds())?;
     let materials = super::materials::Records::from_raw(&raw)?;
-    let mut view = snapshot(&state, &materials, cancel)?;
-    attach_progress(
-        &mut view,
-        super::progress::ProgressRecords::from_raw(&raw)?,
-        &state,
-    );
+    let mut records = super::progress::ProgressRecords::from_raw(&raw)?;
+    scope_progress(&mut records, spec_id);
+    let view = build_snapshot(&state, records, &materials, Some(spec_id), cancel)?;
     let mut request = super::content::agent_request_with_materials(
         &state,
         spec_id,
@@ -130,10 +166,10 @@ pub(super) fn agent_request_from_store(
     spec_id: &str,
     cancel: &Cancellation,
 ) -> Result<AgentRequest> {
-    let records = super::progress::load(store)?;
     let materials = super::materials::Records::load(store)?;
-    let mut view = snapshot(store.state(), &materials, cancel)?;
-    attach_progress(&mut view, records, store.state());
+    let mut records = super::progress::load(store)?;
+    scope_progress(&mut records, spec_id);
+    let view = build_snapshot(store.state(), records, &materials, Some(spec_id), cancel)?;
     let mut request = super::content::agent_request_with_materials(
         store.state(),
         spec_id,
@@ -149,39 +185,81 @@ pub(super) fn agent_request_from_store(
 fn snapshot(
     state: &WorkbenchState,
     materials: &super::materials::Records,
+    spec_id: Option<&str>,
     cancel: &Cancellation,
 ) -> Result<Snapshot> {
     let mut projects = vec![];
     let mut specs = vec![];
     let mut tasks = vec![];
+    let project_id = spec_id
+        .map(|id| sources::spec(state, id).map(|spec| &spec.project_id))
+        .transpose()?;
     for project in &state.projects {
         cancel.check()?;
+        if project_id.is_some_and(|id| id != &project.id) {
+            // Progress validation still needs the registration identities of other engineers.
+            projects.push(ProjectView {
+                record: project.clone(),
+                source_directories: Vec::new(),
+                available: false,
+                message: None,
+            });
+            continue;
+        }
         let root = Root::open(Path::new(&project.root_path));
-        let shared = root
-            .as_ref()
-            .map(|root| super::materials::shared(state, materials, &project.id, root))
-            .unwrap_or_default();
+        let mut observations = BTreeMap::new();
+        let mut shared = if root.is_ok() {
+            super::materials::shared_with_resources(state, materials, &project.id, |spec| {
+                if cancel.is_cancelled() {
+                    return Vec::new();
+                }
+                let observed = sources::observe_spec(spec, &root);
+                let resources = observed.resources.clone();
+                if spec_id.is_none_or(|id| spec.id == id) {
+                    observations.insert(spec.id.clone(), observed);
+                }
+                resources
+            })
+        } else {
+            super::materials::Shared::default()
+        };
+        cancel.check()?;
+        shared.observe_prototypes(cancel);
         let context = super::materials::Context {
             records: materials,
             shared: &shared,
         };
         projects.push(ProjectView {
-            source_directories: root.as_ref().map_or_else(
-                |_| vec![],
-                |root| {
+            source_directories: root
+                .as_ref()
+                .ok()
+                .filter(|_| spec_id.is_none())
+                .map_or_else(Vec::new, |root| {
                     sources::source_directories(root, cancel)
                         .into_iter()
                         .map(|path| path.as_str().to_owned())
                         .collect()
-                },
-            ),
+                }),
             record: project.clone(),
             available: root.is_ok(),
             message: root.as_ref().err().map(|e| e.message.clone()),
         });
-        for s in state.specs.iter().filter(|s| s.project_id == project.id) {
+        for s in state
+            .specs
+            .iter()
+            .filter(|s| s.project_id == project.id && spec_id.is_none_or(|id| s.id == id))
+        {
             cancel.check()?;
-            specs.push(sources::spec_view(state, s, &root, Some(&context)));
+            let observed = observations
+                .remove(&s.id)
+                .unwrap_or_else(|| sources::observe_spec(s, &root));
+            specs.push(sources::spec_view_from_observation(
+                state,
+                s,
+                &root,
+                Some(&context),
+                observed,
+            ));
             for task in state.tasks.iter().filter(|t| t.spec_id == s.id) {
                 cancel.check()?;
                 tasks.push(TaskView {
@@ -212,7 +290,12 @@ fn snapshot(
         read_at: now(),
         projects,
         specs,
-        history: state.history.clone(),
+        history: state
+            .history
+            .iter()
+            .filter(|event| spec_id.is_none_or(|id| event.spec_id.as_deref() == Some(id)))
+            .cloned()
+            .collect(),
         tasks,
         stage_records: state.stage_records.clone(),
         saved_views: state.saved_views.clone(),
@@ -418,6 +501,7 @@ fn mutate_inner(
     if let Some(spec_id) = progress_spec_id {
         let project_id = sources::spec(&state, &spec_id)?.project_id.clone();
         let mut records = super::progress::load(store)?;
+        scope_progress(&mut records, &spec_id);
         let mut project_ids: std::collections::BTreeSet<String> = records
             .goals
             .iter()
@@ -440,7 +524,7 @@ fn mutate_inner(
         records.current_versions = super::progress::current_versions(&state, &project_ids);
         super::progress::refresh_inputs(&mut records, &state, &Cancellation::new());
         let materials = super::materials::Records::load(store)?;
-        let view = snapshot(&state, &materials, &Cancellation::new())?;
+        let view = snapshot(&state, &materials, Some(&spec_id), &Cancellation::new())?;
         let effects = match request.action.clone() {
             Action::SetLifecycleGoal { input } => {
                 super::progress::prepare_goal(&view, &records, input, &at)?

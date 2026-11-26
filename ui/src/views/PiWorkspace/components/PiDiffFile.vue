@@ -5,16 +5,24 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import type { AgentFile, AgentDiff, ReviewExcerpt } from '@/services/workbench-agent'
+import type { AgentDiffFile, AgentDiff, ReviewExcerpt } from '@/services/workbench-agent'
 
 const props = defineProps<{
-  file: AgentFile
-  diff: AgentDiff
-  editable: boolean
+  file: AgentDiffFile
+  diff: Pick<AgentDiff, 'workspaceMode' | 'historical' | 'jobId' | 'reviewToken'>
+  canReceive: boolean
+  canCite: boolean
   selected: boolean
   disabled: boolean
+  full?: boolean
 }>()
-const emit = defineEmits<{ select: [selected: boolean]; cite: [excerpt: ReviewExcerpt] }>()
+const emit = defineEmits<{ select: [selected: boolean]; cite: [excerpt: ReviewExcerpt]; full: [] }>()
+const direct = computed(() => props.diff.workspaceMode === 'direct')
+const hunkGroups = computed(() => ([
+  { side: 'initial', label: direct.value ? '运行起点 → 本轮结束' : '隔离起点 → 隔离结果' },
+  { side: 'current', label: '原工程当前 → 隔离结果' }
+].map((group) => ({ ...group, hunks: props.file.hunks?.filter((hunk) => hunk.side === group.side) ?? [] }))
+  .filter((group) => group.hunks.length)))
 const side = shallowRef('result')
 const conflictConfirmed = shallowRef(props.selected && props.file.conflict)
 const selecting = shallowRef(false)
@@ -25,9 +33,9 @@ const sides = computed(() => {
   const file = props.file
   return [
     { id: 'initial', label: '运行起点', desc: file.initial, text: file.initialText },
-    { id: 'result', label: '隔离结果', desc: file.result, text: file.resultText },
-    ...(!props.diff.historical ? [{ id: 'current', label: '原工程当前', desc: file.current, text: file.currentText }] : []),
-    ...(file.reviewedBeforeKnown ? [{ id: 'before', label: '接收前原工程', desc: file.reviewedBeforeDescriptor, text: file.reviewedBefore }] : [])
+    { id: 'result', label: direct.value ? '本轮结束' : '隔离结果', desc: file.result, text: file.resultText },
+    ...(!direct.value && !props.diff.historical ? [{ id: 'current', label: '原工程当前', desc: file.current, text: file.currentText }] : []),
+    ...(!direct.value && file.reviewedBeforeKnown ? [{ id: 'before', label: '接收前原工程', desc: file.reviewedBeforeDescriptor, text: file.reviewedBefore }] : [])
   ]
 })
 const activeSide = computed(() => sides.value.find((item) => item.id === side.value) ?? sides.value[1]!)
@@ -43,7 +51,7 @@ const range = computed(() => {
     from <= to && to <= sourceLines.value.length && to - from < 200
   return valid ? { from, to, snippet: sourceLines.value.slice(from - 1, to).join('\n') } : undefined
 })
-const mayCite = computed(() => props.editable && !props.disabled && !props.file.binary &&
+const mayCite = computed(() => props.canCite && !props.disabled && !props.file.binary &&
   ['initial', 'result'].includes(side.value) && sourceLines.value.length > 0)
 const encoder = new TextEncoder()
 const citationIssue = computed(() => {
@@ -78,9 +86,9 @@ function useSelection(event: MouseEvent) {
 }
 
 const operation = computed(() => {
-  if (props.file.accepted) return '已接收'
-  if (props.file.contentMatches) return '内容一致 · 无需写入'
-  if (!props.file.baseline && props.file.result) return '新增'
+  if (!direct.value && props.file.accepted) return '已接收'
+  if (!direct.value && props.file.contentMatches) return '内容一致 · 无需写入'
+  if (!(direct.value ? props.file.initial : props.file.baseline) && props.file.result) return '新增'
   if (!props.file.result) return '删除'
   return '修改'
 })
@@ -89,10 +97,19 @@ const operation = computed(() => {
 <template>
   <div class="pi-file-body">
     <p class="pi-file-basis">
-      {{ operation }} · 比较基准 {{ file.baseline?.sha256.slice(0, 10) ?? '文件不存在' }}
+      {{ operation }} · 比较基准 {{ (direct ? file.initial : file.baseline)?.sha256.slice(0, 10) ?? '文件不存在' }}
       <template v-if="file.acceptedReviewToken"> · 已核对版本 {{ file.acceptedReviewToken.slice(0, 10) }}</template>
     </p>
-    <Tabs :model-value="side" @update:model-value="side = String($event); selecting = false">
+    <template v-if="!full">
+      <section v-for="group in hunkGroups" :key="group.side" :aria-label="group.label">
+        <p class="pi-file-basis">{{ group.label }}</p>
+        <pre v-for="(hunk, index) in group.hunks" :key="index" class="pi-file-code pi-diff-hunk"><span class="pi-hunk-range">旧行 {{ hunk.oldStart }} · 新行 {{ hunk.newStart }}</span><span v-for="(line, lineIndex) in hunk.oldLines" :key="'old-' + lineIndex" class="pi-hunk-deletion">− {{ line }}</span><span v-for="(line, lineIndex) in hunk.newLines" :key="'new-' + lineIndex" class="pi-hunk-addition">+ {{ line }}</span></pre>
+      </section>
+      <p v-if="file.hunksTruncated" class="pi-file-basis">变更行仅展示部分，可查看全文。</p>
+      <p v-else-if="!hunkGroups.length" class="pi-file-basis">{{ file.binary ? '二进制文件' : '没有可预览的变更行。' }}</p>
+      <Button type="button" variant="outline" size="sm" :disabled="disabled" @click="emit('full')">查看全文</Button>
+    </template>
+    <Tabs v-else :model-value="side" @update:model-value="side = String($event); selecting = false">
       <TabsList aria-label="文件版本">
         <TabsTrigger v-for="item in sides" :key="item.id" :value="item.id">{{ item.label }}</TabsTrigger>
       </TabsList>
@@ -122,15 +139,22 @@ const operation = computed(() => {
         </div>
       </form>
     </template>
-    <label v-if="editable && file.pending && file.conflict" class="pi-review-check pi-review-conflict">
+    <label v-if="canReceive && file.pending && file.conflict" class="pi-review-check pi-review-conflict">
       <Checkbox :model-value="conflictConfirmed" :disabled="disabled"
         @update:model-value="conflictConfirmed = $event === true; if (!conflictConfirmed) emit('select', false)" />
       确认采用隔离结果，覆盖原工程当前版本
     </label>
-    <label v-if="editable && file.pending" class="pi-review-check">
+    <label v-if="canReceive && file.pending" class="pi-review-check">
       <Checkbox :model-value="selected" :disabled="disabled || (file.conflict && !conflictConfirmed)"
         @update:model-value="emit('select', $event === true)" />
       接收此文件
     </label>
   </div>
 </template>
+
+<style scoped>
+.pi-diff-hunk span { display: block; }
+.pi-hunk-range { color: var(--quiet); }
+.pi-hunk-deletion { background: var(--muted); }
+.pi-hunk-addition { background: var(--accent); }
+</style>

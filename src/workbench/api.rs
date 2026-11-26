@@ -2,7 +2,7 @@ use super::{
     agent, agent_protocol, artifacts, backup, drafts, engineering, integrations,
     jobs::{self, JobManager},
     model::*,
-    service, sources,
+    read_model, sources,
 };
 use crate::{
     cancel::Cancellation,
@@ -15,8 +15,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    path::Path,
-    sync::Arc,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -26,6 +26,7 @@ pub struct PlatformApi {
     pub bundle: Arc<[u8]>,
     pub cancel: Cancellation,
     pub origin: String,
+    pub(super) reads: Arc<read_model::ReadModel>,
 }
 
 fn encode(value: impl serde::Serialize) -> Result<Value> {
@@ -63,6 +64,43 @@ fn event_cursor(value: &str) -> Result<u64> {
         .ok()
         .filter(|v| *v <= i64::MAX as u64)
         .ok_or_else(|| sources::invalid("事件游标无效"))
+}
+
+pub(super) fn job_fingerprint(path: &str, request: &Value) -> Result<String> {
+    Ok(Sha256::of(
+        &serde_json::to_vec(&(path, request)).map_err(|_| sources::invalid("执行请求编码失败"))?,
+    )
+    .as_str()
+    .to_owned())
+}
+
+type Probe = Arc<OnceLock<Result<Value>>>;
+static PI_PROBES: Mutex<BTreeMap<String, Probe>> = Mutex::new(BTreeMap::new());
+
+fn shared_pi_probe(
+    operation: &str,
+    protected: &[PathBuf],
+    model: Option<&agent_protocol::PiModel>,
+    probe: impl FnOnce() -> Result<Value>,
+) -> Result<Value> {
+    let key = job_fingerprint(operation, &json!([protected, model]))?;
+    let inflight = {
+        let mut probes = PI_PROBES
+            .lock()
+            .map_err(|_| sources::invalid("Pi 探测状态失效"))?;
+        probes.entry(key.clone()).or_default().clone()
+    };
+    let result = inflight.get_or_init(probe).clone();
+    let mut probes = PI_PROBES
+        .lock()
+        .map_err(|_| sources::invalid("Pi 探测状态失效"))?;
+    if probes
+        .get(&key)
+        .is_some_and(|previous| Arc::ptr_eq(previous, &inflight))
+    {
+        probes.remove(&key);
+    }
+    result
 }
 
 impl PlatformApi {
@@ -202,6 +240,19 @@ impl PlatformApi {
         query: &str,
         bytes: &[u8],
     ) -> Result<Option<Value>> {
+        let query = query_values(query);
+        if method == "POST"
+            && path == "/api/agent/start"
+            && query.get("admission").is_some_and(|mode| mode == "async")
+        {
+            let value: Value = decode(bytes)?;
+            let fingerprint = job_fingerprint(path, &value)?;
+            return Ok(Some(encode(agent::start_async(
+                self.jobs.clone(),
+                decode(bytes)?,
+                fingerprint,
+            )?)?));
+        }
         if method == "POST"
             && [
                 "/api/agent/start",
@@ -218,12 +269,7 @@ impl PlatformApi {
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty() && id.len() <= 128)
                 .ok_or_else(|| sources::invalid("执行请求 ID 无效"))?;
-            let fingerprint = Sha256::of(
-                &serde_json::to_vec(&(path, &request))
-                    .map_err(|_| sources::invalid("执行请求编码失败"))?,
-            )
-            .as_str()
-            .to_owned();
+            let fingerprint = job_fingerprint(path, &request)?;
             let mut store = jobs::lock_store(&self.jobs.store)?;
             jobs::ensure_request_not_deleted(&mut store, id)?;
             if let Some(previous) = store.record::<String>("jobRequest", id)? {
@@ -244,7 +290,6 @@ impl PlatformApi {
                 store.put_record("jobRequest", id, &fingerprint)?;
             }
         }
-        let query = query_values(query);
         let parts = path.trim_matches('/').split('/').collect::<Vec<_>>();
         let result = match (method, parts.as_slice()) {
             ("GET", ["api", "receipts"]) | ("GET", ["api", "receipts", _]) => {
@@ -390,32 +435,73 @@ impl PlatformApi {
                 jobs::lock_store(&self.jobs.store)?
                     .events(id, number(&query, "after", 0)? as u64)?,
             )?,
+            ("GET", ["api", "workbench", "catalog"]) => {
+                let catalog = read_model::catalog(jobs::lock_store(&self.jobs.store)?.state());
+                encode(catalog)?
+            }
+            ("GET", ["api", "workbench", "overview"]) => {
+                let (base, published) = {
+                    let store = jobs::lock_store(&self.jobs.store)?;
+                    (
+                        read_model::overview_base(store.state(), store.projection_stamp()),
+                        self.reads.latest(),
+                    )
+                };
+                published.overview(base)
+            }
+            ("GET", ["api", "workbench", "jobs"]) => self.reads.latest().jobs(),
+            ("POST", ["api", "workbench", "refresh"]) => {
+                self.reads.request_refresh();
+                json!({"requested": true})
+            }
             ("POST", ["api", "work-items"]) => {
                 #[derive(Deserialize)]
-                #[serde(deny_unknown_fields)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
                 struct Request {
                     query: WorkQuery,
                     #[serde(default)]
                     offset: usize,
-                    #[serde(default = "page_size")]
-                    limit: usize,
-                }
-                fn page_size() -> usize {
-                    50
+                    limit: Option<usize>,
+                    #[serde(default)]
+                    compact: bool,
+                    expected_projection_version: Option<String>,
+                    expected_query_version: Option<String>,
+                    board: Option<read_model::BoardRequest>,
                 }
                 let request: Request = decode(bytes)?;
-                let snapshot = service::snapshot_from_store(
-                    &mut *jobs::lock_store(&self.jobs.store)?,
-                    &self.cancel,
-                )?;
-                let mut result = super::query::query(&snapshot, &request.query)?;
-                result.items = result
-                    .items
-                    .into_iter()
-                    .skip(request.offset)
-                    .take(request.limit.clamp(1, 200))
-                    .collect();
-                encode(result)?
+                let default_limit = if request.compact && request.board.is_some() {
+                    20
+                } else {
+                    50
+                };
+                let limit = request.limit.unwrap_or(default_limit).clamp(1, 200);
+                if request.compact {
+                    self.reads.latest().work_items(
+                        &request.query,
+                        request.offset,
+                        limit,
+                        request.expected_projection_version.as_deref(),
+                        request.expected_query_version.as_deref(),
+                        request.board.as_ref(),
+                    )?
+                } else {
+                    if request.board.is_some()
+                        || request.expected_projection_version.is_some()
+                        || request.expected_query_version.is_some()
+                    {
+                        return Err(sources::invalid("分页版本和列只适用于轻量规格查询"));
+                    }
+                    let inputs = read_model::capture(&mut *jobs::lock_store(&self.jobs.store)?)?;
+                    let snapshot = read_model::build_snapshot(inputs, None, &self.cancel)?;
+                    let mut result = super::query::query(&snapshot, &request.query)?;
+                    result.items = result
+                        .items
+                        .into_iter()
+                        .skip(request.offset)
+                        .take(limit)
+                        .collect();
+                    encode(result)?
+                }
             }
             ("GET", ["api", "history"]) => {
                 let store = jobs::lock_store(&self.jobs.store)?;
@@ -488,10 +574,8 @@ impl PlatformApi {
                 )?)?
             }
             ("GET", ["api", "specs", id, "view"]) => {
-                let snapshot = service::snapshot_from_store(
-                    &mut *jobs::lock_store(&self.jobs.store)?,
-                    &self.cancel,
-                )?;
+                let inputs = read_model::capture(&mut *jobs::lock_store(&self.jobs.store)?)?;
+                let snapshot = read_model::build_snapshot(inputs, Some(id), &self.cancel)?;
                 encode(
                     snapshot
                         .specs
@@ -499,6 +583,15 @@ impl PlatformApi {
                         .find(|spec| spec.record.id == *id)
                         .ok_or_else(|| sources::missing("Spec 不存在"))?,
                 )?
+            }
+            ("GET", ["api", "specs", id, "activity"]) => {
+                sources::spec(jobs::lock_store(&self.jobs.store)?.state(), id)?;
+                let status = self.reads.latest();
+                json!({"items": status.run_activities(
+                    id,
+                    query.get("goalVersion").map(String::as_str),
+                    query.get("specDigest").map(String::as_str),
+                )})
             }
             ("GET", ["api", "specs", id, "confirmations"]) => {
                 artifacts::confirmations(&mut *jobs::lock_store(&self.jobs.store)?, id)?
@@ -592,11 +685,19 @@ impl PlatformApi {
             ("POST", ["api", "agent", "start"]) => {
                 encode(agent::start(self.jobs.clone(), decode(bytes)?)?)?
             }
-            ("GET", ["api", "specs", id, "agent-sessions"]) => agent::sessions(&self.jobs, id)?,
+            ("GET", ["api", "specs", id, "agent-sessions"]) => {
+                if query.get("compact").is_some_and(|value| value == "1") {
+                    agent::reads::sessions(&self.jobs, &self.reads, id, &query, &self.cancel)?
+                } else {
+                    agent::sessions(&self.jobs, id)?
+                }
+            }
             ("GET", ["api", "agent", "models"]) => {
                 let protected = agent::pi_protected_paths(&*jobs::lock_store(&self.jobs.store)?);
-                let models = agent_protocol::available_models(&self.cancel, &protected)?;
-                json!({"models": models})
+                shared_pi_probe("models", &protected, None, || {
+                    let models = agent_protocol::available_models(&self.cancel, &protected)?;
+                    Ok(json!({"models": models}))
+                })?
             }
             ("GET", ["api", "agent", "runtime"]) => {
                 let selected = match (query.get("selectedProvider"), query.get("selectedModel")) {
@@ -612,11 +713,13 @@ impl PlatformApi {
                     query.get("resumeRunId").map(String::as_str),
                     selected,
                 )?;
-                encode(agent_protocol::runtime_status(
-                    &self.cancel,
-                    &protected,
-                    model.as_ref(),
-                ))?
+                shared_pi_probe("runtime", &protected, model.as_ref(), || {
+                    encode(agent_protocol::runtime_status(
+                        &self.cancel,
+                        &protected,
+                        model.as_ref(),
+                    ))
+                })?
             }
             ("POST", ["api", "agent", "test-model"]) => {
                 #[derive(Deserialize)]
@@ -642,6 +745,22 @@ impl PlatformApi {
             }
             ("GET", ["api", "agent", id]) => {
                 agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
+            }
+            ("GET", ["api", "agent", id, "queue"]) => encode(agent::queue::view(&self.jobs, id)?)?,
+            ("POST", ["api", "agent", id, "queue"]) => {
+                encode(agent::queue::put(&self.jobs, id, None, decode(bytes)?)?)?
+            }
+            ("PATCH", ["api", "agent", id, "queue", entry]) => encode(agent::queue::put(
+                &self.jobs,
+                id,
+                Some(entry),
+                decode(bytes)?,
+            )?)?,
+            ("DELETE", ["api", "agent", id, "queue", entry]) => {
+                encode(agent::queue::remove(&self.jobs, id, entry, decode(bytes)?)?)?
+            }
+            ("POST", ["api", "agent", id, "queue", "resume"]) => {
+                encode(agent::queue::resume(&self.jobs, id, decode(bytes)?)?)?
             }
             ("DELETE", ["api", "agent", id]) => {
                 agent::delete_session(&self.jobs, id, decode(bytes)?)?
@@ -723,11 +842,35 @@ impl PlatformApi {
                     &self.cancel,
                 )?)?
             }
-            ("GET", ["api", "agent", id, "diff"]) => encode(agent::round_diff(
-                &self.jobs.store,
-                id,
-                query.get("jobId").map(String::as_str),
-            )?)?,
+            ("GET", ["api", "agent", id, "diff"]) => {
+                let job_id = query.get("jobId").map(String::as_str);
+                if query.get("compact").is_some_and(|value| value == "1") {
+                    agent::compact_round_diff(&self.jobs.store, id, job_id, &self.cancel)?
+                } else {
+                    encode(agent::round_diff(&self.jobs.store, id, job_id)?)?
+                }
+            }
+            ("GET", ["api", "agent", id, "diff", "file"]) => {
+                let required = |key| {
+                    query
+                        .get(key)
+                        .filter(|value| !value.is_empty())
+                        .map(String::as_str)
+                        .ok_or_else(|| sources::invalid("请指定差异版本、轮次、工程和文件"))
+                };
+                agent::round_diff_file(
+                    &self.jobs.store,
+                    id,
+                    agent::FileDiffQuery {
+                        job_id: required("jobId")?,
+                        project_id: required("projectId")?,
+                        path: required("path")?,
+                        review_token: required("reviewToken")?,
+                        full: query.get("full").is_some_and(|value| value == "1"),
+                    },
+                    &self.cancel,
+                )?
+            }
             ("GET", ["api", "agent", id, "acceptance"]) => agent::acceptance_view(
                 &self.jobs.store,
                 id,
@@ -788,7 +931,13 @@ impl PlatformApi {
                 id,
                 decode(bytes)?,
             )?)?,
-            ("GET", ["api", "source-state"]) => self.source_state()?,
+            ("GET", ["api", "source-state"]) => {
+                if query.get("compact").is_some_and(|value| value == "1") {
+                    self.reads.latest().change_state()
+                } else {
+                    self.source_state()?
+                }
+            }
             _ => return Ok(None),
         };
         Ok(Some(result))

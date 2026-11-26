@@ -421,21 +421,38 @@ pub fn current_versions(
     state: &WorkbenchState,
     project_ids: &BTreeSet<String>,
 ) -> Vec<ProjectVersion> {
+    current_versions_with_cancel(state, project_ids, &Cancellation::new())
+}
+
+pub(super) fn current_versions_with_cancel(
+    state: &WorkbenchState,
+    project_ids: &BTreeSet<String>,
+    cancel: &Cancellation,
+) -> Vec<ProjectVersion> {
+    let mut versions = BTreeMap::new();
     state
         .projects
         .iter()
         .filter(|p| project_ids.contains(&p.id))
         .map(|project| {
-            read_project_version(project).unwrap_or_else(|_| ProjectVersion {
+            let cached = versions
+                .entry(project.root_path.as_str())
+                .or_insert_with(|| {
+                    read_project_version(project, cancel).unwrap_or_else(|_| ProjectVersion {
+                        project_id: project.id.clone(),
+                        commit: None,
+                        working_tree_digest: None,
+                    })
+                });
+            ProjectVersion {
                 project_id: project.id.clone(),
-                commit: None,
-                working_tree_digest: None,
-            })
+                ..cached.clone()
+            }
         })
         .collect()
 }
 
-fn read_project_version(project: &ProjectRecord) -> Result<ProjectVersion> {
+fn read_project_version(project: &ProjectRecord, cancel: &Cancellation) -> Result<ProjectVersion> {
     use std::time::Duration;
     let root = Root::open(Path::new(&project.root_path))?;
     let git = |args: &[&str]| {
@@ -445,7 +462,7 @@ fn read_project_version(project: &ProjectRecord) -> Result<ProjectVersion> {
             .arg("-C")
             .arg(&project.root_path)
             .args(args);
-        super::process::run_command(command, &Cancellation::new(), Duration::from_secs(5))
+        super::process::run_command(command, cancel, Duration::from_secs(5))
     };
     let head = git(&["rev-parse", "--verify", "HEAD"])?;
     let commit = String::from_utf8(head)
@@ -466,6 +483,7 @@ fn read_project_version(project: &ProjectRecord) -> Result<ProjectVersion> {
     let mut bytes = tracked.clone();
     let names = git(&["ls-files", "--others", "--exclude-standard", "-z"])?;
     for name in names.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        cancel.check()?;
         let name =
             std::str::from_utf8(name).map_err(|_| sources::invalid("Git 文件名不是 UTF-8"))?;
         let checked = root.read_checked(&RelPath::new(name)?, 16 * 1024 * 1024)?;
@@ -612,7 +630,9 @@ fn verified_input_digest(
 ) -> Result<String> {
     let root = Root::open(Path::new(&project.root_path))?;
     let hash = inputs_digest(&root, paths, cancel)?;
-    if read_project_version(project)? != *version || inputs_digest(&root, paths, cancel)? != hash {
+    if read_project_version(project, cancel)? != *version
+        || inputs_digest(&root, paths, cancel)? != hash
+    {
         return Err(
             sources::invalid("采集期间凭证输入发生变化，请核实后重试").context("httpStatus", 409)
         );
@@ -629,7 +649,7 @@ pub fn observe_inputs(
     validate_input_paths(paths)?;
     let state = super::store::read_state(data_dir)?;
     let project = sources::project(&state, project_id)?;
-    let version = read_project_version(project)?;
+    let version = read_project_version(project, cancel)?;
     let hash = verified_input_digest(project, paths, &version, cancel)?;
     Ok(InputObservation {
         inputs: ProjectInputs {
@@ -752,12 +772,18 @@ fn spec_view<'a>(snapshot: &'a Snapshot, id: &str) -> Result<&'a SpecView> {
         .find(|s| s.record.id == id)
         .ok_or_else(|| sources::missing("Spec 不存在"))
 }
-fn goal<'a>(records: &'a ProgressRecords, spec_id: &str) -> Option<&'a GoalRecord> {
-    records
-        .goals
+pub(super) fn goal<'a>(records: &'a ProgressRecords, spec_id: &str) -> Option<&'a GoalRecord> {
+    latest_goal(&records.goals, spec_id)
+}
+fn latest_goal<'a>(goals: &'a [GoalRecord], spec_id: &str) -> Option<&'a GoalRecord> {
+    goals
         .iter()
         .filter(|g| g.goal.spec_id == spec_id)
         .max_by_key(|g| (ordered_time(&g.created_at), g.goal_version.as_str()))
+}
+pub(super) fn load_goal_version(store: &mut Store, spec_id: &str) -> Result<Option<String>> {
+    let goals = store.records(RECORD_KINDS[0])?;
+    Ok(latest_goal(&goals, spec_id).map(|record| record.goal_version.clone()))
 }
 fn current_goal<'a>(
     records: &'a ProgressRecords,
@@ -1136,18 +1162,31 @@ pub fn project(
         .collect()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EvidenceDigestKind {
+    Current,
+    Previous,
+    Legacy,
+}
+
+pub(super) fn is_activity_report(id: &str) -> bool {
+    id.starts_with("activity:")
+}
+
 fn evidence_digest(
     records: &ProgressRecords,
     spec: &SpecView,
     goal: Option<&GoalRecord>,
-    legacy: bool,
+    kind: EvidenceDigestKind,
 ) -> String {
     let version = goal.map(|g| g.goal_version.as_str());
     let mut reports: Vec<_> = records
         .reports
         .iter()
         .filter(|r| {
-            r.report.spec_id == spec.record.id && Some(r.report.goal_version.as_str()) == version
+            r.report.spec_id == spec.record.id
+                && Some(r.report.goal_version.as_str()) == version
+                && (kind != EvidenceDigestKind::Current || !is_activity_report(&r.report.id))
         })
         .collect();
     reports.sort_by(|a, b| a.report.id.cmp(&b.report.id));
@@ -1161,7 +1200,7 @@ fn evidence_digest(
         })
         .collect();
     overrides.sort_by(|a, b| a.id.cmp(&b.id));
-    if !legacy {
+    if kind != EvidenceDigestKind::Legacy {
         let validity: Vec<_> = reports
             .iter()
             .map(|record| report_validity(records, spec, goal, record))
@@ -1228,7 +1267,7 @@ fn stage_evidence_digest(
         r.report.spec_id == spec.record.id
             && goal.is_some_and(|g| r.report.goal_version == g.goal_version)
             && relevant(r.report.stage)
-            && !r.report.id.starts_with("activity:")
+            && !is_activity_report(&r.report.id)
     }) {
         let key = (
             report.report.stage,
@@ -1329,31 +1368,42 @@ fn matching_decision<'a>(
     stage: Stage,
     global_digest: &str,
 ) -> Option<&'a DecisionRecord> {
-    let relevant_digest = stage_evidence_digest(records, spec, goal, stage, false);
-    let previous_digest = stage_evidence_digest(records, spec, goal, stage, true);
-    let previous_global = evidence_digest(records, spec, goal, true);
-    records
-        .decisions
-        .iter()
-        .filter(|d| {
-            d.confirmation.spec_id == spec.record.id
-                && d.confirmation.stage == stage
-                && d.stage_evidence_digest.as_deref().map_or_else(
-                    || {
-                        d.confirmation.evidence_digest == global_digest
-                            || d.confirmation.evidence_digest == previous_global
-                    },
-                    |digest| digest == relevant_digest || digest == previous_digest,
-                )
-                && goal.is_some_and(|g| {
-                    d.confirmation.goal_version == g.goal_version
-                        && d.confirmation.scope == g.goal.scope
+    let goal = goal?;
+    let mut decisions = records.decisions.iter().filter(|decision| {
+        decision.confirmation.spec_id == spec.record.id
+            && decision.confirmation.stage == stage
+            && decision.confirmation.goal_version == goal.goal_version
+            && decision.confirmation.scope == goal.goal.scope
+    });
+    let first = decisions.next()?;
+    let mut stage_digests = None;
+    let mut older_global_digests = None;
+    std::iter::once(first)
+        .chain(decisions)
+        .filter(|decision| match decision.stage_evidence_digest.as_deref() {
+            Some(digest) => stage_digests
+                .get_or_insert_with(|| {
+                    [false, true].map(|legacy| {
+                        stage_evidence_digest(records, spec, Some(goal), stage, legacy)
+                    })
                 })
+                .iter()
+                .any(|value| value == digest),
+            None => {
+                let digest = &decision.confirmation.evidence_digest;
+                digest == global_digest
+                    || older_global_digests
+                        .get_or_insert_with(|| {
+                            [EvidenceDigestKind::Previous, EvidenceDigestKind::Legacy]
+                                .map(|kind| evidence_digest(records, spec, Some(goal), kind))
+                        })
+                        .contains(digest)
+            }
         })
-        .max_by_key(|d| decision_order(d))
+        .max_by_key(|decision| decision_order(decision))
 }
 
-fn stage_participants(goal: Option<&GoalRecord>, stage: Stage) -> Vec<&Participant> {
+pub(super) fn stage_participants(goal: Option<&GoalRecord>, stage: Stage) -> Vec<&Participant> {
     goal.into_iter()
         .flat_map(|g| &g.goal.participants)
         .filter(|participant| match stage {
@@ -1367,6 +1417,13 @@ fn stage_participants(goal: Option<&GoalRecord>, stage: Stage) -> Vec<&Participa
         .collect()
 }
 
+fn omits_scoped_dependency(report: &ReportRecord) -> bool {
+    report.report.id.starts_with("remote:")
+        && report.report.validity == Validity::Current
+        && matches!(report.report.progress, Progress::Done | Progress::Skipped)
+        && report.checked_inputs.is_empty()
+}
+
 fn latest_report<'a>(
     records: &'a ProgressRecords,
     spec_id: &str,
@@ -1375,8 +1432,13 @@ fn latest_report<'a>(
     project_id: Option<&str>,
     role: ParticipantRole,
 ) -> Option<&'a ReportRecord> {
+    let participant_stage = role == ParticipantRole::Spec
+        && matches!(stage, Stage::Implementation | Stage::Verification)
+        && !stage_participants(goal, stage).is_empty();
     let matching = |r: &&ReportRecord| {
         r.report.spec_id == spec_id
+            && !is_activity_report(&r.report.id)
+            && !(participant_stage && r.report.id.starts_with("remote:"))
             && r.report.stage == stage
             && r.report.project_id.as_deref() == project_id
             && r.report.role == role
@@ -1385,8 +1447,19 @@ fn latest_report<'a>(
         .reports
         .iter()
         .filter(matching)
-        .filter(|r| goal.is_some_and(|g| r.report.goal_version == g.goal_version))
-        .max_by(|a, b| (&a.recorded_at, &a.report.id).cmp(&(&b.recorded_at, &b.report.id)));
+        .filter(|r| goal.is_some_and(|g| r.report.goal_version == g.goal_version));
+    let ordered = |a: &&ReportRecord, b: &&ReportRecord| {
+        (&a.recorded_at, &a.report.id).cmp(&(&b.recorded_at, &b.report.id))
+    };
+    let scoped = current
+        .clone()
+        .filter(|r| !r.report.id.starts_with("remote:"))
+        .max_by(ordered)
+        .is_some_and(|r| !r.checked_inputs.is_empty());
+    // Older combined reports omitted the local scope they were based on.
+    let current = current
+        .filter(|report| !scoped || !omits_scoped_dependency(report))
+        .max_by(ordered);
     current.or_else(|| {
         records
             .reports
@@ -1576,7 +1649,7 @@ fn has_stage_evidence(report: &ProgressReportInput, goal: &GoalRecord) -> bool {
         Stage::Unmarked => false,
     }
 }
-fn report_validity(
+pub(super) fn report_validity(
     records: &ProgressRecords,
     spec: &SpecView,
     goal: Option<&GoalRecord>,
@@ -1683,7 +1756,7 @@ fn last_successful_report(
             if report.spec_id != spec.record.id
                 || report.stage != stage
                 || report.role != role
-                || report.id.starts_with("activity:")
+                || is_activity_report(&report.id)
                 || report.progress != Progress::Done
                 || report.validity != Validity::Current
             {
@@ -1980,7 +2053,7 @@ fn stage_summary(
         }
         return view;
     }
-    let report = [None, Some(spec.record.project_id.as_str())]
+    let reports = [None, Some(spec.record.project_id.as_str())]
         .into_iter()
         .filter_map(|project_id| {
             latest_report(
@@ -1991,7 +2064,14 @@ fn stage_summary(
                 project_id,
                 ParticipantRole::Spec,
             )
-        })
+        });
+    let scoped = reports.clone().any(|r| {
+        !r.report.id.starts_with("remote:")
+            && !r.checked_inputs.is_empty()
+            && goal.is_some_and(|g| r.report.goal_version == g.goal_version)
+    });
+    let report = reports
+        .filter(|report| !scoped || !omits_scoped_dependency(report))
         .max_by(|a, b| {
             let current =
                 |r: &ReportRecord| goal.is_some_and(|g| r.report.goal_version == g.goal_version);
@@ -2001,6 +2081,26 @@ fn stage_summary(
                 &b.report.id,
             ))
         });
+    let content_fits_goal = spec
+        .content
+        .artifact_digest
+        .as_deref()
+        .is_some_and(|digest| {
+            goal.is_none_or(|goal| {
+                goal.goal.spec_digest == digest && goal.goal.scope == spec.content.scope
+            })
+        });
+    let report = report.filter(|report| {
+        if stage != Stage::Spec || !content_fits_goal {
+            return true;
+        }
+        let current = report_validity(records, spec, goal, report) == Validity::Current;
+        match spec.content.status {
+            ContentStatus::Confirmed => current && report.report.progress == Progress::Blocked,
+            ContentStatus::Ready => current,
+            _ => true,
+        }
+    });
     if let Some(report) = report {
         view.progress = report.report.progress;
         view.validity = report_validity(records, spec, goal, report);
@@ -2137,7 +2237,7 @@ fn stage_summary(
         view.validity = Validity::Unverified;
     }
     if stage == Stage::Spec && spec.content.status == ContentStatus::Confirmed {
-        view.confirmation_required = goal.is_some_and(|g| g.goal.scope != spec.content.scope);
+        view.confirmation_required = !content_fits_goal;
     }
     if let Some(manual) = latest_override(records, &spec.record.id, goal, stage, None) {
         apply_manual(
@@ -2238,7 +2338,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         .filter(|decision| decision.confirmation.decision == ConfirmationDecision::Confirm)
         .max_by_key(|d| decision_order(d))
         .map(|d| (**d).clone());
-    let evidence_digest = evidence_digest(records, spec, goal, false);
+    let evidence_digest = evidence_digest(records, spec, goal, EvidenceDigestKind::Current);
     let mut stages: Vec<_> = Stage::LIFECYCLE
         .into_iter()
         .map(|stage| stage_summary(snapshot, records, spec, goal, stage, &evidence_digest))

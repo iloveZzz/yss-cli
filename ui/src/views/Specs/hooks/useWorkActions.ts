@@ -1,13 +1,17 @@
 import { shallowRef } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import {
+  ApiError,
   errorMessage,
-  type WorkItem,
   type Stage,
   type Status,
   type Progress
 } from '@/services/workbench'
-export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
+import type { CompactWorkItem } from '@/services/workbench-read'
+export function useWorkActions(
+  progressBasis: () => 'effective' | 'personal',
+  refreshAfter: (revision?: number) => Promise<unknown>
+) {
   const { submit, saving } = useWorkbench()
   const open = shallowRef(false)
   const blocker = shallowRef('')
@@ -15,13 +19,14 @@ export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
   const notice = shallowRef('')
   const overrideOpen = shallowRef(false)
   const correction = shallowRef<{
-    item: WorkItem
+    item: CompactWorkItem
     stage: Stage
     progress: Progress
   }>()
-  let pending: { item: WorkItem; revision: number } | undefined
+  const pending = shallowRef<{ item: CompactWorkItem; revision: number }>()
+  const stale = shallowRef(false)
   async function move(
-    item: WorkItem,
+    item: CompactWorkItem,
     dimension: 'status' | 'stage',
     value: Status | Stage,
     expectedRevision: number
@@ -43,7 +48,8 @@ export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
       return
     }
     if (dimension === 'status' && value === 'blocked') {
-      pending = { item, revision: expectedRevision }
+      pending.value = { item, revision: expectedRevision }
+      stale.value = false
       blocker.value = item.blocker
       open.value = true
       return
@@ -64,15 +70,18 @@ export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
               id: item.id,
               stage: value as Stage
             },
-        expectedRevision
+        expectedRevision,
+        undefined,
+        refreshAfter
       )
-      notice.value = '已移动，结果已刷新。'
+      notice.value = '已保存变更，规格查询会随核对结果更新。'
     } catch (cause) {
       error.value = errorMessage(cause)
     }
   }
   async function confirm() {
-    if (!pending || saving.value) return
+    const edit = pending.value
+    if (!edit || saving.value || stale.value) return
     if (!blocker.value.trim()) {
       error.value = '请填写阻塞说明'
       return
@@ -81,27 +90,37 @@ export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
       await submit(
         {
           kind: 'setWorkStatus',
-          entity: pending.item.entity,
-          id: pending.item.id,
+          entity: edit.item.entity,
+          id: edit.item.id,
           status: 'blocked',
           blocker: blocker.value
         },
-        pending.revision
+        edit.revision,
+        undefined,
+        refreshAfter
       )
       open.value = false
-      pending = undefined
-      notice.value = '已记录阻塞，结果已刷新。'
+      pending.value = undefined
+      notice.value = '已记录阻塞，规格查询会随核对结果更新。'
     } catch (cause) {
       error.value = errorMessage(cause)
+      stale.value = cause instanceof ApiError && cause.status === 409
     }
   }
   function cancel() {
     open.value = false
-    pending = undefined
+    pending.value = undefined
+    stale.value = false
     error.value = ''
   }
   function corrected() {
-    notice.value = '已保存人工更正，自动进度已重新汇总。'
+    notice.value = '已保存人工更正，自动进度会随核对结果更新。'
+  }
+  function reloadBlocker(item: CompactWorkItem, revision: number) {
+    if (item.id !== pending.value?.item.id) return
+    pending.value = { item, revision }
+    stale.value = false
+    error.value = ''
   }
   return {
     move,
@@ -114,6 +133,9 @@ export function useWorkActions(progressBasis: () => 'effective' | 'personal') {
     saving,
     overrideOpen,
     correction,
-    corrected
+    corrected,
+    pending,
+    stale,
+    reloadBlocker
   }
 }

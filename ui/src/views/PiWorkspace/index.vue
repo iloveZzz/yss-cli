@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onScopeDispose, reactive, shallowRef, useId, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
 import {
-  ArrowLeft, ArrowUp, ChevronDown, FileDiff, FileText, Folder, ListChecks, PanelLeft,
+  ArrowLeft, ArrowUp, ChevronDown, FileDiff, FileText, Folder, ListChecks, ListPlus, PanelLeft,
   Settings2, Square
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -18,45 +18,56 @@ import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import PiModelPicker from '@/components/PiModelPicker.vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
-import { useWorkbench } from '@/hooks/useWorkbench'
-import { ApiError, errorMessage, stages, type Stage } from '@/services/workbench'
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { acknowledgeRequest, ApiError, contentEqual, errorMessage, resolvePendingRequest, type Stage } from '@/services/workbench'
 import {
-  deleteAgentSession, getPiRuntime, piModelKey, startAgent, type AgentAttention, type AgentSummary, type ReviewExcerpt
+  admitAgent, deleteAgentSession, getPiRuntime, piModelKey, type AgentAttention, type AgentSummary, type ReviewExcerpt
 } from '@/services/workbench-agent'
-import { cancelJob, jobStatusLabels, piThinkingLabels, terminalJob,
-  type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from '@/services/workbench-platform'
+import { cancelJob, getReceipt, jobStatusLabels, piThinkingLabels, requestId, terminalJob,
+  type JobRecord, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from '@/services/workbench-platform'
 import PiSessionList from './components/PiSessionList.vue'
 import PiWorkspaceSettings from './components/PiWorkspaceSettings.vue'
 import PiRound from './components/PiRound.vue'
 import PiReview from './components/PiReview.vue'
+import PiQueuePanel from './components/PiQueuePanel.vue'
 import { useAgentScope } from './useAgentScope'
 import { usePiWorkspace } from './usePiWorkspace'
+import { usePiDrafts, type PendingPiRequest } from './usePiDrafts'
+import { usePiQueue, type PiEnqueueInput } from './usePiQueue'
 import './workspace.css'
 
 const props = defineProps<{ specId: string }>()
 const route = useRoute()
 const router = useRouter()
-const { snapshot } = useWorkbench()
+const { catalog } = useWorkbenchCatalog()
 const { scopeOptions, lastAgentSpec } = useAgentScope()
 const fromAgentWorkbench = computed(() => route.name === 'agent-workbench')
 const backLabel = computed(() => fromAgentWorkbench.value ? '返回工作台' : '返回原 Spec')
 const spec = computed(() => props.specId)
 const session = computed(() => typeof route.query.session === 'string' ? route.query.session : '')
 const linkedRound = computed(() => typeof route.query.round === 'string' ? route.query.round : '')
-const { context, contextError, run, runError, launchError, rounds, latest, summary, snapshotJobs, reading,
-  refresh, recordAccepted, forgetSession, scheduleRefresh } = usePiWorkspace(spec, session)
+const { context, contextError, pageNotice, listBusy, listCurrent, search, attentionOnly,
+  run, runError, launchError, rounds, latest, summary, snapshotJobs, reading,
+  refresh, recordAccepted, forgetSession, scheduleRefresh, loadMore } = usePiWorkspace(spec, session)
 const projectNames = computed(() => Object.fromEntries(context.value?.projects.map((project) => [project.id, project.name]) ?? []))
-const mainId = computed(() => context.value?.spec.projectId ?? '')
+const sourceSpec = computed(() => context.value?.spec ?? catalog.value?.specs.find((item) => item.id === spec.value))
+const mainId = computed(() => sourceSpec.value?.projectId ?? '')
+const mainName = computed(() => projectNames.value[mainId.value] ??
+  catalog.value?.projects.find((project) => project.id === mainId.value)?.name)
+const direct = computed(() => !session.value || (run.value?.workspaceMode ?? summary.value?.workspaceMode) === 'direct')
+const snapshotIssue = computed(() => run.value?.snapshotError ?? summary.value?.snapshotError)
 const title = computed(() => summary.value?.title || run.value?.prompt || (session.value ? 'Pi 会话' : '新会话'))
-const progression = computed(() => snapshot.value?.progress?.[spec.value])
-const stage = computed(() => {
-  const desired = typeof route.query.stage === 'string' && Object.hasOwn(stages, route.query.stage)
-    ? route.query.stage as Stage
-    : progression.value?.primaryStage
-  return progression.value?.goalVersion && progression.value.stages.some((entry) => entry.stage === desired && entry.applicable)
-    ? desired : undefined
-})
+const progression = computed(() => context.value?.verification === 'current' ? context.value.stageBinding : null)
+const availableStages = computed(() => progression.value?.stages ?? [])
+const automaticStage = computed(() => progression.value?.primaryStage ?? undefined)
 const active = computed(() => !!latest.value && !terminalJob(latest.value.status))
+const preparing = computed(() => active.value &&
+  (!run.value || latest.value?.status === 'queued' || latest.value?.status === 'preparing'))
+const verificationIssue = computed(() => {
+  if (!context.value || context.value.verification === 'current') return ''
+  if (context.value.verification === 'failed') return context.value.verificationError || '规格来源核对失败。'
+  return context.value.verification === 'stale' ? '规格来源有变化，正在重新核对。' : '已登记规格，正在核对来源。'
+})
 const status = computed(() => {
   if (latest.value && !terminalJob(latest.value.status) && stoppingFor.value === latest.value.id) return '正在停止'
   return latest.value ? jobStatusLabels[latest.value.status] ?? latest.value.status : ''
@@ -79,16 +90,46 @@ const focusActivity = shallowRef<{ jobId: string; id: number }>()
 const compact = useMediaQuery('(width < 960px)')
 const inlineSummary = useMediaQuery('(width >= 1280px)')
 const conversation = useTemplateRef<HTMLElement>('conversation')
-const drafts = reactive(new Map<string, {
-  prompt: string; citations: ReviewExcerpt[]; selected: string[]; carry: Record<string, string>; allowCommands: boolean;
-  selectedModel?: PiModel; thinkingLevel?: PiThinkingLevel; readOnly?: boolean; error: string
-}>())
 const draftKey = computed(() => spec.value + ':' + (session.value || 'new'))
-function getDraft(key: string) {
-  if (!drafts.has(key)) drafts.set(key, { prompt: '', citations: [], selected: [], carry: {}, allowCommands: false, error: '' })
-  return drafts.get(key)!
+const { draft, getDraft, removeDraft, persistDraft, storageIssue, pending, setPending, rememberAdmitted, admittedDraft, forgetAdmitted } =
+  usePiDrafts(draftKey)
+const recoverableDraft = computed(() => {
+  if (!launchError.value || !latest.value) return undefined
+  const saved = admittedDraft(latest.value.id)
+  return saved && !getDraft(saved.key).prompt.trim() && !getDraft(saved.key).citations.length ? saved : undefined
+})
+async function restoreSubmittedDraft() {
+  const saved = recoverableDraft.value
+  if (!saved || !latest.value) return
+  const target = getDraft(saved.key)
+  target.prompt = saved.text.prompt
+  target.citations = saved.text.citations
+  forgetAdmitted(latest.value.id)
+  persistDraft(saved.key)
+  if (saved.key !== draftKey.value) await newSession()
+  else focusDraft()
 }
-const draft = computed(() => getDraft(draftKey.value))
+const stageNeedsReview = computed(() => {
+  const selection = draft.value.stageSelection
+  return !!selection && (selection.goalVersion !== progression.value?.goalVersion || !availableStages.value.includes(selection.stage))
+})
+const selectedStage = computed<Stage | ''>({
+  get: () => draft.value.stageSelection?.stage ?? '',
+  set: (stage) => {
+    const goalVersion = progression.value?.goalVersion
+    const previous = draft.value.stageSelection
+    if (!stage) draft.value.stageSelection = null
+    else if (goalVersion && availableStages.value.includes(stage)) draft.value.stageSelection = { stage, goalVersion }
+    if (previous !== draft.value.stageSelection) draft.value.error = ''
+  }
+})
+watch([draftKey, availableStages], () => {
+  if (session.value || draft.value.stageSelection !== undefined) return
+  const requested = route.query.stage
+  if (typeof requested === 'string' && availableStages.value.includes(requested as Stage)) {
+    selectedStage.value = requested as Stage
+  }
+}, { immediate: true })
 const readyModel = shallowRef<PiModel>()
 const runtimeStatus = shallowRef<PiRuntimeStatus>()
 const selectedModel = computed({
@@ -107,11 +148,18 @@ const modelIssue = shallowRef('')
 const modelRestrictions = shallowRef<Record<string, string>>({})
 const checking = shallowRef(false)
 const sending = shallowRef(false)
+const receiptBusy = shallowRef(false)
+const receiptError = shallowRef('')
+let receiptRead: AbortController | undefined
 const submittedRound = shallowRef<string>()
 const stopBusy = shallowRef(false)
 const stoppingFor = shallowRef('')
-const showing = shallowRef(3)
-const readyForResume = computed(() => !runError.value && run.value?.canResume && run.value.jobId === latest.value?.id)
+const roundStep = 3
+const maxMountedRounds = 9
+const showing = shallowRef(roundStep)
+const lastVisibleRound = shallowRef<string>()
+const readyForResume = computed(() => direct.value && !runError.value && run.value?.canResume &&
+  (run.value.jobId === latest.value?.id || (!active.value && !!launchError.value)))
 const modelPickerDisabled = computed(() => !context.value || active.value || sending.value || (!!session.value && !readyForResume.value))
 const recordedModel = computed<PiModel | undefined>(() => {
   const settings = run.value?.hostSettings
@@ -141,13 +189,35 @@ const blocked = computed(() => {
   if (!context.value.projects.find((project) => project.id === mainId.value)?.active) return '主工程已停用，请检查工程登记'
   if (active.value) return ''
   if (session.value && !readyForResume.value) return run.value?.resumeIssue || runError.value ||
-    (reading.value ? '正在核对原会话' : '原会话或隔离工作区不可用，可从原 Spec 新建会话')
+    (reading.value ? '正在核对原会话' : '当前会话无法续接，请从原 Spec 新建会话')
   return ''
 })
-const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !sending.value &&
+const queueRun = computed(() => direct.value && run.value?.id === session.value ? session.value : '')
+const { queue, busy: queueBusy, error: queueError, uncertain: queueUncertain, pendingEnqueue, retryRead: refreshQueue,
+  enqueue: enqueueQueueTask, put: putQueueTask, remove: removeQueueTask, resume: resumeQueue } = usePiQueue(queueRun, scheduleRefresh)
+const queueVerified = computed(() => context.value?.verification === 'current' &&
+  !context.value.sourceError && !contextError.value && !pending.value)
+const canEnqueue = computed(() => !!queueRun.value && queueVerified.value && !!queue.value &&
+  !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value && !sending.value && !deleteTarget.value && !!draft.value.prompt.trim())
+const queuePreparing = computed(() => !!queue.value?.items.some((item) => item.dispatching && item.jobId))
+const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !verificationIssue.value && !sending.value && !pending.value &&
+  (!queueRun.value || (!!queue.value && !queue.value.items.length && !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value)) &&
   !checking.value && !settingsOpen.value && !deleteTarget.value &&
   !reviewState.value.busy && !reviewState.value.pending && !!readyModel.value && !!draft.value.prompt.trim())
-const visibleRounds = computed(() => rounds.value.slice(-showing.value))
+const roundEnd = computed(() => {
+  const index = lastVisibleRound.value ? rounds.value.findIndex((job) => job.id === lastVisibleRound.value) : -1
+  return index < 0 ? rounds.value.length : index + 1
+})
+const roundStart = computed(() => Math.max(0, roundEnd.value - showing.value))
+const visibleRounds = computed(() => rounds.value.slice(roundStart.value, roundEnd.value))
+function moveRounds(older: boolean) {
+  if (older && showing.value < maxMountedRounds) {
+    showing.value = Math.min(maxMountedRounds, showing.value + roundStep)
+    return
+  }
+  const end = Math.min(rounds.value.length, Math.max(showing.value, roundEnd.value + (older ? -roundStep : roundStep)))
+  lastVisibleRound.value = end >= rounds.value.length ? undefined : rounds.value[end - 1]?.id
+}
 const summaryActions = computed(() => summary.value?.attention.filter((item) => item.kind !== 'review') ?? [])
 const attentionLabels: Record<AgentAttention['kind'], string> = {
   recovery: '需恢复', question: '待答复', answerFailed: '答复保存失败',
@@ -276,7 +346,7 @@ async function confirmDelete() {
     await deleteAgentSession(target.session.id, target.session.jobId)
     if (!alive) return
     forgetSession(target.specId, target.session.id)
-    drafts.delete(`${target.specId}:${target.session.id}`)
+    removeDraft(`${target.specId}:${target.session.id}`)
     if (spec.value === target.specId && session.value === target.session.id) {
       await router.replace(sessionLink(context.value?.sessions[0]?.id))
     }
@@ -307,8 +377,10 @@ function focusNode(node: HTMLElement) {
   node.focus({ preventScroll: true })
   node.scrollIntoView({ block: 'nearest' })
 }
-function backToLatest() {
-  void router.replace(sessionLink(session.value))
+async function backToLatest() {
+  lastVisibleRound.value = undefined
+  await router.replace(sessionLink(session.value))
+  await nextTick()
   const viewport = conversation.value?.querySelector<HTMLElement>('[data-slot="message-scroller-viewport"]')
   viewport?.scrollTo({ top: viewport.scrollHeight, behavior: 'instant' })
   focusTranscript()
@@ -318,13 +390,14 @@ watch(compact, (isCompact) => {
 })
 watch([context, session], ([workspace, id]) => {
   if (!workspace || workspace.spec.id !== spec.value) return
-  if (workspace.spec.active && !workspace.sourceError) lastAgentSpec.value = spec.value
-  if (id || route.query.new) return
+  if (workspace.spec.active) lastAgentSpec.value = spec.value
+  if (id || route.query.new || pending.value || search.value || attentionOnly.value) return
   const first = workspace.sessions[0]
   if (first) void router.replace(sessionLink(first.id))
 }, { immediate: true })
 watch([spec, session], () => {
-  showing.value = 3
+  showing.value = roundStep
+  lastVisibleRound.value = undefined
   readyModel.value = undefined
   runtimeStatus.value = undefined
   modelIssue.value = ''
@@ -340,14 +413,17 @@ watch([rounds, linkedRound], async ([items, id]) => {
   const index = items.findIndex((job) => job.id === id)
   if (index < 0) return
   requestedRound = id
-  showing.value = Math.max(showing.value, items.length - index)
+  if (index < roundStart.value || index >= roundEnd.value) {
+    const end = Math.min(items.length, Math.max(showing.value, index + 2))
+    lastVisibleRound.value = end >= items.length ? undefined : items[end - 1]?.id
+  }
   await nextTick()
   const node = document.getElementById('pi-turn-' + id)?.querySelector<HTMLElement>('article')
   if (node && !focusActivity.value) focusNode(node)
 }, { flush: 'post' })
 watch([() => context.value?.spec.id, session, readyForResume, selectedModel, settingsOpen], ([source, id, resumable, selected, open], previous, onCleanup) => {
   checking.value = false
-  if (!source || !context.value?.spec.active || context.value.sourceError || (id && !resumable) || open) return
+  if (!source || !context.value?.spec.active || (id && !resumable) || open) return
   if (previous?.[4] && (readyModel.value || modelIssue.value)) return
   const controller = new AbortController()
   onCleanup(() => controller.abort())
@@ -370,54 +446,181 @@ watch([() => context.value?.spec.id, session, readyForResume, selectedModel, set
 watch(latest, (job) => {
   if (!job || terminalJob(job.status)) stoppingFor.value = ''
 })
-onScopeDispose(() => { alive = false })
+onScopeDispose(() => {
+  alive = false
+  receiptRead?.abort()
+})
 
-async function send() {
-  if (!canSend.value || !readyModel.value) return
-  const current = draft.value
-  const key = draftKey.value
-  const id = session.value
-  const source = spec.value
-  const projectIds = id ? run.value?.projectIds ?? [] : [mainId.value, ...current.selected]
-  const carryFiles = id ? {} : Object.fromEntries(projectIds.flatMap((project) => {
-    const paths = (current.carry[project] ?? '').split('\n').map((name) => name.trim()).filter(Boolean)
-    return paths.length ? [[project, paths]] : []
-  }))
-  const expected = latest.value?.id
-  sending.value = true
-  current.error = ''
-  try {
-    const job = await startAgent({
-      specId: source, projectIds, carryFiles, resumeRunId: id || undefined, expectedJobId: id ? expected : undefined,
-      selectedModel: current.selectedModel, expectedModel: readyModel.value,
-      thinkingLevel: current.thinkingLevel,
-      readOnly: current.readOnly,
-      allowCommands: current.allowCommands, prompt: current.prompt, lifecycleStage: id ? undefined : stage.value,
-      citations: current.citations.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
-        ({ reviewToken, projectId, path, side, startLine, endLine, note }))
-    })
-    if (!alive) return
-    const next = id || job.id
+function matchingReceipt(value: unknown, item: PendingPiRequest): value is JobRecord {
+  if (!value || typeof value !== 'object') return false
+  const job = value as Partial<JobRecord>
+  return job.kind === 'agent' && typeof job.id === 'string' && typeof job.status === 'string' &&
+    job.requestId === item.id && (!job.agentSpecId || job.agentSpecId === item.input.specId) &&
+    (!item.input.resumeRunId || !job.agentRunId || job.agentRunId === item.input.resumeRunId)
+}
+async function settlePending(item: PendingPiRequest, job: JobRecord) {
+  if (!matchingReceipt(job, item)) throw new Error('受理记录与原请求不一致，请重新核对。')
+  const source = item.input.specId
+  const next = job.agentRunId || item.input.resumeRunId || job.id
+  const current = getDraft(item.key)
+  const excerpts = item.excerpts ?? []
+  if (run.value?.jobId !== job.id)
+    rememberAdmitted(job.id, item.key, { prompt: item.input.prompt, citations: excerpts })
+  if (current.prompt === item.input.prompt && contentEqual(current.citations, excerpts)) {
     current.prompt = ''
     current.citations = []
-    current.allowCommands = false
-    recordAccepted(source, next, job)
-    if (draftKey.value === key) {
-      submittedRound.value = job.id
-      await router.replace(sessionLink(next))
-      await nextTick()
-      focusTranscript()
+    persistDraft(item.key)
+  }
+  current.readOnly = true
+  current.allowCommands = false
+  current.stageSelection = null
+  current.error = ''
+  setPending(item.key)
+  resolvePendingRequest(item.id)
+  recordAccepted(source, next, job)
+  if (draftKey.value === item.key) {
+    receiptError.value = ''
+    submittedRound.value = job.id
+    lastVisibleRound.value = undefined
+    await router.replace(sessionLink(next))
+    await nextTick()
+    focusTranscript()
+  }
+}
+async function checkPending() {
+  const item = pending.value
+  if (!item || sending.value || receiptBusy.value) return
+  receiptRead?.abort()
+  const read = new AbortController()
+  receiptRead = read
+  receiptBusy.value = true
+  receiptError.value = ''
+  try {
+    const response = await getReceipt(item.id, read.signal)
+    if (read.signal.aborted || pending.value?.id !== item.id) return
+    if (!response.found) {
+      receiptError.value = '尚未找到受理记录，可以按同一请求重试。'
+      return
     }
+    if (!matchingReceipt(response.result, item)) {
+      receiptError.value = '受理记录与原请求不一致，请查看执行记录。'
+      return
+    }
+    await settlePending(item, response.result)
+    void acknowledgeRequest(item.id)
+  } catch (cause) {
+    if (!read.signal.aborted) receiptError.value = errorMessage(cause)
+  } finally {
+    if (receiptRead === read) {
+      receiptRead = undefined
+      receiptBusy.value = false
+    }
+  }
+}
+watch(draftKey, () => {
+  receiptRead?.abort()
+  receiptRead = undefined
+  receiptBusy.value = false
+  receiptError.value = ''
+  void checkPending()
+}, { immediate: true })
+watch([() => latest.value?.id, () => run.value?.jobId], ([id, materialized]) => {
+  if (id && id === materialized) forgetAdmitted(id)
+})
+
+async function dispatch(item: PendingPiRequest) {
+  if (sending.value || receiptBusy.value) return
+  sending.value = true
+  receiptError.value = ''
+  const current = getDraft(item.key)
+  current.error = ''
+  try {
+    const job = await admitAgent(item.input, item.id)
+    if (!alive) return
+    await settlePending(item, job)
   } catch (cause) {
     if (!alive) return
+    const definitive = cause instanceof ApiError && cause.status >= 400 && cause.status < 500 &&
+      cause.status !== 408 && cause.context.uncertain !== true
+    if (!definitive) {
+      if (draftKey.value === item.key) receiptError.value = errorMessage(cause)
+      return
+    }
+    setPending(item.key)
     current.error = errorMessage(cause)
-    if (cause instanceof ApiError && cause.context.piIssue && draftKey.value === key) {
+    if (draftKey.value === item.key && cause.context.piIssue) {
       readyModel.value = undefined
+      openSettings()
+    }
+    if (draftKey.value === item.key && cause.context.progressBinding) {
+      void refresh()
       openSettings()
     }
     scheduleRefresh()
   } finally {
-    if (alive) sending.value = false
+    sending.value = false
+    if (alive && draftKey.value !== item.key && pending.value) void checkPending()
+  }
+}
+function retryPending() {
+  const item = pending.value
+  if (item) void dispatch(item)
+}
+async function send() {
+  if (!canSend.value || !readyModel.value) return
+  const current = draft.value
+  if (stageNeedsReview.value) {
+    current.error = '目标版本或适用阶段已变化，请重新选择本轮跟进阶段。'
+    openSettings()
+    return
+  }
+  const key = draftKey.value
+  const id = session.value
+  const item: PendingPiRequest = {
+    id: requestId(),
+    key,
+    input: {
+      specId: spec.value, projectIds: id ? run.value?.projectIds ?? [] : [mainId.value, ...current.selected],
+      resumeRunId: id || undefined, expectedJobId: id ? run.value?.jobId : undefined,
+      selectedModel: current.selectedModel ? { ...current.selectedModel } : undefined, expectedModel: { ...readyModel.value },
+      thinkingLevel: current.thinkingLevel, readOnly: current.readOnly,
+      allowCommands: !current.readOnly && current.allowCommands, prompt: current.prompt,
+      lifecycleStage: current.stageSelection?.stage, expectedGoalVersion: current.stageSelection?.goalVersion,
+      citations: current.citations.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
+        ({ reviewToken, projectId, path, side, startLine, endLine, note }))
+    },
+    excerpts: current.citations.map((excerpt) => ({ ...excerpt }))
+  }
+  persistDraft(key)
+  if (!setPending(key, item)) {
+    current.error = '此标签页无法保存本次请求，任务尚未发送。'
+    return
+  }
+  await dispatch(item)
+}
+
+function queueInput(current: typeof draft.value): PiEnqueueInput {
+  return {
+    prompt: current.prompt, readOnly: current.readOnly, expectedGoalVersion: progression.value?.goalVersion,
+    citations: current.citations.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
+      ({ reviewToken, projectId, path, side, startLine, endLine, note }))
+  }
+}
+async function enqueue(retrying = false) {
+  const saved = pendingEnqueue.value
+  if (retrying ? (!saved || !queueVerified.value) : !canEnqueue.value) return
+  const key = draftKey.value
+  const current = draft.value
+  const input: PiEnqueueInput = saved ? {
+    prompt: saved.prompt, readOnly: saved.readOnly, expectedGoalVersion: saved.expectedGoalVersion, citations: saved.citations
+  } : queueInput(current)
+  const added = await enqueueQueueTask(retrying ? undefined : input)
+  if (added && key === draftKey.value && contentEqual(queueInput(current), input)) {
+    current.prompt = ''
+    current.citations = []
+    current.allowCommands = false
+    current.readOnly = true
+    persistDraft(key)
   }
 }
 
@@ -450,9 +653,11 @@ function onEnter(event: KeyboardEvent) {
   <div class="pi-workspace" :data-history="historyOpen" :data-summary="summaryOpen && inlineSummary">
     <Transition name="workbench-feedback">
       <aside v-show="historyOpen" :id="historyPaneId" class="pi-history-pane" :inert="compact || !historyOpen">
-        <PiSessionList v-if="context" :context="context" :active-session="session" :error="contextError"
+        <PiSessionList v-if="context" v-model:search="search" v-model:attention-only="attentionOnly"
+          :context="context" :active-session="session" :error="contextError" :notice="pageNotice" :busy="listBusy" :current="listCurrent"
           :scope-options="fromAgentWorkbench ? scopeOptions : undefined"
-          @new="newSession" @choose="choose" @refresh="refresh" @remove="askDelete" @select-scope="selectAgentScope" />
+          @new="newSession" @choose="choose" @refresh="refresh" @load-more="loadMore"
+          @remove="askDelete" @select-scope="selectAgentScope" />
         <LoadingSkeleton v-else-if="!contextError" variant="text" :rows="4" label="正在读取会话列表" />
       </aside>
     </Transition>
@@ -490,8 +695,29 @@ function onEnter(event: KeyboardEvent) {
         <Button v-if="contextError || (session && blocked)" type="button" variant="ghost" size="sm" @click="refresh">刷新</Button>
         <Button v-if="session && context && !context.sourceError && context.spec.active" type="button" variant="ghost" size="sm" @click="newSession">新会话</Button>
       </div>
-      <div v-if="launchError" class="pi-top-note" role="status">{{ launchError }}</div>
-      <div v-if="reviewState.pending && !reviewState.busy && !reviewOpen && !active && !blocked" class="pi-top-note" role="status">
+      <div v-if="verificationIssue && !active" class="pi-top-note" role="status">
+        {{ verificationIssue }}
+        <Button v-if="context?.verification === 'failed'" type="button" variant="ghost" size="sm" @click="refresh">重新读取</Button>
+      </div>
+      <div v-if="preparing" class="pi-top-note" role="status">
+        <LoadingIndicator :active="true" />{{ stoppingFor ? '正在取消准备' : '正在准备 Pi 运行' }}
+        <Button type="button" variant="ghost" size="sm" :disabled="stopBusy || !!stoppingFor" @click="stop">取消准备</Button>
+      </div>
+      <div v-if="launchError" class="pi-top-note" role="status">
+        {{ launchError }}
+        <Button v-if="recoverableDraft" type="button" variant="ghost" size="sm" @click="restoreSubmittedDraft">恢复任务草稿</Button>
+        <RouterLink v-if="latest" :to="'/jobs/' + latest.id">查看执行记录</RouterLink>
+      </div>
+      <div v-if="pending" class="pi-top-note" role="status">
+        {{ sending ? '正在提交 Pi 任务…' : receiptBusy ? '正在核对受理记录…' : receiptError || '本次请求的受理结果待核对。' }}
+        <span v-if="pending.input.readOnly === false">原请求允许编辑原工程<template v-if="pending.input.allowCommands">并运行离线命令</template>。</span>
+        <Button type="button" variant="ghost" size="sm" :disabled="sending || receiptBusy" @click="checkPending">核对回执</Button>
+        <Button type="button" variant="outline" size="sm" :disabled="sending || receiptBusy" @click="retryPending">按同一请求重试</Button>
+      </div>
+      <div v-if="direct && snapshotIssue" class="pi-top-note" role="status">
+        本轮差异待核实。{{ snapshotIssue }}
+      </div>
+      <div v-if="!direct && reviewState.pending && !reviewState.busy && !reviewOpen && !active && !blocked" class="pi-top-note" role="status">
         接收结果待核实。
         <Button type="button" variant="ghost" size="sm" @click="openReview()">查看待核实的接收记录</Button>
       </div>
@@ -509,28 +735,33 @@ function onEnter(event: KeyboardEvent) {
             <MessageScrollerViewport aria-label="Pi 会话对话" class="pi-viewport" :preserve-scroll-on-prepend="true">
               <MessageScrollerContent class="pi-transcript">
                 <div v-if="reading && !visibleRounds.length"><LoadingSkeleton :rows="3" variant="text" label="正在读取会话轮次" /></div>
-                <div v-if="!session && context" class="pi-new-session">
-                  <h2>{{ context.spec.title }}</h2>
-                  <p>{{ projectNames[mainId] || '主工程' }} · {{ context.spec.sourcePath }}</p>
-                  <Button v-if="context.spec.active && !context.sourceError" variant="outline" size="sm" @click="openSettings">
+                <div v-if="!session && sourceSpec" class="pi-new-session">
+                  <h2>{{ sourceSpec.title }}</h2>
+                  <p>{{ mainName || '主工程' }} · {{ sourceSpec.sourcePath }}</p>
+                  <Button v-if="context?.spec.active && !context.sourceError" variant="outline" size="sm" @click="openSettings">
                     <Settings2 :size="14" /> 查看运行范围
                   </Button>
                 </div>
                 <p v-if="runError && !visibleRounds.length" class="pi-issue" role="alert">{{ runError }}</p>
-                <Button v-if="rounds.length > showing" type="button" variant="ghost" size="sm" class="pi-more-rounds" @click="showing += 3">
+                <Button v-if="roundStart" type="button" variant="ghost" size="sm" class="pi-more-rounds" @click="moveRounds(true)">
                   加载更早轮次
                 </Button>
                 <MessageScrollerItem v-for="job in visibleRounds" :id="'pi-turn-' + job.id" :key="job.id"
                   :message-id="job.id" :scroll-anchor="job.id === submittedRound && !terminalJob(job.status)"
                   :data-workbench-reveal="job.id === submittedRound ? '' : undefined" class="pi-turn">
-                  <PiRound :job="job" :latest="job.id === latest?.id" :stopping="job.id === stoppingFor"
+                  <PiRound :job="job" :direct="direct" :latest="job.id === latest?.id" :stopping="job.id === stoppingFor"
+                    :track-first-text="job.id === submittedRound"
                     :focus-activity="focusActivity?.jobId === job.id ? focusActivity : undefined"
                     :can-review="snapshotJobs.has(job.id)" :can-review-latest="!!latest && snapshotJobs.has(latest.id)"
-                    :project-names="projectNames"
+                    :project-names="projectNames" :read-only="run?.jobId === job.id ? run?.readOnly : undefined"
                     :review-targets="job.id === summary?.jobId ? summary.reviewTargets : undefined"
                     @updated="scheduleRefresh" @focus="focusNode" @review="(project, path) => openReview(job.id, project, path)"
                     @review-latest="openReview()" />
                 </MessageScrollerItem>
+                <div v-if="roundEnd < rounds.length" class="pi-more-rounds">
+                  <Button type="button" variant="ghost" size="sm" @click="moveRounds(false)">加载较新轮次</Button>
+                  <Button type="button" variant="ghost" size="sm" @click="backToLatest">返回最新轮</Button>
+                </div>
               </MessageScrollerContent>
             </MessageScrollerViewport>
             <MessageScrollerButton size="sm" variant="outline" behavior="auto">回到最新</MessageScrollerButton>
@@ -538,6 +769,13 @@ function onEnter(event: KeyboardEvent) {
         </MessageScrollerProvider>
       </div>
       <div class="pi-composer-wrap">
+        <p v-if="storageIssue" class="pi-issue" role="status">{{ storageIssue }}</p>
+        <div v-if="pending && receiptError" class="pi-top-note" role="status">
+          {{ receiptError }}
+          <Button type="button" variant="ghost" size="sm" :disabled="sending || receiptBusy" @click="retryPending">
+            按原请求重试
+          </Button>
+        </div>
         <Button v-if="summary?.hasSnapshot || summary?.hasAcceptance" type="button" variant="outline"
           class="pi-diff-shortcut" @click="openReview()"><FileDiff :size="15" />
           {{ summary.pendingFiles ? summary.pendingFiles + ' 个文件待审阅' : '查看执行成果' }}
@@ -548,7 +786,7 @@ function onEnter(event: KeyboardEvent) {
               <div v-for="(excerpt, index) in draft.citations" :key="index" class="pi-draft-excerpt">
                 <details>
                   <summary>{{ projectNames[excerpt.projectId] ?? excerpt.projectId }} / {{ excerpt.path }} · {{ excerpt.startLine }}–{{ excerpt.endLine }} 行</summary>
-                  <p>{{ excerpt.side === 'initial' ? '运行起点' : '隔离结果' }} · 轮次 {{ excerpt.jobId }} · 版本 {{ excerpt.reviewToken.slice(0, 10) }}</p>
+                  <p>{{ excerpt.side === 'initial' ? '运行起点' : '本轮结束' }} · 轮次 {{ excerpt.jobId }} · 版本 {{ excerpt.reviewToken.slice(0, 10) }}</p>
                   <pre>{{ excerpt.snippet }}</pre>
                   <p>{{ excerpt.note }}</p>
                 </details>
@@ -558,8 +796,8 @@ function onEnter(event: KeyboardEvent) {
             <InputGroupTextarea id="pi-workspace-draft" v-model="draft.prompt" aria-label="Pi 任务"
               :placeholder="active ? '准备下一轮要求' : '给 Pi 发一项任务'" rows="2" :disabled="sending" @keydown="onEnter" />
             <InputGroupAddon align="block-end" class="pi-composer-tools">
-              <Button type="button" variant="ghost" size="sm" :disabled="!context" @click="openSettings">
-                <Settings2 :size="15" /><span>{{ draft.readOnly ? '只读模式' : draft.allowCommands ? '本轮允许离线命令' : '离线命令关闭' }}</span>
+              <Button type="button" variant="ghost" size="sm" :disabled="!context || (!!session && !direct)" @click="openSettings">
+                <Settings2 :size="15" /><span>{{ draft.readOnly ? '只读原工程' : draft.allowCommands ? '编辑原工程 · 离线命令已授权' : '编辑原工程' }}</span>
               </Button>
               <PiModelPicker :selected-model="selectedModel" :current-model="currentModel"
                 show-thinking :thinking-levels="thinkingLevels" :thinking-level="currentThinking" :checking-thinking="checking"
@@ -572,6 +810,10 @@ function onEnter(event: KeyboardEvent) {
                   </Button>
                 </template>
               </PiModelPicker>
+              <Button v-if="queueRun" type="button" variant="ghost" size="sm" :disabled="!canEnqueue"
+                aria-label="加入续办队列" title="沿用本会话范围与模型，离线命令关闭" @click="enqueue()">
+                <ListPlus :size="15" />排队
+              </Button>
               <Button v-if="active" type="button" size="icon" class="pi-send" aria-label="停止运行" title="停止运行"
                 :disabled="stopBusy || !!stoppingFor" @click="stop">
                 <LoadingIndicator v-if="stopBusy" :active="true" /><Square v-else :size="14" fill="currentColor" />
@@ -582,7 +824,23 @@ function onEnter(event: KeyboardEvent) {
             </InputGroupAddon>
           </InputGroup>
         </form>
-        <p v-if="draft.error || (!active && modelIssue && !readyModel)" class="pi-composer-error" role="status">{{ draft.error || modelIssue }}</p>
+        <p v-if="draft.error || storageIssue || (!active && modelIssue && !readyModel)" class="pi-composer-error" role="status">
+          {{ draft.error || storageIssue || modelIssue }}
+        </p>
+        <p v-if="pendingEnqueue" class="pi-composer-error" role="status">
+          {{ queueBusy ? '正在读取队列…' : queueError || '原入队请求待核对。' }}
+          <Button type="button" variant="ghost" size="sm" :disabled="queueBusy || !queue || !queueVerified"
+            @click="enqueue(true)">按原任务重试入队</Button>
+        </p>
+        <p v-else-if="queue?.items.length" class="pi-composer-error" role="status">
+          {{ queue.items.length }} 条待发任务
+          <span v-if="queuePreparing">· 队首已受理，等待 Pi 确认</span>
+          <Button type="button" variant="ghost" size="sm" @click="toggleSummary">查看队列</Button>
+        </p>
+        <p v-else-if="queueError && queueRun" class="pi-composer-error" role="status">
+          {{ queueError }}
+          <Button type="button" variant="ghost" size="sm" :disabled="queueBusy" @click="refreshQueue">重读队列</Button>
+        </p>
       </div>
       <Transition name="workbench-feedback">
       <aside v-if="inlineSummary" v-show="summaryOpen" :inert="!summaryOpen" class="pi-summary" aria-label="会话摘要">
@@ -595,6 +853,9 @@ function onEnter(event: KeyboardEvent) {
           <Button v-for="(item, index) in summaryActions" :key="index" type="button" variant="ghost" class="pi-summary-action"
             @click="jump(item)">{{ item.status === 'saving' ? '答复保存中' : attentionLabels[item.kind] }}</Button>
         </section>
+        <PiQueuePanel v-if="queueRun" :queue="queue" :busy="queueBusy" :error="queueError" :uncertain="queueUncertain || !!pendingEnqueue"
+          :active="active" :verified="queueVerified" :goal-version="progression?.goalVersion"
+          :refresh="refreshQueue" :put="putQueueTask" :remove="removeQueueTask" :resume="resumeQueue" />
         <section>
           <h2>来源</h2>
           <RouterLink :to="{ path: '/specs/' + spec }" class="pi-summary-link"><FileText :size="15" />{{ context?.spec.title || '原 Spec' }}</RouterLink>
@@ -606,9 +867,11 @@ function onEnter(event: KeyboardEvent) {
     <Sheet v-model:open="historyDrawer">
       <SheetContent side="left" class="pi-sheet pi-history-sheet" @close-auto-focus.prevent="returnFocus('history')">
         <SheetHeader class="pi-sheet-header sr-only"><SheetTitle>会话历史</SheetTitle><SheetDescription>当前 Spec 的 Pi 会话</SheetDescription></SheetHeader>
-        <PiSessionList v-if="context" :context="context" :active-session="session" :error="contextError"
+        <PiSessionList v-if="context" v-model:search="search" v-model:attention-only="attentionOnly"
+          :context="context" :active-session="session" :error="contextError" :notice="pageNotice" :busy="listBusy" :current="listCurrent"
           :scope-options="fromAgentWorkbench ? scopeOptions : undefined"
-          @new="newSession" @choose="choose" @refresh="refresh" @remove="askDelete" @select-scope="selectAgentScope" />
+          @new="newSession" @choose="choose" @refresh="refresh" @load-more="loadMore"
+          @remove="askDelete" @select-scope="selectAgentScope" />
       </SheetContent>
     </Sheet>
     <Dialog :open="!!deleteTarget" @update:open="!$event && closeDelete()">
@@ -636,16 +899,17 @@ function onEnter(event: KeyboardEvent) {
     <Sheet v-model:open="settingsOpen">
       <SheetContent class="pi-sheet" @close-auto-focus.prevent="returnFocus('settings')">
         <SheetHeader class="pi-sheet-header"><SheetTitle>运行设置</SheetTitle>
-          <SheetDescription>{{ context?.spec.title }}<template v-if="stage && !session"> · {{ stages[stage] }}</template></SheetDescription></SheetHeader>
+          <SheetDescription>{{ context?.spec.title }}</SheetDescription></SheetHeader>
         <div v-if="context" class="pi-sheet-body">
           <PiWorkspaceSettings :key="session || 'new'" v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
             v-model:runtime-status="runtimeStatus"
             v-model:blocked-reason="modelIssue" v-model:model-restrictions="modelRestrictions"
-            v-model:selected="draft.selected" v-model:carry="draft.carry" v-model:allow-commands="draft.allowCommands"
-            v-model:read-only="draft.readOnly"
-            :main-id="mainId" :projects="context.projects" :source-path="context.spec.sourcePath"
+            v-model:selected="draft.selected" v-model:allow-commands="draft.allowCommands"
+            v-model:read-only="draft.readOnly" v-model:stage="selectedStage"
+            :main-id="mainId" :projects="context.projects"
             :review-resume-id="session || undefined" :busy="sending"
-            :participating-ids="run?.projectIds" />
+            :participating-ids="run?.projectIds" :available-stages="availableStages" :automatic-stage="automaticStage"
+            :stage-needs-review="stageNeedsReview" />
         </div>
       </SheetContent>
     </Sheet>
@@ -660,11 +924,14 @@ function onEnter(event: KeyboardEvent) {
           <Button v-for="(item, index) in summaryActions" :key="index" type="button" variant="ghost" @click="jump(item)">
             {{ item.status === 'saving' ? '答复保存中' : attentionLabels[item.kind] }}
           </Button>
+          <PiQueuePanel v-if="queueRun" :queue="queue" :busy="queueBusy" :error="queueError" :uncertain="queueUncertain || !!pendingEnqueue"
+            :active="active" :verified="queueVerified" :goal-version="progression?.goalVersion"
+            :refresh="refreshQueue" :put="putQueueTask" :remove="removeQueueTask" :resume="resumeQueue" />
         </div>
       </SheetContent>
     </Sheet>
     <PiReview v-model="reviewOpen" :run-id="session" :job-id="reviewJob" :latest-id="latest?.id || ''" :spec-id="spec"
-      :running="active" :run="run" :focus-file="reviewFile" :project-names="projectNames" @cite="addCitation"
+      :running="active" :direct="direct" :run="run" :focus-file="reviewFile" :project-names="projectNames" @cite="addCitation"
       @changed="refresh" @latest="openReview()" @closed="reviewClosed" @review-state="reviewState = $event" />
   </div>
 </template>

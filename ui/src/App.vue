@@ -15,20 +15,25 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { provideWorkbenchRouteReads, useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { failedRoute, pendingRoute, retryFailedRoute } from '@/router'
 import { dateLabel } from '@/services/workbench'
 import { useAgentScope } from '@/views/PiWorkspace/useAgentScope'
-const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges } =
+const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges, requireSnapshot, sourceState, changesError } =
   useWorkbench()
+const routeReads = provideWorkbenchRouteReads()
+const { catalog, refreshCatalog } = useWorkbenchCatalog()
+const route = useRoute()
+const lightweight = computed(() => route.meta.lightweight === true)
 useQuestionReviewDeadline(() => {
   const value = snapshot.value
-  if (!value || expired.value) return
+  if (!value || expired.value || lightweight.value) return
   return { readAt: value.readAt, questions: value.specs.flatMap((spec) => spec.content.questions) }
 }, refresh)
-const route = useRoute()
 const { scopeOptions, preferredSpecId } = useAgentScope()
 const agentTarget = computed(() => {
+  if (lightweight.value) return '/agent'
   const current = route.params.specId
   const specId = scopeOptions.value.find((option) => option.value === current)?.value ?? preferredSpecId.value
   return specId ? { name: 'agent-workbench', params: { specId } } : '/agent'
@@ -42,9 +47,9 @@ const surface = useTemplateRef<HTMLElement>('surface')
 let pageMotion: Animation | undefined
 const refreshAction = shallowRef<'header' | 'retry'>()
 const recentProjects = computed(() =>
-  (snapshot.value?.projects ?? [])
-    .filter((project) => project.record.active)
-    .toSorted((a, b) => b.record.updatedAt.localeCompare(a.record.updatedAt))
+  (lightweight.value ? catalog.value?.projects ?? [] : snapshot.value?.projects.map(({ record }) => record) ?? [])
+    .filter((project) => project.active)
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 6)
 )
 const navigation = [
@@ -59,9 +64,18 @@ const navigation = [
   { path: '/settings', label: '设置', icon: 'M4 7h16 M4 17h16 M8 4v6 M16 14v6' }
 ]
 const routeReady = computed(() => route.matched.length > 0)
+const snapshotTargetReady = computed(() => {
+  const value = snapshot.value
+  if (!value || !loading.value) return !!value
+  const { projectId, specId } = route.params
+  return (!projectId || value.projects.some((project) => project.record.id === projectId)) &&
+    (!specId || value.specs.some((spec) => spec.record.id === specId))
+})
 const availableRoute = computed(() =>
-  routeReady.value && (!!snapshot.value || piWorkspace.value || /^\/(settings|jobs)(\/|$)/.test(route.path))
+  routeReady.value && (lightweight.value || snapshotTargetReady.value || piWorkspace.value || /^\/(settings|jobs)(\/|$)/.test(route.path))
 )
+const refreshLoading = computed(() => lightweight.value ? !!routeReads.value?.busy.value : loading.value)
+const readAt = computed(() => lightweight.value ? routeReads.value?.readAt.value : snapshot.value?.readAt)
 const navigationBusy = useDelayedBusy(() => !!pendingRoute.value && availableRoute.value, () => 160)
 const initialLoading = computed(() =>
   !availableRoute.value &&
@@ -79,11 +93,15 @@ function focusMain() {
   document.getElementById('main')?.focus({ preventScroll: true })
 }
 async function refreshFrom(action: 'header' | 'retry', event?: MouseEvent) {
-  if (loading.value || refreshAction.value || expired.value) return
+  if (refreshLoading.value || refreshAction.value || expired.value) return
   const returnFocus = document.activeElement === event?.currentTarget
   const currentPath = route.path
   refreshAction.value = action
   try {
+    if (lightweight.value) {
+      await Promise.all([routeReads.value?.refresh(), refreshCatalog()])
+      return
+    }
     const recovered = await refresh()
     if (action === 'retry' && recovered && returnFocus) {
       await nextTick()
@@ -107,11 +125,15 @@ watch([() => route.path, surface, preferredMotion], ([path, element, preference]
   })
 }, { flush: 'post' })
 onMounted(() => {
-  if (!expired.value) {
-    void refresh()
-    startChanges()
-  }
+  if (!expired.value) startChanges()
 })
+watch([routeReady, lightweight], ([ready, compact]) => {
+  requireSnapshot(ready && !compact)
+}, { immediate: true })
+watch([lightweight, () => sourceState.value?.revision], ([compact, revision]) => {
+  if (compact && (!catalog.value || (revision !== undefined && revision > catalog.value.revision)))
+    void refreshCatalog(revision)
+}, { immediate: true })
 onBeforeUnmount(() => {
   pageMotion?.cancel()
   stopChanges()
@@ -146,7 +168,7 @@ useEventListener(window, 'focus', checkChanges)
       <span aria-hidden="true">●</span>
       个人 · 本机
     </Badge>
-    <Button class="refresh-action" variant="outline" :disabled="loading || expired" @click="refreshFrom('header')">
+    <Button class="refresh-action" variant="outline" :disabled="refreshLoading || expired" @click="refreshFrom('header')">
       <LoadingIndicator :active="refreshAction === 'header'" />
       {{ refreshAction === 'header' ? '刷新中…' : '刷新' }}
     </Button>
@@ -182,16 +204,16 @@ useEventListener(window, 'focus', checkChanges)
       <div class="nav-caption recent-caption">最近更新工程</div>
       <ScrollArea class="recent-projects">
         <nav aria-label="最近项目">
-          <Tooltip v-for="project in recentProjects" :key="project.record.id">
+          <Tooltip v-for="project in recentProjects" :key="project.id">
             <TooltipTrigger as-child>
               <Button as-child variant="ghost">
-                <RouterLink :to="`/projects/${project.record.id}`" class="navigation-link">
-                  <span class="project-dot" aria-hidden="true">{{ project.record.name.slice(0, 1).toUpperCase() }}</span>
-                  <span class="ellipsis navigation-label">{{ project.record.name }}</span>
+                <RouterLink :to="`/projects/${project.id}`" class="navigation-link">
+                  <span class="project-dot" aria-hidden="true">{{ project.name.slice(0, 1).toUpperCase() }}</span>
+                  <span class="ellipsis navigation-label">{{ project.name }}</span>
                 </RouterLink>
               </Button>
             </TooltipTrigger>
-            <TooltipContent v-if="compactNavigation" side="right">{{ project.record.name }}</TooltipContent>
+            <TooltipContent v-if="compactNavigation" side="right">{{ project.name }}</TooltipContent>
           </Tooltip>
         </nav>
       </ScrollArea>
@@ -200,7 +222,7 @@ useEventListener(window, 'focus', checkChanges)
       <Separator class="sidebar-separator" />
       数据保存在本机
       <br />
-      Agent 使用隔离工作区
+      Pi 可在已选原工程运行
     </div>
   </aside>
   <main id="main" :class="piWorkspace ? 'pi-main' : 'main'" tabindex="-1">
@@ -208,7 +230,7 @@ useEventListener(window, 'focus', checkChanges)
       <AlertTitle>会话已失效</AlertTitle>
       <AlertDescription>请从终端重新打开完整工作台链接。当前输入仍保留。</AlertDescription>
     </Alert>
-    <Alert v-else-if="error && !piWorkspace" variant="destructive" class="notice error">
+    <Alert v-else-if="error && !piWorkspace && !lightweight" variant="destructive" class="notice error">
       <AlertTitle>{{ error }}</AlertTitle>
       <AlertDescription v-if="snapshot">显示上次快照 {{ dateLabel(snapshot.readAt) }}</AlertDescription>
       <Button
@@ -220,6 +242,9 @@ useEventListener(window, 'focus', checkChanges)
         <LoadingIndicator :active="refreshAction === 'retry'" />
         {{ refreshAction === 'retry' ? '重试中…' : '重试读取' }}
       </Button>
+    </Alert>
+    <Alert v-if="!expired && changesError && !piWorkspace" class="notice warning" role="status">
+      {{ changesError }}
     </Alert>
     <Alert v-if="!expired && failedRoute" variant="destructive" class="notice error">
       <AlertTitle>页面加载失败</AlertTitle>
@@ -235,7 +260,7 @@ useEventListener(window, 'focus', checkChanges)
     <Empty v-else-if="!initialLoading && !loading && !error && !expired && !failedRoute">
       <EmptyHeader><EmptyTitle>尚未读取工作台</EmptyTitle></EmptyHeader>
     </Empty>
-    <footer v-if="snapshot && !piWorkspace" class="page-footer">最近读取 {{ dateLabel(snapshot.readAt) }}</footer>
+    <footer v-if="readAt && !piWorkspace" class="page-footer">最近读取 {{ dateLabel(readAt) }}</footer>
   </main>
   </div>
   </TooltipProvider>

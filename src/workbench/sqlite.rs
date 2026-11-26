@@ -59,6 +59,25 @@ pub(crate) enum ExtensionChange<'a> {
 
 pub(crate) type ExtensionRecords = BTreeMap<String, Vec<(String, String)>>;
 
+fn extension_records(connection: &Connection, kinds: &[&str]) -> Result<ExtensionRecords> {
+    let mut records = BTreeMap::new();
+    if kinds.is_empty() || scalar(connection, "PRAGMA user_version")? < 2 {
+        return Ok(records);
+    }
+    let mut statement = connection
+        .prepare("SELECT id,payload FROM workbench_records WHERE kind=?1 ORDER BY id")
+        .map_err(sql_error)?;
+    for kind in kinds {
+        let rows = statement
+            .query_map([kind], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(sql_error)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(sql_error)?;
+        records.insert((*kind).to_owned(), rows);
+    }
+    Ok(records)
+}
+
 fn insert_event(
     connection: &Connection,
     job_id: &str,
@@ -749,25 +768,41 @@ impl Database {
                 return Err(invalid("数据库键、顺序与记录内容不一致"));
             }
         }
-        let mut extensions = BTreeMap::new();
-        if scalar(&transaction, "PRAGMA user_version")? >= 2 {
-            for kind in kinds {
-                let mut statement = transaction
-                    .prepare("SELECT id,payload FROM workbench_records WHERE kind=?1 ORDER BY id")
-                    .map_err(sql_error)?;
-                let rows = statement
-                    .query_map([kind], |row| Ok((row.get(0)?, row.get(1)?)))
-                    .map_err(sql_error)?
-                    .collect::<rusqlite::Result<Vec<(String, String)>>>()
-                    .map_err(sql_error)?;
-                extensions.insert((*kind).to_owned(), rows);
-            }
-        }
+        let extensions = extension_records(&transaction, kinds)?;
         let data_version = scalar(&transaction, "PRAGMA data_version")?;
         transaction.commit().map_err(sql_error)?;
         self.revalidate(root)?;
         self.data_version = data_version;
         Ok((state, extensions))
+    }
+    pub(crate) fn read_records_at_revision(
+        &mut self,
+        root: &Root,
+        revision: u64,
+        kinds: &[&str],
+    ) -> Result<ExtensionRecords> {
+        let changed = || {
+            YssError::new(
+                ErrorCode::ConcurrentChange,
+                "数据库已被其他连接修改，请重启核实",
+            )
+        };
+        self.revalidate(root)?;
+        let transaction = self.connection.transaction().map_err(sql_error)?;
+        let (identity, actual_revision) = metadata(&transaction)?;
+        if identity != self.identity
+            || actual_revision != revision
+            || scalar(&transaction, "PRAGMA data_version")? != self.data_version
+        {
+            return Err(changed());
+        }
+        let records = extension_records(&transaction, kinds)?;
+        transaction.commit().map_err(sql_error)?;
+        if scalar(&self.connection, "PRAGMA data_version")? != self.data_version {
+            return Err(changed());
+        }
+        self.revalidate(root)?;
+        Ok(records)
     }
     pub(crate) fn commit_delta(
         &mut self,
@@ -929,10 +964,15 @@ impl Database {
                         .map_err(sql_error)?;
                 }
                 let prefix = format!("{run_id}/");
-                transaction.execute(
-                    "DELETE FROM workbench_records WHERE kind=?1 AND substr(id,1,length(?2))=?2",
-                    params![super::agent::REVIEW_RECEIPT, prefix],
-                ).map_err(sql_error)?;
+                for kind in [
+                    super::agent::REVIEW_RECEIPT,
+                    super::agent::queue::ENQUEUE_RECEIPT,
+                ] {
+                    transaction.execute(
+                        "DELETE FROM workbench_records WHERE kind=?1 AND substr(id,1,length(?2))=?2",
+                        params![kind, prefix],
+                    ).map_err(sql_error)?;
+                }
             }
             None => {}
         }
@@ -1058,6 +1098,37 @@ impl Database {
         payload
             .map(|value| serde_json::from_str(&value).map_err(|_| invalid("执行轮次记录无效")))
             .transpose()
+    }
+    pub(crate) fn agent_question_events(&self, job_id: &str) -> Result<Vec<super::jobs::JobEvent>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT id,kind,payload,created_at FROM job_events
+             WHERE job_id=?1 AND kind IN ('inputRequested','inputResolved','piQuestionResult')
+             ORDER BY id",
+            )
+            .map_err(sql_error)?;
+        let rows = statement
+            .query_map([job_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        rows.map(|row| {
+            let (id, kind, payload, created_at) = row.map_err(sql_error)?;
+            Ok(super::jobs::JobEvent {
+                id: id as u64,
+                job_id: job_id.into(),
+                kind,
+                payload: serde_json::from_str(&payload).map_err(|_| invalid("作业事件无效"))?,
+                created_at,
+            })
+        })
+        .collect()
     }
     pub(crate) fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.connection

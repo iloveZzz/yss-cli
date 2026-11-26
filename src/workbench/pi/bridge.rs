@@ -1,11 +1,12 @@
 use super::{
     sandbox::Sandbox,
-    workspace::{Location as WorktreeLocation, Worktrees},
+    workspace::{Location as ProjectLocation, Projects},
 };
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::unique_id,
+    model::Sha256,
     workbench::jobs::JobContext,
 };
 use serde::{Deserialize, Serialize};
@@ -155,7 +156,7 @@ impl Bridge {
     pub fn start(
         private: &Path,
         context: &JobContext,
-        worktrees: Worktrees,
+        projects: Projects,
         sandbox: Option<Sandbox>,
         read_only: bool,
         ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
@@ -170,7 +171,7 @@ impl Bridge {
         context.cancel = cancel.clone();
         let mut broker = Broker {
             context,
-            worktrees,
+            projects,
             sandbox,
             read_only,
             token: token.clone(),
@@ -236,7 +237,7 @@ impl Drop for Bridge {
 
 struct Broker {
     context: JobContext,
-    worktrees: Worktrees,
+    projects: Projects,
     sandbox: Option<Sandbox>,
     read_only: bool,
     token: String,
@@ -245,6 +246,44 @@ struct Broker {
 
 fn invalid(message: &str) -> YssError {
     YssError::new(ErrorCode::InvalidInput, message)
+}
+
+fn failure_fields(error: &YssError) -> (&str, &'static str) {
+    let code = error
+        .context
+        .get("piErrorCode")
+        .map(String::as_str)
+        .unwrap_or_else(|| match error.code {
+            ErrorCode::UnsafePath => "protected_path",
+            ErrorCode::ConcurrentChange => "concurrent_change",
+            ErrorCode::InvalidInput | ErrorCode::Argument => "invalid_input",
+            ErrorCode::Io
+                if error
+                    .context
+                    .get("kind")
+                    .is_some_and(|kind| kind == "NotFound") =>
+            {
+                "missing_path"
+            }
+            _ => "operation_failed",
+        });
+    let hint = match code {
+        "missing_path" => "核对工程内的路径和当前材料状态，可以改查可读源码。",
+        "path_outside_scope" => {
+            "用已选工程的 projectId 和工程内相对路径。如需其他工程，从 Spec 发起新会话并选择它。"
+        }
+        "protected_path" => "选择本轮允许访问的普通工程文件或目录。",
+        "path_not_reviewable" => {
+            "可读取该文件。需要更新产物时，请修改源文件并通过授权的离线构建生成。"
+        }
+        "permission_denied" => "仍可继续只读核对。需要编辑或运行命令时，请核对下一轮的运行设置。",
+        "invalid_path" | "invalid_input" => "检查参数格式，文件位置使用工程内相对路径。",
+        "concurrent_change" => {
+            "重新读取当前文件。若 Git 分支、HEAD 或暂存区已改变，请结束本轮并重新发起。"
+        }
+        _ => "查看本次工具错误，其他核对可以继续。",
+    };
+    (code, hint)
 }
 
 fn read_request(stream: &mut UnixStream) -> Result<Request> {
@@ -277,7 +316,11 @@ impl Broker {
         }
         let value = read_request(&mut stream)
             .and_then(|request| self.execute(request, ask))
-            .unwrap_or_else(|error| json!({ "error": error.message }));
+            .unwrap_or_else(|error| {
+                let (code, hint) = failure_fields(&error);
+                json!({ "error": error.message, "errorCode": code,
+                    "displayPath": error.context.get("piDisplayPath"), "hint": hint })
+            });
         let _ = serde_json::to_writer(&mut stream, &value);
     }
 
@@ -308,14 +351,6 @@ impl Broker {
         }
         if !self.ready.load(Ordering::Acquire) {
             return Err(invalid("Pi 工具尚未就绪"));
-        }
-        if self.read_only
-            && matches!(
-                &request.operation,
-                Operation::Write { .. } | Operation::Edit { .. } | Operation::Bash { .. }
-            )
-        {
-            return Err(invalid("只读模式未授权编辑文件或执行命令"));
         }
         match &request.operation {
             Operation::ReportContext {
@@ -354,10 +389,6 @@ impl Broker {
             .as_deref()
             .filter(|id| !id.is_empty() && id.len() <= 256)
             .ok_or_else(|| invalid("Pi 工具调用缺少有效编号"))?;
-        let locate = |location: &Location| {
-            self.worktrees
-                .locate(location.project_id.as_deref(), &location.path)
-        };
         let cancel = &self.context.cancel;
         let result = match request.operation {
             Operation::Ready { .. }
@@ -399,11 +430,9 @@ impl Broker {
             }
             Operation::Write { location, content } => {
                 self.file_call(id, "write", "写入", &location, |target| {
-                    let action = target.write(content, cancel)?;
-                    Ok((
-                        format!("已写入 {}", target.display().display()),
-                        Some(action),
-                    ))
+                    self.require_edit()?;
+                    let change = target.write(content, cancel)?;
+                    Ok(("已写入原工程文件".into(), Some(change)))
                 })?
             }
             Operation::Edit {
@@ -411,14 +440,18 @@ impl Broker {
                 old_text,
                 new_text,
             } => self.file_call(id, "edit", "编辑", &location, |target| {
-                let action = target.edit(&old_text, &new_text, cancel)?;
-                Ok((
-                    format!("已编辑 {}", target.display().display()),
-                    Some(action),
-                ))
+                self.require_edit()?;
+                let change = target.edit(&old_text, &new_text, cancel)?;
+                Ok(("已编辑原工程文件".into(), Some(change)))
             })?,
             Operation::Bash { location, command } => {
-                return self.run_command(id, &locate(&location)?.directory()?, &command);
+                let target = self.prepare_command(&location, &command).map_err(|error| {
+                    self.record_failure(id, "bash", "执行离线命令", &location, None, error)
+                })?;
+                let cwd = target.directory().map_err(|error| {
+                    self.record_failure(id, "bash", "执行离线命令", &location, None, error)
+                })?;
+                return self.run_command(id, &cwd, &command);
             }
             Operation::AskSpecQuestion { question_id } => ask(&self.context, &question_id)?,
         };
@@ -431,19 +464,16 @@ impl Broker {
         operation: &str,
         label: &str,
         location: &Location,
-        call: impl FnOnce(&WorktreeLocation<'_>) -> Result<(String, Option<&'static str>)>,
+        call: impl FnOnce(&ProjectLocation<'_>) -> Result<(String, Option<(&'static str, Sha256)>)>,
     ) -> Result<String> {
         let mut path = None;
         let mut review = None;
         let result = self
-            .worktrees
+            .projects
             .locate(location.project_id.as_deref(), &location.path)
             .and_then(|target| {
                 path = Some(target.display());
-                review = self
-                    .worktrees
-                    .review_location(&target)
-                    .map(|(project, path)| (project.to_owned(), path.to_owned()));
+                review = self.projects.review_location(&target);
                 call(&target)
             });
         let message = path.as_ref().map_or_else(
@@ -452,41 +482,79 @@ impl Broker {
         );
         match result {
             Ok((text, change)) => {
-                if let Some(action) = change {
+                if let Some((action, digest)) = change {
                     self.context.emit(
                         "item/completed",
                         json!({
                             "item": { "id": id, "type": "fileChange", "operation": operation,
                                 "projectId": review.as_ref().map(|(id, _)| id),
                                 "reviewPath": review.as_ref().map(|(_, path)| path),
+                                "afterDigest": digest,
                                 "changes": [{ "path": path, "kind": action }] }
                         }),
                     )?;
                 } else {
                     self.context.emit("piTool", json!({
                         "id": id, "operation": operation, "path": path, "status": "completed", "message": message,
+                        "displayPath": self.projects.error_display_path(location.project_id.as_deref(), &location.path),
                         "projectId": review.as_ref().map(|(id, _)| id), "reviewPath": review.as_ref().map(|(_, path)| path)
                     }))?;
                 }
                 Ok(text)
             }
-            Err(error) => {
-                let _ = self.context.emit("piTool", json!({
-                    "id": id, "operation": operation, "path": path, "status": "failed", "message": message, "error": error.message
-                }));
-                Err(error)
-            }
+            Err(error) => Err(self.record_failure(id, operation, label, location, review, error)),
         }
+    }
+
+    fn record_failure(
+        &self,
+        id: &str,
+        operation: &str,
+        label: &str,
+        location: &Location,
+        review: Option<(String, String)>,
+        error: YssError,
+    ) -> YssError {
+        let display_path = self
+            .projects
+            .error_display_path(location.project_id.as_deref(), &location.path);
+        let (code, hint) = failure_fields(&error);
+        let _ = self.context.emit("piTool", json!({
+            "id": id, "operation": operation, "path": null, "status": "failed", "message": label,
+            "error": error.message, "errorCode": code, "displayPath": display_path, "hint": hint,
+            "projectId": review.as_ref().map(|(id, _)| id), "reviewPath": review.as_ref().map(|(_, path)| path)
+        }));
+        error.context("piDisplayPath", display_path)
+    }
+
+    fn require_edit(&self) -> Result<()> {
+        if self.read_only {
+            return Err(invalid("只读模式未授权编辑文件或执行命令")
+                .context("piErrorCode", "permission_denied"));
+        }
+        Ok(())
+    }
+
+    fn prepare_command(&self, location: &Location, command: &str) -> Result<ProjectLocation<'_>> {
+        self.require_edit()?;
+        if self.sandbox.is_none() {
+            return Err(invalid("本轮未授权离线命令").context("piErrorCode", "permission_denied"));
+        }
+        if command.trim().is_empty() || command.len() > 64 * 1024 || command.contains('\0') {
+            return Err(invalid("命令须为 64 KiB 以内的有效文本"));
+        }
+        let target = self
+            .projects
+            .locate(location.project_id.as_deref(), &location.path)?;
+        self.projects.check_baselines(&self.context.cancel)?;
+        Ok(target)
     }
 
     fn run_command(&self, id: &str, cwd: &Path, command: &str) -> Result<Value> {
         let sandbox = self
             .sandbox
             .as_ref()
-            .ok_or_else(|| invalid("本次作业未授权执行隔离命令"))?;
-        if command.trim().is_empty() || command.len() > 64 * 1024 || command.contains('\0') {
-            return Err(invalid("命令须为 64 KiB 以内的有效文本"));
-        }
+            .ok_or_else(|| invalid("本轮未授权离线命令"))?;
         let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd });
         self.context
             .emit("item/started", json!({ "item": base.clone() }))?;
@@ -514,6 +582,10 @@ impl Broker {
                 last_publish = Some(Instant::now());
             }
             Ok(())
+        });
+        let result = result.and_then(|result| {
+            self.projects.check_baselines(&self.context.cancel)?;
+            Ok(result)
         });
         for fragment in fragments {
             append_output(&mut output, &String::from_utf8_lossy(&fragment));

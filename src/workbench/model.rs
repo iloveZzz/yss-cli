@@ -350,6 +350,8 @@ pub struct ProjectView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpecView {
+    #[serde(skip)]
+    pub(super) source_version: String,
     #[serde(default)]
     pub progress: Option<super::progress::ProgressSummary>,
     pub content: ContentView,

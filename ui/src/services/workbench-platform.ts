@@ -16,6 +16,8 @@ import type { ReviewExcerpt } from './workbench-agent'
 export type JsonObject = Record<string, unknown>
 export interface JobRecord {
   id: string
+  agentRunId?: string
+  agentSpecId?: string
   kind: string
   title: string
   status: string
@@ -174,8 +176,8 @@ export interface RequestRecord {
   updatedAt?: string
 }
 export const getRequests = () => apiRequest<{ total?: number; items: RequestRecord[] }>('/api/requests')
-export const getReceipt = (id: string) =>
-  apiRequest<{ found: boolean; result?: unknown }>(`/api/receipts/${encodeURIComponent(id)}`)
+export const getReceipt = (id: string, signal?: AbortSignal) =>
+  apiRequest<{ found: boolean; result?: unknown }>(`/api/receipts/${encodeURIComponent(id)}`, { signal })
 export interface JobActivity {
   id: number
   updatedEventId: number
@@ -190,6 +192,9 @@ export interface JobActivity {
   path?: string
   projectId?: string
   error?: string
+  errorCode?: string
+  displayPath?: string
+  hint?: string
   durationMs?: number
   question?: JobQuestion
 }
@@ -202,6 +207,18 @@ export interface PiRoundSettings {
 export interface PiContextUsage {
   usedTokens: number | null
   contextWindow: number
+}
+export interface PiUsageTally {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+  cost: number
+}
+export interface PiUsage {
+  turn?: PiUsageTally
+  session: PiUsageTally
 }
 export interface PiPlanStep {
   title: string
@@ -228,6 +245,7 @@ export interface ActivityPage {
   pendingInputs: JobEvent[]
   piSettings?: PiRoundSettings | null
   piContext?: PiContextUsage | null
+  piUsage?: PiUsage | null
   piPlan?: PiPlanStep[] | null
 }
 export interface ConversationPage {
@@ -366,9 +384,18 @@ export interface SourceState {
   inputVersions?: string
   revision: number
   sourceVersions: Record<string, string>
+  projectionVersion?: string | null
+  verification?: import('./workbench-read').Verification
+  verificationError?: string | null
+  activityVersions?: Record<string, string>
+  specVersions?: Record<string, string>
+  agentSessionVersions?: Record<string, string>
+  agentQueueVersions?: Record<string, string>
+  jobsVersion?: string
+  changeSequence?: number
   readAt: string
 }
-export const getSourceState = () => apiRequest<SourceState>('/api/source-state')
+export const getSourceState = () => apiRequest<SourceState>('/api/source-state?compact=1')
 export function streamJob(
   id: string,
   after: number,

@@ -6,10 +6,10 @@ import StatusBadge from './StatusBadge.vue'
 import {
   dateLabel,
   stages,
-  attentionLabels,
-  type ProgressSummary
+  attentionLabels
 } from '@/services/workbench'
-const props = defineProps<{ progress?: ProgressSummary; compact?: boolean }>()
+import type { CompactProgress } from '@/services/workbench-read'
+const props = defineProps<{ progress?: CompactProgress; compact?: boolean }>()
 const title = computed(() => {
   const progress = props.progress
   if (!progress) return '目标与进展待核实'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useId, useTemplateRef } from 'vue'
-import { useMediaQuery } from '@vueuse/core'
+import { computed, nextTick, onScopeDispose, shallowRef, useId, useTemplateRef, watch } from 'vue'
+import { useDebounceFn, useMediaQuery } from '@vueuse/core'
 import { ListFilter } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,15 +12,16 @@ import {
   statuses,
   contentStatuses,
   type WorkQuery,
-  type ProjectView,
-  type SpecView
+  type ProjectRecord
 } from '@/services/workbench'
+import type { CatalogSpec } from '@/services/workbench-read'
 import FilterPopover from './FilterPopover.vue'
 
 const props = defineProps<{
   query: WorkQuery
-  projects: ProjectView[]
-  specs: SpecView[]
+  projects: ProjectRecord[]
+  specs: CatalogSpec[]
+  catalogReady?: boolean
   embedded?: boolean
 }>()
 const emit = defineEmits<{
@@ -33,6 +34,29 @@ const emit = defineEmits<{
   clear: []
 }>()
 const id = useId()
+const search = shallowRef(props.query.q)
+function publishSearch() {
+  if (search.value !== props.query.q) emit('update', { q: search.value })
+}
+const waitForSearch = useDebounceFn(publishSearch, 220)
+onScopeDispose(waitForSearch.cancel)
+watch(() => props.query.q, (q) => {
+  waitForSearch.cancel()
+  search.value = q
+})
+function updateSearch(value: string | number) {
+  search.value = String(value)
+  if (search.value) void waitForSearch()
+  else {
+    waitForSearch.cancel()
+    publishSearch()
+  }
+}
+function searchOnEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  waitForSearch.cancel()
+  publishSearch()
+}
 const desktopFilters = useMediaQuery('(min-width: 720px)')
 const mobileFiltersOpen = shallowRef(false)
 const filtersOpen = computed({
@@ -57,8 +81,8 @@ const groups = computed(() => [
     key: 'projectIds' as const,
     label: '工程',
     options: props.projects.map((p) => ({
-      value: p.record.id,
-      label: `${p.record.name}${p.record.active ? '' : '（停用）'}`
+      value: p.id,
+      label: `${p.name}${p.active ? '' : '（停用）'}`
     }))
   },
   {
@@ -102,20 +126,21 @@ const chips = computed(() => {
   for (const group of groups.value) {
     for (const value of query[group.key]) {
       const option = group.options.find((option) => option.value === value)
+      const waiting = group.key === 'projectIds' && !props.catalogReady
       values.push({
         key: `${group.key}:${value}`,
-        label: `${group.label}：${option?.label ?? `已失效（${value}）`}`,
-        missing: !option,
+        label: `${group.label}：${option?.label ?? (waiting ? value : `已失效（${value}）`)}`,
+        missing: !option && !waiting,
         patch: { [group.key]: query[group.key].filter((item) => item !== value) }
       })
     }
   }
   for (const value of query.specIds) {
-    const spec = props.specs.find((spec) => spec.record.id === value)
+    const spec = props.specs.find((spec) => spec.id === value)
     values.push({
       key: `spec:${value}`,
-      label: `Spec：${spec?.record.title ?? `已失效（${value}）`}`,
-      missing: !spec,
+      label: `Spec：${spec?.title ?? (props.catalogReady ? `已失效（${value}）` : value)}`,
+      missing: props.catalogReady && !spec,
       patch: { specIds: query.specIds.filter((item) => item !== value) }
     })
   }
@@ -139,7 +164,8 @@ function summary(group: (typeof groups.value)[number]) {
   return selected.length === 0
     ? '全部'
     : selected.length === 1
-      ? (group.options.find((option) => option.value === selected[0])?.label ?? '已失效')
+      ? (group.options.find((option) => option.value === selected[0])?.label ??
+        (group.key === 'projectIds' && !props.catalogReady ? '正在读取' : '已失效'))
       : undefined
 }
 async function remove(index: number) {
@@ -153,6 +179,8 @@ async function remove(index: number) {
   target?.focus()
 }
 async function clear() {
+  waitForSearch.cancel()
+  search.value = ''
   emit('clear')
   await nextTick()
   root.value?.querySelector<HTMLInputElement>('input[type=search]')?.focus()
@@ -173,14 +201,15 @@ async function clear() {
             :id="id + '-search'"
             type="search"
             name="q"
-            :model-value="query.q"
+            :model-value="search"
             :aria-describedby="id + '-hint'"
             placeholder="搜索标题、工程、路径、下一步、阻塞或备注"
             class="work-search"
             autocorrect="off"
             autocapitalize="none"
             :spellcheck="false"
-            @update:model-value="emit('update', { q: String($event) })"
+            @update:model-value="updateSearch"
+            @keydown.enter="searchOnEnter"
           />
         </div>
       </div>
@@ -201,7 +230,7 @@ async function clear() {
             clearable
             @clear="emit('update', { [group.key]: [] })"
           >
-            <div v-if="!group.options.length" class="option-empty">暂无可选工程</div>
+            <div v-if="!group.options.length" class="option-empty">{{ catalogReady ? '暂无可选工程' : '尚未读取工程' }}</div>
             <label
               v-for="option in group.options"
               :key="option.value"

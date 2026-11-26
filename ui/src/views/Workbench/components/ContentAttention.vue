@@ -7,13 +7,11 @@ import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { contentReminders, matchesContentReminder } from '@/services/workbench-content'
-import { useWorkbench } from '@/hooks/useWorkbench'
-import type { SpecView } from '@/services/workbench'
-const props = defineProps<{ specs: readonly SpecView[] }>()
+import { contentReminders } from '@/services/workbench-content'
+import type { WorkbenchOverview } from '@/services/workbench-read'
+const props = defineProps<{ reminders: WorkbenchOverview['reminders'] }>()
 const route = useRoute()
 const router = useRouter()
-const { snapshot } = useWorkbench()
 const id = useId()
 const categories = new Set(contentReminders(undefined).map((group) => group.id))
 function category(value: unknown) {
@@ -27,43 +25,17 @@ function select(kind: string | number) {
   touched.value = true
   void router.replace({ query: { ...route.query, attention: kind } })
 }
-const summaries = computed(() =>
-  props.specs.map((spec) => ({ spec, reminders: contentReminders(spec.content) }))
-)
 const counts = computed(() =>
   contentReminders(undefined).map((group) => ({
     ...group,
-    count: summaries.value.reduce(
-      (sum, item) =>
-        sum + (item.reminders.find((reminder) => reminder.id === group.id)?.count ?? 0),
-      0
-    )
+    count: props.reminders[group.id]?.total ?? 0
   }))
 )
 const selectedLabel = computed(
   () => counts.value.find((group) => group.id === selected.value)?.label ?? '内容待办'
 )
 const hasReminders = computed(() => counts.value.some((group) => group.count > 0))
-const items = computed(() =>
-  summaries.value.flatMap(({ spec, reminders }) => {
-    const count = reminders.find((group) => group.id === selected.value)?.count ?? 0
-    return count
-      ? [
-          {
-            spec,
-            count,
-            projectName:
-              snapshot.value?.projects.find(
-                (project) => project.record.id === spec.record.projectId
-              )?.record.name ?? '未知工程',
-            questions: spec.content.questions
-              .filter((item) => matchesContentReminder(item, selected.value))
-              .slice(0, 3)
-          }
-        ]
-      : []
-  })
-)
+const items = computed(() => props.reminders[selected.value]?.items ?? [])
 watch(
   () => route.query.attention,
   (value) => {
@@ -96,7 +68,7 @@ function location(specId: string, questionId?: string) {
   <section v-else class="work-section content-attention" :aria-labelledby="id">
     <div class="section-heading">
       <h2 :id="id">需要你处理</h2>
-      <RouterLink :to="{ path: '/specs', query: { reminder: selected } }">
+      <RouterLink :to="{ path: '/specs', query: { reminder: selected, progressBasis: 'effective', showClosed: 'true' } }">
         查看筛选列表 →
       </RouterLink>
     </div>
@@ -125,33 +97,33 @@ function location(specId: string, questionId?: string) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="item in items" :key="item.spec.record.id">
+              <TableRow v-for="item in items" :key="item.specId">
                 <TableHead scope="row">
-                  <RouterLink :to="location(item.spec.record.id)" :title="item.spec.record.sourcePath">
-                    {{ item.spec.record.title }}
+                  <RouterLink :to="location(item.specId)" :title="item.sourcePath">
+                    {{ item.title }}
                   </RouterLink>
                   <span class="row-sub">{{ item.projectName }}</span>
                 </TableHead>
                 <TableCell>
                   <ul v-if="item.questions.length" class="attention-questions">
-                    <li v-for="question in item.questions" :key="question.question.id">
-                      <RouterLink :to="location(item.spec.record.id, question.question.id)">
-                        {{ question.question.title }}
+                    <li v-for="question in item.questions" :key="question.id">
+                      <RouterLink :to="location(item.specId, question.id)">
+                        {{ question.title }}
                       </RouterLink>
-                      <Badge v-if="question.question.blocking" variant="outline" class="blocking-label">阻塞</Badge>
+                      <Badge v-if="question.blocking" variant="outline" class="blocking-label">阻塞</Badge>
                     </li>
                   </ul>
                   <p v-else class="muted">主规格已具备确认条件</p>
                   <RouterLink
                     v-if="item.count > item.questions.length && item.questions.length"
-                    :to="location(item.spec.record.id)"
+                    :to="location(item.specId)"
                     class="more-questions"
                   >
                     查看其余 {{ item.count - item.questions.length }} 项
                   </RouterLink>
                 </TableCell>
                 <TableCell class="attention-action">
-                  <RouterLink :to="location(item.spec.record.id)">
+                  <RouterLink :to="location(item.specId)">
                     {{
                       selected === 'ready'
                         ? '检查并确认'

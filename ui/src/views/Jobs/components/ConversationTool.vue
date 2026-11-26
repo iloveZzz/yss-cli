@@ -22,6 +22,7 @@ const operations: Record<string, string> = {
   grep: '搜索文件',
   write: '写入文件',
   edit: '编辑文件',
+  bash: '执行离线命令',
   compact: '压缩上下文'
 }
 const command = computed(() => props.row.kind === 'command')
@@ -35,7 +36,7 @@ const label = computed(() =>
   command.value ? '执行命令' : operations[props.row.operation ?? ''] ?? '文件操作'
 )
 const detail = computed(() =>
-  props.row.path ?? (props.row.error && props.row.operation ? '' : props.row.text)
+  props.row.displayPath ?? props.row.path ?? (props.row.error && props.row.operation ? '' : props.row.text)
 )
 </script>
 
@@ -54,7 +55,7 @@ const detail = computed(() =>
         <ActivityDetail :job-id="jobId" :row="row" command-output />
       </TraceCollapsibleContent>
     </TraceCollapsible>
-    <div v-else>
+    <div v-else class="tool-item">
       <TraceLine class="tool-line">
         <TraceIcon><span class="tool-mark" aria-hidden="true" /></TraceIcon>
         <TraceTitle>{{ label }}</TraceTitle>
@@ -64,7 +65,10 @@ const detail = computed(() =>
         </Badge>
         <code v-if="detail" class="tool-detail">{{ detail }}</code>
       </TraceLine>
-      <p v-if="row.error" class="tool-error">{{ row.error }}</p>
+      <div v-if="row.error || row.hint" class="tool-diagnostic" :data-error-code="row.errorCode">
+        <p v-if="row.error" class="tool-error">{{ row.error }}</p>
+        <p v-if="row.hint && row.hint !== row.error">{{ row.hint }}</p>
+      </div>
     </div>
   </Trace>
 </template>
@@ -105,8 +109,12 @@ const detail = computed(() =>
 .conversation-tool[data-failed] .tool-state, .tool-error {
   color: var(--brand-color-error-active);
 }
-.tool-error {
-  padding: 2px 24px;
+.conversation-tool > .tool-item {
+  display: grid;
+  width: 100%;
+}
+.tool-diagnostic {
+  padding: 2px 0 2px 24px;
   overflow-wrap: anywhere;
 }
 .tool-output {

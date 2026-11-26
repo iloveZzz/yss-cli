@@ -8,7 +8,6 @@ import {
   stages,
   statuses,
   contentStatuses,
-  type WorkItem,
   type GroupBy,
   type Stage,
   type Status
@@ -23,14 +22,27 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ProgressSummary from '@/components/ProgressSummary.vue'
 import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
-import { useWorkbench } from '@/hooks/useWorkbench'
+import type { CompactWorkItem } from '@/services/workbench-read'
 import { contentReminders } from '@/services/workbench-content'
 import { useWorkActions } from '../hooks/useWorkActions'
-const props = defineProps<{ items: WorkItem[]; groupBy: GroupBy; revision: number; progressBasis: 'effective' | 'personal'; readonlyResults?: boolean; busy?: boolean; refreshing?: boolean }>()
+const props = defineProps<{
+  items: CompactWorkItem[]
+  columnTotals: Record<string, number>
+  groupBy: GroupBy
+  revision: number
+  progressBasis: 'effective' | 'personal'
+  readonlyResults?: boolean
+  busy?: boolean
+  refreshing?: boolean
+  refreshAfter: (revision?: number) => Promise<unknown>
+}>()
+const emit = defineEmits<{ loadMore: [column: string] }>()
 const route = useRoute()
 const id = useId()
-const { snapshot } = useWorkbench()
-const { move, confirm, cancel, open, blocker, error, notice, saving, overrideOpen, correction, corrected } = useWorkActions(() => props.progressBasis)
+const { move, confirm, cancel, open, blocker, error, notice, saving, overrideOpen, correction, corrected, pending, stale, reloadBlocker } =
+  useWorkActions(() => props.progressBasis, (revision) => props.refreshAfter(revision))
+const correctionItem = computed(() => props.items.find((item) => item.id === correction.value?.item.id))
+const blockerItem = computed(() => props.items.find((item) => item.id === pending.value?.item.id))
 const board = useTemplateRef<HTMLElement>('board')
 watch(notice, async (value) => {
   if (value) {
@@ -38,7 +50,6 @@ watch(notice, async (value) => {
     if (document.activeElement === document.body) board.value?.focus()
   }
 })
-const limits = defineModel<Record<string, number>>('limits', { required: true })
 const scrollLeft = defineModel<number>('scrollLeft', { required: true })
 watch(
   [board, scrollLeft],
@@ -49,7 +60,7 @@ watch(
 )
 const hideEmpty = shallowRef(true)
 const reminders = contentReminders(undefined).filter((reminder) => reminder.id !== 'ready')
-const dragging = shallowRef<{ item: WorkItem; revision: number; groupBy: GroupBy }>()
+const dragging = shallowRef<{ item: CompactWorkItem; revision: number; groupBy: GroupBy }>()
 const hovered = shallowRef('')
 const labels = computed(() => (props.groupBy === 'status' ? statuses : stages))
 const columns = computed(() =>
@@ -57,12 +68,13 @@ const columns = computed(() =>
     .map(([key, label]) => ({
       key,
       label,
+      total: props.columnTotals[key] ?? 0,
       items: props.items.filter((i) => i[props.groupBy] === key)
     }))
-    .filter((c) => !hideEmpty.value || c.items.length)
+    .filter((c) => !hideEmpty.value || c.total > 0)
 )
 watch([() => props.items, () => props.groupBy, () => props.readonlyResults], end)
-function start(event: DragEvent, item: WorkItem) {
+function start(event: DragEvent, item: CompactWorkItem) {
   if (props.readonlyResults || !item.active || saving.value) {
     event.preventDefault()
     return
@@ -73,7 +85,7 @@ function start(event: DragEvent, item: WorkItem) {
     event.dataTransfer.setData('text/plain', item.id)
   }
 }
-function moveCard(item: WorkItem, value: Stage | Status) {
+function moveCard(item: CompactWorkItem, value: Stage | Status) {
   if (props.readonlyResults || !item.active) return
   return move(item, props.groupBy, value, props.revision)
 }
@@ -90,7 +102,7 @@ function end() {
 }
 </script>
 <template>
-  <div class="toolbar">
+  <div v-if="items.length" class="toolbar">
     <label class="check-label">
       <Checkbox :model-value="hideEmpty" @update:model-value="hideEmpty = $event === true" />
       隐藏空列
@@ -99,7 +111,7 @@ function end() {
   </div>
   <p v-if="notice" role="status" class="notice">{{ notice }}</p>
   <Alert v-if="error && !open" role="alert" class="notice error">{{ error }}</Alert>
-  <div class="relative">
+  <div v-if="items.length" class="relative">
     <div
       ref="board"
       tabindex="0"
@@ -121,12 +133,13 @@ function end() {
       >
         <header>
           <h2>{{ column.label }}</h2>
-          <Badge variant="secondary" class="count">{{ column.items.length }}</Badge>
+          <Badge variant="secondary" class="count">{{ column.total }}</Badge>
         </header>
         <TransitionGroup name="workbench-list" tag="div" class="board-cards">
         <Card
-          v-for="item in column.items.slice(0, limits[column.key] ?? 50)"
+          v-for="item in column.items"
           :key="item.id"
+          :data-spec-id="item.specId"
           class="board-card block shadow-none"
           :draggable="item.active && !saving && !readonlyResults"
           @dragstart="start($event, item)"
@@ -164,7 +177,7 @@ function end() {
               </RouterLink>
             </template>
           </div>
-          <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress ?? snapshot?.progress?.[item.specId]" compact />
+          <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress" compact />
           <p v-if="progressBasis === 'personal' && item.nextAction" class="card-next">{{ item.nextAction }}</p>
           <p v-if="progressBasis === 'personal' && item.status === 'blocked'" class="blocker-text">{{ item.blocker }}</p>
           <p v-if="item.hasSourceProblem" class="warning-text">来源异常</p>
@@ -186,26 +199,34 @@ function end() {
         </Card>
         </TransitionGroup>
         <Button
-          v-if="column.items.length > (limits[column.key] ?? 50)"
+          v-if="column.items.length < column.total"
           variant="outline"
-          @click="limits[column.key] = (limits[column.key] ?? 50) + 50"
+          :disabled="busy || readonlyResults"
+          @click="emit('loadMore', column.key)"
         >
-          加载更多（{{ column.items.length }}）
+          加载更多（{{ column.items.length }} / {{ column.total }}）
         </Button>
         <p v-if="!column.items.length" class="column-empty">暂无 Spec</p>
       </section>
       <TableLoadingOverlay :active="!!refreshing" label="正在刷新看板" />
     </div>
   </div>
-  <ProgressOverrideForm v-if="correction" v-model="overrideOpen" :spec-id="correction.item.specId" :progress="snapshot?.progress?.[correction.item.specId] ?? correction.item.progress" :stage="correction.stage" :initial-progress="correction.progress" @saved="corrected" />
+  <ProgressOverrideForm v-if="correction" v-model="overrideOpen" :spec-id="correction.item.specId"
+    :progress="correctionItem?.progress ?? correction.item.progress" :stage="correction.stage"
+    :initial-progress="correction.progress" :expected-revision="revision" :refresh-after="refreshAfter"
+    :write-disabled="readonlyResults || !correctionItem?.active" @saved="corrected" />
   <ModalDialog v-model="open" title="记录阻塞原因" :busy="saving">
     <form class="form-stack" @submit.prevent="confirm">
       <label :for="id + 'blocker'">阻塞说明（必填）</label>
       <Textarea :id="id + 'blocker'" v-model="blocker" required rows="3" />
       <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
+      <Button v-if="stale" type="button" variant="outline" :disabled="readonlyResults || !blockerItem?.active"
+        @click="blockerItem && reloadBlocker(blockerItem, revision)">
+        采用最新记录，保留阻塞说明
+      </Button>
       <div class="form-actions">
         <Button variant="outline" type="button" :disabled="saving" @click="cancel">取消</Button>
-        <Button :disabled="saving">
+        <Button :disabled="saving || stale || readonlyResults || !blockerItem?.active">
           <LoadingIndicator :active="saving" />
           {{ saving ? '正在记录…' : '确认阻塞' }}
         </Button>

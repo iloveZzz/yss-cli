@@ -1,5 +1,8 @@
 import { apiRequest, type SpecView, type SourceDocument, type SpecRecord, type Stage } from './workbench'
 import { requestId, type JobRecord, type JsonObject, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
+import type { Verification } from './workbench-read'
+export type AgentWorkspaceMode = 'direct' | 'isolated'
+
 export interface FileDescriptor {
   sha256: string
   size: number
@@ -31,9 +34,23 @@ export interface AgentDiff {
   runId: string
   jobId: string
   historical: boolean
+  workspaceMode?: AgentWorkspaceMode
   reviewToken: string
   gitBaselines: Record<string, GitBaseline>
   files: AgentFile[]
+}
+export type AgentFileSummary = Omit<AgentFile, 'binary' | 'initialText' | 'resultText' | 'currentText' | 'reviewedBefore'>
+export type AgentDiffSummary = Omit<AgentDiff, 'files'> & { files: AgentFileSummary[] }
+export interface AgentDiffHunk {
+  side: 'initial' | 'current'
+  oldStart: number
+  newStart: number
+  oldLines: string[]
+  newLines: string[]
+}
+export interface AgentDiffFile extends AgentFile {
+  hunks: AgentDiffHunk[]
+  hunksTruncated: boolean
 }
 export interface GitBaseline {
   head: string
@@ -74,6 +91,9 @@ export interface AgentRun {
   status: string
   jobId: string
   host: 'codex' | 'pi'
+  workspaceMode?: AgentWorkspaceMode
+  snapshotError?: string
+  readOnly?: boolean | null
   canResume: boolean
   resumeIssue?: string
   recoveryJobId?: string
@@ -90,10 +110,10 @@ export interface AgentRun {
 }
 export interface AgentStart {
   lifecycleStage?: Stage
+  expectedGoalVersion?: string
   specId: string
   prompt: string
   projectIds: string[]
-  carryFiles: Record<string, string[]>
   resumeRunId?: string
   expectedJobId?: string
   citations?: ReviewCitation[]
@@ -102,6 +122,28 @@ export interface AgentStart {
   readOnly?: boolean
   expectedModel?: PiModel
   allowCommands?: boolean
+}
+export interface RunActivity {
+  runId: string
+  jobId: string
+  stage: Stage
+  goalVersion: string
+  specDigest: string
+  status: string
+  projectIds: string[]
+  readOnly: boolean | null
+  resultAvailable: boolean
+  acceptance: {
+    projectId: string
+    status: 'writing' | 'accepted' | 'noWrite' | 'failed' | 'needsVerification'
+  }[]
+}
+
+export function loadSpecRunActivities(
+  specId: string, goalVersion: string, specDigest: string, signal?: AbortSignal
+) {
+  const scope = new URLSearchParams({ goalVersion, specDigest })
+  return apiRequest<{ items: RunActivity[] }>(`/api/specs/${encodeURIComponent(specId)}/activity?${scope}`, { signal })
 }
 export interface ReviewCitation {
   reviewToken: string
@@ -116,6 +158,41 @@ export interface ReviewExcerpt extends ReviewCitation {
   jobId: string
   snippet: string
 }
+export interface PiQueueEntry {
+  id: string
+  prompt: string
+  citations: ReviewCitation[]
+  readOnly: boolean
+  goalVersion?: string | null
+  dispatching: boolean
+  jobId?: string | null
+}
+export interface PiQueue {
+  runId: string
+  version: number
+  pausedReason: string | null
+  lastJobId: string
+  items: PiQueueEntry[]
+}
+export interface PiQueueDraft {
+  version: number
+  clientId?: string
+  prompt: string
+  citations?: ReviewCitation[]
+  readOnly: boolean
+  expectedGoalVersion?: string
+}
+const queuePath = (run: string) => `/api/agent/${encodeURIComponent(run)}/queue`
+export const getPiQueue = (run: string, signal?: AbortSignal) =>
+  apiRequest<PiQueue>(queuePath(run), { signal })
+export const putPiQueueItem = (run: string, body: PiQueueDraft, itemId?: string) =>
+  itemId
+    ? apiRequest<PiQueue>(`${queuePath(run)}/${encodeURIComponent(itemId)}`, { method: 'PATCH', body })
+    : apiRequest<PiQueue>(queuePath(run), { body })
+export const removePiQueueItem = (run: string, itemId: string, version: number) =>
+  apiRequest<PiQueue>(`${queuePath(run)}/${encodeURIComponent(itemId)}`, { method: 'DELETE', body: { version } })
+export const resumePiQueue = (run: string, version: number, confirmDirectEdit = false) =>
+  apiRequest<PiQueue>(`${queuePath(run)}/resume`, { body: { version, confirmDirectEdit } })
 export interface AgentAttention {
   kind: 'recovery' | 'question' | 'answerFailed' | 'interrupted' | 'failed' | 'review'
   activityId?: number
@@ -128,6 +205,8 @@ export interface AgentSummary {
   status: string
   updatedAt: string
   attention: AgentAttention[]
+  workspaceMode?: AgentWorkspaceMode
+  snapshotError?: string
   pendingFiles: number | null
   hasSnapshot: boolean
   hasAcceptance: boolean
@@ -146,6 +225,16 @@ export interface AgentWorkspace {
   sourceError: string | null
   projects: AgentProject[]
   sessions: AgentSummary[]
+}
+export interface AgentSessionPage extends AgentWorkspace {
+  verification: Verification
+  verificationError: string | null
+  stageBinding: { goalVersion: string; specDigest: string; stages: Stage[]; primaryStage: Stage | null } | null
+  total: number
+  attentionTotal: number
+  version: string
+  nextCursor: string | null
+  selectedSession?: AgentSummary | null
 }
 export type AcceptanceDisposition = 'applied' | 'noWrite' | 'rolledBack' | 'recoveryRequired'
   | 'committedPendingCleanup' | 'unverified' | 'verified' | 'writing'
@@ -189,12 +278,29 @@ export const testPiConnection = (expectedModel: PiModel, target: PiRunTarget, si
     body: { expectedModel, ...target },
     signal
   })
-export const startAgent = (value: AgentStart, id = requestId()) =>
+export const startAgent = (value: AgentStart, id: string = requestId()) =>
   apiRequest<JobRecord>('/api/agent/start', { body: { ...value, requestId: id } })
+export const admitAgent = (value: AgentStart, id: string = requestId()) =>
+  apiRequest<JobRecord>('/api/agent/start?admission=async', {
+    body: { ...value, requestId: id },
+    retryUncertain: false
+  })
 export const getAgentRun = (id: string, signal?: AbortSignal) =>
   apiRequest<AgentRun>(`/api/agent/${encodeURIComponent(id)}`, { signal })
 export const getAgentWorkspace = (specId: string, signal?: AbortSignal) =>
   apiRequest<AgentWorkspace>(`/api/specs/${encodeURIComponent(specId)}/agent-sessions`, { signal })
+export function getAgentSessionPage(
+  specId: string,
+  page: { search: string; attention: boolean; cursor?: string; runId?: string },
+  signal?: AbortSignal
+) {
+  const query = new URLSearchParams({ compact: '1' })
+  if (page.search) query.set('q', page.search)
+  if (page.attention) query.set('attention', '1')
+  if (page.cursor) query.set('cursor', page.cursor)
+  if (page.runId) query.set('runId', page.runId)
+  return apiRequest<AgentSessionPage>(`/api/specs/${encodeURIComponent(specId)}/agent-sessions?${query}`, { signal })
+}
 export const getAgentRounds = (id: string, signal?: AbortSignal) =>
   apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[] }>(`/api/agent/${encodeURIComponent(id)}/rounds`, { signal })
 export const deleteAgentSession = (id: string, expectedJobId: string) =>
@@ -203,6 +309,18 @@ export const deleteAgentSession = (id: string, expectedJobId: string) =>
   })
 export const getAgentDiff = (id: string, jobId?: string, signal?: AbortSignal) =>
   apiRequest<AgentDiff>(`/api/agent/${encodeURIComponent(id)}/diff${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`, { signal })
+export function getAgentDiffSummary(id: string, jobId: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({ compact: '1', jobId })
+  return apiRequest<AgentDiffSummary>(`/api/agent/${encodeURIComponent(id)}/diff?${query}`, { signal })
+}
+export function getAgentDiffFile(
+  id: string, jobId: string, reviewToken: string, file: Pick<AgentFileSummary, 'projectId' | 'path'>,
+  full: boolean, signal?: AbortSignal
+) {
+  const query = new URLSearchParams({ jobId, reviewToken, projectId: file.projectId, path: file.path })
+  if (full) query.set('full', '1')
+  return apiRequest<AgentDiffFile>(`/api/agent/${encodeURIComponent(id)}/diff/file?${query}`, { signal })
+}
 export const getAgentAcceptance = (id: string, attemptId?: string, signal?: AbortSignal) =>
   apiRequest<AgentAcceptance | null>(
     `/api/agent/${encodeURIComponent(id)}/acceptance${attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : ''}`,
@@ -216,7 +334,7 @@ export const rebindAgent = (id: string, previewToken: string) =>
   apiRequest<AgentBindingResult>(`/api/agent/${encodeURIComponent(id)}/rebind`, {
     body: { previewToken }
   })
-export const acceptAgentFiles = (id: string, reviewToken: string, files: AgentFile[], jobId?: string, attemptId?: string) =>
+export const acceptAgentFiles = (id: string, reviewToken: string, files: AgentFileSummary[], jobId?: string, attemptId?: string) =>
   apiRequest<AgentAcceptance>(`/api/agent/${encodeURIComponent(id)}/accept`, {
     body: {
       reviewToken,

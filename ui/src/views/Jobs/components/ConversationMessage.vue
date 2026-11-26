@@ -1,3 +1,7 @@
+<script lang="ts">
+const completedMarkdown = new Map<number, { text: string; html: string }>()
+</script>
+
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { computed } from 'vue'
@@ -13,13 +17,23 @@ const props = defineProps<{
   rowId?: number
 }>()
 
-const html = computed(() =>
-  props.user ? '' : renderMarkdown(props.text, {
+const html = computed(() => {
+  if (props.user) return ''
+  const { rowId, streaming, text } = props
+  const cached = rowId !== undefined && !streaming ? completedMarkdown.get(rowId) : undefined
+  if (cached?.text === text) return cached.html
+  const value = renderMarkdown(text, {
     documentLinks: false,
     hideSpecMetadata: false,
-    headingPrefix: `pi-message-${props.rowId}-`
+    headingPrefix: `pi-message-${rowId}-`
   })
-)
+  if (rowId !== undefined && !streaming && text.length + value.length <= 64 * 1024) {
+    completedMarkdown.delete(rowId)
+    completedMarkdown.set(rowId, { text, html: value })
+    if (completedMarkdown.size > 32) completedMarkdown.delete(completedMarkdown.keys().next().value!)
+  }
+  return value
+})
 </script>
 
 <template>
@@ -34,7 +48,7 @@ const html = computed(() =>
       <MessageContent class="conversation-message-body">
         <p v-if="user" class="preserve-lines">{{ text }}</p>
         <!-- MarkdownIt: raw HTML and image loads are disabled. -->
-        <div v-else class="source-markdown" v-html="html" />
+        <div v-else class="source-markdown" :data-assistant-row="rowId" v-html="html" />
         <span v-if="streaming" class="muted conversation-streaming">
           <LoadingIndicator :active="streaming" />
           正在生成…

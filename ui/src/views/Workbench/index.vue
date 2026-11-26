@@ -1,94 +1,63 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import RegisteredSpecs from '@/components/RegisteredSpecs.vue'
 import WorkItemRows from '@/components/WorkItemRows.vue'
 import ContentAttention from './components/ContentAttention.vue'
 import ActiveJobs from './components/ActiveJobs.vue'
-import { useWorkbench } from '@/hooks/useWorkbench'
-import {
-  dateLabel,
-  hasSourceProblem,
-  stages,
-  type ChangeEvent,
-  type WorkItem
-} from '@/services/workbench'
-import { contentReminders, materialNeedsReview } from '@/services/workbench-content'
+import { registerWorkbenchRouteReads, useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { dateLabel, stages, type ChangeEvent } from '@/services/workbench'
 import { eventDescription } from '@/services/workbench-history'
-const { activeSpecs, loading, snapshot } = useWorkbench()
+import type { WorkbenchOverview } from '@/services/workbench-read'
+import { useWorkbenchOverview } from './hooks/useWorkbenchOverview'
+
+const { overview, loading, error, verification, refresh } = useWorkbenchOverview()
+const { catalog, catalogError, refreshCatalog } = useWorkbenchCatalog()
 const route = useRoute()
 const router = useRouter()
-const progressFor = (id: string) => snapshot.value?.progress?.[id]
-const doing = computed(() => activeSpecs.value.filter((spec) => progressFor(spec.record.id)?.status === 'doing'))
-const blocked = computed(() => activeSpecs.value.filter((spec) => progressFor(spec.record.id)?.status === 'blocked'))
-const attention = computed(() => activeSpecs.value.filter((spec) => !!progressFor(spec.record.id)?.attention.length))
-const problems = computed(() => activeSpecs.value.filter(hasSourceProblem))
-const groups = computed(() => [
-  { id: 'attention', label: '待确认与核实', specs: attention.value, query: { attention: ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'], progressBasis: 'effective' } },
-  { id: 'blocked', label: '需要解除阻塞', specs: blocked.value, query: { status: 'blocked', progressBasis: 'effective' } },
-  { id: 'doing', label: '进行中', specs: doing.value, query: { status: 'doing', progressBasis: 'effective' } },
-  { id: 'source', label: '来源异常', specs: problems.value, query: { sourceProblems: 'true', progressBasis: 'effective' } }
-])
-const focus = computed(
-  () =>
-    groups.value.find((group) => group.id === route.query.focus) ??
-    groups.value.find((group) => group.specs.length) ??
-    groups.value[0]!
+const ready = computed(() => !!overview.value?.projectionVersion && !!overview.value.projectCount)
+const registered = computed(() => {
+  const projects = new Set(catalog.value?.projects.filter((project) => project.active).map((project) => project.id))
+  return catalog.value?.specs.filter((spec) => spec.active && projects.has(spec.projectId)) ?? []
+})
+const showPlaceholder = computed(() =>
+  !registered.value.length && !error.value && (!overview.value ? loading.value :
+    !!overview.value.projectCount && !overview.value.projectionVersion && verification.value === 'pending')
 )
-const progressItems = computed<WorkItem[]>(() =>
-  focus.value.specs.map((spec) => ({
-    entity: 'spec',
-    id: spec.record.id,
-    projectId: spec.record.projectId,
-    projectName:
-      snapshot.value?.projects.find((project) => project.record.id === spec.record.projectId)
-        ?.record.name ?? '未知工程',
-    specId: spec.record.id,
-    specTitle: spec.record.title,
-    sourcePath: spec.record.sourcePath,
-    title: spec.record.title,
-    progress: progressFor(spec.record.id),
-    stage: progressFor(spec.record.id)?.primaryStage ?? 'unmarked',
-    status: progressFor(spec.record.id)?.status ?? 'unmarked',
-    nextAction: progressFor(spec.record.id)?.nextAction ?? '',
-    blocker: progressFor(spec.record.id)?.blocker ?? '',
-    notes: spec.record.notes,
-    active: spec.record.active,
-    updatedAt: spec.record.updatedAt,
-    hasSourceProblem: hasSourceProblem(spec),
-    contentStatus: spec.content.status,
-    reminderCounts: Object.fromEntries(
-      contentReminders(spec.content).map((reminder) => [reminder.id, reminder.count])
-    ),
-    needsReconfirmation: spec.content.needsReconfirmation,
-    materialReview: materialNeedsReview(spec.content)
-  }))
+registerWorkbenchRouteReads({ busy: loading, readAt: computed(() => overview.value?.readAt), refresh })
+const definitions: { id: keyof WorkbenchOverview['groups']; label: string; query: LocationQueryRaw }[] = [
+  { id: 'attention', label: '待确认与核实', query: { attention: ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'], progressBasis: 'effective', showClosed: 'true' } },
+  { id: 'blocked', label: '需要解除阻塞', query: { status: 'blocked', progressBasis: 'effective' } },
+  { id: 'doing', label: '进行中', query: { status: 'doing', progressBasis: 'effective' } },
+  { id: 'source', label: '来源异常', query: { sourceProblems: 'true', progressBasis: 'effective', showClosed: 'true' } }
+]
+const groups = computed(() => definitions.map(({ id, label, query }) => ({
+  id, label, query,
+  total: overview.value?.groups[id]?.total ?? 0,
+  items: overview.value?.groups[id]?.items ?? []
+})))
+const focus = computed(() =>
+  groups.value.find((group) => group.id === route.query.focus) ??
+  groups.value.find((group) => group.total > 0) ??
+  groups.value[0]!
 )
-const recent = computed(() =>
-  activeSpecs.value
-    .filter((spec) => spec.record.lastVisitedAt)
-    .toSorted((left, right) =>
-      (right.record.lastVisitedAt ?? '').localeCompare(left.record.lastVisitedAt ?? '')
-    )
-    .slice(0, 5)
-)
-const activity = computed(() =>
-  (snapshot.value?.history ?? [])
-    .filter((event) => !event.taskId)
-    .toReversed()
-    .slice(0, 8)
-)
+const progressItems = computed(() => focus.value.items)
+const recent = computed(() => overview.value?.recent ?? [])
+const activity = computed(() => overview.value?.activity ?? [])
 function target(event: ChangeEvent) {
-  const parent = event.specId
-    ? snapshot.value?.specs.find((spec) => spec.record.id === event.specId)?.record.title
-    : snapshot.value?.projects.find((project) => project.record.id === event.projectId)?.record.name
+  const title = event.specId
+    ? catalog.value?.specs.find((spec) => spec.id === event.specId)?.title
+    : catalog.value?.projects.find((project) => project.id === event.projectId)?.name
   return event.lifecycleStage
-    ? `${parent ?? '未知记录'} · ${stages[event.lifecycleStage]}阶段`
-    : (parent ?? '未知记录')
+    ? `${title ?? '未知记录'} · ${stages[event.lifecycleStage]}阶段`
+    : (title ?? '未知记录')
 }
 function selectFocus(value: string | number) {
   if (typeof value === 'string' && value !== route.query.focus)
@@ -103,7 +72,20 @@ function selectFocus(value: string | number) {
       <Button as-child variant="ghost"><RouterLink to="/specs">全部 Spec →</RouterLink></Button>
     </div>
   </div>
-  <Empty v-if="!snapshot?.projects.length" class="panel welcome">
+  <Alert v-if="catalogError" class="notice warning" role="status">
+    工程目录读取失败。{{ catalogError }}
+    <Button type="button" variant="outline" @click="refreshCatalog()">重试</Button>
+  </Alert>
+  <Alert v-if="error || verification === 'failed'" role="alert" class="notice error">
+    {{ error || overview?.verificationError || '工作台进度核对失败。' }}
+    <span v-if="overview?.projectionVersion">当前显示上次核实结果。</span>
+    <Button type="button" variant="outline" :disabled="loading" @click="refresh">重试</Button>
+  </Alert>
+  <p v-else-if="verification === 'stale'" class="muted" role="status">正在核对变化，当前显示上次核实结果。</p>
+  <LoadingSkeleton v-if="showPlaceholder" variant="cards" :rows="3" label="正在读取工作台概览" />
+  <RegisteredSpecs v-if="!ready && catalog && registered.length" :projects="catalog.projects" :specs="registered"
+    :failed="!!error || verification === 'failed'" />
+  <Empty v-if="overview?.projectCount === 0" class="panel welcome">
     <EmptyHeader>
       <EmptyTitle role="heading" aria-level="2">把本机 Spec 汇集到这里</EmptyTitle>
       <EmptyDescription>先登记工程，再从 Markdown 文件中选择要跟踪的 Spec。</EmptyDescription>
@@ -112,9 +94,9 @@ function selectFocus(value: string | number) {
       <Button as-child><RouterLink to="/projects">登记第一个工程 →</RouterLink></Button>
     </EmptyContent>
   </Empty>
-  <ContentAttention v-else :specs="activeSpecs" />
+  <ContentAttention v-else-if="ready" :reminders="overview?.reminders ?? {}" />
   <ActiveJobs />
-  <template v-if="snapshot?.projects.length">
+  <template v-if="ready">
     <section class="work-section progress-section" aria-labelledby="progress-heading">
       <div class="section-heading">
         <h2 id="progress-heading">Spec 推进</h2>
@@ -124,12 +106,15 @@ function selectFocus(value: string | number) {
         <TabsList class="progress-filters" aria-label="Spec 推进范围" moving-indicator>
           <TabsTrigger v-for="group in groups" :key="group.id" :value="group.id">
             {{ group.label }}
-            <Badge variant="secondary" class="tab-count">{{ group.specs.length }}</Badge>
+            <Badge variant="secondary" class="tab-count">{{ group.total }}</Badge>
           </TabsTrigger>
         </TabsList>
         <TabsContent v-for="group in groups" :key="group.id" :value="group.id" class="min-w-0">
           <Card v-if="progressItems.length" class="panel block gap-0 py-0 shadow-none">
-            <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" :refreshing="loading" />
+            <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" :refreshing="loading && !!progressItems.length" />
+            <p v-if="progressItems.length < focus.total" class="muted px-4 py-2">
+              已显示 {{ progressItems.length }} / {{ focus.total }} 项
+            </p>
           </Card>
           <Empty v-else class="quiet-empty">
             <EmptyDescription>
@@ -151,14 +136,14 @@ function selectFocus(value: string | number) {
       <Card v-if="recent.length" class="panel recent-panel gap-0 py-0 shadow-none" role="region" aria-labelledby="recent-heading">
         <CardHeader class="recent-heading"><h2 id="recent-heading">最近访问</h2></CardHeader>
         <ul class="compact-records">
-          <li v-for="spec in recent" :key="spec.record.id">
+          <li v-for="spec in recent" :key="spec.id">
             <RouterLink
-              :to="{ path: `/specs/${spec.record.id}`, query: { return: route.fullPath } }"
+              :to="{ path: `/specs/${spec.id}`, query: { return: route.fullPath } }"
             >
-              {{ spec.record.title }}
+              {{ spec.title }}
             </RouterLink>
-            <time :datetime="spec.record.lastVisitedAt ?? undefined">
-              {{ dateLabel(spec.record.lastVisitedAt) }}
+            <time :datetime="spec.lastVisitedAt ?? undefined">
+              {{ dateLabel(spec.lastVisitedAt) }}
             </time>
           </li>
         </ul>

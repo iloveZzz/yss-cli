@@ -39,6 +39,16 @@ pub struct Workspace {
     pub resource_sources: Vec<SnapshotSource>,
     #[serde(default)]
     pub result_snapshot: Option<Snapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct: Option<DirectWorkspace>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectWorkspace {
+    pub baseline: GitBaseline,
+    pub read_only: bool,
+    pub project_identities: BTreeMap<String, RootIdentity>,
+    pub excluded_prefixes: BTreeSet<String>,
 }
 fn invalid(message: impl Into<String>) -> YssError {
     YssError::new(ErrorCode::InvalidInput, message)
@@ -88,7 +98,7 @@ pub(super) fn agent_git_root(project: &Path, cancel: &Cancellation) -> Result<Pa
             return error;
         }
         invalid(format!(
-            "无法为工程 {} 建立 Pi 隔离工作区：请确认 Git 已安装，并关联有提交的 Git 工作树",
+            "无法定位工程 {} 的 Git 工作树，请确认 Git 已安装并核对工程登记",
             project.display()
         ))
         .context("cause", error.message)
@@ -99,7 +109,7 @@ pub(super) fn agent_git_root(project: &Path, cancel: &Cancellation) -> Result<Pa
                 return error;
             }
             invalid(format!(
-                "工程 {} 没有可用的 Git HEAD 提交，Pi 无法创建隔离工作区。请先建立 Git 基线。",
+                "工程 {} 没有可用的 Git HEAD 提交，无法记录本轮 Git 基线",
                 project.display()
             ))
             .context("cause", error.message)
@@ -108,34 +118,6 @@ pub(super) fn agent_git_root(project: &Path, cancel: &Cancellation) -> Result<Pa
     Ok(root)
 }
 
-pub(super) fn check_spec_at_head(
-    git_root: &Path,
-    project: &Path,
-    source: &str,
-    cancel: &Cancellation,
-) -> Result<()> {
-    let project = std::fs::canonicalize(project)?;
-    let relative = project
-        .strip_prefix(git_root)
-        .map_err(|_| invalid("主规格工程不在 Git 根内"))?
-        .join(RelPath::new(source)?.as_str());
-    let relative = relative
-        .to_str()
-        .ok_or_else(|| invalid("主规格路径不是 UTF-8"))?
-        .replace(std::path::MAIN_SEPARATOR, "/");
-    match git_text_cancel(
-        git_root,
-        &["cat-file", "-t", &format!("HEAD:{relative}")],
-        cancel,
-    ) {
-        Ok(kind) if kind == "blob" => Ok(()),
-        Err(error) if error.code == ErrorCode::Cancelled => Err(error),
-        _ => Err(invalid(format!(
-            "Git HEAD 中没有主 Spec。请在「带入未提交文件」中加入 {source}，再启动 Pi。"
-        ))
-        .at(source)),
-    }
-}
 fn git_root_cancel(project: &Path, cancel: &Cancellation) -> Result<PathBuf> {
     let actual = std::fs::canonicalize(project)?;
     let root = PathBuf::from(git_text_cancel(
@@ -261,23 +243,6 @@ pub fn snapshot(path: &Path, cancel: &Cancellation) -> Result<Snapshot> {
     root.revalidate()?;
     Ok(result)
 }
-fn mkdirs(root: &Root, path: &RelPath) -> Result<()> {
-    for parent in path.parents() {
-        let rel = RelPath::new(parent)?;
-        match root.inspect(&rel)? {
-            FileSnapshot::Missing => {
-                root.create_dir(&rel)?;
-            }
-            FileSnapshot::Directory { .. } => {}
-            _ => {
-                return Err(
-                    YssError::new(ErrorCode::UnsafePath, "文件父目录包含受保护对象").at(parent),
-                );
-            }
-        }
-    }
-    Ok(())
-}
 fn resource_source(spec: &SpecRecord, prefix: &str) -> SnapshotSource {
     SnapshotSource {
         project_id: spec.project_id.clone(),
@@ -321,6 +286,7 @@ fn referenced_files(
     root: &Root,
     sources: &[SnapshotSource],
     snapshot: &mut Snapshot,
+    direct: Option<&Workspace>,
     cancel: &Cancellation,
 ) -> Result<()> {
     for source in sources {
@@ -328,7 +294,16 @@ fn referenced_files(
         if !source.project_prefix.is_empty() {
             RelPath::new(&source.project_prefix)?;
         }
-        RelPath::new(&source.source_path)?;
+        let source_file = project_file(&source.project_prefix, &source.source_path)?;
+        if let Some(workspace) = direct {
+            if !direct_path_allowed(workspace, &source_file) {
+                continue;
+            }
+            record_direct_file(root, workspace, source_file.clone(), snapshot)?;
+            if !snapshot.contains_key(source_file.as_str()) {
+                continue;
+            }
+        }
         if !source.project_prefix.is_empty()
             && root.inspect(&RelPath::new(&source.project_prefix)?)? == FileSnapshot::Missing
         {
@@ -343,16 +318,33 @@ fn referenced_files(
             .as_ref()
             .map(|metadata| &metadata.resources)
             .unwrap_or(&source.inferred_resources);
-        let resources = super::content::resolve_local_resources(
-            &project,
-            &source.source_path,
-            source
-                .personal_resources
-                .iter()
-                .chain(declared)
-                .cloned()
-                .collect(),
-        );
+        let resources: Vec<_> = source
+            .personal_resources
+            .iter()
+            .chain(declared)
+            .cloned()
+            .collect();
+        if let Some(workspace) = direct {
+            for resource in &resources {
+                if resource.target_type == TargetType::Local
+                    && resource.kind == ResourceKind::Prototype
+                {
+                    // Keep the declared source entry even when preview automatically chooses dist.
+                    let fallback = resource
+                        .target
+                        .strip_suffix("dist/index.html")
+                        .filter(|prefix| prefix.is_empty() || prefix.ends_with('/'))
+                        .map_or_else(
+                            || resource.target.clone(),
+                            |prefix| format!("{prefix}index.html"),
+                        );
+                    let fallback = project_file(&source.project_prefix, &fallback)?;
+                    record_direct_file(root, workspace, fallback, snapshot)?;
+                }
+            }
+        }
+        let resources =
+            super::content::resolve_local_resources(&project, &source.source_path, resources);
         for resource in &resources {
             cancel.check()?;
             if resource.target_type != TargetType::Local {
@@ -365,6 +357,39 @@ fn referenced_files(
                     .split('/')
                     .any(|part| matches!(part, "node_modules" | ".pnpm-store" | ".yarn" | ".venv"))
             {
+                continue;
+            }
+            if let Some(workspace) = direct {
+                let file = project_file(&source.project_prefix, target.as_str())?;
+                record_direct_file(root, workspace, file.clone(), snapshot)?;
+                if snapshot.contains_key(file.as_str())
+                    && resource.kind == ResourceKind::Prototype
+                    && super::preview::check_entry(&project, target.as_str()).is_ok()
+                {
+                    let files = super::preview::served_files_with_cancel(
+                        &project,
+                        target.as_str(),
+                        cancel,
+                    )?;
+                    for (path, bytes) in files {
+                        let path = project_file(&source.project_prefix, &path)?;
+                        if !direct_path_allowed(workspace, &path) {
+                            continue;
+                        }
+                        record_direct_file(root, workspace, path.clone(), snapshot)?;
+                        if let Some(descriptor) = snapshot.get(path.as_str())
+                            && crate::model::FileDescriptor::new(&bytes, descriptor.mode)
+                                != *descriptor
+                        {
+                            return Err(YssError::new(
+                                ErrorCode::ConcurrentChange,
+                                "读取原型资源期间文件改变",
+                            )
+                            .at(path));
+                        }
+                    }
+                    validate_snapshot(snapshot)?;
+                }
                 continue;
             }
             let current = project.inspect(&target)?;
@@ -421,172 +446,365 @@ fn referenced_files(
     }
     Ok(())
 }
-pub fn prepare(
-    data_dir: &Path,
-    run_id: &str,
-    projects: &[(String, String)],
-    carry: &BTreeMap<String, Vec<String>>,
-    cancel: &Cancellation,
-) -> Result<Vec<Workspace>> {
-    prepare_workspaces(data_dir, run_id, projects, carry, None, cancel)
+fn project_file(prefix: &str, path: &str) -> Result<RelPath> {
+    let path = RelPath::new(path)?;
+    if prefix.is_empty() {
+        Ok(path)
+    } else {
+        RelPath::new(prefix)?.join(path.as_str())
+    }
 }
 
-pub fn prepare_for_spec(
+fn path_under(path: &str, prefix: &str) -> bool {
+    prefix.is_empty()
+        || path == prefix
+        || path
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+pub(super) fn direct_path_allowed(workspace: &Workspace, path: &RelPath) -> bool {
+    let Some(direct) = &workspace.direct else {
+        return false;
+    };
+    let key = crate::fs::alias_key(path.as_str());
+    if key
+        .split('/')
+        .any(|part| matches!(part, ".git" | ".gitmodules" | ".yss"))
+    {
+        return false;
+    }
+    let selected = workspace
+        .project_prefixes
+        .values()
+        .filter(|prefix| path_under(path.as_str(), prefix))
+        .map(|prefix| prefix.split('/').filter(|part| !part.is_empty()).count())
+        .max();
+    selected.is_some_and(|depth| {
+        !direct.excluded_prefixes.iter().any(|prefix| {
+            prefix.split('/').count() >= depth && path_under(&key, &crate::fs::alias_key(prefix))
+        })
+    })
+}
+
+fn concurrent(message: &str) -> YssError {
+    YssError::new(ErrorCode::ConcurrentChange, message)
+}
+
+fn direct_root(workspace: &Workspace, direct: &DirectWorkspace) -> Result<Root> {
+    let root = Root::open(Path::new(&workspace.original_root))?;
+    if workspace.original_root != workspace.worktree_root
+        || root.identity != workspace.original_identity
+        || root.identity != workspace.worktree_identity
+        || direct.project_identities.len() != workspace.project_prefixes.len()
+    {
+        return Err(concurrent("原工程绑定或目录身份已改变"));
+    }
+    for (id, prefix) in &workspace.project_prefixes {
+        let project_path = if prefix.is_empty() {
+            root.path.clone()
+        } else {
+            root.path.join(RelPath::new(prefix)?.as_str())
+        };
+        let project = Root::open(&project_path)?;
+        if direct.project_identities.get(id) != Some(&project.identity) {
+            return Err(concurrent("登记工程目录身份已改变").at(prefix));
+        }
+    }
+    Ok(root)
+}
+
+fn check_resume_baseline(prior: &GitBaseline, current: &GitBaseline) -> Result<()> {
+    if prior.branch != current.branch
+        || (prior.branch.is_none() && prior.head != current.head)
+        || prior.git_dir != current.git_dir
+        || prior.git_dir_identity != current.git_dir_identity
+        || prior.common_dir != current.common_dir
+        || prior.common_dir_identity != current.common_dir_identity
+    {
+        return Err(concurrent(
+            "原工程 Git 分支或目录身份已改变，请从原 Spec 开始新会话",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_resume(workspace: &Workspace, cancel: &Cancellation) -> Result<()> {
+    let direct = workspace
+        .direct
+        .as_ref()
+        .ok_or_else(|| invalid("历史隔离会话请从原 Spec 开始新会话"))?;
+    let root = direct_root(workspace, direct)?;
+    let current = git_baseline(&root.path, cancel)?;
+    check_resume_baseline(&direct.baseline, &current)
+}
+
+fn direct_metadata(root: &Root, workspace: &Workspace, path: &RelPath) -> Result<bool> {
+    if !direct_path_allowed(workspace, path) {
+        return Ok(false);
+    }
+    let before = workspace.initial.contains_key(path.as_str());
+    let metadata = match root.source_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error)
+            if error
+                .context
+                .get("kind")
+                .is_some_and(|kind| kind == "NotFound") =>
+        {
+            return Ok(false);
+        }
+        // Gitlinks, links and nested repositories are outside the selected file scope.
+        Err(error) if error.code == ErrorCode::UnsafePath && !before => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    #[cfg(unix)]
+    let single_link = {
+        use cap_std::fs::MetadataExt;
+        metadata.nlink() == 1
+    };
+    #[cfg(not(unix))]
+    let single_link = true;
+    if metadata.is_file() && single_link {
+        Ok(true)
+    } else if before {
+        Err(concurrent("原工程文件已被受保护对象替换").at(path))
+    } else {
+        Ok(false)
+    }
+}
+
+fn record_direct_file(
+    root: &Root,
+    workspace: &Workspace,
+    path: RelPath,
+    snapshot: &mut Snapshot,
+) -> Result<()> {
+    if !snapshot.contains_key(path.as_str()) && direct_metadata(root, workspace, &path)? {
+        let file = root.source_read(&path, MAX_ASSET)?;
+        if !direct_metadata(root, workspace, &path)? {
+            return Err(concurrent("读取原工程文件期间发生变化").at(path));
+        }
+        if let FileSnapshot::File { descriptor, .. } = file.snapshot {
+            snapshot.insert(path.into(), descriptor);
+        }
+    }
+    Ok(())
+}
+
+fn direct_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snapshot> {
+    let direct = workspace
+        .direct
+        .as_ref()
+        .expect("direct snapshot requires metadata");
+    let root = direct_root(workspace, direct)?;
+    check_baseline(&root.path, &direct.baseline, cancel)?;
+    let mut snapshot = BTreeMap::new();
+    if !direct.read_only {
+        let scopes: Vec<_> = workspace
+            .project_prefixes
+            .values()
+            .filter(|prefix| !prefix.is_empty())
+            .map(|prefix| format!(":(literal){prefix}"))
+            .collect();
+        let mut args = vec![
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+        ];
+        if scopes.len() == workspace.project_prefixes.len() {
+            args.extend(scopes.iter().map(String::as_str));
+        }
+        let names = git_cancel(&root.path, &args, cancel, Duration::from_secs(30))?;
+        for name in names
+            .split(|byte| *byte == 0)
+            .filter(|name| !name.is_empty())
+        {
+            cancel.check()?;
+            let name = std::str::from_utf8(name).map_err(|_| invalid("工程包含非 UTF-8 路径"))?;
+            if !name.ends_with('/') {
+                record_direct_file(&root, workspace, RelPath::new(name)?, &mut snapshot)?;
+            }
+            if snapshot.len() > 200_000 {
+                return Err(invalid("工程文件数量超过快照限制"));
+            }
+        }
+    }
+    for path in workspace.initial.keys() {
+        cancel.check()?;
+        record_direct_file(&root, workspace, RelPath::new(path)?, &mut snapshot)?;
+    }
+    referenced_files(
+        &root,
+        &workspace.resource_sources,
+        &mut snapshot,
+        Some(workspace),
+        cancel,
+    )?;
+    validate_snapshot(&snapshot)?;
+    root.revalidate()?;
+    check_baseline(&root.path, &direct.baseline, cancel)?;
+    Ok(snapshot)
+}
+
+pub(super) fn prepare_direct(
     data_dir: &Path,
-    run_id: &str,
     projects: &[(String, String)],
-    carry: &BTreeMap<String, Vec<String>>,
+    prior: Option<&[Workspace]>,
     spec: &SpecRecord,
+    excluded_projects: &[PathBuf],
+    read_only: bool,
     cancel: &Cancellation,
 ) -> Result<Vec<Workspace>> {
-    prepare_workspaces(data_dir, run_id, projects, carry, Some(spec), cancel)
-}
-
-fn prepare_workspaces(
-    data_dir: &Path,
-    run_id: &str,
-    projects: &[(String, String)],
-    carry: &BTreeMap<String, Vec<String>>,
-    spec: Option<&SpecRecord>,
-    cancel: &Cancellation,
-) -> Result<Vec<Workspace>> {
-    let data = Root::open(data_dir)?;
-    let run_dir = RelPath::new(format!("agent-workspaces/{run_id}/sentinel"))?;
-    mkdirs(&data, &run_dir)?;
-    let mut grouped = BTreeMap::<PathBuf, Vec<(String, PathBuf)>>::new();
+    let mut grouped = BTreeMap::<PathBuf, Vec<(&str, Root)>>::new();
     for (id, path) in projects {
         cancel.check()?;
-        let actual = std::fs::canonicalize(path)?;
-        grouped
-            .entry(git_root_cancel(&actual, cancel)?)
-            .or_default()
-            .push((id.clone(), actual));
+        let project = Root::open(Path::new(path))?;
+        if project.path.starts_with(data_dir) {
+            return Err(invalid("工作台数据目录不能作为 Pi 工程"));
+        }
+        let git_root = agent_git_root(&project.path, cancel)?;
+        grouped.entry(git_root).or_default().push((id, project));
+    }
+    if prior.is_some_and(|previous| previous.len() != grouped.len()) {
+        return Err(concurrent("续接工程范围已改变，请从原 Spec 开始新会话"));
     }
     let mut workspaces = Vec::new();
-    for (index, (original, group)) in grouped.into_iter().enumerate() {
+    for (path, projects) in grouped {
         cancel.check()?;
-        let root = Root::open(&original)?;
-        let head = git_text_cancel(&original, &["rev-parse", "--verify", "HEAD"], cancel)?;
-        let branch = format!("codex/yss-workbench-{run_id}-{index}");
-        let target = data_dir
-            .join("agent-workspaces")
-            .join(run_id)
-            .join(index.to_string());
-        let target_text = target
-            .to_str()
-            .ok_or_else(|| invalid("工作区路径不是 UTF-8"))?;
-        git_cancel(
-            &original,
-            &["worktree", "add", "-b", &branch, "--", target_text, &head],
-            cancel,
-            Duration::from_secs(300),
-        )?;
-        let work = Root::open(&target)?;
+        let root = Root::open(&path)?;
+        let baseline = git_baseline(&path, cancel)?;
+        let root_path = path.to_str().ok_or_else(|| invalid("Git 根不是 UTF-8"))?;
         let mut prefixes = BTreeMap::new();
-        let mut carried = BTreeSet::new();
-        for (id, project) in &group {
+        let mut identities = BTreeMap::new();
+        for (id, project) in &projects {
             let prefix = project
-                .strip_prefix(&original)
-                .map_err(|_| invalid("工程根越界"))?
-                .to_string_lossy()
-                .replace('\\', "/");
-            prefixes.insert(id.clone(), prefix.clone());
-            for selected in carry.get(id).into_iter().flatten() {
-                cancel.check()?;
-                let rel = RelPath::new(if prefix.is_empty() {
-                    selected.clone()
-                } else {
-                    format!("{prefix}/{selected}")
-                })?;
-                if !allowed(&rel) {
-                    return Err(YssError::new(
-                        ErrorCode::UnsafePath,
-                        "不能带入 Git 或 YSS 控制文件",
-                    )
-                    .at(&rel));
-                }
-                carried.insert(rel.as_str().to_owned());
-                let before = work.inspect(&rel)?;
-                let current = root.inspect(&rel)?;
-                if matches!(
-                    before,
-                    FileSnapshot::Directory { .. } | FileSnapshot::Dangerous
-                ) || matches!(
-                    current,
-                    FileSnapshot::Directory { .. } | FileSnapshot::Dangerous
-                ) {
-                    return Err(YssError::new(
-                        ErrorCode::UnsafePath,
-                        "带入路径须为普通文件或已删除文件",
-                    )
-                    .at(&rel));
-                }
-                let bytes = if let FileSnapshot::File { .. } = current {
-                    Some(root.read_checked(&rel, MAX_ASSET)?)
-                } else {
-                    None
-                };
-                if root.inspect(&rel)? != current {
-                    return Err(
-                        YssError::new(ErrorCode::ConcurrentChange, "带入期间原文件改变").at(&rel),
-                    );
-                }
-                if before != FileSnapshot::Missing {
-                    work.remove(&rel, &before)?;
-                }
-                if let Some(file) = bytes {
-                    mkdirs(&work, &rel)?;
-                    work.create_file(&rel, &file.bytes, file.snapshot.descriptor().unwrap().mode)?;
-                }
+                .path
+                .strip_prefix(&path)
+                .map_err(|_| invalid("登记工程不在 Git 根内"))?;
+            let prefix = prefix
+                .to_str()
+                .ok_or_else(|| invalid("工程路径不是 UTF-8"))?
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if !prefix.is_empty() {
+                RelPath::new(&prefix)?;
+            }
+            prefixes.insert((*id).to_owned(), prefix);
+            identities.insert((*id).to_owned(), project.identity.clone());
+        }
+        if let Some(previous) = prior {
+            let old = previous
+                .iter()
+                .find(|w| w.original_root == root_path)
+                .ok_or_else(|| concurrent("续接工程范围已改变，请从原 Spec 开始新会话"))?;
+            let direct = old
+                .direct
+                .as_ref()
+                .ok_or_else(|| invalid("历史隔离会话请从原 Spec 开始新会话"))?;
+            if old.original_identity != root.identity
+                || old.project_prefixes != prefixes
+                || direct.project_identities != identities
+            {
+                return Err(concurrent("续接工程绑定已改变，请从原 Spec 开始新会话"));
+            }
+            check_resume_baseline(&direct.baseline, &baseline)?;
+        }
+        let mut excluded_prefixes = BTreeSet::new();
+        for excluded in excluded_projects
+            .iter()
+            .map(PathBuf::as_path)
+            .chain([data_dir])
+        {
+            if projects
+                .iter()
+                .any(|(_, project)| excluded != project.path && excluded.starts_with(&project.path))
+            {
+                let relative = excluded
+                    .strip_prefix(&path)
+                    .map_err(|_| invalid("排除路径不在 Git 根内"))?;
+                let relative = relative
+                    .to_str()
+                    .ok_or_else(|| invalid("排除路径不是 UTF-8"))?
+                    .replace(std::path::MAIN_SEPARATOR, "/");
+                excluded_prefixes.insert(RelPath::new(relative)?.into());
             }
         }
-        let mut initial = snapshot(&target, cancel)?;
-        for path in carried {
-            if let FileSnapshot::File { descriptor, .. } = work.inspect(&RelPath::new(&path)?)? {
-                initial.insert(path, descriptor);
-            }
-        }
-        let resource_sources = spec
-            .filter(|spec| prefixes.contains_key(&spec.project_id))
-            .map(|spec| vec![resource_source(spec, &prefixes[&spec.project_id])])
-            .unwrap_or_default();
-        referenced_files(&work, &resource_sources, &mut initial, cancel)?;
-        validate_snapshot(&initial)?;
-        let object_dir = RelPath::new(format!("agent-workspaces/{run_id}/objects/sentinel"))?;
-        mkdirs(&data, &object_dir)?;
-        for (path, descriptor) in &initial {
-            cancel.check()?;
-            let object = RelPath::new(format!(
-                "agent-workspaces/{run_id}/objects/{}",
-                descriptor.sha256
-            ))?;
-            if data.inspect(&object)? == FileSnapshot::Missing {
-                let file = work.read_checked(&RelPath::new(path)?, MAX_ASSET)?;
-                if file.snapshot.descriptor() != Some(descriptor) {
-                    return Err(
-                        YssError::new(ErrorCode::ConcurrentChange, "初始快照期间文件改变").at(path),
-                    );
-                }
-                data.create_file(&object, &file.bytes, 0o600)?;
-            }
-        }
-        workspaces.push(Workspace {
-            project_ids: group.iter().map(|(id, _)| id.clone()).collect(),
+        let mut workspace = Workspace {
+            project_ids: prefixes.keys().cloned().collect(),
             project_prefixes: prefixes,
-            original_root: original.to_string_lossy().into(),
-            original_identity: root.identity,
-            worktree_root: target_text.into(),
-            worktree_identity: work.identity,
-            branch,
-            head,
-            initial,
-            resource_sources,
+            original_root: root_path.into(),
+            original_identity: root.identity.clone(),
+            worktree_root: root_path.into(),
+            worktree_identity: root.identity.clone(),
+            branch: baseline
+                .branch
+                .as_deref()
+                .and_then(|branch| branch.strip_prefix("refs/heads/"))
+                .unwrap_or("HEAD")
+                .into(),
+            head: baseline.head.clone(),
+            initial: BTreeMap::new(),
+            resource_sources: Vec::new(),
             result_snapshot: None,
-        });
+            direct: Some(DirectWorkspace {
+                baseline,
+                read_only,
+                project_identities: identities,
+                excluded_prefixes,
+            }),
+        };
+        bind_spec(&mut workspace, spec);
+        workspace.initial = direct_snapshot(&workspace, cancel)?;
+        if let Some(prefix) = workspace.project_prefixes.get(&spec.project_id) {
+            let source = project_file(prefix, &spec.source_path)?;
+            if !workspace.initial.contains_key(source.as_str()) {
+                return Err(
+                    YssError::new(ErrorCode::NotReady, "原工程主 Spec 不是可读的普通文件")
+                        .at(source),
+                );
+            }
+        }
+        workspaces.push(workspace);
     }
     Ok(workspaces)
 }
+
+pub(super) fn direct_initial_blobs(
+    workspace: &Workspace,
+    cancel: &Cancellation,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let direct = workspace
+        .direct
+        .as_ref()
+        .ok_or_else(|| invalid("缺少原工程运行基线"))?;
+    let root = direct_root(workspace, direct)?;
+    check_baseline(&root.path, &direct.baseline, cancel)?;
+    let mut blobs = BTreeMap::new();
+    for (path, descriptor) in &workspace.initial {
+        cancel.check()?;
+        let path = RelPath::new(path)?;
+        let file = root.source_read(&path, MAX_ASSET)?;
+        if file.snapshot.descriptor() != Some(descriptor)
+            || !direct_metadata(&root, workspace, &path)?
+        {
+            return Err(concurrent("记录运行前文件期间原工程内容已变化").at(path));
+        }
+        blobs
+            .entry(descriptor.sha256.as_str().to_owned())
+            .or_insert(file.bytes);
+    }
+    root.revalidate()?;
+    check_baseline(&root.path, &direct.baseline, cancel)?;
+    Ok(blobs.into_iter().collect())
+}
+
 pub fn working_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<Snapshot> {
+    if workspace.direct.is_some() {
+        return direct_snapshot(workspace, cancel);
+    }
     let mut result = snapshot(Path::new(&workspace.worktree_root), cancel)?;
     let root = Root::open(Path::new(&workspace.worktree_root))?;
     for path in workspace.initial.keys() {
@@ -606,11 +824,21 @@ pub fn working_snapshot(workspace: &Workspace, cancel: &Cancellation) -> Result<
             }
         }
     }
-    referenced_files(&root, &workspace.resource_sources, &mut result, cancel)?;
+    referenced_files(
+        &root,
+        &workspace.resource_sources,
+        &mut result,
+        None,
+        cancel,
+    )?;
     validate_snapshot(&result)?;
     Ok(result)
 }
 pub fn validate(workspace: &Workspace) -> Result<()> {
+    if let Some(direct) = &workspace.direct {
+        let root = direct_root(workspace, direct)?;
+        return check_baseline(&root.path, &direct.baseline, &Cancellation::new());
+    }
     if Root::open(Path::new(&workspace.original_root))?.identity != workspace.original_identity
         || Root::open(Path::new(&workspace.worktree_root))?.identity != workspace.worktree_identity
     {

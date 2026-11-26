@@ -9,16 +9,39 @@ use crate::{
     fs::{self, FileSnapshot, Root, RootLock},
     model::RelPath,
 };
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use std::time::{Duration, Instant};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    sync::{Arc, Weak},
 };
+use tokio::sync::Notify;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const DELTA_WINDOW: Duration = Duration::from_millis(32);
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const DELTA_BYTES: usize = 16 * 1024;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+struct BufferedDelta {
+    kind: &'static str,
+    item_id: String,
+    text: String,
+    deadline: Instant,
+}
 
 pub struct Store {
     database: Database,
     state: WorkbenchState,
     marker: FileSnapshot,
     uncertain: bool,
+    projection_generation: u64,
+    projection_changed: Arc<Notify>,
+    activity_changed: Arc<Notify>,
+    job_event_subscribers: BTreeMap<String, Weak<Notify>>,
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    job_deltas: BTreeMap<String, BufferedDelta>,
     // Keep the directory locked until the SQLite connection has closed.
     lock: RootLock,
 }
@@ -315,6 +338,12 @@ impl Store {
             state,
             marker,
             uncertain: false,
+            projection_generation: 0,
+            projection_changed: Arc::new(Notify::new()),
+            activity_changed: Arc::new(Notify::new()),
+            job_event_subscribers: BTreeMap::new(),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            job_deltas: BTreeMap::new(),
             lock,
         })
     }
@@ -323,6 +352,54 @@ impl Store {
     }
     pub fn data_dir(&self) -> &Path {
         &self.lock.root.path
+    }
+    pub(super) fn projection_stamp(&self) -> (u64, u64) {
+        (self.state.revision, self.projection_generation)
+    }
+    pub(super) fn projection_notification(&self) -> Arc<Notify> {
+        self.projection_changed.clone()
+    }
+    pub(super) fn activity_notification(&self) -> Arc<Notify> {
+        self.activity_changed.clone()
+    }
+    pub(super) fn capture_read_records(&mut self, kinds: &[&str]) -> Result<ExtensionRecords> {
+        if self.uncertain {
+            return Err(YssError::new(
+                ErrorCode::RecoveryRequired,
+                "存储状态待核实，请重启工作台",
+            ));
+        }
+        if self
+            .lock
+            .root
+            .read_checked(&state_path()?, 16 * 1024)?
+            .snapshot
+            != self.marker
+        {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "存储标记已改变，请重启核实",
+            ));
+        }
+        self.database
+            .read_records_at_revision(&self.lock.root, self.state.revision, kinds)
+    }
+    fn notify_activity(&self, effects: &CommitEffects) {
+        if effects.records.iter().any(|write| {
+            matches!(
+                write.kind.as_str(),
+                "job"
+                    | "agentRun"
+                    | "agentRound"
+                    | "agentReviewAttempt"
+                    | "agentReviewReceipt"
+                    | "agentAcceptance"
+                    | "agentQueue"
+                    | "externalLink"
+            )
+        }) {
+            self.activity_changed.notify_one();
+        }
     }
     pub fn commit(&mut self, expected_revision: u64, next: WorkbenchState) -> Result<u64> {
         self.commit_with_effects(expected_revision, next, &CommitEffects::default())
@@ -387,6 +464,8 @@ impl Store {
             ));
         }
         self.state = next;
+        self.projection_changed.notify_one();
+        self.notify_activity(effects);
         Ok(self.state.revision)
     }
     pub fn record<T: serde::de::DeserializeOwned>(
@@ -487,6 +566,14 @@ impl Store {
         effects: &CommitEffects,
         change: Option<ExtensionChange<'_>>,
     ) -> Result<()> {
+        let event = match &change {
+            Some(ExtensionChange::Event(event)) => Some((event.job_id, event.kind)),
+            _ => None,
+        };
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        if let Some((job_id, _)) = event {
+            self.flush_job_delta(job_id)?;
+        }
         if self.uncertain {
             return Err(YssError::new(
                 ErrorCode::RecoveryRequired,
@@ -505,9 +592,37 @@ impl Store {
                 "存储标记已改变，请重启核实",
             ));
         }
+        let deleted_jobs = match &change {
+            Some(ExtensionChange::DeleteAgentHistory { job_ids, .. }) => Some(*job_ids),
+            _ => None,
+        };
         let result = self
             .database
             .write_records(&self.lock.root, effects, change);
+        if result.is_ok() {
+            if effects.records.iter().any(|write| {
+                super::progress::RECORD_KINDS.contains(&write.kind.as_str())
+                    || matches!(
+                        write.kind.as_str(),
+                        super::materials::SNAPSHOTS | super::materials::REVIEWS
+                    )
+            }) {
+                self.projection_generation = self.projection_generation.wrapping_add(1);
+                self.projection_changed.notify_one();
+            }
+            self.notify_activity(effects);
+            if let Some((job_id, kind)) = event {
+                self.notify_job_event(job_id, kind);
+            }
+            if let Some(job_ids) = deleted_jobs {
+                self.activity_changed.notify_one();
+                for job_id in job_ids {
+                    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                    self.job_deltas.remove(job_id);
+                    self.wake_job_stream(job_id);
+                }
+            }
+        }
         if result
             .as_ref()
             .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
@@ -516,7 +631,112 @@ impl Store {
         }
         result
     }
+
+    pub(super) fn subscribe_job_events(&mut self, job_id: &str) -> Arc<Notify> {
+        if let Some(notify) = self
+            .job_event_subscribers
+            .get(job_id)
+            .and_then(Weak::upgrade)
+        {
+            return notify;
+        }
+        self.job_event_subscribers
+            .retain(|_, notify| notify.strong_count() != 0);
+        let notify = Arc::new(Notify::new());
+        self.job_event_subscribers
+            .insert(job_id.into(), Arc::downgrade(&notify));
+        notify
+    }
+
+    fn wake_job_stream(&self, job_id: &str) {
+        if let Some(notify) = self
+            .job_event_subscribers
+            .get(job_id)
+            .and_then(Weak::upgrade)
+        {
+            notify.notify_waiters();
+        }
+    }
+
+    fn notify_job_event(&self, job_id: &str, kind: &str) {
+        self.wake_job_stream(job_id);
+        if matches!(
+            kind,
+            "inputRequested" | "inputResolved" | "piQuestionResult"
+        ) {
+            self.activity_changed.notify_one();
+        }
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn append_pi_delta(
+        &mut self,
+        job_id: &str,
+        kind: &'static str,
+        item_id: &str,
+        text: &str,
+        immediate: bool,
+    ) -> Result<Option<Instant>> {
+        if immediate || text.len() >= DELTA_BYTES {
+            self.append_event(
+                job_id,
+                kind,
+                &serde_json::json!({"itemId":item_id,"delta":text}),
+            )?;
+            return Ok(None);
+        }
+        let now = Instant::now();
+        if self.job_deltas.get(job_id).is_some_and(|batch| {
+            batch.kind != kind
+                || batch.item_id != item_id
+                || now >= batch.deadline
+                || batch.text.len() + text.len() > DELTA_BYTES
+        }) {
+            self.flush_job_delta(job_id)?;
+        }
+        let batch = self
+            .job_deltas
+            .entry(job_id.into())
+            .or_insert_with(|| BufferedDelta {
+                kind,
+                item_id: item_id.into(),
+                text: String::new(),
+                deadline: now + DELTA_WINDOW,
+            });
+        batch.text.push_str(text);
+        let deadline = batch.deadline;
+        if batch.text.len() == DELTA_BYTES || Instant::now() >= deadline {
+            self.flush_job_delta(job_id)?;
+            return Ok(None);
+        }
+        Ok(Some(deadline))
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn flush_job_delta(&mut self, job_id: &str) -> Result<()> {
+        let Some(batch) = self.job_deltas.remove(job_id) else {
+            return Ok(());
+        };
+        let payload = serde_json::json!({"itemId":batch.item_id,"delta":batch.text});
+        if let Err(error) = self.persist_event(job_id, batch.kind, &payload) {
+            self.job_deltas.insert(job_id.into(), batch);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn append_event(
+        &mut self,
+        job_id: &str,
+        kind: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64> {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        self.flush_job_delta(job_id)?;
+        self.persist_event(job_id, kind, payload)
+    }
+
+    fn persist_event(
         &mut self,
         job_id: &str,
         kind: &str,
@@ -547,6 +767,9 @@ impl Store {
             &serde_json::to_string(payload).map_err(|_| invalid("作业事件编码失败"))?,
             &super::sources::now(),
         );
+        if result.is_ok() {
+            self.notify_job_event(job_id, kind);
+        }
         if result
             .as_ref()
             .is_err_and(|error| error.code == ErrorCode::RecoveryRequired)
@@ -571,6 +794,9 @@ impl Store {
     }
     pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
         self.database.run_event(job_id)
+    }
+    pub(crate) fn agent_question_events(&self, job_id: &str) -> Result<Vec<super::jobs::JobEvent>> {
+        self.database.agent_question_events(job_id)
     }
     pub fn has_events_after(&self, job_id: &str, after: u64) -> Result<bool> {
         self.database.has_events_after(job_id, after)

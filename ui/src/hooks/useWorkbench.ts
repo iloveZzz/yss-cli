@@ -9,43 +9,58 @@ import {
   type Snapshot
 } from '@/services/workbench'
 import { getSourceState, readNdjson, type SourceState } from '@/services/workbench-platform'
-const sourceVersions = shallowRef<Record<string, string>>({})
-const externalVersion = shallowRef('')
-let progressVersions = ''
+
+const sourceState = shallowRef<SourceState>()
+const changesError = shallowRef('')
+const sourceVersions = computed(() => sourceState.value?.sourceVersions ?? {})
+const externalVersion = computed(() => sourceState.value?.externalVersion ?? '')
 let changesController: AbortController | undefined
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
-let sourceRetryTimer: ReturnType<typeof setTimeout> | undefined
-let changing = false
-let pendingSource: SourceState | undefined
+let reconnectDelay = 500
+
 const snapshot = shallowRef<Snapshot | null>(null)
 const loading = shallowRef(false)
 const saving = shallowRef(false)
 const error = shallowRef('')
-let controller: AbortController | undefined
-async function refresh(): Promise<boolean> {
-  if (expired.value) return false
-  controller?.abort()
-  const current = new AbortController()
-  controller = current
+let pendingSnapshot: Promise<boolean> | undefined
+let snapshotRequired = false
+let observed = 0
+let loadedAt = -1
+
+function refresh(): Promise<boolean> {
+  if (expired.value) return Promise.resolve(false)
+  if (pendingSnapshot) return pendingSnapshot
+  const observing = observed
   loading.value = true
-  try {
-    const next = await loadSnapshot(current.signal)
-    if (!current.signal.aborted) {
+  pendingSnapshot = loadSnapshot()
+    .then((next) => {
       snapshot.value = next
+      loadedAt = observing
       error.value = ''
       return true
-    }
-  } catch (e) {
-    if (!current.signal.aborted) error.value = errorMessage(e)
-  } finally {
-    if (controller === current) loading.value = false
-  }
-  return false
+    })
+    .catch((cause) => {
+      error.value = errorMessage(cause)
+      return false
+    })
+    .finally(() => {
+      pendingSnapshot = undefined
+      loading.value = false
+      if (snapshotRequired && loadedAt === observing && observed > loadedAt) void refresh()
+    })
+  return pendingSnapshot
 }
+
+function requireSnapshot(required: boolean) {
+  snapshotRequired = required
+  if (required && (!snapshot.value || loadedAt !== observed)) void refresh()
+}
+
 async function submit(
   action: Action,
   expectedRevision = snapshot.value?.revision,
-  expectedTarget?: string
+  expectedTarget?: string,
+  refreshAfter?: (revision?: number) => Promise<unknown>
 ) {
   if (saving.value) throw new Error('请等待当前保存完成')
   if (expectedRevision === undefined) throw new Error('请先读取工作台')
@@ -57,94 +72,79 @@ async function submit(
       expectedTarget,
       requestId: crypto.randomUUID()
     })
-    await refresh()
+    if (refreshAfter) await refreshAfter(result.revision)
+    else if (await refresh() && (snapshot.value?.revision ?? 0) < result.revision) await refresh()
     return result
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409) await refresh()
-    throw e
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 409) {
+      if (refreshAfter) await refreshAfter()
+      else await refresh()
+    }
+    throw cause
   } finally {
     saving.value = false
   }
 }
-async function applySourceState(value: SourceState): Promise<void> {
-  clearTimeout(sourceRetryTimer)
-  pendingSource = value
-  if (changing) return
-  changing = true
-  try {
-    while (pendingSource) {
-      const state = pendingSource
-      pendingSource = undefined
-      const previous = sourceVersions.value
-      const incomingProgress = JSON.stringify([state.progressVersions ?? [], state.inputVersions ?? ''])
-      const progressChanged = progressVersions !== incomingProgress
-      if (!snapshot.value) {
-        sourceVersions.value = state.sourceVersions
-        progressVersions = incomingProgress
-        externalVersion.value = state.externalVersion ?? ''
-        continue
-      }
-      if (snapshot.value.revision !== state.revision) {
-        const refreshed = await refresh()
-        if (!refreshed && !expired.value) sourceRetryTimer = setTimeout(() => void checkChanges(), 2000)
-        if (snapshot.value?.revision === state.revision) {
-          sourceVersions.value = state.sourceVersions
-          progressVersions = incomingProgress
-          externalVersion.value = state.externalVersion ?? ''
-        }
-        continue
-      }
-      const changed = Object.keys(state.sourceVersions).filter(
-        (id) => previous[id] !== undefined && previous[id] !== state.sourceVersions[id]
-      )
-      if (!changed.length && !progressChanged) {
-        sourceVersions.value = state.sourceVersions
-        progressVersions = incomingProgress
-        externalVersion.value = state.externalVersion ?? ''
-        continue
-      }
-      if (await refresh()) {
-        sourceVersions.value = state.sourceVersions
-        progressVersions = incomingProgress
-        externalVersion.value = state.externalVersion ?? ''
-      } else if (!expired.value) {
-        sourceRetryTimer = setTimeout(() => void checkChanges(), 2000)
-      }
-    }
-  } catch (cause) {
-    error.value = errorMessage(cause)
-  } finally {
-    changing = false
+
+function applySourceState(value: SourceState) {
+  const previous = sourceState.value
+  // A queued focus request can resolve after the stream delivers a newer change.
+  if (previous && value.changeSequence !== undefined && previous.changeSequence !== undefined &&
+    value.changeSequence < previous.changeSequence) return
+  sourceState.value = value
+  changesError.value = ''
+  const revisionChanged = previous ? value.revision !== previous.revision : value.revision !== snapshot.value?.revision
+  if (revisionChanged ||
+    (previous && (
+      JSON.stringify(previous.sourceVersions) !== JSON.stringify(value.sourceVersions) ||
+      JSON.stringify(previous.progressVersions) !== JSON.stringify(value.progressVersions) ||
+      previous.inputVersions !== value.inputVersions
+    ))) {
+    observed++
+    if (snapshotRequired) void refresh()
   }
 }
+
 async function checkChanges() {
+  if (expired.value) return
   try {
-    await applySourceState(await getSourceState())
+    applySourceState(await getSourceState())
+    if (snapshotRequired && loadedAt !== observed) await refresh()
   } catch (cause) {
-    error.value = errorMessage(cause)
+    changesError.value = errorMessage(cause)
   }
 }
+
 function startChanges() {
-  if (changesController) return
+  if (changesController || expired.value) return
   const own = new AbortController()
   changesController = own
-  void readNdjson<SourceState>('/api/changes', own.signal, (value) => void applySourceState(value))
+  void readNdjson<SourceState>('/api/changes', own.signal, (value) => {
+    if (own.signal.aborted) return
+    reconnectDelay = 500
+    applySourceState(value)
+    if (snapshotRequired && loadedAt !== observed && !pendingSnapshot) void refresh()
+  })
     .catch((cause) => {
-      if (!own.signal.aborted) error.value = errorMessage(cause)
+      if (!own.signal.aborted) changesError.value = errorMessage(cause)
     })
     .finally(() => {
-      if (changesController === own) {
-        changesController = undefined
-        if (!own.signal.aborted && !expired.value) reconnectTimer = setTimeout(startChanges, 2000)
+      if (changesController !== own) return
+      changesController = undefined
+      if (!own.signal.aborted && !expired.value) {
+        changesError.value ||= '实时状态连接中断，正在重连。'
+        reconnectTimer = setTimeout(startChanges, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, 5000)
       }
     })
 }
+
 function stopChanges() {
   clearTimeout(reconnectTimer)
-  clearTimeout(sourceRetryTimer)
   changesController?.abort()
   changesController = undefined
 }
+
 const activeSpecs = computed(
   () =>
     snapshot.value?.specs.filter(
@@ -161,11 +161,14 @@ export function useWorkbench() {
     error: shallowReadonly(error),
     expired: shallowReadonly(expired),
     activeSpecs,
-    sourceVersions: shallowReadonly(sourceVersions),
-    externalVersion: shallowReadonly(externalVersion),
+    sourceState: shallowReadonly(sourceState),
+    changesError: shallowReadonly(changesError),
+    sourceVersions,
+    externalVersion,
     startChanges,
     stopChanges,
     checkChanges,
+    requireSnapshot,
     refresh,
     submit
   }

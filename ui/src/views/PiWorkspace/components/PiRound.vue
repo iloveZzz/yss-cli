@@ -13,18 +13,22 @@ import ConversationMessage from '@/views/Jobs/components/ConversationMessage.vue
 import ConversationQuestion from '@/views/Jobs/components/ConversationQuestion.vue'
 import ConversationTool from '@/views/Jobs/components/ConversationTool.vue'
 import PiContextUsage from './PiContextUsage.vue'
+import PiTokenUsage from './PiTokenUsage.vue'
 import PiPlan from './PiPlan.vue'
 import PiReasoning from './PiReasoning.vue'
 
 const props = defineProps<{
   job: JobRecord
   latest: boolean
+  direct: boolean
+  readOnly?: boolean | null
   focusActivity?: { id: number }
   stopping: boolean
   canReview: boolean
   canReviewLatest: boolean
   reviewTargets?: [string, string][]
   projectNames: Record<string, string>
+  trackFirstText?: boolean
 }>()
 const emit = defineEmits<{
   updated: []
@@ -34,9 +38,46 @@ const emit = defineEmits<{
 }>()
 const round = useTemplateRef<HTMLElement>('round')
 const jobId = toRef(() => props.job.id)
-const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') })
-const { items, page, hasOlder, loadingHistory, historyError } = events.conversation
+const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, () => !!props.trackFirstText)
+const { items, page, hasOlder, loadingHistory, historyError, firstText } = events.conversation
+const firstTextRendered = computed(() => !!firstText.value && items.value.some((row) => row.id === firstText.value?.rowId))
+watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
+  const target = text && rendered ? round.value?.querySelector(`[data-assistant-row="${text.rowId}"]`) : undefined
+  if (!text || !target) return
+  const renderedTarget = target
+  const { jobId: measuredJob, receivedAt } = text
+  let visible = false
+  let measured = false
+  let frame: number | undefined
+  function recordVisible() {
+    if (!visible || measured || document.hidden || frame !== undefined) return
+    // The second callback runs after a frame has had a chance to paint the committed text.
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        frame = undefined
+        if (!visible || measured || document.hidden || !renderedTarget.isConnected || !renderedTarget.textContent?.trim()) return
+        measured = true
+        const mark = performance.mark('yss.pi.first-text.visible', { detail: { jobId: measuredJob } })
+        performance.measure('yss.pi.first-text.receive-to-visible', {
+          start: receivedAt, end: mark.startTime, detail: { jobId: measuredJob }
+        })
+      })
+    })
+  }
+  const observer = new IntersectionObserver(([entry]) => {
+    visible = entry?.isIntersecting === true
+    recordVisible()
+  })
+  observer.observe(target)
+  document.addEventListener('visibilitychange', recordVisible)
+  onCleanup(() => {
+    observer.disconnect()
+    document.removeEventListener('visibilitychange', recordVisible)
+    if (frame !== undefined) cancelAnimationFrame(frame)
+  })
+}, { flush: 'post' })
 const settings = computed(() => events.latest.value?.piSettings)
+const onlyReads = computed(() => settings.value?.readOnly ?? props.readOnly)
 const plan = computed(() => events.latest.value?.piPlan)
 const terminal = computed(() => terminalJob(props.job.status) || !!events.latest.value?.terminal)
 const ready = computed(() => !!page.value || !!events.error.value || terminal.value)
@@ -45,11 +86,12 @@ const inputSync = shallowRef('')
 const openRows = shallowRef(new Set<number>())
 const filesWithDiff = computed(() => new Set(props.reviewTargets?.map((file) => JSON.stringify(file)) ?? []))
 function hasFileDiff(row: JobActivity) {
-  return row.projectId && row.path && filesWithDiff.value.has(JSON.stringify([row.projectId, row.path]))
+  return row.projectId && row.path && (filesWithDiff.value.has(JSON.stringify([row.projectId, row.path])) ||
+    (props.direct && (row.kind === 'files' || row.operation === 'write' || row.operation === 'edit')))
 }
 
 const operations: Record<string, string> = {
-  read: '读取', ls: '列出', grep: '搜索', write: '写入', edit: '编辑', command: '执行命令', files: '改动文件', compact: '压缩上下文'
+  read: '读取', ls: '列出', grep: '搜索', write: '写入', edit: '编辑', bash: '执行离线命令', command: '执行命令', files: '改动文件', compact: '压缩上下文'
 }
 type Entry = { key: number; rows: JobActivity[]; group: boolean }
 function ordinary(row: JobActivity) {
@@ -137,17 +179,23 @@ watch(events.statusLabel, (status) => {
       <time :datetime="job.createdAt">{{ dateLabel(job.createdAt) }}</time>
       <span>{{ stopping && !terminal ? '正在停止' : jobStatusLabels[job.status] || job.status }}</span>
       <span v-if="page?.allowCommands">已授权离线命令</span>
-      <span v-if="settings?.readOnly">只读分析</span>
+      <span v-if="onlyReads">{{ direct ? '只读原工程' : '只读分析' }}</span>
+      <span v-else-if="direct && onlyReads === false">编辑原工程</span>
       <span v-if="settings" :title="settings.model.provider + ' / ' + settings.model.id">
         {{ settings.model.id }}<template v-if="settings.thinkingLevel && settings.thinkingLevel !== 'off'"> · {{ piThinkingLabels[settings.thinkingLevel] }}推理</template>
       </span>
       <PiContextUsage :usage="events.latest.value?.piContext" :limit="settings?.contextWindow" />
       <RouterLink :to="{ path: '/jobs/' + job.id, query: { detail: '1', tab: 'log' } }">本轮日志 <ArrowUpRight :size="12" /></RouterLink>
     </header>
+    <PiTokenUsage v-if="events.latest.value?.piUsage" :usage="events.latest.value.piUsage" />
+    <p v-if="direct && onlyReads === false &&
+      (stopping || (terminalJob(job.status) && !['completed', 'succeeded'].includes(job.status)))" class="pi-round-note">
+      已写入的内容会保留在原工程。
+    </p>
     <ConversationMessage v-if="page?.prompt" :text="page.prompt" user />
     <p v-else-if="page || terminal" class="pi-round-note">本轮未留存原始要求</p>
     <details v-for="(excerpt, index) in page?.citations" :key="index" class="pi-sent-excerpt">
-      <summary>{{ projectNames[excerpt.projectId] ?? excerpt.projectId }} / {{ excerpt.path }} · {{ excerpt.side === 'initial' ? '运行起点' : '隔离结果' }} {{ excerpt.startLine }}–{{ excerpt.endLine }} 行</summary>
+      <summary>{{ projectNames[excerpt.projectId] ?? excerpt.projectId }} / {{ excerpt.path }} · {{ excerpt.side === 'initial' ? '运行起点' : direct ? '本轮结束' : '隔离结果' }} {{ excerpt.startLine }}–{{ excerpt.endLine }} 行</summary>
       <p>{{ excerpt.note }}</p>
       <pre>{{ excerpt.snippet }}</pre>
       <small>来源轮次 {{ excerpt.jobId }} · 版本 {{ excerpt.reviewToken.slice(0, 10) }}</small>

@@ -1,6 +1,6 @@
 import { computed, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useWorkbench } from '@/hooks/useWorkbench'
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import {
   defaultWorkQuery,
   type WorkQuery,
@@ -13,7 +13,7 @@ export function useSpecFilters() {
   const route = useRoute()
   const router = useRouter()
   const state = shallowRef(decodeWorkQuery(route.query))
-  const { snapshot } = useWorkbench()
+  const { catalog } = useWorkbenchCatalog()
   let navigation = 0
   let pending = false
   const filters = computed(() => state.value.query)
@@ -47,7 +47,7 @@ export function useSpecFilters() {
     navigate({ ...state.value, query: next, ...display })
   }
   watch(
-    [viewId, snapshot],
+    [viewId, catalog],
     ([id, current]) => {
       if (current?.savedViews.some((view) => view.id === id && view.query.entity !== 'spec'))
         detachView()

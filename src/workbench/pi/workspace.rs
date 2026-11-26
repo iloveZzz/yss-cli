@@ -1,33 +1,66 @@
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    fs::{FileSnapshot, Root},
-    model::{RelPath, RenderedFile},
+    fs::{FileSnapshot, Root, alias_key, git},
+    model::{FileDescriptor, RelPath, RenderedFile, Sha256},
     transaction::{self, Operation},
-    workbench::agent_workspace::Workspace,
+    workbench::agent_workspace::{self, GitBaseline, Workspace},
 };
 use cap_std::fs::MetadataExt;
 use std::{
-    collections::BTreeMap,
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
 const MAX_FILE: u64 = 512 * 1024;
 const MAX_READ: usize = 128 * 1024;
 
-pub(super) struct Worktrees {
-    roots: Vec<Root>,
-    projects: BTreeMap<String, (usize, String)>,
+pub(super) struct Projects {
+    repositories: Vec<Repository>,
+    projects: BTreeMap<String, Project>,
     primary: String,
+    protected: BTreeSet<PathBuf>,
+    observed: RefCell<BTreeMap<PathBuf, FileDescriptor>>,
+}
+
+struct Repository {
+    path: PathBuf,
+    baseline: GitBaseline,
+    recorded_paths: BTreeSet<String>,
+}
+
+struct Project {
+    root: Root,
+    repository: usize,
+    blocked: BTreeSet<String>,
 }
 
 pub(super) struct Location<'a> {
-    root: &'a Root,
+    project: &'a Project,
+    repository: &'a Repository,
     path: Option<RelPath>,
+    observed: &'a RefCell<BTreeMap<PathBuf, FileDescriptor>>,
 }
 
 fn unsafe_path(message: &str) -> YssError {
     YssError::new(ErrorCode::UnsafePath, message)
+}
+
+fn outside_scope() -> YssError {
+    unsafe_path("路径不在本轮所选工程内").context("piErrorCode", "path_outside_scope")
+}
+
+fn missing_path() -> YssError {
+    YssError::new(ErrorCode::Io, "所选工程内没有该文件或目录")
+        .context("piErrorCode", "missing_path")
+}
+
+fn missing(error: &YssError) -> bool {
+    error
+        .context
+        .get("kind")
+        .is_some_and(|kind| kind == "NotFound")
 }
 
 pub(super) fn tool_path(path: &RelPath) -> bool {
@@ -38,108 +71,238 @@ pub(super) fn tool_path(path: &RelPath) -> bool {
     })
 }
 
-impl Worktrees {
-    pub fn review_location<'a>(&'a self, target: &'a Location<'_>) -> Option<(&'a str, &'a str)> {
-        let path = target.path.as_ref()?.as_str();
-        self.projects
-            .iter()
-            .filter_map(|(id, (index, prefix))| {
-                if !std::ptr::eq(&self.roots[*index], target.root) {
-                    return None;
-                }
-                let relative = if prefix.is_empty() {
-                    path
-                } else {
-                    path.strip_prefix(prefix)?.strip_prefix('/')?
-                };
-                Some((prefix.len(), id.as_str(), relative))
+fn relative_input(path: &str) -> Result<Option<RelPath>> {
+    let path = path.strip_prefix("./").unwrap_or(path);
+    let path = path.strip_suffix('/').unwrap_or(path);
+    if path.is_empty() || path == "." {
+        return Ok(None);
+    }
+    if path.split('/').any(|part| part == "..") {
+        return Err(outside_scope());
+    }
+    RelPath::new(path)
+        .map(Some)
+        .map_err(|error| error.context("piErrorCode", "invalid_path"))
+}
+
+fn absolute_suffix<'a>(root: &Path, input: &'a str) -> Option<&'a str> {
+    let rest = input.strip_prefix(root.to_str()?)?;
+    if rest.is_empty() {
+        Some(rest)
+    } else {
+        rest.strip_prefix('/')
+    }
+}
+
+impl Project {
+    fn includes(&self, path: &RelPath) -> bool {
+        let key = alias_key(path.as_str());
+        tool_path(path)
+            && !self.blocked.iter().any(|p| {
+                key == *p
+                    || key
+                        .strip_prefix(p)
+                        .is_some_and(|rest| rest.starts_with('/'))
             })
-            .max_by_key(|(length, _, _)| *length)
-            .map(|(_, id, relative)| (id, relative))
+    }
+}
+
+impl Projects {
+    pub fn review_location(&self, target: &Location<'_>) -> Option<(String, String)> {
+        let absolute = target.display();
+        let (path, id, _) = self.absolute_project(absolute.to_str()?)?;
+        (!path.is_empty()).then(|| (id.to_owned(), path.to_owned()))
     }
 
-    pub fn new(workspaces: &[Workspace], primary: &str) -> Result<Self> {
-        let mut roots = Vec::new();
+    pub fn new(
+        workspaces: &[Workspace],
+        primary: &str,
+        data_dir: &Path,
+        pi_config: &Path,
+    ) -> Result<Self> {
+        let mut repositories = Vec::new();
         let mut projects = BTreeMap::new();
+        let mut protected = BTreeSet::from([data_dir.to_owned(), pi_config.to_owned()]);
+        let mut excluded = BTreeSet::new();
         for workspace in workspaces {
-            let root = Root::open(Path::new(&workspace.worktree_root))?;
-            if root.identity != workspace.worktree_identity {
-                return Err(unsafe_path("Pi worktree 身份已改变"));
-            }
+            let direct = workspace
+                .direct
+                .as_ref()
+                .ok_or_else(|| YssError::new(ErrorCode::NotReady, "请从原 Spec 发起直接运行"))?;
+            let git_root = Path::new(&workspace.original_root);
+            protected.extend([
+                PathBuf::from(&direct.baseline.git_dir),
+                PathBuf::from(&direct.baseline.common_dir),
+            ]);
+            excluded.extend(
+                direct
+                    .excluded_prefixes
+                    .iter()
+                    .map(|path| git_root.join(path)),
+            );
             for (id, prefix) in &workspace.project_prefixes {
-                projects.insert(id.clone(), (roots.len(), prefix.clone()));
+                let root = Root::open(&git_root.join(prefix))?;
+                if direct.project_identities.get(id) != Some(&root.identity) {
+                    return Err(YssError::new(
+                        ErrorCode::ConcurrentChange,
+                        "Pi 工程目录身份已改变",
+                    ));
+                }
+                projects.insert(
+                    id.clone(),
+                    Project {
+                        root,
+                        repository: repositories.len(),
+                        blocked: BTreeSet::new(),
+                    },
+                );
             }
-            roots.push(root);
+            repositories.push(Repository {
+                path: git_root.to_owned(),
+                baseline: direct.baseline.clone(),
+                recorded_paths: workspace.initial.keys().cloned().collect(),
+            });
+        }
+        for project in projects.values_mut() {
+            if protected
+                .iter()
+                .any(|path| project.root.path.starts_with(path))
+            {
+                return Err(unsafe_path("Pi 工程与受保护目录重叠"));
+            }
+            project.blocked.extend(
+                protected
+                    .iter()
+                    .chain(&excluded)
+                    .filter_map(|path| path.strip_prefix(&project.root.path).ok())
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .filter_map(Path::to_str)
+                    .map(alias_key),
+            );
         }
         if !projects.contains_key(primary) {
-            return Err(unsafe_path("Pi 缺少主 Spec 对应的隔离工程"));
+            return Err(outside_scope());
         }
+        protected.extend(excluded);
         Ok(Self {
-            roots,
+            repositories,
             projects,
             primary: primary.to_owned(),
+            protected,
+            observed: RefCell::new(BTreeMap::new()),
         })
     }
 
-    pub fn locate(&self, project: Option<&str>, path: &str) -> Result<Location<'_>> {
-        let location = Path::new(path);
-        let (root, relative) = match (location.is_absolute(), project) {
-            (true, None) => self
-                .roots
-                .iter()
-                .find_map(|root| {
-                    let relative = path.strip_prefix(root.path.to_str()?)?;
-                    (relative.is_empty() || relative.starts_with('/')).then(|| {
-                        (
-                            root,
-                            relative.strip_prefix('/').unwrap_or(relative).to_owned(),
-                        )
-                    })
-                })
-                .ok_or_else(|| unsafe_path("Pi 路径不在本次隔离工程内"))?,
-            (_, project) => {
-                let (index, prefix) = self
-                    .projects
-                    .get(project.unwrap_or(&self.primary))
-                    .ok_or_else(|| unsafe_path("Pi 工程未参与本次运行"))?;
-                let root = &self.roots[*index];
-                let base = root.path.join(prefix);
-                let relative = if location.is_absolute() {
-                    let base = base
-                        .to_str()
-                        .ok_or_else(|| unsafe_path("Pi 工程路径不是 UTF-8"))?;
-                    let rest = path
-                        .strip_prefix(base)
-                        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
-                        .ok_or_else(|| unsafe_path("Pi 路径不在所选隔离工程内"))?;
-                    rest.strip_prefix('/').unwrap_or(rest).to_owned()
-                } else {
-                    path.to_owned()
-                };
-                if !relative.is_empty() && relative != "." {
-                    RelPath::new(&relative)?;
-                }
-                let relative = if relative.is_empty() || relative == "." {
-                    prefix.clone()
-                } else if prefix.is_empty() {
-                    relative
-                } else {
-                    format!("{prefix}/{relative}")
-                };
-                (root, relative)
-            }
-        };
+    pub fn roots(&self) -> impl Iterator<Item = &Root> {
+        self.projects.values().map(|project| &project.root)
+    }
+
+    pub fn repository_paths(&self) -> impl Iterator<Item = &Path> {
+        self.repositories.iter().map(|repo| repo.path.as_path())
+    }
+
+    pub fn project_root(&self, id: &str) -> Result<&Root> {
+        let root = &self.projects.get(id).ok_or_else(outside_scope)?.root;
         root.revalidate()?;
-        let path = if relative.is_empty() || relative == "." {
-            None
+        Ok(root)
+    }
+
+    pub fn includes(&self, id: &str, path: &RelPath) -> bool {
+        self.projects
+            .get(id)
+            .is_some_and(|project| project.includes(path))
+    }
+
+    pub fn check_baselines(&self, cancel: &Cancellation) -> Result<()> {
+        for repository in &self.repositories {
+            agent_workspace::check_baseline(&repository.path, &repository.baseline, cancel)?;
+        }
+        Ok(())
+    }
+
+    pub fn protected(&self) -> &BTreeSet<PathBuf> {
+        &self.protected
+    }
+
+    fn absolute_project<'a, 'b>(
+        &'a self,
+        path: &'b str,
+    ) -> Option<(&'b str, &'a str, &'a Project)> {
+        self.projects
+            .iter()
+            .filter_map(|(id, project)| {
+                let rest = absolute_suffix(&project.root.path, path)?;
+                Some((rest, id.as_str(), project))
+            })
+            .min_by_key(|(rest, _, _)| rest.len())
+    }
+
+    pub fn locate(&self, project: Option<&str>, path: &str) -> Result<Location<'_>> {
+        let absolute = Path::new(path).is_absolute();
+        let (project, relative) = if absolute && project.is_none() {
+            let (relative, _, project) = self.absolute_project(path).ok_or_else(outside_scope)?;
+            (project, relative)
         } else {
-            let relative = RelPath::new(relative)?;
-            if !tool_path(&relative) {
-                return Err(unsafe_path("Pi 工具不能访问 Git 或 YSS 控制文件").at(relative));
-            }
-            Some(relative)
+            let project = self
+                .projects
+                .get(project.unwrap_or(&self.primary))
+                .ok_or_else(outside_scope)?;
+            let relative = if absolute {
+                absolute_suffix(&project.root.path, path).ok_or_else(outside_scope)?
+            } else {
+                path
+            };
+            (project, relative)
         };
-        Ok(Location { root, path })
+        let path = relative_input(relative)?;
+        if let Some(path) = &path {
+            if !tool_path(path) {
+                return Err(unsafe_path("Pi 工具不能访问 Git 或 YSS 控制文件"));
+            }
+            if !project.includes(path) {
+                return Err(outside_scope());
+            }
+        }
+        project.root.revalidate()?;
+        Ok(Location {
+            project,
+            repository: &self.repositories[project.repository],
+            path,
+            observed: &self.observed,
+        })
+    }
+
+    pub fn error_display_path(&self, project: Option<&str>, path: &str) -> String {
+        if path.len() > 4096 {
+            return "路径未显示".into();
+        }
+        let relative = if Path::new(path).is_absolute() {
+            match project {
+                Some(id) => self
+                    .projects
+                    .get(id)
+                    .and_then(|project| absolute_suffix(&project.root.path, path)),
+                None => self.absolute_project(path).map(|(path, _, _)| path),
+            }
+        } else {
+            Some(path)
+        };
+        let Some(relative) = relative else {
+            return "所选工程之外的绝对路径".into();
+        };
+        match relative_input(relative) {
+            Ok(Some(path)) if tool_path(&path) => bounded(path.as_str(), 256).to_owned(),
+            Ok(None) => ".".to_owned(),
+            // Retain the useful relative input without displaying control characters, absolute paths,
+            // or arbitrary invalid segments.
+            _ if relative.split('/').all(|part| {
+                part == ".." || part == "." || RelPath::new(part).is_ok_and(|part| tool_path(&part))
+            }) =>
+            {
+                bounded(relative, 256).to_owned()
+            }
+            _ => "路径未显示".into(),
+        }
     }
 }
 
@@ -149,29 +312,55 @@ fn bounded(value: &str, limit: usize) -> &str {
 
 impl Location<'_> {
     fn file(&self) -> Result<&RelPath> {
-        self.path
-            .as_ref()
-            .ok_or_else(|| unsafe_path("Pi 工具需要指定文件路径"))
+        self.path.as_ref().ok_or_else(|| {
+            YssError::new(ErrorCode::InvalidInput, "Pi 工具需要指定文件路径")
+                .context("piErrorCode", "invalid_path")
+        })
     }
 
     pub fn display(&self) -> PathBuf {
         match &self.path {
-            Some(path) => self.root.path.join(path.as_str()),
-            None => self.root.path.clone(),
+            Some(path) => self.project.root.path.join(path.as_str()),
+            None => self.project.root.path.clone(),
         }
+    }
+
+    pub fn check_baseline(&self, cancel: &Cancellation) -> Result<()> {
+        self.project.root.revalidate()?;
+        agent_workspace::check_baseline(&self.repository.path, &self.repository.baseline, cancel)
     }
 
     pub fn directory(&self) -> Result<PathBuf> {
         if let Some(path) = &self.path {
-            self.root.open_dir(path)?;
+            self.metadata(path)?;
+            self.project.root.open_dir(path)?;
         }
         Ok(self.display())
     }
 
+    fn metadata(&self, path: &RelPath) -> Result<cap_std::fs::Metadata> {
+        self.project.root.source_metadata(path).map_err(|error| {
+            if missing(&error) {
+                missing_path().at(path)
+            } else {
+                error
+            }
+        })
+    }
+
     fn read_text(&self, path: &RelPath) -> Result<(String, FileSnapshot)> {
-        let checked = self.root.read_checked(path, MAX_FILE)?;
-        if self.root.source_metadata(path)?.nlink() != 1 || checked.bytes.contains(&0) {
-            return Err(unsafe_path("Pi 文件工具仅处理普通 UTF-8 文本文件").at(path));
+        let metadata = self.metadata(path)?;
+        if !metadata.is_file() || metadata.nlink() != 1 {
+            return Err(unsafe_path("Pi 文件工具仅处理无硬链接的普通 UTF-8 文本文件").at(path));
+        }
+        let checked = self.project.root.read_checked(path, MAX_FILE)?;
+        if self.metadata(path)?.nlink() != 1 {
+            return Err(unsafe_path("Pi 文件工具不能读取硬链接").at(path));
+        }
+        if checked.bytes.contains(&0) {
+            return Err(
+                YssError::new(ErrorCode::UnsupportedFormat, "Pi 文件含二进制内容").at(path),
+            );
         }
         let text = String::from_utf8(checked.bytes)
             .map_err(|_| unsafe_path("Pi 文件不是 UTF-8 文本").at(path))?;
@@ -179,7 +368,24 @@ impl Location<'_> {
     }
 
     pub fn read(&self, offset: Option<usize>, limit: Option<usize>) -> Result<String> {
-        let (text, _) = self.read_text(self.file()?)?;
+        let path = self.file()?;
+        let (text, snapshot) = match self.read_text(path) {
+            Err(error)
+                if error
+                    .context
+                    .get("piErrorCode")
+                    .is_some_and(|code| code == "missing_path") =>
+            {
+                self.observed.borrow_mut().remove(&self.display());
+                return Err(error);
+            }
+            result => result?,
+        };
+        if let Some(descriptor) = snapshot.descriptor() {
+            self.observed
+                .borrow_mut()
+                .insert(self.display(), descriptor.clone());
+        }
         let start = offset.unwrap_or(1).saturating_sub(1);
         let mut lines = text.split_inclusive('\n').skip(start);
         let mut result = String::new();
@@ -199,14 +405,22 @@ impl Location<'_> {
     }
 
     pub fn list(&self, cancel: &Cancellation) -> Result<String> {
+        if let Some(path) = &self.path
+            && !self.metadata(path)?.is_dir()
+        {
+            return Err(YssError::new(ErrorCode::InvalidInput, "列出目录需要目录路径").at(path));
+        }
         let mut budget = 500;
         let (entries, complete) =
-            self.root
+            self.project
+                .root
                 .source_entries(self.path.as_ref(), &mut budget, cancel)?;
         let mut result = String::new();
         for (name, metadata) in entries {
-            let path = RelPath::new(&name)?;
-            if tool_path(&path) && !metadata.file_type().is_symlink() {
+            let Ok(path) = self.child_path(self.path.as_ref(), &name) else {
+                continue;
+            };
+            if self.project.includes(&path) && !metadata.file_type().is_symlink() {
                 result.push_str(&name);
                 result.push_str(if metadata.is_dir() { "/\n" } else { "\n" });
             }
@@ -215,6 +429,13 @@ impl Location<'_> {
             result.push_str("[达到列举上限]\n");
         }
         Ok(result)
+    }
+
+    fn child_path(&self, directory: Option<&RelPath>, name: &str) -> Result<RelPath> {
+        match directory {
+            Some(directory) => directory.join(name),
+            None => RelPath::new(name),
+        }
     }
 
     pub fn grep(&self, query: &str, cancel: &Cancellation) -> Result<String> {
@@ -251,13 +472,14 @@ impl Location<'_> {
         let mut directories = vec![self.path.clone()];
         let mut budget = 4000;
         if let Some(path) = &self.path
-            && self.root.source_metadata(path)?.is_file()
+            && self.metadata(path)?.is_file()
         {
             search(path);
         } else {
             while let Some(directory) = directories.pop() {
                 let entries =
                     match self
+                        .project
                         .root
                         .source_entries(directory.as_ref(), &mut budget, cancel)
                     {
@@ -271,15 +493,16 @@ impl Location<'_> {
                     };
                 for (name, metadata) in entries {
                     cancel.check()?;
-                    let relative = match &directory {
-                        Some(dir) => RelPath::new(format!("{}/{name}", dir.as_str()))?,
-                        None => RelPath::new(&name)?,
+                    let Ok(relative) = self.child_path(directory.as_ref(), &name) else {
+                        continue;
                     };
-                    if !tool_path(&relative) || metadata.file_type().is_symlink() {
+                    if !self.project.includes(&relative) || metadata.file_type().is_symlink() {
                         continue;
                     }
                     if metadata.is_dir() {
-                        directories.push(Some(relative));
+                        if name != "node_modules" {
+                            directories.push(Some(relative));
+                        }
                     } else if metadata.is_file() && search(&relative) {
                         return Ok(matches);
                     }
@@ -293,15 +516,67 @@ impl Location<'_> {
         Ok(matches)
     }
 
-    pub fn write(&self, text: String, cancel: &Cancellation) -> Result<&'static str> {
+    fn check_review_scope(&self) -> Result<()> {
+        let target = self.display();
+        let relative = target
+            .strip_prefix(&self.repository.path)
+            .ok()
+            .and_then(Path::to_str)
+            .ok_or_else(outside_scope)?;
+        if self.repository.recorded_paths.contains(relative) {
+            return Ok(());
+        }
+        let mut input = relative.as_bytes().to_vec();
+        input.push(0);
+        if !git::output(
+            &self.repository.path,
+            &["check-ignore", "--stdin", "-z"],
+            Some(&input),
+            true,
+        )?
+        .is_empty()
+        {
+            return Err(YssError::new(
+                ErrorCode::InvalidInput,
+                "此 Git 忽略文件不在本轮可审阅快照中，请修改源码或使用已授权的构建命令",
+            )
+            .context("piErrorCode", "path_not_reviewable"));
+        }
+        Ok(())
+    }
+
+    fn check_observation(&self, before: &FileSnapshot) -> Result<()> {
+        let observations = self.observed.borrow();
+        if observations.get(&self.display()) == before.descriptor() {
+            return Ok(());
+        }
+        Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            "写入前请重新读取此文件，确认采用原工程的最新内容",
+        ))
+    }
+
+    pub fn write(&self, text: String, cancel: &Cancellation) -> Result<(&'static str, Sha256)> {
         let path = self.file()?;
-        let before = self.root.inspect(path)?;
+        self.check_review_scope()?;
+        let before = self.project.root.inspect(path)?;
+        if !matches!(before, FileSnapshot::Missing | FileSnapshot::File { .. }) {
+            return Err(unsafe_path("Pi 写入目标含受保护对象").at(path));
+        }
+        self.check_observation(&before)?;
         self.replace(path, before, text, cancel)
     }
 
-    pub fn edit(&self, old: &str, new: &str, cancel: &Cancellation) -> Result<&'static str> {
+    pub fn edit(
+        &self,
+        old: &str,
+        new: &str,
+        cancel: &Cancellation,
+    ) -> Result<(&'static str, Sha256)> {
         let path = self.file()?;
+        self.check_review_scope()?;
         let (text, before) = self.read_text(path)?;
+        self.check_observation(&before)?;
         if old.is_empty() || text.match_indices(old).take(2).count() != 1 {
             return Err(YssError::new(ErrorCode::Conflict, "待替换文本须恰好匹配一次").at(path));
         }
@@ -314,14 +589,14 @@ impl Location<'_> {
         before: FileSnapshot,
         text: String,
         cancel: &Cancellation,
-    ) -> Result<&'static str> {
+    ) -> Result<(&'static str, Sha256)> {
         if text.len() as u64 > MAX_FILE || text.contains('\0') {
             return Err(unsafe_path("Pi 写入内容须为 512 KiB 以内的文本").at(path));
         }
         let mut ops = Vec::new();
         for parent in path.parents() {
             let parent = RelPath::new(parent)?;
-            if self.root.inspect(&parent)? == FileSnapshot::Missing {
+            if self.project.root.inspect(&parent)? == FileSnapshot::Missing {
                 ops.push(Operation::CreateDir { path: parent });
             }
         }
@@ -331,6 +606,7 @@ impl Location<'_> {
                 .descriptor()
                 .map_or(0o644, |descriptor| descriptor.mode),
         };
+        let written = FileDescriptor::new(&file.bytes, file.mode);
         let action = match &before {
             FileSnapshot::Missing => {
                 ops.push(Operation::Create {
@@ -339,7 +615,7 @@ impl Location<'_> {
                 });
                 "add"
             }
-            FileSnapshot::File { .. } if self.root.source_metadata(path)?.nlink() == 1 => {
+            FileSnapshot::File { .. } if self.project.root.source_metadata(path)?.nlink() == 1 => {
                 ops.push(Operation::Replace {
                     path: path.clone(),
                     before: before.clone(),
@@ -349,13 +625,16 @@ impl Location<'_> {
             }
             _ => return Err(unsafe_path("Pi 写入目标含受保护对象").at(path)),
         };
-        transaction::apply_files(
-            &self.root.path,
-            self.root.identity.clone(),
+        transaction::apply_files_checked(
+            &self.project.root.path,
+            self.project.root.identity.clone(),
             ops,
             BTreeMap::from([(path.clone(), before)]),
             cancel,
+            &|| self.check_baseline(cancel),
         )?;
-        Ok(action)
+        let digest = written.sha256.clone();
+        self.observed.borrow_mut().insert(self.display(), written);
+        Ok((action, digest))
     }
 }

@@ -31,8 +31,10 @@ function request(operation, signal) {
     socket.once("end", () => {
       try {
         const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-        if (result.error) reject(new Error(result.error));
-        else resolve(result);
+        if (result.error) {
+          const message = [result.errorCode, result.displayPath, result.error, result.hint].filter(Boolean).join("\n");
+          reject(Object.assign(new Error(message), { toolFailure: result }));
+        } else resolve(result);
       } catch {
         reject(new Error("工作台工具响应中断"));
       }
@@ -42,7 +44,7 @@ function request(operation, signal) {
 
 export default function workbench(pi) {
   const location = {
-    path: Type.String({ description: "主工程相对路径，或已选 worktree 内的绝对路径" }),
+    path: Type.String({ description: "所选工程内的相对路径，或该工程内的绝对路径" }),
     projectId: Type.Optional(Type.String({ description: "相对路径所属工程，缺省为主 Spec 工程" })),
   };
   const text = (description) => Type.String({ description });
@@ -52,16 +54,26 @@ export default function workbench(pi) {
     pi.registerTool({
       name, label, description, parameters: Type.Object(properties),
       async execute(id, args, signal) {
-        const result = await request({ ...args, operation: name, id }, signal);
-        return {
-          content: [{ type: "text", text: result.text }],
-          details: result.exitCode === undefined ? {} : { exitCode: result.exitCode },
-          isError: result.exitCode != null && result.exitCode !== 0,
-        };
+        try {
+          const result = await request({ ...args, operation: name, id }, signal);
+          return {
+            content: [{ type: "text", text: result.text }],
+            details: result.exitCode === undefined ? {} : { exitCode: result.exitCode },
+            isError: result.exitCode != null && result.exitCode !== 0,
+          };
+        } catch (error) {
+          if (!error.toolFailure) throw error;
+          const { errorCode, displayPath, hint } = error.toolFailure;
+          return {
+            content: [{ type: "text", text: error.message }],
+            details: { errorCode, displayPath, hint },
+            isError: true,
+          };
+        }
       },
     });
   }
-  register("read", "读文件", "读取隔离工程的 UTF-8 文件，可按行分页。", {
+  register("read", "读文件", "读取所选原工程的 UTF-8 文件，可按行分页。", {
     ...location,
     offset: Type.Optional(Type.Integer({ minimum: 1, description: "起始行，默认 1" })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000, description: "最多读取的行数" })),
@@ -71,10 +83,10 @@ export default function workbench(pi) {
     ...location, query: text("要查找的原文"),
   });
   if (!readOnly) {
-    register("write", "写文件", "创建或覆盖隔离工程中的 UTF-8 文件。", {
+    register("write", "写文件", "直接创建或覆盖原工程中的 UTF-8 文件。覆盖前先用 read 读取目标。", {
       ...location, content: text("完整文件内容"),
     });
-    register("edit", "编辑文件", "替换文件中恰好匹配一次的旧文本。", {
+    register("edit", "编辑文件", "直接替换原工程文件中恰好匹配一次的旧文本。编辑前先用 read 读取目标。", {
       ...location, oldText: text("完整旧文本"), newText: text("替换文本"),
     });
   }
@@ -88,7 +100,7 @@ export default function workbench(pi) {
     }), { minItems: 1, maxItems: 20 }),
   });
   if (allowCommands) {
-    register("bash", "运行隔离命令", "在所选工程中运行离线 shell 命令。构建和测试使用已准备的依赖。", {
+    register("bash", "运行离线命令", "在所选工程中运行离线 shell 命令。构建和测试使用已准备的依赖。", {
       ...location,
       path: Type.Optional(Type.String({ description: "工作目录，缺省为工程根" })),
       command: text("在 bash 中执行的命令"),

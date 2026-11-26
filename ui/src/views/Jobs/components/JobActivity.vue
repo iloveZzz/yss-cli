@@ -178,19 +178,19 @@ function summary(text: string, command: boolean) {
                     :aria-controls="`${detailId}-${row.id}`"
                     :aria-disabled="busy"
                     :aria-expanded="open === row.id"
-                    :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${row.text.slice(0, 80)}`"
+                    :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${(row.displayPath || row.text).slice(0, 80)}`"
                     @click="!busy && toggle(row.id)"
                   >
                     <span aria-hidden="true" class="chevron">{{ open === row.id ? '▾' : '▸' }}</span>
                     <span class="summary-text" :class="{ mono: row.kind === 'command' }">{{
-                      summary(row.text, row.kind === 'command') || '查看详情'
+                      row.displayPath || summary(row.text, row.kind === 'command') || '查看详情'
                     }}</span>
                   </Button>
                 </TableCell>
                 <TableCell
                   :class="{
                     'warning-text':
-                      (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error'
+                      (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error' || row.status === 'failed'
                   }"
                 >
                   {{ stepResult(row) }}

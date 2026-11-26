@@ -351,6 +351,47 @@ pub(super) fn inspect(
     context: Option<&super::materials::Context<'_>>,
     capture: bool,
 ) -> (ContentView, Option<super::materials::Assessment>) {
+    inspect_source(
+        state,
+        spec,
+        root,
+        InspectionSource::Live(source),
+        context,
+        capture,
+    )
+}
+
+pub(super) fn inspect_observed(
+    state: &WorkbenchState,
+    spec: &SpecRecord,
+    root: &Result<Root>,
+    observed: &sources::SpecObservation,
+    context: Option<&super::materials::Context<'_>>,
+) -> ContentView {
+    inspect_source(
+        state,
+        spec,
+        root,
+        InspectionSource::Observed(observed),
+        context,
+        false,
+    )
+    .0
+}
+
+enum InspectionSource<'a> {
+    Live(Option<&'a str>),
+    Observed(&'a sources::SpecObservation),
+}
+
+fn inspect_source(
+    state: &WorkbenchState,
+    spec: &SpecRecord,
+    root: &Result<Root>,
+    source: InspectionSource<'_>,
+    context: Option<&super::materials::Context<'_>>,
+    capture: bool,
+) -> (ContentView, Option<super::materials::Assessment>) {
     let confirmations: Vec<_> = state
         .confirmations
         .iter()
@@ -376,11 +417,41 @@ pub(super) fn inspect(
     let mut assessment = None;
     let read = (|| -> Result<()> {
         let root = root.as_ref().map_err(Clone::clone)?;
-        let source = match source {
-            Some(text) => Cow::Borrowed(text),
-            None => Cow::Owned(sources::text(root, &spec.source_path)?),
+        let read_text;
+        let read_metadata;
+        let resolved;
+        let (main, meta, resources) = match source {
+            InspectionSource::Live(source) => {
+                read_text = if let Some(text) = source {
+                    Cow::Borrowed(text)
+                } else {
+                    Cow::Owned(sources::text(root, &spec.source_path)?)
+                };
+                read_metadata = metadata(&read_text)?;
+                let meta = read_metadata.as_ref();
+                resolved = meta
+                    .map(|meta| resolved_resources(spec, Some(meta), Some(root)))
+                    .unwrap_or_default();
+                (
+                    super::materials::MainSource::Text(&read_text),
+                    meta,
+                    resolved.as_slice(),
+                )
+            }
+            InspectionSource::Observed(observed) => {
+                let source = observed.read.as_ref().map_err(Clone::clone)?;
+                let meta = source.metadata.as_ref().map_err(Clone::clone)?.as_ref();
+                (
+                    super::materials::MainSource::Digest {
+                        digest: &source.digest,
+                        size: source.size,
+                    },
+                    meta,
+                    observed.resources.as_slice(),
+                )
+            }
         };
-        let Some(meta) = metadata(&source)? else {
+        let Some(meta) = meta else {
             view.blockers
                 .push("主 Spec 尚未声明内容状态和确认范围".into());
             return Ok(());
@@ -433,13 +504,12 @@ pub(super) fn inspect(
                 )),
             }
         }
-        let resources = resolved_resources(spec, Some(&meta), Some(root));
         let resolved = super::materials::assess(
             super::materials::Source {
                 root,
                 spec,
-                text: &source,
-                resources: &resources,
+                main,
+                resources,
             },
             &view,
             context,

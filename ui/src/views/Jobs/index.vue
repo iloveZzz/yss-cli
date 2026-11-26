@@ -10,7 +10,7 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import AgentCommandPermission from '@/components/AgentCommandPermission.vue'
+import AgentRunPermissions from '@/components/AgentRunPermissions.vue'
 import PiReadiness from '@/components/PiReadiness.vue'
 import { errorMessage, dateLabel, ApiError } from '@/services/workbench'
 import {
@@ -60,10 +60,12 @@ const filesVisited = shallowRef(false)
 const continuationOpen = shallowRef(false)
 const defaultContinuation = '请根据已有运行结果继续处理。'
 const continuation = shallowRef(defaultContinuation)
+const readOnly = shallowRef(true)
 const allowCommands = shallowRef(false)
 const readyModel = shallowRef<PiModel>()
 watch(continuationOpen, (open) => {
   if (!open) {
+    readOnly.value = true
     allowCommands.value = false
     readyModel.value = undefined
   }
@@ -93,6 +95,7 @@ watch(piRoute, (target) => {
   if (target && route.query.detail !== '1') void router.replace(target)
 })
 const currentRun = computed(() => (run.value?.jobId === jobId.value ? run.value : undefined))
+const artifactRun = computed(() => currentRun.value ?? (run.value?.workspaceMode === 'direct' ? run.value : undefined))
 const latestRunActive = computed(() => !!run.value && !terminalJob(run.value.status))
 const stopping = computed(
   () => stopRequestedFor.value === jobId.value && !!job.value && !terminalJob(job.value.status)
@@ -163,7 +166,7 @@ const outcome = computed(() => (job.value ? resultFacts(job.value) : []))
 const latestMessage = computed(
   () => eventStream.latest.value?.latestMessage?.trim().split(/\n\s*\n/, 1)[0]
 )
-watch(currentRun, (value) => {
+watch(artifactRun, (value) => {
   if (!value) {
     if (selectedTab.value === 'artifacts' || selectedTab.value === 'files')
       selectedTab.value = undefined
@@ -181,6 +184,7 @@ watch(
     filesVisited.value = false
     continuationOpen.value = false
     continuation.value = defaultContinuation
+    readOnly.value = true
     allowCommands.value = false
     operation.value = undefined
     stopRequestedFor.value = ''
@@ -279,10 +283,11 @@ async function resume() {
       specId: current.specId,
       prompt: continuation.value,
       projectIds: current.projectIds,
-      carryFiles: {},
       resumeRunId: current.id,
+      expectedJobId: target,
       expectedModel,
-      allowCommands: allowCommands.value
+      readOnly: readOnly.value,
+      allowCommands: !readOnly.value && allowCommands.value
     })
     if (!currentOperation(owner)) return
     await router.push({ path: `/jobs/${value.id}`, query: { run: current.id } })
@@ -323,7 +328,7 @@ async function resume() {
         <div class="job-overview-title">
           <h2>{{ terminalJob(job.status) ? '执行结果' : '当前进展' }}</h2>
           <JobStatus :status="job.status" :stopping="stopping" role="status" />
-          <span class="muted">{{ projectNames(job) || '本机工作台' }}</span>
+          <span class="muted">{{ projectNames(job) || '本机工作台' }}<template v-if="run?.workspaceMode === 'direct'"> · 原工程运行</template></span>
         </div>
         <Button
           v-if="!terminalJob(job.status)"
@@ -356,6 +361,13 @@ async function resume() {
         </RouterLink>。
       </p>
       <p v-if="stopping" class="muted" role="status">停止请求已提交，正在等待进程退出并保存本次记录。</p>
+      <p v-if="run?.workspaceMode === 'direct' && (eventStream.latest.value?.piSettings?.readOnly ?? currentRun?.readOnly) === false &&
+        (stopping || (terminalJob(job.status) && !['completed', 'succeeded'].includes(job.status)))" class="muted">
+        已写入的内容会保留在原工程。
+      </p>
+      <Alert v-if="currentRun?.workspaceMode === 'direct' && currentRun.snapshotError" class="notice warning" role="status">
+        <AlertDescription class="text-current">本轮差异待核实。{{ currentRun.snapshotError }}</AlertDescription>
+      </Alert>
       <p v-if="latestMessage && terminalJob(job.status) && tab === 'log'" class="job-final-message">
         {{ latestMessage }}
       </p>
@@ -388,7 +400,7 @@ async function resume() {
             :disabled="busy"
           />
         </Field>
-        <AgentCommandPermission v-model="allowCommands" :disabled="busy || !readyModel" />
+        <AgentRunPermissions v-model:read-only="readOnly" v-model:allow-commands="allowCommands" :disabled="busy" />
         <div class="form-actions">
           <Button type="submit" :disabled="busy || !readyModel || !continuation.trim()">
             <LoadingIndicator :active="operation?.kind === 'resume'" />
@@ -397,7 +409,7 @@ async function resume() {
         </div>
       </form>
       <p v-if="currentRun && terminalJob(job.status) && !currentRun.canResume" class="muted">
-        {{ currentRun.host === 'codex' ? '这是 Codex 历史运行。' : '当前会话不可续接。' }}
+        {{ currentRun.resumeIssue || (currentRun.workspaceMode !== 'direct' ? '这是历史隔离运行。' : '当前会话不可续接。') }}
         <RouterLink :to="'/specs/' + encodeURIComponent(currentRun.specId)" class="underline">
           返回 Spec 发起新运行
         </RouterLink>
@@ -452,7 +464,7 @@ async function resume() {
         aria-label="执行详情内容" moving-indicator>
         <TabsTrigger v-if="isPi" value="conversation">会话</TabsTrigger>
         <TabsTrigger value="log">执行日志</TabsTrigger>
-        <template v-if="currentRun">
+        <template v-if="artifactRun">
           <TabsTrigger value="artifacts">本次产物</TabsTrigger>
           <TabsTrigger value="files">文件变更</TabsTrigger>
         </template>
@@ -488,21 +500,25 @@ async function resume() {
           @retry="eventStream.retry"
         />
       </TabsContent>
-      <template v-if="currentRun">
+      <template v-if="artifactRun">
         <TabsContent value="artifacts">
           <RunArtifacts
             v-if="tab === 'artifacts'"
-            :run-id="currentRun.id"
-            :spec-id="currentRun.specId"
-            :running="latestRunActive"
+            :run-id="artifactRun.id"
+            :spec-id="artifactRun.specId"
+            :job-id="job.id"
+            :direct="artifactRun.workspaceMode === 'direct'"
+            :running="!terminalJob(job.status)"
           />
         </TabsContent>
         <TabsContent value="files" force-mount v-show="tab === 'files'">
           <AgentDiffPanel
             v-if="filesVisited"
-            :key="currentRun.id"
-            :run-id="currentRun.id"
-            :running="!terminalJob(job.status) || latestRunActive"
+            :key="job.id"
+            :run-id="artifactRun.id"
+            :job-id="job.id"
+            :direct="artifactRun.workspaceMode === 'direct'"
+            :running="!terminalJob(job.status)"
             :visible="tab === 'files'"
             @accepted="refreshWorkbench"
           />

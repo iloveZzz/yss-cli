@@ -1,25 +1,112 @@
 <script setup lang="ts">
 import { Alert } from '@/components/ui/alert'
-import { computed,nextTick,shallowRef,useId } from 'vue'
+import { computed, nextTick, shallowRef, useId } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
-import { errorMessage,type WorkQuery,type Layout,type GroupBy,type SavedView } from '@/services/workbench'
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { ApiError, errorMessage, type WorkQuery, type Layout, type GroupBy, type SavedView } from '@/services/workbench'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { Button } from '@/components/ui/button'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-const props=defineProps<{query:WorkQuery;layout:Layout;groupBy:GroupBy;viewId?:string}>();const emit=defineEmits<{apply:[view:SavedView];removed:[]}>()
-const {snapshot,submit,saving}=useWorkbench();const id=useId();const open=shallowRef(false);const name=shallowRef('');const error=shallowRef('');const editing=shallowRef<string|null>(null);const removing=shallowRef(false)
-const views=computed(()=>snapshot.value?.savedViews.filter(v=>v.query.entity==='spec')??[])
-const current=computed(()=>views.value.find(v=>v.id===props.viewId));let revision=0;let submittedQuery:WorkQuery;let submittedLayout:Layout;let submittedGroup:GroupBy
-const changed=computed(()=>current.value&&((Object.keys(props.query) as (keyof WorkQuery)[]).some(key=>JSON.stringify(current.value?.query[key])!==JSON.stringify(props.query[key]))||current.value.layout!==props.layout||current.value.groupBy!==props.groupBy))
-function begin(update:boolean){revision=snapshot.value?.revision??0;submittedQuery=structuredClone(props.query);submittedLayout=props.layout;submittedGroup=props.groupBy;editing.value=update?current.value?.id??null:null;name.value=update?current.value?.name??'':'';error.value='';removing.value=false;open.value=true}
-function remove(){revision=snapshot.value?.revision??0;editing.value=current.value?.id??null;error.value='';removing.value=true;open.value=true}
-async function save(){try{if(removing.value&&editing.value){await submit({kind:'removeView',viewId:editing.value},revision);emit('removed')}else{const result=await submit({kind:'saveView',viewId:editing.value,name:name.value,query:submittedQuery,layout:submittedLayout,groupBy:submittedGroup},revision);const view=snapshot.value?.savedViews.find(v=>v.id===result.viewId);if(view)emit('apply',view)}open.value=false}catch(e){error.value=errorMessage(e)}}
-const viewOptions=computed(()=>[{value:'temporary',label:'临时查询'},...(props.viewId&&props.viewId!=='temporary'&&!current.value?[{value:props.viewId,label:'视图已失效'}]:[]),...views.value.map(view=>({value:view.id,label:view.name}))])
-function select(value:string){if(value==='temporary'){emit('removed');return}const view=views.value.find(v=>v.id===value);if(view)emit('apply',view)}
+const props = defineProps<{ query: WorkQuery; layout: Layout; groupBy: GroupBy; viewId?: string }>()
+const emit = defineEmits<{ apply: [view: SavedView]; removed: [] }>()
+const { submit, saving } = useWorkbench()
+const { catalog, refreshCatalog, catalogLoading } = useWorkbenchCatalog()
+const id = useId()
+const open = shallowRef(false)
+const name = shallowRef('')
+const error = shallowRef('')
+const editing = shallowRef<string | null>(null)
+const removing = shallowRef(false)
+const stale = shallowRef(false)
+const committedView = shallowRef<string>()
+const views = computed(() => catalog.value?.savedViews.filter((view) => view.query.entity === 'spec') ?? [])
+const current = computed(() => views.value.find((view) => view.id === props.viewId))
+let revision = 0
+let submittedQuery: WorkQuery
+let submittedLayout: Layout
+let submittedGroup: GroupBy
+const changed = computed(() => current.value && (
+  (Object.keys(props.query) as (keyof WorkQuery)[]).some((key) =>
+    JSON.stringify(current.value?.query[key]) !== JSON.stringify(props.query[key])) ||
+  current.value.layout !== props.layout || current.value.groupBy !== props.groupBy
+))
+function begin(update: boolean, remove = false) {
+  if (!catalog.value) return
+  revision = catalog.value.revision
+  submittedQuery = structuredClone(props.query)
+  submittedLayout = props.layout
+  submittedGroup = props.groupBy
+  editing.value = update ? current.value?.id ?? null : null
+  name.value = update ? current.value?.name ?? '' : ''
+  error.value = ''
+  stale.value = false
+  committedView.value = undefined
+  removing.value = remove
+  open.value = true
+}
+async function reloadBase() {
+  if (!await refreshCatalog() || !catalog.value) return
+  if (editing.value && !views.value.some((view) => view.id === editing.value)) {
+    error.value = '这条视图已移除。当前名称和筛选条件已保留。'
+    return
+  }
+  revision = catalog.value.revision
+  stale.value = false
+  error.value = ''
+}
+function applySaved(viewId: string) {
+  const view = views.value.find((item) => item.id === viewId)
+  if (!view) return false
+  emit('apply', view)
+  open.value = false
+  return true
+}
+async function rereadSaved() {
+  const viewId = committedView.value
+  if (viewId && await refreshCatalog() && !applySaved(viewId)) error.value = '这条视图已经移除。'
+}
+async function save() {
+  if (stale.value || committedView.value) return
+  error.value = ''
+  try {
+    if (removing.value && editing.value) {
+      await submit({ kind: 'removeView', viewId: editing.value }, revision, undefined, refreshCatalog)
+      emit('removed')
+      open.value = false
+    } else {
+      const result = await submit({
+        kind: 'saveView', viewId: editing.value, name: name.value, query: submittedQuery,
+        layout: submittedLayout, groupBy: submittedGroup
+      }, revision, undefined, refreshCatalog)
+      if (result.viewId && !applySaved(result.viewId)) {
+        committedView.value = result.viewId
+        error.value = '视图已保存。请重新读取视图列表。'
+      }
+    }
+  } catch (cause) {
+    error.value = errorMessage(cause)
+    stale.value = cause instanceof ApiError && cause.status === 409
+  }
+}
+const viewOptions = computed(() => [
+  { value: 'temporary', label: '临时查询' },
+  ...(props.viewId && props.viewId !== 'temporary' && !current.value
+    ? [{ value: props.viewId, label: catalog.value ? '视图已失效' : '正在读取视图' }]
+    : []),
+  ...views.value.map((view) => ({ value: view.id, label: view.name }))
+])
+function select(value: string) {
+  if (value === 'temporary') {
+    emit('removed')
+    return
+  }
+  const view = views.value.find((item) => item.id === value)
+  if (view) emit('apply', view)
+}
 let action: { id: string; type: 'update' | 'remove' } | undefined
 function chooseAction(type: 'update' | 'remove') {
   if (current.value) action = { id: current.value.id, type }
@@ -30,7 +117,7 @@ async function runMenuAction() {
   await nextTick()
   if (!selected || current.value?.id !== selected.id || saving.value) return
   if (selected.type === 'update') begin(true)
-  else remove()
+  else begin(true, true)
 }
 </script>
 <template>
@@ -38,7 +125,7 @@ async function runMenuAction() {
   <label :for="id+'views'" class="view-label">视图</label>
   <SingleSelect :id="id+'views'" :model-value="viewId??'temporary'" :options="viewOptions" aria-label="视图" class="view-select" @update:model-value="select" />
   <span v-if="changed" class="view-changed">已调整</span>
-  <Button type="button" variant="ghost" :disabled="saving" class="save-button" @click="begin(false)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>保存视图</Button>
+  <Button type="button" variant="ghost" :disabled="saving || !catalog" class="save-button" @click="begin(false)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>保存视图</Button>
   <DropdownMenu v-if="current">
     <DropdownMenuTrigger as-child>
       <Button type="button" variant="outline" :disabled="saving">管理视图 <ChevronDown :size="14" aria-hidden="true" /></Button>
@@ -55,9 +142,11 @@ async function runMenuAction() {
   <form class="form-stack" @submit.prevent="save">
    <p v-if="removing">仅移除这条查询收藏，保留所有 Spec 和历史。</p>
    <template v-else><label :for="id+'name'">视图名称</label><Input :id="id+'name'" v-model="name" required maxlength="80" /><p class="muted">保存当前查询、列表／看板布局及分组方式。</p></template>
-   <Alert v-if="error" class="notice error" role="alert">{{error}} 请关闭后基于最新数据重试。</Alert>
+   <Alert v-if="error" class="notice error" role="alert">{{ error }}</Alert>
+   <Button v-if="stale" type="button" variant="outline" :disabled="catalogLoading" @click="reloadBase">采用最新记录，保留输入</Button>
+   <Button v-if="committedView" type="button" variant="outline" :disabled="catalogLoading" @click="rereadSaved">重读视图</Button>
    <div class="form-actions"><Button type="button" variant="outline" :disabled="saving" @click="open=false">取消</Button>
-    <Button :disabled="saving">
+    <Button :disabled="saving || stale || !!committedView">
       <LoadingIndicator :active="saving" />
       {{ saving ? removing ? '正在移除…' : '正在保存…' : removing ? '确认移除' : '确认保存' }}
     </Button>

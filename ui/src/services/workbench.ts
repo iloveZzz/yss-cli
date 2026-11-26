@@ -107,7 +107,7 @@ export async function reconcilePendingMutation(requestId: string): Promise<unkno
 }
 export async function apiRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal } = {}
+  options: { method?: string; body?: unknown; signal?: AbortSignal; retryUncertain?: boolean } = {}
 ): Promise<T> {
   const authHeaders = sessionHeaders()
   const method = options.method ?? (options.body === undefined ? 'GET' : 'POST')
@@ -125,7 +125,7 @@ export async function apiRequest<T>(
           !(input.action && ['expectedRevision', 'expectedTarget'].includes(key))
       )
     )
-    intentKey = `${method} ${path} ${JSON.stringify(canonical(logical))}`
+    intentKey = `${method} ${path} ${JSON.stringify(canonical(options.retryUncertain === false ? [input.requestId, logical] : logical))}`
     intent = intents.get(intentKey)
     if (!intent) {
       intent = {
@@ -142,7 +142,7 @@ export async function apiRequest<T>(
     publishPending()
   }
   const body = intent?.body ?? options.body
-  const attempts = intent ? 2 : 1
+  const attempts = intent && options.retryUncertain !== false ? 2 : 1
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const response = await fetch(path, {

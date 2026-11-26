@@ -131,6 +131,7 @@ fn tick(manager: &Arc<JobManager>, states: &mut BTreeMap<String, PollState>) -> 
                         r.report.spec_id == spec_id
                             && r.report.goal_version == goal.goal_version
                             && !r.report.id.starts_with("remote:")
+                            && !progress::is_activity_report(&r.report.id)
                     })
                     .map(|r| &r.report.id)
                     .collect();
@@ -230,18 +231,16 @@ fn tick(manager: &Arc<JobManager>, states: &mut BTreeMap<String, PollState>) -> 
 }
 
 fn submit_observation(manager: &JobManager, link: &ExternalLink) -> Result<()> {
-    let mut store = lock_store(&manager.store)?;
-    let mut records = progress::load(&mut store)?;
     let Some(spec_id) = &link.target.spec_id else {
         return Ok(());
     };
-    let Some(goal) = records
-        .goals
-        .iter()
-        .filter(|g| &g.goal.spec_id == spec_id)
-        .max_by(|a, b| (&a.created_at, &a.goal_version).cmp(&(&b.created_at, &b.goal_version)))
-        .cloned()
-    else {
+    if link.target.kind == ExternalKind::Issue {
+        return Ok(());
+    }
+    let mut store = lock_store(&manager.store)?;
+    let snapshot = service::snapshot_for_spec(&mut store, spec_id, &Cancellation::new())?;
+    let records = &snapshot.progress_records;
+    let Some(goal) = progress::goal(records, spec_id) else {
         return Ok(());
     };
     let Some(spec) = store.state().specs.iter().find(|s| &s.id == spec_id) else {
@@ -253,16 +252,7 @@ fn submit_observation(manager: &JobManager, link: &ExternalLink) -> Result<()> {
         .as_deref()
         .unwrap_or(&spec.project_id)
         .to_owned();
-    let mut projects: BTreeSet<_> = goal
-        .goal
-        .participants
-        .iter()
-        .map(|p| p.project_id.clone())
-        .collect();
-    projects.insert(spec.project_id.clone());
-    records.current_versions = progress::current_versions(store.state(), &projects);
-    let snapshot = service::snapshot_from_store(&mut store, &Cancellation::new())?;
-    let reports = observation_reports(&snapshot, &records, &goal, link, &project_id);
+    let reports = observation_reports(&snapshot, records, goal, link, &project_id);
     for input in reports {
         let expected_revision = store.state().revision;
         service::mutate(
@@ -316,17 +306,14 @@ fn observation_reports(
     else {
         return Vec::new();
     };
-    let roles: Vec<_> = if project_id == spec.record.project_id {
-        vec![ParticipantRole::Spec]
-    } else {
-        goal.goal
+    let main_project = project_id == spec.record.project_id;
+    if !main_project
+        && !goal
+            .goal
             .participants
             .iter()
-            .filter(|p| p.project_id == project_id)
-            .map(|p| p.role)
-            .collect()
-    };
-    if roles.is_empty() {
+            .any(|p| p.project_id == project_id)
+    {
         return Vec::new();
     }
     let stages: Vec<_> = match link.target.kind {
@@ -379,10 +366,15 @@ fn observation_reports(
                 .iter()
                 .any(|s| s.stage == *stage && s.applicable)
     }) {
-        let stage_roles = if stage == Stage::Delivery {
+        let participants = progress::stage_participants(Some(goal), stage);
+        let stage_roles = if stage == Stage::Delivery || participants.is_empty() && main_project {
             vec![ParticipantRole::Spec]
         } else {
-            roles.clone()
+            participants
+                .into_iter()
+                .filter(|participant| participant.project_id == project_id)
+                .map(|participant| participant.role)
+                .collect()
         };
         for role in &stage_roles {
             let semantic = records
@@ -390,6 +382,7 @@ fn observation_reports(
                 .iter()
                 .filter(|r| {
                     !r.report.id.starts_with("remote:")
+                        && !progress::is_activity_report(&r.report.id)
                         && r.report.goal_version == goal.goal_version
                         && r.report.stage == stage
                         && r.report.role == *role
@@ -410,10 +403,12 @@ fn observation_reports(
             if semantic.is_some() && !explicitly_referenced {
                 continue;
             }
+            let semantic_validity =
+                semantic.map(|report| progress::report_validity(records, spec, Some(goal), report));
             let scope_bound = explicitly_referenced
+                && semantic_validity == Some(Validity::Current)
                 && semantic.is_some_and(|r| {
                     r.report.spec_digest == goal.goal.spec_digest
-                        && r.report.validity == Validity::Current
                         && r.report.versions.iter().any(|v| {
                             v.project_id == project_id && v.commit.as_deref() == observed_sha
                         })
@@ -432,7 +427,13 @@ fn observation_reports(
                 ExternalKind::Pipeline => outcome == Some(EvidenceOutcome::Passed),
                 ExternalKind::Issue => false,
             };
-            let progress = if fresh
+            let invalidated = semantic_validity
+                .filter(|validity| matches!(validity, Validity::NeedsSync | Validity::NeedsReview));
+            let remote_failed =
+                fresh && matches_head && scope_bound && outcome == Some(EvidenceOutcome::Failed);
+            let progress = if invalidated.is_some() {
+                semantic.map_or(Progress::Doing, |report| report.report.progress)
+            } else if fresh
                 && matches_head
                 && scope_bound
                 && (technical_done || stage == Stage::Implementation)
@@ -440,16 +441,14 @@ fn observation_reports(
                 semantic
                     .map(|r| r.report.progress)
                     .unwrap_or(Progress::Doing)
-            } else if fresh
-                && matches_head
-                && scope_bound
-                && outcome == Some(EvidenceOutcome::Failed)
-            {
+            } else if remote_failed {
                 Progress::Blocked
             } else {
                 Progress::Doing
             };
-            let validity = if fresh && matches_head && scope_bound {
+            let validity = if let Some(invalidated) = invalidated {
+                invalidated
+            } else if fresh && matches_head && scope_bound {
                 Validity::Current
             } else {
                 Validity::Unverified
@@ -476,7 +475,9 @@ fn observation_reports(
                 .unwrap_or_default();
             all_versions.retain(|v| v.project_id != project_id);
             all_versions.extend(versions.clone());
-            let summary = if !matches_head {
+            let summary = if invalidated.is_some() {
+                "当前工程输入或规格材料已变化，原范围凭证待核对"
+            } else if !matches_head {
                 "远程记录与当前工程版本尚未匹配，待原 Agent 核实"
             } else if !fresh {
                 "远程事实已过期，待重新读取与核对规格版本"
@@ -487,7 +488,11 @@ fn observation_reports(
             } else {
                 "当前版本远程技术执行尚未完成"
             };
-            let key = fingerprint(&(
+            let input_paths = semantic
+                .filter(|_| validity == Validity::Current)
+                .map(|report| report.report.input_paths.clone())
+                .unwrap_or_default();
+            let base_key = fingerprint(&(
                 &link.id,
                 &goal.goal_version,
                 stage,
@@ -501,6 +506,11 @@ fn observation_reports(
                 progress,
                 validity,
             ));
+            let key = if input_paths.is_empty() {
+                base_key
+            } else {
+                fingerprint(&(&base_key, &input_paths))
+            };
             result.push(ProgressReportInput {
                 id: format!("remote:{key}"),
                 spec_id: goal.goal.spec_id.clone(),
@@ -516,8 +526,12 @@ fn observation_reports(
                 progress,
                 validity,
                 summary: summary.into(),
-                blocker: if progress == Progress::Blocked {
+                blocker: if remote_failed {
                     "当前目标明确引用的远程执行失败，请由原 Agent 核对并处理".into()
+                } else if progress == Progress::Blocked {
+                    semantic
+                        .map(|report| report.report.blocker.clone())
+                        .unwrap_or_default()
                 } else {
                     String::new()
                 },
@@ -529,7 +543,7 @@ fn observation_reports(
                 scope_refs,
                 versions: all_versions,
                 evidence,
-                input_paths: Vec::new(),
+                input_paths,
             });
         }
     }

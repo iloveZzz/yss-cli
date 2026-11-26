@@ -37,45 +37,57 @@ fn broken(resources: &[ResourceView]) -> bool {
         )
     })
 }
-pub fn reminder_counts(content: &ContentView) -> BTreeMap<String, usize> {
-    let mut counts: BTreeMap<String, usize> =
-        ["decision", "research", "overdue", "writeback", "ready"]
-            .into_iter()
-            .map(|kind| (kind.into(), 0))
-            .collect();
-    for question in &content.questions {
-        if question.state == QuestionState::NeedsReview {
-            *counts.entry("overdue".into()).or_default() += 1;
+pub(super) const REMINDER_KINDS: [&str; 5] =
+    ["decision", "research", "overdue", "writeback", "ready"];
+
+pub(super) fn matches_reminder(question: &QuestionView, kind: &str) -> bool {
+    match (kind, question.state) {
+        ("decision", QuestionState::Open | QuestionState::NeedsReview) => {
+            question.question.kind == QuestionKind::Decision
         }
-        let kind = match question.state {
-            QuestionState::Open | QuestionState::NeedsReview => {
-                Some(match question.question.kind {
-                    QuestionKind::Decision => "decision",
-                    QuestionKind::Research => "research",
-                })
-            }
-            QuestionState::PendingWriteback => Some("writeback"),
-            QuestionState::Overdue => Some("overdue"),
-            QuestionState::Deferred
-                if question
-                    .response
-                    .as_ref()
-                    .is_some_and(|response| !response.review_when.trim().is_empty()) =>
-            {
-                Some("overdue")
-            }
-            _ => None,
-        };
-        if let Some(kind) = kind {
-            *counts.entry(kind.into()).or_default() += 1;
+        ("research", QuestionState::Open | QuestionState::NeedsReview) => {
+            question.question.kind == QuestionKind::Research
         }
+        ("writeback", QuestionState::PendingWriteback) => true,
+        ("overdue", QuestionState::Overdue | QuestionState::NeedsReview) => true,
+        ("overdue", QuestionState::Deferred) => question
+            .response
+            .as_ref()
+            .is_some_and(|response| !response.review_when.trim().is_empty()),
+        _ => false,
     }
+}
+
+pub fn reminder_counts(content: &ContentView) -> BTreeMap<String, usize> {
+    let mut counts: BTreeMap<String, usize> = REMINDER_KINDS
+        .into_iter()
+        .map(|kind| {
+            (
+                kind.into(),
+                content
+                    .questions
+                    .iter()
+                    .filter(|question| matches_reminder(question, kind))
+                    .count(),
+            )
+        })
+        .collect();
     if content.status == ContentStatus::Ready {
         counts.insert("ready".into(), 1);
     }
     counts
 }
 pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
+    let mut result = filter_items(snapshot, request)?;
+    for item in &mut result.items {
+        if item.entity == WorkEntity::Spec {
+            item.progress = snapshot.progress.get(&item.spec_id).cloned();
+        }
+    }
+    Ok(result)
+}
+
+pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
     let request = normalize_query(request.clone())?;
     let projects: BTreeMap<_, _> = snapshot
         .projects
@@ -90,9 +102,9 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
             continue;
         };
         if request.entity == WorkEntity::Spec {
-            let progress = snapshot.progress.get(&s.id).cloned();
-            let effective = progress
-                .as_ref()
+            let effective = snapshot
+                .progress
+                .get(&s.id)
                 .filter(|_| request.progress_basis == super::progress::ProgressBasis::Effective);
             items.push(WorkItem {
                 entity: WorkEntity::Spec,
@@ -113,7 +125,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 updated_at: effective
                     .and_then(|value| value.last_verified_at.clone())
                     .unwrap_or_else(|| s.updated_at.clone()),
-                progress,
+                progress: None,
                 content_status: Some(spec.content.status),
                 reminder_counts: reminder_counts(&spec.content),
                 needs_reconfirmation: spec.content.needs_reconfirmation,
@@ -162,6 +174,9 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
     }
     let needle = request.q.to_lowercase();
     items.retain(|item| {
+        let progress = (item.entity == WorkEntity::Spec)
+            .then(|| snapshot.progress.get(&item.spec_id))
+            .flatten();
         (match request.activity {
             ActivityScope::Active => item.active,
             ActivityScope::Inactive => !item.active,
@@ -179,7 +194,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
             && (request.stages.is_empty()
                 || request.stages.contains(&item.stage)
                 || (request.progress_basis == super::progress::ProgressBasis::Effective
-                    && item.progress.as_ref().is_some_and(|progress| {
+                    && progress.is_some_and(|progress| {
                         progress
                             .active_stages
                             .iter()
@@ -199,7 +214,7 @@ pub fn query(snapshot: &Snapshot, request: &WorkQuery) -> Result<QueryResult> {
                 }))
             && (!request.needs_reconfirmation || item.needs_reconfirmation)
             && (request.attention.is_empty()
-                || item.progress.as_ref().is_some_and(|progress| {
+                || progress.is_some_and(|progress| {
                     request
                         .attention
                         .iter()

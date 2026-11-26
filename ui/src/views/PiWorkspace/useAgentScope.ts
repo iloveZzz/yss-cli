@@ -1,17 +1,17 @@
 import { computed } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
-import { useWorkbench } from '@/hooks/useWorkbench'
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 
-const { snapshot, activeSpecs } = useWorkbench()
+const { catalog } = useWorkbenchCatalog()
 const scopeOptions = computed(() => {
-  const projects = new Map(snapshot.value?.projects.filter((project) => project.available)
-    .map((project) => [project.record.id, project.record.name]))
-  return activeSpecs.value
-    .filter((spec) => spec.sourceHealth === 'available' && projects.has(spec.record.projectId))
-    .toSorted(({ record: left }, { record: right }) =>
+  const projects = new Map(catalog.value?.projects.filter((project) => project.active)
+    .map((project) => [project.id, project.name]))
+  return (catalog.value?.specs ?? [])
+    .filter((spec) => spec.active && projects.has(spec.projectId))
+    .toSorted((left, right) =>
       (right.lastVisitedAt ?? '').localeCompare(left.lastVisitedAt ?? '') ||
       right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title, 'zh-CN'))
-    .map(({ record }) => ({ value: record.id, label: `${record.title} · ${projects.get(record.projectId)}` }))
+    .map((record) => ({ value: record.id, label: `${record.title} · ${projects.get(record.projectId)}` }))
 })
 
 export function useAgentScope() {

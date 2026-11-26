@@ -20,6 +20,7 @@ import ProgressEvidence from './ProgressEvidence.vue'
 import ParticipantProgressList from './ParticipantProgressList.vue'
 import ProgressConfirmation from './ProgressConfirmation.vue'
 import LifecycleProgressHistory from './LifecycleProgressHistory.vue'
+import LifecycleRunActivities from './LifecycleRunActivities.vue'
 const props = defineProps<{
   specId: string
   projectId: string
@@ -36,9 +37,8 @@ const emit = defineEmits<{
 }>()
 const { submit, saving } = useWorkbench()
 const id = useId()
-const selectedStage = shallowRef<Stage>(
-  props.initialStage ?? props.progress?.primaryStage ?? 'research'
-)
+const chosenStage = shallowRef<Stage>()
+const selectedStage = computed(() => chosenStage.value ?? props.initialStage ?? props.progress?.primaryStage ?? 'research')
 const selected = computed(
   () =>
     props.progress?.stages.find(
@@ -53,12 +53,10 @@ const error = shallowRef('')
 const notice = shallowRef('')
 watch(
   () => props.initialStage,
-  (stage) => {
-    if (stage && stage !== 'unmarked') selectedStage.value = stage
-  }
+  () => { chosenStage.value = undefined }
 )
 function select(stage: Stage) {
-  selectedStage.value = stage
+  chosenStage.value = stage
   emit('select', stage)
 }
 function correct(projectId?: string, value?: Progress) {
@@ -258,6 +256,11 @@ async function reconcile() {
           {{ conflict }}
         </li>
       </ul>
+      <LifecycleRunActivities
+        v-if="selected.applicable && progress.goalVersion && progress.goal && specDigest === progress.goal.specDigest"
+        :key="specId + ':' + progress.goalVersion + ':' + progress.goal.specDigest"
+        :spec-id="specId" :stage="selected.stage" :goal-version="progress.goalVersion" :spec-digest="progress.goal.specDigest"
+      />
       <ProgressEvidence
         :evidence="selected.evidence"
         :versions="selected.versions"

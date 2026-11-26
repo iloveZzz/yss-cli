@@ -3,14 +3,14 @@ import { computed, shallowRef } from 'vue'
 import { createReusableTemplate } from '@vueuse/core'
 import { ChevronRight, Folder, FolderOpen } from '@lucide/vue'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { AgentFile } from '@/services/workbench-agent'
+import type { AgentFileSummary } from '@/services/workbench-agent'
 
 type Branch = { kind: 'branch'; id: string; label: string; children: Map<string, Entry> }
-type Leaf = { kind: 'file'; id: string; file: AgentFile; index: number }
+type Leaf = { kind: 'file'; id: string; file: AgentFileSummary; index: number }
 type Entry = Branch | Leaf
 
-const props = defineProps<{ files: AgentFile[]; projectNames: Record<string, string> }>()
-defineSlots<{ file(props: { file: AgentFile; index: number }): unknown }>()
+const props = defineProps<{ files: AgentFileSummary[]; projectNames: Record<string, string> }>()
+defineSlots<{ file(props: { file: AgentFileSummary; index: number }): unknown }>()
 const [DefineEntries, Entries] = createReusableTemplate<{ entries: Map<string, Entry>; project?: boolean }>({ inheritAttrs: false })
 const openBranches = shallowRef(new Map<string, boolean>())
 

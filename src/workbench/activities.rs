@@ -144,6 +144,12 @@ struct Activity {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     question: Option<Box<Question>>,
@@ -165,6 +171,9 @@ impl Activity {
             path: None,
             project_id: None,
             error: None,
+            error_code: None,
+            display_path: None,
+            hint: None,
             duration_ms: None,
             question: None,
         }
@@ -394,6 +403,9 @@ fn standalone(event: &JobEvent, full: bool) -> Option<Activity> {
         row.project_id = text_field(&p["projectId"]);
         row.path = text_field(&p["reviewPath"]).or_else(|| text_field(&p["path"]));
         row.error = text_field(&p["error"]);
+        row.error_code = text_field(&p["errorCode"]);
+        row.display_path = text_field(&p["displayPath"]);
+        row.hint = text_field(&p["hint"]);
         if row.status.is_empty() {
             row.status = "completed".into();
         }
@@ -424,6 +436,7 @@ struct Index {
     allow_commands: Option<bool>,
     pi_settings: Option<Value>,
     pi_context: Option<Value>,
+    pi_usage: Option<Value>,
     pi_plan: Option<Value>,
     pending: BTreeMap<String, JobEvent>,
     last_status: String,
@@ -448,6 +461,7 @@ impl Index {
                 );
             }
             "piContext" => self.pi_context = Some(p.clone()),
+            "piUsage" => self.pi_usage = Some(p.clone()),
             "piPlan" => self.pi_plan = Some(p["steps"].clone()),
             "inputRequested" => {
                 if let Some(id) = p["requestId"].as_str() {
@@ -567,7 +581,8 @@ pub(crate) fn page(jobs: &JobManager, id: &str, before: Option<u64>) -> Result<V
             "items": &index.rows[start..stop], "hasOlder": start > 0, "total": index.rows.len(),
             "cursor": index.cursor, "terminal": terminal, "runId": index.run_id, "host": index.host,
             "latestMessage": index.last_message.map(|pos| &index.rows[pos].text),
-            "piSettings": index.pi_settings, "piContext": index.pi_context, "piPlan": index.pi_plan,
+            "piSettings": index.pi_settings, "piContext": index.pi_context, "piUsage": index.pi_usage,
+            "piPlan": index.pi_plan,
             "pendingInputs": if terminal { Vec::new() } else { index.pending.values().collect() }
         }))
     })
@@ -617,7 +632,24 @@ pub(crate) fn conversation(jobs: &JobManager, id: &str, before: Option<u64>) -> 
 
 pub(crate) fn agent_attention(jobs: &JobManager, id: &str) -> Result<Vec<Value>> {
     with_index(jobs, id, |index, terminal| {
-        let questions: Vec<_> = index
+        Ok(index.agent_attention(terminal))
+    })
+}
+
+pub(super) fn agent_question_attention(
+    store: &super::store::Store,
+    job: &super::jobs::JobRecord,
+) -> Result<Vec<Value>> {
+    let mut index = Index::default();
+    for event in store.agent_question_events(&job.id)? {
+        index.ingest(event);
+    }
+    Ok(index.agent_attention(job.terminal()))
+}
+
+impl Index {
+    fn agent_attention(&self, terminal: bool) -> Vec<Value> {
+        let questions: Vec<_> = self
             .rows
             .iter()
             .rev()
@@ -643,8 +675,8 @@ pub(crate) fn agent_attention(jobs: &JobManager, id: &str) -> Result<Vec<Value>>
             })
             .collect();
         items.sort_by_key(|item| item["kind"] != "question");
-        Ok(items)
-    })
+        items
+    }
 }
 
 pub(crate) fn detail(jobs: &JobManager, id: &str, first: u64) -> Result<Value> {

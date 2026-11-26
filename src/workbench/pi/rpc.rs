@@ -7,6 +7,7 @@ use crate::{
         process,
     },
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -20,6 +21,71 @@ use std::{
 
 const FRAME_LIMIT: u64 = 8 * 1024 * 1024;
 const REASONING_LIMIT: usize = 6_000;
+const SESSION_STATS_TIMEOUT: Duration = Duration::from_millis(500);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Usage {
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_write: u64,
+    total: u64,
+    cost: f64,
+}
+
+impl Usage {
+    fn difference(&self, previous: &Self) -> Option<Self> {
+        let cost = self.cost - previous.cost;
+        if cost < 0.0 {
+            return None;
+        }
+        Some(Self {
+            input: self.input.checked_sub(previous.input)?,
+            output: self.output.checked_sub(previous.output)?,
+            cache_read: self.cache_read.checked_sub(previous.cache_read)?,
+            cache_write: self.cache_write.checked_sub(previous.cache_write)?,
+            total: self.total.checked_sub(previous.total)?,
+            cost,
+        })
+    }
+}
+
+pub(super) struct SessionUsage {
+    session_id: String,
+    usage: Usage,
+}
+
+impl SessionUsage {
+    fn parse(data: &Value) -> Option<Self> {
+        let session_id = data["sessionId"].as_str().filter(|id| !id.is_empty())?;
+        let tokens = &data["tokens"];
+        let cost = data["cost"]
+            .as_f64()
+            .filter(|cost| cost.is_finite() && *cost >= 0.0)?;
+        Some(Self {
+            session_id: session_id.into(),
+            usage: Usage {
+                input: tokens["input"].as_u64()?,
+                output: tokens["output"].as_u64()?,
+                cache_read: tokens["cacheRead"].as_u64()?,
+                cache_write: tokens["cacheWrite"].as_u64()?,
+                total: tokens["total"].as_u64()?,
+                cost,
+            },
+        })
+    }
+
+    pub fn event(&self, before: Option<&Self>) -> Value {
+        let mut event = json!({"session":self.usage});
+        if let Some(before) = before.filter(|before| before.session_id == self.session_id)
+            && let Some(turn) = self.usage.difference(&before.usage)
+        {
+            event["turn"] = json!(turn);
+        }
+        event
+    }
+}
 
 pub(super) struct Session {
     child: Child,
@@ -119,12 +185,35 @@ impl Session {
     }
 
     fn receive(&mut self, cancel: &Cancellation, deadline: Option<Instant>) -> Result<Value> {
+        self.receive_events(cancel, deadline, None)
+    }
+
+    fn receive_events(
+        &mut self,
+        cancel: &Cancellation,
+        deadline: Option<Instant>,
+        mut output: Option<&mut Output<'_>>,
+    ) -> Result<Value> {
         loop {
             cancel.check()?;
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            let now = Instant::now();
+            if deadline.is_some_and(|deadline| now >= deadline) {
                 return Err(protocol("Pi RPC 响应超时"));
             }
-            match self.messages.recv_timeout(Duration::from_millis(100)) {
+            let mut wait = Duration::from_millis(100);
+            if let Some(deadline) = deadline {
+                wait = wait.min(deadline.duration_since(now));
+            }
+            if let Some(output) = output.as_deref_mut()
+                && let Some(flush_at) = output.flush_at
+            {
+                if now >= flush_at {
+                    output.flush()?;
+                    continue;
+                }
+                wait = wait.min(flush_at.duration_since(now));
+            }
+            match self.messages.recv_timeout(wait) {
                 Ok(value) => return value,
                 Err(RecvTimeoutError::Timeout) if self.child.try_wait()?.is_some() => {
                     return Err(protocol("Pi 进程提前退出"));
@@ -187,10 +276,24 @@ impl Session {
 
     fn request(&mut self, command: &str, payload: Value, cancel: &Cancellation) -> Result<Value> {
         self.send(payload, cancel, Duration::from_secs(5))?;
-        let deadline = Some(Instant::now() + Duration::from_secs(20));
+        self.response(
+            command,
+            command,
+            cancel,
+            Instant::now() + Duration::from_secs(20),
+        )
+    }
+
+    fn response(
+        &mut self,
+        command: &str,
+        id: &str,
+        cancel: &Cancellation,
+        deadline: Instant,
+    ) -> Result<Value> {
         loop {
-            let value = self.receive(cancel, deadline)?;
-            if value["type"] == "response" && value["id"] == command {
+            let value = self.receive(cancel, Some(deadline))?;
+            if value["type"] == "response" && value["id"] == id {
                 if value["command"] == command && value["success"] == true {
                     return Ok(value["data"].clone());
                 }
@@ -206,8 +309,29 @@ impl Session {
         }
     }
 
+    pub fn session_usage(&mut self, id: &str, cancel: &Cancellation) -> Option<SessionUsage> {
+        if self.active {
+            return None;
+        }
+        let command = "get_session_stats";
+        let deadline = Instant::now() + SESSION_STATS_TIMEOUT;
+        self.send(
+            json!({"type":command,"id":id}),
+            cancel,
+            SESSION_STATS_TIMEOUT,
+        )
+        .ok()?;
+        let data = self.response(command, id, cancel, deadline).ok()?;
+        SessionUsage::parse(&data)
+    }
+
     pub fn prompt(&mut self, prompt: &str, context: &JobContext) -> Result<()> {
-        self.complete_prompt(prompt, &context.cancel, Some(context), None)
+        let mut output = Output {
+            context,
+            flush_at: None,
+        };
+        let result = self.complete_prompt(prompt, &context.cancel, Some(&mut output), None);
+        result.and(output.flush())
     }
 
     pub fn test_connection(&mut self, cancel: &Cancellation) -> Result<()> {
@@ -223,7 +347,7 @@ impl Session {
         &mut self,
         prompt: &str,
         cancel: &Cancellation,
-        context: Option<&JobContext>,
+        mut output: Option<&mut Output<'_>>,
         finish_deadline: Option<Instant>,
     ) -> Result<()> {
         self.active = true;
@@ -237,21 +361,32 @@ impl Session {
         let mut messages = Messages::default();
         let deadline = Instant::now() + Duration::from_secs(30);
         while !accepted || settled.is_none() {
-            let event =
-                match self.receive(cancel, finish_deadline.or((!accepted).then_some(deadline))) {
-                    Ok(event) => event,
-                    Err(error) => {
-                        if let Some(context) = context {
-                            let status = if error.code == ErrorCode::Cancelled {
-                                "canceled"
-                            } else {
-                                "failed"
-                            };
-                            let _ = messages.finish_reasoning(context, &Value::Null, status);
-                        }
-                        return Err(error);
+            let event = match self.receive_events(
+                cancel,
+                finish_deadline.or((!accepted).then_some(deadline)),
+                output.as_deref_mut(),
+            ) {
+                Ok(event) => event,
+                Err(error) => {
+                    if let Some(output) = output.as_ref() {
+                        let status = if error.code == ErrorCode::Cancelled {
+                            "canceled"
+                        } else {
+                            "failed"
+                        };
+                        let _ = messages.finish_reasoning(output.context, &Value::Null, status);
                     }
-                };
+                    return Err(error);
+                }
+            };
+            if let Some(output) = output.as_deref_mut()
+                && !matches!(
+                    event["assistantMessageEvent"]["type"].as_str(),
+                    Some("text_delta" | "thinking_delta")
+                )
+            {
+                output.flush()?;
+            }
             match event["type"].as_str() {
                 Some("response") if event["id"] == "prompt" => {
                     if event["command"] != "prompt" || event["success"] != true {
@@ -261,8 +396,15 @@ impl Session {
                         return Err(protocol("Pi 未启动本次模型执行"));
                     }
                     accepted = true;
+                    if let Some(output) = output.as_ref() {
+                        output.context.mark_agent_started()?;
+                        output.context.trace("promptAccepted");
+                    }
                 }
                 Some("agent_settled") => {
+                    if let Some(output) = output.as_ref() {
+                        output.context.trace("piSettled");
+                    }
                     settled = Some(
                         event["aborted"]
                             .as_bool()
@@ -271,11 +413,13 @@ impl Session {
                     self.active = false;
                 }
                 Some("message_start" | "message_update" | "message_end") => {
-                    messages.record(&event, context)?;
+                    messages.record(&event, output.as_deref_mut())?;
                 }
                 Some("auto_retry_start") => {
-                    if let Some(context) = context {
-                        context.emit("piStatus", json!({ "message": "Pi 正在重试模型请求" }))?;
+                    if let Some(output) = output.as_ref() {
+                        output
+                            .context
+                            .emit("piStatus", json!({ "message": "Pi 正在重试模型请求" }))?;
                     } else {
                         return Err(messages.error.unwrap_or_else(|| provider_error(None)));
                     }
@@ -386,6 +530,28 @@ fn provider_error(raw: Option<&str>) -> YssError {
     YssError::new(code, message).context("piIssue", issue)
 }
 
+struct Output<'a> {
+    context: &'a JobContext,
+    flush_at: Option<Instant>,
+}
+
+impl Output<'_> {
+    fn delta(&mut self, kind: &'static str, item_id: &str, text: &str) -> Result<()> {
+        if !text.is_empty() {
+            self.flush_at = self.context.emit_pi_delta(kind, item_id, text)?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        if self.flush_at.is_some() {
+            self.context.flush_pi_delta()?;
+            self.flush_at = None;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct Messages {
     seq: u64,
@@ -413,16 +579,13 @@ struct ReasoningBlock {
 }
 
 impl ReasoningBlock {
-    fn append(&mut self, context: &JobContext, delta: &str) -> Result<()> {
+    fn append(&mut self, output: &mut Output<'_>, delta: &str) -> Result<()> {
         if self.finished || delta.is_empty() || self.published_chars > REASONING_LIMIT {
             return Ok(());
         }
         let delta = reasoning_excerpt(delta, REASONING_LIMIT - self.published_chars);
         self.published_chars += delta.chars().count();
-        context.emit(
-            "item/piReasoning/delta",
-            json!({"itemId":self.id,"delta":delta}),
-        )
+        output.delta("item/piReasoning/delta", &self.id, &delta)
     }
 
     fn finish(&mut self, context: &JobContext, text: Option<&str>, status: &str) -> Result<()> {
@@ -491,32 +654,34 @@ impl Messages {
         Ok(())
     }
 
-    fn thinking(&mut self, event: &Value, context: &JobContext) -> Result<()> {
+    fn thinking(&mut self, event: &Value, output: &mut Output<'_>) -> Result<()> {
         let Some(index) = event["contentIndex"].as_u64() else {
             return Ok(());
         };
-        let block = self.reasoning_block(index, context)?;
+        let block = self.reasoning_block(index, output.context)?;
         match event["type"].as_str() {
             Some("thinking_delta") => {
-                block.append(context, event["delta"].as_str().unwrap_or_default())
+                block.append(output, event["delta"].as_str().unwrap_or_default())
             }
-            Some("thinking_end") => block.finish(context, event["content"].as_str(), "completed"),
+            Some("thinking_end") => {
+                block.finish(output.context, event["content"].as_str(), "completed")
+            }
             _ => Ok(()),
         }
     }
 
-    fn record(&mut self, event: &Value, context: Option<&JobContext>) -> Result<()> {
+    fn record(&mut self, event: &Value, mut output: Option<&mut Output<'_>>) -> Result<()> {
         let message = &event["message"];
         let kind = event["type"].as_str().unwrap_or_default();
         let update = &event["assistantMessageEvent"];
-        if let Some(context) = context {
+        if let Some(turn_output) = output.as_deref_mut() {
             if kind == "message_update"
                 && matches!(
                     update["type"].as_str(),
                     Some("thinking_start" | "thinking_delta" | "thinking_end")
                 )
             {
-                return self.thinking(update, context);
+                return self.thinking(update, turn_output);
             }
             if kind == "message_end" && message["role"] == "assistant" {
                 let status = match message["stopReason"].as_str() {
@@ -524,28 +689,27 @@ impl Messages {
                     Some("error") => "failed",
                     _ => "completed",
                 };
-                self.finish_reasoning(context, message, status)?;
+                self.finish_reasoning(turn_output.context, message, status)?;
             }
         }
         if kind == "message_start" && message["role"] == "assistant" {
             self.seq += 1;
             self.current = true;
         }
-        let id = format!("pi-message-{}", self.seq);
+        if kind == "message_update"
+            && self.current
+            && update["type"] == "text_delta"
+            && let Some(output) = output
+        {
+            let id = format!("pi-message-{}", self.seq);
+            return output.delta(
+                "item/agentMessage/delta",
+                &id,
+                update["delta"].as_str().unwrap_or_default(),
+            );
+        }
+        let context = output.map(|output| output.context);
         let event = match kind {
-            "message_update"
-                if context.is_some()
-                    && self.current
-                    && event["assistantMessageEvent"]["type"] == "text_delta" =>
-            {
-                let delta = event["assistantMessageEvent"]["delta"]
-                    .as_str()
-                    .unwrap_or_default();
-                Some((
-                    "item/agentMessage/delta",
-                    json!({ "itemId": id, "delta": delta }),
-                ))
-            }
             "message_end" if message["role"] == "assistant" => {
                 if !self.current {
                     self.seq += 1;

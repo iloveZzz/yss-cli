@@ -1,5 +1,6 @@
 use super::{
     model::*,
+    read_model::{self, ReadModel},
     service,
     store::{Store, resolve_data_dir},
 };
@@ -7,6 +8,7 @@ use crate::{
     cancel::Cancellation,
     codec::{self, Limits},
     error::{ErrorCode, Result, YssError},
+    model::Sha256,
 };
 use axum::{
     Json, Router,
@@ -15,13 +17,16 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use futures_util::FutureExt;
 use serde_json::json;
 use std::{
     borrow::Cow,
     io::Write,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
+use tokio::sync::Notify;
 pub type AssetLoader = fn(&str) -> Option<Cow<'static, [u8]>>;
 pub struct ServeOptions {
     pub data_dir: PathBuf,
@@ -64,6 +69,12 @@ fn error(e: YssError) -> Response {
         });
     (status,Json(json!({"error":{"code":e.code,"message":e.message,"revision":e.context.get("revision").and_then(|s|s.parse::<u64>().ok()),"context":e.context}}))).into_response()
 }
+
+fn immediate_snapshot(server: &Server, spec_id: Option<&str>) -> Result<Snapshot> {
+    let input = read_model::capture(&mut *super::jobs::lock_store(&server.store)?)?;
+    read_model::build_snapshot(input, spec_id, &server.cancel)
+}
+
 async fn handle(State(server): State<Server>, request: Request) -> Response {
     let mut response = dispatch(server, request).await;
     for (key, value) in [
@@ -208,43 +219,26 @@ async fn dispatch(server: Server, request: Request) -> Response {
         };
     }
     if method == axum::http::Method::GET && path == "/api/changes" {
-        let platform = server.platform.clone();
-        let stopping = server.shutdown.clone();
         let stream = futures_util::stream::unfold(
-            (platform, stopping, String::new()),
-            |(platform, stopping, mut previous)| async move {
-                loop {
-                    if stopping.is_cancelled() || platform.cancel.is_cancelled() {
-                        return None;
-                    }
-                    let reader = platform.clone();
-                    let value = tokio::task::spawn_blocking(move || reader.source_state()).await;
-                    let value = match value {
-                        Ok(Ok(value)) => value,
-                        _ => return None,
-                    };
-                    let key = serde_json::json!([
-                        value["revision"],
-                        value["sourceVersions"],
-                        value["progressVersions"],
-                        value["externalVersion"]
-                    ])
-                    .to_string();
-                    if key != previous {
-                        previous = key;
-                        let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
-                        bytes.push(b'\n');
-                        return Some((
-                            Ok::<_, std::io::Error>(bytes),
-                            (platform, stopping, previous),
-                        ));
-                    }
+            (
+                server.platform.reads.subscribe(),
+                server.shutdown.clone(),
+                true,
+            ),
+            |(mut receiver, stopping, first)| async move {
+                if !first {
                     tokio::select! {
                         _ = stopping.cancelled() => return None,
-                        _ = platform.cancel.cancelled() => return None,
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                        result = receiver.changed() => result.ok()?,
                     }
                 }
+                if stopping.is_cancelled() {
+                    return None;
+                }
+                let current = receiver.borrow_and_update().clone();
+                let mut bytes = serde_json::to_vec(&current.change_state()).ok()?;
+                bytes.push(b'\n');
+                Some((Ok::<_, std::io::Error>(bytes), (receiver, stopping, false)))
             },
         );
         return (
@@ -258,31 +252,50 @@ async fn dispatch(server: Server, request: Request) -> Response {
         && path.ends_with("/events")
     {
         let id = path[10..path.len() - 7].to_owned();
-        if let Err(error_value) = server.platform.jobs.get(&id) {
-            return error(error_value);
-        }
+        let reader = server.store.clone();
+        let job_id = id.clone();
+        let changed = match tokio::task::spawn_blocking(move || -> Result<_> {
+            let mut store = super::jobs::lock_store(&reader)?;
+            if store
+                .record::<super::jobs::JobRecord>("job", &job_id)?
+                .is_none()
+            {
+                return Err(YssError::new(ErrorCode::InvalidInput, "执行记录不存在")
+                    .context("httpStatus", 404));
+            }
+            Ok(store.subscribe_job_events(&job_id))
+        })
+        .await
+        {
+            Ok(Ok(changed)) => changed,
+            Ok(Err(error_value)) => return error(error_value),
+            Err(_) => return error(YssError::new(ErrorCode::Io, "作业事件订阅失败")),
+        };
         let after = super::api::query_values(&query)
             .get("after")
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(0);
-        let jobs = server.platform.jobs.clone();
         let stopping = server.shutdown.clone();
         let stream = futures_util::stream::unfold(
-            (jobs, stopping, id, after),
-            |(jobs, stopping, id, mut after)| async move {
+            (server.store.clone(), changed, stopping, id, after),
+            |(store, changed, stopping, id, mut after)| async move {
                 loop {
                     if stopping.is_cancelled() {
                         return None;
                     }
-                    let reader = jobs.clone();
+                    // Register before the read so a commit between the read and wait wakes us.
+                    let notice = changed.clone().notified_owned();
+                    tokio::pin!(notice);
+                    notice.as_mut().enable();
+                    let reader = store.clone();
                     let job_id = id.clone();
                     let result = tokio::task::spawn_blocking(move || -> Result<_> {
-                        // Check both under one lock so completion cannot hide newly appended events.
-                        let mut store = super::jobs::lock_store(&reader.store)?;
+                        let mut store = super::jobs::lock_store(&reader)?;
                         let events = store.events(&job_id, after)?;
-                        let terminal = store
-                            .record::<super::jobs::JobRecord>("job", &job_id)?
-                            .is_none_or(|job| job.terminal());
+                        let terminal = events.is_empty()
+                            && store
+                                .record::<super::jobs::JobRecord>("job", &job_id)?
+                                .is_none_or(|job| job.terminal());
                         Ok((events, terminal))
                     })
                     .await;
@@ -297,14 +310,17 @@ async fn dispatch(server: Server, request: Request) -> Response {
                             serde_json::to_writer(&mut bytes, &event).ok()?;
                             bytes.push(b'\n');
                         }
-                        return Some((Ok::<_, std::io::Error>(bytes), (jobs, stopping, id, after)));
+                        return Some((
+                            Ok::<_, std::io::Error>(bytes),
+                            (store, changed, stopping, id, after),
+                        ));
                     }
                     if terminal {
                         return None;
                     }
                     tokio::select! {
                         _ = stopping.cancelled() => return None,
-                        _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                        _ = &mut notice => {}
                     }
                 }
             },
@@ -457,10 +473,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
             serde_json::to_value(service::agent_request_from_store(&mut store, id, &server.cancel)?)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {
             {
-                let mut snapshot = service::snapshot_from_store(
-                    &mut *super::jobs::lock_store(&server.store)?,
-                    &server.cancel,
-                )?;
+                let mut snapshot = immediate_snapshot(&server, None)?;
                 if super::api::query_values(&query)
                     .get("compact")
                     .is_some_and(|value| value == "1")
@@ -473,10 +486,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
         } else if method == axum::http::Method::POST && path == "/api/query" {
             let query: WorkQuery = codec::decode_json(&bytes, limits).map_err(decode_error)?;
             serde_json::to_value(super::query::query(
-                &service::snapshot_from_store(
-                    &mut *super::jobs::lock_store(&server.store)?,
-                    &server.cancel,
-                )?,
+                &immediate_snapshot(&server, None)?,
                 &query,
             )?)
         } else if method == axum::http::Method::GET
@@ -485,10 +495,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
         {
             let id = &path[11..path.len() - 10];
             serde_json::to_value(super::lifecycle::build_lifecycle(
-                &service::snapshot_from_store(
-                    &mut *super::jobs::lock_store(&server.store)?,
-                    &server.cancel,
-                )?,
+                &immediate_snapshot(&server, Some(id))?,
                 id,
             )?)
         } else if method == axum::http::Method::POST && path == "/api/discover" {
@@ -518,6 +525,135 @@ async fn dispatch(server: Server, request: Request) -> Response {
         ),
     }
 }
+
+async fn observe_workbench(
+    store: Arc<Mutex<Store>>,
+    reads: Arc<ReadModel>,
+    changed: Arc<Notify>,
+    stopping: Cancellation,
+) {
+    let mut last_attempt = None;
+    let mut manual_refresh = false;
+    while !stopping.is_cancelled() {
+        let (shared, published, cancel) = (store.clone(), reads.clone(), stopping.clone());
+        let notification = changed.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let (stamp, captured) = {
+                let mut store = super::jobs::lock_store(&shared)?;
+                // All commits known at capture time are included in this read.
+                let _ = notification.notified().now_or_never();
+                (store.projection_stamp(), read_model::capture(&mut store))
+            };
+            if manual_refresh || Some(stamp) != last_attempt {
+                published.mark_pending(stamp.0);
+            }
+            let outcome = captured.and_then(|input| read_model::build(input, &cancel));
+            let mut store = super::jobs::lock_store(&shared)?;
+            // Checking and publishing under the same lock prevents an older computation
+            // from becoming current after a commit.
+            if store.projection_stamp() != stamp {
+                published.mark_pending(store.state().revision);
+                return Ok::<_, YssError>((stamp, None));
+            }
+            let review_at = match outcome {
+                Ok(projection) => {
+                    if let Err(error) = store.capture_read_records(&[]) {
+                        published.mark_failed(stamp.0, &error);
+                        None
+                    } else {
+                        let review_at = projection.next_review_at;
+                        published.publish(projection);
+                        review_at
+                    }
+                }
+                Err(error) if !cancel.is_cancelled() => {
+                    published.mark_failed(stamp.0, &error);
+                    None
+                }
+                Err(_) => None,
+            };
+            Ok((stamp, review_at))
+        })
+        .await;
+        let review_at = match result {
+            Ok(Ok((stamp, review_at))) => {
+                last_attempt = Some(stamp);
+                review_at
+            }
+            Ok(Err(error)) => {
+                reads.mark_failed(last_attempt.map_or(0, |stamp| stamp.0), &error);
+                None
+            }
+            Err(_) => {
+                let error = YssError::new(ErrorCode::Io, "工作台后台核验异常");
+                reads.mark_failed(last_attempt.map_or(0, |stamp| stamp.0), &error);
+                None
+            }
+        };
+        let interval = Duration::from_secs(5);
+        let delay = review_at
+            .and_then(|at| Duration::try_from(at - time::OffsetDateTime::now_utc()).ok())
+            .map_or(interval, |duration| duration.min(interval));
+        manual_refresh = tokio::select! {
+            _ = stopping.cancelled() => break,
+            _ = changed.notified() => false,
+            _ = reads.refresh_requested() => true,
+            _ = tokio::time::sleep(delay) => false,
+        };
+    }
+}
+
+async fn observe_activity(
+    store: Arc<Mutex<Store>>,
+    reads: Arc<ReadModel>,
+    changed: Arc<Notify>,
+    stopping: Cancellation,
+) {
+    while !stopping.is_cancelled() {
+        let (shared, reads) = (store.clone(), reads.clone());
+        let notification = changed.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let (external, activities, jobs, agent_sessions, agent_queues) = {
+                let mut store = super::jobs::lock_store(&shared)?;
+                let _ = notification.notified().now_or_never();
+                let jobs = store.records::<super::jobs::JobRecord>("job")?;
+                let agent_sessions = super::agent::reads::versions(&mut store, &jobs)?;
+                let agent_queues = super::agent::reads::queue_versions(&mut store)?;
+                (
+                    store.capture_read_records(&["externalLink"])?,
+                    super::progress_agent::read_activities(&mut store, None)?,
+                    jobs,
+                    agent_sessions,
+                    agent_queues,
+                )
+            };
+            let version = Sha256::of(
+                &serde_json::to_vec(&external)
+                    .map_err(|_| super::sources::invalid("研发关联版本编码失败"))?,
+            );
+            reads.publish_activity(
+                activities,
+                jobs,
+                version.as_str().to_owned(),
+                agent_sessions,
+                agent_queues,
+            )
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => tokio::select! {
+                _ = stopping.cancelled() => break,
+                _ = changed.notified() => {},
+            },
+            _ => tokio::select! {
+                _ = stopping.cancelled() => break,
+                _ = changed.notified() => {},
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+            },
+        }
+    }
+}
+
 pub fn serve(
     options: ServeOptions,
     assets: AssetLoader,
@@ -552,15 +688,32 @@ pub fn serve(
         if options.open_browser && webbrowser::open(&url).is_err() {
             writeln!(err, "无法自动打开浏览器，请复制上方链接。").ok();
         }
+        let projection_changed = store.projection_notification();
+        let activity_changed = store.activity_notification();
         let store = Arc::new(Mutex::new(store));
         let jobs = super::jobs::JobManager::new(store.clone())?;
+        let queue_dispatch = super::agent::queue::start(jobs.clone(), shutdown.clone())?;
         let progress_tracker =
             super::progress_tracking::start(jobs.clone(), cancel.clone(), shutdown.clone());
+        let reads = Arc::new(ReadModel::new());
+        let observer = tokio::spawn(observe_workbench(
+            store.clone(),
+            reads.clone(),
+            projection_changed,
+            shutdown.clone(),
+        ));
+        let activity_observer = tokio::spawn(observe_activity(
+            store.clone(),
+            reads.clone(),
+            activity_changed,
+            shutdown.clone(),
+        ));
         let platform = super::api::PlatformApi {
             jobs: jobs.clone(),
             bundle: Arc::from(bundle_bytes),
             cancel: cancel.clone(),
             origin: origin.clone(),
+            reads,
         };
         let server = Server {
             store,
@@ -588,7 +741,10 @@ pub fn serve(
             .await;
         tracker_shutdown.cancel();
         jobs.shutdown();
+        let _ = queue_dispatch.join();
         let _ = progress_tracker.join();
+        let _ = observer.await;
+        let _ = activity_observer.await;
         serve_result?;
         Ok(())
     });

@@ -72,7 +72,10 @@ export function conversationEvent(
       operation: text(payload.operation) || undefined,
       projectId: text(payload.projectId) || undefined,
       path: text(payload.reviewPath) || text(payload.path) || undefined,
-      error: text(payload.error) || undefined
+      displayPath: text(payload.displayPath) || undefined,
+      error: text(payload.error) || undefined,
+      errorCode: text(payload.errorCode) || undefined,
+      hint: text(payload.hint) || undefined
     }
   }
   const itemId = text(item.id) || text(payload.itemId)

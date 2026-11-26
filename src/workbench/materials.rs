@@ -7,6 +7,7 @@ use super::{
     store::Store,
 };
 use crate::{
+    cancel::Cancellation,
     codec,
     error::{ErrorCode, Result, YssError},
     fs::{self, Root},
@@ -14,6 +15,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
@@ -159,9 +161,17 @@ type MaterialKey = (bool, String);
 pub(super) struct Shared {
     current: BTreeSet<MaterialKey>,
     confirmed: BTreeMap<MaterialKey, BTreeMap<String, OffsetDateTime>>,
+    observation: Option<PrototypeObservation>,
 }
 
 impl Shared {
+    pub(super) fn observe_prototypes(&mut self, cancel: &Cancellation) {
+        self.observation = Some(PrototypeObservation {
+            cancel: cancel.clone(),
+            directories: RefCell::new(BTreeMap::new()),
+        });
+    }
+
     fn before(&self, record: &ConfirmationRecord, key: &MaterialKey) -> bool {
         let Ok(at) = OffsetDateTime::parse(&record.created_at, &Rfc3339) else {
             return false;
@@ -195,6 +205,20 @@ pub(super) fn shared(
     project_id: &str,
     root: &Root,
 ) -> Shared {
+    shared_with_resources(state, records, project_id, |spec| {
+        let metadata = sources::text(root, &spec.source_path)
+            .ok()
+            .and_then(|text| content::metadata(&text).ok().flatten());
+        content::resolved_resources(spec, metadata.as_ref(), Some(root))
+    })
+}
+
+pub(super) fn shared_with_resources(
+    state: &WorkbenchState,
+    records: &Records,
+    project_id: &str,
+    mut resources: impl FnMut(&SpecRecord) -> Vec<ResourceRef>,
+) -> Shared {
     let mut seen = BTreeSet::new();
     let mut shared = Shared::default();
     let specs: BTreeMap<_, _> = state
@@ -204,9 +228,6 @@ pub(super) fn shared(
         .map(|spec| (&spec.id, spec))
         .collect();
     for spec in specs.values() {
-        let metadata = sources::text(root, &spec.source_path)
-            .ok()
-            .and_then(|text| content::metadata(&text).ok().flatten());
         let mut own = BTreeSet::from([(false, fs::alias_key(&spec.source_path))]);
         let bindings = records
             .reviews
@@ -214,7 +235,7 @@ pub(super) fn shared(
             .and_then(|review| review.input.bindings.as_deref())
             .unwrap_or_default();
         own.extend(
-            content::resolved_resources(spec, metadata.as_ref(), Some(root))
+            resources(spec)
                 .iter()
                 .filter(|resource| {
                     resource.target_type == TargetType::Local
@@ -288,6 +309,48 @@ struct Group {
     material: Material,
     files: Vec<ArtifactFile>,
     blobs: Vec<(String, Vec<u8>)>,
+}
+
+#[derive(Clone)]
+struct PrototypeDirectory {
+    digest: String,
+    files: Vec<ArtifactFile>,
+}
+
+struct PrototypeObservation {
+    cancel: Cancellation,
+    directories: RefCell<BTreeMap<String, Result<PrototypeDirectory>>>,
+}
+
+impl PrototypeObservation {
+    fn read(&self, root: &Root, target: &str) -> Result<Group> {
+        self.cancel.check()?;
+        preview::check_entry(root, target)?;
+        let directory = target
+            .rsplit_once('/')
+            .map_or("", |(directory, _)| directory);
+        let mut dirs = self.directories.borrow_mut();
+        let observed = dirs.entry(directory.into()).or_insert_with(|| {
+            let tree = preview::served_files_with_cancel(root, target, &self.cancel)?;
+            let files: Vec<_> = tree
+                .iter()
+                .map(|(path, bytes)| file(path, "prototype", bytes))
+                .collect();
+            let digest =
+                preview::manifest_digest(&files).ok_or_else(|| sources::invalid("原型摘要无效"))?;
+            Ok(PrototypeDirectory { digest, files })
+        });
+        let PrototypeDirectory { digest, files } = observed.as_ref().map_err(Clone::clone)?;
+        if !files.iter().any(|file| file.path == target) {
+            return Err(sources::invalid("原型运行包缺少关联入口"));
+        }
+        Ok(Group::new(
+            target,
+            digest.clone(),
+            files.clone(),
+            Vec::new(),
+        ))
+    }
 }
 
 impl Group {
@@ -548,8 +611,51 @@ pub(super) struct Context<'a> {
 pub(super) struct Source<'a> {
     pub root: &'a Root,
     pub spec: &'a SpecRecord,
-    pub text: &'a str,
+    pub main: MainSource<'a>,
     pub resources: &'a [ResourceRef],
+}
+
+pub(super) enum MainSource<'a> {
+    Text(&'a str),
+    Digest { digest: &'a str, size: usize },
+}
+
+fn observed_group(
+    root: &Root,
+    resource: &ResourceRef,
+    context: Option<&Context<'_>>,
+    capture: bool,
+) -> Result<Group> {
+    let observation = context.and_then(|context| context.shared.observation.as_ref());
+    match observation {
+        Some(observation)
+            if resource.kind == ResourceKind::Prototype
+                && resource.target_type == TargetType::Local
+                && !capture =>
+        {
+            observation.read(root, &resource.target)
+        }
+        _ => live(root, resource, capture),
+    }
+}
+
+pub(super) fn observe_resource_digests<'a>(
+    root: &Root,
+    resources: &'a [ResourceRef],
+    context: Option<&Context<'_>>,
+) -> BTreeMap<&'a str, Option<String>> {
+    resources
+        .iter()
+        .filter(|resource| resource.target_type == TargetType::Local)
+        .map(|resource| {
+            (
+                resource.target.as_str(),
+                observed_group(root, resource, context, false)
+                    .ok()
+                    .map(|group| group.material.digest),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn assess(
@@ -561,7 +667,7 @@ pub(super) fn assess(
     let Source {
         root,
         spec,
-        text,
+        main,
         resources,
     } = source;
     let review = context.and_then(|context| context.records.reviews.get(&spec.id));
@@ -570,13 +676,30 @@ pub(super) fn assess(
         .unwrap_or_default();
     let mut result = Assessment::default();
     let mut incomplete = false;
-    let main = Group::single(
-        &spec.source_path,
-        "spec",
-        text.as_bytes().to_vec(),
-        None,
-        capture,
-    );
+    let main = match main {
+        MainSource::Text(text) => Group::single(
+            &spec.source_path,
+            "spec",
+            text.as_bytes().to_vec(),
+            None,
+            capture,
+        ),
+        MainSource::Digest { digest, size } => {
+            let path = &spec.source_path;
+            Group::new(
+                path,
+                digest.to_owned(),
+                vec![ArtifactFile {
+                    path: path.clone(),
+                    kind: "spec".into(),
+                    mime: mime(path).into(),
+                    sha256: digest.to_owned(),
+                    size,
+                }],
+                Vec::new(),
+            )
+        }
+    };
     let mut observations = Vec::new();
     for resource in resources {
         let path = &resource.target;
@@ -584,7 +707,8 @@ pub(super) fn assess(
         let fingerprint = binding_digest(binding)?;
         let section = binding.and_then(|b| b.section.as_ref().zip(b.scope_ref.as_deref()));
         let reference = binding.is_some_and(|b| b.usage == Use::Reference);
-        let raw = live(root, resource, !reference && (capture || section.is_some()));
+        let need_bytes = !reference && (capture || section.is_some());
+        let raw = observed_group(root, resource, context, need_bytes);
         let raw_digest = raw.as_ref().ok().map(|group| group.material.digest.clone());
         if let Some(hash) = &raw_digest {
             result.observed_resources.insert(path.clone(), hash.clone());

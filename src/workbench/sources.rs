@@ -39,7 +39,7 @@ pub fn markdown_path(path: &str) -> Result<RelPath> {
     }
     Ok(rel)
 }
-pub fn text(root: &Root, path: &str) -> Result<String> {
+fn source_file(root: &Root, path: &str) -> Result<fs::CheckedFile> {
     let rel = markdown_path(path)?;
     let metadata = root.source_metadata(&rel)?;
     if !metadata.is_file() {
@@ -48,9 +48,16 @@ pub fn text(root: &Root, path: &str) -> Result<String> {
     if metadata.len() > MAX_SOURCE {
         return Err(invalid("Markdown 超过 2 MiB 读取上限").context("httpStatus", 413));
     }
-    let file = root.source_read(&rel, MAX_SOURCE)?;
-    String::from_utf8(file.bytes)
+    root.source_read(&rel, MAX_SOURCE)
+}
+
+fn decode_text(bytes: Vec<u8>) -> Result<String> {
+    String::from_utf8(bytes)
         .map_err(|_| YssError::new(ErrorCode::UnsupportedFormat, "Markdown 不是 UTF-8"))
+}
+
+pub fn text(root: &Root, path: &str) -> Result<String> {
+    decode_text(source_file(root, path)?.bytes)
 }
 fn modified(root: &Root, path: &str) -> Option<String> {
     let time = root
@@ -111,29 +118,84 @@ pub(super) fn spec_view(
     root: &Result<Root>,
     context: Option<&super::materials::Context<'_>>,
 ) -> SpecView {
-    let read = match root {
-        Ok(root) => text(root, &s.source_path),
-        Err(e) => Err(e.clone()),
-    };
-    let (source_health, source_message) = match &read {
+    spec_view_from_observation(state, s, root, context, observe_spec(s, root))
+}
+
+pub(super) struct ObservedSource {
+    pub(super) metadata: Result<Option<SpecMetadata>>,
+    pub(super) digest: String,
+    pub(super) size: usize,
+}
+
+pub(super) struct SpecObservation {
+    pub(super) read: Result<ObservedSource>,
+    pub(super) resources: Vec<ResourceRef>,
+    modified_at: Option<String>,
+}
+
+pub(super) fn observe_spec(spec: &SpecRecord, root: &Result<Root>) -> SpecObservation {
+    let read = root.as_ref().map_err(Clone::clone).and_then(|root| {
+        let file = source_file(root, &spec.source_path)?;
+        let digest = file
+            .snapshot
+            .descriptor()
+            .ok_or_else(|| invalid("无法核对 Spec 来源摘要"))?
+            .sha256
+            .as_str()
+            .to_owned();
+        let text = decode_text(file.bytes)?;
+        Ok(ObservedSource {
+            metadata: super::content::metadata(&text),
+            digest,
+            size: text.len(),
+        })
+    });
+    let metadata = read
+        .as_ref()
+        .ok()
+        .and_then(|source| source.metadata.as_ref().ok())
+        .and_then(Option::as_ref);
+    let root = root.as_ref().ok();
+    SpecObservation {
+        resources: super::content::resolved_resources(spec, metadata, root),
+        modified_at: root.and_then(|root| modified(root, &spec.source_path)),
+        read,
+    }
+}
+
+pub(super) fn spec_view_from_observation(
+    state: &WorkbenchState,
+    s: &SpecRecord,
+    root: &Result<Root>,
+    context: Option<&super::materials::Context<'_>>,
+    observed: SpecObservation,
+) -> SpecView {
+    let (source_health, source_message) = match &observed.read {
         Ok(_) => (SourceHealth::Available, None),
         Err(e) => (health(e), Some(e.message.clone())),
     };
-    let meta = read
+    let resources = resource_views(&observed.resources, root);
+    let content = super::content::inspect_observed(state, s, root, &observed, context);
+    let raw_source_digest = observed.read.as_ref().ok().map(|source| &source.digest);
+    let fallback_resources = root
         .as_ref()
         .ok()
-        .and_then(|text| super::content::metadata(text).ok().flatten());
-    let resources = resource_views(
-        &super::content::resolved_resources(s, meta.as_ref(), root.as_ref().ok()),
-        root,
-    );
+        .filter(|_| content.observed_artifact_digest.is_none() && context.is_some())
+        .map(|root| super::materials::observe_resource_digests(root, &observed.resources, context));
+    let source_version = Sha256::of(
+        &serde_json::to_vec(&(raw_source_digest, fallback_resources))
+            .expect("source observations serialize"),
+    )
+    .as_str()
+    .to_owned();
     SpecView {
+        source_version,
         progress: None,
-        content: super::content::inspect(state, s, root, read.as_deref().ok(), context, false).0,
+        content,
         record: s.clone(),
         source_health,
         source_message,
-        source_modified_at: root.as_ref().ok().and_then(|r| modified(r, &s.source_path)),
+        source_modified_at: observed.modified_at,
         resources,
     }
 }

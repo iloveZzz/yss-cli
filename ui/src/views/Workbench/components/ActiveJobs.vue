@@ -3,64 +3,59 @@ import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { Alert } from '@/components/ui/alert'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import { computed, onBeforeUnmount, onMounted, shallowRef, useId } from 'vue'
-import { useIntervalFn } from '@vueuse/core'
+import { computed, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { dateLabel, errorMessage } from '@/services/workbench'
-import {
-  getJobs,
-  terminalJob,
-  jobStatusLabels,
-  type JobRecord
-} from '@/services/workbench-platform'
-const jobs = shallowRef<JobRecord[]>([])
+import { jobStatusLabels } from '@/services/workbench-platform'
+import { loadWorkbenchJobs, type WorkbenchJob } from '@/services/workbench-read'
+import { useWorkbench } from '@/hooks/useWorkbench'
+const { sourceState, expired } = useWorkbench()
+const jobs = shallowRef<WorkbenchJob[]>([])
 const error = shallowRef('')
 const pending = shallowRef<'initial' | 'retry' | 'poll' | null>('initial')
 const loading = computed(() => pending.value !== null)
 const loaded = shallowRef(false)
 const initialLoading = computed(() => !loaded.value && loading.value && pending.value !== 'poll')
 const id = useId()
-const priority: Record<string, number> = { waitingInput: 0, recoveryRequired: 1, failed: 3 }
-const active = computed(() =>
-  jobs.value
-    .filter(
-      (job) =>
-        !terminalJob(job.status) || job.status === 'failed' || job.status === 'recoveryRequired'
-    )
-    .toSorted(
-      (left, right) =>
-        (priority[left.status] ?? 2) - (priority[right.status] ?? 2) ||
-        right.updatedAt.localeCompare(left.updatedAt)
-    )
-    .slice(0, 6)
-)
 let controller: AbortController | undefined
+let version: string | undefined
+let invalidateWhileReading = false
 async function refresh(kind: 'initial' | 'retry' | 'poll') {
-  controller?.abort()
+  if (expired.value) return
+  if (controller) {
+    invalidateWhileReading = true
+    return
+  }
   const current = new AbortController()
   controller = current
   pending.value = kind
   try {
-    const value = await getJobs(current.signal)
+    const value = await loadWorkbenchJobs(current.signal)
     if (!current.signal.aborted) {
-      jobs.value = value
+      jobs.value = value.items
+      version = value.version
       loaded.value = true
       error.value = ''
     }
   } catch (cause) {
     if (!current.signal.aborted) error.value = errorMessage(cause)
   } finally {
-    if (controller === current) pending.value = null
+    controller = undefined
+    pending.value = null
+    if (!current.signal.aborted && invalidateWhileReading) {
+      invalidateWhileReading = false
+      if (sourceState.value?.jobsVersion !== version) void refresh('poll')
+    }
   }
 }
-onMounted(() => refresh('initial'))
+watch(() => sourceState.value?.jobsVersion, (next) => {
+  if (!loaded.value || (next !== undefined && version !== next))
+    void refresh(loaded.value ? 'poll' : 'initial')
+}, { immediate: true })
 onBeforeUnmount(() => controller?.abort())
-useIntervalFn(() => {
-  if (!document.hidden && !loading.value) void refresh('poll')
-}, 5000)
-function action(job: JobRecord) {
+function action(job: WorkbenchJob) {
   return job.status === 'waitingInput'
     ? '处理输入'
     : job.status === 'recoveryRequired'
@@ -84,7 +79,7 @@ function action(job: JobRecord) {
       </Button>
     </Alert>
     <Card
-      v-if="active.length"
+      v-if="jobs.length"
       class="panel block gap-0 py-0 shadow-none table-scroll active-jobs"
       :aria-busy="pending === 'retry'"
       tabindex="0"
@@ -102,7 +97,7 @@ function action(job: JobRecord) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="job in active" :key="job.id">
+          <TableRow v-for="job in jobs" :key="job.id">
             <TableHead scope="row">
               <RouterLink :to="`/jobs/${job.id}`">{{ job.title }}</RouterLink>
               <span

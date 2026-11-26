@@ -53,14 +53,18 @@ watch(
     </AlertDescription>
   </Alert>
   <template v-if="detail">
-    <pre v-if="!commandOutput || detail.text !== row.text">{{ detail.text || '暂无活动正文' }}</pre>
+    <p v-if="detail.displayPath"><code>{{ detail.displayPath }}</code></p>
+    <pre v-else-if="!commandOutput || detail.text !== row.text">{{ detail.text || '暂无活动正文' }}</pre>
     <template v-if="detail.kind === 'command'">
       <strong>命令输出</strong>
       <p v-if="commandOutput && detail.exitCode !== null" class="muted">退出码 {{ detail.exitCode }}</p>
       <pre class="terminal-output" tabindex="0" aria-label="命令输出">{{ detail.output || (detail.status === 'inProgress' ? '等待命令输出…' : '暂无已留存的输出') }}</pre>
     </template>
-    <Alert v-if="detail.error" variant="destructive" role="note" class="py-2">
-      <AlertDescription class="text-current">{{ detail.error }}</AlertDescription>
+    <Alert v-if="detail.error || detail.hint" variant="destructive" role="note" class="py-2" :data-error-code="detail.errorCode">
+      <AlertDescription class="text-current">
+        <p v-if="detail.error">{{ detail.error }}</p>
+        <p v-if="detail.hint && detail.hint !== detail.error">{{ detail.hint }}</p>
+      </AlertDescription>
     </Alert>
   </template>
   <LoadingSkeleton v-else-if="!error" variant="text" :rows="2" label="正在读取活动详情" />

@@ -5,12 +5,12 @@ import { useJobConversation } from './useJobConversation'
 
 // Read a consistent snapshot, then subscribe strictly after its persisted event cursor.
 // Reconnection repeats that handshake, including pending inputs and already-started commands.
-export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void) {
+export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void, trackFirstText?: () => boolean) {
   const latest = shallowRef<ActivityPage>()
   const error = shallowRef('')
   const statusLabel = shallowRef('')
   const retryKey = shallowRef(0)
-  const conversation = useJobConversation()
+  const conversation = useJobConversation(trackFirstText)
   watch(
     [jobId, retryKey],
     ([id], previous, onCleanup) => {
@@ -88,6 +88,7 @@ export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void) 
               )
                 updated()
             })
+            conversation.flushPending()
             await flush()
             // A scheduled read could have started before the last event was committed.
             if (!signal.aborted && observed > (latest.value?.cursor ?? 0)) await flush()

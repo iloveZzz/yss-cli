@@ -19,9 +19,9 @@ const id = useId()
       @update:model-value="requested = $event === true"
     />
     <div>
-      <FieldLabel :for="id">允许本次运行执行隔离命令</FieldLabel>
+      <FieldLabel :for="id">允许本轮执行离线命令</FieldLabel>
       <FieldDescription :id="id + '-help'" class="mt-1 text-xs">
-        命令可在选定工作区内离线构建和测试，使用本机已准备的依赖。
+        可在选定工程内离线构建和测试。命令结束或停止后，已写入的文件会保留。
       </FieldDescription>
     </div>
   </Field>

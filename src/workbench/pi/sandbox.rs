@@ -1,13 +1,13 @@
-use super::workspace::tool_path;
+use super::workspace::{Projects, tool_path};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    fs::{Root, git::Boundary, unique_id},
+    fs::{Root, RootIdentity, git::Boundary, unique_id},
     model::RelPath,
-    workbench::{agent_workspace::Workspace, process},
+    workbench::process,
 };
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     ffi::{OsStr, OsString},
     fs,
@@ -188,6 +188,8 @@ pub(super) struct Sandbox {
     profile: String,
     parameters: Vec<OsString>,
     toolchain: Toolchain,
+    roots: BTreeMap<PathBuf, RootIdentity>,
+    protected: BTreeSet<PathBuf>,
 }
 
 fn parameter(profile: &mut String, params: &mut Vec<OsString>, rule: &str, path: &Path) {
@@ -203,30 +205,39 @@ fn parameter(profile: &mut String, params: &mut Vec<OsString>, rule: &str, path:
 impl Sandbox {
     pub fn new(
         private: &PrivateDir,
-        data_dir: &Path,
         pi_config: &Path,
-        workspaces: &[Workspace],
+        projects: &Projects,
         cancel: &Cancellation,
     ) -> Result<Self> {
-        let mut protected = Vec::new();
-        let mut roots = Vec::new();
-        let mut excluded = vec![data_dir.to_owned(), private.path().to_owned()];
-        for workspace in workspaces {
-            let root = Path::new(&workspace.worktree_root);
-            for path in check_workspace(root, cancel)? {
-                protected.push(path);
+        let roots: BTreeMap<_, _> = projects
+            .roots()
+            .map(|root| (root.path.clone(), root.identity.clone()))
+            .collect();
+        let mut protected = projects.protected().clone();
+        for root in roots.keys() {
+            if protected.iter().any(|path| root.starts_with(path)) {
+                return Err(not_ready("所选工程与受保护目录重叠，无法授权离线命令"));
             }
-            roots.push(root.to_owned());
-            excluded.push(PathBuf::from(&workspace.original_root));
+            protected.extend(check_workspace(root, projects.protected(), cancel)?);
         }
+        let excluded: Vec<_> = projects
+            .repository_paths()
+            .map(Path::to_owned)
+            .chain(protected.iter().cloned())
+            .chain(std::iter::once(private.path().to_owned()))
+            .collect();
         let tools = Toolchain::discover(&excluded, pi_config)?;
-        Self::build(private, &roots, &protected, tools)
+        let paths: Vec<_> = roots.keys().cloned().collect();
+        let mut sandbox = Self::build(private, &paths, &protected, tools)?;
+        sandbox.roots = roots;
+        sandbox.protected = protected;
+        Ok(sandbox)
     }
 
     fn build(
         private: &PrivateDir,
         roots: &[PathBuf],
-        protected: &[PathBuf],
+        protected: &BTreeSet<PathBuf>,
         toolchain: Toolchain,
     ) -> Result<Self> {
         let scratch = private.path().join("scratch");
@@ -284,6 +295,8 @@ impl Sandbox {
             profile,
             parameters,
             toolchain,
+            roots: BTreeMap::new(),
+            protected: BTreeSet::new(),
         })
     }
 
@@ -342,6 +355,18 @@ impl Sandbox {
         cancel: &Cancellation,
         on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
     ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+        for (root, identity) in &self.roots {
+            if Root::open(root)?.identity != *identity
+                || check_workspace(root, &self.protected, cancel)?
+                    .iter()
+                    .any(|path| !self.protected.contains(path))
+            {
+                return Err(YssError::new(
+                    ErrorCode::ConcurrentChange,
+                    "离线命令的工程文件边界已改变，请重新发起本轮",
+                ));
+            }
+        }
         process::capture_command_output(
             self.command(cwd, script),
             cancel,
@@ -351,7 +376,11 @@ impl Sandbox {
     }
 }
 
-fn check_workspace(root: &Path, cancel: &Cancellation) -> Result<Vec<PathBuf>> {
+fn check_workspace(
+    root: &Path,
+    protected: &BTreeSet<PathBuf>,
+    cancel: &Cancellation,
+) -> Result<Vec<PathBuf>> {
     let identity = Root::open(root)?.identity;
     let boundary = Boundary::probe(root)?;
     let mut blocked: BTreeSet<PathBuf> = boundary
@@ -370,7 +399,10 @@ fn check_workspace(root: &Path, cancel: &Cancellation) -> Result<Vec<PathBuf>> {
             if entries > 200_000 {
                 return Err(not_ready("Pi 工作区超出文件检查上限"));
             }
-            let relative = path.strip_prefix(root).expect("worktree descendant");
+            if protected.iter().any(|blocked| path.starts_with(blocked)) {
+                continue;
+            }
+            let relative = path.strip_prefix(root).expect("project descendant");
             let relative = RelPath::new(
                 relative
                     .to_str()
@@ -378,9 +410,7 @@ fn check_workspace(root: &Path, cancel: &Cancellation) -> Result<Vec<PathBuf>> {
             )?;
             let metadata = fs::symlink_metadata(&path)?;
             if boundary.check(&relative).is_err() || !tool_path(&relative) {
-                if metadata.is_dir() {
-                    blocked.insert(path);
-                }
+                blocked.insert(path);
                 continue;
             }
             if metadata.is_dir() {
@@ -423,7 +453,12 @@ pub(super) fn probe(cancel: &Cancellation) -> Result<()> {
         maven_repo: None,
         pnpm_store: None,
     };
-    let sandbox = Sandbox::build(&private, std::slice::from_ref(&root), &[], toolchain)?;
+    let sandbox = Sandbox::build(
+        &private,
+        std::slice::from_ref(&root),
+        &BTreeSet::new(),
+        toolchain,
+    )?;
     let probe = r#"
 printf allowed > allowed || exit 1
 if printf denied > ../sentinel || printf denied > .git || printf denied > .yss || printf denied > link; then exit 2; fi

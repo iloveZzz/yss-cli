@@ -6,11 +6,11 @@ import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import ProgressSummary from './ProgressSummary.vue'
 import TableLoadingOverlay from './TableLoadingOverlay.vue'
-import { useWorkbench } from '@/hooks/useWorkbench'
-import { dateLabel, stages, contentStatuses, type WorkItem } from '@/services/workbench'
+import { dateLabel, stages, contentStatuses } from '@/services/workbench'
+import type { CompactWorkItem } from '@/services/workbench-read'
 import { contentReminders } from '@/services/workbench-content'
 const props = withDefaults(defineProps<{
-  items: WorkItem[]
+  items: CompactWorkItem[]
   caption?: string
   progressBasis?: 'effective' | 'personal'
   refreshing?: boolean
@@ -21,20 +21,18 @@ const props = withDefaults(defineProps<{
   refreshLabel: '正在刷新 Spec 结果'
 })
 const route = useRoute()
-const { snapshot } = useWorkbench()
 const id = useId()
 const reminders = contentReminders(undefined).filter((reminder) => reminder.id !== 'ready')
 const rows = computed(() =>
   props.items.map((item) => ({
     item,
-    progress: item.progress ?? snapshot.value?.progress?.[item.specId],
     reminders: reminders.flatMap((reminder) => {
       const count = item.reminderCounts?.[reminder.id] ?? 0
       return count ? [{ ...reminder, count }] : []
     })
   }))
 )
-function detail(item: WorkItem, query: Record<string, string> = {}) {
+function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
   return { path: `/specs/${item.specId}`, query: { return: route.fullPath, ...query } }
 }
 </script>
@@ -52,7 +50,7 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        <TableRow v-for="{ item, progress, reminders: pending } in rows" :key="item.id">
+        <TableRow v-for="{ item, reminders: pending } in rows" :key="item.id" :data-spec-id="item.specId">
           <TableHead scope="row" class="item-title">
             <RouterLink :to="detail(item)" :title="item.sourcePath">{{ item.title }}</RouterLink>
             <span class="row-sub">{{ item.projectName }}{{ !item.active ? ' · 已停用' : '' }}</span>
@@ -87,7 +85,7 @@ function detail(item: WorkItem, query: Record<string, string> = {}) {
             </div>
           </TableCell>
           <TableCell class="item-next">
-            <ProgressSummary v-if="progressBasis === 'effective'" :progress="progress" compact />
+            <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress" compact />
             <template v-else>
               <p v-if="item.status === 'blocked'" class="row-blocker">
                 {{ item.blocker || '待补充阻塞说明' }}

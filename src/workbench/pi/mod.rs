@@ -14,6 +14,7 @@ use crate::{
     model::RelPath,
     workbench::jobs::JobContext,
 };
+use cap_std::fs::MetadataExt as _;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -118,49 +119,54 @@ fn session_ref(dir: &Path, state: &Value) -> Result<Option<PiSession>> {
     }))
 }
 
-fn project_context(request: &RunRequest<'_>) -> Result<(String, Vec<PathBuf>)> {
+fn project_context(
+    request: &RunRequest<'_>,
+    projects: &workspace::Projects,
+    cancel: &Cancellation,
+) -> Result<(String, Vec<PathBuf>)> {
     let mut rules = String::new();
     let mut skills = Vec::new();
-    for workspace in request.workspaces {
-        let root = Root::open(Path::new(&workspace.worktree_root))?;
-        for (project, prefix) in &workspace.project_prefixes {
-            let in_project = |name: &str| {
-                RelPath::new(if prefix.is_empty() {
-                    name.to_owned()
-                } else {
-                    format!("{prefix}/{name}")
-                })
-            };
-            let rel = in_project("AGENTS.md")?;
-            if matches!(root.inspect(&rel)?, FileSnapshot::File { .. }) {
-                let file = root.read_checked(&rel, 64 * 1024)?;
-                let text = std::str::from_utf8(&file.bytes)
-                    .map_err(|_| not_ready("工程规则须为 UTF-8"))?;
-                rules.push_str(&format!("\n工程 {project} 的 AGENTS.md\n{text}\n"));
-            }
-            let rel = in_project(".agents/skills")?;
-            if let FileSnapshot::Directory { .. } = root.inspect(&rel)? {
-                let skill_dir = root.path.join(rel.as_str());
-                if project == request.primary_project {
-                    let mut limit = 257;
-                    let (entries, complete) =
-                        root.source_entries(Some(&rel), &mut limit, &Cancellation::new())?;
-                    if !complete {
-                        return Err(not_ready("主工程技能数量超过 256 个"));
-                    }
-                    for (name, metadata) in entries {
-                        if metadata.is_dir() {
-                            let path = RelPath::new(format!("{}/{name}/SKILL.md", rel.as_str()))?;
-                            if matches!(root.inspect(&path)?, FileSnapshot::File { .. }) {
-                                skills.push(root.path.join(path.as_str()));
-                            }
-                        }
-                    }
-                } else {
-                    rules.push_str(&format!(
-                        "工程 {project} 的技能目录为 {}，按需读取其 SKILL.md 与引用材料。\n",
-                        skill_dir.display()
-                    ));
+    for project in request
+        .workspaces
+        .iter()
+        .flat_map(|workspace| &workspace.project_ids)
+    {
+        let root = projects.project_root(project)?;
+        let rel = RelPath::new("AGENTS.md")?;
+        if projects.includes(project, &rel)
+            && matches!(root.inspect(&rel)?, FileSnapshot::File { .. })
+            && root.source_metadata(&rel)?.nlink() == 1
+        {
+            let file = root.read_checked(&rel, 64 * 1024)?;
+            let text =
+                std::str::from_utf8(&file.bytes).map_err(|_| not_ready("工程规则须为 UTF-8"))?;
+            rules.push_str(&format!("\n工程 {project} 的 AGENTS.md\n{text}\n"));
+        }
+        let rel = RelPath::new(".agents/skills")?;
+        if !projects.includes(project, &rel)
+            || !matches!(root.inspect(&rel)?, FileSnapshot::Directory { .. })
+        {
+            continue;
+        }
+        if project != request.primary_project {
+            rules.push_str(&format!(
+                "工程 {project} 的技能目录为 .agents/skills，按需用该 projectId 读取 SKILL.md 与引用材料。\n"
+            ));
+            continue;
+        }
+        let mut limit = 257;
+        let (entries, complete) = root.source_entries(Some(&rel), &mut limit, cancel)?;
+        if !complete {
+            return Err(not_ready("主工程技能数量超过 256 个"));
+        }
+        for (name, metadata) in entries {
+            if metadata.is_dir() {
+                let path = rel.join(&format!("{name}/SKILL.md"))?;
+                if projects.includes(project, &path)
+                    && matches!(root.inspect(&path)?, FileSnapshot::File { .. })
+                    && root.source_metadata(&path)?.nlink() == 1
+                {
+                    skills.push(root.path.join(path.as_str()));
                 }
             }
         }
@@ -183,19 +189,23 @@ pub(super) fn run(
         .resume
         .map(|session| verify_session(request.data_dir, request.run_id, request.cwd, session))
         .transpose()?;
-    let worktrees = workspace::Worktrees::new(request.workspaces, request.primary_project)?;
-    let (rules, skills) = project_context(&request)?;
+    let projects = workspace::Projects::new(
+        request.workspaces,
+        request.primary_project,
+        request.data_dir,
+        &request.runtime.config_dir,
+    )?;
+    let (rules, skills) = project_context(&request, &projects, &context.cancel)?;
     let private = sandbox::PrivateDir::new()?;
     let extension = private.path().join("workbench.ts");
     fs::write(&extension, include_bytes!("tools.mjs"))?;
-    let sandbox = request
-        .allow_commands
+    let allow_commands = request.allow_commands && !request.read_only;
+    let sandbox = allow_commands
         .then(|| {
             sandbox::Sandbox::new(
                 &private,
-                request.data_dir,
                 &request.runtime.config_dir,
-                request.workspaces,
+                &projects,
                 &context.cancel,
             )
         })
@@ -203,7 +213,7 @@ pub(super) fn run(
     let bridge = bridge::Bridge::start(
         private.path(),
         context,
-        worktrees,
+        projects,
         sandbox,
         request.read_only,
         ask,
@@ -234,7 +244,7 @@ pub(super) fn run(
     for path in &skills {
         command.arg("--skill").arg(path);
     }
-    bridge.configure(&mut command, request.allow_commands);
+    bridge.configure(&mut command, allow_commands);
     command.env(
         "YSS_PI_READ_ONLY",
         if request.read_only { "1" } else { "0" },
@@ -272,7 +282,7 @@ pub(super) fn run(
         "provider": request.runtime.model.provider,
         "thinkingLevel": state["thinkingLevel"].as_str(),
         "readOnly": request.read_only,
-        "allowCommands": request.allow_commands
+        "allowCommands": allow_commands
     });
     save_session(session, metadata.clone())?;
     context.emit(
@@ -284,15 +294,20 @@ pub(super) fn run(
             "contextWindow": state["model"]["contextWindow"].as_u64().filter(|value| *value > 0)
         }),
     )?;
+    context.trace("piReady");
     let commands = if request.read_only {
         "本轮只读。可以读取、搜索、更新展示计划和询问已登记业务问题。把建议写在答复里。"
-    } else if request.allow_commands {
-        "命令沙箱断网。Maven 与 pnpm 构建使用本机已准备的离线依赖。"
+    } else if allow_commands {
+        "本轮直接编辑原工程。修改已有文件前先用 read 确认最新内容。离线命令仍限于已选工程和临时目录。Maven 与 pnpm 构建使用本机已准备的离线依赖。"
     } else {
-        "本次未授权命令工具，使用文件工具。"
+        "本轮直接编辑原工程。修改已有文件前先用 read 确认最新内容。本次未授权命令工具。"
     };
     let prompt = format!("{}\n{commands}\n{rules}", request.prompt);
+    let usage_before = pi.session_usage("session-stats-before", &context.cancel);
     let result = pi.prompt(&prompt, context);
+    if let Some(usage) = pi.session_usage("session-stats-after", &context.cancel) {
+        let _ = context.emit("piUsage", usage.event(usage_before.as_ref()));
+    }
     // Some Pi configurations only report the session file after the first message is persisted.
     if let Ok(state) = pi.state(&context.cancel)
         && let Some(session) = session_ref(&directory, &state)?

@@ -9,6 +9,7 @@ pub mod progress;
 pub mod progress_agent;
 pub mod progress_tracking;
 pub mod query;
+mod read_model;
 pub mod registration;
 pub mod server;
 pub mod service;
