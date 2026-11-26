@@ -34,8 +34,9 @@ cp target/aarch64-apple-darwin/release/yss desktop/binaries/yss-aarch64-apple-da
 然后在 `desktop/` 目录使用锁定版本的 Tauri CLI 构建。正式签名和 updater 需要对应真实配置与密钥，不应将密钥放入仓库：
 
 ```text
-pnpm dlx @tauri-apps/cli@2.12.6 build --ci --no-sign --no-bundle --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
-CI=true pnpm dlx @tauri-apps/cli@2.12.6 bundle --ci --no-sign --target aarch64-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+npm install --prefix /absolute/tauri-cli --no-save --no-package-lock --ignore-scripts @tauri-apps/cli@2.12.6
+node /absolute/tauri-cli/node_modules/@tauri-apps/cli/tauri.js build --ci --no-sign --no-bundle --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
+CI=true node /absolute/tauri-cli/node_modules/@tauri-apps/cli/tauri.js bundle --ci --no-sign --target aarch64-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
 Windows 候选使用 `x86_64-pc-windows-msvc`，先生成 `desktop/binaries/yss-x86_64-pc-windows-msvc.exe`，再将 bundle 目标改为 `nsis`。Windows 候选中用于 `yss` 的 Cargo build 使用 `RUSTFLAGS=-C target-feature=+crt-static`；在独立桌面应用构建前清除此环境变量。NSIS 按当前用户安装，缺少 WebView2 时提供联网引导。启用防降级配置的安装器发现已有较新版本时，禁止直接覆盖安装。

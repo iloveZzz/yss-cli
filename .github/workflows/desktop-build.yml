@@ -58,6 +58,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           npm install --global "pnpm@$env:PNPM_VERSION"
           if ((pnpm --version).Trim() -cne $env:PNPM_VERSION) { throw 'Unexpected pnpm version' }
+          npm install --prefix (Join-Path $env:RUNNER_TEMP 'tauri-cli') --no-save --no-package-lock --ignore-scripts "@tauri-apps/cli@$env:TAURI_CLI_VERSION"
+          $tauri = Join-Path $env:RUNNER_TEMP 'tauri-cli/node_modules/@tauri-apps/cli/tauri.js'
+          if ((node $tauri --version).Trim() -cne "tauri-cli $env:TAURI_CLI_VERSION") { throw 'Unexpected Tauri CLI version' }
           "store=$((pnpm store path).Trim())" >> $env:GITHUB_OUTPUT
 
       - name: Cache the workbench dependency store
@@ -125,7 +128,8 @@ jobs:
           '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Encoding utf8NoBOM $config
           Push-Location desktop
           try {
-            pnpm dlx "@tauri-apps/cli@$env:TAURI_CLI_VERSION" build --ci --no-sign --no-bundle --target $env:YSS_TARGET --config $config -- --locked
+            $tauri = Join-Path $env:RUNNER_TEMP 'tauri-cli/node_modules/@tauri-apps/cli/tauri.js'
+            node $tauri build --ci --no-sign --no-bundle --target $env:YSS_TARGET --config $config -- --locked
           } finally {
             Pop-Location
           }
@@ -135,7 +139,8 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           $config = Join-Path $env:RUNNER_TEMP 'yss-desktop-ci.json'
-          pnpm dlx "@tauri-apps/cli@$env:TAURI_CLI_VERSION" bundle --ci --no-sign --target $env:YSS_TARGET --bundles ${{ matrix.bundle }} --config $config
+          $tauri = Join-Path $env:RUNNER_TEMP 'tauri-cli/node_modules/@tauri-apps/cli/tauri.js'
+          node $tauri bundle --ci --no-sign --target $env:YSS_TARGET --bundles ${{ matrix.bundle }} --config $config
 
       - name: Record candidate provenance and checksum
         run: |

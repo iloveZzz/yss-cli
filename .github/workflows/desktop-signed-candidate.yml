@@ -57,6 +57,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           npm install --global "pnpm@$env:PNPM_VERSION"
           if ((pnpm --version).Trim() -cne $env:PNPM_VERSION) { throw 'Unexpected pnpm version' }
+          npm install --prefix (Join-Path $env:RUNNER_TEMP 'tauri-cli') --no-save --no-package-lock --ignore-scripts "@tauri-apps/cli@$env:TAURI_CLI_VERSION"
+          $tauri = Join-Path $env:RUNNER_TEMP 'tauri-cli/node_modules/@tauri-apps/cli/tauri.js'
+          if ((node $tauri --version).Trim() -cne "tauri-cli $env:TAURI_CLI_VERSION") { throw 'Unexpected Tauri CLI version' }
           "store=$((pnpm store path).Trim())" >> $env:GITHUB_OUTPUT
       - name: Restore the workbench dependency store
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -207,7 +210,10 @@ jobs:
           $config = Join-Path $env:RUNNER_TEMP 'yss-desktop-signing.json'
           $settings | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8NoBOM $config
           Push-Location desktop
-          try { pnpm dlx "@tauri-apps/cli@$env:TAURI_CLI_VERSION" build --ci --target $env:YSS_TARGET --bundles ${{ matrix.bundles }} --config $config -- --locked } finally { Pop-Location }
+          try {
+            $tauri = Join-Path $env:RUNNER_TEMP 'tauri-cli/node_modules/@tauri-apps/cli/tauri.js'
+            node $tauri build --ci --target $env:YSS_TARGET --bundles ${{ matrix.bundles }} --config $config -- --locked
+          } finally { Pop-Location }
       - name: Verify signatures and stage platform assets
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
