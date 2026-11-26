@@ -32,7 +32,20 @@ export const activityLabels = {
   status: '状态变化',
   error: '执行异常'
 }
+export function commandFailureResult(row: JobActivity) {
+  if (row.kind !== 'command') return
+  const signal = row.terminationSignal
+  if (signal) return signal.name ? `收到 ${signal.name}（${signal.number}）` : `收到信号 ${signal.number}`
+  if (row.exitCode === -1) return '异常终止，信号未记录'
+  if (row.exitCode != null && row.exitCode !== 0) return `退出码 ${row.exitCode}`
+}
+export function activityFailed(row: JobActivity) {
+  return row.kind === 'error' || row.status === 'failed' || !!row.terminationSignal ||
+    (row.exitCode != null && row.exitCode !== 0)
+}
 export function stepResult(row: JobActivity) {
+  const failure = commandFailureResult(row)
+  if (failure) return failure
   if (row.exitCode != null) return row.exitCode === 0 ? '已完成' : `退出码 ${row.exitCode}`
   const states: Record<string, string> = {
     inProgress: '执行中',

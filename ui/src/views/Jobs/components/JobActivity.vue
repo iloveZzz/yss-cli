@@ -9,7 +9,7 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { dateLabel, errorMessage } from '@/services/workbench'
 import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
-import { activityLabels, stepResult } from '../schemas/job'
+import { activityFailed, activityLabels, stepResult } from '../schemas/job'
 import ActivityDetail from './ActivityDetail.vue'
 import RawJobEvents from './RawJobEvents.vue'
 
@@ -187,12 +187,7 @@ function summary(text: string, command: boolean) {
                     }}</span>
                   </Button>
                 </TableCell>
-                <TableCell
-                  :class="{
-                    'warning-text':
-                      (row.exitCode != null && row.exitCode !== 0) || row.kind === 'error' || row.status === 'failed'
-                  }"
-                >
+                <TableCell class="result-cell" :class="{ 'warning-text': activityFailed(row) }">
                   {{ stepResult(row) }}
                 </TableCell>
               </TableRow>
@@ -273,7 +268,11 @@ function summary(text: string, command: boolean) {
   width: 90px;
 }
 .result-col {
-  width: 90px;
+  width: 114px;
+}
+.result-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .activity-table th,
 .activity-table td {

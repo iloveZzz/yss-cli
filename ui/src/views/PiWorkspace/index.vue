@@ -19,6 +19,7 @@ import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import PiModelPicker from '@/components/PiModelPicker.vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { sorted } from '@/lib/collections'
 import { acknowledgeRequest, ApiError, contentEqual, errorMessage, resolvePendingRequest, type Stage } from '@/services/workbench'
 import {
   admitAgent, deleteAgentSession, getAgentContinuation, getPiRuntime, piModelKey,
@@ -104,22 +105,25 @@ const perProject = computed(() => !session.value || !!run.value?.projectAccess?.
 const selectedProjectIds = computed(() => [...new Set([mainId.value, ...(session.value ? run.value?.projectIds ?? [] : draft.value.selected)])])
 const candidates = computed(() => new Map(projectScope.value?.projects.map((project) => [project.id, project])))
 const staleProjectGrants = computed(() => projectScope.value
-  ? Object.keys(draft.value.projectGrants).filter((id) =>
-    !contentEqual(draft.value.projectGrants[id].checkout, projectCheckout(candidates.value.get(id))))
+  ? Object.entries(draft.value.projectGrants)
+    .filter(([id, grant]) => grant.mode !== 'read' && !contentEqual(grant.checkout, projectCheckout(candidates.value.get(id))))
+    .map(([id]) => id)
   : [])
 const projectGrantIssue = computed(() => staleProjectGrants.value.length
   ? '工程检出已变化，请重新选择权限或清除过期授权。' : '')
 const projectModes = computed<Record<string, ProjectAccessMode>>({
-  get: () => Object.fromEntries(Object.entries(draft.value.projectGrants)
-    .filter(([id]) => !staleProjectGrants.value.includes(id))
-    .map(([id, grant]) => [id, grant.mode])),
+  get: () => {
+    const defaultMode = handoffJob.value ? 'read' : 'execute'
+    return Object.fromEntries(selectedProjectIds.value.filter((id) => id && !staleProjectGrants.value.includes(id))
+      .map((id) => [id, draft.value.projectGrants[id]?.mode ?? defaultMode]))
+  },
   set: (modes) => {
     const current = { ...draft.value.projectGrants }
     for (const [id, mode] of Object.entries(modes)) {
       if (mode === projectModes.value[id]) continue
       const checkout = projectCheckout(candidates.value.get(id))
-      if (mode === 'read' || !checkout) delete current[id]
-      else current[id] = { mode, checkout }
+      if (mode === 'read') current[id] = { mode }
+      else if (checkout) current[id] = { mode, checkout }
     }
     draft.value.projectGrants = Object.fromEntries(Object.entries(current)
       .filter(([id]) => selectedProjectIds.value.includes(id)))
@@ -127,8 +131,9 @@ const projectModes = computed<Record<string, ProjectAccessMode>>({
   }
 })
 function clearStaleProjectGrants() {
-  draft.value.projectGrants = Object.fromEntries(Object.entries(draft.value.projectGrants)
-    .filter(([id]) => !staleProjectGrants.value.includes(id)))
+  const current = { ...draft.value.projectGrants }
+  for (const id of staleProjectGrants.value) current[id] = { mode: 'read' }
+  draft.value.projectGrants = current
   draft.value.error = ''
 }
 const ciIssue = computed(() => {
@@ -182,7 +187,8 @@ async function restoreSubmittedDraft() {
     item.id === id && item.status === 'ready' && item.head))
   target.readOnly = true
   target.allowCommands = false
-  target.projectGrants = {}
+  target.projectGrants = Object.fromEntries([mainId.value, ...target.selected].filter(Boolean)
+    .map((id) => [id, { mode: 'read' }]))
   target.ciAttachment = undefined
   target.ciRecovery = saved.text.ciRecovery
   target.error = ''
@@ -617,14 +623,14 @@ async function settlePending(item: PendingPiRequest, job: JobRecord) {
     ?.filter((id) => id !== mainId.value)
   const sameProjectGrants = Object.entries(current.projectGrants).every(([projectId, grant]) => {
     const submitted = item.input.projectAccess?.find((entry) => entry.projectId === projectId)
-    return submitted?.mode === grant.mode && submitted.expectedHead === grant.checkout.head &&
-      submitted.expectedRootPath === grant.checkout.rootPath && submitted.expectedBranch === grant.checkout.branch
+    return submitted?.mode === grant.mode && (grant.mode === 'read' || (submitted.expectedHead === grant.checkout.head &&
+      submitted.expectedRootPath === grant.checkout.rootPath && submitted.expectedBranch === grant.checkout.branch))
   })
   const sameStage = current.stageSelection === undefined || (current.stageSelection?.stage === item.input.lifecycleStage &&
     current.stageSelection?.goalVersion === item.input.expectedGoalVersion)
   const submittedDraftMatches = current.prompt === item.input.prompt && contentEqual(current.citations, excerpts) &&
     contentEqual(ciSelection(current), expectedCi) &&
-    (item.input.resumeRunId || contentEqual(current.selected.toSorted(), (expectedSelected ?? []).toSorted())) &&
+    (item.input.resumeRunId || contentEqual(sorted(current.selected), sorted(expectedSelected ?? []))) &&
     sameProjectGrants && sameStage && (!current.selectedModel || contentEqual(current.selectedModel, item.input.selectedModel)) &&
     current.handoff?.jobId === item.input.continuationSource?.jobId &&
     current.handoff?.runId === item.input.continuationSource?.runId

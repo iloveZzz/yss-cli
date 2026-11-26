@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>YSS 工作台设置</title>
+    <link rel="stylesheet" href="settings.css">
+    <script src="settings.js" defer></script>
+  </head>
+  <body>
+    <main class="main">
+      <header class="page-heading">
+        <div><h1 id="page-title" tabindex="-1">桌面设置</h1><p>管理本机工作台连接和桌面行为。</p></div>
+        <button type="button" id="open" class="button secondary back-button" hidden disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 19-7-7 7-7M5 12h14"/>
+          </svg>
+          返回工作台
+        </button>
+      </header>
+
+      <div id="error" class="alert" role="alert" hidden></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="platform-notice" class="platform-notice" hidden>Windows 版目前暂不支持运行 Pi Agent。您仍可使用工作台的其他功能。</div>
+
+      <div class="tabs" role="tablist" aria-label="桌面设置分类">
+        <button type="button" class="tab" id="tab-connection" role="tab" aria-selected="true" aria-controls="panel-connection" tabindex="0">本机与连接</button>
+        <button type="button" class="tab" id="tab-behavior" role="tab" aria-selected="false" aria-controls="panel-behavior" tabindex="-1">启动与通知</button>
+        <button type="button" class="tab" id="tab-update" role="tab" aria-selected="false" aria-controls="panel-update" tabindex="-1">更新与退出</button>
+      </div>
+
+      <div id="panel-connection" class="tab-panel" role="tabpanel" aria-labelledby="tab-connection" tabindex="0">
+        <section class="platform-section" aria-labelledby="connection-heading">
+          <div class="section-heading"><div><h2 id="connection-heading">本机工作台</h2><p>查看当前工作台的连接和版本信息。</p></div><span id="connection-badge" class="badge">检查中</span></div>
+          <p id="status" class="status-line" role="status" aria-live="polite">正在检查连接…</p>
+          <dl class="details">
+            <div><dt>桌面版本</dt><dd id="desktop-version">—</dd></div>
+            <div><dt>工作台版本</dt><dd id="service-version">—</dd></div>
+            <div><dt>连接方式</dt><dd id="connection-kind">—</dd></div>
+            <div><dt>数据目录</dt><dd id="directory">—</dd></div>
+          </dl>
+          <div class="actions"><button type="button" id="retry" class="button secondary">重试连接</button></div>
+          <div class="section-divider"></div>
+          <div class="subsection"><h3>切换数据目录</h3><p>选择已有的工作台目录。切换不会复制或合并数据。</p><button type="button" id="choose" class="button secondary">选择已有目录</button></div>
+        </section>
+      </div>
+
+      <div id="panel-behavior" class="tab-panel" role="tabpanel" aria-labelledby="tab-behavior" tabindex="0" hidden>
+        <section class="platform-section" aria-labelledby="behavior-heading">
+          <div class="section-heading"><div><h2 id="behavior-heading">桌面行为</h2><p>按需设置应用启动和作业状态提醒。</p></div></div>
+          <div class="subsection"><h3 id="startup-heading">启动</h3>
+            <form id="startup-form" aria-labelledby="startup-heading">
+              <div class="check-row"><input type="checkbox" id="autostart" name="autostart" aria-describedby="startup-help"><div><label for="autostart">登录系统时在后台启动</label><p id="startup-help">默认关闭，可随时更改。</p></div></div>
+              <button type="submit" class="button secondary">保存启动设置</button>
+            </form>
+          </div>
+          <div class="section-divider"></div>
+          <div class="subsection"><h3 id="notifications-heading">通知</h3>
+            <form id="notifications-form" aria-labelledby="notifications-heading">
+              <div class="check-row"><input type="checkbox" id="notifications" name="notifications" aria-describedby="notifications-help"><div><label for="notifications">在后台提示作业状态</label><p id="notifications-help">通知显示作业名称和状态，不显示对话或文件内容。</p></div></div>
+              <button type="submit" class="button secondary">保存通知设置</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <div id="panel-update" class="tab-panel" role="tabpanel" aria-labelledby="tab-update" tabindex="0" hidden>
+        <section class="platform-section" aria-labelledby="updates-heading">
+          <div class="section-heading"><div><h2 id="updates-heading">桌面更新</h2><p>检查并安装桌面应用的稳定版更新。</p></div></div>
+          <p id="update-status" class="status-line" role="status" aria-live="polite">正在检查更新配置…</p>
+          <div class="actions"><button type="button" id="check-updates" class="button secondary">检查更新</button><button type="button" id="install-update" class="button primary" disabled>安装更新</button></div>
+          <p class="hint">有活动或排队作业时，请先处理后再安装。</p>
+          <div class="section-divider"></div>
+          <div class="subsection"><h3>待派发任务</h3><p>暂停队列中尚未派发的任务，已运行的作业不受影响。任务会保留，可在工作台核对后继续。</p><button type="button" id="pause-queues" class="button secondary" disabled>暂停待派发任务</button></div>
+          <div class="section-divider"></div>
+          <div class="subsection"><h3 id="exit-heading">退出</h3><p id="exit-description">关闭窗口后应用继续在后台运行。</p>
+            <div class="actions"><button type="button" id="exit" class="button secondary">退出桌面应用</button><button type="button" id="stop-exit" class="button secondary" hidden>停止作业并退出</button></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

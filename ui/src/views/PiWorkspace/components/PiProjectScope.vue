@@ -63,7 +63,6 @@ function add(projectId: string) {
   if (!project || project.status !== 'ready' || !project.head ||
     participants.value.some((item) => item.id === projectId)) return
   selected.value = [...selected.value, projectId]
-  modes.value = { ...modes.value, [projectId]: 'read' }
 }
 function remove(projectId: string) {
   selected.value = selected.value.filter((item) => item !== projectId)
@@ -90,7 +89,7 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
     <legend>参与工程</legend>
     <p :id="id + '-help'">
       {{ locked ? '沿用本会话的工程和本机路径。' : '主工程始终参与。可以按本机检出路径添加其他工程。' }}
-      <template v-if="perProject">每轮默认只读。编辑权限仅适用于对应工程。</template>
+      <template v-if="perProject">权限按工程和轮次生效。</template>
     </p>
     <div class="pi-scope-actions">
       <Button type="button" variant="outline" size="sm" :disabled="loading" @click="emit('refresh')">

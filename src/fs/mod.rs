@@ -438,6 +438,22 @@ impl Root {
         }
         Ok(checked)
     }
+    /// Read a secret only after checking permissions on the opened file itself.
+    pub fn read_private_checked(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("读取路径的父目录不存在").at(path))?;
+        let checked =
+            read_in_dir_impl(&parent.dir, &parent.name, limit, true).map_err(|e| e.at(path))?;
+        if platform::identity_dir(&walk_absolute(&self.path, false)?)? != self.identity
+            || self
+                .parent(path)?
+                .is_none_or(|p| p.identity != parent.identity)
+        {
+            return Err(drift().at(path));
+        }
+        Ok(checked)
+    }
     // Read-only traversal avoids repeated whole-directory alias scans; writes retain them.
     pub(crate) fn source_read(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
         let parent = self
@@ -567,6 +583,40 @@ impl Root {
             return Err(drift().at(path));
         }
         Ok(actual)
+    }
+    /// Create secret files with private permissions before any bytes are written.
+    pub fn create_private_file(&self, path: &RelPath, bytes: &[u8]) -> Result<FileSnapshot> {
+        #[cfg(not(windows))]
+        {
+            self.create_file(path, bytes, 0o600)
+        }
+        #[cfg(windows)]
+        {
+            if bytes.len() as u64 > MAX_ASSET {
+                return Err(unsafe_path("文件长度不合法"));
+            }
+            let parent = self
+                .parent(path)?
+                .ok_or_else(|| unsafe_path("创建文件的父目录不存在"))?;
+            self.revalidate_parent(&parent)?;
+            let mut file = platform::create_private_file(&parent.dir, &parent.name)?;
+            let identity = platform::identity_std_file(&file)?;
+            self.revalidate_parent(&parent)?;
+            if platform::identity_at(&parent.dir, &parent.name)? != identity {
+                return Err(drift().at(path));
+            }
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            platform::verify_private_file(&file)?;
+            drop(file);
+            platform::sync_dir(&parent.dir)?;
+            self.revalidate_parent(&parent)?;
+            let actual = self.read_private_checked(path, MAX_ASSET)?.snapshot;
+            if actual.identity() != Some(&identity) {
+                return Err(drift().at(path));
+            }
+            Ok(actual)
+        }
     }
     pub(crate) fn create_streamed<F>(&self, path: &RelPath, write: F) -> Result<FileIdentity>
     where
@@ -888,6 +938,9 @@ pub fn unique_id() -> Result<String> {
 }
 
 fn read_in_dir(dir: &Dir, name: &str, limit: u64) -> Result<CheckedFile> {
+    read_in_dir_impl(dir, name, limit, false)
+}
+fn read_in_dir_impl(dir: &Dir, name: &str, limit: u64, private: bool) -> Result<CheckedFile> {
     let before = dir.symlink_metadata(name)?;
     plain(&before)?;
     if !before.is_file() || before.len() > limit.min(MAX_ASSET) {
@@ -902,11 +955,25 @@ fn read_in_dir(dir: &Dir, name: &str, limit: u64) -> Result<CheckedFile> {
     if before_id != platform::identity_file(&file)? {
         return Err(drift().at(name));
     }
+    if private {
+        #[cfg(unix)]
+        if platform::mode(&opened) & 0o077 != 0 {
+            return Err(unsafe_path("私有文件权限过宽").at(name));
+        }
+        #[cfg(windows)]
+        platform::verify_private_file(&file)
+            .map_err(|_| unsafe_path("私有文件访问控制不安全").at(name))?;
+    }
     let mut bytes = Vec::new();
     (&mut file)
         .take(limit.min(MAX_ASSET) + 1)
         .read_to_end(&mut bytes)?;
     let after = file.metadata()?;
+    #[cfg(windows)]
+    if private {
+        platform::verify_private_file(&file)
+            .map_err(|_| unsafe_path("私有文件访问控制不安全").at(name))?;
+    }
     let path_after = dir.symlink_metadata(name)?;
     plain(&path_after)?;
     if bytes.len() as u64 > limit.min(MAX_ASSET)

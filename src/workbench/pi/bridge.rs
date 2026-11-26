@@ -14,8 +14,12 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     io::{BufRead, BufReader, Read},
-    os::unix::net::{UnixListener, UnixStream},
+    os::unix::{
+        net::{UnixListener, UnixStream},
+        process::ExitStatusExt,
+    },
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -46,6 +50,127 @@ fn complete_utf8_prefix(bytes: &[u8]) -> usize {
                 .is_err_and(|error| error.valid_up_to() == 0 && error.error_len().is_none())
         })
         .unwrap_or(bytes.len())
+}
+
+#[derive(Serialize)]
+struct CommandDiagnostic {
+    code: &'static str,
+    message: &'static str,
+    hint: &'static str,
+}
+
+fn dyld_message(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("dyld")?;
+    if let Some(message) = rest.strip_prefix(':') {
+        return Some(message.trim_start());
+    }
+    let (pid, message) = rest.strip_prefix('[')?.split_once("]:")?;
+    (!pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit())).then(|| message.trim_start())
+}
+
+fn dyld_library_sandbox_denied(stderr: &str) -> bool {
+    let mut loading_library = false;
+    for line in stderr.lines() {
+        let content = line.trim_start();
+        if let Some(message) = dyld_message(content) {
+            loading_library = message.starts_with("Library not loaded:");
+        } else if content.is_empty()
+            || (line == content
+                && !content.starts_with("Referenced from:")
+                && !content.starts_with("Reason:"))
+        {
+            loading_library = false;
+        }
+        if loading_library && content.contains("blocked by sandbox") {
+            return true;
+        }
+    }
+    false
+}
+
+fn bash_command_not_found(line: &str) -> bool {
+    let Some((source, command)) = line
+        .strip_suffix(": command not found")
+        .and_then(|line| line.split_once(": "))
+    else {
+        return false;
+    };
+    if matches!(source.rsplit('/').next(), Some("bash" | "-bash")) {
+        return true;
+    }
+    command
+        .strip_prefix("line ")
+        .and_then(|line| line.split_once(": "))
+        .is_some_and(|(number, _)| {
+            !source.is_empty()
+                && !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+fn command_diagnostics(stderr: &str) -> Vec<CommandDiagnostic> {
+    let mut diagnostics = Vec::new();
+    if dyld_library_sandbox_denied(stderr) {
+        diagnostics.push(CommandDiagnostic {
+            code: "dyld_library_sandbox_denied",
+            message: "动态库加载被沙箱阻止。",
+            hint: "优先使用本轮已有的工程和版本信息。需要验证这个工具时，请用户在自己的环境中运行。",
+        });
+    }
+    if stderr.lines().any(bash_command_not_found) {
+        diagnostics.push(CommandDiagnostic {
+            code: "command_not_found",
+            message: "Bash 未找到要执行的命令。",
+            hint: "核对工程约定的命令和离线环境可用的工具，按需单独验证。",
+        });
+    }
+    diagnostics
+}
+
+fn command_result(item: &mut Value, status: ExitStatus, stderr: &[u8], output: &str) -> Value {
+    let code = status.code().unwrap_or(-1);
+    item["exitCode"] = json!(code);
+    item["status"] = json!(if code == 0 { "completed" } else { "failed" });
+    item["aggregatedOutput"] = json!(output);
+    let mut reply = json!({ "exitCode": code });
+    let mut text = if let Some(number) = status.signal() {
+        let name = match number {
+            libc::SIGKILL => Some("SIGKILL"),
+            libc::SIGABRT => Some("SIGABRT"),
+            libc::SIGTERM => Some("SIGTERM"),
+            _ => None,
+        };
+        let mut signal = json!({ "number": number });
+        let message = if let Some(name) = name {
+            signal["name"] = json!(name);
+            format!("收到 {name}（{number}）")
+        } else {
+            format!("收到信号 {number}")
+        };
+        item["terminationSignal"] = signal.clone();
+        reply["terminationSignal"] = signal;
+        message
+    } else {
+        format!("退出码 {code}")
+    };
+    if !status.success() {
+        let diagnostics = command_diagnostics(&String::from_utf8_lossy(stderr));
+        if !diagnostics.is_empty() {
+            for diagnostic in &diagnostics {
+                text.push('\n');
+                text.push_str(diagnostic.message);
+                text.push('\n');
+                text.push_str(diagnostic.hint);
+            }
+            let diagnostics = json!(diagnostics);
+            item["commandDiagnostics"] = diagnostics.clone();
+            reply["commandDiagnostics"] = diagnostics;
+        }
+    }
+    text.push('\n');
+    text.push_str(output);
+    reply["text"] = json!(text);
+    reply
 }
 
 #[derive(Deserialize)]
@@ -589,8 +714,8 @@ impl Broker {
         for fragment in fragments {
             append_output(&mut output, &String::from_utf8_lossy(&fragment));
         }
-        let code = match result {
-            Ok((status, _, _)) => status.code().unwrap_or(-1),
+        let (status, _, stderr) = match result {
+            Ok(result) => result,
             Err(error) => {
                 item["status"] = json!(if error.code == ErrorCode::Cancelled {
                     "canceled"
@@ -607,11 +732,9 @@ impl Broker {
                 return Err(error);
             }
         };
-        item["exitCode"] = json!(code);
-        item["status"] = json!(if code == 0 { "completed" } else { "failed" });
-        item["aggregatedOutput"] = json!(output);
+        let reply = command_result(&mut item, status, &stderr, &output);
         self.context
             .emit("item/completed", json!({ "item": item }))?;
-        Ok(json!({ "text": format!("退出码 {code}\n{output}"), "exitCode": code }))
+        Ok(reply)
     }
 }

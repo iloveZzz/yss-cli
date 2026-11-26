@@ -1,0 +1,119 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #25272b;
+  background: #edf0f8;
+  font-size: 13px;
+  line-height: 1.55;
+  --primary: #3e6ae1;
+  --pane: rgba(255, 255, 255, .64);
+  --edge: rgba(255, 255, 255, .86);
+  --muted: #62666c;
+  --canvas: radial-gradient(ellipse at 0% 62%, #fbe2d5, transparent 62%), radial-gradient(ellipse at 94% 12%, #dce4fb, transparent 68%), #edf0f8;
+  --motion-fast: 110ms;
+  --motion-panel: 170ms;
+  --motion-ease: cubic-bezier(.2, .72, .24, 1);
+}
+* { box-sizing: border-box; }
+html { min-height: 100%; scrollbar-gutter: stable; }
+body { margin: 0; min-height: 100vh; background: var(--canvas); }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.main { max-width: 1056px; margin: 0 auto; padding: 26px 32px 40px; }
+.page-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+h1, h2, h3, p { margin: 0; }
+h1 { color: #171a20; font-size: 24px; line-height: 1.35; font-weight: 650; }
+h1:focus { outline: none; }
+h2 { color: #171a20; font-size: 15px; font-weight: 650; }
+h3 { color: #171a20; font-size: 13px; font-weight: 600; }
+.page-heading p, .section-heading p, .subsection > p, .check-row p, .hint { color: var(--muted); }
+.page-heading p { margin-top: 4px; }
+.tabs {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: #f0f2f5;
+}
+.tabs::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 4px auto 4px 4px;
+  width: calc((100% - 12px) / 3);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(23, 26, 32, .08);
+  transform: translateX(calc(var(--selected-tab, 0) * (100% + 2px)));
+}
+.tab { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-weight: 500; }
+.tab[aria-selected='true'] { color: #25272b; }
+.tab:hover:not([aria-selected='true']) { color: #25272b; }
+.tab:focus-visible { outline-offset: -2px; }
+.tab-panel:focus-visible { outline-offset: 5px; border-radius: 12px; }
+.platform-section { padding: 22px; border: 1px solid var(--edge); border-radius: 12px; background: var(--pane); }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.section-heading p { margin-top: 4px; }
+.badge { flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 23px; padding: 2px 8px; border: 1px solid #e4e6eb; border-radius: 999px; background: #fff; color: #62666c; font-size: 12px; font-weight: 500; }
+.badge[data-connected='true'] { border-color: #cfdafc; background: #edf2ff; color: #345cc9; }
+.status-line { margin-bottom: 12px; overflow-wrap: anywhere; }
+.details { margin: 0 0 16px; border-top: 1px solid #e4e6eb; }
+.details > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; padding: 10px 0; border-bottom: 1px solid #e4e6eb; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.button { min-height: 34px; padding: 0 12px; border: 1px solid #cbd0da; border-radius: 8px; background: #fff; color: #25272b; font-weight: 500; }
+.button:hover:not(:disabled) { background: #f7f8fa; }
+.back-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; }
+.button.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
+.button.primary:hover:not(:disabled) { border-color: #345cc9; background: #345cc9; }
+.button.primary:active:not(:disabled) { border-color: #2c51b5; background: #2c51b5; }
+.section-divider { height: 1px; margin: 22px 0; background: #e4e6eb; }
+.subsection > p, .check-row p { margin-top: 4px; }
+.subsection > .button, .subsection > .actions, .subsection form > .button { margin-top: 14px; }
+.check-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; }
+.check-row input { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--primary); }
+.check-row label { color: #25272b; font-weight: 500; cursor: pointer; }
+.hint { margin-top: 12px; }
+.alert, .notice { margin-bottom: 16px; padding: 10px 12px; border: 1px solid; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.alert { color: #9f252c; background: #fff2f2; border-color: #f3c6c9; }
+.notice { color: #345cc9; background: #edf2ff; border-color: #cfdafc; }
+.platform-notice { margin-bottom: 16px; padding: 10px 12px; border: 1px solid #cfdafc; border-radius: 8px; background: #edf2ff; color: #345cc9; }
+[hidden] { display: none !important; }
+
+@keyframes settings-panel-in {
+  from { opacity: .8; transform: translateY(4px); }
+}
+
+.tab { transition: color var(--motion-fast) ease-out; }
+.button { transition: background-color var(--motion-fast) ease-out, border-color var(--motion-fast) ease-out; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .tabs::before { transition: transform var(--motion-panel) var(--motion-ease); }
+  .tab-panel:not([hidden]) { animation: settings-panel-in var(--motion-panel) var(--motion-ease); }
+  .button:active:not(:disabled) { transform: scale(.98); }
+}
+@media (max-width: 719px) {
+  .main { padding: 16px 16px 32px; }
+  .button { min-height: 44px; }
+  .tab { min-height: 40px; padding: 0 10px; }
+  .platform-section { padding: 18px; }
+}
+@media (max-width: 420px) {
+  .page-heading { flex-wrap: wrap; }
+  .details > div { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+}
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  :root { --canvas: #fff; --pane: #fff; --edge: #cbd0da; }
+}
+@media (forced-colors: active) {
+  .tabs::before { display: none; }
+  .tab[aria-selected='true']:not(:focus-visible) { outline: 1px solid Highlight; outline-offset: -1px; }
+}

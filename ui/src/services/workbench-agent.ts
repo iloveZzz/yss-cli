@@ -233,6 +233,8 @@ export interface PiQueueDraft {
   expectedGoalVersion?: string
 }
 const queuePath = (run: string) => `/api/agent/${encodeURIComponent(run)}/queue`
+export const getPiQueueReceipt = (run: string, body: PiQueueDraft) =>
+  apiRequest<{ found: boolean; matches: boolean | null }>(`${queuePath(run)}/receipt`, { body })
 export const getPiQueue = (run: string, signal?: AbortSignal) =>
   apiRequest<PiQueue>(queuePath(run), { signal })
 export const putPiQueueItem = (run: string, body: PiQueueDraft, itemId?: string) =>

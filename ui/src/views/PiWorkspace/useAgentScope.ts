@@ -1,14 +1,14 @@
 import { computed } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { sorted } from '@/lib/collections'
 
 const { catalog } = useWorkbenchCatalog()
 const scopeOptions = computed(() => {
   const projects = new Map(catalog.value?.projects.filter((project) => project.active)
     .map((project) => [project.id, project.name]))
-  return (catalog.value?.specs ?? [])
-    .filter((spec) => spec.active && projects.has(spec.projectId))
-    .toSorted((left, right) =>
+  return sorted((catalog.value?.specs ?? [])
+    .filter((spec) => spec.active && projects.has(spec.projectId)), (left, right) =>
       right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title, 'zh-CN'))
     .map((record) => ({ value: record.id, label: `${record.title} · ${projects.get(record.projectId)}` }))
 })

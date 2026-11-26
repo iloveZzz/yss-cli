@@ -1,8 +1,9 @@
 :root {
   --workbench-motion-fast: 110ms;
   --workbench-motion-panel: 180ms;
-  --workbench-motion-drawer: 240ms;
+  --workbench-motion-drawer: 260ms;
   --workbench-motion-ease: cubic-bezier(.2, .72, .24, 1);
+  --workbench-motion-drawer-ease: cubic-bezier(.22, 1, .36, 1);
 }
 
 @keyframes workbench-fade-in {
@@ -26,11 +27,17 @@
 }
 
 @keyframes workbench-drawer-in {
-  from { opacity: .72; translate: var(--sheet-x, 0) var(--sheet-y, 0); }
+  from { transform: translate3d(var(--sheet-x, 0px), var(--sheet-y, 0px), 0); }
+  to { transform: translate3d(0, 0, 0); }
 }
 
 @keyframes workbench-drawer-out {
-  to { opacity: 0; translate: var(--sheet-x, 0) var(--sheet-y, 0); }
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--sheet-x, 0px), var(--sheet-y, 0px), 0); }
+}
+
+@keyframes workbench-content-in {
+  from { opacity: .86; }
 }
 
 @keyframes workbench-expand {
@@ -52,7 +59,7 @@
   :is([data-slot='button'], [data-slot='toggle-group-item'], [data-slot='tabs-trigger'],
       .pi-session-title, .pi-session-attention, .pi-review-file-toggle, .pi-file-tree-folder, .phase-node) {
     transition: background-color var(--workbench-motion-fast), color var(--workbench-motion-fast),
-      border-color var(--workbench-motion-fast), box-shadow var(--workbench-motion-fast),
+      border-color var(--workbench-motion-fast),
       scale var(--workbench-motion-fast) var(--workbench-motion-ease);
   }
   :is([data-slot='button'], [data-slot='toggle-group-item']):not([aria-disabled='true'], :disabled):active {
@@ -110,10 +117,10 @@
   [data-slot='sheet-content'][data-side='top'] { --sheet-y: -100%; }
   [data-slot='sheet-content'][data-side='bottom'] { --sheet-y: 100%; }
   [data-slot='sheet-content'][data-state='open'] {
-    animation: workbench-drawer-in var(--workbench-motion-drawer) var(--workbench-motion-ease);
+    animation: workbench-drawer-in var(--workbench-motion-drawer) var(--workbench-motion-drawer-ease);
   }
   [data-slot='sheet-content'][data-state='closed'] {
-    animation: workbench-drawer-out 155ms ease-in both;
+    animation: workbench-drawer-out 180ms cubic-bezier(.55, 0, .85, .55) both;
   }
   :is([data-slot='dialog-content'], [data-slot='alert-dialog-content'], [data-slot='sheet-content'])[data-state='closed'] {
     pointer-events: none;
@@ -128,7 +135,7 @@
   }
   [data-slot='tabs-content'][data-state='active']:not([hidden]),
   [data-workbench-reveal] {
-    animation: workbench-fade-in var(--workbench-motion-panel) var(--workbench-motion-ease);
+    animation: workbench-content-in var(--workbench-motion-panel) var(--workbench-motion-ease);
   }
   [data-slot='tabs-indicator'] {
     transition: translate var(--workbench-motion-panel) var(--workbench-motion-ease),

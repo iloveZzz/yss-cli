@@ -115,11 +115,23 @@ export function conversationEvent(
   if (item.type === 'commandExecution' && itemId) {
     const status = text(item.status) || (event.kind === 'item/started' ? 'inProgress' : 'completed')
     const previous = find('command', itemId)
-    const command = text(item.command)
-    const exitCode = typeof item.exitCode === 'number' ? item.exitCode : null
+    const details: Partial<JobActivity> = { status }
+    if (typeof item.exitCode === 'number') details.exitCode = item.exitCode
+    const signal = objectValue(item.terminationSignal)
+    if (typeof signal.number === 'number' && Number.isInteger(signal.number) && signal.number > 0) {
+      details.terminationSignal = { number: signal.number, name: text(signal.name) || undefined }
+    }
+    if (Array.isArray(item.commandDiagnostics)) {
+      details.commandDiagnostics = item.commandDiagnostics.flatMap((entry: unknown) => {
+        const diagnostic = objectValue(entry)
+        const code = text(diagnostic.code)
+        const message = text(diagnostic.message)
+        return code && message ? [{ code, message, hint: text(diagnostic.hint) }] : []
+      })
+    }
     return previous
-      ? update(previous, { status, exitCode })
-      : { ...row('command', command, status), itemId, exitCode }
+      ? update(previous, details)
+      : { ...row('command', text(item.command), status), itemId, ...details }
   }
   if (item.type === 'fileChange' && Array.isArray(item.changes)) {
     const paths = item.changes.map((change: unknown) => text(objectValue(change).path)).filter(Boolean)

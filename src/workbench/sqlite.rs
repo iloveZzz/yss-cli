@@ -49,6 +49,27 @@ pub(crate) struct EventWrite<'a> {
     pub payload: &'a serde_json::Value,
 }
 
+/// A bounded notification projection: never return prompts, answers or tool output.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopNotificationEvent {
+    pub id: u64,
+    pub job_id: String,
+    pub kind: String,
+    pub title: String,
+    pub request_id: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopPendingEvent {
+    pub event_id: u64,
+    pub job_id: String,
+    pub request_id: String,
+    pub title: String,
+}
+
 pub(crate) enum ExtensionChange<'a> {
     Event(EventWrite<'a>),
     DeleteAgentHistory {
@@ -1083,6 +1104,195 @@ impl Database {
             )
             .map(|id| id as u64)
             .map_err(sql_error)
+    }
+
+    pub(crate) fn desktop_notification_cursor(&self) -> Result<u64> {
+        self.connection
+            .query_row("SELECT COALESCE(MAX(id),0) FROM job_events", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(sql_error)
+            .and_then(|value| u64::try_from(value).map_err(|_| invalid("作业事件游标无效")))
+    }
+
+    pub(crate) fn desktop_notification_event_count(&self, through: u64) -> Result<u64> {
+        let through = i64::try_from(through).map_err(|_| invalid("作业事件游标无效"))?;
+        self.connection
+            .query_row(
+                "SELECT COUNT(*) FROM job_events WHERE id<=?1",
+                [through],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(sql_error)
+            .and_then(|value| u64::try_from(value).map_err(|_| invalid("作业事件数量无效")))
+    }
+
+    pub(crate) fn desktop_notification_pending_page(
+        &self,
+        baseline: u64,
+        after: u64,
+    ) -> Result<(Vec<DesktopPendingEvent>, bool)> {
+        let baseline = i64::try_from(baseline).map_err(|_| invalid("作业事件游标无效"))?;
+        let after = i64::try_from(after).map_err(|_| invalid("作业事件游标无效"))?;
+        // Window functions reconstruct unresolved requests at the baseline.
+        // Only IDs and a bounded title leave SQLite; request bodies stay in storage.
+        let mut statement = self
+            .connection
+            .prepare(
+                "WITH relevant AS (
+                SELECT id, job_id, kind,
+                       CASE WHEN json_type(payload,'$.requestId')='text'
+                                 AND length(json_extract(payload,'$.requestId')) BETWEEN 1 AND 128
+                            THEN json_extract(payload,'$.requestId') ELSE NULL END AS request_id
+                FROM job_events
+                WHERE id<=?1 AND kind IN ('inputRequested','inputResolved','finished')
+             ), snapshot AS (
+                SELECT id, job_id, kind, request_id,
+                       MAX(id) OVER (PARTITION BY job_id,request_id) AS latest_request,
+                       MAX(CASE WHEN kind='finished' THEN id ELSE 0 END)
+                           OVER (PARTITION BY job_id) AS finished_at
+                FROM relevant
+             )
+             SELECT s.id,s.job_id,s.request_id,
+                    CASE WHEN json_type(j.payload,'$.title')='text'
+                         THEN substr(json_extract(j.payload,'$.title'),1,120)
+                         ELSE '工作台作业' END
+             FROM snapshot s
+             LEFT JOIN workbench_records j ON j.kind='job' AND j.id=s.job_id
+             WHERE s.kind='inputRequested' AND s.request_id IS NOT NULL
+                   AND s.id=s.latest_request AND s.id>s.finished_at AND s.id>?2
+             ORDER BY s.id LIMIT 201",
+            )
+            .map_err(sql_error)?;
+        let rows = statement
+            .query_map(params![baseline, after], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        let mut events = Vec::new();
+        for row in rows {
+            let (id, job_id, request_id, title) = row.map_err(sql_error)?;
+            if request_id.len() > 128 {
+                return Err(invalid("作业输入标识无效"));
+            }
+            events.push(DesktopPendingEvent {
+                event_id: u64::try_from(id).map_err(|_| invalid("作业事件游标无效"))?,
+                job_id,
+                request_id,
+                title,
+            });
+        }
+        let has_more = events.len() > 200;
+        events.truncate(200);
+        Ok((events, has_more))
+    }
+
+    pub(crate) fn desktop_notification_events(
+        &self,
+        after: u64,
+    ) -> Result<(Vec<DesktopNotificationEvent>, bool)> {
+        let after = i64::try_from(after).map_err(|_| invalid("作业事件游标无效"))?;
+        // Extract only notification fields in SQLite. The event payload can contain
+        // untrusted prompts, model text or tool output and is never returned here.
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT e.id, e.job_id, e.kind,
+                    CASE WHEN json_type(j.payload,'$.title')='text'
+                         THEN substr(json_extract(j.payload,'$.title'),1,120)
+                         ELSE '工作台作业' END,
+                    CASE WHEN json_type(e.payload,'$.requestId')='text'
+                              AND length(json_extract(e.payload,'$.requestId'))<=128
+                         THEN json_extract(e.payload,'$.requestId') ELSE NULL END,
+                    CASE WHEN json_type(e.payload,'$.status')='text'
+                              AND length(json_extract(e.payload,'$.status'))<=64
+                         THEN json_extract(e.payload,'$.status') ELSE NULL END
+             FROM job_events e
+             LEFT JOIN workbench_records j ON j.kind='job' AND j.id=e.job_id
+             WHERE e.id>?1 AND e.kind IN ('inputRequested','finished')
+             ORDER BY e.id LIMIT 201",
+            )
+            .map_err(sql_error)?;
+        let rows = statement
+            .query_map([after], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        let mut events = Vec::new();
+        for row in rows {
+            let (id, job_id, kind, title, request_id, status) = row.map_err(sql_error)?;
+            events.push(DesktopNotificationEvent {
+                id: u64::try_from(id).map_err(|_| invalid("作业事件游标无效"))?,
+                job_id,
+                kind,
+                title,
+                request_id,
+                status,
+            });
+        }
+        let has_more = events.len() > 200;
+        events.truncate(200);
+        Ok((events, has_more))
+    }
+
+    /// Return only unresolved input identities; never expose their request bodies.
+    pub(crate) fn desktop_notification_pending(&self, job_id: &str) -> Result<Vec<(u64, String)>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT id, kind,
+                    CASE WHEN json_type(payload,'$.requestId')='text'
+                         THEN json_extract(payload,'$.requestId') ELSE NULL END
+             FROM job_events
+             WHERE job_id=?1 AND kind IN ('inputRequested','inputResolved')
+             ORDER BY id",
+            )
+            .map_err(sql_error)?;
+        let rows = statement
+            .query_map([job_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        let mut pending = BTreeMap::new();
+        for row in rows {
+            let (id, kind, request_id) = row.map_err(sql_error)?;
+            let Some(request_id) = request_id else {
+                continue;
+            };
+            if request_id.is_empty() || request_id.len() > 128 {
+                continue;
+            }
+            if kind == "inputRequested" {
+                pending.insert(
+                    request_id,
+                    u64::try_from(id).map_err(|_| invalid("作业事件游标无效"))?,
+                );
+            } else {
+                pending.remove(&request_id);
+            }
+        }
+        let mut values = pending
+            .into_iter()
+            .map(|(request_id, id)| (id, request_id))
+            .collect::<Vec<_>>();
+        values.sort_by_key(|(id, _)| *id);
+        Ok(values)
     }
 
     pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {

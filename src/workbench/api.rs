@@ -18,8 +18,18 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
+
+type DesktopFlushReceipt = (String, bool, Instant);
+static DESKTOP_FLUSH: OnceLock<Mutex<BTreeMap<String, DesktopFlushReceipt>>> = OnceLock::new();
+
+fn desktop_identifier(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
 
 #[derive(Clone)]
 pub struct PlatformApi {
@@ -293,6 +303,76 @@ impl PlatformApi {
         }
         let parts = path.trim_matches('/').split('/').collect::<Vec<_>>();
         let result = match (method, parts.as_slice()) {
+            ("GET", ["api", "desktop", "notification-baseline"]) => {
+                jobs::lock_store(&self.jobs.store)?.desktop_notification_baseline()?
+            }
+            ("GET", ["api", "desktop", "notification-pending-page"]) => {
+                let parse = |name: &str| {
+                    query
+                        .get(name)
+                        .ok_or_else(|| sources::invalid("作业通知基线参数缺失"))
+                        .and_then(|value| event_cursor(value))
+                };
+                jobs::lock_store(&self.jobs.store)?.desktop_notification_pending_page(
+                    parse("baseline")?,
+                    parse("eventCount")?,
+                    parse("after")?,
+                )?
+            }
+            ("GET", ["api", "desktop", "notification-events"]) => {
+                let after = query
+                    .get("after")
+                    .map_or(Ok(0), |value| event_cursor(value))?;
+                jobs::lock_store(&self.jobs.store)?.desktop_notification_page(after)?
+            }
+            ("GET", ["api", "desktop", "jobs", id, "pending"]) => {
+                if !desktop_identifier(id) {
+                    return Err(sources::invalid("作业标识无效"));
+                }
+                jobs::lock_store(&self.jobs.store)?.desktop_notification_pending(id)?
+            }
+            ("POST", ["api", "desktop", "flush"]) => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Flush {
+                    request_id: String,
+                    editor_id: String,
+                    ok: bool,
+                }
+                let request: Flush = decode(bytes)?;
+                if !desktop_identifier(&request.request_id)
+                    || !desktop_identifier(&request.editor_id)
+                {
+                    return Err(sources::invalid("桌面草稿回执身份无效"));
+                }
+                let mut receipts = DESKTOP_FLUSH
+                    .get_or_init(Default::default)
+                    .lock()
+                    .map_err(|_| sources::invalid("桌面草稿回执不可用"))?;
+                receipts.retain(|_, (_, _, at)| at.elapsed() < Duration::from_secs(60));
+                if receipts.len() >= 128 && !receipts.contains_key(&request.request_id) {
+                    return Err(sources::invalid("桌面草稿回执数量超限"));
+                }
+                receipts.insert(
+                    request.request_id,
+                    (request.editor_id, request.ok, Instant::now()),
+                );
+                json!({"recorded":true})
+            }
+            ("GET", ["api", "desktop", "flush", id]) => {
+                if !desktop_identifier(id) {
+                    return Err(sources::invalid("桌面草稿回执身份无效"));
+                }
+                let mut receipts = DESKTOP_FLUSH
+                    .get_or_init(Default::default)
+                    .lock()
+                    .map_err(|_| sources::invalid("桌面草稿回执不可用"))?;
+                receipts.retain(|_, (_, _, at)| at.elapsed() < Duration::from_secs(60));
+                match receipts.get(*id) {
+                    Some((editor_id, ok, _)) => json!({"found":true,"editorId":editor_id,"ok":ok}),
+                    None => json!({"found":false}),
+                }
+            }
             ("GET", ["api", "receipts"]) | ("GET", ["api", "receipts", _]) => {
                 let id = parts
                     .get(2)
@@ -442,6 +522,9 @@ impl PlatformApi {
             }
             ("GET", ["api", "projects", id, "summary"]) => encode(
                 read_model::read_project_summary(&self.jobs.store, id, &self.cancel)?,
+            )?,
+            ("GET", ["api", "projects", id, "directory-status"]) => encode(
+                read_model::read_project_directory_status(&self.jobs.store, id)?,
             )?,
             ("GET", ["api", "specs", id, "detail"]) => encode(read_model::read_spec_detail(
                 &self.jobs.store,
@@ -795,6 +878,16 @@ impl PlatformApi {
             }
             ("GET", ["api", "agent", id]) => {
                 agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
+            }
+            ("POST", ["api", "agent", id, "queue", "receipt"]) => {
+                let request: agent::queue::Draft = decode(bytes)?;
+                // Verify the queue target exists before consulting its idempotency record.
+                let _ = agent::queue::view(&self.jobs, id)?;
+                let (key, expected) = agent::queue::enqueue_receipt(id, &request)?
+                    .ok_or_else(|| sources::invalid("队列请求 ID 无效"))?;
+                let receipt = jobs::lock_store(&self.jobs.store)?
+                    .record::<String>("agentQueueRequest", &key)?;
+                json!({"found":receipt.is_some(),"matches":receipt.as_ref().map(|value| value == &expected)})
             }
             ("GET", ["api", "agent", id, "queue"]) => encode(agent::queue::view(&self.jobs, id)?)?,
             ("POST", ["api", "agent", id, "queue"]) => {

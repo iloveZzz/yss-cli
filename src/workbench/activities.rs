@@ -131,6 +131,10 @@ struct Activity {
     text: String,
     status: String,
     exit_code: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    termination_signal: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_diagnostics: Option<Value>,
     #[serde(skip_serializing_if = "String::is_empty")]
     output: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,6 +169,8 @@ impl Activity {
             text: String::new(),
             status: String::new(),
             exit_code: None,
+            termination_signal: None,
+            command_diagnostics: None,
             output: String::new(),
             item_id: key(event, kind).map(|key| key.item),
             operation: None,
@@ -266,6 +272,15 @@ impl Activity {
                 }
                 if let Some(code) = item["exitCode"].as_i64() {
                     self.exit_code = Some(code);
+                }
+                if item["terminationSignal"].is_object() {
+                    self.termination_signal = Some(item["terminationSignal"].clone());
+                }
+                if item["commandDiagnostics"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+                {
+                    self.command_diagnostics = Some(item["commandDiagnostics"].clone());
                 }
             }
             Kind::Files => {

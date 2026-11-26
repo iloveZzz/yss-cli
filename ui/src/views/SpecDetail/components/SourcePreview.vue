@@ -75,7 +75,7 @@ useEventListener(
         article.value?.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id]') ?? []
       ).filter((heading) => heading.getClientRects().length)
       const current =
-        headings.findLast((heading) => heading.getBoundingClientRect().top < 160) ?? headings[0]
+        [...headings].reverse().find((heading) => heading.getBoundingClientRect().top < 160) ?? headings[0]
       if (current && current.id !== emittedFragment) {
         emittedFragment = current.id
         emit('position', current.id)

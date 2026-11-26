@@ -20,7 +20,7 @@ const projectId = computed(() =>
 const heading = useTemplateRef<HTMLElement>('project-heading')
 const specPanel = useTemplateRef<InstanceType<typeof ProjectSpecs>>('project-specs')
 const {
-  project, directoryKnown, registeredCount, loading, error, refresh, reloadProject, refreshing, refreshError
+  project, directoryKnown, registeredCount, loading, error, refresh, reloadProject, refreshing, refreshError, snapshot
 } = provideProjectDetailWorkbench(() => projectId.value, () => specPanel.value?.reloadFailed())
 const edit = shallowRef(false)
 const sections = [
@@ -109,7 +109,7 @@ async function retryProject(event: MouseEvent) {
         <ExternalLinks v-if="visited.has('external')" :project-id="project.record.id" :active="section === 'external'" />
       </TabsContent>
     </Tabs>
-    <ProjectForm :key="project.record.id" v-model="edit" :project="project.record" />
+    <ProjectForm :key="project.record.id" v-model="edit" :project="project.record" :revision="snapshot?.revision" />
   </template>
   <LoadingSkeleton v-else-if="loading" variant="detail" :rows="4" label="正在读取工程详情" />
   <Empty v-else-if="!error" class="panel">

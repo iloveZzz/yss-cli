@@ -1,4 +1,6 @@
 import { shallowRef } from 'vue'
+import { desktopStorageEnabled, flushDesktopDrafts, writeDesktopStorage } from './desktop-storage'
+import { sorted } from '@/lib/collections'
 export * from './workbench-model'
 export * from './workbench-progress'
 import type {
@@ -26,7 +28,7 @@ function consumeToken() {
     sessionStorage.setItem('workbench.token', token)
     expired.value = false
   }
-  history.replaceState(null, '', location.pathname + '#/workbench')
+  history.replaceState(null, '', location.pathname + location.search + '#/workbench')
   return true
 }
 consumeToken()
@@ -59,6 +61,7 @@ interface PendingIntent {
   status: 'sending' | 'uncertain'
 }
 const intents = new Map<string, PendingIntent>()
+const desktopIntentsKey = 'yss:pi:pending-intents:1'
 export const pendingRequests = shallowRef<Omit<PendingIntent, 'body'>[]>([])
 function publishPending() {
   pendingRequests.value = Array.from(intents.values()).map((intent) => ({
@@ -68,13 +71,39 @@ function publishPending() {
     createdAt: intent.createdAt,
     status: intent.status
   }))
+  if (desktopStorageEnabled) {
+    try {
+      writeDesktopStorage(desktopIntentsKey, intents.size ? JSON.stringify(Array.from(intents)) : undefined)
+    } catch {
+      // Keep the pending request in memory; the desktop flush will fail if storage is unavailable.
+    }
+  }
+}
+export function restoreDesktopPendingRequests() {
+  if (!desktopStorageEnabled) return
+  try {
+    const saved: unknown = JSON.parse(sessionStorage.getItem(desktopIntentsKey) ?? '[]')
+    if (!Array.isArray(saved)) throw new Error('待核对请求格式无效')
+    for (const entry of saved) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[1] || typeof entry[1] !== 'object')
+        throw new Error('待核对请求格式无效')
+      const intent = entry[1] as PendingIntent
+      if (typeof intent.requestId !== 'string' || typeof intent.path !== 'string' ||
+          !intent.path.startsWith('/api/') || typeof intent.method !== 'string' ||
+          !intent.body || typeof intent.body !== 'object' || Array.isArray(intent.body))
+        throw new Error('待核对请求格式无效')
+      intents.set(entry[0], { ...intent, status: 'uncertain' })
+    }
+    publishPending()
+  } catch {
+    throw new Error('无法恢复待核对请求，请保留原工作台数据并核对。')
+  }
 }
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
   if (value !== null && typeof value === 'object')
     return Object.fromEntries(
-      Object.entries(value)
-        .toSorted(([left], [right]) => left.localeCompare(right))
+      sorted(Object.entries(value), ([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, canonical(entry)])
     )
   return value
@@ -103,11 +132,20 @@ export async function reconcilePendingMutation(requestId: string): Promise<unkno
   const intent = Array.from(intents.values()).find((pending) => pending.requestId === requestId)
   if (!intent || intent.path !== '/api/commands' || intent.method !== 'POST')
     throw new Error('当前会话缺少原保存请求，请回到原操作入口核对。')
+  if (desktopStorageEnabled) {
+    const receipt = await apiRequest<{ found: boolean; result?: unknown }>(
+      `/api/receipts/${encodeURIComponent(requestId)}`
+    )
+    if (!receipt.found) throw new Error('尚未找到保存回执；原请求未重放，请核对后再处理。')
+    resolvePendingRequest(requestId)
+    void acknowledgeRequest(requestId)
+    return receipt.result
+  }
   return apiRequest(intent.path, { method: intent.method, body: intent.body })
 }
 export async function apiRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal; retryUncertain?: boolean } = {}
+  options: { method?: string; body?: unknown; signal?: AbortSignal; priority?: RequestPriority; retryUncertain?: boolean } = {}
 ): Promise<T> {
   const authHeaders = sessionHeaders()
   const method = options.method ?? (options.body === undefined ? 'GET' : 'POST')
@@ -140,9 +178,14 @@ export async function apiRequest<T>(
     }
     intent.status = 'sending'
     publishPending()
+    if (desktopStorageEnabled && !await flushDesktopDrafts()) {
+      intent.status = 'uncertain'
+      publishPending()
+      throw new ApiError('未能保存待核对请求，本次操作未发送。', 0)
+    }
   }
   const body = intent?.body ?? options.body
-  const attempts = intent && options.retryUncertain !== false ? 2 : 1
+  const attempts = intent && !desktopStorageEnabled && options.retryUncertain !== false ? 2 : 1
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const response = await fetch(path, {
@@ -152,7 +195,8 @@ export async function apiRequest<T>(
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
         },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: options.signal
+        signal: options.signal,
+        priority: options.priority
       })
       const value = response.status === 204 ? undefined : await response.json()
       if (!response.ok) {
@@ -198,7 +242,9 @@ export async function apiRequest<T>(
       if (attempt + 1 < attempts && !options.signal?.aborted) continue
       intent.status = 'uncertain'
       publishPending()
-      throw new ApiError('连接中断，操作结果待核对。重试会核对同一次操作。', 0, {
+      throw new ApiError(desktopStorageEnabled
+        ? '连接中断，操作结果待核对。请先核对回执。'
+        : '连接中断，操作结果待核对。重试会核对同一次操作。', 0, {
         requestId: intent.requestId,
         uncertain: true
       })

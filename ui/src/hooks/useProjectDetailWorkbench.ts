@@ -4,6 +4,7 @@ import { registerWorkbenchRouteReads, useWorkbenchCatalog } from './useWorkbench
 import { useWorkbenchVerification } from './useWorkbenchVerification'
 import { ApiError, errorMessage, type Snapshot } from '@/services/workbench'
 import { loadProjectSummary, type ProjectSummary } from '@/services/workbench-read'
+import { withTimeout } from '@/lib/abort'
 
 export function provideProjectDetailWorkbench(
   projectId: () => string | undefined,
@@ -60,7 +61,8 @@ export function provideProjectDetailWorkbench(
     }
     const controller = new AbortController()
     loading.value = true
-    const result = loadProjectSummary(id, AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]))
+    const deadline = withTimeout(controller.signal, 10_000)
+    const result = loadProjectSummary(id, deadline.signal)
       .then((value) => {
         if (controller.signal.aborted || projectId() !== id) return false
         summary.value = value
@@ -81,6 +83,7 @@ export function provideProjectDetailWorkbench(
         return false
       })
       .finally(() => {
+        deadline.dispose()
         if (pending?.controller !== controller) return
         pending = undefined
         loading.value = false

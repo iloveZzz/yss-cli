@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings",
+  "description": "仅主窗口内的受信任设置视图可调用桌面控制命令",
+  "webviews": ["settings"],
+  "permissions": [
+    "allow-desktop-status",
+    "allow-desktop-connect",
+    "allow-desktop-select-directory",
+    "allow-desktop-pause-queues",
+    "allow-desktop-open-workbench",
+    "allow-desktop-set-autostart",
+    "allow-desktop-set-notifications",
+    "allow-desktop-check-updates",
+    "allow-desktop-install-update",
+    "allow-desktop-exit"
+  ]
+}

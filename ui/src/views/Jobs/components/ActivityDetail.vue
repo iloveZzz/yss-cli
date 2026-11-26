@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
-import { shallowRef, watch } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { errorMessage } from '@/services/workbench'
@@ -9,6 +9,9 @@ import { getActivityDetail, type JobActivity } from '@/services/workbench-platfo
 
 const props = defineProps<{ jobId: string; row: JobActivity; commandOutput?: boolean }>()
 const detail = shallowRef<JobActivity>()
+const commandDiagnostics = computed(() =>
+  detail.value?.commandDiagnostics ?? props.row.commandDiagnostics
+)
 const error = shallowRef('')
 const retry = shallowRef(0)
 const retrying = shallowRef(false)
@@ -52,12 +55,21 @@ watch(
       </Button>
     </AlertDescription>
   </Alert>
+  <p v-if="detail?.displayPath"><code>{{ detail.displayPath }}</code></p>
+  <pre v-else-if="detail && (!commandOutput || detail.text !== row.text)">{{ detail.text || '暂无活动正文' }}</pre>
+  <template v-if="commandDiagnostics?.length">
+    <strong>命令诊断</strong>
+    <ul class="command-diagnostics">
+      <li v-for="diagnostic in commandDiagnostics" :key="diagnostic.code">
+        <p>{{ diagnostic.message }}</p>
+        <p v-if="diagnostic.hint && diagnostic.hint !== diagnostic.message" class="muted">{{ diagnostic.hint }}</p>
+      </li>
+    </ul>
+  </template>
   <template v-if="detail">
-    <p v-if="detail.displayPath"><code>{{ detail.displayPath }}</code></p>
-    <pre v-else-if="!commandOutput || detail.text !== row.text">{{ detail.text || '暂无活动正文' }}</pre>
     <template v-if="detail.kind === 'command'">
       <strong>命令输出</strong>
-      <p v-if="commandOutput && detail.exitCode !== null" class="muted">退出码 {{ detail.exitCode }}</p>
+      <p v-if="commandOutput && detail.exitCode === 0" class="muted">退出码 0</p>
       <pre class="terminal-output" tabindex="0" aria-label="命令输出">{{ detail.output || (detail.status === 'inProgress' ? '等待命令输出…' : '暂无已留存的输出') }}</pre>
     </template>
     <Alert v-if="detail.error || detail.hint" variant="destructive" role="note" class="py-2" :data-error-code="detail.errorCode">
@@ -80,6 +92,14 @@ pre {
 strong {
   display: block;
   margin-top: 12px;
+}
+.command-diagnostics {
+  padding-inline-start: 20px;
+  list-style-type: disc;
+  overflow-wrap: anywhere;
+}
+.command-diagnostics li + li {
+  margin-top: 4px;
 }
 .terminal-output {
   padding: 10px 12px;

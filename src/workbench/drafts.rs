@@ -153,7 +153,23 @@ pub fn save(store: &mut Store, id: &str, request: SaveDraft) -> Result<Draft> {
     {
         return Err(sources::invalid("草稿标识无效"));
     }
-    validate_target(store, &request.target_type, &request.target_id)?;
+    if request.target_type == "desktopPi" {
+        // The stable desktop editor ID is scoped to one data directory. It is
+        // deliberately not an authorization credential; the API session still
+        // controls access to the store.
+        if id.len() != 32
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || request.target_id != id
+            || request.editor_session_id != id
+            || !request.payload.is_object()
+        {
+            return Err(sources::invalid("桌面草稿身份不合法"));
+        }
+    } else {
+        validate_target(store, &request.target_type, &request.target_id)?;
+    }
     let previous = store.record::<Draft>("draft", id)?;
     if previous.as_ref().map_or(0, |draft| draft.revision) != request.expected_revision {
         return Err(YssError::new(

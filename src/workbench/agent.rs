@@ -18,7 +18,7 @@ use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::{self, FileSnapshot, Root},
-    model::{FileDescriptor, MAX_ASSET, RelPath, Sha256},
+    model::{BuildInfo, FileDescriptor, MAX_ASSET, RelPath, Sha256},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1602,8 +1602,9 @@ fn execute(
                 })
                 .collect::<Result<Vec<_>>>()?
         };
+        let workbench_build = json!({"yssVersion": BuildInfo::current().version});
         instructions.push_str(&format!(
-            "\n运行 ID：{}\n本轮参与原工程：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
+            "\n运行 ID：{}\n工作台构建信息：{workbench_build}\n本轮参与原工程（路径、分支与 HEAD 已核验为本轮起点）：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
             run.id, serde_json::to_string_pretty(&participating).map_err(|e|invalid(e.to_string()))?, request.prompt
         ));
         if let Some(continuation) = &continuation {

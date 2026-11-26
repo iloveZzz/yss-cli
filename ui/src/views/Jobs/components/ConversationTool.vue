@@ -12,6 +12,7 @@ import {
   TraceTitle
 } from '@/components/ui/trace'
 import type { JobActivity } from '@/services/workbench-platform'
+import { activityFailed, commandFailureResult } from '../schemas/job'
 import ActivityDetail from './ActivityDetail.vue'
 
 const props = defineProps<{ jobId: string; row: JobActivity; terminal: boolean }>()
@@ -30,8 +31,9 @@ const finished = computed(() => props.row.status !== 'inProgress')
 const state = computed(() => {
   if (!finished.value) return props.terminal ? '已中断' : '执行中'
   if (props.row.status === 'canceled') return '已停止'
-  return props.row.status === 'failed' || (props.row.exitCode ?? 0) !== 0 ? '失败' : '已完成'
+  return activityFailed(props.row) ? '失败' : '已完成'
 })
+const failureResult = computed(() => state.value === '失败' ? commandFailureResult(props.row) : undefined)
 const label = computed(() =>
   command.value ? '执行命令' : operations[props.row.operation ?? ''] ?? '文件操作'
 )
@@ -48,9 +50,13 @@ const detail = computed(() =>
           <TraceIcon><span class="tool-mark" aria-hidden="true" /></TraceIcon>
           <TraceTitle>{{ label }}</TraceTitle>
           <Badge variant="secondary" class="tool-state"><LoadingIndicator :active="!finished && !terminal" />{{ state }}</Badge>
+          <span v-if="failureResult" class="tool-error">{{ failureResult }}</span>
           <code class="tool-detail">{{ detail }}</code>
         </TraceLine>
       </TraceCollapsibleTrigger>
+      <ul v-if="!expanded && row.commandDiagnostics?.length" class="tool-diagnostic command-diagnostics">
+        <li v-for="diagnostic in row.commandDiagnostics" :key="diagnostic.code">{{ diagnostic.message }}</li>
+      </ul>
       <TraceCollapsibleContent v-if="expanded" class="tool-output">
         <ActivityDetail :job-id="jobId" :row="row" command-output />
       </TraceCollapsibleContent>
@@ -116,6 +122,10 @@ const detail = computed(() =>
 .tool-diagnostic {
   padding: 2px 0 2px 24px;
   overflow-wrap: anywhere;
+}
+.command-diagnostics {
+  list-style-type: disc;
+  padding-inline-start: 36px;
 }
 .tool-output {
   max-width: 760px;

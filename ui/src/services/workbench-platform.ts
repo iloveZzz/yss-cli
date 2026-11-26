@@ -179,6 +179,15 @@ export interface RequestRecord {
 export const getRequests = () => apiRequest<{ total?: number; items: RequestRecord[] }>('/api/requests')
 export const getReceipt = (id: string, signal?: AbortSignal) =>
   apiRequest<{ found: boolean; result?: unknown }>(`/api/receipts/${encodeURIComponent(id)}`, { signal })
+export interface CommandTerminationSignal {
+  number: number
+  name?: string
+}
+export interface CommandDiagnostic {
+  code: string
+  message: string
+  hint: string
+}
 export interface JobActivity {
   id: number
   updatedEventId: number
@@ -187,6 +196,8 @@ export interface JobActivity {
   text: string
   status: string
   exitCode: number | null
+  terminationSignal?: CommandTerminationSignal
+  commandDiagnostics?: CommandDiagnostic[]
   output?: string
   itemId?: string
   operation?: string

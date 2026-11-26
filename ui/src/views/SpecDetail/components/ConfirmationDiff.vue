@@ -20,6 +20,7 @@ import {
   type ArtifactChange
 } from '@/services/workbench-platform'
 import { errorMessage, dateLabel } from '@/services/workbench'
+import { sorted } from '@/lib/collections'
 import HistoricalPreview from './HistoricalPreview.vue'
 import AssetImageDiff from './AssetImageDiff.vue'
 import { imageAsset } from '../schemas/assets'
@@ -55,9 +56,7 @@ const recordOptions = computed(() =>
 )
 const files = computed(
   () =>
-    artifacts.value?.snapshot?.files.toSorted((left, right) =>
-      left.path.localeCompare(right.path)
-    ) ?? []
+    sorted(artifacts.value?.snapshot?.files ?? [], (left, right) => left.path.localeCompare(right.path))
 )
 const htmlEntries = computed(() =>
   files.value.filter((file) => file.kind === 'prototype' && file.mime === 'text/html')

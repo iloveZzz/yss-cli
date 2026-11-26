@@ -42,6 +42,12 @@ export interface ProjectSummary {
   project: ProjectView
 }
 
+export interface ProjectDirectoryStatus {
+  rootPath: string
+  available: boolean
+  message: string | null
+}
+
 export type CatalogSpec = Pick<
   SpecRecord,
   'id' | 'projectId' | 'title' | 'sourcePath' | 'active' | 'stage' | 'status' | 'updatedAt' | 'lastVisitedAt'
@@ -107,6 +113,9 @@ export const loadWorkbenchOverview = (signal?: AbortSignal) =>
 
 export const loadProjectSummary = (id: string, signal: AbortSignal) =>
   apiRequest<ProjectSummary>(`/api/projects/${encodeURIComponent(id)}/summary`, { signal })
+
+export const loadProjectDirectoryStatus = (id: string, signal: AbortSignal) =>
+  apiRequest<ProjectDirectoryStatus>(`/api/projects/${encodeURIComponent(id)}/directory-status`, { signal, priority: 'low' })
 
 export const loadSpecDetail = (id: string, fresh: boolean, signal: AbortSignal) =>
   apiRequest<SpecDetailRead>(

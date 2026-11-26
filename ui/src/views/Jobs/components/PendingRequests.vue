@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { desktopStorageEnabled } from '@/services/desktop-storage'
 import JobDisclosure from './JobDisclosure.vue'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
@@ -67,7 +68,9 @@ async function inspect(id: string) {
     const pending = pendingRequests.value.find((intent) => intent.requestId === id)
     if (pending?.path === '/api/commands') {
       const committed = await reconcilePendingMutation(id)
-      result.value = '已使用原请求内容核实，此次保存已提交。'
+      result.value = desktopStorageEnabled
+        ? '已找到保存回执，此次请求已核对。'
+        : '已使用原请求内容核实，此次保存已提交。'
       receiptDetails.value = readableValue(committed)
       await Promise.all([refreshSnapshot(), readReceipts()])
       return
@@ -75,7 +78,9 @@ async function inspect(id: string) {
     const receipt = await getReceipt(id)
     result.value = receipt.found
       ? '已找到已提交回执，此次请求已核对。'
-      : '尚未找到已提交回执，可在原操作入口重试同一次操作。'
+      : desktopStorageEnabled
+        ? '尚未找到回执，原请求仍待核对。'
+        : '尚未找到已提交回执，可在原操作入口重试同一次操作。'
     receiptDetails.value = receipt.found ? readableValue(receipt.result) : ''
     if (receipt.found) {
       resolvePendingRequest(id)
@@ -106,7 +111,8 @@ onMounted(refresh)
       <div>
         <Badge variant="outline">{{ intent.status === 'uncertain' ? '结果待核对' : '正在提交' }}</Badge>
         <p class="path-text">{{ intent.path }}</p>
-        <p v-if="intent.path === '/api/commands'">将使用原请求内容核实并完成此次保存。</p>
+        <p v-if="desktopStorageEnabled">只查询保存回执，原请求不会重新发送。</p>
+        <p v-else-if="intent.path === '/api/commands'">将使用原请求内容核实并完成此次保存。</p>
       </div>
       <Button
         type="button"
@@ -115,7 +121,7 @@ onMounted(refresh)
         @click="inspect(intent.requestId)"
       >
         <LoadingIndicator :active="phase?.kind === 'inspect' && phase.requestId === intent.requestId && !open" />
-        {{ intent.path === '/api/commands' ? '用原请求核实' : '核对回执' }}
+        {{ !desktopStorageEnabled && intent.path === '/api/commands' ? '用原请求核实' : '核对回执' }}
       </Button>
     </article>
     <Alert v-if="result" role="status" class="notice">

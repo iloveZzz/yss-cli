@@ -29,7 +29,7 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/workbench' },
     { path: '/workbench', component: Workbench, meta: { lightweight: true } },
-    { path: '/projects', component: Projects },
+    { path: '/projects', component: Projects, meta: { lightweight: true } },
     { path: '/projects/:projectId', component: ProjectDetail, meta: { lightweight: true, projectDetail: true } },
     { path: '/specs', component: Specs, meta: { lightweight: true } },
     { path: '/specs/:specId', component: SpecDetail, meta: { lightweight: true, specDetail: true } },

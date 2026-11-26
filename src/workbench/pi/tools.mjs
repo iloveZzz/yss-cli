@@ -56,9 +56,13 @@ export default function workbench(pi) {
       async execute(id, args, signal) {
         try {
           const result = await request({ ...args, operation: name, id }, signal);
+          const details = {};
+          for (const key of ["exitCode", "terminationSignal", "commandDiagnostics"]) {
+            if (result[key] !== undefined) details[key] = result[key];
+          }
           return {
             content: [{ type: "text", text: result.text }],
-            details: result.exitCode === undefined ? {} : { exitCode: result.exitCode },
+            details,
             isError: result.exitCode != null && result.exitCode !== 0,
           };
         } catch (error) {
@@ -100,7 +104,7 @@ export default function workbench(pi) {
     }), { minItems: 1, maxItems: 20 }),
   });
   if (allowCommands) {
-    register("bash", "运行离线命令", "在所选工程中运行离线 shell 命令。构建和测试使用已准备的依赖。", {
+    register("bash", "运行离线命令", "在所选工程中运行离线 shell 命令。优先使用本轮已提供的工程和版本信息，必要的独立检查分别执行。构建和测试使用已准备的离线依赖。页面验证使用工作台预览。", {
       ...location,
       path: Type.Optional(Type.String({ description: "工作目录，缺省为工程根" })),
       command: text("在 bash 中执行的命令"),

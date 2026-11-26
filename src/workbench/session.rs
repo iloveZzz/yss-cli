@@ -66,12 +66,12 @@ pub fn publish(data_dir: &Path, origin: &str, token: &str) -> Result<SessionGuar
         return Err(invalid("工作台会话路径不是普通文件"));
     }
     let temp = RelPath::new(format!("session-{}.tmp", fs::unique_id()?))?;
-    let written = root.create_file(&temp, &codec::encode_json(&session)?, 0o600)?;
+    let written = root.create_private_file(&temp, &codec::encode_json(&session)?)?;
     if let Err(error) = root.rename(&temp, &path, &previous, true) {
         let _ = root.remove(&temp, &written);
         return Err(error);
     }
-    let snapshot = root.read_checked(&path, 4096)?.snapshot;
+    let snapshot = root.read_private_checked(&path, 4096)?.snapshot;
     Ok(SessionGuard { root, snapshot })
 }
 
@@ -86,7 +86,7 @@ fn read(data_dir: &Path) -> Result<Option<Session>> {
         return Ok(None);
     }
     let root = Root::open(&std::fs::canonicalize(data_dir)?)?;
-    let file = match root.read_checked(&RelPath::new("session.json")?, 4096) {
+    let file = match root.read_private_checked(&RelPath::new("session.json")?, 4096) {
         Ok(file) => file,
         Err(error)
             if error

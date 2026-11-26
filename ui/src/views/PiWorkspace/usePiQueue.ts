@@ -2,10 +2,11 @@ import { computed, onScopeDispose, shallowRef, watch, type Ref } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { ApiError, errorMessage } from '@/services/workbench'
 import {
-  getPiQueue, putPiQueueItem, removePiQueueItem, resumePiQueue,
+  getPiQueue, getPiQueueReceipt, putPiQueueItem, removePiQueueItem, resumePiQueue,
   type PiQueue, type PiQueueDraft
 } from '@/services/workbench-agent'
 import { requestId } from '@/services/workbench-platform'
+import { flushDesktopDrafts, writeDesktopStorage } from '@/services/desktop-storage'
 
 export type PiEnqueueInput = Omit<PiQueueDraft, 'version' | 'clientId'>
 type PendingEnqueue = PiEnqueueInput & { clientId: string }
@@ -61,6 +62,29 @@ export function usePiQueue(run: Readonly<Ref<string>>, onChanged: () => void) {
 
   async function retryRead() {
     if (await refresh()) {
+      const id = run.value
+      const pending = pendingEnqueue.value
+      if (id && pending) {
+        try {
+          const receipt = await getPiQueueReceipt(id, { ...pending, version: queue.value?.version ?? 0 })
+          if (run.value !== id || pendingEnqueue.value?.clientId !== pending.clientId) return
+          if (receipt.found && receipt.matches) clearPending(id)
+          else if (receipt.found) {
+            uncertain.value = true
+            error.value = '入队回执与原任务不一致，请人工核对。'
+            return
+          }
+          else {
+            uncertain.value = true
+            error.value = '未找到入队回执，请核对后决定是否重试原任务。'
+            return
+          }
+        } catch (cause) {
+          uncertain.value = true
+          error.value = errorMessage(cause)
+          return
+        }
+      }
       uncertain.value = false
       error.value = ''
     }
@@ -68,7 +92,7 @@ export function usePiQueue(run: Readonly<Ref<string>>, onChanged: () => void) {
 
   function clearPending(id: string) {
     try {
-      sessionStorage.removeItem(enqueueKey(id))
+      writeDesktopStorage(enqueueKey(id))
     } catch {
       // A retained entry can still be retried safely with the same client ID.
     }
@@ -115,12 +139,16 @@ export function usePiQueue(run: Readonly<Ref<string>>, onChanged: () => void) {
       if (!input || uncertain.value) return false
       pending = { ...input, clientId: requestId() }
       try {
-        sessionStorage.setItem(enqueueKey(id), JSON.stringify(pending))
+        writeDesktopStorage(enqueueKey(id), JSON.stringify(pending))
       } catch {
         error.value = '此标签页无法保存入队请求，原任务仍保留。'
         return false
       }
       pendingEnqueue.value = pending
+    }
+    if (!await flushDesktopDrafts()) {
+      error.value = '未能保存待核对的入队请求，本次任务未发送。'
+      return false
     }
     const requestBody = { ...pending, version }
     return change((id) => putPiQueueItem(id, requestBody), true)

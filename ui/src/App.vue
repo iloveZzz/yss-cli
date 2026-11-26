@@ -16,11 +16,13 @@ import { provideWorkbenchRefreshAction, provideWorkbenchRouteReads, useWorkbench
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { failedRoute, pendingRoute, retryFailedRoute } from '@/router'
 import { dateLabel } from '@/services/workbench'
+import { desktopDraftError, flushDesktopDrafts } from '@/services/desktop-storage'
+import { sorted } from '@/lib/collections'
 import { useAgentScope } from '@/views/PiWorkspace/useAgentScope'
 const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges, requireSnapshot, sourceState, changesError } =
   useWorkbench()
 const routeReads = provideWorkbenchRouteReads()
-const { catalog, refreshCatalog } = useWorkbenchCatalog()
+const { catalog, catalogLoading, catalogError, refreshCatalog } = useWorkbenchCatalog()
 const route = useRoute()
 const lightweight = computed(() => route.meta.lightweight === true)
 const specDetail = computed(() => route.meta.specDetail === true)
@@ -43,14 +45,15 @@ const surface = useTemplateRef<HTMLElement>('surface')
 let pageMotion: Animation | undefined
 const refreshAction = shallowRef<{ type: 'manual' | 'retry' }>()
 const projects = computed(() => {
+  if (expired.value) return []
+  if (catalog.value && (lightweight.value || catalog.value.revision >= (snapshot.value?.revision ?? 0)))
+    return catalog.value.projects
   const records = snapshot.value?.projects.map(({ record }) => record)
-  return (lightweight.value ? catalog.value?.projects ?? records : records ?? catalog.value?.projects) ?? []
+  return records ?? []
 })
 const currentProject = computed(() => projects.value.find((project) => project.id === route.params.projectId))
 const recentProjects = computed(() =>
-  projects.value
-    .filter((project) => project.active)
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  sorted(projects.value.filter((project) => project.active), (a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 6)
 )
 const routeReady = computed(() => route.matched.length > 0)
@@ -122,11 +125,12 @@ watch(() => route.path, (_path, previous) => {
 }, { flush: 'post' })
 watch([() => route.path, surface, preferredMotion], ([path, element, preference], [previousPath, previousElement]) => {
   pageMotion?.cancel()
-  if (!element?.animate || preference === 'reduce' || (path === previousPath && element === previousElement)) return
-  const tokens = getComputedStyle(element)
-  pageMotion = element.animate([{ opacity: .58 }, { opacity: 1 }], {
-    duration: Number.parseFloat(tokens.getPropertyValue('--workbench-motion-panel')) || 180,
-    easing: tokens.getPropertyValue('--workbench-motion-ease').trim() || 'ease-out'
+  pageMotion = undefined
+  // Only animate navigation within the mounted surface. First paint and loaded data show immediately.
+  if (!element?.animate || element !== previousElement || preference !== 'no-preference' || path === previousPath) return
+  pageMotion = element.animate([{ opacity: .9 }, { opacity: 1 }], {
+    duration: 145,
+    easing: 'cubic-bezier(.2, .72, .24, 1)'
   })
 }, { flush: 'post' })
 onMounted(() => {
@@ -135,8 +139,8 @@ onMounted(() => {
 watch([routeReady, lightweight], ([ready, compact]) => {
   requireSnapshot(ready && !compact)
 }, { immediate: true })
-watch([lightweight, () => sourceState.value?.revision], ([compact, revision]) => {
-  if (compact && (!catalog.value || (revision !== undefined && revision > catalog.value.revision)))
+watch([routeReady, () => sourceState.value?.revision], ([ready, revision]) => {
+  if (ready && (!catalog.value || (revision !== undefined && revision > catalog.value.revision)))
     void refreshCatalog(revision)
 }, { immediate: true })
 onBeforeUnmount(() => {
@@ -153,13 +157,20 @@ useEventListener(window, 'focus', () => void checkChanges())
         v-if="!piWorkspace"
         :recent-projects="recentProjects"
         :current-project="currentProject"
+        :projects-loading="!expired && (catalogLoading || (!catalog && !snapshot && !catalogError))"
+        :projects-error="!expired && !!catalogError && !catalog && !snapshot"
         :agent-target="agentTarget"
         :show-refresh="!isHome"
         :refresh-busy="manualRefreshBusy"
         :refresh-disabled="refreshDisabled"
         @refresh="refreshCurrentPage"
+        @retry-projects="refreshCatalog()"
       />
       <main id="main" :class="piWorkspace ? 'pi-main' : 'main'" tabindex="-1">
+        <Alert v-if="desktopDraftError" variant="destructive" class="notice error" role="alert">
+          <AlertTitle>{{ desktopDraftError }}</AlertTitle>
+          <Button type="button" variant="outline" @click="flushDesktopDrafts">重试保存</Button>
+        </Alert>
         <Transition name="workbench-feedback">
           <Progress v-if="navigationBusy" :model-value="null" aria-label="正在打开页面" class="workbench-route-progress" />
         </Transition>

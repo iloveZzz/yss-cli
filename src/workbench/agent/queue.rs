@@ -116,7 +116,10 @@ fn advance(queue: &mut Queue) -> Result<()> {
     Ok(())
 }
 
-fn enqueue_receipt(run: &str, draft: &Draft) -> Result<Option<(String, String)>> {
+pub(in crate::workbench) fn enqueue_receipt(
+    run: &str,
+    draft: &Draft,
+) -> Result<Option<(String, String)>> {
     let Some(client) = &draft.client_id else {
         return Ok(None);
     };
@@ -218,6 +221,7 @@ pub(in crate::workbench) fn put(
 ) -> Result<Queue> {
     let _gate = gate()?;
     let mut store = lock_store(&manager.store)?;
+    super::super::server::desktop::check_admission(manager)?;
     let run = load(&mut store, id)?;
     ensure_queueable(&run)?;
     let mut queue = current(&mut store, &run)?;
@@ -284,6 +288,11 @@ pub(in crate::workbench) fn put(
                 .map_or_else(|| run.job_id.clone(), |job| job.id);
         }
         queue.items.push(entry);
+    }
+    // A new or edited item must be explicitly paused again before a desktop
+    // maintenance operation may treat the queue as preserved drafts.
+    if queue.paused_reason.as_deref() == Some("desktopPaused") {
+        queue.paused_reason = Some("desktopQueueChanged".into());
     }
     save_enqueued(&mut store, &mut queue, receipt)?;
     Ok(queue)
@@ -397,6 +406,7 @@ fn dispatch(manager: &Arc<JobManager>, id: &str, user: Option<Resume>) -> Result
     let _gate = gate()?;
     let (mut queue, request) = {
         let mut store = lock_store(&manager.store)?;
+        super::super::server::desktop::check_admission(manager)?;
         let run = load(&mut store, id)?;
         let mut queue = current(&mut store, &run)?;
         if let Some(user) = &user {
@@ -503,6 +513,45 @@ fn dispatch(manager: &Arc<JobManager>, id: &str, user: Option<Resume>) -> Result
     Ok(queue)
 }
 
+// Called while holding the workbench store lock. The desktop lease uses the same
+// lock as queue changes and Job admission, including the dispatching window.
+pub(in crate::workbench) fn desktop_pending(store: &mut Store) -> Result<usize> {
+    Ok(store
+        .records::<Queue>(KIND)?
+        .iter()
+        .map(|queue| {
+            if queue.paused_reason.as_deref() == Some("desktopPaused")
+                && !queue.items.iter().any(|item| item.dispatching)
+            {
+                0
+            } else {
+                queue.items.len()
+            }
+        })
+        .sum())
+}
+
+pub(in crate::workbench) fn desktop_pause(manager: &JobManager) -> Result<usize> {
+    let _gate = gate()?;
+    let mut store = lock_store(&manager.store)?;
+    super::super::server::desktop::check_admission(manager)?;
+    let mut queues = store.records::<Queue>(KIND)?;
+    if queues
+        .iter()
+        .any(|queue| queue.items.iter().any(|item| item.dispatching))
+    {
+        return Err(YssError::new(ErrorCode::Locked, "队列正在派发，请稍后重试"));
+    }
+    let mut paused = 0;
+    for queue in &mut queues {
+        if !queue.items.is_empty() {
+            record_pause(&mut store, queue, "desktopPaused")?;
+            paused += queue.items.len();
+        }
+    }
+    Ok(paused)
+}
+
 pub(in crate::workbench) fn resume(
     manager: &Arc<JobManager>,
     id: &str,
@@ -520,7 +569,11 @@ pub(in crate::workbench) fn start(
         let jobs = store.records::<JobRecord>("job")?;
         for mut queue in store.records::<Queue>(KIND)? {
             if !queue.items.is_empty() {
-                let mut reason = "restarted";
+                let mut reason = if queue.paused_reason.as_deref() == Some("desktopPaused") {
+                    "desktopPaused"
+                } else {
+                    "restarted"
+                };
                 if queue.items[0].dispatching {
                     if let Some(job) = jobs
                         .iter()

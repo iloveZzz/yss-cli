@@ -14,6 +14,9 @@ use std::{
 #[path = "process_unix.rs"]
 mod unix_tree;
 
+#[cfg(target_os = "macos")]
+pub mod host;
+
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
 
 pub(crate) fn isolate(command: &mut Command) -> Result<String> {

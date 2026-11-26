@@ -12,8 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Separator } from '@/components/ui/separator'
-import { useWorkbench } from '@/hooks/useWorkbench'
-import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { errorMessage } from '@/services/workbench'
 import {
   getHomes,
@@ -22,10 +21,9 @@ import {
   type HomeImport,
   type HomeRow
 } from '@/services/workbench-engineering'
-const { snapshot, refresh } = useWorkbench()
+const { catalog, refreshCatalog } = useWorkbenchCatalog()
 const homes = shallowRef<HomeImport[]>([])
 const loading = shallowRef(true)
-const readAt = shallowRef<string>()
 const loadError = shallowRef('')
 const preview = shallowRef<HomeImport>()
 const manualRows = shallowRef('')
@@ -59,9 +57,9 @@ const columns = [
 ]
 const projectRoots = computed(
   () =>
-    snapshot.value?.projects.map((project) => ({
-      name: project.record.name,
-      root: project.record.rootPath
+    catalog.value?.projects.map((project) => ({
+      name: project.name,
+      root: project.rootPath
     })) ?? []
 )
 let loadingHomes: AbortController | undefined
@@ -75,7 +73,6 @@ async function load() {
     if (controller.signal.aborted) return
     homes.value = result.homes
     loadError.value = ''
-    readAt.value = new Date().toISOString()
   } catch (cause) {
     if (!controller.signal.aborted) loadError.value = errorMessage(cause)
   } finally {
@@ -85,7 +82,7 @@ async function load() {
     }
   }
 }
-registerWorkbenchRouteReads({ busy: computed(() => loading.value || busy.value), readAt, refresh: load })
+defineExpose({ refreshing: computed(() => loading.value || busy.value), refresh: load })
 onMounted(load)
 onBeforeUnmount(() => loadingHomes?.abort())
 async function inspect(event: SubmitEvent) {
@@ -226,8 +223,7 @@ async function save() {
     notice.value = 'Home 工程绑定已保存。'
     preview.value = undefined
     open.value = false
-    await load()
-    await refresh()
+    await Promise.all([load(), refreshCatalog()])
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {

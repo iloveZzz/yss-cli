@@ -312,7 +312,14 @@ pub(super) fn run(
     } else {
         "本轮直接编辑原工程。修改已有文件前先用 read 确认最新内容。本次未授权命令工具。"
     };
-    let prompt = format!("{}\n{commands}\n{rules}", request.prompt);
+    let mut prompt = format!(
+        "{}\n{commands}\n工程路径、Git 分支、HEAD 和 YSS 版本以本轮工作台提供的信息为准。本轮文件变化以工作台「执行成果」的差异为依据。按关联资源状态说明原型是否有可预览入口。有构建产物时，可请用户从「执行成果 → 产物」打开预览。浏览器交互在实际操作前标记为待验证。\n",
+        request.prompt
+    );
+    if allow_commands {
+        prompt.push_str("每项独立的离线构建或测试单独调用命令工具，以保留各自的退出结果。\n");
+    }
+    prompt.push_str(&rules);
     let usage_before = pi.session_usage("session-stats-before", &context.cancel);
     let result = pi.prompt(&prompt, context);
     if let Some(usage) = pi.session_usage("session-stats-after", &context.cancel) {

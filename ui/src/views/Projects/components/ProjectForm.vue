@@ -10,15 +10,19 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { errorMessage, type ProjectRecord } from '@/services/workbench'
-const props = defineProps<{ project?: ProjectRecord }>()
+const props = defineProps<{
+  project?: ProjectRecord
+  revision: number | undefined
+  refreshAfter?: (minimumRevision?: number) => Promise<unknown>
+}>()
 const open = defineModel<boolean>({ required: true })
 const router = useRouter()
 const id = useId()
-const { snapshot, submit, saving } = useWorkbench()
+const { submit, saving } = useWorkbench()
 const form = reactive({ name: '', rootPath: '', active: true })
 const error = shallowRef('')
 const submitting = shallowRef(false)
-let revision = 0
+let openedRevision: number | undefined
 watch(open, (value) => {
   if (value) {
     Object.assign(form, {
@@ -26,12 +30,16 @@ watch(open, (value) => {
       rootPath: props.project?.rootPath ?? '',
       active: props.project?.active ?? true
     })
-    revision = snapshot.value?.revision ?? 0
+    openedRevision = props.revision
     error.value = ''
   }
 })
 async function save() {
   if (submitting.value || saving.value) return
+  if (openedRevision === undefined) {
+    error.value = '请先读取工程列表，再打开此表单。'
+    return
+  }
   submitting.value = true
   error.value = ''
   try {
@@ -43,7 +51,9 @@ async function save() {
             rootPath: form.rootPath,
             ...(form.name.trim() ? { name: form.name } : {})
           },
-      revision
+      openedRevision,
+      undefined,
+      props.refreshAfter
     )
     open.value = false
     if (!props.project && result.projectId) await router.push(`/projects/${result.projectId}`)

@@ -76,6 +76,30 @@ pub(super) struct ProjectSummary {
     project: ProjectView,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectDirectoryStatus {
+    root_path: String,
+    available: bool,
+    message: Option<String>,
+}
+
+pub(super) fn read_project_directory_status(
+    store: &Arc<Mutex<Store>>,
+    id: &str,
+) -> Result<ProjectDirectoryStatus> {
+    let root_path = {
+        let store = super::jobs::lock_store(store)?;
+        sources::project(store.state(), id)?.root_path.clone()
+    };
+    let result = Root::open(Path::new(&root_path)).and_then(|root| root.revalidate());
+    Ok(ProjectDirectoryStatus {
+        root_path,
+        available: result.is_ok(),
+        message: result.err().map(|error| error.message),
+    })
+}
+
 pub(super) fn read_project_summary(
     store: &Arc<Mutex<Store>>,
     id: &str,

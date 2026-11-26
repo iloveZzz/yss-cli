@@ -1,0 +1,24 @@
+fn main() {
+    println!("cargo:rerun-if-env-changed=YSS_DESKTOP_UPDATE_PUBKEY");
+    println!(
+        "cargo:rustc-env=YSS_DESKTOP_TARGET={}",
+        std::env::var("TARGET").expect("target")
+    );
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "desktop_status",
+            "desktop_connect",
+            "desktop_select_directory",
+            "desktop_pause_queues",
+            "desktop_open_workbench",
+            "desktop_set_autostart",
+            "desktop_set_notifications",
+            "desktop_check_updates",
+            "desktop_install_update",
+            "desktop_exit",
+            "menubar_snapshot",
+            "menubar_action",
+        ]),
+    ))
+    .expect("构建桌面应用失败");
+}

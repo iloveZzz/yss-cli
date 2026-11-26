@@ -8,7 +8,11 @@
  --yss-color-primary-control: #3e6ae1; --yss-color-primary-control-hover: #345cc9; --yss-color-primary-control-active: #2c51b5; --yss-color-on-primary: #fff;
  --yss-colors-primary-bg: #edf2ff; --yss-colors-border: #e4e6eb; --yss-colors-border-control: #cbd0da;
  --yss-colors-text-title: #171a20; --yss-colors-error-text: #bd3037;
- --workbench-rail-width: 62px;
+ --workbench-rail-width: 128px;
+}
+
+@media (max-width: 879px) {
+  :root { --workbench-rail-width: 62px; }
 }
 
 :root {

@@ -130,6 +130,7 @@ fn check_roots(jobs: &[JobRecord], roots: &[String], exclude: Option<&str>) -> R
 pub struct JobManager {
     pub store: Arc<Mutex<Store>>,
     pub(crate) activity_cache: Mutex<super::activities::ActivityCache>,
+    pub(crate) desktop: Mutex<super::server::desktop::DesktopState>,
     controls: Mutex<BTreeMap<String, Arc<Control>>>,
     handles: Mutex<Vec<std::thread::JoinHandle<()>>>,
     stopping: Cancellation,
@@ -305,6 +306,7 @@ impl JobManager {
         Ok(Arc::new(Self {
             store,
             activity_cache: Mutex::default(),
+            desktop: Mutex::new(super::server::desktop::DesktopState::new()?),
             controls: Mutex::new(BTreeMap::new()),
             handles: Mutex::new(Vec::new()),
             stopping: Cancellation::new(),
@@ -469,6 +471,7 @@ impl JobManager {
         };
         let admission = {
             let mut store = lock_store(&self.store)?;
+            super::server::desktop::check_admission(self)?;
             ensure_request_not_deleted(&mut store, &job.request_id)?;
             let jobs = store.records::<JobRecord>("job")?;
             if let Some(agent) = &agent

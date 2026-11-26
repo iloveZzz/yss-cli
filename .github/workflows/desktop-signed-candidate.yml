@@ -1,0 +1,407 @@
+name: Desktop signed candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop stable version matching desktop/Cargo.toml and tauri.conf.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            binary: yss
+            bundles: app,dmg
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: yss.exe
+            bundles: nsis
+            sidecar-rustflags: '-C target-feature=+crt-static'
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.14.1
+      PNPM_VERSION: 10.15.0
+      RUSTUP_TOOLCHAIN: 1.99.1
+      TAURI_CLI_VERSION: 2.12.6
+      YSS_TARGET: ${{ matrix.target }}
+      YSS_SIDECAR_RUSTFLAGS: ${{ matrix.sidecar-rustflags }}
+      YSS_TEMPLATE_COMMIT: 9e2e1cb84a743eb8c31461e1b69cc3cef8f0f3f1
+      YSS_DESKTOP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Preserve source line endings
+        run: git config --global core.autocrlf false
+      - name: Check out the triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install the pinned pnpm and locate its store
+        id: pnpm
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm install --global "pnpm@$env:PNPM_VERSION"
+          if ((pnpm --version).Trim() -cne $env:PNPM_VERSION) { throw 'Unexpected pnpm version' }
+          "store=$((pnpm store path).Trim())" >> $env:GITHUB_OUTPUT
+      - name: Restore the workbench dependency store
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: desktop-pnpm-${{ runner.os }}-${{ matrix.target }}-${{ env.NODE_VERSION }}-${{ env.PNPM_VERSION }}-${{ hashFiles('ui/package.json', 'ui/pnpm-lock.yaml', 'ui/pnpm-workspace.yaml') }}
+      - name: Validate identity and required updater secrets
+        env:
+          YSS_DESKTOP_UPDATE_PUBKEY: ${{ secrets.YSS_DESKTOP_UPDATE_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:YSS_DESKTOP_VERSION -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'A stable desktop SemVer is required' }
+          foreach ($name in @('YSS_DESKTOP_UPDATE_PUBKEY','TAURI_SIGNING_PRIVATE_KEY','TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing required secret: $name" }
+          }
+          $config = Get-Content -Raw desktop/tauri.conf.json | ConvertFrom-Json
+          if ($config.version -cne $env:YSS_DESKTOP_VERSION -or $config.plugins.updater.requireSignedVersion -ne $true) { throw 'Desktop version or signed-version policy does not match the candidate' }
+          $allowDowngrades = $config.bundle.windows.allowDowngrades
+          if ($allowDowngrades -isnot [bool] -or $allowDowngrades) { throw 'The desktop bundle must disable Windows downgrades' }
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target $env:YSS_TARGET
+          $metadata = cargo metadata --manifest-path desktop/Cargo.toml --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $desktopPackage = @($metadata.packages | Where-Object name -eq 'yss-desktop')
+          if ($desktopPackage.Count -ne 1 -or $desktopPackage[0].version -cne $env:YSS_DESKTOP_VERSION) { throw 'Cargo desktop version does not match the candidate' }
+      - name: Restore Cargo dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: desktop-${{ matrix.target }}
+          workspaces: |
+            . -> target
+            desktop -> target
+          env-vars: ImageOS ImageVersion SDKROOT DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET YSS_SIDECAR_RUSTFLAGS
+          cache-bin: false
+          cache-workspace-crates: false
+          save-if: false
+      - name: Build the workbench UI
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          pnpm --dir ui install --frozen-lockfile --prefer-offline
+          pnpm --dir ui typecheck
+          pnpm --dir ui lint
+          pnpm --dir ui build
+      - name: Build and verify the pinned template bundle
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:YSS_TEMPLATE_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid template commit' }
+          $template = Join-Path $env:RUNNER_TEMP 'yss-template'
+          git init $template
+          git -C $template remote add origin https://github.com/iloveZzz/yss-spec-project-template.git
+          git -C $template fetch --depth 1 origin $env:YSS_TEMPLATE_COMMIT
+          git -C $template -c core.symlinks=true checkout --detach FETCH_HEAD
+          if ((git -C $template rev-parse HEAD).Trim() -cne $env:YSS_TEMPLATE_COMMIT) { throw 'Template checkout mismatch' }
+          $bundle = cargo run --locked --bin yss-bundle -- --source-root $template --out assets/bundle.tar.gz | ConvertFrom-Json
+          if ($bundle.source.commit -cne $env:YSS_TEMPLATE_COMMIT -or $bundle.source.state -cne 'committed' -or $bundle.sha256 -cne (Get-FileHash assets/bundle.tar.gz -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Bundle identity mismatch' }
+          $bundle | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8NoBOM (Join-Path $env:RUNNER_TEMP 'bundle-build.json')
+      - name: Compile the target workbench executable
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:YSS_SIDECAR_RUSTFLAGS) { $env:RUSTFLAGS = $env:YSS_SIDECAR_RUSTFLAGS }
+          cargo build --locked --release --bin yss --target $env:YSS_TARGET
+          New-Item -ItemType Directory desktop/binaries -Force | Out-Null
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          Copy-Item "target/$env:YSS_TARGET/release/${{ matrix.binary }}" "desktop/binaries/yss-$env:YSS_TARGET$suffix"
+      - name: Import Windows signing identity and sign sidecar
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.YSS_WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          foreach ($name in @('WINDOWS_CERTIFICATE','WINDOWS_CERTIFICATE_PASSWORD','WINDOWS_TIMESTAMP_URL')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing Windows signing setting: $name" }
+          }
+          $timestamp = [Uri]$env:WINDOWS_TIMESTAMP_URL
+          if ($timestamp.Scheme -cne 'https' -or !$timestamp.Host -or $timestamp.UserInfo) { throw 'Invalid HTTPS timestamp URL' }
+          # Import the encrypted PFX from memory; do not leave a copy on disk.
+          $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
+          $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($env:WINDOWS_CERTIFICATE), $env:WINDOWS_CERTIFICATE_PASSWORD, $flags)
+          if (!$certificate.HasPrivateKey -or !$certificate.Thumbprint) { throw 'Windows certificate has no private key' }
+          $store = [Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+          try {
+            $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $store.Add($certificate)
+          } finally { $store.Close() }
+          $thumbprint = $certificate.Thumbprint
+          "YSS_WINDOWS_THUMBPRINT=$thumbprint" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "YSS_WINDOWS_TIMESTAMP_URL=$env:WINDOWS_TIMESTAMP_URL" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $tools = @(Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -File | Sort-Object FullName -Descending)
+          if (!$tools.Count) { throw 'Windows SDK signtool not found' }
+          $sidecar = "desktop/binaries/yss-$env:YSS_TARGET.exe"
+          & $tools[0].FullName sign /sha1 $thumbprint /fd SHA256 /tr $env:WINDOWS_TIMESTAMP_URL /td SHA256 $sidecar
+          $signature = Get-AuthenticodeSignature $sidecar
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -cne $thumbprint -or !$signature.TimeStamperCertificate) { throw 'Sidecar signature or timestamp invalid' }
+      - name: Import Apple signing identity
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          foreach ($name in @('APPLE_CERTIFICATE','APPLE_CERTIFICATE_PASSWORD','APPLE_SIGNING_IDENTITY','APPLE_API_KEY','APPLE_API_ISSUER','APPLE_API_KEY_P8')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing Apple signing setting: $name" }
+          }
+          $p12 = Join-Path $env:RUNNER_TEMP 'yss-desktop-certificate.p12'
+          $apiKey = Join-Path $env:RUNNER_TEMP 'yss-desktop-notary-key.p8'
+          $keychain = Join-Path $env:RUNNER_TEMP 'yss-desktop-signing.keychain-db'
+          $password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+          # Create both key files with mode 0600 before writing their contents.
+          $privateFiles = @{}
+          $privateFiles[$p12] = $env:APPLE_CERTIFICATE
+          $privateFiles[$apiKey] = $env:APPLE_API_KEY_P8
+          foreach ($entry in $privateFiles.GetEnumerator()) {
+            $options = [IO.FileStreamOptions]::new()
+            $options.Mode = [IO.FileMode]::CreateNew
+            $options.Access = [IO.FileAccess]::Write
+            $options.UnixCreateMode = [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite
+            $stream = [IO.File]::Open([string]$entry.Key, $options)
+            try { $bytes = [Convert]::FromBase64String([string]$entry.Value); $stream.Write($bytes, 0, $bytes.Length); $stream.Flush() } finally { $stream.Dispose() }
+          }
+          "APPLE_API_KEY_PATH=$apiKey" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          try {
+            security create-keychain -p $password $keychain
+            security default-keychain -s $keychain
+            security unlock-keychain -p $password $keychain
+            security set-keychain-settings -t 21600 -u $keychain
+            security import $p12 -k $keychain -P $env:APPLE_CERTIFICATE_PASSWORD -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $password $keychain
+          } finally { Remove-Item -LiteralPath $p12 -Force -ErrorAction SilentlyContinue }
+      - name: Build signed desktop candidate
+        env:
+          YSS_DESKTOP_UPDATE_PUBKEY: ${{ secrets.YSS_DESKTOP_UPDATE_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $bundle = @{ createUpdaterArtifacts = $true }
+          if ($IsWindows) { $bundle.windows = @{ certificateThumbprint = $env:YSS_WINDOWS_THUMBPRINT; digestAlgorithm = 'sha256'; timestampUrl = $env:YSS_WINDOWS_TIMESTAMP_URL; tsp = $true } }
+          $settings = @{ bundle = $bundle; plugins = @{ updater = @{ pubkey = $env:YSS_DESKTOP_UPDATE_PUBKEY; requireSignedVersion = $true } } }
+          $config = Join-Path $env:RUNNER_TEMP 'yss-desktop-signing.json'
+          $settings | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8NoBOM $config
+          Push-Location desktop
+          try { pnpm dlx "@tauri-apps/cli@$env:TAURI_CLI_VERSION" build --ci --target $env:YSS_TARGET --bundles ${{ matrix.bundles }} --config $config -- --locked } finally { Pop-Location }
+      - name: Verify signatures and stage platform assets
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $metadata = cargo metadata --manifest-path desktop/Cargo.toml --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $releaseDir = Join-Path $metadata.target_directory "$env:YSS_TARGET/release"
+          $output = Join-Path $env:RUNNER_TEMP 'desktop-signed'
+          New-Item -ItemType Directory $output -Force | Out-Null
+          if ($IsMacOS) {
+            $apps = @(Get-ChildItem (Join-Path $releaseDir 'bundle/macos') -Filter '*.app' -Directory)
+            $archives = @(Get-ChildItem (Join-Path $releaseDir 'bundle/macos') -Filter '*.app.tar.gz' -File)
+            $dmgs = @(Get-ChildItem (Join-Path $releaseDir 'bundle/dmg') -Filter '*.dmg' -File)
+            if ($apps.Count -ne 1 -or $archives.Count -ne 1 -or $dmgs.Count -ne 1) { throw 'Expected one app, updater archive, and DMG' }
+            codesign --verify --deep --strict --verbose=2 $apps[0].FullName
+            $sidecars = @(Get-ChildItem $apps[0].FullName -Recurse -File | Where-Object Name -eq 'yss')
+            if ($sidecars.Count -ne 1) { throw 'Expected one bundled YSS sidecar' }
+            $sidecar = $sidecars[0]
+            codesign --verify --strict --verbose=2 $sidecar.FullName
+            if ((lipo -archs $sidecar.FullName).Trim() -cne 'arm64') { throw 'Packaged YSS is not an ARM64 Mach-O executable' }
+            $sidecarDigest = (Get-FileHash -LiteralPath $sidecar.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            xcrun stapler validate $apps[0].FullName
+            # Validate the app inside the updater archive, not just the adjacent app.
+            $unpacked = Join-Path $env:RUNNER_TEMP 'desktop-updater-app'
+            New-Item -ItemType Directory $unpacked -Force | Out-Null
+            tar -xzf $archives[0].FullName -C $unpacked
+            $archivedApps = @(Get-ChildItem $unpacked -Filter '*.app' -Directory)
+            if ($archivedApps.Count -ne 1) { throw 'Expected one app in the updater archive' }
+            codesign --verify --deep --strict --verbose=2 $archivedApps[0].FullName
+            xcrun stapler validate $archivedApps[0].FullName
+            $archivedSidecars = @(Get-ChildItem $archivedApps[0].FullName -Recurse -File -Filter 'yss')
+            if ($archivedSidecars.Count -ne 1 -or (Get-FileHash -LiteralPath $archivedSidecars[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sidecarDigest) { throw 'Updater archive sidecar differs from the signed app' }
+            # The DMG has its own notarization ticket, separate from the app.
+            codesign --force --sign $env:APPLE_SIGNING_IDENTITY --timestamp $dmgs[0].FullName
+            codesign --verify --strict --verbose=2 $dmgs[0].FullName
+            xcrun notarytool submit $dmgs[0].FullName --key $env:APPLE_API_KEY_PATH --key-id $env:APPLE_API_KEY --issuer $env:APPLE_API_ISSUER --wait
+            xcrun stapler staple $dmgs[0].FullName
+            xcrun stapler validate $dmgs[0].FullName
+            $payload = Join-Path $env:RUNNER_TEMP 'desktop-installer-payload'
+            New-Item -ItemType Directory $payload | Out-Null
+            hdiutil attach -readonly -nobrowse -quiet -mountpoint $payload $dmgs[0].FullName
+            try {
+              $installerSidecars = @(Get-ChildItem -LiteralPath $payload -Recurse -File -Filter 'yss')
+              if ($installerSidecars.Count -ne 1 -or (Get-FileHash -LiteralPath $installerSidecars[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sidecarDigest) { throw 'DMG sidecar differs from the signed app' }
+            } finally { hdiutil detach -quiet $payload }
+            $update = $archives[0]
+            $updateName = "yss-desktop-$env:YSS_DESKTOP_VERSION-macos-aarch64.app.tar.gz"
+            Copy-Item $dmgs[0].FullName (Join-Path $output "yss-desktop-$env:YSS_DESKTOP_VERSION-macos-aarch64.dmg")
+          } else {
+            $installers = @(Get-ChildItem (Join-Path $releaseDir 'bundle/nsis') -Filter '*.exe' -File)
+            if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
+            $payload = Join-Path $env:RUNNER_TEMP 'desktop-installer-payload'
+            New-Item -ItemType Directory $payload | Out-Null
+            & (Join-Path $env:ProgramFiles '7-Zip/7z.exe') x '-tNSIS' '-y' "-o$payload" $installers[0].FullName 'yss.exe' 'yss-desktop.exe' '-r'
+            $applications = @(Get-ChildItem -LiteralPath $payload -Recurse -File -Filter 'yss-desktop.exe')
+            $sidecars = @(Get-ChildItem -LiteralPath $payload -Recurse -File -Filter 'yss.exe')
+            if ($applications.Count -ne 1 -or $sidecars.Count -ne 1) { throw 'Expected one packaged desktop application and YSS sidecar' }
+            $sidecar = $sidecars[0]
+            foreach ($path in @($installers[0].FullName, $applications[0].FullName, $sidecar.FullName)) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $path
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -cne $env:YSS_WINDOWS_THUMBPRINT -or !$signature.TimeStamperCertificate) { throw 'Windows installer or packaged executable signature invalid' }
+            }
+            $sidecarDigest = (Get-FileHash -LiteralPath $sidecar.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sidecarDigest -cne (Get-FileHash "desktop/binaries/yss-$env:YSS_TARGET.exe" -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'NSIS sidecar differs from the signed build' }
+            $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($sidecar.FullName))
+            try {
+              if ($reader.ReadUInt16() -ne 0x5a4d) { throw 'Packaged YSS is not a PE executable' }
+              $reader.BaseStream.Position = 0x3c
+              $peOffset = $reader.ReadUInt32()
+              $reader.BaseStream.Position = $peOffset
+              if ($reader.ReadUInt32() -ne 0x00004550 -or $reader.ReadUInt16() -ne 0x8664) { throw 'Packaged YSS is not an x64 PE executable' }
+            } finally { $reader.Dispose() }
+            $update = $installers[0]
+            $updateName = "yss-desktop-$env:YSS_DESKTOP_VERSION-windows-x86_64-setup.exe"
+          }
+          if (!(Test-Path -LiteralPath "$($update.FullName).sig" -PathType Leaf)) { throw 'Updater signature missing' }
+          Copy-Item $update.FullName (Join-Path $output $updateName)
+          Copy-Item "$($update.FullName).sig" (Join-Path $output "$updateName.sig")
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'bundle-build.json') (Join-Path $output "bundle-$env:YSS_TARGET.json")
+          & $sidecar.FullName version --json | Set-Content -Encoding utf8NoBOM (Join-Path $output "yss-$env:YSS_TARGET.json")
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read YSS build identity' }
+          $build = Get-Content -Raw (Join-Path $output "yss-$env:YSS_TARGET.json") | ConvertFrom-Json
+          $bundle = Get-Content -Raw (Join-Path $output "bundle-$env:YSS_TARGET.json") | ConvertFrom-Json
+          $cliMetadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $cliPackage = @($cliMetadata.packages | Where-Object Name -eq 'yss-cli')
+          if ($cliPackage.Count -ne 1 -or $build.status -cne 'ok' -or $build.result.version -cne $cliPackage[0].version -or $build.result.source.commit -cne $env:GITHUB_SHA -or $build.result.source.state -cne 'committed' -or $build.result.target -cne $env:YSS_TARGET -or $build.result.bundleDigest -cne $bundle.sha256) { throw 'Bundled YSS provenance mismatch' }
+          @{ sha256 = $sidecarDigest; bytes = $sidecar.Length } |
+            ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $output "sidecar-$env:YSS_TARGET.json")
+      - name: Upload signed platform candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-signed-${{ matrix.target }}
+          path: ${{ runner.temp }}/desktop-signed/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Remove temporary signing identity
+        if: always()
+        run: |
+          if ($IsMacOS) {
+            $keychain = Join-Path $env:RUNNER_TEMP 'yss-desktop-signing.keychain-db'
+            if (Test-Path -LiteralPath $keychain) { security delete-keychain $keychain }
+            $apiKey = Join-Path $env:RUNNER_TEMP 'yss-desktop-notary-key.p8'
+            if (Test-Path -LiteralPath $apiKey) { Remove-Item -LiteralPath $apiKey -Force }
+            $p12 = Join-Path $env:RUNNER_TEMP 'yss-desktop-certificate.p12'
+            if (Test-Path -LiteralPath $p12) { Remove-Item -LiteralPath $p12 -Force }
+          } elseif ($IsWindows -and $env:YSS_WINDOWS_THUMBPRINT -cmatch '^[0-9A-F]{40}$') {
+            $certificate = "Cert:\CurrentUser\My\$env:YSS_WINDOWS_THUMBPRINT"
+            if (Test-Path -LiteralPath $certificate) { Remove-Item -LiteralPath $certificate -Force }
+          }
+
+  assemble:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+      YSS_DESKTOP_VERSION: ${{ inputs.version }}
+      YSS_DESKTOP_UPDATE_PUBKEY: ${{ secrets.YSS_DESKTOP_UPDATE_PUBKEY }}
+    steps:
+      - name: Download both platform candidates
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: desktop-signed-*
+          path: candidates
+      - name: Assemble and verify updater signatures
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:YSS_DESKTOP_VERSION -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Invalid desktop version' }
+          if ([string]::IsNullOrWhiteSpace($env:YSS_DESKTOP_UPDATE_PUBKEY)) { throw 'Missing updater public key' }
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+          $output = Join-Path $env:RUNNER_TEMP 'desktop-release-candidate'
+          New-Item -ItemType Directory $output -Force | Out-Null
+          $artifacts = @(Get-ChildItem candidates -Recurse -File)
+          foreach ($artifact in $artifacts) {
+            $destination = Join-Path $output $artifact.Name
+            if (Test-Path -LiteralPath $destination) { throw 'Duplicate platform asset name' }
+            Copy-Item $artifact.FullName $destination
+          }
+          $mac = "yss-desktop-$env:YSS_DESKTOP_VERSION-macos-aarch64.app.tar.gz"
+          $windows = "yss-desktop-$env:YSS_DESKTOP_VERSION-windows-x86_64-setup.exe"
+          $dmg = "yss-desktop-$env:YSS_DESKTOP_VERSION-macos-aarch64.dmg"
+          foreach ($name in @($mac, "$mac.sig", $windows, "$windows.sig", $dmg)) {
+            if (!(Test-Path -LiteralPath (Join-Path $output $name) -PathType Leaf) -or (Get-Item (Join-Path $output $name)).Length -eq 0) { throw "Missing candidate asset: $name" }
+          }
+          # The verifier is temporary CI material, using the same minisign format
+          # and trusted-version binding as the application updater.
+          $verify = Join-Path $env:RUNNER_TEMP 'desktop-signature-verifier'
+          New-Item -ItemType Directory (Join-Path $verify 'src') -Force | Out-Null
+          @'
+          [package]
+          name = "desktop-signature-verifier"
+          version = "0.1.0"
+          edition = "2024"
+          [dependencies]
+          base64 = "=0.23.1"
+          minisign-verify = "=0.3.0"
+          '@ | Set-Content -Encoding utf8NoBOM (Join-Path $verify 'Cargo.toml')
+          @'
+          use base64::{Engine as _, engine::general_purpose::STANDARD};
+          use minisign_verify::{PublicKey, Signature};
+          fn main() -> Result<(), Box<dyn std::error::Error>> {
+              let args = std::env::args().collect::<Vec<_>>();
+              let key = String::from_utf8(STANDARD.decode(std::env::var("YSS_DESKTOP_UPDATE_PUBKEY")?.trim())?)?;
+              let signature = String::from_utf8(STANDARD.decode(std::fs::read_to_string(&args[2])?.trim())?)?;
+              let public = PublicKey::decode(&key)?;
+              let signed = Signature::decode(&signature)?;
+              let file = std::fs::read(&args[1])?;
+              public.verify(&file, &signed, true)?;
+              let version = signed.trusted_comment().split('\t').find_map(|part| part.strip_prefix("version:"));
+              if version != Some(args[3].as_str()) { return Err("signed version mismatch".into()); }
+              Ok(())
+          }
+          '@ | Set-Content -Encoding utf8NoBOM (Join-Path $verify 'src/main.rs')
+          foreach ($name in @($mac, $windows)) {
+            cargo run --manifest-path (Join-Path $verify 'Cargo.toml') -- (Join-Path $output $name) (Join-Path $output "$name.sig") $env:YSS_DESKTOP_VERSION
+          }
+          $base = "https://github.com/iloveZzz/yss-cli/releases/download/desktop-v$env:YSS_DESKTOP_VERSION/"
+          $manifest = @{ version = $env:YSS_DESKTOP_VERSION; platforms = @{
+              'darwin-aarch64' = @{ url = "$base$mac"; signature = (Get-Content -Raw (Join-Path $output "$mac.sig")).Trim() }
+              'windows-x86_64' = @{ url = "$base$windows"; signature = (Get-Content -Raw (Join-Path $output "$windows.sig")).Trim() }
+            } }
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8NoBOM (Join-Path $output 'latest.json')
+          $checksums = Get-ChildItem $output -File | Sort-Object Name | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          $checksums | Set-Content -Encoding ascii (Join-Path $output 'SHA256SUMS')
+      - name: Upload verified signed release candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-signed-candidate-${{ inputs.version }}
+          path: ${{ runner.temp }}/desktop-release-candidate/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

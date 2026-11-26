@@ -3,18 +3,24 @@ import { computed, onScopeDispose, shallowRef } from 'vue'
 import { errorMessage } from '@/services/workbench'
 import { requestWorkbenchReadRefresh } from '@/services/workbench-read'
 import { useWorkbench } from './useWorkbench'
+import { withTimeout } from '@/lib/abort'
 
 export function useWorkbenchVerification() {
   const { expired, sourceState, checkChanges } = useWorkbench()
 
   async function verify(signal: AbortSignal, failureMessage = '工作台进度核验失败。'): Promise<void> {
-    const { minimumObservationId } = await requestWorkbenchReadRefresh(
-      AbortSignal.any([signal, AbortSignal.timeout(10_000)])
-    )
+    const refreshDeadline = withTimeout(signal, 10_000)
+    let minimumObservationId: number
+    try {
+      ;({ minimumObservationId } = await requestWorkbenchReadRefresh(refreshDeadline.signal))
+    } finally {
+      refreshDeadline.dispose()
+    }
     if (!Number.isSafeInteger(minimumObservationId) || minimumObservationId < 1)
       throw new Error('工作台未返回核验序号。')
 
-    const waitSignal = AbortSignal.any([signal, AbortSignal.timeout(60_000)])
+    const waitDeadline = withTimeout(signal, 60_000)
+    const waitSignal = waitDeadline.signal
     const stopped = shallowRef(waitSignal.aborted)
     const stop = () => { stopped.value = true }
     waitSignal.addEventListener('abort', stop, { once: true })
@@ -36,7 +42,12 @@ export function useWorkbenchVerification() {
           if (checkingStatus || completion.value) return
           checkingStatus = true
           try {
-            await checkChanges(AbortSignal.any([statusController.signal, AbortSignal.timeout(5_000)]))
+            const statusDeadline = withTimeout(statusController.signal, 5_000)
+            try {
+              await checkChanges(statusDeadline.signal)
+            } finally {
+              statusDeadline.dispose()
+            }
           } finally {
             checkingStatus = false
           }
@@ -53,6 +64,7 @@ export function useWorkbenchVerification() {
       clearInterval(statusTimer)
       statusController.abort()
       waitSignal.removeEventListener('abort', stop)
+      waitDeadline.dispose()
     }
   }
 

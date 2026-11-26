@@ -792,6 +792,73 @@ impl Store {
     pub(crate) fn last_event_id(&self, job_id: &str) -> Result<u64> {
         self.database.last_event_id(job_id)
     }
+
+    /// Capture a stable event boundary while the caller holds the Store mutex.
+    pub(crate) fn desktop_notification_baseline(&mut self) -> Result<serde_json::Value> {
+        let cursor = self.database.desktop_notification_cursor()?;
+        let event_count = self.database.desktop_notification_event_count(cursor)?;
+        Ok(serde_json::json!({"cursor": cursor, "eventCount": event_count}))
+    }
+
+    pub(crate) fn desktop_notification_pending_page(
+        &mut self,
+        baseline: u64,
+        event_count: u64,
+        after: u64,
+    ) -> Result<serde_json::Value> {
+        if baseline > i64::MAX as u64 || after > baseline || event_count > i64::MAX as u64 {
+            return Err(YssError::new(ErrorCode::InvalidInput, "作业通知基线无效"));
+        }
+        if self.database.desktop_notification_event_count(baseline)? != event_count {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "作业通知基线已变化，请重新读取",
+            )
+            .context("httpStatus", 409));
+        }
+        let (items, has_more) = self
+            .database
+            .desktop_notification_pending_page(baseline, after)?;
+        let next_after = if has_more {
+            items.last().map_or(after, |event| event.event_id)
+        } else {
+            baseline
+        };
+        Ok(serde_json::json!({"items": items, "nextAfter": next_after, "hasMore": has_more}))
+    }
+
+    pub(crate) fn desktop_notification_page(&mut self, after: u64) -> Result<serde_json::Value> {
+        if after > i64::MAX as u64 {
+            return Err(YssError::new(ErrorCode::InvalidInput, "作业事件游标无效"));
+        }
+        let (items, has_more) = self.database.desktop_notification_events(after)?;
+        let next_after = if has_more {
+            items.last().map_or(after, |event| event.id)
+        } else {
+            after.max(self.database.desktop_notification_cursor()?)
+        };
+        Ok(serde_json::json!({"items": items, "nextAfter": next_after, "hasMore": has_more}))
+    }
+
+    pub(crate) fn desktop_notification_pending(
+        &mut self,
+        job_id: &str,
+    ) -> Result<serde_json::Value> {
+        let job = self
+            .record::<super::jobs::JobRecord>("job", job_id)?
+            .ok_or_else(|| {
+                YssError::new(ErrorCode::InvalidInput, "执行记录不存在").context("httpStatus", 404)
+            })?;
+        let pending = if job.terminal() {
+            Vec::new()
+        } else {
+            self.database.desktop_notification_pending(job_id)?
+        };
+        let items = pending.into_iter().map(|(event_id, request_id)| {
+            serde_json::json!({"eventId": event_id, "requestId": request_id})
+        }).collect::<Vec<_>>();
+        Ok(serde_json::json!({"items": items}))
+    }
     pub(crate) fn run_event(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
         self.database.run_event(job_id)
     }

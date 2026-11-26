@@ -22,6 +22,7 @@ import {
   type ProgressHistory
 } from '@/services/workbench'
 import ProgressEvidence from './ProgressEvidence.vue'
+import { sorted } from '@/lib/collections'
 const props = defineProps<{ specId: string; goalVersion: string | null }>()
 const { snapshot } = useWorkbench()
 const expanded = shallowRef(false)
@@ -95,7 +96,7 @@ const entries = computed<HistoryEntry[]>(() => {
       record
     }))
   ]
-  return result.toSorted((left, right) => right.at.localeCompare(left.at))
+  return sorted(result, (left, right) => right.at.localeCompare(left.at))
 })
 const labels = {
   goal: '交付目标',

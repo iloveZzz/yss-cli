@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "YSS 工作台",
+  "version": "0.1.0",
+  "identifier": "com.ysstech.yss-workbench.desktop",
+  "build": { "frontendDist": "frontend" },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "capabilities": ["settings", "menu-bar"]
+    }
+  },
+  "plugins": { "updater": { "pubkey": "", "requireSignedVersion": true } },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "nsis"],
+    "externalBin": ["binaries/yss"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": { "minimumSystemVersion": "12.7.6" },
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": { "installMode": "currentUser" },
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}

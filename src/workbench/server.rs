@@ -27,6 +27,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+pub(crate) mod desktop;
 pub type AssetLoader = fn(&str) -> Option<Cow<'static, [u8]>>;
 pub struct ServeOptions {
     pub data_dir: PathBuf,
@@ -134,6 +135,13 @@ async fn dispatch(server: Server, request: Request) -> Response {
                     .into_response()
             }
             None => failure(StatusCode::NOT_FOUND, "NOT_FOUND", "资源不存在"),
+        };
+    }
+    // Prove knowledge of the token before the desktop sends it to a reused port.
+    if path == "/api/desktop-challenge" && method == axum::http::Method::GET {
+        return match desktop::challenge(&server.token, &query) {
+            Ok(value) => Json(value).into_response(),
+            Err(value) => error(value),
         };
     }
     if request
@@ -350,13 +358,10 @@ async fn dispatch(server: Server, request: Request) -> Response {
         let decode_error = |e: YssError| {
             YssError::new(ErrorCode::InvalidInput, "请求内容不合法").context("detail", e.message)
         };
+        if matches!(path.as_str(), "/api/desktop-info" | "/api/desktop/activity" | "/api/desktop/attach" | "/api/desktop/detach" | "/api/desktop/quiesce" | "/api/desktop/release" | "/api/desktop/shutdown" | "/api/desktop/pause-queues") {
+            return desktop::route(&server.platform.jobs, &server.shutdown, method.as_str(), &path, &bytes);
+        }
         if method == axum::http::Method::POST && path == "/api/restart" {
-            if server.platform.jobs.list()?.iter().any(|job| !job.terminal()) {
-                return Err(YssError::new(
-                    ErrorCode::Locked,
-                    "请等待活动作业结束或逐项停止后重启",
-                ));
-            }
             #[derive(serde::Deserialize)]
             #[serde(rename_all = "camelCase", deny_unknown_fields)]
             struct Restart {
@@ -373,9 +378,11 @@ async fn dispatch(server: Server, request: Request) -> Response {
             } else {
                 std::env::current_exe()?
             };
-            *server.restart.lock().map_err(|_| {
+            let mut restart = server.restart.lock().map_err(|_| {
                 YssError::new(ErrorCode::Io, "重启状态失效")
-            })? = Some(executable);
+            })?;
+            desktop::begin_restart(&server.platform.jobs)?;
+            *restart = Some(executable);
             server.shutdown.cancel();
             return Ok(json!({"restarting":true,"message":"正在重启工作台，新会话将自动打开，请在新页面恢复草稿"}));
         }

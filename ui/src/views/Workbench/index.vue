@@ -86,14 +86,14 @@ function selectFocus(value: string | number) {
           </template>
         </p>
       </div>
-      <div class="inline-actions">
-        <Button type="button" variant="outline" :disabled="refreshDisabled" @click="refreshPage">
+      <div class="inline-actions home-actions">
+        <Button type="button" variant="ghost" :disabled="refreshDisabled" @click="refreshPage">
           <RefreshCw v-if="!refreshBusy" aria-hidden="true" />
           <LoadingIndicator :active="refreshBusy" />
           {{ refreshBusy ? '刷新中…' : '刷新' }}
         </Button>
-        <Button as-child variant="outline"><RouterLink to="/projects">工程管理</RouterLink></Button>
-        <Button as-child variant="ghost"><RouterLink to="/specs">全部 Spec <ArrowRight aria-hidden="true" /></RouterLink></Button>
+        <Button as-child variant="ghost"><RouterLink to="/projects">工程管理</RouterLink></Button>
+        <Button as-child variant="ghost" class="home-all-specs"><RouterLink to="/specs">全部 Spec <ArrowRight aria-hidden="true" /></RouterLink></Button>
       </div>
     </header>
     <Alert v-if="catalogError" class="notice warning" role="status">
@@ -254,10 +254,11 @@ function selectFocus(value: string | number) {
   margin-block-start: 0;
   font-size: 12px;
 }
-.home-heading .inline-actions {
-  margin-block-start: 0;
-  flex-wrap: wrap;
-  gap: 6px;
+.home-actions { gap: 4px; }
+.home-actions [data-slot='button'] { padding-inline: 8px; }
+.home-actions .home-all-specs {
+  color: var(--yss-color-primary-control-active);
+  font-weight: 650;
 }
 .home-welcome {
   gap: 16px;
@@ -386,9 +387,9 @@ function selectFocus(value: string | number) {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
-@container workbench-home (inline-size >= 1160px) {
+@container workbench-home (inline-size >= 1088px) {
   .home-layout:has(.recent-panels) {
-    grid-template-columns: minmax(0, 1fr) 264px;
+    grid-template-columns: minmax(0, 1fr) clamp(236px, 22%, 264px);
   }
   .recent-panels {
     margin-block-start: 31px;
@@ -423,8 +424,6 @@ function selectFocus(value: string | number) {
   }
 }
 @media (width < 720px) {
-  .home-heading .inline-actions { gap: 4px; }
-  .home-heading .inline-actions [data-slot='button'] { padding-inline: 8px; }
   .home-priority :deep(.home-tabs [data-slot='tabs-trigger']) {
     min-block-size: var(--yss-control-min-height);
   }

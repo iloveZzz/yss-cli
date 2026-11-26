@@ -3,6 +3,7 @@ import { useDebounceFn, useEventListener } from '@vueuse/core'
 import type { AgentCiJob, AgentCiMode, AgentCiPreview, AgentContinuation, AgentStart, ProjectAccessMode, ReviewExcerpt } from '@/services/workbench-agent'
 import type { Stage } from '@/services/workbench'
 import type { PiModel, PiThinkingLevel } from '@/services/workbench-platform'
+import { writeDesktopStorage } from '@/services/desktop-storage'
 import type { PiCheckout } from './usePiProjects'
 
 type DraftText = {
@@ -12,6 +13,8 @@ type DraftText = {
   selected?: string[]
   ciRecovery?: PiCiRecovery
 }
+type StoredDraft = DraftText & { readProjectIds?: string[] }
+type ProjectGrant = { mode: 'read' } | { mode: Exclude<ProjectAccessMode, 'read'>; checkout: PiCheckout }
 export type PiCiRecovery = Omit<AgentCiJob, 'expectedSha'>
 export interface PiCiAttachment {
   job: AgentCiPreview
@@ -29,7 +32,7 @@ export interface PiDraft extends DraftText {
   selected: string[]
   readOnly: boolean
   allowCommands: boolean
-  projectGrants: Record<string, { mode: Exclude<ProjectAccessMode, 'read'>; checkout: PiCheckout }>
+  projectGrants: Record<string, ProjectGrant>
   ciAttachment?: PiCiAttachment
   selectedModel?: PiModel
   thinkingLevel?: PiThinkingLevel
@@ -61,8 +64,7 @@ function read<T>(kind: StorageKind, key: string): T | undefined {
 
 function write(kind: StorageKind, key: string, value?: unknown): boolean {
   try {
-    if (value === undefined) sessionStorage.removeItem(storageKey(kind, key))
-    else sessionStorage.setItem(storageKey(kind, key), JSON.stringify(value))
+    writeDesktopStorage(storageKey(kind, key), value === undefined ? undefined : JSON.stringify(value))
     return true
   } catch {
     return false
@@ -97,13 +99,16 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
 
   function getDraft(id: string) {
     if (!drafts.has(id)) {
-      const stored = read<DraftText>('draft', id)
+      const stored = read<StoredDraft>('draft', id)
       const text = draftText(stored)
       const selected = text.selected ?? text.handoff?.projectIds
+      const readProjectIds = Array.isArray(stored?.readProjectIds) ? stored.readProjectIds : []
       drafts.set(id, {
         ...text,
         selected: selected ?? [],
-        projectGrants: {}, readOnly: true, allowCommands: false, error: ''
+        projectGrants: Object.fromEntries(readProjectIds.filter((projectId) => typeof projectId === 'string')
+          .map((projectId) => [projectId, { mode: 'read' }])),
+        readOnly: true, allowCommands: false, error: ''
       })
     }
     return drafts.get(id)!
@@ -115,7 +120,10 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
       const value = drafts.get(id)
       if (!value) continue
       const text = draftText({ ...value, ciRecovery: ciSelection(value) })
-      if (!write('draft', id, text.prompt || text.citations.length || text.handoff || text.ciRecovery || text.selected?.length ? text : undefined)) ok = false
+      // Reloading must not raise a restricted draft to the command-enabled default.
+      const readProjectIds = Object.keys(value.projectGrants).filter((projectId) => value.projectGrants[projectId].mode !== 'execute')
+      const hasDraft = text.prompt || text.citations.length || text.handoff || text.ciRecovery || text.selected?.length || readProjectIds.length
+      if (!write('draft', id, hasDraft ? { ...text, readProjectIds } : undefined)) ok = false
     }
     dirty.clear()
     storageIssue.value = ok ? '' : '此标签页无法保存草稿，当前输入仍保留。'
@@ -126,12 +134,17 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
     dirty.add(id)
     return flushDrafts()
   }
-  watch(() => [key.value, draft.value.prompt, draft.value.citations, draft.value.handoff, draft.value.selected, draft.value.ciRecovery, draft.value.ciAttachment] as const, ([id], prior) => {
+  watch(() => [key.value, draft.value.prompt, draft.value.citations, draft.value.handoff, draft.value.selected, draft.value.projectGrants,
+    draft.value.ciRecovery, draft.value.ciAttachment] as const, ([id], prior) => {
     dirty.add(id)
     if (prior[0] !== id) flushDrafts()
     else void persistSoon()
   }, { deep: true, flush: 'sync' })
   useEventListener(window, 'pagehide', flushDrafts)
+  useEventListener(window, 'yss:desktop-before-flush', (event) => {
+    persistSoon.cancel()
+    if (!flushDrafts()) (event as CustomEvent<{ failed: boolean }>).detail.failed = true
+  })
   onScopeDispose(() => {
     persistSoon.cancel()
     flushDrafts()
