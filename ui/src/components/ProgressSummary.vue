@@ -2,14 +2,20 @@
 import { computed } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import StatusBadge from './StatusBadge.vue'
 import {
   dateLabel,
   stages,
-  attentionLabels
+  attentionLabels,
+  type ProgressSummary
 } from '@/services/workbench'
 import type { CompactProgress } from '@/services/workbench-read'
-const props = defineProps<{ progress?: CompactProgress; compact?: boolean }>()
+const props = defineProps<{
+  progress?: CompactProgress & Pick<ProgressSummary, 'completion'>
+  compact?: boolean
+}>()
+const completionTitle = '总体进度'
 const title = computed(() => {
   const progress = props.progress
   if (!progress) return '目标与进展待核实'
@@ -17,9 +23,19 @@ const title = computed(() => {
     ? progress.lastDelivery ? `目标已完成 · ${dateLabel(progress.lastDelivery.recordedAt)}` : '目标已完成'
     : `${stages[progress.primaryStage]} · ${progress.summary || '进展待核实'}`
 })
-const active = computed(() =>
-  props.progress?.activeStages.map((stage) => stages[stage]).join('、')
-)
+const completion = computed(() => {
+  const completion = props.progress?.completion
+  return completion && completion.total > 0 ? completion : undefined
+})
+const completionPercent = computed(() => {
+  const count = completion.value
+  return count ? (count.completed / count.total) * 100 : null
+})
+const completionLabel = computed(() => {
+  const count = completion.value
+  if (!count) return '待核实'
+  return props.progress?.status === 'done' ? '已验收 · 100%' : `已核实 ${count.completed} / ${count.total} 项`
+})
 </script>
 <template>
   <Card
@@ -37,14 +53,23 @@ const active = computed(() =>
         <strong>{{ title }}</strong>
         <Badge v-if="progress?.hasOverride" variant="outline" class="summary-tag">人工更正</Badge>
       </div>
-      <p v-if="!compact && active" class="summary-active">
-        当前并行 · {{ active }}
-      </p>
       <div v-if="progress?.attention.length" class="summary-attention">
         <Badge v-for="item in progress.attention" :key="item" variant="outline" class="summary-tag">
           {{ attentionLabels[item] ?? item }}
         </Badge>
       </div>
+    </div>
+    <div v-if="!compact" class="summary-progress">
+      <div class="summary-progress-label">
+        <span>{{ completionTitle }}</span>
+        <span>{{ completionLabel }}</span>
+      </div>
+      <Progress
+        :model-value="completionPercent"
+        :get-value-label="() => completionTitle"
+        :get-value-text="() => completionLabel"
+        class="summary-progress-track"
+      />
     </div>
     <dl class="summary-facts">
       <div v-if="!compact || progress?.blocker">
@@ -102,16 +127,41 @@ const active = computed(() =>
   font-size: 11px;
   color: #9b5a0e;
 }
-.summary-active {
-  font-size: 12px;
-  color: var(--brand-color-text-secondary);
-  margin-top: 5px;
-}
 .summary-attention {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
   margin-top: 6px;
+}
+.summary-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+.summary-progress-label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+}
+.summary-progress-label > :first-child {
+  font-weight: 600;
+  color: var(--brand-color-text);
+}
+.summary-progress-track[data-state='indeterminate'] :deep([data-slot='progress-indicator']) {
+  display: none;
+}
+@media (forced-colors: active) {
+  .summary-progress-track {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .summary-progress-track :deep([data-slot='progress-indicator']) {
+    forced-color-adjust: none;
+    background-color: Highlight;
+  }
 }
 .summary-facts {
   display: grid;

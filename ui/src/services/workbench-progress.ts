@@ -212,6 +212,7 @@ export interface ProgressSummary {
   currentVersions?: ProjectVersion[]
   lastDelivery?: DecisionRecord
   materialReview?: boolean
+  completion?: { completed: number; total: number }
   goal: GoalRecord | null
   goalVersion: string | null
   stages: StageSummary[]

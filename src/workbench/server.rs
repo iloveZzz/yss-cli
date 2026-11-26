@@ -23,7 +23,7 @@ use std::{
     borrow::Cow,
     io::Write,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::sync::Notify;
@@ -533,18 +533,27 @@ async fn observe_workbench(
     stopping: Cancellation,
 ) {
     let mut last_attempt = None;
-    let mut manual_refresh = false;
     while !stopping.is_cancelled() {
+        let assigned = Arc::new(OnceLock::new());
+        let active_observation = assigned.clone();
         let (shared, published, cancel) = (store.clone(), reads.clone(), stopping.clone());
         let notification = changed.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let (stamp, captured) = {
-                let mut store = super::jobs::lock_store(&shared)?;
+            let (observation_id, stamp, captured) = {
+                let store = super::jobs::lock_store(&shared);
+                // Order observations by capture, including attempts whose storage check fails.
+                let observation_id =
+                    *active_observation.get_or_init(read_model::next_observation_id);
+                let mut store = store?;
                 // All commits known at capture time are included in this read.
                 let _ = notification.notified().now_or_never();
-                (store.projection_stamp(), read_model::capture(&mut store))
+                (
+                    observation_id,
+                    store.projection_stamp(),
+                    read_model::capture_observation(&mut store, observation_id),
+                )
             };
-            if manual_refresh || Some(stamp) != last_attempt {
+            if published.refresh_pending() || Some(stamp) != last_attempt {
                 published.mark_pending(stamp.0);
             }
             let outcome = captured.and_then(|input| read_model::build(input, &cancel));
@@ -558,7 +567,7 @@ async fn observe_workbench(
             let review_at = match outcome {
                 Ok(projection) => {
                     if let Err(error) = store.capture_read_records(&[]) {
-                        published.mark_failed(stamp.0, &error);
+                        published.mark_failed(stamp.0, observation_id, &error);
                         None
                     } else {
                         let review_at = projection.next_review_at;
@@ -567,7 +576,7 @@ async fn observe_workbench(
                     }
                 }
                 Err(error) if !cancel.is_cancelled() => {
-                    published.mark_failed(stamp.0, &error);
+                    published.mark_failed(stamp.0, observation_id, &error);
                     None
                 }
                 Err(_) => None,
@@ -575,18 +584,27 @@ async fn observe_workbench(
             Ok((stamp, review_at))
         })
         .await;
+        let observation_id = *assigned.get_or_init(read_model::next_observation_id);
         let review_at = match result {
             Ok(Ok((stamp, review_at))) => {
                 last_attempt = Some(stamp);
                 review_at
             }
             Ok(Err(error)) => {
-                reads.mark_failed(last_attempt.map_or(0, |stamp| stamp.0), &error);
+                reads.mark_failed(
+                    last_attempt.map_or(0, |stamp| stamp.0),
+                    observation_id,
+                    &error,
+                );
                 None
             }
             Err(_) => {
                 let error = YssError::new(ErrorCode::Io, "工作台后台核验异常");
-                reads.mark_failed(last_attempt.map_or(0, |stamp| stamp.0), &error);
+                reads.mark_failed(
+                    last_attempt.map_or(0, |stamp| stamp.0),
+                    observation_id,
+                    &error,
+                );
                 None
             }
         };
@@ -594,12 +612,12 @@ async fn observe_workbench(
         let delay = review_at
             .and_then(|at| Duration::try_from(at - time::OffsetDateTime::now_utc()).ok())
             .map_or(interval, |duration| duration.min(interval));
-        manual_refresh = tokio::select! {
+        tokio::select! {
             _ = stopping.cancelled() => break,
-            _ = changed.notified() => false,
-            _ = reads.refresh_requested() => true,
-            _ = tokio::time::sleep(delay) => false,
-        };
+            _ = changed.notified() => {}
+            _ = reads.refresh_requested() => {}
+            _ = tokio::time::sleep(delay) => {}
+        }
     }
 }
 

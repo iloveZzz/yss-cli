@@ -14,11 +14,13 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import EngineeringPanel from '@/components/EngineeringPanel.vue'
 import ExternalLinks from '@/components/ExternalLinks.vue'
+import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
 import BackupForms from './components/BackupForms.vue'
 import { useSystemInfo } from './hooks/useSystemInfo'
 import { byteLabel } from './schemas/system'
 import { restartWorkbench, readableValue } from '@/services/workbench-platform'
-const { info, loading, error, refresh } = useSystemInfo()
+const { info, readAt, loading, error, refresh } = useSystemInfo()
+registerWorkbenchRouteReads({ busy: loading, readAt, refresh })
 const route = useRoute()
 const router = useRouter()
 const groups = [
@@ -73,7 +75,7 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
     </Button>
   </div>
   <Tabs :model-value="group" :unmount-on-hide="false" activation-mode="manual" @update:model-value="selectGroup">
-    <TabsList class="settings-navigation" aria-label="设置分组" moving-indicator>
+    <TabsList class="settings-navigation" aria-label="设置分组">
       <TabsTrigger v-for="item in groups" :key="item.value" :value="item.value">{{ item.label }}</TabsTrigger>
     </TabsList>
     <Alert v-if="error" class="notice error" role="alert" variant="destructive">{{ error }}</Alert>

@@ -1,12 +1,9 @@
 import { computed, onScopeDispose, shallowRef, watch, type Ref } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { useVerifiedWorkbenchRefresh } from '@/hooks/useWorkbenchVerification'
 import { ApiError, errorMessage, type GroupBy, type Layout, type WorkQuery } from '@/services/workbench'
-import {
-  loadCompactWorkPage,
-  requestWorkbenchReadRefresh,
-  type CompactWorkPage
-} from '@/services/workbench-read'
+import { loadCompactWorkPage, type CompactWorkPage } from '@/services/workbench-read'
 
 const listPageSize = 50
 const boardPageSize = 20
@@ -27,7 +24,8 @@ const depths = new Map<string, Display>()
 export function useSpecWorkItems(
   query: Readonly<Ref<WorkQuery>>,
   layout: Readonly<Ref<Layout>>,
-  groupBy: Readonly<Ref<GroupBy>>
+  groupBy: Readonly<Ref<GroupBy>>,
+  enabled?: Readonly<Ref<boolean>>
 ) {
   const { expired, sourceState } = useWorkbench()
   const { catalog } = useWorkbenchCatalog()
@@ -54,25 +52,36 @@ export function useSpecWorkItems(
     }))
   })
   const pending = shallowRef<'replace' | 'append'>()
-  const loading = computed(() => !!pending.value)
+  const readError = shallowRef('')
+  const { refresh, refreshing, refreshError } = useVerifiedWorkbenchRefresh(
+    () => read('replace', undefined, true), () => enabled?.value !== false
+  )
+  const loading = computed(() => refreshing.value || !!pending.value)
   const loadingMore = computed(() => pending.value === 'append')
-  const error = shallowRef('')
+  const error = computed(() => refreshError.value || readError.value)
   const observedProjection = computed(() => sourceState.value?.projectionVersion)
   const verification = computed(() => {
     const observed = sourceState.value
     const page = result.value
     if (!observed?.verification || !page ||
-      (observed.changeSequence ?? 0) < (page.changeSequence ?? 0))
+      (observed.changeSequence ?? 0) <= (page.changeSequence ?? 0))
       return page?.verification ?? observed?.verification
+    if (observed.verification === 'current') {
+      if (!page.projectionVersion) return 'pending'
+      if (page.verification === 'stale' && page.projectionVersion === observedProjection.value) return 'stale'
+      if (page.projectionVersion !== observedProjection.value &&
+        (scope.value === undefined || settled.value?.scope !== scope.value)) return 'stale'
+    }
     return observed.verification
   })
   const verificationError = computed(() => sourceState.value?.verificationError ?? result.value?.verificationError)
   const writable = computed(() =>
     resultsCurrent.value && !!result.value?.projectionVersion && verification.value === 'current' &&
-    !expired.value && !error.value && pending.value !== 'replace'
+    !expired.value && !error.value && !refreshing.value && pending.value !== 'replace'
   )
   let controller: AbortController | undefined
   let ownerKey: string | undefined
+  let interruptedKey: string | undefined
   let invalidatedWhileReading = false
   let disposed = false
 
@@ -129,21 +138,22 @@ export function useSpecWorkItems(
     return { ...first, items: [...first.items, ...extra.flat()] }
   }
 
-  async function read(mode: 'replace' | 'append', column?: string) {
-    if (expired.value || disposed) return
+  async function read(mode: 'replace' | 'append', column?: string, replacePending = false) {
+    if (expired.value || disposed || enabled?.value === false) return
     const current = view.value
-    if (pending.value && mode === 'replace' && ownerKey === current.key) {
+    if (pending.value && mode === 'replace' && ownerKey === current.key && !replacePending) {
       invalidatedWhileReading = true
       return
     }
     const previous = resultsCurrent.value ? settled.value?.page : undefined
     if (mode === 'append' && (pending.value || !previous?.projectionVersion || !writable.value)) return
     controller?.abort()
+    invalidatedWhileReading = false
     const request = new AbortController()
     controller = request
     ownerKey = current.key
     pending.value = mode
-    error.value = ''
+    readError.value = ''
     try {
       if (mode === 'append' && previous?.projectionVersion) {
         const board = current.layout === 'board' ? { groupBy: current.groupBy, column } : undefined
@@ -182,7 +192,7 @@ export function useSpecWorkItems(
       // A server still warming up cannot displace a verified result for the current filters.
       if (page.projectionVersion || !resultsCurrent.value || !settled.value?.page.projectionVersion) save(current, page)
     } catch (cause) {
-      if (!request.signal.aborted) error.value = errorMessage(cause)
+      if (!request.signal.aborted) readError.value = errorMessage(cause)
     } finally {
       if (controller === request) {
         pending.value = undefined
@@ -198,20 +208,30 @@ export function useSpecWorkItems(
   function reconcile() {
     if (expired.value) return
     const key = view.value.key
-    if (ownerKey && ownerKey !== key) {
+    if (ownerKey && (ownerKey !== key || enabled?.value === false)) {
+      if (ownerKey === key) interruptedKey = key
       controller?.abort()
       controller = undefined
       ownerKey = undefined
       pending.value = undefined
       invalidatedWhileReading = false
     }
+    if (enabled?.value === false) return
+    const interrupted = interruptedKey === key
+    interruptedKey = undefined
     if (settled.value?.key !== key && cache.has(key)) settled.value = cache.get(key)
-    if (settled.value?.key !== key) {
+    if (interrupted || settled.value?.key !== key) {
       void read('replace')
       return
     }
     if (sourceState.value?.verification !== 'current') return
     if (settled.value.page.projectionVersion === observedProjection.value) {
+      const page = settled.value.page
+      if (page.verification === 'stale' &&
+        (page.changeSequence ?? 0) < (sourceState.value.changeSequence ?? 0)) {
+        void read('replace')
+        return
+      }
       settled.value.scope = scope.value
       return
     }
@@ -219,17 +239,11 @@ export function useSpecWorkItems(
   }
 
   function reload() { return read('replace') }
-  async function refresh() {
-    try {
-      await requestWorkbenchReadRefresh()
-      await reload()
-    } catch (cause) {
-      error.value = errorMessage(cause)
-    }
-  }
 
-  watch([() => view.value.key, observedProjection, scope, () => sourceState.value?.verification, expired],
-    reconcile, { immediate: true })
+  watch([() => view.value.key, expired, () => enabled?.value], reconcile, { immediate: true })
+  watch([observedProjection, scope, () => sourceState.value?.verification, () => sourceState.value?.projectionObservationId, refreshing], () => {
+    if (!refreshing.value) reconcile()
+  })
   onScopeDispose(() => {
     disposed = true
     controller?.abort()

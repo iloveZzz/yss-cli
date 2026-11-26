@@ -114,7 +114,7 @@ export const importHome = (
   apiRequest<HomeImport>('/api/home/import', {
     body: { root, sourcePath: sourcePath || undefined, columnMapping, rows }
   })
-export const getHomes = () => apiRequest<{ homes: HomeImport[] }>('/api/homes')
+export const getHomes = (signal?: AbortSignal) => apiRequest<{ homes: HomeImport[] }>('/api/homes', { signal })
 export const bindHome = (
   homeId: string,
   sourceDigest: string,

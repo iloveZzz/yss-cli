@@ -10,10 +10,11 @@ const props = defineProps<{
   projects: readonly ProjectRecord[]
   specs: readonly CatalogSpec[]
   failed?: boolean
+  limit?: number
 }>()
 const route = useRoute()
 const projects = computed(() => new Map(props.projects.map((project) => [project.id, project.name])))
-const visible = computed(() => props.specs.slice(0, 10))
+const visible = computed(() => props.specs.slice(0, props.limit ?? 10))
 </script>
 
 <template>

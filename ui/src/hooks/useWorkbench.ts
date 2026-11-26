@@ -106,13 +106,15 @@ function applySourceState(value: SourceState) {
   }
 }
 
-async function checkChanges() {
-  if (expired.value || changesConnected) return
+async function checkChanges(signal?: AbortSignal) {
+  if (expired.value || changesConnected || signal?.aborted) return
   try {
-    applySourceState(await getSourceState())
+    const state = await getSourceState(signal)
+    if (signal?.aborted) return
+    applySourceState(state)
     if (snapshotRequired && loadedAt !== observed) await refresh()
   } catch (cause) {
-    changesError.value = errorMessage(cause)
+    if (!signal?.aborted) changesError.value = errorMessage(cause)
   }
 }
 

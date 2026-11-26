@@ -11,6 +11,7 @@ use super::{
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
+    fs::Root,
     model::Sha256,
 };
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ use serde_json::{Value, json};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet},
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -27,6 +29,7 @@ use time::{Date, OffsetDateTime, UtcOffset, format_description::well_known::Rfc3
 use tokio::sync::{Notify, watch};
 
 static NEXT_OBSERVATION_ID: AtomicU64 = AtomicU64::new(1);
+const HOME_PREVIEW_LIMIT: usize = 5;
 
 pub(super) struct ReadInputs {
     pub(super) stamp: (u64, u64),
@@ -35,13 +38,20 @@ pub(super) struct ReadInputs {
     records: ExtensionRecords,
 }
 
+pub(super) fn next_observation_id() -> u64 {
+    NEXT_OBSERVATION_ID.fetch_add(1, Ordering::SeqCst)
+}
+
 pub(super) fn capture(store: &mut Store) -> Result<ReadInputs> {
-    let records = store.capture_read_records(&service::record_kinds())?;
+    capture_observation(store, next_observation_id())
+}
+
+pub(super) fn capture_observation(store: &mut Store, observation_id: u64) -> Result<ReadInputs> {
     Ok(ReadInputs {
+        records: store.capture_read_records(&service::record_kinds())?,
         stamp: store.projection_stamp(),
-        observation_id: NEXT_OBSERVATION_ID.fetch_add(1, Ordering::Relaxed),
+        observation_id,
         state: store.state().clone(),
-        records,
     })
 }
 
@@ -56,6 +66,52 @@ pub(super) fn build_snapshot(
         service::scope_progress(&mut records, id);
     }
     service::build_snapshot(&inputs.state, records, &materials, spec_id, cancel)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectSummary {
+    revision: u64,
+    read_at: String,
+    project: ProjectView,
+}
+
+pub(super) fn read_project_summary(
+    store: &Arc<Mutex<Store>>,
+    id: &str,
+    cancel: &Cancellation,
+) -> Result<ProjectSummary> {
+    let (record, revision) = {
+        let mut store = super::jobs::lock_store(store)?;
+        let record = sources::project(store.state(), id)?.clone();
+        store.capture_read_records(&[])?;
+        (record, store.state().revision)
+    };
+
+    cancel.check()?;
+    let observed = Root::open(Path::new(&record.root_path)).and_then(|root| {
+        let directories = sources::source_directories(&root, cancel)
+            .into_iter()
+            .map(|path| path.as_str().to_owned())
+            .collect();
+        root.revalidate()?;
+        Ok(directories)
+    });
+    let (source_directories, message) = match observed {
+        Ok(directories) => (directories, None),
+        Err(error) => (Vec::new(), Some(error.message)),
+    };
+    cancel.check()?;
+    Ok(ProjectSummary {
+        revision,
+        read_at: sources::now(),
+        project: ProjectView {
+            record,
+            source_directories,
+            available: message.is_none(),
+            message,
+        },
+    })
 }
 
 #[derive(Serialize)]
@@ -305,6 +361,7 @@ pub(super) struct ReadStatus {
     projection: Option<Arc<Projection>>,
     verification: Verification,
     verification_error: Option<String>,
+    failed_observation_id: Option<u64>,
     activity: Arc<ActivitySummary>,
     agent_contexts: BTreeMap<String, Arc<ScopedAgentContext>>,
 }
@@ -323,6 +380,7 @@ struct ActivitySummary {
     runs: BTreeMap<String, Vec<RunActivity>>,
     external_version: String,
     jobs: Vec<JobSummary>,
+    jobs_total: usize,
     jobs_version: String,
 }
 
@@ -339,6 +397,7 @@ struct JobSummary {
 pub(super) struct ReadModel {
     changes: watch::Sender<Arc<ReadStatus>>,
     refresh: Notify,
+    minimum_refresh_observation: AtomicU64,
     pending_agent_contexts: Mutex<BTreeSet<(String, (u64, u64))>>,
 }
 
@@ -350,12 +409,14 @@ impl ReadModel {
             projection: None,
             verification: Verification::Pending,
             verification_error: None,
+            failed_observation_id: None,
             activity: Arc::new(ActivitySummary::default()),
             agent_contexts: BTreeMap::new(),
         }));
         Self {
             changes,
             refresh: Notify::new(),
+            minimum_refresh_observation: AtomicU64::new(0),
             pending_agent_contexts: Mutex::default(),
         }
     }
@@ -368,12 +429,31 @@ impl ReadModel {
         self.changes.subscribe()
     }
 
-    pub(super) fn request_refresh(&self) {
+    pub(super) fn request_refresh(&self) -> u64 {
+        // Reserve a position in the same sequence as observations to exclude in-flight captures.
+        let minimum_observation_id = next_observation_id();
+        self.minimum_refresh_observation
+            .fetch_max(minimum_observation_id, Ordering::SeqCst);
         self.refresh.notify_one();
+        minimum_observation_id
+    }
+
+    pub(super) fn refresh_pending(&self) -> bool {
+        let minimum = self.minimum_refresh_observation.load(Ordering::SeqCst);
+        let current = self.latest();
+        let published = current
+            .projection
+            .as_ref()
+            .map_or(0, |view| view.observation_id);
+        let completed = published.max(current.failed_observation_id.unwrap_or(0));
+        completed < minimum
     }
 
     pub(super) async fn refresh_requested(&self) {
-        self.refresh.notified().await;
+        // A periodic or store-triggered observation can already have fulfilled this request.
+        while !self.refresh_pending() {
+            self.refresh.notified().await;
+        }
     }
 
     pub(super) fn mark_pending(&self, revision: u64) {
@@ -395,20 +475,14 @@ impl ReadModel {
         });
     }
 
-    pub(super) fn mark_failed(&self, revision: u64, error: &YssError) {
-        self.changes.send_if_modified(|current| {
-            if current.revision == revision
-                && current.verification == Verification::Failed
-                && current.verification_error.as_deref() == Some(error.message.as_str())
-            {
-                return false;
-            }
+    pub(super) fn mark_failed(&self, revision: u64, observation_id: u64, error: &YssError) {
+        self.changes.send_modify(|current| {
             let current = Arc::make_mut(current);
             current.sequence += 1;
             current.revision = revision;
             current.verification = Verification::Failed;
             current.verification_error = Some(error.message.clone());
-            true
+            current.failed_observation_id = Some(observation_id);
         });
     }
 
@@ -422,6 +496,7 @@ impl ReadModel {
             current.agent_contexts.clear();
             current.verification = Verification::Current;
             current.verification_error = None;
+            current.failed_observation_id = None;
         });
     }
 
@@ -531,15 +606,20 @@ impl ReadModel {
         jobs.retain(|job| {
             !job.terminal() || matches!(job.status.as_str(), "failed" | "recoveryRequired")
         });
-        jobs.sort_by(|left, right| {
+        let jobs_total = jobs.len();
+        let compare_jobs = |left: &JobRecord, right: &JobRecord| {
             priority(&left.status)
                 .cmp(&priority(&right.status))
                 .then_with(|| right.updated_at.cmp(&left.updated_at))
                 .then_with(|| left.id.cmp(&right.id))
-        });
+        };
+        if jobs_total > HOME_PREVIEW_LIMIT {
+            jobs.select_nth_unstable_by(HOME_PREVIEW_LIMIT, compare_jobs);
+            jobs.truncate(HOME_PREVIEW_LIMIT);
+        }
+        jobs.sort_by(compare_jobs);
         let jobs: Vec<_> = jobs
             .into_iter()
-            .take(6)
             .map(|job| JobSummary {
                 id: job.id,
                 title: job.title,
@@ -548,7 +628,7 @@ impl ReadModel {
                 updated_at: job.updated_at,
             })
             .collect();
-        let jobs_version = fingerprint(&jobs)?;
+        let jobs_version = fingerprint(&(jobs_total, &jobs))?;
         self.changes.send_if_modified(|current| {
             if current.activity.versions == versions
                 && current.activity.agent_session_versions == agent_session_versions
@@ -567,6 +647,7 @@ impl ReadModel {
                 runs: activities,
                 external_version,
                 jobs,
+                jobs_total,
                 jobs_version,
             });
             true
@@ -576,6 +657,19 @@ impl ReadModel {
 }
 
 impl ReadStatus {
+    fn verification_at(&self, stamp: (u64, u64)) -> Verification {
+        if self.verification == Verification::Current
+            && self
+                .projection
+                .as_ref()
+                .is_some_and(|view| view.stamp != stamp)
+        {
+            Verification::Stale
+        } else {
+            self.verification
+        }
+    }
+
     pub(super) fn change_state(&self) -> Value {
         let projection = self.projection.as_ref();
         let progress_versions: &[ProjectVersion] = projection
@@ -598,6 +692,7 @@ impl ReadStatus {
             "projectionVersion": projection.map(|view| &view.version),
             "projectionRevision": projection.map(|view| view.snapshot.revision),
             "projectionObservationId": projection.map(|view| view.observation_id),
+            "failedObservationId": self.failed_observation_id,
             "verification": self.verification,
             "verificationError": self.verification_error,
             "nextReviewAt": projection.and_then(|view| view.next_review_at).and_then(|at| at.format(&Rfc3339).ok()),
@@ -629,19 +724,12 @@ impl ReadStatus {
         let projection = self.projection.as_ref();
         let empty = Overview::default();
         let overview = projection.map_or(&empty, |view| &view.overview);
-        let verification = if self.verification == Verification::Current
-            && projection.is_some_and(|view| view.stamp != base.stamp)
-        {
-            Verification::Stale
-        } else {
-            self.verification
-        };
         json!({
             "changeSequence": self.sequence,
             "revision": projection.map_or(base.stamp.0, |view| view.snapshot.revision),
             "readAt": projection.map_or_else(sources::now, |view| view.snapshot.read_at.clone()),
             "projectionVersion": projection.map(|view| &view.version),
-            "verification": verification,
+            "verification": self.verification_at(base.stamp),
             "verificationError": self.verification_error,
             "nextReviewAt": projection
                 .and_then(|view| view.next_review_at)
@@ -657,7 +745,11 @@ impl ReadStatus {
     }
 
     pub(super) fn jobs(&self) -> Value {
-        json!({"items": self.activity.jobs, "version": self.activity.jobs_version})
+        json!({
+            "items": self.activity.jobs,
+            "total": self.activity.jobs_total,
+            "version": self.activity.jobs_version,
+        })
     }
 
     pub(super) fn run_activities(
@@ -680,9 +772,9 @@ impl ReadStatus {
 
     pub(super) fn work_items(
         &self,
+        stamp: (u64, u64),
         query: &WorkQuery,
-        offset: usize,
-        limit: usize,
+        (offset, limit): (usize, usize),
         expected_version: Option<&str>,
         expected_query_version: Option<&str>,
         board: Option<&BoardRequest>,
@@ -707,17 +799,17 @@ impl ReadStatus {
             page.total = result.total;
             for item in result.items {
                 if page.includes(&item, offset, limit) {
-                    page.items.push(compact_item(&view.snapshot, item)?);
+                    page.items.push(compact_item(&view.snapshot, &item)?);
                 }
             }
         }
         let mut response = json!({
             "changeSequence": self.sequence,
-            "revision": projection.map_or(self.revision, |view| view.snapshot.revision),
+            "revision": projection.map_or(stamp.0, |view| view.snapshot.revision),
             "readAt": projection.map_or_else(sources::now, |view| view.snapshot.read_at.clone()),
             "projectionVersion": version,
             "queryVersion": query_version,
-            "verification": self.verification,
+            "verification": self.verification_at(stamp),
             "verificationError": self.verification_error,
             "nextReviewAt": projection.and_then(|view| view.next_review_at).and_then(|at| at.format(&Rfc3339).ok()),
             "coverage": projection.map(|view| coverage(&view.snapshot, &query)).unwrap_or_default(),
@@ -872,27 +964,33 @@ pub(super) fn overview_base(state: &WorkbenchState, stamp: (u64, u64)) -> Overvi
         .filter(|project| project.active)
         .map(|project| &project.id)
         .collect();
-    let mut active: Vec<_> = state
+    let mut recent = Vec::with_capacity(HOME_PREVIEW_LIMIT + 1);
+    let mut active_spec_count = 0;
+    for spec in state
         .specs
         .iter()
         .filter(|spec| spec.active && active_projects.contains(&spec.project_id))
-        .collect();
-    let active_spec_count = active.len();
-    active.sort_by_cached_key(|spec| {
-        Reverse((
+    {
+        active_spec_count += 1;
+        let updated = Reverse((
             OffsetDateTime::parse(&spec.updated_at, &Rfc3339).ok(),
             spec.updated_at.as_str(),
-        ))
-    });
+        ));
+        let index = recent.partition_point(|(key, _)| *key <= updated);
+        if index < HOME_PREVIEW_LIMIT {
+            recent.insert(index, (updated, spec));
+            recent.truncate(HOME_PREVIEW_LIMIT);
+        }
+    }
     OverviewBase {
         stamp,
-        recent: active.into_iter().take(5).cloned().collect(),
+        recent: recent.into_iter().map(|(_, spec)| spec.clone()).collect(),
         activity: state
             .history
             .iter()
             .rev()
             .filter(|event| event.task_id.is_none())
-            .take(8)
+            .take(HOME_PREVIEW_LIMIT)
             .cloned()
             .collect(),
         active_spec_count,
@@ -1013,7 +1111,7 @@ fn compact_progress(progress: &ProgressSummary) -> Value {
     })
 }
 
-fn compact_item(view: &Snapshot, item: WorkItem) -> Result<Value> {
+fn compact_item(view: &Snapshot, item: &WorkItem) -> Result<Value> {
     let progress = if item.entity == WorkEntity::Spec {
         view.progress.get(&item.spec_id).map(compact_progress)
     } else {
@@ -1030,9 +1128,17 @@ struct Bucket {
     items: Vec<Value>,
 }
 
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReminderBucket {
+    #[serde(flatten)]
+    preview: Bucket,
+    spec_total: usize,
+}
+
 struct Overview {
     groups: BTreeMap<&'static str, Bucket>,
-    reminders: BTreeMap<&'static str, Bucket>,
+    reminders: BTreeMap<&'static str, ReminderBucket>,
 }
 
 impl Default for Overview {
@@ -1044,7 +1150,7 @@ impl Default for Overview {
                 .collect(),
             reminders: query::REMINDER_KINDS
                 .into_iter()
-                .map(|kind| (kind, Bucket::default()))
+                .map(|kind| (kind, ReminderBucket::default()))
                 .collect(),
         }
     }
@@ -1072,8 +1178,9 @@ fn overview(view: &Snapshot) -> Result<Overview> {
             if count == 0 {
                 continue;
             }
-            bucket.total += count;
-            if bucket.items.len() == 20 {
+            bucket.spec_total += 1;
+            bucket.preview.total += count;
+            if bucket.preview.items.len() == HOME_PREVIEW_LIMIT {
                 continue;
             }
             let questions: Vec<_> = content
@@ -1088,7 +1195,7 @@ fn overview(view: &Snapshot) -> Result<Overview> {
                     })
                 })
                 .collect();
-            bucket.items.push(json!({
+            bucket.preview.items.push(json!({
                 "specId":item.spec_id, "title":item.title,
                 "sourcePath":item.source_path, "projectName":item.project_name, "count":count,
                 "questions":questions
@@ -1104,12 +1211,16 @@ fn overview(view: &Snapshot) -> Result<Overview> {
             ("doing", item.status == Status::Doing),
             ("source", item.has_source_problem),
         ];
-        let item = compact_item(view, item)?;
+        let mut preview = None;
         for (group, includes) in membership {
             if includes {
                 let bucket = overview.groups.get_mut(group).expect("overview group");
                 bucket.total += 1;
-                if bucket.items.len() < 20 {
+                if bucket.items.len() < HOME_PREVIEW_LIMIT {
+                    let item = match &mut preview {
+                        Some(preview) => preview,
+                        slot => slot.insert(compact_item(view, &item)?),
+                    };
                     bucket.items.push(item.clone());
                 }
             }

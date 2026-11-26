@@ -252,7 +252,7 @@ const rows = computed(() => props.items.map((item) => {
   white-space: nowrap;
 }
 .question-row {
-  scroll-margin-top: 84px;
+  scroll-margin-block-start: 8px;
 }
 .question-row:last-child > * {
   border-bottom: 0;

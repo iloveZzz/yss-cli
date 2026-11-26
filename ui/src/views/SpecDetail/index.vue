@@ -116,6 +116,7 @@ const selectedStage = computed(() =>
     ? (route.query.stage as Stage)
     : undefined
 )
+const stageFocus = shallowRef<{ stage: Stage }>()
 const sourceSection = computed(() =>
   typeof route.query.section === 'string' ? route.query.section : ''
 )
@@ -150,8 +151,11 @@ watch(
     stageDirty.value = false
     lifecycleDirty.value = false
     questionDirty.value = false
+    stageFocus.value = tab.value === 'lifecycle' && selectedStage.value && selectedStage.value !== 'unmarked'
+      ? { stage: selectedStage.value }
+      : undefined
   },
-  { flush: 'sync' }
+  { flush: 'sync', immediate: true }
 )
 function openResource(path: string, fragment = '') {
   resourceTarget.value = { path, fragment }
@@ -409,8 +413,10 @@ async function copyPath(path: string) {
           :spec-digest="spec.content.artifactDigest"
           :progress="progress"
           :initial-stage="selectedStage"
+          :stage-focus="stageFocus"
           :confirm-leave="allowLeave"
           @select="setQuery({ stage: $event })"
+          @focused="stageFocus = undefined"
           @dirty="lifecycleDirty = $event"
           @confirm-content="tab = 'content'"
         />

@@ -26,6 +26,7 @@ import {
 } from '@/services/workbench-platform'
 import { getAgentRun, startAgent, type AgentRun } from '@/services/workbench-agent'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
 import { useJobEvents } from './hooks/useJobEvents'
 import { isPiQuestion } from './schemas/conversation'
 import { jobTitle, resultFacts } from './schemas/job'
@@ -50,6 +51,7 @@ const operation = shallowRef<JobOperation>()
 const busy = computed(() => !!operation.value)
 const answeringRequest = computed(() => operation.value?.kind === 'answer' ? operation.value.requestId : undefined)
 const loading = shallowRef(false)
+const readAt = shallowRef<string>()
 const jobsLoaded = shallowRef(false)
 const selectedTab = shallowRef<string>()
 const tab = computed({
@@ -114,24 +116,28 @@ function projectNames(item: JobRecord) {
 let active = true
 let refreshGeneration = 0
 let pendingRefresh: ReturnType<typeof setTimeout> | undefined
-let fetchingFor: string | undefined
-async function refresh(showLoading = true) {
+let pendingRead: { target: string; controller: AbortController; promise: Promise<void> } | undefined
+function refresh(showLoading = true) {
   const target = jobId.value
-  if (fetchingFor === target) {
-    if (showLoading) loading.value = true
-    return
-  }
-  fetchingFor = target
-  const own = ++refreshGeneration
   if (showLoading) loading.value = true
+  if (pendingRead?.target === target) return pendingRead.promise
+  pendingRead?.controller.abort()
+  const controller = new AbortController()
+  const promise = loadJobResults(target, ++refreshGeneration, controller.signal)
+  pendingRead = { target, controller, promise }
+  return promise
+}
+registerWorkbenchRouteReads({ busy: loading, readAt, refresh })
+
+async function loadJobResults(target: string, own: number, signal: AbortSignal) {
   try {
     if (target) {
-      const value = await getJob(target)
+      const value = await getJob(target, signal)
       if (!active || target !== jobId.value || own !== refreshGeneration) return
       job.value = value
       if (runId.value) {
         try {
-          const currentRun = await getAgentRun(runId.value)
+          const currentRun = await getAgentRun(runId.value, signal)
           if (active && own === refreshGeneration) run.value = currentRun
         } catch (cause) {
           if (!(cause instanceof ApiError && cause.status === 404 && !terminalJob(value.status)))
@@ -139,18 +145,21 @@ async function refresh(showLoading = true) {
         }
       }
     } else {
-      const currentJobs = await getJobs()
+      const currentJobs = await getJobs(signal)
       if (active && own === refreshGeneration) {
         jobs.value = currentJobs
         jobsLoaded.value = true
       }
     }
-    if (active && own === refreshGeneration) error.value = ''
+    if (active && own === refreshGeneration) {
+      error.value = ''
+      readAt.value = new Date().toISOString()
+    }
   } catch (cause) {
     if (active && own === refreshGeneration) error.value = errorMessage(cause)
   } finally {
     if (own === refreshGeneration) {
-      fetchingFor = undefined
+      pendingRead = undefined
       loading.value = false
     }
   }
@@ -177,7 +186,9 @@ watch(
   jobId,
   () => {
     refreshGeneration++
-    fetchingFor = undefined
+    pendingRead?.controller.abort()
+    pendingRead = undefined
+    readAt.value = undefined
     job.value = undefined
     run.value = undefined
     selectedTab.value = route.query.tab === 'log' ? 'log' : undefined
@@ -199,6 +210,7 @@ useIntervalFn(() => {
 onBeforeUnmount(() => {
   active = false
   refreshGeneration++
+  pendingRead?.controller.abort()
   clearTimeout(pendingRefresh)
 })
 function currentOperation(owner: JobOperation) {

@@ -440,6 +440,9 @@ impl PlatformApi {
                 let catalog = read_model::catalog(jobs::lock_store(&self.jobs.store)?.state());
                 encode(catalog)?
             }
+            ("GET", ["api", "projects", id, "summary"]) => encode(
+                read_model::read_project_summary(&self.jobs.store, id, &self.cancel)?,
+            )?,
             ("GET", ["api", "specs", id, "detail"]) => encode(read_model::read_spec_detail(
                 &self.jobs.store,
                 &self.reads,
@@ -459,8 +462,8 @@ impl PlatformApi {
             }
             ("GET", ["api", "workbench", "jobs"]) => self.reads.latest().jobs(),
             ("POST", ["api", "workbench", "refresh"]) => {
-                self.reads.request_refresh();
-                json!({"requested": true})
+                let minimum_observation_id = self.reads.request_refresh();
+                json!({"requested": true, "minimumObservationId": minimum_observation_id})
             }
             ("POST", ["api", "work-items"]) => {
                 #[derive(Deserialize)]
@@ -484,10 +487,15 @@ impl PlatformApi {
                 };
                 let limit = request.limit.unwrap_or(default_limit).clamp(1, 200);
                 if request.compact {
-                    self.reads.latest().work_items(
+                    let (stamp, published) = {
+                        let mut store = jobs::lock_store(&self.jobs.store)?;
+                        store.capture_read_records(&[])?;
+                        (store.projection_stamp(), self.reads.latest())
+                    };
+                    published.work_items(
+                        stamp,
                         &request.query,
-                        request.offset,
-                        limit,
+                        (request.offset, limit),
                         request.expected_projection_version.as_deref(),
                         request.expected_query_version.as_deref(),
                         request.board.as_ref(),

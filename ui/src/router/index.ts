@@ -30,7 +30,7 @@ export const router = createRouter({
     { path: '/', redirect: '/workbench' },
     { path: '/workbench', component: Workbench, meta: { lightweight: true } },
     { path: '/projects', component: Projects },
-    { path: '/projects/:projectId', component: ProjectDetail },
+    { path: '/projects/:projectId', component: ProjectDetail, meta: { lightweight: true, projectDetail: true } },
     { path: '/specs', component: Specs, meta: { lightweight: true } },
     { path: '/specs/:specId', component: SpecDetail, meta: { lightweight: true, specDetail: true } },
     { path: '/specs/:specId/agent', name: 'pi-workspace', component: PiWorkspace, props: true, meta: { piWorkspace: true, lightweight: true } },

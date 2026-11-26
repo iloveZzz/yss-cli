@@ -71,6 +71,7 @@ const groups = computed(() => [
     key: 'attention' as const,
     label: '进展提醒',
     options: [
+      { value: 'any', label: '有进展提醒' },
       { value: 'awaitingConfirmation', label: attentionLabels.awaitingConfirmation },
       { value: 'unverified', label: '未核实' },
       { value: 'needsSync', label: '待同步' },

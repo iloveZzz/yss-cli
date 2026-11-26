@@ -1,24 +1,29 @@
 import { computed, onScopeDispose, shallowRef, watch } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { useVerifiedWorkbenchRefresh } from '@/hooks/useWorkbenchVerification'
 import { errorMessage } from '@/services/workbench'
-import {
-  loadWorkbenchOverview,
-  requestWorkbenchReadRefresh,
-  type WorkbenchOverview
-} from '@/services/workbench-read'
+import { loadWorkbenchOverview, type WorkbenchOverview } from '@/services/workbench-read'
 
 let cachedOverview: WorkbenchOverview | undefined
 
 export function useWorkbenchOverview() {
   const { sourceState, expired } = useWorkbench()
   const overview = shallowRef(cachedOverview)
-  const loading = shallowRef(false)
-  const error = shallowRef('')
+  const reading = shallowRef(false)
+  const readError = shallowRef('')
+  const { refresh, refreshing, refreshError } = useVerifiedWorkbenchRefresh(() => read(true))
+  const loading = computed(() => reading.value || refreshing.value)
+  const error = computed(() => refreshError.value || readError.value)
   const verification = computed(() => {
     const observed = sourceState.value
     const current = overview.value
-    if (!observed?.verification || (observed.changeSequence ?? 0) < (current?.changeSequence ?? 0))
-      return current?.verification
+    if (!observed?.verification || (observed.changeSequence ?? 0) <= (current?.changeSequence ?? 0))
+      return current?.verification ?? observed?.verification
+    if (current && observed.verification === 'current') {
+      if (!current.projectionVersion) return 'pending'
+      if (current.verification === 'stale' || current.projectionVersion !== observed.projectionVersion)
+        return 'stale'
+    }
     return observed.verification
   })
   let controller: AbortController | undefined
@@ -28,7 +33,7 @@ export function useWorkbenchOverview() {
   function matchesObservation() {
     const observed = sourceState.value
     const current = overview.value
-    return current && observed && !error.value && (
+    return current && observed && !readError.value && (
       (current.changeSequence ?? 0) > (observed.changeSequence ?? 0) ||
       (current.revision === observed.revision &&
         current.projectionVersion === observed.projectionVersion && current.verification === observed.verification &&
@@ -36,28 +41,32 @@ export function useWorkbenchOverview() {
     )
   }
 
-  function read(): Promise<void> {
+  function read(replacePending = false): Promise<void> {
     if (expired.value) return Promise.resolve()
-    if (pending) {
+    if (pending && !replacePending) {
       invalidatedWhileReading = true
       return pending
     }
+    controller?.abort()
+    invalidatedWhileReading = false
     const request = new AbortController()
     controller = request
-    loading.value = true
+    reading.value = true
     pending = loadWorkbenchOverview(request.signal)
       .then((value) => {
         if (request.signal.aborted) return
         cachedOverview = value
         overview.value = value
-        error.value = ''
+        readError.value = ''
       })
       .catch((cause) => {
-        if (!request.signal.aborted) error.value = errorMessage(cause)
+        if (!request.signal.aborted) readError.value = errorMessage(cause)
       })
       .finally(() => {
+        if (controller !== request) return
+        controller = undefined
         pending = undefined
-        loading.value = false
+        reading.value = false
         if (!request.signal.aborted && invalidatedWhileReading) {
           invalidatedWhileReading = false
           if (!matchesObservation()) void read()
@@ -66,22 +75,15 @@ export function useWorkbenchOverview() {
     return pending
   }
 
-  async function refresh() {
-    try {
-      await requestWorkbenchReadRefresh()
-      await read()
-    } catch (cause) {
-      error.value = errorMessage(cause)
-    }
-  }
-
   watch([
     () => sourceState.value?.revision,
     () => sourceState.value?.projectionVersion,
+    () => sourceState.value?.projectionObservationId,
     () => sourceState.value?.verification,
-    () => sourceState.value?.verificationError
+    () => sourceState.value?.verificationError,
+    refreshing
   ], () => {
-    if (!matchesObservation()) void read()
+    if (!refreshing.value && !matchesObservation()) void read()
   }, { immediate: true })
   onScopeDispose(() => controller?.abort())
 

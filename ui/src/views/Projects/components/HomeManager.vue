@@ -6,13 +6,14 @@ import { Alert } from '@/components/ui/alert'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import { reactive, shallowRef, computed, nextTick, onMounted, ref, useId } from 'vue'
+import { reactive, shallowRef, computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Separator } from '@/components/ui/separator'
 import { useWorkbench } from '@/hooks/useWorkbench'
+import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
 import { errorMessage } from '@/services/workbench'
 import {
   getHomes,
@@ -24,6 +25,8 @@ import {
 const { snapshot, refresh } = useWorkbench()
 const homes = shallowRef<HomeImport[]>([])
 const loading = shallowRef(true)
+const readAt = shallowRef<string>()
+const loadError = shallowRef('')
 const preview = shallowRef<HomeImport>()
 const manualRows = shallowRef('')
 const manualEntries = ref<HomeRow[]>([])
@@ -61,17 +64,30 @@ const projectRoots = computed(
       root: project.record.rootPath
     })) ?? []
 )
+let loadingHomes: AbortController | undefined
 async function load() {
+  loadingHomes?.abort()
+  const controller = new AbortController()
+  loadingHomes = controller
   loading.value = true
   try {
-    homes.value = (await getHomes()).homes
+    const result = await getHomes(controller.signal)
+    if (controller.signal.aborted) return
+    homes.value = result.homes
+    loadError.value = ''
+    readAt.value = new Date().toISOString()
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (!controller.signal.aborted) loadError.value = errorMessage(cause)
   } finally {
-    loading.value = false
+    if (loadingHomes === controller) {
+      loadingHomes = undefined
+      loading.value = false
+    }
   }
 }
+registerWorkbenchRouteReads({ busy: computed(() => loading.value || busy.value), readAt, refresh: load })
 onMounted(load)
+onBeforeUnmount(() => loadingHomes?.abort())
 async function inspect(event: SubmitEvent) {
   if (busy.value) return
   const sourceForm = event.currentTarget as HTMLFormElement
@@ -240,6 +256,7 @@ async function save() {
     </div>
     <Alert v-if="notice" role="status" class="notice">{{ notice }}</Alert>
     <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
+    <Alert v-if="loadError" role="alert" class="notice error" variant="destructive">{{ loadError }}</Alert>
     <div v-if="homes.length" class="home-list" :aria-busy="loading">
       <article v-for="home in homes" :key="home.id" class="home-record">
         <div class="home-record-heading">
@@ -504,7 +521,7 @@ async function save() {
       :rows="2"
       label="正在读取产品 Home"
     />
-    <Empty v-else-if="!homes.length && !open && !error" class="home-empty">
+    <Empty v-else-if="!homes.length && !open && !error && !loadError" class="home-empty">
       <EmptyDescription>尚未导入仓库地图。</EmptyDescription>
     </Empty>
   </Card>

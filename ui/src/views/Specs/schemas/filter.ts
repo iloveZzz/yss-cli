@@ -58,7 +58,7 @@ export function decodeWorkQuery(raw: LocationQuery): {
         ? 'effective'
         : 'personal',
     attention: values('attention').filter((value) =>
-      ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'].includes(value)
+      ['any', 'awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'].includes(value)
     ),
     q: text('q'),
     projectIds: values('project'),

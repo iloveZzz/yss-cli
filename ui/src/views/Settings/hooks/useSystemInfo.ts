@@ -3,6 +3,7 @@ import { getSystem, type SystemInfo } from '@/services/workbench-platform'
 import { errorMessage } from '@/services/workbench'
 export function useSystemInfo() {
   const info = shallowRef<SystemInfo>()
+  const readAt = shallowRef<string>()
   const loading = shallowRef(false)
   const error = shallowRef('')
   let controller: AbortController | undefined
@@ -15,6 +16,7 @@ export function useSystemInfo() {
       const result = await getSystem(current.signal)
       if (!current.signal.aborted) {
         info.value = result
+        readAt.value = new Date().toISOString()
         error.value = ''
       }
     } catch (cause) {
@@ -25,5 +27,5 @@ export function useSystemInfo() {
   }
   onMounted(refresh)
   onBeforeUnmount(() => controller?.abort())
-  return { info, loading, error, refresh }
+  return { info, readAt, loading, error, refresh }
 }

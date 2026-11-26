@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert } from '@/components/ui/alert'
-import { computed, shallowRef, watch, useId } from 'vue'
+import { computed, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { Button } from '@/components/ui/button'
 import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
@@ -28,24 +28,29 @@ const props = defineProps<{
   specDigest: string | null
   progress?: ProgressSummary
   initialStage?: Stage
+  stageFocus?: { stage: Stage }
   confirmLeave: (dirty: boolean) => boolean | Promise<boolean>
 }>()
 const emit = defineEmits<{
   dirty: [value: boolean]
   saved: []
   select: [stage: Stage]
+  focused: []
   confirmContent: []
 }>()
 const { submit, saving } = useWorkbench()
 const id = useId()
 const chosenStage = shallowRef<Stage>()
-const selectedStage = computed(() => chosenStage.value ?? props.initialStage ?? props.progress?.primaryStage ?? 'research')
-const selected = computed(
-  () =>
-    props.progress?.stages.find(
-      (stage) => stage.stage === selectedStage.value
-    ) ?? props.progress?.stages[0]
+const selectedStage = computed(() =>
+  chosenStage.value ??
+  (props.initialStage === 'unmarked' ? undefined : props.initialStage) ??
+  props.progress?.primaryStage ??
+  'research'
 )
+const selected = computed(
+  () => props.progress?.stages.find((stage) => stage.stage === selectedStage.value)
+)
+const stageHeading = useTemplateRef<HTMLElement>('stage-heading')
 const goalOpen = shallowRef(false)
 const overrideOpen = shallowRef(false)
 const overrideProject = shallowRef<string>()
@@ -55,6 +60,21 @@ const notice = shallowRef('')
 watch(
   () => props.initialStage,
   () => { chosenStage.value = undefined }
+)
+watch(
+  [() => props.stageFocus, () => props.active, selectedStage, stageHeading],
+  ([target, active, stage, heading], _previous, onCleanup) => {
+    if (!active || target?.stage !== stage || !heading) return
+    // TabsContent updates its visibility after the current tick.
+    const frame = requestAnimationFrame(() => {
+      heading.focus({ preventScroll: true })
+      if (heading.ownerDocument.activeElement !== heading) return
+      heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+      emit('focused')
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  },
+  { flush: 'post' }
 )
 function select(stage: Stage) {
   chosenStage.value = stage
@@ -210,7 +230,7 @@ async function reconcile() {
       :aria-labelledby="id + '-selected'"
     >
       <div class="section-heading">
-        <h3 :id="id + '-selected'">
+        <h3 :id="id + '-selected'" ref="stage-heading" tabindex="-1">
           {{
             selected.stage === 'delivery' &&
             !selected.applicable &&
@@ -298,6 +318,15 @@ async function reconcile() {
         @correct="correct"
         @clear="clearOverride"
       />
+    </section>
+    <section
+      v-else
+      :id="id + '-detail'"
+      class="stage-detail"
+      :aria-labelledby="id + '-selected'"
+    >
+      <h3 :id="id + '-selected'" ref="stage-heading" tabindex="-1">{{ stages[selectedStage] }}</h3>
+      <p class="stage-summary">阶段进展待核实。</p>
     </section>
     <LifecycleProgressHistory
       v-if="active"

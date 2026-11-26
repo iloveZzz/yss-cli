@@ -21,7 +21,7 @@ import {
   refreshExternalLink,
   type ExternalLink
 } from '@/services/workbench-engineering'
-const props = defineProps<{ projectId?: string; specId?: string }>()
+const props = withDefaults(defineProps<{ projectId?: string; specId?: string; active?: boolean }>(), { active: true })
 const { snapshot, externalVersion } = useWorkbench()
 const links = shallowRef<ExternalLink[]>([])
 const selectedProjectId = shallowRef(props.projectId ?? '')
@@ -47,7 +47,8 @@ const form = reactive({
   kind: 'issue' as ExternalLink['kind'],
   number: 1
 })
-const error = shallowRef('')
+const readError = shallowRef('')
+const actionError = shallowRef('')
 const action = shallowRef<{ kind: 'add' } | { kind: 'refresh'; id: string }>()
 const busy = computed(() => !!action.value)
 const jobId = shallowRef('')
@@ -55,8 +56,9 @@ const pendingJobs = shallowRef<Record<string, string>>({})
 const expanded = shallowRef(false)
 const loading = shallowRef(false)
 const loaded = shallowRef(false)
-let generation = 0
-let active = true
+let request: AbortController | undefined
+let loadedKey: string | undefined
+let mounted = true
 let polling = false
 const providerOptions = [
   { value: 'github', label: 'GitHub' },
@@ -162,68 +164,99 @@ watch(
       form.host = provider === 'github' ? 'github.com' : 'gitlab.com'
   }
 )
+const readKey = computed(() => {
+  const { projectId, specId } = props
+  const key = [projectId, specId, externalVersion.value]
+  if (projectId && !specId) return JSON.stringify(key)
+  const progress = snapshot.value?.progress ?? {}
+  return JSON.stringify([
+    ...key, snapshot.value?.revision,
+    specId ? progress[specId]?.evidenceDigest : Object.values(progress).map((item) => item.evidenceDigest)
+  ])
+})
+function cancelRead() {
+  if (request) loadedKey = undefined
+  request?.abort()
+  request = undefined
+  loading.value = false
+}
 async function refresh() {
-  const current = ++generation
+  if (!mounted) return
+  if (!props.active) {
+    loadedKey = undefined
+    return
+  }
+  request?.abort()
+  const current = new AbortController()
+  const key = readKey.value
+  request = current
   loading.value = true
   try {
-    const result = await getExternalLinks()
-    if (active && current === generation) {
+    const result = await getExternalLinks(current.signal)
+    if (request === current && props.active && readKey.value === key) {
       links.value = result
       loaded.value = true
-      error.value = ''
+      loadedKey = key
+      readError.value = ''
     }
   } catch (cause) {
-    if (active && current === generation) error.value = errorMessage(cause)
+    if (request === current && props.active && readKey.value === key) readError.value = errorMessage(cause)
   } finally {
-    if (active && current === generation) loading.value = false
+    if (request === current) {
+      request = undefined
+      loading.value = false
+    }
   }
 }
 watch(
-  [() => props.projectId, () => props.specId, () => externalVersion.value, () => snapshot.value?.revision, () => props.specId ? snapshot.value?.progress?.[props.specId]?.evidenceDigest : Object.values(snapshot.value?.progress ?? {}).map((progress) => progress.evidenceDigest).join('|')],
-  refresh,
+  [() => props.active, readKey],
+  ([visible, key]) => {
+    if (!visible) cancelRead()
+    else if (loadedKey !== key) void refresh()
+  },
   { immediate: true }
 )
 onBeforeUnmount(() => {
-  active = false
-  generation++
+  mounted = false
+  cancelRead()
 })
 async function add() {
-  if (busy.value) return
+  if (!props.active || busy.value) return
   action.value = { kind: 'add' }
-  error.value = ''
+  actionError.value = ''
   try {
     await addExternalLink({ ...form, projectId: props.specId ? selectedProjectId.value : props.projectId, specId: props.specId })
     await refresh()
     expanded.value = false
   } catch (cause) {
-    error.value = errorMessage(cause)
+    actionError.value = errorMessage(cause)
   } finally {
     action.value = undefined
   }
 }
 async function update(id: string) {
-  if (busy.value || pendingJobs.value[id]) return
+  if (!props.active || busy.value || pendingJobs.value[id]) return
   action.value = { kind: 'refresh', id }
-  error.value = ''
+  actionError.value = ''
   try {
     const job = await refreshExternalLink(id)
     jobId.value = job.id
     pendingJobs.value = { ...pendingJobs.value, [id]: job.id }
     await refresh()
   } catch (cause) {
-    error.value = errorMessage(cause)
+    actionError.value = errorMessage(cause)
   } finally {
     action.value = undefined
   }
 }
 useIntervalFn(async () => {
-  if (polling || !Object.keys(pendingJobs.value).length) return
+  if (!props.active || polling || !Object.keys(pendingJobs.value).length) return
   polling = true
   let changed = false
   try {
     for (const [id, job] of Object.entries(pendingJobs.value)) {
       const result = await getJob(job)
-      if (!active) return
+      if (!mounted || !props.active) break
       if (terminalJob(result.status)) {
         const next = { ...pendingJobs.value }
         delete next[id]
@@ -233,7 +266,7 @@ useIntervalFn(async () => {
     }
     if (changed) await refresh()
   } catch (cause) {
-    if (active) error.value = errorMessage(cause)
+    if (mounted && props.active) readError.value = errorMessage(cause)
   } finally {
     polling = false
   }
@@ -260,7 +293,8 @@ useIntervalFn(async () => {
         >
       </div>
     </div>
-    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
+    <Alert v-if="actionError" role="alert" class="notice error" variant="destructive">{{ actionError }}</Alert>
+    <Alert v-if="readError" role="alert" class="notice error" variant="destructive">{{ readError }}</Alert>
     <Alert v-if="jobId" role="status" class="notice">
       <div>已开始读取，<RouterLink :to="`/jobs/${jobId}`" class="text-link">查看执行进度</RouterLink>。</div>
     </Alert>
@@ -421,7 +455,7 @@ useIntervalFn(async () => {
       :rows="2"
       label="正在读取研发关联"
     />
-    <Empty v-else-if="!expanded && !error" class="border-0 px-4 py-6">
+    <Empty v-else-if="!expanded && !actionError && !readError" class="border-0 px-4 py-6">
       <EmptyDescription>尚未关联外部事项</EmptyDescription>
     </Empty>
   </Card>

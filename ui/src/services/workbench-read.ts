@@ -3,6 +3,7 @@ import type {
   ChangeEvent,
   GroupBy,
   ProjectRecord,
+  ProjectView,
   SavedView,
   Snapshot,
   SpecRecord,
@@ -33,6 +34,12 @@ export interface SpecDetailRead {
   snapshot: Snapshot
   specVersion: string
   observationId: number
+}
+
+export interface ProjectSummary {
+  revision: number
+  readAt: string
+  project: ProjectView
 }
 
 export type CatalogSpec = Pick<
@@ -73,7 +80,7 @@ export interface WorkbenchOverview extends ProjectionState {
   projectCount: number
   activeSpecCount: number
   groups: Record<'attention' | 'blocked' | 'doing' | 'source', Group<CompactWorkItem>>
-  reminders: Record<string, Group<ReminderItem>>
+  reminders: Record<string, Group<ReminderItem> & { specTotal: number }>
   recent: SpecRecord[]
   activity: ChangeEvent[]
 }
@@ -90,13 +97,16 @@ export interface CompactWorkPage extends ProjectionState {
 }
 
 export const loadWorkbenchJobs = (signal?: AbortSignal) =>
-  apiRequest<{ items: WorkbenchJob[]; version: string }>('/api/workbench/jobs', { signal })
+  apiRequest<Group<WorkbenchJob> & { version: string }>('/api/workbench/jobs', { signal })
 
 export const loadWorkbenchCatalog = (signal?: AbortSignal) =>
   apiRequest<WorkbenchCatalog>('/api/workbench/catalog', { signal })
 
 export const loadWorkbenchOverview = (signal?: AbortSignal) =>
   apiRequest<WorkbenchOverview>('/api/workbench/overview', { signal })
+
+export const loadProjectSummary = (id: string, signal: AbortSignal) =>
+  apiRequest<ProjectSummary>(`/api/projects/${encodeURIComponent(id)}/summary`, { signal })
 
 export const loadSpecDetail = (id: string, fresh: boolean, signal: AbortSignal) =>
   apiRequest<SpecDetailRead>(
@@ -116,5 +126,5 @@ export const loadCompactWorkPage = (
   signal?: AbortSignal
 ) => apiRequest<CompactWorkPage>('/api/work-items', { body: { query, compact: true, ...page }, signal })
 
-export const requestWorkbenchReadRefresh = () =>
-  apiRequest<{ requested: boolean }>('/api/workbench/refresh', { body: {} })
+export const requestWorkbenchReadRefresh = (signal?: AbortSignal) =>
+  apiRequest<{ requested: boolean; minimumObservationId: number }>('/api/workbench/refresh', { body: {}, signal })

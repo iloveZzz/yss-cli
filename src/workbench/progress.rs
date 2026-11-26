@@ -345,6 +345,12 @@ pub struct StageSummary {
     pub versions: Vec<ProjectVersion>,
     pub override_record: Option<OverrideRecord>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressCompletion {
+    pub completed: usize,
+    pub total: usize,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressSummary {
@@ -355,6 +361,8 @@ pub struct ProgressSummary {
     pub active_stages: Vec<Stage>,
     pub primary_stage: Stage,
     pub status: Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion: Option<ProgressCompletion>,
     pub validity: Validity,
     pub attention: Vec<String>,
     pub summary: String,
@@ -2845,6 +2853,19 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
     } else {
         Status::Unmarked
     };
+    let completion = goal.map(|_| {
+        let scoped_stages = stages.iter().filter(in_scope);
+        let total = scoped_stages.clone().count();
+        let completed = if status == Status::Done {
+            // An accepted target version can retain completion as its evidence changes.
+            total
+        } else {
+            scoped_stages
+                .filter(|stage| stage.stage != Stage::Delivery && stage_completed(stage))
+                .count()
+        };
+        ProgressCompletion { completed, total }
+    });
     let blocker = stages
         .iter()
         .filter(in_scope)
@@ -2861,6 +2882,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         active_stages,
         primary_stage: primary.map(|s| s.stage).unwrap_or(Stage::Delivery),
         status,
+        completion,
         validity,
         attention: attention.into_iter().collect(),
         summary: primary

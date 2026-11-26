@@ -5,8 +5,8 @@ const saved = { search: '', filter: 'all', kind: 'all', top: 0, left: 0, windowY
 <script setup lang="ts">
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
-import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
@@ -27,9 +27,12 @@ const props = defineProps<{
   failed: boolean
   projectNames: (job: JobRecord) => string
 }>()
-const search = shallowRef(saved.search)
-const filter = shallowRef(saved.filter)
-const kind = shallowRef(saved.kind)
+const route = useRoute()
+const router = useRouter()
+const openAll = route.query.scope === 'all'
+const search = shallowRef(openAll ? '' : saved.search)
+const filter = shallowRef(openAll ? 'all' : saved.filter)
+const kind = shallowRef(openAll ? 'all' : saved.kind)
 const scroll = useTemplateRef<HTMLElement>('scroll')
 const requestCount = shallowRef<number>()
 const historyOpen = shallowRef(false)
@@ -52,13 +55,17 @@ onBeforeRouteUpdate((to, from) => {
   if (to.path !== from.path) remember()
 })
 onBeforeUnmount(remember)
+onMounted(() => {
+  // Consume the home entry scope so browser Back still restores filters used in this list.
+  if (openAll) void router.replace({ query: { ...route.query, scope: undefined } })
+})
 watch(
   () => [props.loaded, scroll.value],
   () => {
     if (!props.loaded || !scroll.value || restored) return
     restored = true
-    scroll.value.scrollTo(saved.left, saved.top)
-    window.scrollTo({ top: saved.windowY, behavior: 'instant' })
+    scroll.value.scrollTo(openAll ? 0 : saved.left, openAll ? 0 : saved.top)
+    window.scrollTo({ top: openAll ? 0 : saved.windowY, behavior: 'instant' })
   },
   { flush: 'post', immediate: true }
 )

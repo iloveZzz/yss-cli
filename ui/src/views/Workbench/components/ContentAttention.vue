@@ -30,11 +30,10 @@ const counts = computed(() =>
     count: props.reminders[group.id]?.total ?? 0
   }))
 )
-const selectedLabel = computed(
-  () => counts.value.find((group) => group.id === selected.value)?.label ?? '内容待办'
-)
+const selectedLabel = computed(() => counts.value.find((group) => group.id === selected.value)?.label ?? '内容待办')
 const hasReminders = computed(() => counts.value.some((group) => group.count > 0))
-const items = computed(() => props.reminders[selected.value]?.items ?? [])
+const preview = computed(() => props.reminders[selected.value])
+const items = computed(() => preview.value?.items ?? [])
 watch(
   () => route.query.attention,
   (value) => {
@@ -67,15 +66,16 @@ function location(specId: string, questionId?: string) {
   <section v-else class="work-section content-attention" :aria-labelledby="id">
     <div class="section-heading">
       <h2 :id="id">需要你处理</h2>
-      <RouterLink :to="{ path: '/specs', query: { reminder: selected, progressBasis: 'effective', showClosed: 'true' } }">
-        查看筛选列表 →
+      <RouterLink :to="{ path: '/specs', query: { reminder: selected, progressBasis: 'effective', showClosed: 'true' } }"
+        :aria-label="`查看筛选列表 · ${selectedLabel}`">
+        查看筛选列表 <span aria-hidden="true">→</span>
       </RouterLink>
     </div>
     <Tabs class="panel home-tab-panel" :model-value="selected" activation-mode="manual" @update:model-value="select">
       <TabsList class="attention-filters home-tabs" aria-label="内容提醒类别">
         <TabsTrigger v-for="group in counts" :key="group.id" :value="group.id">
           {{ group.label }}
-          <Badge variant="secondary" class="tab-count">{{ group.count }}</Badge>
+          <Badge variant="secondary" class="tab-count">{{ group.count }} 项</Badge>
         </TabsTrigger>
       </TabsList>
       <TabsContent v-for="group in counts" :key="group.id" :value="group.id" class="min-w-0">
@@ -137,7 +137,10 @@ function location(specId: string, questionId?: string) {
             </TableBody>
           </Table>
         </div>
-        <Empty v-else class="attention-empty">
+        <p v-if="preview && items.length < preview.specTotal" class="muted px-4 py-2">
+          已显示 {{ items.length }} / {{ preview.specTotal }} 个 Spec
+        </p>
+        <Empty v-if="!items.length" class="attention-empty">
           <EmptyDescription>当前没有{{ selectedLabel }}事项</EmptyDescription>
         </Empty>
       </TabsContent>

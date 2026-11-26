@@ -13,6 +13,7 @@ import { loadWorkbenchJobs, type WorkbenchJob } from '@/services/workbench-read'
 import { useWorkbench } from '@/hooks/useWorkbench'
 const { sourceState, expired } = useWorkbench()
 const jobs = shallowRef<WorkbenchJob[]>([])
+const total = shallowRef(0)
 const error = shallowRef('')
 const pending = shallowRef<'initial' | 'retry' | 'poll' | null>('initial')
 const loading = computed(() => pending.value !== null)
@@ -35,6 +36,7 @@ async function refresh(kind: 'initial' | 'retry' | 'poll') {
     const value = await loadWorkbenchJobs(current.signal)
     if (!current.signal.aborted) {
       jobs.value = value.items
+      total.value = value.total
       version = value.version
       loaded.value = true
       error.value = ''
@@ -70,7 +72,8 @@ function action(job: WorkbenchJob) {
     <div class="section-heading jobs-heading">
       <h2 :id="id">执行与待处理</h2>
       <span v-if="loaded && !jobs.length && !error" class="jobs-empty-note muted">暂无待处理的执行</span>
-      <RouterLink to="/jobs">全部执行记录 →</RouterLink>
+      <span v-else-if="jobs.length < total" class="muted text-xs">已显示 {{ jobs.length }} / {{ total }} 条</span>
+      <RouterLink :to="{ path: '/jobs', query: { scope: 'all' } }">全部执行记录 →</RouterLink>
     </div>
     <Alert v-if="error" role="alert" class="notice warning">
       执行记录读取失败。{{ error }}

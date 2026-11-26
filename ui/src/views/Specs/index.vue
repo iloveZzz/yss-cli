@@ -221,7 +221,7 @@ function selectLayout(value: unknown) {
   <Alert v-if="error || verification === 'failed'" role="alert" class="notice error">
     {{ error || verificationError || 'Spec 进度核对失败。' }}
     {{ result?.projectionVersion ? '保留上次查询结果。' : '' }}
-    <Button type="button" variant="outline" @click="refresh">重试</Button>
+    <Button type="button" variant="outline" :disabled="loading" @click="refresh">重试</Button>
   </Alert>
   <p v-else-if="verification === 'stale'" class="muted" role="status">正在核对变化，当前显示上次核实结果。</p>
   <p v-else-if="loading && result?.items.length && !resultsCurrent" class="muted view-note">正在载入新结果，以下暂为上次查询。</p>

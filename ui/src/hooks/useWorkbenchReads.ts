@@ -47,7 +47,22 @@ interface RouteReads {
   refresh: () => Promise<unknown>
 }
 
+interface WorkbenchRefreshAction {
+  busy: Readonly<Ref<boolean>>
+  disabled: Readonly<Ref<boolean>>
+  refresh: () => Promise<void>
+}
+
 const routeReadsKey: InjectionKey<ShallowRef<RouteReads | undefined>> = Symbol('workbench route reads')
+const refreshActionKey: InjectionKey<WorkbenchRefreshAction> = Symbol('workbench refresh action')
+
+export function provideWorkbenchRefreshAction(action: WorkbenchRefreshAction) {
+  provide(refreshActionKey, action)
+}
+
+export function useWorkbenchRefreshAction() {
+  return inject(refreshActionKey)!
+}
 
 export function provideWorkbenchRouteReads() {
   const routeReads = shallowRef<RouteReads>()

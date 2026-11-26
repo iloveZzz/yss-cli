@@ -388,6 +388,7 @@ export interface SourceState {
   projectionVersion?: string | null
   projectionRevision?: number | null
   projectionObservationId?: number | null
+  failedObservationId?: number | null
   verification?: import('./workbench-read').Verification
   verificationError?: string | null
   activityVersions?: Record<string, string>
@@ -398,7 +399,8 @@ export interface SourceState {
   changeSequence?: number
   readAt: string
 }
-export const getSourceState = () => apiRequest<SourceState>('/api/source-state?compact=1')
+export const getSourceState = (signal?: AbortSignal) =>
+  apiRequest<SourceState>('/api/source-state?compact=1', { signal })
 export function streamJob(
   id: string,
   after: number,

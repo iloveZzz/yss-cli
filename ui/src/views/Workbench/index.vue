@@ -1,25 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
-import { FileClock, History } from '@lucide/vue'
+import { ArrowRight, FileClock, History, RefreshCw } from '@lucide/vue'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import RegisteredSpecs from '@/components/RegisteredSpecs.vue'
 import WorkItemRows from '@/components/WorkItemRows.vue'
 import ContentAttention from './components/ContentAttention.vue'
 import ActiveJobs from './components/ActiveJobs.vue'
-import { registerWorkbenchRouteReads, useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+import { registerWorkbenchRouteReads, useWorkbenchCatalog, useWorkbenchRefreshAction } from '@/hooks/useWorkbenchReads'
 import { dateLabel, stages, type ChangeEvent } from '@/services/workbench'
 import { eventDescription } from '@/services/workbench-history'
 import type { WorkbenchOverview } from '@/services/workbench-read'
 import { useWorkbenchOverview } from './hooks/useWorkbenchOverview'
 
 const { overview, loading, error, verification, refresh } = useWorkbenchOverview()
+const { busy: refreshBusy, disabled: refreshDisabled, refresh: refreshPage } = useWorkbenchRefreshAction()
 const { catalog, catalogError, refreshCatalog } = useWorkbenchCatalog()
 const route = useRoute()
 const router = useRouter()
@@ -34,7 +36,7 @@ const showPlaceholder = computed(() =>
 )
 registerWorkbenchRouteReads({ busy: loading, readAt: computed(() => overview.value?.readAt), refresh })
 const definitions: { id: keyof WorkbenchOverview['groups']; label: string; query: LocationQueryRaw }[] = [
-  { id: 'attention', label: '待确认与核实', query: { attention: ['awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'], progressBasis: 'effective', showClosed: 'true' } },
+  { id: 'attention', label: '待确认与核实', query: { attention: 'any', progressBasis: 'effective', showClosed: 'true' } },
   { id: 'blocked', label: '需要解除阻塞', query: { status: 'blocked', progressBasis: 'effective' } },
   { id: 'doing', label: '进行中', query: { status: 'doing', progressBasis: 'effective' } },
   { id: 'source', label: '来源异常', query: { sourceProblems: 'true', progressBasis: 'effective', showClosed: 'true' } }
@@ -51,6 +53,7 @@ const focus = computed(() =>
 )
 const progressItems = computed(() => focus.value.items)
 const recent = computed(() => overview.value?.recent ?? [])
+const recentSpecList = { path: '/specs', query: { progressBasis: 'personal', showClosed: 'true', sort: 'updatedDesc' } }
 const activity = computed(() => overview.value?.activity ?? [])
 function target(event: ChangeEvent) {
   const title = event.specId
@@ -68,10 +71,29 @@ function selectFocus(value: string | number) {
 <template>
   <div class="workbench-home">
     <header class="page-heading home-heading">
-      <h1>工作台</h1>
+      <div>
+        <div class="home-context">
+          <span class="home-brand-mark" aria-hidden="true">Y</span>
+          <strong>YSS</strong>
+          <span class="home-context-name">本机工作台</span>
+        </div>
+        <h1>工作台</h1>
+        <p class="home-meta">
+          <span>全部工程</span>
+          <template v-if="overview?.readAt">
+            <span aria-hidden="true">·</span>
+            <span>最近读取 <time :datetime="overview.readAt">{{ dateLabel(overview.readAt) }}</time></span>
+          </template>
+        </p>
+      </div>
       <div class="inline-actions">
+        <Button type="button" variant="outline" :disabled="refreshDisabled" @click="refreshPage">
+          <RefreshCw v-if="!refreshBusy" aria-hidden="true" />
+          <LoadingIndicator :active="refreshBusy" />
+          {{ refreshBusy ? '刷新中…' : '刷新' }}
+        </Button>
         <Button as-child variant="outline"><RouterLink to="/projects">工程管理</RouterLink></Button>
-        <Button as-child variant="ghost"><RouterLink to="/specs">全部 Spec →</RouterLink></Button>
+        <Button as-child variant="ghost"><RouterLink to="/specs">全部 Spec <ArrowRight aria-hidden="true" /></RouterLink></Button>
       </div>
     </header>
     <Alert v-if="catalogError" class="notice warning" role="status">
@@ -85,7 +107,7 @@ function selectFocus(value: string | number) {
     </Alert>
     <p v-else-if="verification === 'stale'" class="muted" role="status">正在核对变化，当前显示上次核实结果。</p>
     <LoadingSkeleton v-if="showPlaceholder" variant="cards" :rows="3" label="正在读取工作台概览" />
-    <RegisteredSpecs v-if="!ready && catalog && registered.length" :projects="catalog.projects" :specs="registered"
+    <RegisteredSpecs v-if="!ready && catalog && registered.length" :projects="catalog.projects" :specs="registered" :limit="5"
       :failed="!!error || verification === 'failed'" />
     <Empty v-if="overview?.projectCount === 0" class="panel home-welcome">
       <EmptyHeader>
@@ -103,7 +125,9 @@ function selectFocus(value: string | number) {
         <section v-if="ready" class="work-section progress-section" aria-labelledby="progress-heading">
           <div class="section-heading">
             <h2 id="progress-heading">Spec 推进</h2>
-            <RouterLink :to="{ path: '/specs', query: focus.query }">查看筛选列表 →</RouterLink>
+            <RouterLink :to="{ path: '/specs', query: focus.query }" :aria-label="`查看筛选列表 · ${focus.label}`">
+              查看筛选列表 <span aria-hidden="true">→</span>
+            </RouterLink>
           </div>
           <Tabs class="panel home-tab-panel" :model-value="focus.id" activation-mode="manual" @update:model-value="selectFocus">
             <TabsList class="progress-filters home-tabs" aria-label="Spec 推进范围">
@@ -116,7 +140,7 @@ function selectFocus(value: string | number) {
               <div v-if="progressItems.length">
                 <WorkItemRows :items="progressItems" :caption="focus.label + ' Spec'" :refreshing="loading && !!progressItems.length" />
                 <p v-if="progressItems.length < focus.total" class="muted px-4 py-2">
-                  已显示 {{ progressItems.length }} / {{ focus.total }} 项
+                  已显示 {{ progressItems.length }} / {{ focus.total }} 个 Spec
                 </p>
               </div>
               <Empty v-else class="quiet-empty">
@@ -154,6 +178,9 @@ function selectFocus(value: string | number) {
               </time>
             </li>
           </ul>
+          <RouterLink v-if="overview && recent.length < overview.activeSpecCount" :to="recentSpecList" class="recent-list-link">
+            查看完整规格列表 <span aria-hidden="true">→</span>
+          </RouterLink>
         </Card>
         <Card v-if="activity.length" class="panel recent-panel gap-0 py-0 shadow-none" role="region" aria-labelledby="activity-heading">
           <CardHeader class="recent-heading">
@@ -188,12 +215,48 @@ function selectFocus(value: string | number) {
   margin-inline: auto;
 }
 .home-heading {
-  margin-block-end: 12px;
+  align-items: flex-end;
+  margin-block-end: 16px;
   min-block-size: var(--yss-control-min-height);
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.home-context,
+.home-heading .home-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  color: var(--brand-color-text-secondary);
+}
+.home-context {
+  margin-block-end: 5px;
+  font-size: 11px;
+}
+.home-context strong { color: var(--yss-colors-text-title); letter-spacing: .06em; }
+.home-brand-mark {
+  display: grid;
+  inline-size: 17px;
+  block-size: 17px;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--yss-colors-text-title);
+  color: var(--brand-color-bg-container);
+  font-size: 10px;
+  font-weight: 700;
+}
+.home-context-name {
+  margin-inline-start: 2px;
+  padding-inline-start: 6px;
+  border-inline-start: 1px solid var(--yss-colors-border-control);
+}
+.home-heading .home-meta {
+  margin-block-start: 0;
+  font-size: 12px;
 }
 .home-heading .inline-actions {
   margin-block-start: 0;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .home-welcome {
@@ -284,6 +347,11 @@ function selectFocus(value: string | number) {
 }
 .recent-heading svg { color: var(--brand-color-text-secondary); }
 .recent-heading h2 { font-size: 13px; }
+.recent-list-link {
+  align-self: start;
+  margin: 0 12px 8px;
+  font-size: 12px;
+}
 .compact-records {
   list-style: none;
   margin: 0;
@@ -355,7 +423,8 @@ function selectFocus(value: string | number) {
   }
 }
 @media (width < 720px) {
-  .home-heading { flex-wrap: wrap; }
+  .home-heading .inline-actions { gap: 4px; }
+  .home-heading .inline-actions [data-slot='button'] { padding-inline: 8px; }
   .home-priority :deep(.home-tabs [data-slot='tabs-trigger']) {
     min-block-size: var(--yss-control-min-height);
   }

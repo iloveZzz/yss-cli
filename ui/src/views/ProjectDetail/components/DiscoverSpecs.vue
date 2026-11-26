@@ -1,10 +1,17 @@
+<script lang="ts">
+import { shallowReactive } from 'vue'
+
+// Index the workbench session's pending requests so a remounted discovery panel can recover them by file.
+const associationRequestIds = shallowReactive(new Map<string, string>())
+</script>
+
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import { shallowRef, ref, computed, onBeforeUnmount, onMounted, useId } from 'vue'
+import { shallowRef, ref, computed, onBeforeUnmount, useId, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -12,10 +19,18 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Field, FieldLabel } from '@/components/ui/field'
-import { discoverSpecs, errorMessage, type DiscoverResult } from '@/services/workbench'
+import { ApiError, discoverSpecs, errorMessage, pendingRequests, type DiscoverResult } from '@/services/workbench'
 import { useWorkbench } from '@/hooks/useWorkbench'
-const props = defineProps<{ projectId: string; directories: string[] }>()
-const { submit, saving, snapshot, refresh } = useWorkbench()
+import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
+const props = defineProps<{
+  projectId: string
+  rootPath: string
+  directories: string[]
+  visible: boolean
+  reloadProject: (minimumRevision?: number) => Promise<boolean>
+}>()
+const { snapshot, submit, saving } = useWorkbench()
+const { catalog, catalogError, refreshCatalog } = useWorkbenchCatalog()
 const id = useId()
 const directory = shallowRef('')
 const manual = shallowRef('')
@@ -31,17 +46,42 @@ const busy = computed(() => !!action.value)
 const scanning = computed(() => action.value === 'scan')
 const message = shallowRef('')
 const errors = ref<string[]>([])
-const unregistered = computed(
-  () => result.value?.candidates.filter((c) => !c.alreadyRegistered).map((c) => c.sourcePath) ?? []
-)
+const pendingIds = computed(() => new Set(pendingRequests.value.map(({ requestId }) => requestId)))
+const associationPaths = computed(() => result.value?.candidates
+  .filter((candidate) => !candidate.alreadyRegistered || awaitingReceipt(candidate.sourcePath))
+  .map((candidate) => candidate.sourcePath) ?? [])
+const selectablePaths = computed(() => new Set(associationPaths.value))
+const selectedPaths = computed(() => selected.value.filter((path) => selectablePaths.value.has(path)))
+const hasAwaitingReceipt = computed(() => associationPaths.value.some(awaitingReceipt))
 let controller: AbortController | undefined
-onBeforeUnmount(() => controller?.abort())
-onMounted(() => void scan())
+let resumeScan = true
+let disposed = false
+function associationKey(path: string) {
+  return JSON.stringify([props.projectId, path])
+}
+function awaitingReceipt(path: string) {
+  const requestId = associationRequestIds.get(associationKey(path))
+  return requestId !== undefined && pendingIds.value.has(requestId)
+}
+onBeforeUnmount(() => {
+  disposed = true
+  controller?.abort()
+})
+watch(() => props.visible, (visible) => {
+  if (visible && resumeScan) void scan(requestedDirectory.value)
+  if (!visible && scanning.value) {
+    resumeScan = true
+    controller?.abort()
+    controller = undefined
+    action.value = undefined
+  }
+}, { immediate: true })
 async function scan(target = directory.value) {
-  if (busy.value && !scanning.value) return
+  if (!props.visible || (busy.value && !scanning.value)) return
   controller?.abort()
   controller = new AbortController()
   const current = controller
+  resumeScan = false
   action.value = 'scan'
   requestedDirectory.value = target
   scanError.value = ''
@@ -56,46 +96,78 @@ async function scan(target = directory.value) {
       if (resultDirectory.value !== target) selected.value = []
       resultDirectory.value = target
       result.value = next
-      if (selected.value.length) {
-        const available = new Set(unregistered.value)
-        selected.value = selected.value.filter((path) => available.has(path))
-      }
+      if (selected.value.length) selected.value = selectedPaths.value
     }
   } catch (cause) {
     if (!current.signal.aborted && controller === current) scanError.value = errorMessage(cause)
   } finally {
-    if (controller === current) action.value = undefined
+    if (controller === current) {
+      controller = undefined
+      action.value = undefined
+    }
   }
 }
 function toggleCandidate(path: string, checked: boolean | 'indeterminate') {
-  if (busy.value || !resultsCurrent.value || !unregistered.value.includes(path)) return
+  if (!props.visible || busy.value || !resultsCurrent.value || !selectablePaths.value.has(path)) return
   selected.value = checked === true
     ? [...new Set([...selected.value, path])]
     : selected.value.filter((item) => item !== path)
 }
 async function add(paths: string[], kind: 'batch' | 'manual') {
-  if (busy.value || saving.value || (kind === 'batch' && !resultsCurrent.value)) return
+  if (!props.visible || busy.value || saving.value || (kind === 'batch' && !resultsCurrent.value)) return
   const projectId = props.projectId
   action.value = kind
   errors.value = []
+  message.value = ''
   let count = 0
+  let latestReceipt: number | undefined
+  let needsRecheck = false
   try {
-    await refresh()
+    const [projectReady, catalogReady] = await Promise.all([props.reloadProject(), refreshCatalog()])
+    if (disposed) return
+    if (!projectReady) throw new Error('无法核对当前工程，请重试。')
+    if (!catalogReady || !catalog.value) throw new Error(catalogError.value || '无法读取已登记的 Spec。')
+    const revisionAfterRead = snapshot.value?.revision
+    if (revisionAfterRead !== undefined && catalog.value.revision < revisionAfterRead) {
+      const updated = await refreshCatalog(revisionAfterRead)
+      if (disposed) return
+      if (!updated) throw new Error(catalogError.value || '无法核对最新的登记记录。')
+    }
+    const currentProject = catalog.value.projects.find((entry) => entry.id === projectId)
+    if (!currentProject?.active || currentProject.rootPath !== props.rootPath)
+      throw new Error('工程登记信息已变化，请核对后重新关联。')
+    let revision = catalog.value.revision
+    const registeredPaths = new Set(
+      catalog.value.specs.filter((spec) => spec.projectId === projectId).map((spec) => spec.sourcePath)
+    )
     for (const path of paths) {
+      if (disposed) return
+      const key = associationKey(path)
+      const recovering = awaitingReceipt(path)
       outcomes.value[path] = { status: 'pending', message: '正在关联…' }
       try {
-        const existing = snapshot.value?.specs.some(
-          (spec) => spec.record.projectId === projectId && spec.record.sourcePath === path
-        )
-        if (!existing)
-          await submit({ kind: 'addSpec', projectId, sourcePath: path })
+        const existing = registeredPaths.has(path)
+        if (!existing || recovering) {
+          const receipt = await submit(
+            { kind: 'addSpec', projectId, sourcePath: path },
+            revision,
+            undefined,
+            // Reconcile lightweight reads once after the batch. Each receipt advances the version.
+            async () => {}
+          )
+          associationRequestIds.delete(key)
+          if (disposed) return
+          if (receipt.revision >= revision) registeredPaths.add(path)
+          revision = Math.max(revision, receipt.revision)
+          latestReceipt = revision
+        }
         count++
         outcomes.value[path] = {
           status: 'success',
-          message: existing ? '已有关联，已保留原记录' : '关联成功'
+          message: recovering ? '已确认原关联结果' : existing ? '已有关联，已保留原记录' : '关联成功'
         }
         selected.value = selected.value.filter((item) => item !== path)
-        if (result.value)
+        if (result.value && registeredPaths.has(path))
           result.value = {
             ...result.value,
             candidates: result.value.candidates.map((candidate) =>
@@ -103,22 +175,40 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
             )
           }
       } catch (cause) {
+        const uncertain = cause instanceof ApiError && cause.context.uncertain === true
+        const requestId = cause instanceof ApiError ? cause.context.requestId : undefined
+        if (uncertain && typeof requestId === 'string') {
+          for (const [pathKey, id] of associationRequestIds) {
+            if (!pendingIds.value.has(id)) associationRequestIds.delete(pathKey)
+          }
+          associationRequestIds.set(key, requestId)
+        } else if (!awaitingReceipt(path)) {
+          associationRequestIds.delete(key)
+        }
+        if (disposed) return
         const detail = errorMessage(cause)
-        outcomes.value[path] = { status: 'failed', message: detail }
+        outcomes.value[path] = { status: uncertain ? 'uncertain' : 'failed', message: detail }
         errors.value.push(`${path}：${detail}`)
+        if (uncertain || (cause instanceof ApiError && cause.status === 409 && 'revision' in cause.context)) {
+          needsRecheck = true
+          break
+        }
       }
     }
     const summary = `已关联 ${count} 个 Spec`
     message.value = !errors.value.length
       ? `${summary}。`
       : kind === 'batch'
-        ? `${summary}，失败项保留选中，可核对后继续关联。`
+        ? `${summary}，未确认关联的文件保留选中，可核对后继续关联。`
         : `${summary}，请核对路径后重试。`
     if (paths.length === 1 && count === 1 && paths[0] === manual.value) manual.value = ''
   } catch (cause) {
-    errors.value.push(errorMessage(cause))
+    if (!disposed) errors.value.push(errorMessage(cause))
   } finally {
-    action.value = undefined
+    if (!disposed && (latestReceipt !== undefined || needsRecheck)) {
+      await Promise.all([props.reloadProject(latestReceipt), refreshCatalog(latestReceipt)])
+    }
+    if (!disposed) action.value = undefined
   }
 }
 </script>
@@ -172,10 +262,10 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
         <div class="toolbar">
           <Button
             variant="outline"
-            :disabled="busy || saving || !resultsCurrent || !unregistered.length"
-            @click="selected = [...unregistered]"
+            :disabled="busy || saving || !resultsCurrent || !associationPaths.length"
+            @click="selected = [...associationPaths]"
           >
-            选择当前未关联项（{{ unregistered.length }}）
+            {{ hasAwaitingReceipt ? '选择未关联与待核对项' : '选择当前未关联项' }}（{{ associationPaths.length }}）
           </Button>
           <Button variant="ghost" :disabled="busy || saving || !resultsCurrent || !selected.length" @click="selected = []">
             清空选择
@@ -204,8 +294,8 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
               <TableRow v-for="candidate in result.candidates" :key="candidate.sourcePath">
                 <TableCell>
                   <Checkbox
-                    :model-value="selected.includes(candidate.sourcePath)"
-                    :disabled="candidate.alreadyRegistered || busy || saving || !resultsCurrent"
+                    :model-value="selectedPaths.includes(candidate.sourcePath)"
+                    :disabled="!selectablePaths.has(candidate.sourcePath) || busy || saving || !resultsCurrent"
                     :aria-label="`选择 ${candidate.title}`"
                     @update:model-value="toggleCandidate(candidate.sourcePath, $event)"
                   />
@@ -215,7 +305,8 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
                   }}<span class="row-sub path-text">{{ candidate.sourcePath }}</span>
                 </TableHead>
                 <TableCell>
-                  <Badge v-if="candidate.alreadyRegistered" variant="secondary">已关联（含停用）</Badge>
+                  <Badge v-if="awaitingReceipt(candidate.sourcePath)" variant="outline">关联结果待核对</Badge>
+                  <Badge v-else-if="candidate.alreadyRegistered" variant="secondary">已关联（含停用）</Badge>
                   <span
                     v-else-if="outcomes[candidate.sourcePath]"
                     :class="outcomes[candidate.sourcePath]?.status === 'failed' ? 'warning-text' : 'muted'"
@@ -230,11 +321,11 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
         </div>
         <Button
           type="button"
-          :disabled="!selected.length || busy || saving || !resultsCurrent"
-          @click="add([...selected], 'batch')"
+          :disabled="!selectedPaths.length || busy || saving || !resultsCurrent"
+          @click="add([...selectedPaths], 'batch')"
         >
           <LoadingIndicator :active="action === 'batch'" />
-          {{ action === 'batch' ? '关联中…' : `关联选中项（${selected.length}）` }}
+          {{ action === 'batch' ? '关联中…' : `关联选中项（${selectedPaths.length}）` }}
         </Button>
       </template>
       <Empty v-else class="border-0 py-5">
@@ -274,7 +365,7 @@ async function add(paths: string[], kind: 'batch' | 'manual') {
           <TableBody>
             <TableRow v-for="(outcome, path) in outcomes" :key="path">
               <TableHead scope="row" class="path-text">{{ path }}</TableHead>
-              <TableCell :class="outcome.status === 'failed' ? 'warning-text' : 'muted'">
+              <TableCell :class="outcome.status === 'failed' || outcome.status === 'uncertain' ? 'warning-text' : 'muted'">
                 {{ outcome.message }}
               </TableCell>
             </TableRow>

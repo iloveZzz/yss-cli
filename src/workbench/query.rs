@@ -10,6 +10,7 @@ pub fn normalize_query(mut query: WorkQuery) -> Result<WorkQuery> {
     query.q = query.q.trim().into();
     if query.attention.iter().any(|value| {
         ![
+            "any",
             "awaitingConfirmation",
             "unverified",
             "needsSync",
@@ -215,10 +216,13 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
             && (!request.needs_reconfirmation || item.needs_reconfirmation)
             && (request.attention.is_empty()
                 || progress.is_some_and(|progress| {
-                    request
-                        .attention
-                        .iter()
-                        .any(|value| progress.attention.contains(value))
+                    request.attention.iter().any(|value| {
+                        if value == "any" {
+                            !progress.attention.is_empty()
+                        } else {
+                            progress.attention.contains(value)
+                        }
+                    })
                 }))
             && (needle.is_empty()
                 || [
