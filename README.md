@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。CLI 命令与工作台界面由单个 `yss`（Windows 为 `yss.exe`）提供，无需 Go、Bun、Node 或 Python；当前源码的 Pi Agent 作业另需本机 Pi 1.5.2、1.6.0 或 1.6.1 及其运行环境。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.19.1`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.19.2`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
 
 独立桌面应用位于 `desktop/`，与 CLI 分别安装，并使用随包的 `yss` 提供工作台服务。当前桌面构建仅提供未签名候选；签名、公证及平台验证的范围以实际产物为准。构建方式见[桌面应用构建与发行](docs/desktop-build.md)。
 
@@ -65,7 +65,9 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 
 `3.14.0` 内嵌 Template `5.14.0`。工作台启动和登记项目时自动发现主 Spec，识别同目录的交互说明和已构建原型。Pi 作业排队前核对所有参与工程的 Git HEAD，并要求显式带入尚未提交的主规格。模板细化 Spec 两项确认与研发写入前的 Git 核对。
 
-`3.19.1` 更新 Pi 作业与工具管理、合并请求工作台和跨平台文件处理；桌面安装包以实际候选及平台验证为准。
+`3.19.2` 改善工作台工程与 Spec 导航，支持 Pi 会话交接与临时执行授权，并为桌面工作台加入可并排、铺满和收起的本机终端。桌面安装包以实际候选及平台验证为准。
+
+`3.19.1` 更新 Pi 作业与工具管理、合并请求工作台和跨平台文件处理。
 
 `3.19.0` 更新工作台与 Pi 任务处理，增加独立桌面应用候选和 Windows 文件操作支持；模板来源和平台验证以实际构建记录为准。
 
