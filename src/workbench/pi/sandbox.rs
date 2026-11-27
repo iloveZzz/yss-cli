@@ -622,7 +622,7 @@ printf allowed > "$TMPDIR/probe" || exit 12
         || root.join("alias").exists()
     {
         return Err(not_ready(
-            "macOS Seatbelt 未通过工作区和断网探测，Pi 运行入口已关闭",
+            "macOS Seatbelt 未通过工作区和断网探测，离线命令已关闭",
         ));
     }
     Ok(())

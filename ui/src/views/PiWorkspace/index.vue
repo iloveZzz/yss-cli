@@ -33,6 +33,7 @@ import PiWorkspaceSettings from './components/PiWorkspaceSettings.vue'
 import PiRound from './components/PiRound.vue'
 import PiReview from './components/PiReview.vue'
 import PiQueuePanel from './components/PiQueuePanel.vue'
+import PiLocalTasks from './components/PiLocalTasks.vue'
 import { useAgentScope } from './useAgentScope'
 import { usePiWorkspace } from './usePiWorkspace'
 import { ciSelection, usePiDrafts, type PendingPiRequest, type PiCiAttachment } from './usePiDrafts'
@@ -113,7 +114,7 @@ const projectGrantIssue = computed(() => staleProjectGrants.value.length
   ? '工程检出已变化，请重新选择权限或清除过期授权。' : '')
 const projectModes = computed<Record<string, ProjectAccessMode>>({
   get: () => {
-    const defaultMode = handoffJob.value ? 'read' : 'execute'
+    const defaultMode = handoffJob.value ? 'read' : runtimeStatus.value?.sandboxReady === false ? 'edit' : 'execute'
     return Object.fromEntries(selectedProjectIds.value.filter((id) => id && !staleProjectGrants.value.includes(id))
       .map((id) => [id, draft.value.projectGrants[id]?.mode ?? defaultMode]))
   },
@@ -301,16 +302,51 @@ const canEnqueue = computed(() => !!queueRun.value && queueVerified.value && !!q
   !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value && !sending.value && !deleteTarget.value && !!draft.value.prompt.trim())
 const canEditQueueProjects = computed(() => run.value?.canEditQueuedProjects)
 const queuePreparing = computed(() => !!queue.value?.items.some((item) => item.dispatching && item.jobId))
+const localTaskUnavailable = computed(() => {
+  if (active.value || (run.value && !terminalJob(run.value.status))) return '请等待当前 Pi 轮次结束。'
+  if (sending.value || pending.value || pendingEnqueue.value || queuePreparing.value || deleteTarget.value)
+    return '请等待当前会话操作完成。'
+  if (runError.value || contextError.value) return runError.value || contextError.value
+  if (reading.value || !latest.value || run.value?.jobId !== latest.value.id)
+    return '正在核对 Pi 轮次。'
+  if (linkedRound.value && linkedRound.value !== latest.value.id) return '请返回会话最新轮次。'
+  return ''
+})
+const commandCapabilityIssue = computed(() => {
+  if (runtimeStatus.value?.sandboxReady !== false) return ''
+  const requestsCommands = perProject.value
+    ? selectedProjectIds.value.some((id) => projectModes.value[id] === 'execute')
+    : !draft.value.readOnly && draft.value.allowCommands
+  return requestsCommands ? `离线命令不可用，请在运行设置中调整权限。${runtimeStatus.value.sandboxMessage || ''}` : ''
+})
 const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !verificationIssue.value && !sending.value && !pending.value &&
   (!queueRun.value || (!!queue.value && !queue.value.items.length && !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value)) &&
   !checking.value && !projectBusy.value && !settingsOpen.value && !deleteTarget.value &&
-  !reviewState.value.busy && !reviewState.value.pending && !!readyModel.value && !!draft.value.prompt.trim())
+  !reviewState.value.busy && !reviewState.value.pending && !commandCapabilityIssue.value && !!readyModel.value && !!draft.value.prompt.trim())
 const roundEnd = computed(() => {
   const index = lastVisibleRound.value ? rounds.value.findIndex((job) => job.id === lastVisibleRound.value) : -1
   return index < 0 ? rounds.value.length : index + 1
 })
 const roundStart = computed(() => Math.max(0, roundEnd.value - showing.value))
 const visibleRounds = computed(() => rounds.value.slice(roundStart.value, roundEnd.value))
+const suggestion = computed(() => {
+  const { prompt, citations, handoff, ciAttachment, ciRecovery } = draft.value
+  if (prompt || citations.length || handoff || ciAttachment || ciRecovery || handoffJob.value || recoverableDraft.value)
+    return ''
+  if (context.value?.spec.id !== spec.value || blocked.value || contextError.value || verificationIssue.value ||
+    active.value || sending.value || pending.value || checking.value || projectBusy.value || settingsOpen.value ||
+    deleteTarget.value || reviewOpen.value || handoffBusy.value) return ''
+  if (!session.value) return '梳理当前规格'
+
+  const job = latest.value
+  if (!job || !readyForResume.value || run.value?.jobId !== job.id || reading.value ||
+    (linkedRound.value && linkedRound.value !== job.id) || roundEnd.value < rounds.value.length ||
+    !queue.value || queue.value.items.length || queueBusy.value || queueUncertain.value || pendingEnqueue.value) return ''
+  if (job.status === 'failed') return '帮我定位本轮失败原因'
+  const hasReview = snapshotJobs.value.has(job.id) ||
+    (summary.value?.jobId === job.id && (summary.value.hasSnapshot || summary.value.hasAcceptance))
+  return hasReview && (job.status === 'completed' || job.status === 'succeeded') ? '总结本轮成果' : ''
+})
 function moveRounds(older: boolean) {
   if (older && showing.value < maxMountedRounds) {
     showing.value = Math.min(maxMountedRounds, showing.value + roundStep)
@@ -327,6 +363,7 @@ const attentionLabels: Record<AgentAttention['kind'], string> = {
 let alive = true
 const restore = new Map<string, HTMLElement>()
 let moveToComposer = false
+let focusRoundSummaryOnClose = false
 
 function rememberFocus(key: string, target: EventTarget | null = document.activeElement) {
   if (target instanceof HTMLElement) restore.set(key, target)
@@ -357,7 +394,11 @@ function toggleSummary() {
   }
 }
 function summaryClosed() {
-  if (!reviewOpen.value) returnFocus('summary')
+  if (focusRoundSummaryOnClose) {
+    focusRoundSummaryOnClose = false
+    restore.delete('summary')
+    void focusLatestRoundSummary()
+  } else if (!reviewOpen.value) returnFocus('summary')
 }
 function openReview(job = latest.value?.id, projectId?: string, path?: string) {
   if (!job || !session.value) return
@@ -369,6 +410,12 @@ function openReview(job = latest.value?.id, projectId?: string, path?: string) {
 }
 function focusDraft() {
   document.getElementById('pi-workspace-draft')?.focus({ preventScroll: true })
+}
+function fillSuggestion() {
+  const prompt = suggestion.value
+  if (!prompt) return
+  draft.value.prompt = prompt
+  focusDraft()
 }
 function reviewClosed() {
   if (moveToComposer) {
@@ -526,6 +573,25 @@ function focusNode(node: HTMLElement) {
   node.focus({ preventScroll: true })
   node.scrollIntoView({ block: 'nearest' })
 }
+function jumpToRoundSummary() {
+  if (!latest.value) return
+  if (summaryDrawer.value) {
+    focusRoundSummaryOnClose = true
+    summaryDrawer.value = false
+  } else void focusLatestRoundSummary()
+}
+async function focusLatestRoundSummary() {
+  const scope = draftKey.value
+  lastVisibleRound.value = undefined
+  focusActivity.value = undefined
+  if (linkedRound.value) await router.replace(sessionLink(session.value))
+  await nextTick()
+  if (!alive || scope !== draftKey.value) return
+  const trigger = document.getElementById('pi-turn-' + latest.value?.id)
+    ?.querySelector<HTMLElement>('[data-pi-round-summary-trigger]')
+  if (trigger) focusNode(trigger)
+  else focusTranscript()
+}
 async function backToLatest() {
   lastVisibleRound.value = undefined
   await router.replace(sessionLink(session.value))
@@ -553,6 +619,7 @@ watch([spec, session], () => {
   settingsOpen.value = false
   reviewOpen.value = false
   focusActivity.value = undefined
+  focusRoundSummaryOnClose = false
   draft.value.allowCommands = false
   handoffRequest?.abort()
   handoffError.value = ''
@@ -1016,11 +1083,19 @@ function onEnter(event: KeyboardEvent) {
             按原请求重试
           </Button>
         </div>
-        <Button v-if="summary?.hasSnapshot || summary?.hasAcceptance" type="button" variant="outline"
-          class="pi-diff-shortcut" @click="openReview()"><FileDiff :size="15" />
-          {{ summary.pendingFiles ? summary.pendingFiles + ' 个文件待审阅' : '查看执行成果' }}
-        </Button>
+        <div v-if="queueRun || summary?.hasSnapshot || summary?.hasAcceptance" class="pi-composer-actions">
+          <Button v-if="summary?.hasSnapshot || summary?.hasAcceptance" type="button" variant="outline"
+            class="pi-diff-shortcut" @click="openReview()"><FileDiff :size="15" />
+            {{ summary.pendingFiles ? summary.pendingFiles + ' 个文件待审阅' : '查看执行成果' }}
+          </Button>
+          <PiLocalTasks v-if="queueRun && run" :key="draftKey" :run-id="queueRun" :job-id="run.jobId" :main-id="mainId"
+            :project-ids="run.projectIds" :projects="projectScope?.projects ?? []" :project-names="projectNames"
+            :project-busy="projectBusy" :project-error="projectError" :unavailable="localTaskUnavailable"
+            @refresh-projects="refreshProjects" @recheck-round="refresh" />
+        </div>
         <form aria-label="发送 Pi 任务" @submit.prevent="send">
+          <Button v-if="suggestion" type="button" size="sm" variant="outline" class="mb-1.5 rounded-full"
+            title="填入任务草稿" @click="fillSuggestion">{{ suggestion }}</Button>
           <InputGroup class="pi-composer">
             <div v-if="draft.handoff || draft.ciAttachment || draft.ciRecovery" class="pi-draft-excerpts">
               <div v-if="draft.handoff" class="pi-draft-excerpt">
@@ -1085,8 +1160,8 @@ function onEnter(event: KeyboardEvent) {
             </InputGroupAddon>
           </InputGroup>
         </form>
-        <p v-if="draft.error || storageIssue || (!active && modelIssue && !readyModel)" class="pi-composer-error" role="status">
-          {{ draft.error || storageIssue || modelIssue }}
+        <p v-if="draft.error || storageIssue || (!active && (commandCapabilityIssue || (modelIssue && !readyModel)))" class="pi-composer-error" role="status">
+          {{ draft.error || storageIssue || commandCapabilityIssue || modelIssue }}
         </p>
         <p v-if="pendingEnqueue" class="pi-composer-error" role="status">
           {{ queueBusy ? '正在读取队列…' : queueError || '原入队请求待核对。' }}
@@ -1108,6 +1183,9 @@ function onEnter(event: KeyboardEvent) {
         <section>
           <h2>会话摘要</h2>
           <p v-if="status">{{ status }}</p>
+          <Button v-if="latest" type="button" variant="ghost" class="pi-summary-action" @click="jumpToRoundSummary">
+            <ListChecks :size="15" aria-hidden="true" /> 本轮执行摘要
+          </Button>
           <RouterLink v-if="run?.continuationSource" :to="sourceLink(run.continuationSource)">查看接续来源</RouterLink>
           <p v-if="run?.ciJob">CI #{{ run.ciJob.jobId }} · {{ run.ciJob.mode === 'reproduce' ? '同提交复现' : '差异对照' }} · <code>{{ run.ciJob.sha }}</code><br v-if="run.ciJob.traceStatus">{{ run.ciJob.traceStatus }}</p>
           <p v-if="summary?.reviewError" class="pi-issue">{{ summary.reviewError }}</p>
@@ -1185,6 +1263,9 @@ function onEnter(event: KeyboardEvent) {
         <SheetHeader class="pi-sheet-header"><SheetTitle>会话摘要</SheetTitle><SheetDescription>{{ title }}</SheetDescription></SheetHeader>
         <div class="pi-sheet-body pi-mobile-summary">
           <p v-if="status">{{ status }}</p>
+          <Button v-if="latest" type="button" variant="outline" class="max-sm:min-h-11" @click="jumpToRoundSummary">
+            <ListChecks :size="15" aria-hidden="true" /> 本轮执行摘要
+          </Button>
           <RouterLink v-if="run?.continuationSource" :to="sourceLink(run.continuationSource)">查看接续来源</RouterLink>
           <p v-if="run?.ciJob">CI #{{ run.ciJob.jobId }} · {{ run.ciJob.mode === 'reproduce' ? '同提交复现' : '差异对照' }} · <code>{{ run.ciJob.sha }}</code><br v-if="run.ciJob.traceStatus">{{ run.ciJob.traceStatus }}</p>
           <RouterLink :to="{ path: '/specs/' + spec }" class="pi-summary-link"><FileText :size="15" />{{ context?.spec.title || '原 Spec' }}</RouterLink>
@@ -1207,6 +1288,14 @@ function onEnter(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+.pi-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 7px;
+}
+.pi-composer-actions :deep(.pi-diff-shortcut) { margin: 0; }
 .pi-ci-evidence {
   margin-block: 8px;
   padding: 8px 12px;

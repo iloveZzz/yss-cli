@@ -75,9 +75,11 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
     <PiProjectScope v-model:selected="selected" v-model:modes="projectModes"
       :main-id="mainId" :projects="projects" :scope="projectScope" :loading="projectBusy" :error="projectError"
       :locked="!!reviewResumeId" :participating-ids="participatingIds" :per-project="perProject"
+      :commands-unavailable="runtimeStatus?.sandboxReady === false" :commands-message="runtimeStatus?.sandboxMessage"
       :busy="busy" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
       @clear-stale-project-grants="emit('clearStaleProjectGrants')" />
-    <AgentRunPermissions v-if="!perProject" v-model:read-only="readOnly" v-model:allow-commands="allowCommands" :disabled="busy" />
+    <AgentRunPermissions v-if="!perProject" v-model:read-only="readOnly" v-model:allow-commands="allowCommands"
+      :disabled="busy" :commands-unavailable="runtimeStatus?.sandboxReady === false" :commands-message="runtimeStatus?.sandboxMessage" />
     <div v-if="!reviewResumeId && projectScope" class="pi-ci-settings">
       <Button type="button" variant="outline" size="sm" :aria-expanded="ciOpen" :aria-controls="ciId" @click="ciOpen = !ciOpen">
         {{ ciOpen ? '收起 GitLab CI 作业' : ciAttachment ? '查看已附加的 CI 作业' : '选择 GitLab CI 作业' }}

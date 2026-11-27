@@ -1,0 +1,54 @@
+/* Workbench foundation: compact controls, readable content, clear blue actions. */
+:root {
+ --brand-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+ --brand-color-text: #25272b; --brand-color-text-secondary: #62666c;
+ --brand-color-bg-layout: #f7f8fa; --brand-color-bg-container: #fff; --brand-color-bg-elevated: #fff;
+ --brand-color-fill-secondary: #f0f2f5; --brand-color-error-active: #bd3037;
+ --brand-border-radius: 8px; --brand-border-radius-lg: 12px; --brand-border-radius-sm: 6px;
+ --yss-color-primary-control: #3e6ae1; --yss-color-primary-control-hover: #345cc9; --yss-color-primary-control-active: #2c51b5; --yss-color-on-primary: #fff;
+ --yss-colors-primary-bg: #edf2ff; --yss-colors-border: #e4e6eb; --yss-colors-border-control: #cbd0da;
+ --yss-colors-text-title: #171a20; --yss-colors-error-text: #bd3037;
+ --workbench-rail-width: 168px;
+}
+
+:root {
+  --workbench-glass-interpolation: ;
+  --workbench-glass-canvas:
+    radial-gradient(ellipse at 0% 62% var(--workbench-glass-interpolation), #fbe2d5, transparent 62%),
+    radial-gradient(ellipse at 94% 12% var(--workbench-glass-interpolation), #dce4fb, transparent 68%),
+    #edf0f8;
+  --workbench-glass-chrome: #f4f3f8;
+  --workbench-glass-pane: #f8f9fd;
+  --workbench-glass-card: #fcfcff;
+  --workbench-glass-popup: #fafbff;
+  --workbench-glass-edge: var(--yss-colors-border);
+  --workbench-glass-blur: none;
+  --workbench-glass-overlay: rgb(25 30 45 / 24%);
+}
+
+@supports (background: radial-gradient(ellipse at center in oklab, white, transparent)) {
+  :root { --workbench-glass-interpolation: in oklab; }
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --workbench-glass-chrome: rgb(255 255 255 / 52%);
+    --workbench-glass-pane: rgb(255 255 255 / 64%);
+    --workbench-glass-card: rgb(255 255 255 / 80%);
+    --workbench-glass-popup: rgb(250 252 255 / 90%);
+    --workbench-glass-edge: rgb(255 255 255 / 86%);
+    --workbench-glass-blur: blur(24px) saturate(120%);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :root {
+    --workbench-glass-canvas: var(--brand-color-bg-layout);
+    --workbench-glass-chrome: var(--brand-color-bg-container);
+    --workbench-glass-pane: var(--brand-color-bg-container);
+    --workbench-glass-card: var(--brand-color-bg-container);
+    --workbench-glass-popup: var(--brand-color-bg-elevated);
+    --workbench-glass-edge: var(--yss-colors-border);
+    --workbench-glass-blur: none;
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-tools-status"
+description = "Enables the desktop_tools_status command without any pre-configured scope."
+commands.allow = ["desktop_tools_status"]
+
+[[permission]]
+identifier = "deny-desktop-tools-status"
+description = "Denies the desktop_tools_status command without any pre-configured scope."
+commands.deny = ["desktop_tools_status"]

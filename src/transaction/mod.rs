@@ -9,9 +9,45 @@ use crate::{
 };
 pub use apply::apply;
 pub use files::{apply_files, apply_files_checked};
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+pub(crate) use files::{
+    apply_reserved_files_checked, inspect_reserved_files, reserved_files_plan_digest,
+};
 pub use recover::recover;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
+
+fn move_recorded_entry(
+    root: &Root,
+    source: &RelPath,
+    target: &RelPath,
+    expected: &FileSnapshot,
+    command_writeback: bool,
+) -> Result<()> {
+    if command_writeback {
+        #[cfg(windows)]
+        return root.move_verified_entry(source, target, expected);
+        #[cfg(not(windows))]
+        return Err(required("Windows 命令事务须在原平台恢复"));
+    }
+    let _ = expected;
+    root.rename(source, target, &FileSnapshot::Missing, false)
+}
+
+fn remove_recorded_entry(
+    root: &Root,
+    path: &RelPath,
+    expected: &FileSnapshot,
+    command_writeback: bool,
+) -> Result<()> {
+    if command_writeback {
+        #[cfg(windows)]
+        return root.remove_verified_entry(path, expected);
+        #[cfg(not(windows))]
+        return Err(required("Windows 命令事务须在原平台恢复"));
+    }
+    root.remove(path, expected)
+}
 
 #[derive(Debug, Clone)]
 pub enum Operation {

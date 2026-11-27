@@ -36,7 +36,7 @@ jobs:
       TAURI_CLI_VERSION: 2.12.6
       YSS_TARGET: ${{ matrix.target }}
       YSS_SIDECAR_RUSTFLAGS: ${{ matrix.sidecar-rustflags }}
-      YSS_TEMPLATE_COMMIT: d8b45cba9e53b1332083accc1acdae861a2d211a
+      YSS_TEMPLATE_COMMIT: eefc4c679eb099ce9c7189f857683f9415269863
     steps:
       - name: Preserve source line endings
         run: git config --global core.autocrlf false
@@ -136,6 +136,8 @@ jobs:
 
       - name: Package the unsigned desktop candidate
         working-directory: desktop
+        env:
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           $config = Join-Path $env:RUNNER_TEMP 'yss-desktop-ci.json'

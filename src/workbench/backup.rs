@@ -16,7 +16,7 @@ use rusqlite::{
     backup::{Backup, StepResult},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -72,6 +72,16 @@ fn private_temp(parent: &Root, prefix: &str) -> Result<(RelPath, Root)> {
     }
     let root = Root::open(&parent.path.join(name.as_str()))?;
     Ok((name, root))
+}
+
+fn reject_unbacked_recovery(store: &mut Store) -> Result<()> {
+    if !store.records::<Value>("piCommandRecovery")?.is_empty() {
+        return Err(YssError::new(
+            ErrorCode::RecoveryRequired,
+            "存在尚未核对的命令暂存，备份不包含这些文件；请先处理恢复记录",
+        ));
+    }
+    Ok(())
 }
 fn file_location(path: &str) -> Result<(Root, RelPath)> {
     if !Path::new(path).is_absolute() {
@@ -135,6 +145,22 @@ fn database_backup(data: &Path, destination: &Root, cancel: &Cancellation) -> Re
     if integrity != "ok" || foreign_keys != 0 {
         return Err(sources::invalid("备份数据库完整性检查失败"));
     }
+    // The archive does not contain command scratch. Check the actual SQLite
+    // snapshot, not only a preflight, so a concurrent registration cannot be
+    // silently omitted from a published backup.
+    let pending: bool = target
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM workbench_records WHERE kind = 'piCommandRecovery')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| sources::invalid("无法核对备份中的命令恢复记录"))?;
+    if pending {
+        return Err(YssError::new(
+            ErrorCode::RecoveryRequired,
+            "存在尚未核对的命令暂存，备份不包含这些文件；请先处理恢复记录",
+        ));
+    }
     let revision = target
         .query_row(
             "SELECT revision FROM workbench_meta WHERE id=1",
@@ -185,9 +211,23 @@ pub fn create(
         move |context| {
             context.emit("progress", json!({"message":"正在冻结未接收成果"}))?;
             super::agent::freeze_all_shared(&context.store, &context.cancel)?;
-            let (temp_name, temp) = private_temp(&parent, ".yss-backup")?;
             context.emit("progress", json!({"message":"正在生成一致数据库备份"}))?;
+            // A future command registers its private scratch under this same
+            // store lock; hold it through the DB snapshot to avoid observing
+            // the directory-creation/registration interval.
+            #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+            let mut recovery_lock = jobs::lock_store(&context.store)?;
+            #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+            super::command_recovery::ensure_none(&mut recovery_lock)?;
+            #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+            {
+                let mut store = jobs::lock_store(&context.store)?;
+                reject_unbacked_recovery(&mut store)?;
+            }
+            let (temp_name, temp) = private_temp(&parent, ".yss-backup")?;
             let revision = database_backup(&data, &temp, &context.cancel)?;
+            #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+            drop(recovery_lock);
             let source = Root::open(&data)?;
             let mut names = vec![DATABASE_NAME.to_owned(), "state.json".into()];
             for item in source.list(None)? {
@@ -418,6 +458,19 @@ pub fn restore(
             }
             {
                 let mut restored = Store::open(&staging.path)?;
+                // Backups omit scratch. Never follow, clean, or replay paths
+                // from a different data directory or host; reject such an
+                // archive before publishing the restored directory on any OS.
+                reject_unbacked_recovery(&mut restored).map_err(|error| {
+                    if error.code == ErrorCode::RecoveryRequired {
+                        YssError::new(
+                            ErrorCode::RecoveryRequired,
+                            "备份含未决命令恢复记录，但不包含对应暂存；未恢复或操作原路径",
+                        )
+                    } else {
+                        error
+                    }
+                })?;
                 for mut job in restored.records::<JobRecord>("job")? {
                     if !job.terminal() {
                         job.status = "interrupted".into();

@@ -150,6 +150,22 @@ pub(super) fn capture_target(store: &mut Store, request: &mut AgentStartRequest)
     {
         return Err(invalid("续接必须使用原 Spec 与原工程范围"));
     }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    if request.project_access.is_none() && request.allow_commands && !request.read_only {
+        request.project_access = Some(
+            request
+                .project_ids
+                .iter()
+                .map(|id| ProjectAccess {
+                    project_id: id.clone(),
+                    mode: ProjectMode::Execute,
+                    expected_head: None,
+                    expected_root_path: None,
+                    expected_branch: None,
+                })
+                .collect(),
+        );
+    }
     if let Some(entries) = &request.project_access {
         request.read_only = entries.iter().all(|entry| entry.mode == ProjectMode::Read);
         request.allow_commands = entries
@@ -235,6 +251,7 @@ fn prepare(
     let pi = agent_protocol::require_runtime(&context.cancel, &target.protected, model.as_ref())?;
     pi.verify_expected(request.expected_model.as_ref())?;
     pi.verify_thinking(request.thinking_level)?;
+    pi.verify_commands(request.allow_commands)?;
     context.trace("runtimeReady");
 
     let citations = if let Some(prior) = &target.prior {

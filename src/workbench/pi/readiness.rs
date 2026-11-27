@@ -2,26 +2,31 @@ use super::{not_ready, rpc::Session, sandbox};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
+    fs::Root,
     workbench::{
         agent_protocol::{PiModel, PiRuntime, RuntimeStatus},
-        process,
+        managed_pi, process,
     },
 };
+#[cfg(windows)]
+use crate::{fs::FileSnapshot, model::RelPath};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    env,
-    ffi::{CStr, OsStr},
-    fs,
+    env, fs,
     io::{ErrorKind, Read},
-    mem::MaybeUninit,
-    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
     process::Command,
-    ptr,
     sync::Mutex,
     time::Duration,
+};
+#[cfg(unix)]
+use std::{
+    ffi::{CStr, OsStr},
+    mem::MaybeUninit,
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
+    ptr,
 };
 
 const SUPPORTED_VERSIONS: [Version; 3] = [
@@ -32,6 +37,7 @@ const SUPPORTED_VERSIONS: [Version; 3] = [
 const SETTINGS_LIMIT: u64 = 1024 * 1024;
 static CONNECTION_TEST: Mutex<()> = Mutex::new(());
 
+#[cfg(unix)]
 fn locate_pi() -> Result<PathBuf> {
     let pi = if let Some(path) = env::var_os("YSS_PI_EXECUTABLE") {
         let path = PathBuf::from(path);
@@ -52,12 +58,267 @@ fn locate_pi() -> Result<PathBuf> {
         })
 }
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.mode() & 0o111 != 0)
 }
 
-fn pi_command(executable: &Path, protected: &[PathBuf]) -> Result<Command> {
-    let is_protected = |path: &Path| protected.iter().any(|root| path.starts_with(root));
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+        && path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+}
+
+#[cfg(windows)]
+fn locate_pi() -> Result<PathBuf> {
+    if let Some(path) = env::var_os("YSS_PI_EXECUTABLE") {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err(not_ready("YSS_PI_EXECUTABLE 须使用 Pi 的绝对路径"));
+        }
+        return fs::canonicalize(&path)
+            .ok()
+            .filter(|path| path.is_absolute() && is_executable(path))
+            .ok_or_else(|| not_ready("YSS_PI_EXECUTABLE 须指向本机 Pi .exe 的绝对路径"));
+    }
+    env::split_paths(&env::var_os("PATH").unwrap_or_default())
+        .filter(|path| path.is_absolute())
+        .filter_map(|path| fs::canonicalize(path.join("pi.exe")).ok())
+        .find(|path| is_executable(path))
+        .ok_or_else(|| not_ready("未找到本机 Pi"))
+}
+
+#[cfg(windows)]
+fn windows_user_pi(
+    cancel: &Cancellation,
+    status: &mut RuntimeStatus,
+    protected: &[PathBuf],
+    explicit: Option<&Path>,
+) -> Result<(PathBuf, PathBuf)> {
+    let roots: Vec<PathBuf> = if let Some(explicit) = explicit {
+        if !explicit.is_absolute()
+            || !explicit
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("pi.cmd"))
+            || !explicit.is_file()
+        {
+            return Err(not_ready(
+                "YSS_PI_EXECUTABLE 须指向 Pi 的绝对 .exe 或 pi.cmd 路径",
+            ));
+        }
+        vec![
+            explicit
+                .parent()
+                .ok_or_else(|| not_ready("Pi 路径无效"))?
+                .to_owned(),
+        ]
+    } else {
+        env::split_paths(&env::var_os("PATH").unwrap_or_default())
+            .filter(|path| path.is_absolute())
+            .collect()
+    };
+    for path in roots {
+        let shim = path.join("pi.cmd");
+        if !shim.is_file() {
+            continue;
+        }
+        // Preserve discovery even when the package or its Node cannot be used.
+        if status.executable.is_none() {
+            status.executable = Some(shim.to_string_lossy().into_owned());
+        }
+        let package = path.join("node_modules/@earendil-works/pi-coding-agent");
+        let Ok(root) = Root::open(&package) else {
+            continue;
+        };
+        let Ok(file) = root.read_checked(&RelPath::new("package.json")?, 1024 * 1024) else {
+            continue;
+        };
+        let Ok(metadata) = serde_json::from_slice::<Value>(&file.bytes) else {
+            continue;
+        };
+        let version = metadata["version"]
+            .as_str()
+            .and_then(|value| Version::parse(value).ok());
+        if metadata["name"] != "@earendil-works/pi-coding-agent"
+            || !version
+                .as_ref()
+                .is_some_and(|value| SUPPORTED_VERSIONS.contains(value))
+        {
+            continue;
+        }
+        let Some(entry) = metadata["bin"]["pi"].as_str() else {
+            continue;
+        };
+        let Ok(entry) = RelPath::new(entry) else {
+            continue;
+        };
+        if !entry.as_str().ends_with(".js")
+            || !matches!(root.inspect(&entry), Ok(FileSnapshot::File { .. }))
+        {
+            continue;
+        }
+        if root.read_checked_single_link(&entry, 1024 * 1024).is_err() {
+            continue;
+        }
+        let Ok(entry) = fs::canonicalize(root.path.join(entry.as_str())) else {
+            continue;
+        };
+        if is_protected_path(&entry, protected) {
+            validate_protected_paths(protected)?;
+            return Err(not_ready(
+                "已有 Pi 位于工程或工作台数据目录中，无法安全运行",
+            ));
+        }
+        status.executable = Some(entry.to_string_lossy().into_owned());
+        validate_protected_paths(protected)?;
+        if let Some(node) = windows_node(cancel, protected)? {
+            return Ok((node, entry));
+        }
+        return Err(not_ready(
+            "已发现 Pi，但未找到可用的 Node 22.19.0 或更新版本",
+        ));
+    }
+    Err(not_ready(if status.executable.is_some() {
+        "已发现 pi.cmd，但无法验证对应 Pi 包，请修复现有安装"
+    } else {
+        "未找到可验证的本机 Pi 包"
+    }))
+}
+
+#[cfg(windows)]
+fn windows_node(cancel: &Cancellation, protected: &[PathBuf]) -> Result<Option<PathBuf>> {
+    let path = env::var_os("PATH").unwrap_or_default();
+    let nodes = env::split_paths(&path)
+        .filter(|path| path.is_absolute())
+        .filter_map(|path| fs::canonicalize(path.join("node.exe")).ok())
+        .filter(|path| is_executable(path));
+    for node in nodes {
+        match validate_node(&node, cancel, protected) {
+            Ok(()) => return Ok(Some(node)),
+            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+            Err(_) => continue,
+        }
+    }
+    Ok(None)
+}
+
+fn managed_pi(
+    cancel: &Cancellation,
+    status: &mut RuntimeStatus,
+    protected: &[PathBuf],
+) -> Result<(PathBuf, PathBuf, Version)> {
+    let tools = managed_pi::directory().ok_or_else(|| not_ready("无法确定桌面版工具目录"))?;
+    let missing = || not_ready("未找到本机 Pi，请安装 Pi 1.6.1");
+    let root = match Root::open(&tools) {
+        Ok(root) => root,
+        Err(_)
+            if fs::symlink_metadata(&tools)
+                .is_err_and(|error| error.kind() == ErrorKind::NotFound) =>
+        {
+            return Err(missing());
+        }
+        Err(_) => return Err(not_ready("受管工具目录路径不安全，请检查后重试")),
+    };
+    let managed = managed_pi::active_installation(&root)?.ok_or_else(missing)?;
+    let entry_path = fs::canonicalize(&managed.entry)?;
+    status.executable = Some(entry_path.to_string_lossy().into_owned());
+    status.managed = true;
+    let node = fs::canonicalize(&managed.node)
+        .ok()
+        .filter(|path| is_executable(path))
+        .ok_or_else(|| not_ready("受管 Pi 所需 Node 不可用，请重新安装"))?;
+    if is_protected_path(&node, protected) || is_protected_path(&entry_path, protected) {
+        #[cfg(windows)]
+        validate_protected_paths(protected)?;
+        return Err(not_ready("受管 Pi 必须位于工程和工作台数据目录之外"));
+    }
+    validate_node(&node, cancel, protected)?;
+    Ok((node, entry_path, managed.version))
+}
+
+fn validate_node(node: &Path, cancel: &Cancellation, protected: &[PathBuf]) -> Result<()> {
+    let mut command = pi_command(node, None, protected)?;
+    command.arg("--version");
+    let (exit, stdout, _) = process::capture_command(command, cancel, Duration::from_secs(5))?;
+    let version = std::str::from_utf8(&stdout)
+        .ok()
+        .and_then(|s| Version::parse(s.trim().trim_start_matches('v')).ok())
+        .filter(|_| exit.success())
+        .ok_or_else(|| not_ready("受管 Pi 的 Node 版本探测失败"))?;
+    if version < Version::new(22, 19, 0) {
+        return Err(not_ready("受管 Pi 需要 Node 22.19.0 或更新版本"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn validate_protected_paths(protected: &[PathBuf]) -> Result<()> {
+    for path in protected {
+        let canonical = fs::canonicalize(path).map_err(|_| {
+            not_ready(&format!(
+                "无法核验登记工程或工作台数据目录 {}；请恢复目录或移除不再使用的登记后重试",
+                path.display()
+            ))
+            .context("piIssue", "projectUnavailable")
+        })?;
+        Root::open(&canonical).map_err(|_| {
+            not_ready(&format!(
+                "无法安全核验登记工程或工作台数据目录 {}",
+                path.display()
+            ))
+            .context("piIssue", "projectUnavailable")
+        })?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_protected_path(path: &Path, protected: &[PathBuf]) -> bool {
+    protected.iter().any(|root| path.starts_with(root))
+}
+
+#[cfg(windows)]
+fn is_protected_path(path: &Path, protected: &[PathBuf]) -> bool {
+    // Compare opened directory identities, not lexical prefixes: Windows paths
+    // can vary in case, verbatim prefix, junctions, or mounted-volume aliases.
+    let Ok(path) = fs::canonicalize(path) else {
+        return true;
+    };
+    let directory = if path.is_dir() {
+        path.as_path()
+    } else if let Some(parent) = path.parent() {
+        parent
+    } else {
+        return true;
+    };
+    let mut ancestors = Vec::new();
+    for ancestor in directory.ancestors() {
+        let Ok(root) = Root::open(ancestor) else {
+            return true;
+        };
+        ancestors.push(root.identity);
+    }
+    for protected_path in protected {
+        let canonical = match fs::canonicalize(protected_path) {
+            Ok(path) => path,
+            Err(_) => return true,
+        };
+        let Ok(root) = Root::open(&canonical) else {
+            return true;
+        };
+        if ancestors.contains(&root.identity) {
+            return true;
+        }
+    }
+    false
+}
+
+fn pi_command(executable: &Path, entry: Option<&Path>, protected: &[PathBuf]) -> Result<Command> {
+    #[cfg(windows)]
+    validate_protected_paths(protected)?;
+    let is_protected = |path: &Path| is_protected_path(path, protected);
     if is_protected(executable) {
         return Err(not_ready("Pi 可执行文件须在工程和工作台数据目录之外"));
     }
@@ -69,6 +330,12 @@ fn pi_command(executable: &Path, protected: &[PathBuf]) -> Result<Command> {
     )
     .map_err(|_| not_ready("Pi 运行环境的 PATH 无效"))?;
     let mut command = Command::new(executable);
+    if let Some(entry) = entry {
+        if is_protected(entry) {
+            return Err(not_ready("Pi 程序须在工程和工作台数据目录之外"));
+        }
+        command.arg(entry);
+    }
     command
         .env("PATH", path)
         .env("HOME", host_home()?)
@@ -89,6 +356,7 @@ fn configuration_error(message: &str) -> YssError {
     not_ready(message).context("piIssue", "configuration")
 }
 
+#[cfg(unix)]
 fn host_home() -> Result<PathBuf> {
     // A workbench launcher can supply a temporary HOME. Ask macOS for the current account home.
     let mut account = MaybeUninit::<libc::passwd>::uninit();
@@ -120,6 +388,16 @@ fn host_home() -> Result<PathBuf> {
     ))
 }
 
+#[cfg(windows)]
+fn host_home() -> Result<PathBuf> {
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().to_owned())
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| {
+            configuration_error("无法定位当前 Windows 用户的主目录，请用配置 Pi 的账户启动工作台")
+        })
+}
+
 fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
     let path = match env::var_os("PI_CODING_AGENT_DIR").filter(|value| !value.is_empty()) {
         Some(value) => {
@@ -132,7 +410,19 @@ fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
         None => host_home()?.join(".pi/agent"),
     };
     let path = fs::canonicalize(&path).unwrap_or(path);
-    if protected.iter().any(|root| path.starts_with(root)) {
+    #[cfg(unix)]
+    let protected_config = protected.iter().any(|root| path.starts_with(root));
+    #[cfg(windows)]
+    let protected_config = {
+        let mut existing = path.as_path();
+        while !existing.exists() {
+            existing = existing
+                .parent()
+                .ok_or_else(|| configuration_error("无法核对 Pi 配置目录"))?;
+        }
+        is_protected_path(existing, protected)
+    };
+    if protected_config {
         return Err(configuration_error(
             "Pi 配置目录须在工程和工作台数据目录之外，请核对 PI_CODING_AGENT_DIR",
         ));
@@ -214,24 +504,43 @@ fn check_credentials(
 
 pub(super) fn rpc_command(
     executable: &Path,
+    entry: Option<&Path>,
     config_dir: &Path,
     protected: &[PathBuf],
 ) -> Result<Command> {
-    let mut command = pi_command(executable, protected)?;
-    command.env("PI_CODING_AGENT_DIR", config_dir).args([
-        "--mode",
-        "rpc",
-        "--offline",
-        "--no-builtin-tools",
-        "--no-extensions",
-        "--no-mcp",
-        "--no-approve",
-        "--no-prompt-templates",
-        "--no-context-files",
-        "--no-themes",
-        "--no-skills",
-    ]);
+    let mut command = pi_command(executable, entry, protected)?;
+    command
+        .env("PI_CODING_AGENT_DIR", config_dir)
+        .args(RPC_ARGS);
     Ok(command)
+}
+
+const RPC_ARGS: &[&str] = &[
+    "--mode",
+    "rpc",
+    "--offline",
+    "--no-builtin-tools",
+    "--no-extensions",
+    "--no-mcp",
+    "--no-approve",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--no-themes",
+    "--no-skills",
+];
+
+pub(in super::super) fn probe_update_rpc(
+    mut command: Command,
+    cancel: &Cancellation,
+) -> Result<()> {
+    command.args(RPC_ARGS).args(["--no-session", "--no-tools"]);
+    let mut session = Session::open(command, cancel)?;
+    if !session.state(cancel)?.is_object()
+        || !session.available_models(cancel)?["models"].is_array()
+    {
+        return Err(not_ready("受管 Pi 新版本返回的 RPC 状态或模型列表不兼容"));
+    }
+    Ok(())
 }
 
 pub(super) fn select_model(command: &mut Command, model: &PiModel) {
@@ -258,6 +567,7 @@ struct PiProbe {
     private: sandbox::PrivateDir,
     protected: Vec<PathBuf>,
     executable: PathBuf,
+    entry: Option<PathBuf>,
     config_dir: PathBuf,
     version: Version,
 }
@@ -272,17 +582,66 @@ impl PiProbe {
             .iter()
             .map(|path| fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
             .collect();
+        let explicit = env::var_os("YSS_PI_EXECUTABLE");
+        status.explicit_executable = explicit.is_some();
+        let prefer_selected = !status.explicit_executable
+            && env::var_os("YSS_DESKTOP_MANAGED").is_some_and(|value| value == "1")
+            && managed_pi::has_selected_release()?;
+        let (executable, entry, managed_version) = if prefer_selected {
+            let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+            (node, Some(entry), Some(version))
+        } else {
+            match locate_pi() {
+                Ok(executable) => (executable, None, None),
+                #[cfg(unix)]
+                Err(error) if explicit.is_some() => return Err(error),
+                #[cfg(windows)]
+                Err(error) if explicit.is_some() => {
+                    let configured = PathBuf::from(explicit.unwrap_or_default());
+                    if !configured.is_absolute() {
+                        return Err(error);
+                    }
+                    let (node, entry) =
+                        windows_user_pi(cancel, status, &protected, Some(&configured))?;
+                    (node, Some(entry), None)
+                }
+                Err(_) => {
+                    #[cfg(windows)]
+                    let discovered = match windows_user_pi(cancel, status, &protected, None) {
+                        Ok((node, entry)) => (node, Some(entry), None),
+                        Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                        Err(error) if status.executable.is_some() => return Err(error),
+                        Err(_) => {
+                            let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+                            (node, Some(entry), Some(version))
+                        }
+                    };
+                    #[cfg(unix)]
+                    let discovered = {
+                        let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+                        (node, Some(entry), Some(version))
+                    };
+                    discovered
+                }
+            }
+        };
+        let executable_name = entry
+            .as_ref()
+            .unwrap_or(&executable)
+            .to_str()
+            .ok_or_else(|| {
+                configuration_error("Pi 可执行文件路径须为有效 UTF-8，请核对 YSS_PI_EXECUTABLE")
+            })?;
+        status.executable = Some(executable_name.to_owned());
+        if entry.is_some() {
+            status.node_executable = executable.to_str().map(str::to_owned);
+        }
         let private = sandbox::PrivateDir::new()?;
-        let executable = locate_pi()?;
-        let mut probe = pi_command(&executable, &protected)?;
-        let executable_name = executable.to_str().ok_or_else(|| {
-            configuration_error("Pi 可执行文件路径须为有效 UTF-8，请核对 YSS_PI_EXECUTABLE")
-        })?;
+        let mut probe = pi_command(&executable, entry.as_deref(), &protected)?;
         let config_dir = config_directory(&protected)?;
         let config_name = config_dir.to_str().ok_or_else(|| {
             configuration_error("Pi 配置目录须为有效 UTF-8，请核对 PI_CODING_AGENT_DIR")
         })?;
-        status.executable = Some(executable_name.to_owned());
         status.config_dir = Some(config_name.to_owned());
         probe
             .current_dir(private.path())
@@ -295,7 +654,11 @@ impl PiProbe {
             .filter(|_| exit.success())
             .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
         status.version = Some(version.clone());
-        if !SUPPORTED_VERSIONS.contains(&version) {
+        if let Some(expected) = managed_version {
+            if version != expected {
+                return Err(not_ready("受管 Pi 的实际版本与活动记录不一致"));
+            }
+        } else if !SUPPORTED_VERSIONS.contains(&version) {
             return Err(not_ready(
                 "工作台当前支持 Pi 1.5.2、1.6.0 和 1.6.1，请核对本机 Pi 版本",
             ));
@@ -304,13 +667,19 @@ impl PiProbe {
             private,
             protected,
             executable,
+            entry,
             config_dir,
             version,
         })
     }
 
     fn open(&self, cancel: &Cancellation, model: Option<&PiModel>) -> Result<Session> {
-        let mut command = rpc_command(&self.executable, &self.config_dir, &self.protected)?;
+        let mut command = rpc_command(
+            &self.executable,
+            self.entry.as_deref(),
+            &self.config_dir,
+            &self.protected,
+        )?;
         command
             .current_dir(self.private.path())
             .args(["--no-session", "--no-tools"]);
@@ -321,7 +690,7 @@ impl PiProbe {
     }
 
     fn credentials_command(&self, model: &PiModel) -> Result<Command> {
-        let mut command = pi_command(&self.executable, &self.protected)?;
+        let mut command = pi_command(&self.executable, self.entry.as_deref(), &self.protected)?;
         command
             .current_dir(self.private.path())
             .env("PI_CODING_AGENT_DIR", &self.config_dir)
@@ -362,9 +731,38 @@ pub(crate) fn check_runtime(
     protected: &[PathBuf],
     model: Option<&PiModel>,
 ) -> Result<PiRuntime> {
+    #[cfg(windows)]
+    {
+        status.sandbox_message = Some(sandbox::OFFLINE_UNAVAILABLE.into());
+    }
     let probe = PiProbe::new(cancel, status, protected)?;
-    sandbox::probe(cancel)?;
-    status.sandbox_ready = true;
+    #[cfg(windows)]
+    super::probe_base(cancel).map_err(|mut error| {
+        if error.code != ErrorCode::Cancelled {
+            error.message = format!("Windows Pi 基础作业自检未通过：{}", error.message);
+        }
+        error
+    })?;
+    #[cfg(unix)]
+    let sandbox = sandbox::probe(cancel);
+    #[cfg(windows)]
+    let command_node = if probe.entry.is_some() {
+        Some(probe.executable.clone())
+    } else {
+        windows_node(cancel, &probe.protected)?
+    };
+    #[cfg(windows)]
+    let sandbox = sandbox::probe(command_node.as_deref(), cancel);
+    match sandbox {
+        Ok(()) => {
+            status.sandbox_ready = true;
+            status.sandbox_message = None;
+        }
+        Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+        Err(error) => {
+            status.sandbox_message = Some(error.message);
+        }
+    }
 
     status.model = match model {
         Some(model) => Some(model.clone()),
@@ -411,10 +809,14 @@ pub(crate) fn check_runtime(
         .filter(|value| *value > 0);
     Ok(PiRuntime {
         executable: probe.executable,
+        entry: probe.entry,
+        #[cfg(windows)]
+        command_node,
         config_dir: probe.config_dir,
         version: probe.version,
         model,
         thinking_levels,
+        sandbox_message: status.sandbox_message.clone(),
     })
 }
 
@@ -430,7 +832,12 @@ pub(crate) fn test_model(
     let runtime = check_runtime(cancel, &mut RuntimeStatus::default(), protected, model)?;
     runtime.verify_expected(Some(expected))?;
     let private = sandbox::PrivateDir::new()?;
-    let mut command = rpc_command(&runtime.executable, &runtime.config_dir, protected)?;
+    let mut command = rpc_command(
+        &runtime.executable,
+        runtime.entry.as_deref(),
+        &runtime.config_dir,
+        protected,
+    )?;
     command.current_dir(private.path()).args([
         "--no-session",
         "--no-tools",

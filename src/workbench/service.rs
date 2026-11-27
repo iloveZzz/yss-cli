@@ -418,6 +418,15 @@ pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<Mutatio
             }
             return Ok(receipt.result);
         }
+        super::jobs::ensure_request_not_deleted(store, id)?;
+        if super::jobs::job_by_request(store, id)?
+            .is_some_and(|job| job.local_project_task.is_some())
+        {
+            return Err(YssError::new(
+                ErrorCode::Conflict,
+                "请求 ID 已用于本机测试或构建",
+            ));
+        }
     }
     if let Some(expected) = &request.expected_target {
         let current = super::drafts::target(store.state(), &request.action)?;

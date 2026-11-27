@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, useTemplateRef } from 'vue'
 import { useRoute, type RouteLocationRaw } from 'vue-router'
-import { Check, ChevronsUpDown, CircleUserRound, FileText, FolderClosed, FolderOpen, LayoutDashboard, Monitor, MonitorCog, RefreshCw, Settings, Sparkles } from '@lucide/vue'
+import { Check, ChevronDown, CircleUserRound, FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, Monitor, MonitorCog, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Sparkles } from '@lucide/vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,8 @@ interface RailProject {
 }
 
 const props = defineProps<{
+  collapsed: boolean
+  canToggle: boolean
   recentProjects: readonly RailProject[]
   currentProject?: RailProject
   projectsLoading: boolean
@@ -26,16 +28,18 @@ const props = defineProps<{
   refreshBusy: boolean
   refreshDisabled: boolean
 }>()
-const emit = defineEmits<{ refresh: []; retryProjects: [] }>()
+const emit = defineEmits<{ refresh: []; retryProjects: []; toggleCollapse: [] }>()
 const route = useRoute()
 const desktopSettingsUrl = (window as Window & { __YSS_DESKTOP_SETTINGS_URL__?: string }).__YSS_DESKTOP_SETTINGS_URL__
 const navigation = [
-  { path: '/workbench', label: '工作台', short: '工作台', icon: LayoutDashboard },
-  { path: '/projects', label: '产品与工程', short: '工程', icon: FolderClosed },
-  { path: '/specs', label: '规格管理', short: '规格', icon: FileText },
-  { path: '/agent', label: 'AI Agent', short: 'Agent', icon: Sparkles },
+  { path: '/workbench', label: '工作台', icon: LayoutDashboard },
+  { path: '/projects', label: '产品与工程', icon: FolderClosed },
+  { path: '/specs', label: '规格管理', icon: FileText },
+  { path: '/merge-requests', label: '合并请求', icon: GitPullRequest },
+  { path: '/agent', label: 'AI Agent', icon: Sparkles },
 ] as const
 const projectScopeName = computed(() => props.currentProject?.name || '全部工程')
+const collapseLabel = computed(() => props.collapsed ? '展开侧栏' : '收起侧栏')
 
 type MenuName = 'user' | 'project'
 const menuTriggers = {
@@ -85,26 +89,28 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
 </script>
 
 <template>
-  <aside class="workbench-rail" aria-label="工作台侧栏">
+  <aside id="workbench-rail" class="workbench-rail" :data-collapsed="collapsed" aria-label="工作台侧栏">
     <div class="rail-top">
       <DropdownMenu :modal="false" @update:open="recordOpening('project', $event)">
         <DropdownMenuTrigger as-child>
           <Button
             ref="projectTrigger"
+            type="button"
             variant="ghost"
             class="rail-link rail-switcher"
             :aria-label="`切换工程 · ${projectScopeName}`"
-            :title="currentProject?.name"
+            :title="projectScopeName"
           >
-            <FolderOpen class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
+            <span class="scope-icon" aria-hidden="true">
+              <FolderOpen class="size-[17px]" :stroke-width="1.8" />
+            </span>
             <span class="rail-label-wide scope-name">{{ projectScopeName }}</span>
-            <span class="rail-label-compact">切换工程</span>
-            <ChevronsUpDown class="scope-chevron size-[14px]" :stroke-width="1.7" aria-hidden="true" />
+            <ChevronDown class="scope-chevron size-[14px]" :stroke-width="1.8" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           class="workbench-rail-menu workbench-rail-project-menu"
-          side="right"
+          :side="collapsed ? 'right' : 'bottom'"
           align="start"
           :side-offset="8"
           :collision-padding="8"
@@ -144,7 +150,6 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
           >
             <component :is="item.icon" class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
             <span class="rail-label-wide">{{ item.label }}</span>
-            <span class="rail-label-compact">{{ item.short }}</span>
           </RouterLink>
         </Button>
       </ControlTooltip>
@@ -153,17 +158,17 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
     <div class="rail-actions">
       <ControlTooltip v-if="desktopSettingsUrl" label="桌面设置" side="right">
         <Button variant="ghost" as-child>
-          <a :href="desktopSettingsUrl" class="rail-link" draggable="false">
+          <a :href="desktopSettingsUrl" class="rail-link" aria-label="桌面设置" draggable="false">
             <MonitorCog class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
-            <span>桌面设置</span>
+            <span class="rail-label-wide">桌面设置</span>
           </a>
         </Button>
       </ControlTooltip>
       <ControlTooltip label="本机设置" side="right">
         <Button variant="ghost" as-child>
-          <RouterLink to="/settings" class="rail-link" :aria-current="indicateCurrent('/settings')">
+          <RouterLink to="/settings" class="rail-link" aria-label="本机设置" :aria-current="indicateCurrent('/settings')">
             <Settings class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
-            <span>本机设置</span>
+            <span class="rail-label-wide">本机设置</span>
           </RouterLink>
         </Button>
       </ControlTooltip>
@@ -172,7 +177,7 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
         <DropdownMenuTrigger as-child>
           <Button ref="userTrigger" variant="ghost" class="rail-link" aria-label="本机用户菜单">
             <CircleUserRound class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
-            <span>本机用户</span>
+            <span class="rail-label-wide">本机用户</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -200,6 +205,20 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <ControlTooltip v-if="canToggle" :label="collapseLabel" side="right">
+        <Button
+          type="button"
+          variant="ghost"
+          class="rail-link rail-toggle"
+          :aria-label="collapseLabel"
+          :aria-expanded="!collapsed"
+          aria-controls="workbench-rail"
+          @click="emit('toggleCollapse')"
+        >
+          <component :is="collapsed ? PanelLeftOpen : PanelLeftClose" class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
+          <span class="rail-label-wide">{{ collapseLabel }}</span>
+        </Button>
+      </ControlTooltip>
     </div>
   </aside>
 </template>
@@ -250,21 +269,37 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
   text-decoration: none;
 }
 .workbench-rail .rail-switcher {
-  position: relative;
-  gap: 6px;
+  gap: 8px;
+  min-block-size: 46px;
+  border-radius: 10px;
   color: var(--brand-color-text);
   font-weight: 650;
   background: var(--workbench-glass-pane);
   border: 1px solid var(--yss-colors-border);
 }
+.scope-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 7px;
+  background: var(--yss-colors-primary-bg);
+  color: var(--yss-color-primary-control-active);
+}
 .scope-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .scope-chevron { margin-inline-start: auto; color: var(--brand-color-text-secondary); }
-.rail-label-compact { display: none; }
+.rail-switcher[data-state='open'] .scope-chevron { transform: rotate(180deg); }
 .workbench-rail .rail-link:hover,
 .workbench-rail .rail-link[aria-expanded='true'] {
   color: var(--brand-color-text);
   background: var(--brand-color-fill-secondary);
 }
+.workbench-rail .rail-switcher:is(:hover, [data-state='open']) {
+  background: var(--workbench-glass-card);
+  border-color: var(--yss-colors-border-control);
+}
+.workbench-rail .rail-switcher[data-state='open'] .scope-chevron { color: var(--yss-color-primary-control-active); }
 .workbench-rail .rail-link:focus-visible {
   outline: 2px solid var(--yss-color-primary-control);
   outline-offset: -2px;
@@ -278,6 +313,7 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
   margin-block-start: auto;
   padding-block-start: 16px;
 }
+.rail-toggle { margin-block-start: 4px; }
 .rail-mark {
   display: grid;
   flex: none;
@@ -296,7 +332,7 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
   min-inline-size: 0;
   max-inline-size: min(
     var(--reka-dropdown-menu-content-available-width, 100vw),
-    calc(100vw - var(--workbench-rail-width) - 16px)
+    calc(100vw - 16px)
   );
   overscroll-behavior: contain;
 }
@@ -310,25 +346,18 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
 .project-name { min-inline-size: 0; overflow-wrap: anywhere; }
 .rail-menu-item .current-project-check { margin-inline-start: auto; color: #315dcf; }
 
-@media (max-width: 879px) {
-  .workbench-rail { padding-inline: 4px; }
-  .workbench-rail .rail-link {
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    padding-inline: 2px;
-    font-size: 11px;
-  }
-  .rail-label-wide { display: none; }
-  .rail-label-compact { display: block; }
-  .workbench-rail .rail-switcher { gap: 3px; padding-block: 5px; }
-  .scope-chevron {
-    position: absolute;
-    inset-block-start: 8px;
-    inset-inline-end: 3px;
-    inline-size: 12px;
-    block-size: 12px;
-  }
+.workbench-rail[data-collapsed='true'] { padding-inline: 4px; }
+.workbench-rail[data-collapsed='true'] .rail-link { justify-content: center; padding-inline: 2px; }
+.workbench-rail[data-collapsed='true'] .rail-label-wide { display: none; }
+.workbench-rail[data-collapsed='true'] .rail-switcher { gap: 3px; }
+.workbench-rail[data-collapsed='true'] .scope-chevron {
+  margin-inline-start: 0;
+  inline-size: 10px;
+  block-size: 10px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .workbench-rail { transition: inline-size var(--workbench-motion-panel) var(--workbench-motion-ease); }
+  .scope-chevron { transition: transform var(--workbench-motion-fast) var(--workbench-motion-ease); }
 }
 @media (width < 720px) {
   .rail-menu-item { min-block-size: 44px; }

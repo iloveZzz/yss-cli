@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
-import { useEventListener, usePreferredReducedMotion } from '@vueuse/core'
+import { useEventListener, useMediaQuery, usePreferredReducedMotion } from '@vueuse/core'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
@@ -39,6 +39,10 @@ const agentTarget = computed(() => {
   return specId ? { name: 'agent-workbench', params: { specId } } : '/agent'
 })
 const piWorkspace = computed(() => route.meta.piWorkspace === true)
+const canExpandRail = useMediaQuery('(min-width: 720px)')
+const wideRailViewport = useMediaQuery('(min-width: 880px)')
+const railPreference = shallowRef<boolean>()
+const railCollapsed = computed(() => !canExpandRail.value || (railPreference.value ?? !wideRailViewport.value))
 const isHome = computed(() => route.path === '/workbench')
 const preferredMotion = usePreferredReducedMotion()
 const surface = useTemplateRef<HTMLElement>('surface')
@@ -151,10 +155,12 @@ useEventListener(window, 'focus', () => void checkChanges())
 </script>
 <template>
   <TooltipProvider :delay-duration="220">
-    <div class="app-shell">
+    <div class="app-shell" :data-rail-collapsed="railCollapsed">
       <a class="skip-link" href="#main" @click.prevent="focusMain">跳到主内容</a>
       <WorkbenchRail
         v-if="!piWorkspace"
+        :collapsed="railCollapsed"
+        :can-toggle="canExpandRail"
         :recent-projects="recentProjects"
         :current-project="currentProject"
         :projects-loading="!expired && (catalogLoading || (!catalog && !snapshot && !catalogError))"
@@ -165,6 +171,7 @@ useEventListener(window, 'focus', () => void checkChanges())
         :refresh-disabled="refreshDisabled"
         @refresh="refreshCurrentPage"
         @retry-projects="refreshCatalog()"
+        @toggle-collapse="railPreference = !railCollapsed"
       />
       <main id="main" :class="piWorkspace ? 'pi-main' : 'main'" tabindex="-1">
         <Alert v-if="desktopDraftError" variant="destructive" class="notice error" role="alert">
@@ -219,6 +226,15 @@ useEventListener(window, 'focus', () => void checkChanges())
 </template>
 
 <style scoped>
+.app-shell[data-rail-collapsed='true'] { --workbench-rail-width: 62px; }
+@media (prefers-reduced-motion: no-preference) {
+  .app-shell > .main {
+    transition: margin-inline-start var(--workbench-motion-panel) var(--workbench-motion-ease);
+  }
+  .main .workbench-route-progress {
+    transition: inset-inline-start var(--workbench-motion-panel) var(--workbench-motion-ease);
+  }
+}
 .app-loading { min-height: 14rem; padding-block: 10px 20px; }
 .workbench-view { min-width: 0; }
 .page-refresh-feedback {

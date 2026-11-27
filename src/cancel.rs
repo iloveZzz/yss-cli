@@ -7,9 +7,11 @@ impl Cancellation {
     pub fn new() -> Self {
         Self::default()
     }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub(crate) fn child(&self) -> Self {
         Self(self.0.child_token())
+    }
+    pub(crate) fn cancel_on_drop(&self) -> tokio_util::sync::DropGuard {
+        self.0.clone().drop_guard()
     }
     pub fn cancel(&self) {
         self.0.cancel();

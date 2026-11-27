@@ -33,6 +33,16 @@ pub mod agent_protocol;
 mod agent_scope;
 pub mod agent_workspace;
 mod ci_job;
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[allow(dead_code)]
+mod command_recovery;
 pub mod engineering;
 pub mod integrations;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+pub mod managed_pi;
+pub mod managed_tools;
+mod merge_requests;
 pub mod process;

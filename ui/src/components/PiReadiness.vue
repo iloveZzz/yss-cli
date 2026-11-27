@@ -46,8 +46,13 @@ const piCommand = computed(() => {
   const configDir = status.value?.configDir
   const executable = status.value?.executable
   if (!configDir || !executable) return undefined
+  const node = status.value?.nodeExecutable
+  if (/^[a-z]:/i.test(executable) || executable.startsWith('\\\\')) {
+    const quote = (value: string) => `'${value.replaceAll("'", "''")}'`
+    return `$env:PI_CODING_AGENT_DIR=${quote(configDir)}; & ${node ? quote(node) + ' ' : ''}${quote(executable)} --no-extensions --no-approve`
+  }
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-  return `PI_CODING_AGENT_DIR=${quote(configDir)} ${quote(executable)} --no-extensions --no-approve`
+  return `PI_CODING_AGENT_DIR=${quote(configDir)} ${node ? quote(node) + ' ' : ''}${quote(executable)} --no-extensions --no-approve`
 })
 let request: AbortController | undefined
 

@@ -3,7 +3,10 @@ use crate::{
     error::{ErrorCode, Result, YssError},
 };
 use std::{
+    env,
+    ffi::OsStr,
     io::Read,
+    path::PathBuf,
     process::{Command, Stdio},
     sync::mpsc,
     thread,
@@ -16,8 +19,56 @@ mod unix_tree;
 
 #[cfg(target_os = "macos")]
 pub mod host;
+#[cfg(windows)]
+#[path = "process/windows_path.rs"]
+mod windows_path;
+#[cfg(windows)]
+pub use windows_path::apply_windows_user_path;
 
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
+
+pub(crate) fn system_tool_path(program: &str, path: &OsStr) -> Option<PathBuf> {
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
+    if std::env::var_os("YSS_DESKTOP_MANAGED").as_deref() == Some(OsStr::new("1")) {
+        let tool = match program {
+            "gh" => Some(super::managed_tools::Tool::Gh),
+            "glab" => Some(super::managed_tools::Tool::Glab),
+            _ => None,
+        };
+        if let Some(tool) = tool
+            && let Some(path) = std::env::var_os(tool.environment())
+            && let Ok(Some(path)) =
+                super::managed_tools::resolve_pinned(tool, std::path::Path::new(&path))
+        {
+            return Some(path);
+        }
+    }
+    #[cfg(windows)]
+    let program = format!("{program}.exe");
+    env::split_paths(path)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(AsRef::<str>::as_ref(&program)))
+        .find(|path| {
+            let Ok(metadata) = path.metadata() else {
+                return false;
+            };
+            if !metadata.is_file() {
+                return false;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                metadata.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        })
+}
 
 pub(crate) fn isolate(command: &mut Command) -> Result<String> {
     let scope = crate::fs::unique_id()?;
@@ -36,27 +87,6 @@ pub(crate) fn isolate(command: &mut Command) -> Result<String> {
         );
     }
     Ok(scope)
-}
-
-#[cfg(windows)]
-fn taskkill(pid: u32) {
-    use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
-    let mut buffer = vec![0u16; 32768];
-    let length = unsafe {
-        windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
-        )
-    } as usize;
-    if length == 0 || length >= buffer.len() {
-        return;
-    }
-    let executable = PathBuf::from(OsString::from_wide(&buffer[..length])).join("taskkill.exe");
-    let _ = Command::new(executable)
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
 }
 
 #[cfg(windows)]
@@ -95,11 +125,9 @@ fn resume(pid: u32) -> bool {
 }
 
 pub(crate) struct ProcessTree {
-    #[cfg(windows)]
-    pid: u32,
     terminated: bool,
     #[cfg(windows)]
-    job: std::os::windows::io::OwnedHandle,
+    job: Option<std::os::windows::io::OwnedHandle>,
     #[cfg(unix)]
     unix: unix_tree::UnixTree,
 }
@@ -115,7 +143,7 @@ impl ProcessTree {
             };
             let raw = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
             if raw.is_null() {
-                taskkill(child.id());
+                // isolate() creates the primary thread suspended until assignment.
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(YssError::new(
@@ -138,7 +166,7 @@ impl ProcessTree {
             let assigned =
                 configured && unsafe { AssignProcessToJobObject(raw, child.as_raw_handle()) } != 0;
             if !assigned || !resume(child.id()) {
-                taskkill(child.id());
+                drop(job);
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(YssError::new(
@@ -147,16 +175,13 @@ impl ProcessTree {
                 ));
             }
             Ok(Self {
-                pid: child.id(),
                 terminated: false,
-                job,
+                job: Some(job),
             })
         }
         #[cfg(not(windows))]
         {
             Ok(Self {
-                #[cfg(windows)]
-                pid: child.id(),
                 terminated: false,
                 #[cfg(unix)]
                 unix: unix_tree::UnixTree::new(child.id(), _scope),
@@ -170,15 +195,13 @@ impl ProcessTree {
         #[cfg(unix)]
         self.unix.terminate();
         #[cfg(windows)]
-        {
+        if let Some(job) = self.job.take() {
             use std::os::windows::io::AsRawHandle;
+            // Closing this owned handle also invokes kill-on-close. Do not
+            // look up a PID that may now belong to an unrelated process.
             unsafe {
-                windows_sys::Win32::System::JobObjects::TerminateJobObject(
-                    self.job.as_raw_handle(),
-                    1,
-                );
+                windows_sys::Win32::System::JobObjects::TerminateJobObject(job.as_raw_handle(), 1);
             }
-            taskkill(self.pid);
         }
         self.terminated = true;
     }
@@ -222,9 +245,21 @@ pub fn run(
     cancel: &Cancellation,
     timeout: Duration,
 ) -> Result<Vec<u8>> {
-    let mut command = Command::new(program);
+    let mut command = tool_command(program);
     command.args(args);
     run_command(command, cancel, timeout)
+}
+
+pub(crate) fn tool_command(program: &str) -> Command {
+    let selected = (matches!(program, "gh" | "glab")
+        && std::env::var_os("YSS_DESKTOP_MANAGED").as_deref() == Some(OsStr::new("1")))
+    .then(|| system_tool_path(program, &std::env::var_os("PATH").unwrap_or_default()))
+    .flatten();
+    Command::new(
+        selected
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new(program)),
+    )
 }
 
 pub(crate) fn run_command(
@@ -273,7 +308,8 @@ pub(crate) fn run_command(
     Ok(stdout)
 }
 
-pub(crate) fn capture_command(
+/// Capture a caller-constructed command without a shell, bounded by a timeout and process-tree cleanup.
+pub fn capture_command(
     command: Command,
     cancel: &Cancellation,
     timeout: Duration,
@@ -282,11 +318,33 @@ pub(crate) fn capture_command(
 }
 
 pub(crate) fn capture_command_output(
+    command: Command,
+    cancel: &Cancellation,
+    timeout: Duration,
+    on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>)> {
+    let mut buffers = [Vec::new(), Vec::new()];
+    let status = command_output(command, cancel, timeout, Some(&mut buffers), on_output)?;
+    let [stdout, stderr] = buffers;
+    Ok((status, stdout, stderr))
+}
+
+pub(crate) fn stream_command_output(
+    command: Command,
+    cancel: &Cancellation,
+    timeout: Duration,
+    on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
+) -> Result<std::process::ExitStatus> {
+    command_output(command, cancel, timeout, None, on_output)
+}
+
+fn command_output(
     mut command: Command,
     cancel: &Cancellation,
     timeout: Duration,
+    mut buffers: Option<&mut [Vec<u8>; 2]>,
     mut on_output: impl FnMut(Option<(bool, &[u8])>) -> Result<()>,
-) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>)> {
+) -> Result<std::process::ExitStatus> {
     cancel.check()?;
     let program = command.get_program().to_string_lossy().into_owned();
     command
@@ -295,17 +353,18 @@ pub(crate) fn capture_command_output(
         .stderr(Stdio::piped());
     let scope = isolate(&mut command)?;
     let mut child = command.spawn().map_err(|_| {
-        YssError::new(
-            ErrorCode::NotReady,
-            format!("无法启动 {program}，请先安装并登录"),
-        )
+        let message = if buffers.is_some() {
+            format!("无法启动 {program}，请先安装并登录")
+        } else {
+            format!("无法启动 {program}，请核对本机工具和工作目录")
+        };
+        YssError::new(ErrorCode::NotReady, message)
     })?;
     let mut tree = ProcessTree::attach(&mut child, scope)?;
     let (tx, rx) = mpsc::sync_channel(16);
     reader(child.stdout.take().expect("piped stdout"), true, tx.clone());
     reader(child.stderr.take().expect("piped stderr"), false, tx);
     let started = Instant::now();
-    let mut buffers = [Vec::new(), Vec::new()];
     let mut done = [false, false];
     let mut status = None;
     while !done.iter().all(|done| *done) || status.is_none() {
@@ -315,6 +374,9 @@ pub(crate) fn capture_command_output(
         }
         if started.elapsed() > timeout {
             stop(&mut child, &mut tree);
+            if buffers.is_none() {
+                return Err(YssError::new(ErrorCode::Io, "命令执行超时"));
+            }
             return Err(YssError::new(ErrorCode::Network, "外部查询超时"));
         }
         if status.is_none()
@@ -325,10 +387,18 @@ pub(crate) fn capture_command_output(
             stop(&mut child, &mut tree);
         }
         let chunk = match rx.recv_timeout(Duration::from_millis(30)) {
-            Ok((stdout, Ok(Some(bytes))))
-                if buffers[usize::from(!stdout)].len() + bytes.len() <= OUTPUT_LIMIT =>
-            {
-                buffers[usize::from(!stdout)].extend_from_slice(&bytes);
+            Ok((stdout, Ok(Some(bytes)))) => {
+                if let Some(buffers) = buffers.as_mut() {
+                    let buffer = &mut buffers[usize::from(!stdout)];
+                    if buffer.len() + bytes.len() > OUTPUT_LIMIT {
+                        stop(&mut child, &mut tree);
+                        return Err(YssError::new(
+                            ErrorCode::Network,
+                            "外部查询输出超过限制或读取失败",
+                        ));
+                    }
+                    buffer.extend_from_slice(&bytes);
+                }
                 Some((stdout, bytes))
             }
             Ok((stdout, Ok(None))) => {
@@ -337,6 +407,9 @@ pub(crate) fn capture_command_output(
             }
             Ok(_) => {
                 stop(&mut child, &mut tree);
+                if buffers.is_none() {
+                    return Err(YssError::new(ErrorCode::Io, "无法读取命令输出"));
+                }
                 return Err(YssError::new(
                     ErrorCode::Network,
                     "外部查询输出超过限制或读取失败",
@@ -351,6 +424,9 @@ pub(crate) fn capture_command_output(
             }
             Err(_) => {
                 stop(&mut child, &mut tree);
+                if buffers.is_none() {
+                    return Err(YssError::new(ErrorCode::Io, "命令输出中断"));
+                }
                 return Err(YssError::new(ErrorCode::Network, "外部查询输出中断"));
             }
         };
@@ -364,6 +440,5 @@ pub(crate) fn capture_command_output(
             return Err(error);
         }
     }
-    let [stdout, stderr] = buffers;
-    Ok((status.unwrap(), stdout, stderr))
+    Ok(status.unwrap())
 }

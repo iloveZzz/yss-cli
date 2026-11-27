@@ -102,8 +102,38 @@ impl Boundary {
                     .map_err(|_| fail())?
                     .trim_end_matches(['\r', '\n']),
             );
-            let prefix = root.strip_prefix(&top).map_err(|_| fail())?;
-            let prefix = super::alias_key(&prefix.to_str().ok_or_else(fail)?.replace('\\', "/"));
+            #[cfg(unix)]
+            let prefix = {
+                let prefix = root.strip_prefix(&top).map_err(|_| fail())?;
+                super::alias_key(&prefix.to_str().ok_or_else(fail)?.replace('\\', "/"))
+            };
+            #[cfg(windows)]
+            let prefix = {
+                let current = std::fs::canonicalize(root).map_err(|_| fail())?;
+                let top_canonical = std::fs::canonicalize(&top).map_err(|_| fail())?;
+                let top_dir = super::open_absolute(&top_canonical)?;
+                let top_identity = super::platform::identity_dir(&top_dir).map_err(|_| fail())?;
+                let mut suffix = None;
+                for ancestor in current.ancestors() {
+                    let directory = super::open_absolute(ancestor)?;
+                    if super::platform::identity_dir(&directory).map_err(|_| fail())?
+                        == top_identity
+                    {
+                        suffix = Some(
+                            current
+                                .strip_prefix(ancestor)
+                                .map_err(|_| fail())?
+                                .to_owned(),
+                        );
+                        break;
+                    }
+                }
+                suffix
+                    .ok_or_else(fail)?
+                    .to_str()
+                    .ok_or_else(fail)?
+                    .replace('\\', "/")
+            };
             let index = output(repository, &["ls-files", "--stage", "-z"], None, false)?;
             let mut paths = BTreeSet::new();
             for entry in index.split(|b| *b == 0).filter(|s| !s.is_empty()) {
@@ -145,13 +175,33 @@ impl Boundary {
             for path in paths {
                 fingerprint.extend_from_slice(path.as_str().as_bytes());
                 fingerprint.push(0);
+                #[cfg(unix)]
                 let path = super::alias_key(path.as_str());
+                #[cfg(windows)]
+                let path = path.as_str().to_owned();
+                #[cfg(unix)]
                 if prefix.is_empty() {
                     blocked.insert(path);
                 } else if path == prefix || prefix.starts_with(&format!("{path}/")) {
                     return Err(fail());
                 } else if let Some(path) = path.strip_prefix(&format!("{prefix}/")) {
                     blocked.insert(path.to_owned());
+                }
+                #[cfg(windows)]
+                if prefix.is_empty() {
+                    blocked.insert(path);
+                } else if super::windows_path_under(&prefix, &path).ok_or_else(fail)? {
+                    return Err(fail());
+                } else if super::windows_path_under(&path, &prefix).ok_or_else(fail)? {
+                    let suffix = path
+                        .split('/')
+                        .skip(prefix.split('/').count())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    if suffix.is_empty() {
+                        return Err(fail());
+                    }
+                    blocked.insert(suffix);
                 }
             }
             fingerprint.extend_from_slice(top.as_os_str().as_encoded_bytes());
@@ -163,15 +213,23 @@ impl Boundary {
         })
     }
     pub fn check(&self, path: &RelPath) -> Result<()> {
+        #[cfg(unix)]
         let key = super::alias_key(path.as_str());
+        #[cfg(unix)]
+        let blocked = self
+            .blocked
+            .iter()
+            .any(|p| &key == p || key.starts_with(&format!("{p}/")));
+        #[cfg(windows)]
+        let blocked = self
+            .blocked
+            .iter()
+            .any(|p| super::windows_path_under(path.as_str(), p).unwrap_or(true));
         if path
             .as_str()
             .split('/')
             .any(|p| p.eq_ignore_ascii_case(".git"))
-            || self
-                .blocked
-                .iter()
-                .any(|p| &key == p || key.starts_with(&format!("{p}/")))
+            || blocked
         {
             return Err(YssError::new(ErrorCode::UnsafePath, "路径穿越 Git 或子模块边界").at(path));
         }

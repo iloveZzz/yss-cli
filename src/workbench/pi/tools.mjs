@@ -6,29 +6,20 @@ const token = process.env.YSS_PI_SOCKET_TOKEN;
 const allowCommands = process.env.YSS_PI_ALLOW_COMMANDS === "1";
 const readOnly = process.env.YSS_PI_READ_ONLY === "1";
 
-function request(operation, signal) {
+function request(operation, signal, attempt = 0) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new Error("操作已取消"));
       return;
     }
     const socket = createConnection(socketPath);
+    const framed = process.platform === "win32";
     const chunks = [];
     let length = 0;
-    const abort = () => socket.destroy(new Error("操作已取消"));
-    signal?.addEventListener("abort", abort, { once: true });
-    socket.once("close", () => signal?.removeEventListener("abort", abort));
-    socket.once("connect", () => socket.write(JSON.stringify({ token, ...operation }) + "\n"));
-    socket.once("error", reject);
-    socket.on("data", (chunk) => {
-      length += chunk.length;
-      if (length > 8 * 1024 * 1024) {
-        socket.destroy(new Error("工具响应过大"));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    socket.once("end", () => {
+    let received = false;
+    let connected = false;
+    let retrying = false;
+    const finish = () => {
       try {
         const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         if (result.error) {
@@ -36,6 +27,51 @@ function request(operation, signal) {
           reject(Object.assign(new Error(message), { toolFailure: result }));
         } else resolve(result);
       } catch {
+        reject(new Error("工作台工具响应中断"));
+      }
+    };
+    const abort = () => socket.destroy(new Error("操作已取消"));
+    signal?.addEventListener("abort", abort, { once: true });
+    socket.once("close", () => {
+      signal?.removeEventListener("abort", abort);
+      if (framed && !received && !retrying) reject(new Error("工作台工具连接已关闭"));
+    });
+    socket.once("connect", () => {
+      connected = true;
+      socket.write(JSON.stringify({ token, ...operation }) + "\n");
+    });
+    socket.once("error", (error) => {
+      if (framed && received) return;
+      if (framed && !connected && error.code === "EBUSY" && attempt < 3 && !signal?.aborted) {
+        retrying = true;
+        setTimeout(() => resolve(request(operation, signal, attempt + 1)), 30);
+      } else reject(error);
+    });
+    socket.on("data", (chunk) => {
+      length += chunk.length;
+      if (length > 8 * 1024 * 1024) {
+        socket.destroy(new Error("工具响应过大"));
+        return;
+      }
+      chunks.push(chunk);
+      if (framed) {
+        const newline = chunk.indexOf(10);
+        if (received || (newline !== -1 && newline !== chunk.length - 1)) {
+          socket.destroy(new Error("工作台工具响应格式无效"));
+          return;
+        }
+        if (newline !== -1) {
+          // A full response remains valid if the pipe closes during acknowledgment.
+          // Write the acknowledgment without requesting a libuv pipe shutdown.
+          received = true;
+          socket.write("\n", () => socket.destroy());
+          finish();
+        }
+      }
+    });
+    socket.once("end", () => {
+      if (!framed) finish();
+      else if (!received) {
         reject(new Error("工作台工具响应中断"));
       }
     });
@@ -53,6 +89,7 @@ export default function workbench(pi) {
     tools.push(name);
     pi.registerTool({
       name, label, description, parameters: Type.Object(properties),
+      ...(process.platform === "win32" ? { executionMode: "sequential" } : {}),
       async execute(id, args, signal) {
         try {
           const result = await request({ ...args, operation: name, id }, signal);
@@ -60,8 +97,11 @@ export default function workbench(pi) {
           for (const key of ["exitCode", "terminationSignal", "commandDiagnostics"]) {
             if (result[key] !== undefined) details[key] = result[key];
           }
+          const text = typeof result.sourceHint === "string"
+            ? `${result.text}\n\n${result.sourceHint}`
+            : result.text;
           return {
-            content: [{ type: "text", text: result.text }],
+            content: [{ type: "text", text }],
             details,
             isError: result.exitCode != null && result.exitCode !== 0,
           };
@@ -107,7 +147,7 @@ export default function workbench(pi) {
     register("bash", "运行离线命令", "在所选工程中运行离线 shell 命令。优先使用本轮已提供的工程和版本信息，必要的独立检查分别执行。构建和测试使用已准备的离线依赖。页面验证使用工作台预览。", {
       ...location,
       path: Type.Optional(Type.String({ description: "工作目录，缺省为工程根" })),
-      command: text("在 bash 中执行的命令"),
+      command: text(process.platform === "win32" ? "在 Windows cmd.exe 中执行的一行命令" : "在 bash 中执行的命令"),
     });
   }
   pi.on("session_start", async () => {

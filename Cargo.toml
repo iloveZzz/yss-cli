@@ -1,6 +1,6 @@
 [package]
 name = "yss-cli"
-version = "3.19.0"
+version = "3.19.1"
 edition = "2024"
 rust-version = "1.99"
 autobins = false
@@ -47,13 +47,14 @@ axum = "0.8.9"
 rust-embed = { version = "8.14.0", features = ["debug-embed"] }
 webbrowser = "1.2.7"
 rusqlite = { version = "0.42.0", default-features = false, features = ["bundled", "backup"] }
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 rustix = { version = "1", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Wdk_Foundation", "Wdk_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_Environment", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Wdk_Foundation", "Wdk_Storage_FileSystem"] }
 
 [build-dependencies]
 sha2 = "0.10"

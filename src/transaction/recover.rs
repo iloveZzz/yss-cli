@@ -279,6 +279,7 @@ fn restore_record(root: &Root, loaded: &mut Loaded, index: usize) -> Result<()> 
     let path = record.path.clone();
     let before = record.before.clone();
     let id = loaded.identity.id.clone();
+    let command_writeback = loaded.command_writeback();
     let current = root.inspect(&path)?;
     if before_matches(&before, &current) {
         return Ok(());
@@ -292,7 +293,7 @@ fn restore_record(root: &Root, loaded: &mut Loaded, index: usize) -> Result<()> 
     }
     loaded.append(root, Event::Restoring { index })?;
     if before == FileSnapshot::Missing {
-        root.remove(&path, &current)?;
+        super::remove_recorded_entry(root, &path, &current, command_writeback)?;
     } else {
         let descriptor = before
             .descriptor()
@@ -300,10 +301,10 @@ fn restore_record(root: &Root, loaded: &mut Loaded, index: usize) -> Result<()> 
         let backup = journal::backup(&id, index)?;
         let candidate = journal::candidate(&id, index)?;
         let restore = journal::restore(&id, index)?;
-        let source = if root.inspect(&backup)? == before {
-            backup.clone()
+        let (source, source_snapshot) = if root.inspect(&backup)? == before {
+            (backup.clone(), before.clone())
         } else if root.inspect(&candidate)? == before {
-            candidate.clone()
+            (candidate.clone(), before.clone())
         } else {
             let bytes = root
                 .read_checked(&journal::object(&id, &descriptor.sha256)?, MAX_ASSET)?
@@ -311,17 +312,24 @@ fn restore_record(root: &Root, loaded: &mut Loaded, index: usize) -> Result<()> 
             if Sha256::of(&bytes) != descriptor.sha256 {
                 return Err(required("回滚内容对象摘要不一致"));
             }
-            match root.inspect(&restore)? {
+            let restored = match root.inspect(&restore)? {
                 FileSnapshot::Missing => {
-                    loaded.own_file(root, &restore, &bytes, descriptor.mode)?;
+                    loaded.own_file(root, &restore, &bytes, descriptor.mode)?
                 }
-                ref snapshot if before_matches(&before, snapshot) => {}
+                snapshot
+                    if before_matches(&before, &snapshot)
+                        && (!command_writeback
+                            || loaded.owned.get(&restore).and_then(FileSnapshot::identity)
+                                == snapshot.identity()) =>
+                {
+                    snapshot
+                }
                 _ => return Err(required("恢复候选文件被改变")),
-            }
-            restore
+            };
+            (restore, restored)
         };
         if current == FileSnapshot::Missing {
-            root.rename(&source, &path, &current, false)?;
+            super::move_recorded_entry(root, &source, &path, &source_snapshot, command_writeback)?;
         } else if fs::platform::REPLACE_REQUIRES_BACKUP {
             // Keep the currently installed file in a recorded private slot before publishing the original.
             let moved = if source == candidate {
@@ -342,12 +350,12 @@ fn restore_record(root: &Root, loaded: &mut Loaded, index: usize) -> Result<()> 
                         retained: moved.clone(),
                         candidate: source.clone(),
                         before: current.clone(),
-                        after: root.inspect(&source)?,
+                        after: source_snapshot.clone(),
                     },
                 },
             )?;
-            root.rename(&path, &moved, &FileSnapshot::Missing, false)?;
-            root.rename(&source, &path, &FileSnapshot::Missing, false)?;
+            super::move_recorded_entry(root, &path, &moved, &current, command_writeback)?;
+            super::move_recorded_entry(root, &source, &path, &source_snapshot, command_writeback)?;
         } else {
             root.exchange(&source, &path, &current)?;
         }

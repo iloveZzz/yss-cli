@@ -5,17 +5,21 @@ import { useJobConversation } from './useJobConversation'
 
 // Read a consistent snapshot, then subscribe strictly after its persisted event cursor.
 // Reconnection repeats that handshake, including pending inputs and already-started commands.
-export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void, trackFirstText?: () => boolean) {
+export function useJobEvents(
+  jobId: Readonly<Ref<string>>, updated: () => void, trackFirstText?: () => boolean, trackExecutionMotion = false
+) {
   const latest = shallowRef<ActivityPage>()
   const error = shallowRef('')
   const statusLabel = shallowRef('')
   const retryKey = shallowRef(0)
+  const livePlanEventId = shallowRef<number>()
   const conversation = useJobConversation(trackFirstText)
   watch(
     [jobId, retryKey],
     ([id], previous, onCleanup) => {
       if (previous?.[0] !== id) {
         latest.value = undefined
+        livePlanEventId.value = undefined
         conversation.reset()
       }
       error.value = ''
@@ -64,16 +68,21 @@ export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void, 
       }
       async function connect() {
         try {
+          livePlanEventId.value = undefined
           statusLabel.value = latest.value ? '正在重连' : '正在读取记录'
           await flush()
           if (signal.aborted) return
           const after = conversation.getCursor() ?? latest.value?.cursor ?? 0
           if (!latest.value?.terminal || after < latest.value.cursor) {
+            // Any older events delivered after this handshake are a snapshot backfill.
+            const snapshotCursor = Math.max(after, latest.value?.cursor ?? 0)
             statusLabel.value = '实时连接'
             await streamJob(id, after, signal, (event) => {
               if (signal.aborted) return
               observed = Math.max(observed, event.id)
-              conversation.receive(event)
+              const animate = trackExecutionMotion && event.id > snapshotCursor
+              if (animate && event.kind === 'piPlan') livePlanEventId.value = event.id
+              conversation.receive(event, animate)
               schedule()
               if (
                 [
@@ -132,6 +141,7 @@ export function useJobEvents(jobId: Readonly<Ref<string>>, updated: () => void, 
     latest,
     error,
     statusLabel,
+    livePlanEventId,
     resolved,
     retry: () => retryKey.value++,
     pendingInputs: computed(() => latest.value?.pendingInputs ?? []),

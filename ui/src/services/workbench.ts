@@ -59,11 +59,13 @@ interface PendingIntent {
   body: Record<string, unknown>
   createdAt: string
   status: 'sending' | 'uncertain'
+  persistInBrowser?: boolean
 }
 const intents = new Map<string, PendingIntent>()
 const desktopIntentsKey = 'yss:pi:pending-intents:1'
+const browserIntentsKey = 'yss:pi:browser-pending-intents:1'
 export const pendingRequests = shallowRef<Omit<PendingIntent, 'body'>[]>([])
-function publishPending() {
+function publishPending(persistInBrowser = false) {
   pendingRequests.value = Array.from(intents.values()).map((intent) => ({
     requestId: intent.requestId,
     path: intent.path,
@@ -77,12 +79,21 @@ function publishPending() {
     } catch {
       // Keep the pending request in memory; the desktop flush will fail if storage is unavailable.
     }
+  } else if (persistInBrowser) {
+    try {
+      const saved = Array.from(intents.entries()).filter(([, intent]) => intent.persistInBrowser)
+      if (saved.length) sessionStorage.setItem(browserIntentsKey, JSON.stringify(saved))
+      else sessionStorage.removeItem(browserIntentsKey)
+    } catch {
+      return false
+    }
   }
+  return true
 }
-export function restoreDesktopPendingRequests() {
-  if (!desktopStorageEnabled) return
+export function restorePendingRequests() {
   try {
-    const saved: unknown = JSON.parse(sessionStorage.getItem(desktopIntentsKey) ?? '[]')
+    const key = desktopStorageEnabled ? desktopIntentsKey : browserIntentsKey
+    const saved: unknown = JSON.parse(sessionStorage.getItem(key) ?? '[]')
     if (!Array.isArray(saved)) throw new Error('待核对请求格式无效')
     for (const entry of saved) {
       if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[1] || typeof entry[1] !== 'object')
@@ -90,7 +101,8 @@ export function restoreDesktopPendingRequests() {
       const intent = entry[1] as PendingIntent
       if (typeof intent.requestId !== 'string' || typeof intent.path !== 'string' ||
           !intent.path.startsWith('/api/') || typeof intent.method !== 'string' ||
-          !intent.body || typeof intent.body !== 'object' || Array.isArray(intent.body))
+          !intent.body || typeof intent.body !== 'object' || Array.isArray(intent.body) ||
+          (!desktopStorageEnabled && intent.persistInBrowser !== true))
         throw new Error('待核对请求格式无效')
       intents.set(entry[0], { ...intent, status: 'uncertain' })
     }
@@ -123,10 +135,17 @@ export async function acknowledgeRequest(requestId: string): Promise<void> {
   }
 }
 export function resolvePendingRequest(requestId: string) {
+  let persistInBrowser = false
   for (const [key, intent] of intents) {
-    if (intent.requestId === requestId) intents.delete(key)
+    if (intent.requestId !== requestId) continue
+    intents.delete(key)
+    persistInBrowser ||= intent.persistInBrowser === true
   }
-  publishPending()
+  publishPending(persistInBrowser)
+}
+export function pendingRequestBody(path: string, requestId: string): Readonly<Record<string, unknown>> | undefined {
+  return Array.from(intents.values()).find((intent) =>
+    intent.requestId === requestId && intent.path === path && intent.method === 'POST')?.body
 }
 export async function reconcilePendingMutation(requestId: string): Promise<unknown> {
   const intent = Array.from(intents.values()).find((pending) => pending.requestId === requestId)
@@ -145,7 +164,14 @@ export async function reconcilePendingMutation(requestId: string): Promise<unkno
 }
 export async function apiRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal; priority?: RequestPriority; retryUncertain?: boolean } = {}
+  options: {
+    method?: string
+    body?: unknown
+    signal?: AbortSignal
+    priority?: RequestPriority
+    retryUncertain?: boolean
+    persistInBrowser?: boolean
+  } = {}
 ): Promise<T> {
   const authHeaders = sessionHeaders()
   const method = options.method ?? (options.body === undefined ? 'GET' : 'POST')
@@ -172,13 +198,14 @@ export async function apiRequest<T>(
         method,
         body: JSON.parse(JSON.stringify(input)),
         createdAt: new Date().toISOString(),
-        status: 'sending'
+        status: 'sending',
+        persistInBrowser: options.persistInBrowser
       }
       intents.set(intentKey, intent)
     }
     intent.status = 'sending'
-    publishPending()
-    if (desktopStorageEnabled && !await flushDesktopDrafts()) {
+    const stored = publishPending(intent.persistInBrowser)
+    if (!stored || (desktopStorageEnabled && !await flushDesktopDrafts())) {
       intent.status = 'uncertain'
       publishPending()
       throw new ApiError('未能保存待核对请求，本次操作未发送。', 0)
@@ -212,7 +239,7 @@ export async function apiRequest<T>(
           response.status >= 400 && response.status < 500 && response.status !== 408 && !recovery
         if (intent && definitive) {
           intents.delete(intentKey)
-          publishPending()
+          publishPending(intent.persistInBrowser)
           void acknowledgeRequest(intent.requestId)
         }
         throw new ApiError(
@@ -226,7 +253,7 @@ export async function apiRequest<T>(
       }
       if (intent) {
         intents.delete(intentKey)
-        publishPending()
+        publishPending(intent.persistInBrowser)
         void acknowledgeRequest(intent.requestId)
       }
       return value as T

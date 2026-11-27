@@ -345,6 +345,18 @@ pub(super) fn check_start(
     }
 }
 
+pub(in crate::workbench) fn check_local_task_start(store: &mut Store, run_id: &str) -> Result<()> {
+    if store.record::<Queue>(KIND, run_id)?.is_some_and(|queue| {
+        queue.paused_reason.is_none() && queue.items.first().is_some_and(|head| head.dispatching)
+    }) {
+        return Err(YssError::new(
+            ErrorCode::Locked,
+            "会话队列正在派发，请稍后重试",
+        ));
+    }
+    Ok(())
+}
+
 fn record_pause(store: &mut Store, queue: &mut Queue, reason: &str) -> Result<()> {
     if queue.paused_reason.as_deref() != Some(reason) {
         queue.paused_reason = Some(reason.into());
@@ -355,7 +367,7 @@ fn record_pause(store: &mut Store, queue: &mut Queue, reason: &str) -> Result<()
 
 fn is_active_for(jobs: &[JobRecord], run_id: &str) -> bool {
     jobs.iter()
-        .any(|job| !job.terminal() && job.agent_run_id.as_deref() == Some(run_id))
+        .any(|job| !job.terminal() && job.session_run_id() == Some(run_id))
 }
 
 fn has_changes(run: &AgentRun) -> bool {
@@ -437,6 +449,22 @@ fn dispatch(manager: &Arc<JobManager>, id: &str, user: Option<Resume>) -> Result
             }
             queue.items[0].clear_attempt();
             save(&mut store, &mut queue)?;
+        }
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        match super::super::command_recovery::unresolved(&mut store) {
+            Ok(records) if records.is_empty() => {}
+            Ok(records)
+                if records.iter().all(|record| {
+                    jobs.iter()
+                        .any(|job| job.id == record.job_id && !job.terminal())
+                }) =>
+            {
+                return Ok(queue);
+            }
+            _ => {
+                record_pause(&mut store, &mut queue, "commandRecoveryRequired")?;
+                return Ok(queue);
+            }
         }
         if user.is_none() && queue.paused_reason.is_some() {
             return Ok(queue);

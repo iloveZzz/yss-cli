@@ -1,4 +1,7 @@
+#[cfg(windows)]
+use super::super::windows_pipe::Pipe;
 use super::{
+    evidence::Evidence,
     sandbox::Sandbox,
     workspace::{Location as ProjectLocation, Projects},
 };
@@ -11,13 +14,17 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+#[cfg(unix)]
+use std::io::{BufRead, BufReader, Read};
+#[cfg(unix)]
+use std::os::unix::{
+    net::{UnixListener, UnixStream},
+    process::ExitStatusExt,
+};
+#[cfg(windows)]
+use std::sync::Mutex;
 use std::{
     collections::BTreeSet,
-    io::{BufRead, BufReader, Read},
-    os::unix::{
-        net::{UnixListener, UnixStream},
-        process::ExitStatusExt,
-    },
     path::{Path, PathBuf},
     process::ExitStatus,
     sync::{
@@ -29,6 +36,7 @@ use std::{
 };
 
 const TOOLS: &[&str] = &["read", "ls", "grep", "ask_spec_question", "update_plan"];
+#[cfg(unix)]
 const MAX_REQUEST: u64 = 4 * 1024 * 1024;
 const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024;
 
@@ -133,13 +141,20 @@ fn command_result(item: &mut Value, status: ExitStatus, stderr: &[u8], output: &
     item["status"] = json!(if code == 0 { "completed" } else { "failed" });
     item["aggregatedOutput"] = json!(output);
     let mut reply = json!({ "exitCode": code });
-    let mut text = if let Some(number) = status.signal() {
+    #[cfg(unix)]
+    let signal = status.signal();
+    #[cfg(windows)]
+    let signal: Option<i32> = None;
+    let mut text = if let Some(number) = signal {
+        #[cfg(unix)]
         let name = match number {
             libc::SIGKILL => Some("SIGKILL"),
             libc::SIGABRT => Some("SIGABRT"),
             libc::SIGTERM => Some("SIGTERM"),
             _ => None,
         };
+        #[cfg(windows)]
+        let name: Option<&str> = None;
         let mut signal = json!({ "number": number });
         let message = if let Some(name) = name {
             signal["name"] = json!(name);
@@ -275,6 +290,8 @@ pub(super) struct Bridge {
     ready: Arc<AtomicBool>,
     cancel: Cancellation,
     worker: Option<JoinHandle<()>>,
+    #[cfg(windows)]
+    recovery_error: Arc<Mutex<Option<YssError>>>,
 }
 
 impl Bridge {
@@ -285,27 +302,44 @@ impl Bridge {
         sandbox: Option<Sandbox>,
         read_only: bool,
         ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
+        evidence: Evidence,
     ) -> Result<Self> {
+        #[cfg(unix)]
         let path = private.join("tools.sock");
+        #[cfg(unix)]
         let listener = UnixListener::bind(&path)?;
+        #[cfg(unix)]
         listener.set_nonblocking(true)?;
+        #[cfg(windows)]
+        let mut listener = Pipe::bind()?;
+        #[cfg(windows)]
+        let path = {
+            let _ = private;
+            PathBuf::from(&listener.name)
+        };
         let token = unique_id()?;
         let ready = Arc::new(AtomicBool::new(false));
         let cancel = context.cancel.child();
         let mut context = context.clone();
         context.cancel = cancel.clone();
-        let mut broker = Broker {
+        #[cfg(windows)]
+        let recovery_error = Arc::new(Mutex::new(None));
+        let broker = Broker {
             context,
             projects,
             sandbox,
             read_only,
+            evidence,
             token: token.clone(),
             ready: ready.clone(),
+            #[cfg(windows)]
+            recovery_error: recovery_error.clone(),
         };
         let worker = thread::Builder::new()
             .name("pi-tools".into())
             .spawn(move || {
                 while !broker.context.cancel.is_cancelled() {
+                    #[cfg(unix)]
                     match listener.accept() {
                         Ok((stream, _)) => broker.serve(stream, &ask),
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -313,6 +347,22 @@ impl Bridge {
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                         Err(_) => break,
+                    }
+                    #[cfg(windows)]
+                    match listener.receive(&broker.context.cancel) {
+                        Ok(Some(bytes)) => {
+                            let value = broker.response(
+                                serde_json::from_slice(&bytes)
+                                    .map_err(|_| invalid("Pi 工具请求格式无效")),
+                                &ask,
+                            );
+                            if let Ok(bytes) = serde_json::to_vec(&value) {
+                                let _ = listener.reply(&bytes, &broker.context.cancel);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(_) if broker.context.cancel.is_cancelled() => break,
+                        Err(_) => continue,
                     }
                 }
             })?;
@@ -322,6 +372,8 @@ impl Bridge {
             ready,
             cancel,
             worker: Some(worker),
+            #[cfg(windows)]
+            recovery_error,
         })
     }
 
@@ -349,6 +401,15 @@ impl Bridge {
         }
         Ok(())
     }
+
+    #[cfg(windows)]
+    pub fn verify_command_recovery(&self) -> Result<()> {
+        self.recovery_error
+            .lock()
+            .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "无法核对命令恢复状态"))?
+            .clone()
+            .map_or(Ok(()), Err)
+    }
 }
 
 impl Drop for Bridge {
@@ -365,8 +426,11 @@ struct Broker {
     projects: Projects,
     sandbox: Option<Sandbox>,
     read_only: bool,
+    evidence: Evidence,
     token: String,
     ready: Arc<AtomicBool>,
+    #[cfg(windows)]
+    recovery_error: Arc<Mutex<Option<YssError>>>,
 }
 
 fn invalid(message: &str) -> YssError {
@@ -381,6 +445,7 @@ fn failure_fields(error: &YssError) -> (&str, &'static str) {
         .unwrap_or_else(|| match error.code {
             ErrorCode::UnsafePath => "protected_path",
             ErrorCode::ConcurrentChange => "concurrent_change",
+            ErrorCode::RecoveryRequired => "recovery_required",
             ErrorCode::InvalidInput | ErrorCode::Argument => "invalid_input",
             ErrorCode::Io
                 if error
@@ -406,11 +471,13 @@ fn failure_fields(error: &YssError) -> (&str, &'static str) {
         "concurrent_change" => {
             "重新读取当前文件。若 Git 分支、HEAD 或暂存区已改变，请结束本轮并重新发起。"
         }
+        "recovery_required" => "命令现场已保留。请先处理工作台的命令恢复，再继续本轮任务。",
         _ => "查看本次工具错误，其他核对可以继续。",
     };
     (code, hint)
 }
 
+#[cfg(unix)]
 fn read_request(stream: &mut UnixStream) -> Result<Request> {
     let mut line = Vec::new();
     let read = BufReader::new(stream)
@@ -423,11 +490,8 @@ fn read_request(stream: &mut UnixStream) -> Result<Request> {
 }
 
 impl Broker {
-    fn serve(
-        &mut self,
-        mut stream: UnixStream,
-        ask: &impl Fn(&JobContext, &str) -> Result<String>,
-    ) {
+    #[cfg(unix)]
+    fn serve(&self, mut stream: UnixStream, ask: &impl Fn(&JobContext, &str) -> Result<String>) {
         // BSD can inherit nonblocking mode from the listener and bypass the read timeout.
         if stream.set_nonblocking(false).is_err()
             || stream
@@ -439,14 +503,22 @@ impl Broker {
         {
             return;
         }
-        let value = read_request(&mut stream)
+        let value = self.response(read_request(&mut stream), ask);
+        let _ = serde_json::to_writer(&mut stream, &value);
+    }
+
+    fn response(
+        &self,
+        request: Result<Request>,
+        ask: &impl Fn(&JobContext, &str) -> Result<String>,
+    ) -> Value {
+        request
             .and_then(|request| self.execute(request, ask))
             .unwrap_or_else(|error| {
                 let (code, hint) = failure_fields(&error);
                 json!({ "error": error.message, "errorCode": code,
                     "displayPath": error.context.get("piDisplayPath"), "hint": hint })
-            });
-        let _ = serde_json::to_writer(&mut stream, &value);
+            })
     }
 
     fn execute(
@@ -457,6 +529,15 @@ impl Broker {
         self.context.cancel.check()?;
         if request.token != self.token {
             return Err(invalid("Pi 工具连接无效"));
+        }
+        #[cfg(windows)]
+        if let Some(error) = self
+            .recovery_error
+            .lock()
+            .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "无法核对命令恢复状态"))?
+            .clone()
+        {
+            return Err(error);
         }
         if let Operation::Ready { tools } = &request.operation {
             let mut expected: BTreeSet<&str> = TOOLS.iter().copied().collect();
@@ -540,9 +621,31 @@ impl Broker {
                 location,
                 offset,
                 limit,
-            } => self.file_call(id, "read", "读取", &location, |target| {
-                Ok((target.read(offset, limit)?, None))
-            })?,
+            } => {
+                let (read, identity) =
+                    self.file_call(id, "read", "读取", &location, |target| {
+                        let read = target.read(offset, limit)?;
+                        Ok(((read, self.projects.review_location(target)), None))
+                    })?;
+                let source = if read.complete_lines > 0
+                    && let (Some((project_id, path)), Some(digest)) = (identity, read.digest)
+                    && let Some(source_id) = self.evidence.register_file(
+                        &project_id,
+                        &path,
+                        digest.as_str(),
+                        read.first_line,
+                        read.text[..read.complete_bytes].to_owned(),
+                    ) {
+                    let last_line = read.first_line + read.complete_lines - 1;
+                    Some(format!(
+                        "工作台文件来源 sourceId={source_id}，已返回完整行 {}-{last_line}。",
+                        read.first_line
+                    ))
+                } else {
+                    None
+                };
+                return Ok(json!({ "text": read.text, "sourceHint": source }));
+            }
             Operation::Ls { location } => {
                 self.file_call(id, "ls", "列出", &location, |target| {
                     Ok((target.list(cancel)?, None))
@@ -574,21 +677,21 @@ impl Broker {
                 let cwd = target.directory().map_err(|error| {
                     self.record_failure(id, "bash", "执行离线命令", &location, None, error)
                 })?;
-                return self.run_command(id, target.project_id, target.root(), &cwd, &command);
+                return self.run_command(id, &target, &cwd, &command);
             }
             Operation::AskSpecQuestion { question_id } => ask(&self.context, &question_id)?,
         };
         Ok(json!({ "text": result }))
     }
 
-    fn file_call(
+    fn file_call<T>(
         &self,
         id: &str,
         operation: &str,
         label: &str,
         location: &Location,
-        call: impl FnOnce(&ProjectLocation<'_>) -> Result<(String, Option<(&'static str, Sha256)>)>,
-    ) -> Result<String> {
+        call: impl FnOnce(&ProjectLocation<'_>) -> Result<(T, Option<(&'static str, Sha256)>)>,
+    ) -> Result<T> {
         let mut path = None;
         let mut review = None;
         let result = self
@@ -670,8 +773,7 @@ impl Broker {
     fn run_command(
         &self,
         id: &str,
-        project_id: &str,
-        root: &Path,
+        target: &ProjectLocation<'_>,
         cwd: &Path,
         command: &str,
     ) -> Result<Value> {
@@ -679,15 +781,16 @@ impl Broker {
             .sandbox
             .as_ref()
             .ok_or_else(|| invalid("本轮未授权离线命令"))?;
-        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd, "projectId": project_id });
-        self.context
-            .emit("item/started", json!({ "item": base.clone() }))?;
+        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd, "projectId": target.project_id });
+        let activity_id = self
+            .context
+            .emit_with_id("item/started", json!({ "item": base.clone() }))?;
         let mut item = base;
         let mut output = String::new();
         let mut fragments = [Vec::new(), Vec::new()];
         let mut published = 0;
         let mut last_publish: Option<Instant> = None;
-        let result = sandbox.run(root, cwd, command, &self.context.cancel, |chunk| {
+        let publish = |chunk: Option<(bool, &[u8])>| {
             if let Some((stdout, bytes)) = chunk {
                 let pending = &mut fragments[usize::from(!stdout)];
                 pending.extend_from_slice(bytes);
@@ -706,7 +809,19 @@ impl Broker {
                 last_publish = Some(Instant::now());
             }
             Ok(())
-        });
+        };
+        #[cfg(unix)]
+        let result = sandbox.run(target.root(), cwd, command, &self.context.cancel, publish);
+        #[cfg(windows)]
+        let result = super::windows_command::run(
+            sandbox,
+            &self.projects,
+            target,
+            &self.context,
+            command,
+            publish,
+        );
+        #[cfg(unix)]
         let result = result.and_then(|result| {
             self.projects.check_baselines(&self.context.cancel)?;
             Ok(result)
@@ -717,6 +832,13 @@ impl Broker {
         let (status, _, stderr) = match result {
             Ok(result) => result,
             Err(error) => {
+                #[cfg(windows)]
+                if error.code == ErrorCode::RecoveryRequired {
+                    let mut recovery = self.recovery_error.lock().map_err(|_| {
+                        YssError::new(ErrorCode::RecoveryRequired, "无法记录命令恢复状态")
+                    })?;
+                    *recovery = Some(error.clone());
+                }
                 item["status"] = json!(if error.code == ErrorCode::Cancelled {
                     "canceled"
                 } else {
@@ -732,9 +854,15 @@ impl Broker {
                 return Err(error);
             }
         };
-        let reply = command_result(&mut item, status, &stderr, &output);
+        let mut reply = command_result(&mut item, status, &stderr, &output);
         self.context
             .emit("item/completed", json!({ "item": item }))?;
+        if let Some(source_id) =
+            self.evidence
+                .register_command(activity_id, command, reply["exitCode"].as_i64())
+        {
+            reply["sourceHint"] = json!(format!("工作台命令来源 sourceId={source_id}。"));
+        }
         Ok(reply)
     }
 }

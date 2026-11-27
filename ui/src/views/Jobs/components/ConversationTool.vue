@@ -30,8 +30,9 @@ const command = computed(() => props.row.kind === 'command')
 const finished = computed(() => props.row.status !== 'inProgress')
 const state = computed(() => {
   if (!finished.value) return props.terminal ? '已中断' : '执行中'
-  if (props.row.status === 'canceled') return '已停止'
-  return activityFailed(props.row) ? '失败' : '已完成'
+  if (props.row.status === 'canceled' || props.row.status === 'cancelled') return '已停止'
+  if (props.row.status === 'interrupted') return '已中断'
+  return props.row.error || activityFailed(props.row) ? '失败' : '已完成'
 })
 const failureResult = computed(() => state.value === '失败' ? commandFailureResult(props.row) : undefined)
 const label = computed(() =>
@@ -58,7 +59,7 @@ const detail = computed(() =>
         <li v-for="diagnostic in row.commandDiagnostics" :key="diagnostic.code">{{ diagnostic.message }}</li>
       </ul>
       <TraceCollapsibleContent v-if="expanded" class="tool-output">
-        <ActivityDetail :job-id="jobId" :row="row" command-output />
+        <ActivityDetail :job-id="jobId" :row="row" :terminal="terminal" command-output />
       </TraceCollapsibleContent>
     </TraceCollapsible>
     <div v-else class="tool-item">

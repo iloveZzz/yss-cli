@@ -1,8 +1,75 @@
 import MarkdownIt from 'markdown-it'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
-type MarkdownOptions = { documentLinks?: boolean; headingPrefix?: string; hideSpecMetadata?: boolean }
+type MarkdownOptions = {
+  documentLinks?: boolean
+  headingPrefix?: string
+  hideSpecMetadata?: boolean
+  assistantCitations?: {
+    pending: boolean
+    verified: ReadonlyMap<string, number>
+    rendered: Set<number>
+  }
+}
 type MarkdownEnvironment = MarkdownOptions & { headings: Map<string, number> }
+const citationToken = 'workbench_citation'
+const citationPrefix = '{{cite:'
+const rawCitation = /^\{\{cite:[a-zA-Z0-9_-]{1,64}(?::\d{1,18}-\d{1,18})?\}\}/
+const partialCitation = /^\{\{cite:[a-zA-Z0-9_-]{0,64}(?::\d{0,18}(?:-\d{0,18})?)?\}?$/
+const verifiedCitation = /^\{\{yss-citation:[0-9a-f]{32}:\d{1,2}\}\}/
+
+markdown.inline.ruler.before('text', citationToken, (state, silent) => {
+  const citations = (state.env as MarkdownEnvironment).assistantCitations
+  if (!citations || state.src[state.pos] !== '{') return false
+  const tail = state.src.slice(state.pos, Math.min(state.posMax, state.pos + 128))
+  const verified = verifiedCitation.exec(tail)?.[0]
+  const number = verified ? citations.verified.get(verified) : undefined
+  let marker = number ? verified : undefined
+  let partial = false
+  if (!marker && citations.pending) {
+    marker = rawCitation.exec(tail)?.[0]
+    if (!marker && state.pos + tail.length === state.posMax &&
+      (citationPrefix.startsWith(tail) || partialCitation.test(tail))) {
+      marker = tail
+      partial = true
+    }
+  }
+  if (!marker) return false
+  if (!silent) {
+    const token = state.push(citationToken, '', 0)
+    token.content = marker
+    token.meta = { number, partial }
+  }
+  state.pos += marker.length
+  return true
+})
+
+markdown.core.ruler.after('inline', citationToken, (state) => {
+  const citations = (state.env as MarkdownEnvironment).assistantCitations
+  if (!citations) return
+  const tail = citations.pending ? state.src.trimEnd() : ''
+  for (const block of state.tokens) {
+    let linkDepth = 0
+    for (const token of block.children ?? []) {
+      if (token.type === 'link_open') linkDepth++
+      if (token.type === 'link_close') linkDepth--
+      if (token.type !== citationToken) continue
+      const number = token.meta?.number
+      if (linkDepth || (token.meta?.partial && !tail.endsWith(token.content))) {
+        token.type = 'text'
+      } else if (typeof number === 'number') {
+        citations.rendered.add(number)
+      }
+    }
+  }
+})
+
+markdown.renderer.rules[citationToken] = (tokens, index) => {
+  const number = tokens[index]?.meta?.number
+  if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 1 || number > 12) return ''
+  return `<button type="button" class="pi-inline-citation" data-assistant-citation="${number}" aria-label="查看来源 ${number}">[${number}]</button>`
+}
+
 export function isWebLink(url: string): boolean {
   try { const parsed = new URL(url); return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password } catch { return false }
 }

@@ -34,6 +34,7 @@ const pauseLabels: Record<string, string> = {
   admissionRejected: '上一条未受理，请检查任务和运行条件。',
   desktopPaused: '队列已为桌面操作暂停，待发内容已保留，请核对后继续。',
   desktopQueueChanged: '暂停期间队列内容已变化，请核对后继续。',
+  commandRecoveryRequired: '存在待恢复的命令暂存，请先处理后继续。',
   sessionUnavailable: '会话当前无法续接。'
 }
 const editing = shallowRef<{ id: string; version: number; draft: Omit<PiQueueDraft, 'version'> }>()

@@ -14,6 +14,20 @@ import {
 import type { ReviewExcerpt } from './workbench-agent'
 
 export type JsonObject = Record<string, unknown>
+export type LocalProjectTaskAction = 'test' | 'build'
+export interface LocalProjectCheckout {
+  rootPath: string
+  head: string
+  branch: string | null
+}
+export interface LocalProjectTask {
+  runId: string
+  sourceJobId: string
+  projectId: string
+  directory: string
+  action: LocalProjectTaskAction
+  expectedCheckout?: LocalProjectCheckout
+}
 export interface JobRecord {
   id: string
   agentRunId?: string
@@ -28,6 +42,17 @@ export interface JobRecord {
   updatedAt: string
   result: unknown | null
   error: { code: string; message: string; context?: JsonObject } | null
+  localProjectTask?: LocalProjectTask
+}
+export type LocalProjectTaskJob = JobRecord & {
+  localProjectTask: LocalProjectTask
+  result: {
+    exitCode: number | null
+    terminationSignal?: CommandTerminationSignal
+    artifactPaths: string[]
+    nodeVersion?: string
+    pnpmVersion?: string
+  } | null
 }
 export interface JobEvent {
   id: number
@@ -67,8 +92,10 @@ export const piThinkingLabels: Record<PiThinkingLevel, string> = {
 export interface PiRuntimeStatus {
   available: boolean
   sandboxReady: boolean
+  sandboxMessage?: string | null
   version: string | null
   executable: string | null
+  nodeExecutable?: string | null
   configDir: string | null
   model: PiModel | null
   thinkingLevels?: PiThinkingLevel[]
@@ -89,7 +116,7 @@ export interface SystemInfo {
   executable: string
   storage: { schemaVersion: number; blobBytes: number; recordBytes: number; eventBytes: number }
   databaseBytes: number
-  tools: { name: string; available: boolean; version?: string; message?: string }[]
+  tools: { name: string; available: boolean; path?: string; version?: string; message?: string }[]
   pi: PiRuntimeStatus
 }
 export interface ArtifactFile {
@@ -188,6 +215,24 @@ export interface CommandDiagnostic {
   message: string
   hint: string
 }
+export type AssistantCitation = {
+  number: number
+  marker: string
+} & ({
+  kind: 'excerpt' | 'file'
+  projectId: string
+  path: string
+  startLine: number
+  endLine: number
+  snippet: string
+  digest: string
+  snippetTruncated?: boolean
+} | {
+  kind: 'command'
+  activityId: number
+  command: string
+  exitCode?: number | null
+})
 export interface JobActivity {
   id: number
   updatedEventId: number
@@ -195,6 +240,7 @@ export interface JobActivity {
   kind: 'message' | 'user' | 'info' | 'command' | 'files' | 'tool' | 'question' | 'status' | 'error' | 'reasoning'
   text: string
   status: string
+  citations?: AssistantCitation[]
   exitCode: number | null
   terminationSignal?: CommandTerminationSignal
   commandDiagnostics?: CommandDiagnostic[]
@@ -245,6 +291,17 @@ export interface JobQuestion {
   responseId: string | null
   error: string | null
 }
+export interface PiRoundSummary {
+  failedCount: number
+  recentFailures: {
+    id: number
+    kind: 'command' | 'tool' | 'files'
+    text: string
+    exitCode?: number | null
+    diagnostic?: string | null
+  }[]
+  finishedAt?: string
+}
 export interface ActivityPage {
   items: JobActivity[]
   total: number
@@ -259,6 +316,7 @@ export interface ActivityPage {
   piContext?: PiContextUsage | null
   piUsage?: PiUsage | null
   piPlan?: PiPlanStep[] | null
+  piRoundSummary?: PiRoundSummary
 }
 export interface ConversationPage {
   items: JobActivity[]

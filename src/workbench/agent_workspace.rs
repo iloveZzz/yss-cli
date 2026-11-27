@@ -468,6 +468,7 @@ fn project_file(prefix: &str, path: &str) -> Result<RelPath> {
     }
 }
 
+#[cfg(unix)]
 fn path_under(path: &str, prefix: &str) -> bool {
     prefix.is_empty()
         || path == prefix
@@ -480,21 +481,33 @@ pub(super) fn direct_path_allowed(workspace: &Workspace, path: &RelPath) -> bool
     let Some(direct) = &workspace.direct else {
         return false;
     };
+    #[cfg(unix)]
     let key = crate::fs::alias_key(path.as_str());
-    if key
-        .split('/')
-        .any(|part| matches!(part, ".git" | ".gitmodules" | ".yss"))
-    {
+    #[cfg(windows)]
+    let key = path.as_str().to_owned();
+    if key.split('/').any(|part| {
+        [".git", ".gitmodules", ".yss"]
+            .iter()
+            .any(|protected| part.eq_ignore_ascii_case(protected))
+    }) {
         return false;
     }
     let selected = matching_project(workspace, &key);
     selected.is_some_and(|(depth, _)| {
-        !direct.excluded_prefixes.iter().any(|prefix| {
+        #[cfg(unix)]
+        let excluded = direct.excluded_prefixes.iter().any(|prefix| {
             prefix.split('/').count() >= depth && path_under(&key, &crate::fs::alias_key(prefix))
-        })
+        });
+        #[cfg(windows)]
+        let excluded = direct.excluded_prefixes.iter().any(|prefix| {
+            prefix.split('/').count() >= depth
+                && crate::fs::windows_path_under(&key, prefix).unwrap_or(true)
+        });
+        !excluded
     })
 }
 
+#[cfg(unix)]
 fn matching_project<'a>(workspace: &'a Workspace, path_key: &str) -> Option<(usize, &'a str)> {
     workspace
         .project_prefixes
@@ -509,13 +522,31 @@ fn matching_project<'a>(workspace: &'a Workspace, path_key: &str) -> Option<(usi
         .max_by_key(|(depth, _)| *depth)
 }
 
+#[cfg(windows)]
+fn matching_project<'a>(workspace: &'a Workspace, path: &str) -> Option<(usize, &'a str)> {
+    let mut best = None;
+    for (id, prefix) in &workspace.project_prefixes {
+        if crate::fs::windows_path_under(path, prefix)? {
+            let depth = prefix.split('/').filter(|part| !part.is_empty()).count();
+            if best.is_none_or(|(current, _)| depth > current) {
+                best = Some((depth, id.as_str()));
+            }
+        }
+    }
+    best
+}
+
 pub(super) fn path_in_write_scope(workspace: &Workspace, path: &str) -> bool {
     workspace
         .direct
         .as_ref()
         .and_then(|direct| direct.project_modes.as_ref())
         .is_none_or(|modes| {
-            matching_project(workspace, &crate::fs::alias_key(path))
+            #[cfg(unix)]
+            let matched = matching_project(workspace, &crate::fs::alias_key(path));
+            #[cfg(windows)]
+            let matched = matching_project(workspace, path);
+            matched
                 .and_then(|(_, id)| modes.get(id))
                 .is_some_and(|mode| *mode != ProjectMode::Read)
         })
@@ -564,13 +595,21 @@ fn check_resume_baseline(prior: &GitBaseline, current: &GitBaseline) -> Result<(
 }
 
 pub(crate) fn validate_resume(workspace: &Workspace, cancel: &Cancellation) -> Result<()> {
+    resume_checkout(workspace, cancel).map(|_| ())
+}
+
+pub(super) fn resume_checkout(
+    workspace: &Workspace,
+    cancel: &Cancellation,
+) -> Result<(Root, GitBaseline)> {
     let direct = workspace
         .direct
         .as_ref()
         .ok_or_else(|| invalid("历史隔离会话请从原 Spec 开始新会话"))?;
     let root = direct_root(workspace, direct)?;
     let current = git_baseline(&root.path, cancel)?;
-    check_resume_baseline(&direct.baseline, &current)
+    check_resume_baseline(&direct.baseline, &current)?;
+    Ok((root, current))
 }
 
 fn direct_metadata(root: &Root, workspace: &Workspace, path: &RelPath) -> Result<bool> {
@@ -597,8 +636,14 @@ fn direct_metadata(root: &Root, workspace: &Workspace, path: &RelPath) -> Result
         use cap_std::fs::MetadataExt;
         metadata.nlink() == 1
     };
-    #[cfg(not(unix))]
-    let single_link = true;
+    #[cfg(windows)]
+    let single_link = if metadata.is_file() {
+        crate::fs::platform::has_single_link(&root.open_streamed(path)?)?
+    } else {
+        false
+    };
+    #[cfg(not(any(unix, windows)))]
+    let single_link = false;
     if metadata.is_file() && single_link {
         Ok(true)
     } else if before {
@@ -615,7 +660,7 @@ fn record_direct_file(
     snapshot: &mut Snapshot,
 ) -> Result<()> {
     if !snapshot.contains_key(path.as_str()) && direct_metadata(root, workspace, &path)? {
-        let file = root.source_read(&path, MAX_ASSET)?;
+        let file = root.source_read_single_link(&path, MAX_ASSET)?;
         if !direct_metadata(root, workspace, &path)? {
             return Err(concurrent("读取原工程文件期间发生变化").at(path));
         }
@@ -703,6 +748,92 @@ pub(super) enum DirectAccess<'a> {
     PerProject(&'a [ProjectAccess]),
 }
 
+/// Keep selected and excluded directory identities stable through snapshot and execution.
+#[cfg(windows)]
+pub(super) struct WindowsBoundaryPins {
+    _pins: Vec<std::fs::File>,
+    git_roots: BTreeMap<PathBuf, GitBaseline>,
+}
+
+#[cfg(windows)]
+pub(super) fn pin_windows_project_boundaries(
+    data_dir: &Path,
+    projects: &[(String, String)],
+    excluded: &[PathBuf],
+    pi_config: &Path,
+    cancel: &Cancellation,
+) -> Result<WindowsBoundaryPins> {
+    let mut pins = Vec::new();
+    let mut identities = Vec::new();
+    let mut roots = Vec::new();
+    let managed_tools = super::managed_tools::protected_directory()?;
+    let mut paths: Vec<PathBuf> = projects
+        .iter()
+        .map(|(_, path)| PathBuf::from(path))
+        .chain(excluded.iter().cloned())
+        .chain([data_dir.to_owned(), pi_config.to_owned()])
+        .chain(managed_tools.iter().cloned())
+        .collect();
+    let mut git_roots = BTreeMap::new();
+    for (_, project) in projects {
+        cancel.check()?;
+        let git_root = agent_git_root(Path::new(project), cancel)?;
+        if !git_roots.contains_key(&git_root) {
+            let root = Root::open(&git_root)?;
+            if let Some(marker) = root.pin_git_marker()? {
+                pins.push(marker);
+            }
+            let baseline = git_baseline(&git_root, cancel)?;
+            paths.extend([
+                git_root.clone(),
+                PathBuf::from(&baseline.git_dir),
+                PathBuf::from(&baseline.common_dir),
+            ]);
+            git_roots.insert(git_root, baseline);
+        }
+    }
+    for path in paths.iter().map(PathBuf::as_path) {
+        cancel.check()?;
+        let original = match Root::open(path) {
+            Ok(root) => root,
+            Err(_)
+                if (path == pi_config || managed_tools.as_deref() == Some(path))
+                    && std::fs::symlink_metadata(path)
+                        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let mut current = std::fs::canonicalize(path)?;
+        loop {
+            if current.file_name().is_none() {
+                break;
+            }
+            let root = Root::open(&current)?;
+            if !identities.contains(&root.identity) {
+                pins.push(root.pin_directory()?);
+                identities.push(root.identity.clone());
+            }
+            current = current
+                .parent()
+                .ok_or_else(|| invalid("工程祖先目录无效"))?
+                .to_owned();
+        }
+        roots.push(original);
+    }
+    for root in roots {
+        root.revalidate()?;
+    }
+    for (root, baseline) in &git_roots {
+        check_baseline(root, baseline, cancel)?;
+    }
+    Ok(WindowsBoundaryPins {
+        _pins: pins,
+        git_roots,
+    })
+}
+
 pub(super) fn prepare_direct(
     data_dir: &Path,
     projects: &[(String, String)],
@@ -711,17 +842,43 @@ pub(super) fn prepare_direct(
     excluded_projects: &[PathBuf],
     access: DirectAccess<'_>,
     cancel: &Cancellation,
+    #[cfg(windows)] boundary_pins: &WindowsBoundaryPins,
 ) -> Result<Vec<Workspace>> {
     let (read_only, grants) = match access {
         DirectAccess::Legacy { read_only } => (read_only, None),
         DirectAccess::PerProject(grants) => (true, Some(grants)),
     };
+    let managed_tools = super::managed_tools::protected_directory()?;
     let mut grouped = BTreeMap::<PathBuf, Vec<(&str, Root)>>::new();
     for (id, path) in projects {
         cancel.check()?;
         let project = Root::open(Path::new(path))?;
-        if project.path.starts_with(data_dir) {
+        #[cfg(unix)]
+        let in_data = project.path.starts_with(data_dir);
+        #[cfg(windows)]
+        let in_data = Root::open(data_dir)?
+            .relative_windows_path(&project.path)?
+            .is_some();
+        if in_data {
             return Err(invalid("工作台数据目录不能作为 Pi 工程"));
+        }
+        if let Some(protected) = &managed_tools {
+            #[cfg(unix)]
+            let inside = project.path.starts_with(protected);
+            #[cfg(windows)]
+            let inside = match Root::open(protected) {
+                Ok(root) => root.relative_windows_path(&project.path)?.is_some(),
+                Err(_)
+                    if std::fs::symlink_metadata(protected)
+                        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    false
+                }
+                Err(error) => return Err(error),
+            };
+            if inside {
+                return Err(invalid("工作台受管工具目录不能作为 Pi 工程"));
+            }
         }
         let git_root = agent_git_root(&project.path, cancel)?;
         grouped.entry(git_root).or_default().push((id, project));
@@ -734,6 +891,10 @@ pub(super) fn prepare_direct(
         cancel.check()?;
         let root = Root::open(&path)?;
         let baseline = git_baseline(&path, cancel)?;
+        #[cfg(windows)]
+        if boundary_pins.git_roots.get(&path) != Some(&baseline) {
+            return Err(concurrent("Git 工作树或受保护目录在准备期间变化"));
+        }
         let root_path = path.to_str().ok_or_else(|| invalid("Git 根不是 UTF-8"))?;
         let mut prefixes = BTreeMap::new();
         let mut identities = BTreeMap::new();
@@ -773,14 +934,20 @@ pub(super) fn prepare_direct(
                 }
                 modes.insert((*id).to_owned(), grant.mode);
             }
+            #[cfg(unix)]
             let prefix = project
                 .path
                 .strip_prefix(&path)
                 .map_err(|_| invalid("登记工程不在 Git 根内"))?;
+            #[cfg(unix)]
             let prefix = prefix
                 .to_str()
                 .ok_or_else(|| invalid("工程路径不是 UTF-8"))?
                 .replace(std::path::MAIN_SEPARATOR, "/");
+            #[cfg(windows)]
+            let prefix = root
+                .relative_windows_path(&project.path)?
+                .ok_or_else(|| invalid("登记工程不在 Git 根内"))?;
             if !prefix.is_empty() {
                 RelPath::new(&prefix)?;
                 if crate::fs::alias_key(&prefix)
@@ -792,6 +959,14 @@ pub(super) fn prepare_direct(
             }
             if grants.is_some() && !unique_prefixes.insert(crate::fs::alias_key(&prefix)) {
                 return Err(invalid("同一路径的登记工程只能选择一个"));
+            }
+            #[cfg(windows)]
+            if grants.is_some()
+                && identities
+                    .values()
+                    .any(|identity| identity == &project.identity)
+            {
+                return Err(invalid("同一目录的登记工程只能选择一个"));
             }
             prefixes.insert((*id).to_owned(), prefix);
             identities.insert((*id).to_owned(), project.identity.clone());
@@ -814,10 +989,12 @@ pub(super) fn prepare_direct(
             check_resume_baseline(&direct.baseline, &baseline)?;
         }
         let mut excluded_prefixes = BTreeSet::new();
+        #[cfg(unix)]
         for excluded in excluded_projects
             .iter()
             .map(PathBuf::as_path)
             .chain([data_dir])
+            .chain(managed_tools.as_deref())
         {
             if projects
                 .iter()
@@ -830,6 +1007,29 @@ pub(super) fn prepare_direct(
                     .to_str()
                     .ok_or_else(|| invalid("排除路径不是 UTF-8"))?
                     .replace(std::path::MAIN_SEPARATOR, "/");
+                excluded_prefixes.insert(RelPath::new(relative)?.into());
+            }
+        }
+        #[cfg(windows)]
+        for excluded in excluded_projects
+            .iter()
+            .map(PathBuf::as_path)
+            .chain([data_dir])
+            .chain(managed_tools.as_deref())
+        {
+            let mut inside = false;
+            for (_, project) in &projects {
+                if let Some(relative) = project.relative_windows_path(excluded)? {
+                    if relative.is_empty() {
+                        return Err(invalid("未选择工程与授权工程指向同一目录"));
+                    }
+                    inside = true;
+                }
+            }
+            if inside {
+                let relative = root
+                    .relative_windows_path(excluded)?
+                    .ok_or_else(|| invalid("排除路径不在 Git 根内"))?;
                 excluded_prefixes.insert(RelPath::new(relative)?.into());
             }
         }
@@ -890,7 +1090,7 @@ pub(super) fn direct_initial_blobs(
     for (path, descriptor) in &workspace.initial {
         cancel.check()?;
         let path = RelPath::new(path)?;
-        let file = root.source_read(&path, MAX_ASSET)?;
+        let file = root.source_read_single_link(&path, MAX_ASSET)?;
         if file.snapshot.descriptor() != Some(descriptor)
             || !direct_metadata(&root, workspace, &path)?
         {

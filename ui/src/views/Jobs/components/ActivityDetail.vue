@@ -1,41 +1,97 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
-import { computed, shallowRef, watch } from 'vue'
+import { computed, onScopeDispose, shallowRef, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { errorMessage } from '@/services/workbench'
 import { getActivityDetail, type JobActivity } from '@/services/workbench-platform'
+import CommandTerminal from './CommandTerminal.vue'
 
-const props = defineProps<{ jobId: string; row: JobActivity; commandOutput?: boolean }>()
+const props = defineProps<{ jobId: string; row: JobActivity; commandOutput?: boolean; terminal?: boolean }>()
 const detail = shallowRef<JobActivity>()
 const commandDiagnostics = computed(() =>
   detail.value?.commandDiagnostics ?? props.row.commandDiagnostics
 )
 const error = shallowRef('')
-const retry = shallowRef(0)
-const retrying = shallowRef(false)
-function retryDetail() {
-  if (retrying.value) return
-  retrying.value = true
-  retry.value++
+const loading = shallowRef(false)
+const followInitially = shallowRef(false)
+const refreshInterval = 200
+let activeRequest: AbortController | undefined
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let refreshQueued = false
+let refreshUrgent = false
+let lastRefresh = -Infinity
+
+function resetRefresh() {
+  clearTimeout(refreshTimer)
+  refreshTimer = undefined
+  const previous = activeRequest
+  activeRequest = undefined
+  previous?.abort()
+  refreshQueued = false
+  refreshUrgent = false
+  lastRefresh = -Infinity
+  loading.value = false
 }
-watch(
-  () => [props.jobId, props.row.id, props.row.updatedEventId, retry.value],
-  async (_, __, onCleanup) => {
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    try {
-      const result = await getActivityDetail(props.jobId, props.row.id, controller.signal)
-      if (!controller.signal.aborted) {
-        detail.value = result
-        error.value = ''
-      }
-    } catch (cause) {
-      if (!controller.signal.aborted) error.value = errorMessage(cause)
-    } finally {
-      if (!controller.signal.aborted) retrying.value = false
+
+function refresh() {
+  if (!refreshQueued || activeRequest) return
+  const wait = refreshUrgent ? 0 : refreshInterval - (performance.now() - lastRefresh)
+  if (wait > 0) {
+    refreshTimer ??= setTimeout(() => {
+      refreshTimer = undefined
+      refresh()
+    }, wait)
+    return
+  }
+  clearTimeout(refreshTimer)
+  refreshTimer = undefined
+  void loadDetail()
+}
+
+function queueRefresh(urgent: boolean) {
+  refreshQueued = true
+  refreshUrgent ||= urgent
+  refresh()
+}
+
+async function loadDetail() {
+  refreshQueued = false
+  refreshUrgent = false
+  lastRefresh = performance.now()
+  const controller = new AbortController()
+  activeRequest = controller
+  loading.value = true
+  try {
+    const result = await getActivityDetail(props.jobId, props.row.id, controller.signal)
+    if (activeRequest !== controller) return
+    detail.value = result
+    error.value = ''
+  } catch (cause) {
+    if (activeRequest === controller) error.value = errorMessage(cause)
+  } finally {
+    if (activeRequest === controller) {
+      activeRequest = undefined
+      loading.value = false
+      refresh()
     }
+  }
+}
+
+onScopeDispose(resetRefresh)
+watch(
+  [() => props.jobId, () => props.row.id, () => props.row.updatedEventId, () => props.row.status, () => props.terminal],
+  ([jobId, id, , status, terminal], [previousJobId, previousId, , previousStatus, previousTerminal]) => {
+    const changed = jobId !== previousJobId || id !== previousId
+    if (changed) {
+      resetRefresh()
+      detail.value = undefined
+      error.value = ''
+      followInitially.value = status === 'inProgress' && !terminal
+    }
+    const finished = (status !== previousStatus && status !== 'inProgress') || (terminal && !previousTerminal)
+    queueRefresh(changed || finished || props.row.kind !== 'command')
   },
   { immediate: true }
 )
@@ -47,11 +103,11 @@ watch(
       <Button
         type="button"
         variant="ghost"
-        :aria-disabled="retrying"
-        @click="retryDetail"
+        :aria-disabled="loading"
+        @click="!loading && queueRefresh(true)"
       >
-        <LoadingIndicator :active="retrying" />
-        {{ retrying ? '正在重试…' : '重试' }}
+        <LoadingIndicator :active="loading" />
+        {{ loading ? '正在重试…' : '重试' }}
       </Button>
     </AlertDescription>
   </Alert>
@@ -67,11 +123,13 @@ watch(
     </ul>
   </template>
   <template v-if="detail">
-    <template v-if="detail.kind === 'command'">
-      <strong>命令输出</strong>
-      <p v-if="commandOutput && detail.exitCode === 0" class="muted">退出码 0</p>
-      <pre class="terminal-output" tabindex="0" aria-label="命令输出">{{ detail.output || (detail.status === 'inProgress' ? '等待命令输出…' : '暂无已留存的输出') }}</pre>
-    </template>
+    <CommandTerminal
+      v-if="detail.kind === 'command'"
+      :key="`${jobId}:${row.id}`"
+      :row="detail"
+      :terminal="terminal"
+      :follow-initially="followInitially"
+    />
     <Alert v-if="detail.error || detail.hint" variant="destructive" role="note" class="py-2" :data-error-code="detail.errorCode">
       <AlertDescription class="text-current">
         <p v-if="detail.error">{{ detail.error }}</p>
@@ -100,13 +158,5 @@ strong {
 }
 .command-diagnostics li + li {
   margin-top: 4px;
-}
-.terminal-output {
-  padding: 10px 12px;
-  border-radius: 7px;
-  background: #242526;
-  color: #f0f0f0;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  overscroll-behavior: contain;
 }
 </style>

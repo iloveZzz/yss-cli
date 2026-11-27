@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-refresh-tools"
+description = "Enables the desktop_refresh_tools command without any pre-configured scope."
+commands.allow = ["desktop_refresh_tools"]
+
+[[permission]]
+identifier = "deny-desktop-refresh-tools"
+description = "Denies the desktop_refresh_tools command without any pre-configured scope."
+commands.deny = ["desktop_refresh_tools"]

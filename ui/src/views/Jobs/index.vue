@@ -74,6 +74,28 @@ watch(continuationOpen, (open) => {
 })
 const stopRequestedFor = shallowRef('')
 const jobId = computed(() => String(route.params.jobId ?? ''))
+const activityTarget = computed(() => {
+  const value = route.query.activity
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') return null
+  const id = Number(value)
+  return Number.isSafeInteger(id) && id > 0 && String(id) === value ? id : null
+})
+const showExecutionDetail = computed(() => route.query.detail === '1' || activityTarget.value !== undefined)
+watch(
+  [jobId, () => route.query.tab, () => route.query.activity],
+  ([id, requestedTab, activity], [previousJobId, previousTab]) => {
+    if (activity !== undefined || requestedTab === 'log') selectedTab.value = 'log'
+    else if (id !== previousJobId || requestedTab !== previousTab) selectedTab.value = undefined
+  },
+  { immediate: true }
+)
+function clearActivityTarget() {
+  if (route.query.activity === undefined) return
+  const query = { ...route.query }
+  delete query.activity
+  void router.replace({ query: { ...query, detail: '1', tab: 'log' } })
+}
 const eventStream = useJobEvents(jobId, scheduleRefresh)
 const conversation = eventStream.conversation
 const conversationPanel = useTemplateRef<InstanceType<typeof JobConversation>>('conversationPanel')
@@ -94,7 +116,7 @@ const piRoute = computed(() => isPi.value && run.value && job.value && {
   query: { session: run.value.id, round: job.value.id }
 })
 watch(piRoute, (target) => {
-  if (target && route.query.detail !== '1') void router.replace(target)
+  if (target && !showExecutionDetail.value) void router.replace(target)
 })
 const currentRun = computed(() => (run.value?.jobId === jobId.value ? run.value : undefined))
 const artifactRun = computed(() => currentRun.value ?? (run.value?.workspaceMode === 'direct' ? run.value : undefined))
@@ -191,7 +213,6 @@ watch(
     readAt.value = undefined
     job.value = undefined
     run.value = undefined
-    selectedTab.value = route.query.tab === 'log' ? 'log' : undefined
     filesVisited.value = false
     continuationOpen.value = false
     continuation.value = defaultContinuation
@@ -315,7 +336,7 @@ async function resume() {
   <div class="page-heading jobs-heading">
     <div>
       <RouterLink v-if="jobId" to="/jobs" class="back-link">← 执行记录</RouterLink>
-      <RouterLink v-if="piRoute && route.query.detail === '1'" :to="piRoute" class="back-link ml-3">打开 Pi 会话</RouterLink>
+      <RouterLink v-if="piRoute && showExecutionDetail" :to="piRoute" class="back-link ml-3">打开 Pi 会话</RouterLink>
       <h1>{{ jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录' }}</h1>
     </div>
     <Button type="button" variant="outline" :aria-disabled="loading" @click="!loading && refresh()">
@@ -513,7 +534,9 @@ async function resume() {
           :status="eventStream.statusLabel.value"
           :error="eventStream.error.value"
           :visible="tab === 'log'"
+          :activity-target="activityTarget"
           @retry="eventStream.retry"
+          @clear-activity-target="clearActivityTarget"
         />
       </TabsContent>
       <template v-if="artifactRun">

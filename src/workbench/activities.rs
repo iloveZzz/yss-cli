@@ -7,6 +7,7 @@ use crate::error::Result;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, HashMap, VecDeque},
     sync::{Arc, Mutex},
 };
@@ -157,6 +158,8 @@ struct Activity {
     duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     question: Option<Box<Question>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    citations: Vec<Value>,
 }
 
 impl Activity {
@@ -182,6 +185,7 @@ impl Activity {
             hint: None,
             duration_ms: None,
             question: None,
+            citations: Vec::new(),
         }
     }
 
@@ -229,8 +233,31 @@ impl Activity {
                 }
             }
             Kind::Message | Kind::User => {
-                if let Some(text) = item["text"].as_str().filter(|text| !text.is_empty()) {
-                    self.replace(text, full);
+                let complete = self.kind == Kind::Message && event.kind == "item/completed";
+                let citations = complete.then(|| item["citations"].as_array()).flatten();
+                if complete && view == ActivityView::Conversation {
+                    self.citations = citations.cloned().unwrap_or_default();
+                }
+                if let Some(text) = item["text"].as_str().filter(|text| {
+                    !text.is_empty()
+                        || (complete && item["content"].as_array().is_none_or(Vec::is_empty))
+                }) {
+                    if let Some(citations) =
+                        citations.filter(|_| view != ActivityView::Conversation)
+                    {
+                        let mut plain = text.to_owned();
+                        for citation in citations {
+                            if let (Some(marker), Some(number)) =
+                                (citation["marker"].as_str(), citation["number"].as_u64())
+                                && !marker.is_empty()
+                            {
+                                plain = plain.replace(marker, &format!("[{number}]"));
+                            }
+                        }
+                        self.replace(&plain, full);
+                    } else {
+                        self.replace(text, full);
+                    }
                 } else if let Some(parts) = item["content"].as_array().filter(|v| !v.is_empty()) {
                     self.replace(
                         &parts
@@ -376,6 +403,39 @@ impl Activity {
                 | Kind::Reasoning
         )
     }
+
+    fn is_step_failure(&self) -> bool {
+        matches!(self.kind, Kind::Command | Kind::Files | Kind::Tool)
+            && !matches!(
+                self.status.as_str(),
+                "inProgress" | "canceled" | "cancelled" | "interrupted"
+            )
+            && (self.status == "failed"
+                || self.error.is_some()
+                || self.termination_signal.is_some()
+                || self.exit_code.is_some_and(|code| code != 0))
+    }
+
+    fn failure_summary(&self) -> Value {
+        let text = self
+            .display_path
+            .as_deref()
+            .filter(|path| !path.is_empty())
+            .unwrap_or(&self.text);
+        let diagnostic = self
+            .command_diagnostics
+            .as_ref()
+            .and_then(|items| items[0]["message"].as_str())
+            .or(self.error.as_deref())
+            .or(self.hint.as_deref());
+        json!({
+            "id": self.id,
+            "kind": self.kind,
+            "text": text.chars().take(SUMMARY_CHARS).collect::<String>(),
+            "exitCode": self.exit_code,
+            "diagnostic": diagnostic.map(|text| text.chars().take(SUMMARY_CHARS).collect::<String>()),
+        })
+    }
 }
 
 fn standalone(event: &JobEvent, full: bool) -> Option<Activity> {
@@ -453,6 +513,7 @@ struct Index {
     pi_context: Option<Value>,
     pi_usage: Option<Value>,
     pi_plan: Option<Value>,
+    finished_at: Option<String>,
     pending: BTreeMap<String, JobEvent>,
     last_status: String,
 }
@@ -478,6 +539,10 @@ impl Index {
             "piContext" => self.pi_context = Some(p.clone()),
             "piUsage" => self.pi_usage = Some(p.clone()),
             "piPlan" => self.pi_plan = Some(p["steps"].clone()),
+            "finished" => {
+                self.finished_at
+                    .get_or_insert_with(|| event.created_at.clone());
+            }
             "inputRequested" => {
                 if let Some(id) = p["requestId"].as_str() {
                     self.pending.insert(id.into(), event.clone());
@@ -522,6 +587,28 @@ impl Index {
         } else if let Some(row) = standalone(&event, false) {
             self.rows.push(row);
         }
+    }
+
+    fn pi_round_summary(&self) -> Option<Value> {
+        if self.host.as_deref() != Some("pi") {
+            return None;
+        }
+        let mut failures: Vec<_> = self
+            .rows
+            .iter()
+            .filter(|row| row.is_step_failure())
+            .collect();
+        failures.sort_unstable_by_key(|row| Reverse(row.updated_event_id));
+        let recent: Vec<_> = failures
+            .iter()
+            .take(3)
+            .map(|row| row.failure_summary())
+            .collect();
+        let mut summary = json!({"failedCount": failures.len(), "recentFailures": recent});
+        if let Some(finished_at) = &self.finished_at {
+            summary["finishedAt"] = json!(finished_at);
+        }
+        Some(summary)
     }
 }
 
@@ -592,14 +679,18 @@ pub(crate) fn page(jobs: &JobManager, id: &str, before: Option<u64>) -> Result<V
             index.rows.partition_point(|row| row.id < bound)
         });
         let start = stop.saturating_sub(PAGE_SIZE);
-        Ok(json!({
+        let mut page = json!({
             "items": &index.rows[start..stop], "hasOlder": start > 0, "total": index.rows.len(),
             "cursor": index.cursor, "terminal": terminal, "runId": index.run_id, "host": index.host,
             "latestMessage": index.last_message.map(|pos| &index.rows[pos].text),
             "piSettings": index.pi_settings, "piContext": index.pi_context, "piUsage": index.pi_usage,
             "piPlan": index.pi_plan,
             "pendingInputs": if terminal { Vec::new() } else { index.pending.values().collect() }
-        }))
+        });
+        if let Some(summary) = index.pi_round_summary() {
+            page["piRoundSummary"] = summary;
+        }
+        Ok(page)
     })
 }
 
@@ -628,7 +719,12 @@ pub(crate) fn conversation(jobs: &JobManager, id: &str, before: Option<u64>) -> 
             } else {
                 row.clone()
             };
-            text_bytes += row.text.len();
+            text_bytes += row.text.len()
+                + row
+                    .citations
+                    .iter()
+                    .map(|citation| citation.to_string().len())
+                    .sum::<usize>();
             if !items.is_empty() && text_bytes > CONVERSATION_PAGE_TEXT_BYTES {
                 has_older = true;
                 break;

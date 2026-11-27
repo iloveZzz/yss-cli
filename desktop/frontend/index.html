@@ -21,7 +21,6 @@
 
       <div id="error" class="alert" role="alert" hidden></div>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-      <div id="platform-notice" class="platform-notice" hidden>Windows 版目前暂不支持运行 Pi Agent。您仍可使用工作台的其他功能。</div>
 
       <div class="tabs" role="tablist" aria-label="桌面设置分类">
         <button type="button" class="tab" id="tab-connection" role="tab" aria-selected="true" aria-controls="panel-connection" tabindex="0">本机与连接</button>
@@ -42,6 +41,44 @@
           <div class="actions"><button type="button" id="retry" class="button secondary">重试连接</button></div>
           <div class="section-divider"></div>
           <div class="subsection"><h3>切换数据目录</h3><p>选择已有的工作台目录。切换不会复制或合并数据。</p><button type="button" id="choose" class="button secondary">选择已有目录</button></div>
+          <div class="section-divider"></div>
+          <div class="subsection" id="tools-section" aria-labelledby="tools-heading">
+            <h3 id="tools-heading" tabindex="-1">本机工具</h3>
+            <p>安装缺失工具，或查看官方版本并更新。Pi Agent 需要单独选择，模型和登录配置继续沿用。</p>
+            <p id="tools-channel" class="hint" role="status">尚未检查安装渠道。</p>
+            <form id="tools-form" aria-labelledby="tools-heading">
+              <fieldset id="tools-options" class="tools-options" disabled>
+                <legend>选择要安装或更新的工具</legend>
+                <div id="tools-list"></div>
+              </fieldset>
+              <div class="actions tools-actions">
+                <button type="submit" id="install-tools" class="button primary" disabled>安装所选工具</button>
+                <button type="button" id="update-tools" class="button primary" disabled hidden>更新所选工具</button>
+                <button type="button" id="check-tool-updates" class="button secondary" disabled>检查官方版本</button>
+                <button type="button" id="check-tools" class="button secondary">重新检查</button>
+              </div>
+            </form>
+            <div id="tools-progress" class="tools-progress" hidden>
+              <label for="tools-progress-bar" id="tools-progress-label">正在安装</label>
+              <progress id="tools-progress-bar" max="1" value="0"></progress>
+            </div>
+            <div id="tools-results" class="tools-results" hidden aria-labelledby="tools-results-heading">
+              <h4 id="tools-results-heading">工具操作结果</h4>
+              <ul id="tools-results-list"></ul>
+              <p class="hint">请核对结果。重新检测时，由桌面应用启动的服务会在作业允许时刷新；外部服务需自行刷新。</p>
+              <button type="button" id="confirm-tools" class="button secondary">确认结果并刷新检测</button>
+            </div>
+            <p id="tools-status" class="hint" role="status" aria-live="polite"></p>
+            <dialog id="confirm-tool-updates" class="tool-update-dialog" aria-labelledby="confirm-tool-updates-title">
+              <h1 id="confirm-tool-updates-title">确认安装或更新本机工具</h1>
+              <ul id="confirm-tool-updates-list"></ul>
+              <p>官方包由工作台管理。使用官方包或更新工具前会核对活动及排队作业。通过系统渠道安装时，可能需要依赖或系统授权。</p>
+              <form method="dialog" class="actions">
+                <button type="submit" value="cancel" class="button secondary" autofocus>取消</button>
+                <button type="submit" value="confirm" class="button primary">确认并开始</button>
+              </form>
+            </dialog>
+          </div>
         </section>
       </div>
 

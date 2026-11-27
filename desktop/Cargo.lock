@@ -3381,6 +3381,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6099,7 +6110,7 @@ dependencies = [
 
 [[package]]
 name = "yss-cli"
-version = "3.19.0"
+version = "3.19.1"
 dependencies = [
  "axum",
  "cap-fs-ext",
@@ -6112,6 +6123,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "object",
+ "pulldown-cmark",
  "reqwest",
  "rusqlite",
  "rust-embed",
@@ -6140,6 +6152,7 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "directories",
+ "flate2",
  "getrandom 0.3.4",
  "hmac",
  "objc2",
@@ -6151,6 +6164,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -6162,6 +6176,7 @@ dependencies = [
  "webbrowser",
  "webpki-roots",
  "yss-cli",
+ "zip",
 ]
 
 [[package]]

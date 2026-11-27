@@ -9,6 +9,7 @@ import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { errorMessage, dateLabel } from '@/services/workbench'
 import { answerJob, jobStatusLabels, objectValue, piThinkingLabels, terminalJob, type JobActivity, type JobRecord } from '@/services/workbench-platform'
 import { useJobEvents } from '@/views/Jobs/hooks/useJobEvents'
+import { activityFailed } from '@/views/Jobs/schemas/job'
 import ConversationMessage from '@/views/Jobs/components/ConversationMessage.vue'
 import ConversationQuestion from '@/views/Jobs/components/ConversationQuestion.vue'
 import ConversationTool from '@/views/Jobs/components/ConversationTool.vue'
@@ -16,6 +17,8 @@ import PiContextUsage from './PiContextUsage.vue'
 import PiTokenUsage from './PiTokenUsage.vue'
 import PiPlan from './PiPlan.vue'
 import PiReasoning from './PiReasoning.vue'
+import PiRoundSummary from './PiRoundSummary.vue'
+import PiSubmittedCitations from './PiSubmittedCitations.vue'
 
 const props = defineProps<{
   job: JobRecord
@@ -38,8 +41,8 @@ const emit = defineEmits<{
 }>()
 const round = useTemplateRef<HTMLElement>('round')
 const jobId = toRef(() => props.job.id)
-const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, () => !!props.trackFirstText)
-const { items, page, hasOlder, loadingHistory, historyError, firstText } = events.conversation
+const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, () => !!props.trackFirstText, true)
+const { items, page, hasOlder, loadingHistory, historyError, firstText, toolMotion } = events.conversation
 const firstTextRendered = computed(() => !!firstText.value && items.value.some((row) => row.id === firstText.value?.rowId))
 watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
   const target = text && rendered ? round.value?.querySelector(`[data-assistant-row="${text.rowId}"]`) : undefined
@@ -80,6 +83,7 @@ const settings = computed(() => events.latest.value?.piSettings)
 const onlyReads = computed(() => settings.value?.readOnly ?? props.readOnly)
 const plan = computed(() => events.latest.value?.piPlan)
 const terminal = computed(() => terminalJob(props.job.status) || !!events.latest.value?.terminal)
+const status = computed(() => props.stopping && !terminal.value ? '正在停止' : jobStatusLabels[props.job.status] || props.job.status)
 const ready = computed(() => !!page.value || !!events.error.value || terminal.value)
 const answering = shallowRef('')
 const inputSync = shallowRef('')
@@ -94,10 +98,17 @@ const operations: Record<string, string> = {
   read: '读取', ls: '列出', grep: '搜索', write: '写入', edit: '编辑', bash: '执行离线命令', command: '执行命令', files: '改动文件', compact: '压缩上下文'
 }
 type Entry = { key: number; rows: JobActivity[]; group: boolean }
+const displayedRunningTools = new Set<number>()
+watch(items, (rows) => {
+  for (const row of rows) {
+    if ((row.kind === 'tool' || row.kind === 'files') && row.status === 'inProgress')
+      displayedRunningTools.add(row.id)
+  }
+}, { flush: 'sync' })
 function ordinary(row: JobActivity) {
-  return ['tool', 'files'].includes(row.kind)
-    && row.status !== 'inProgress' && row.status !== 'failed' && row.status !== 'canceled'
-    && !row.error && (row.exitCode ?? 0) === 0
+  // A visible running tool keeps its placement even when it becomes eligible for grouping.
+  return (row.kind === 'tool' || row.kind === 'files') && !displayedRunningTools.has(row.id)
+    && !['inProgress', 'canceled', 'cancelled', 'interrupted'].includes(row.status) && !row.error && !activityFailed(row)
 }
 const entries = computed(() => {
   const result: Entry[] = []
@@ -128,6 +139,35 @@ function toggle(entry: Entry, open: boolean) {
   }
   openRows.value = ids
 }
+
+function animateExecution(target: Element | null | undefined, entering: boolean) {
+  if (!target || document.hidden || !window.matchMedia('(prefers-reduced-motion: no-preference)').matches) return
+  const styles = getComputedStyle(target)
+  const time = styles.getPropertyValue(entering ? '--workbench-motion-panel' : '--workbench-motion-fast').trim()
+  const duration = Number.parseFloat(time) * (time.endsWith('ms') ? 1 : 1000)
+  if (!duration) return
+  target.animate([
+    entering ? { opacity: .55, transform: 'translateY(3px)' } : { opacity: .65, transform: 'scale(.96)' },
+    { opacity: 1, transform: 'none' }
+  ], { duration, easing: styles.getPropertyValue('--workbench-motion-ease').trim() })
+}
+watch(toolMotion, (motion) => {
+  if (!motion || !round.value) return
+  for (const [id, phase] of motion) {
+    const tool = round.value.querySelector(`[data-pi-tool-activity="${id}"]`)
+    if (phase === 'settled') animateExecution(tool?.querySelector('.tool-state'), false)
+    else animateExecution(tool ?? round.value.querySelector(`[data-pi-tool-group="${id}"]`), true)
+  }
+}, { flush: 'post' })
+watch(events.latest, (snapshot, previous) => {
+  const liveId = events.livePlanEventId.value
+  if (!snapshot?.piPlan || !previous || liveId === undefined || liveId <= previous.cursor || liveId > snapshot.cursor) return
+  const prior = previous.piPlan
+  if (prior?.length === snapshot.piPlan.length && snapshot.piPlan.every((step, index) =>
+    step.title === prior[index].title && step.status === prior[index].status)) return
+  animateExecution(round.value?.querySelector('[data-pi-plan-summary]'), !prior?.length)
+}, { flush: 'post' })
+
 let lastFocused: typeof props.focusActivity
 watch([() => props.focusActivity, ready, () => items.value.length, loadingHistory], async ([request, loaded]) => {
   if (!request) { lastFocused = undefined; return }
@@ -177,7 +217,7 @@ watch(events.statusLabel, (status) => {
   <article ref="round" class="pi-round" :aria-label="'执行轮次 ' + dateLabel(job.createdAt)" tabindex="-1">
     <header class="pi-round-meta">
       <time :datetime="job.createdAt">{{ dateLabel(job.createdAt) }}</time>
-      <span>{{ stopping && !terminal ? '正在停止' : jobStatusLabels[job.status] || job.status }}</span>
+      <span>{{ status }}</span>
       <span v-if="page?.allowCommands">已授权离线命令</span>
       <span v-if="onlyReads">{{ direct ? '只读原工程' : '只读分析' }}</span>
       <span v-else-if="direct && onlyReads === false">编辑原工程</span>
@@ -194,12 +234,10 @@ watch(events.statusLabel, (status) => {
     </p>
     <ConversationMessage v-if="page?.prompt" :text="page.prompt" user />
     <p v-else-if="page || terminal" class="pi-round-note">本轮未留存原始要求</p>
-    <details v-for="(excerpt, index) in page?.citations" :key="index" class="pi-sent-excerpt">
-      <summary>{{ projectNames[excerpt.projectId] ?? excerpt.projectId }} / {{ excerpt.path }} · {{ excerpt.side === 'initial' ? '运行起点' : direct ? '本轮结束' : '隔离结果' }} {{ excerpt.startLine }}–{{ excerpt.endLine }} 行</summary>
-      <p>{{ excerpt.note }}</p>
-      <pre>{{ excerpt.snippet }}</pre>
-      <small>来源轮次 {{ excerpt.jobId }} · 版本 {{ excerpt.reviewToken.slice(0, 10) }}</small>
-    </details>
+    <PiSubmittedCitations v-if="page?.citations?.length" :excerpts="page.citations" :project-names="projectNames" />
+    <PiRoundSummary :job-id="jobId" :status="status" :started-at="job.agentStartedAt"
+      :terminal="terminal" :summary="events.latest.value?.piRoundSummary" :plan="plan"
+      :can-review="terminal && canReview" @review="emit('review')" />
     <div v-if="hasOlder">
       <Button type="button" variant="ghost" size="sm" :aria-disabled="loadingHistory"
         @click="!loadingHistory && events.conversation.older(jobId)">
@@ -217,13 +255,13 @@ watch(events.statusLabel, (status) => {
     <PiPlan v-if="plan?.length" :steps="plan" :terminal="terminal" />
     <template v-for="entry in entries" :key="entry.key">
       <Collapsible v-if="entry.group" :open="expanded(entry)" class="pi-tool-group" @update:open="toggle(entry, $event)">
-        <CollapsibleTrigger class="pi-tool-trigger">
-          <Wrench :size="15" /> <span>{{ activitySummary(entry.rows) }}</span>
-          <ChevronRight :size="14" class="pi-tool-chevron" />
+        <CollapsibleTrigger class="pi-tool-trigger" :data-pi-tool-group="entry.key">
+          <Wrench :size="15" aria-hidden="true" /> <span>{{ activitySummary(entry.rows) }}</span>
+          <ChevronRight :size="14" class="pi-tool-chevron" aria-hidden="true" />
         </CollapsibleTrigger>
         <CollapsibleContent class="pi-tool-steps">
           <div v-for="row in entry.rows" :key="row.id" class="pi-tool-row">
-            <ConversationTool :job-id="jobId" :row="row" :terminal="terminal" />
+            <ConversationTool :job-id="jobId" :row="row" :terminal="terminal" :data-pi-tool-activity="row.id" />
             <Button v-if="terminal && canReview && hasFileDiff(row)" type="button" variant="ghost" size="sm"
               @click="emit('review', row.projectId, row.path)">查看文件差异</Button>
           </div>
@@ -232,12 +270,14 @@ watch(events.statusLabel, (status) => {
       <template v-else>
         <template v-for="row in entry.rows" :key="row.id">
           <ConversationMessage v-if="row.kind === 'message' || row.kind === 'user'" :text="row.text" :created-at="row.createdAt"
-            :row-id="row.id" :user="row.kind === 'user'" :streaming="row.kind === 'message' && !row.status && !terminal" />
+            :row-id="row.id" :user="row.kind === 'user'" :streaming="row.kind === 'message' && !row.status && !terminal"
+            :citations="row.citations" :job-id="jobId" :project-names="projectNames"
+            :citation-streaming="row.kind === 'message' && !row.status" />
           <PiReasoning v-else-if="row.kind === 'reasoning'" :row="row" :terminal="terminal" />
           <ConversationQuestion v-else-if="row.question" :row="row" :question="row.question" :terminal="terminal"
             :busy="!!answering || !latest || stopping || !!inputSync" :submitting="row.question.requestId === answering" :submit="submit" />
           <p v-else-if="row.kind === 'error'" class="pi-inline-error preserve-lines">{{ row.text }}</p>
-          <ConversationTool v-else :job-id="jobId" :row="row" :terminal="terminal" />
+          <ConversationTool v-else :job-id="jobId" :row="row" :terminal="terminal" :data-pi-tool-activity="row.id" />
         </template>
       </template>
     </template>
@@ -282,9 +322,6 @@ watch(events.statusLabel, (status) => {
 .pi-tool-steps { display: grid; gap: 4px; margin: 2px 0 2px 7px; padding-inline-start: 13px; border-inline-start: 1px solid var(--border); }
 .pi-tool-row { display: grid; justify-items: start; }
 .pi-tool-row button { justify-self: start; color: var(--quiet); }
-.pi-sent-excerpt { width: min(100%, 560px); justify-self: end; border-inline-start: 2px solid var(--border); padding-inline: 12px; font-size: 12px; color: var(--quiet); }
-.pi-sent-excerpt summary { cursor: pointer; }
-.pi-sent-excerpt pre { white-space: pre-wrap; }
 .pi-checkpoint { display: flex; align-items: center; gap: 9px; }
 .pi-checkpoint-line { flex: 1; min-width: 0; }
 .pi-checkpoint button { flex: none; color: var(--quiet); }

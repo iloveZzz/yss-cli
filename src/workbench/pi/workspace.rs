@@ -1,7 +1,9 @@
+#[cfg(unix)]
+use crate::fs::alias_key;
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    fs::{FileSnapshot, Root, alias_key, git},
+    fs::{FileSnapshot, Root, git},
     model::{FileDescriptor, RelPath, RenderedFile, Sha256},
     transaction::{self, Operation},
     workbench::{
@@ -9,6 +11,7 @@ use crate::{
         agent_workspace::{self, GitBaseline, Workspace},
     },
 };
+#[cfg(unix)]
 use cap_std::fs::MetadataExt;
 use std::{
     cell::RefCell,
@@ -19,11 +22,35 @@ use std::{
 const MAX_FILE: u64 = 512 * 1024;
 const MAX_READ: usize = 128 * 1024;
 
+pub(super) struct ReadResult {
+    pub text: String,
+    pub digest: Option<Sha256>,
+    pub first_line: usize,
+    pub complete_lines: usize,
+    pub complete_bytes: usize,
+}
+
+pub(super) fn single_link(root: &Root, path: &RelPath) -> Result<bool> {
+    #[cfg(unix)]
+    {
+        Ok(root.source_metadata(path)?.nlink() == 1)
+    }
+    #[cfg(windows)]
+    {
+        Ok(crate::fs::platform::has_single_link(
+            &root.open_streamed(path)?,
+        )?)
+    }
+}
+
 pub(super) struct Projects {
     repositories: Vec<Repository>,
     projects: BTreeMap<String, Project>,
     primary: String,
+    #[cfg(target_os = "macos")]
     protected: BTreeSet<PathBuf>,
+    #[cfg(windows)]
+    _directory_pins: Vec<std::fs::File>,
     observed: RefCell<BTreeMap<PathBuf, FileDescriptor>>,
 }
 
@@ -77,6 +104,10 @@ pub(super) fn tool_path(path: &RelPath) -> bool {
 }
 
 fn relative_input(path: &str) -> Result<Option<RelPath>> {
+    #[cfg(windows)]
+    let normalized = path.replace('\\', "/");
+    #[cfg(windows)]
+    let path = normalized.as_str();
     let path = path.strip_prefix("./").unwrap_or(path);
     let path = path.strip_suffix('/').unwrap_or(path);
     if path.is_empty() || path == "." {
@@ -90,20 +121,106 @@ fn relative_input(path: &str) -> Result<Option<RelPath>> {
         .map_err(|error| error.context("piErrorCode", "invalid_path"))
 }
 
+#[cfg(unix)]
 fn absolute_suffix<'a>(root: &Path, input: &'a Path) -> Option<&'a str> {
     input.strip_prefix(root).ok()?.to_str()
 }
 
+#[cfg(windows)]
+fn windows_relative_to(root: &Root, target: &Path) -> Result<Option<String>> {
+    root.relative_windows_path(target)
+}
+
+#[cfg(windows)]
+fn windows_pin_once(
+    root: &Root,
+    pins: &mut Vec<std::fs::File>,
+    identities: &mut Vec<crate::fs::FileIdentity>,
+) -> Result<()> {
+    if !identities.contains(&root.identity) {
+        pins.push(root.pin_directory()?);
+        identities.push(root.identity.clone());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_pin_boundary_chain(
+    root: &Root,
+    target: &Path,
+    pins: &mut Vec<std::fs::File>,
+    identities: &mut Vec<crate::fs::FileIdentity>,
+) -> Result<()> {
+    if windows_relative_to(root, target)?.is_none() {
+        return Ok(());
+    }
+    let mut current = target.to_owned();
+    loop {
+        match std::fs::canonicalize(&current) {
+            Ok(path) if path.is_dir() => {
+                current = path;
+                break;
+            }
+            Ok(path) => current = path.parent().ok_or_else(outside_scope)?.to_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if std::fs::symlink_metadata(&current).is_ok() {
+                    return Err(outside_scope());
+                }
+                current = current.parent().ok_or_else(outside_scope)?.to_owned();
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    loop {
+        let directory = Root::open(&current)?;
+        windows_pin_once(&directory, pins, identities)?;
+        if directory.identity == root.identity {
+            return Ok(());
+        }
+        current = current.parent().ok_or_else(outside_scope)?.to_owned();
+    }
+}
+
+#[cfg(windows)]
+fn windows_pin_ancestor_chain(
+    path: &Path,
+    pins: &mut Vec<std::fs::File>,
+    identities: &mut Vec<crate::fs::FileIdentity>,
+) -> Result<()> {
+    let mut current = std::fs::canonicalize(path)?;
+    loop {
+        // Volume roots have no renameable parent or file name.
+        if current.file_name().is_none() {
+            return Ok(());
+        }
+        let directory = Root::open(&current)?;
+        windows_pin_once(&directory, pins, identities)?;
+        current = current.parent().ok_or_else(outside_scope)?.to_owned();
+    }
+}
+
+#[cfg(windows)]
+fn windows_within(path: &str, prefix: &str) -> bool {
+    crate::fs::windows_path_under(path, prefix).unwrap_or(true)
+}
+
 impl Project {
     fn includes(&self, path: &RelPath) -> bool {
+        #[cfg(unix)]
         let key = alias_key(path.as_str());
-        tool_path(path)
-            && !self.blocked.iter().any(|p| {
-                key == *p
-                    || key
-                        .strip_prefix(p)
-                        .is_some_and(|rest| rest.starts_with('/'))
-            })
+        #[cfg(unix)]
+        let blocked = self.blocked.iter().any(|p| {
+            key == *p
+                || key
+                    .strip_prefix(p)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        });
+        #[cfg(windows)]
+        let blocked = self
+            .blocked
+            .iter()
+            .any(|p| windows_within(path.as_str(), p));
+        tool_path(path) && !blocked
     }
 }
 
@@ -121,11 +238,17 @@ impl Projects {
         data_dir: &Path,
         pi_config: &Path,
         legacy_mode: ProjectMode,
+        unselected_projects: &[PathBuf],
     ) -> Result<Self> {
         let mut repositories = Vec::new();
         let mut projects = BTreeMap::new();
         let mut protected = BTreeSet::from([data_dir.to_owned(), pi_config.to_owned()]);
+        protected.extend(crate::workbench::managed_tools::protected_directory()?);
         let mut excluded = BTreeSet::new();
+        #[cfg(windows)]
+        excluded.extend(unselected_projects.iter().cloned());
+        #[cfg(unix)]
+        let _ = unselected_projects;
         for workspace in workspaces {
             let direct = workspace
                 .direct
@@ -172,13 +295,38 @@ impl Projects {
             .values()
             .map(|project| project.root.path.clone())
             .collect();
+        #[cfg(windows)]
+        let mut directory_pins = Vec::new();
+        #[cfg(windows)]
+        let mut pinned_identities = Vec::new();
+        #[cfg(windows)]
+        let mut boundary_roots = Vec::new();
+        #[cfg(windows)]
+        for path in protected.iter().chain(&excluded).chain(&project_roots) {
+            match Root::open(path) {
+                Ok(root) => {
+                    windows_pin_once(&root, &mut directory_pins, &mut pinned_identities)?;
+                    boundary_roots.push(root);
+                }
+                Err(error)
+                    if (protected.contains(path) || !excluded.contains(path))
+                        && std::fs::symlink_metadata(path)
+                            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    let _ = error;
+                }
+                Err(error) => return Err(error),
+            }
+        }
         for project in projects.values_mut() {
+            #[cfg(unix)]
             if protected
                 .iter()
                 .any(|path| project.root.path.starts_with(path))
             {
                 return Err(unsafe_path("Pi 工程与受保护目录重叠"));
             }
+            #[cfg(unix)]
             project.blocked.extend(
                 protected
                     .iter()
@@ -189,24 +337,79 @@ impl Projects {
                     .filter_map(Path::to_str)
                     .map(alias_key),
             );
+            #[cfg(windows)]
+            {
+                for path in &protected {
+                    match std::fs::canonicalize(path) {
+                        Ok(existing) => {
+                            let protected_root = Root::open(&existing)?;
+                            if windows_relative_to(&protected_root, &project.root.path)?.is_some() {
+                                return Err(unsafe_path("Pi 工程与受保护目录重叠"));
+                            }
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            if std::fs::symlink_metadata(path).is_ok() {
+                                return Err(unsafe_path("受保护目录路径无效"));
+                            }
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                for path in protected.iter().chain(&excluded).chain(&project_roots) {
+                    if let Some(relative) = windows_relative_to(&project.root, path)? {
+                        if relative.is_empty() {
+                            if excluded.contains(path) {
+                                return Err(unsafe_path("未选择的工程与已授权工程指向同一目录"));
+                            }
+                        } else {
+                            project.blocked.insert(relative);
+                        }
+                    }
+                }
+            }
         }
         if !projects.contains_key(primary) {
             return Err(outside_scope());
         }
+        #[cfg(windows)]
+        for project in projects.values() {
+            for path in protected.iter().chain(&excluded).chain(&project_roots) {
+                windows_pin_boundary_chain(
+                    &project.root,
+                    path,
+                    &mut directory_pins,
+                    &mut pinned_identities,
+                )?;
+            }
+        }
+        #[cfg(windows)]
+        for root in &boundary_roots {
+            windows_pin_ancestor_chain(&root.path, &mut directory_pins, &mut pinned_identities)?;
+        }
+        #[cfg(windows)]
+        for root in &boundary_roots {
+            root.revalidate()?;
+        }
+        #[cfg(target_os = "macos")]
         protected.extend(project_roots.iter().map(|path| path.join(".yss")));
         Ok(Self {
             repositories,
             projects,
             primary: primary.to_owned(),
+            #[cfg(target_os = "macos")]
             protected,
+            #[cfg(windows)]
+            _directory_pins: directory_pins,
             observed: RefCell::new(BTreeMap::new()),
         })
     }
 
+    #[cfg(target_os = "macos")]
     pub fn roots(&self) -> impl Iterator<Item = &Root> {
         self.projects.values().map(|project| &project.root)
     }
 
+    #[cfg(target_os = "macos")]
     pub fn repository_paths(&self) -> impl Iterator<Item = &Path> {
         self.repositories.iter().map(|repo| repo.path.as_path())
     }
@@ -230,10 +433,12 @@ impl Projects {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     pub fn protected(&self) -> &BTreeSet<PathBuf> {
         &self.protected
     }
 
+    #[cfg(unix)]
     fn absolute_project<'a, 'b>(
         &'a self,
         path: &'b Path,
@@ -247,6 +452,7 @@ impl Projects {
             .min_by_key(|(rest, _, _)| rest.len())
     }
 
+    #[cfg(unix)]
     pub fn locate(&self, project: Option<&str>, input: &str) -> Result<Location<'_>> {
         let input_path = Path::new(input);
         // A supplied project ID bounds the initial path. Within it the deepest
@@ -294,6 +500,64 @@ impl Projects {
         })
     }
 
+    #[cfg(windows)]
+    fn windows_absolute_project<'a>(
+        &'a self,
+        path: &Path,
+    ) -> Result<Option<(String, &'a str, &'a Project)>> {
+        let mut best: Option<(String, &str, &Project)> = None;
+        for (id, project) in &self.projects {
+            if let Some(relative) = windows_relative_to(&project.root, path)?
+                && best
+                    .as_ref()
+                    .is_none_or(|(current, _, _)| relative.len() < current.len())
+            {
+                best = Some((relative, id.as_str(), project));
+            }
+        }
+        Ok(best)
+    }
+
+    #[cfg(windows)]
+    pub fn locate(&self, project: Option<&str>, input: &str) -> Result<Location<'_>> {
+        let input_path = Path::new(input);
+        let absolute = if input_path.is_absolute() && project.is_none() {
+            input_path.to_owned()
+        } else {
+            let selected = self
+                .projects
+                .get(project.unwrap_or(&self.primary))
+                .ok_or_else(outside_scope)?;
+            let relative = if input_path.is_absolute() {
+                windows_relative_to(&selected.root, input_path)?.ok_or_else(outside_scope)?
+            } else {
+                input.to_owned()
+            };
+            match relative_input(&relative)? {
+                Some(relative) => selected.root.path.join(relative.as_str()),
+                None => selected.root.path.clone(),
+            }
+        };
+        let (relative, project_id, project) = self
+            .windows_absolute_project(&absolute)?
+            .ok_or_else(outside_scope)?;
+        let path = relative_input(&relative)?;
+        if let Some(path) = &path
+            && !project.includes(path)
+        {
+            return Err(outside_scope());
+        }
+        project.root.revalidate()?;
+        Ok(Location {
+            project_id,
+            project,
+            repository: &self.repositories[project.repository],
+            path,
+            observed: &self.observed,
+        })
+    }
+
+    #[cfg(unix)]
     pub fn error_display_path(&self, project: Option<&str>, path: &str) -> String {
         if path.len() > 4096 {
             return "路径未显示".into();
@@ -328,6 +592,34 @@ impl Projects {
             _ => "路径未显示".into(),
         }
     }
+
+    #[cfg(windows)]
+    pub fn error_display_path(&self, project: Option<&str>, path: &str) -> String {
+        if path.len() > 4096 {
+            return "路径未显示".into();
+        }
+        let relative = if Path::new(path).is_absolute() {
+            match project {
+                Some(id) => self.projects.get(id).and_then(|project| {
+                    windows_relative_to(&project.root, Path::new(path))
+                        .ok()
+                        .flatten()
+                }),
+                None => self
+                    .windows_absolute_project(Path::new(path))
+                    .ok()
+                    .flatten()
+                    .map(|(path, _, _)| path),
+            }
+        } else {
+            Some(path.to_owned())
+        };
+        match relative.as_deref().map(relative_input) {
+            Some(Ok(Some(path))) if tool_path(&path) => bounded(path.as_str(), 256).to_owned(),
+            Some(Ok(None)) => ".".into(),
+            _ => "路径未显示".into(),
+        }
+    }
 }
 
 fn bounded(value: &str, limit: usize) -> &str {
@@ -339,8 +631,14 @@ impl Location<'_> {
         self.project.mode
     }
 
+    #[cfg(unix)]
     pub fn root(&self) -> &Path {
         &self.project.root.path
+    }
+
+    #[cfg(windows)]
+    pub fn relative_path(&self) -> Option<&RelPath> {
+        self.path.as_ref()
     }
 
     fn file(&self) -> Result<&RelPath> {
@@ -382,11 +680,11 @@ impl Location<'_> {
 
     fn read_text(&self, path: &RelPath) -> Result<(String, FileSnapshot)> {
         let metadata = self.metadata(path)?;
-        if !metadata.is_file() || metadata.nlink() != 1 {
+        if !metadata.is_file() || !single_link(&self.project.root, path)? {
             return Err(unsafe_path("Pi 文件工具仅处理无硬链接的普通 UTF-8 文本文件").at(path));
         }
-        let checked = self.project.root.read_checked(path, MAX_FILE)?;
-        if self.metadata(path)?.nlink() != 1 {
+        let checked = self.project.root.read_checked_single_link(path, MAX_FILE)?;
+        if !single_link(&self.project.root, path)? {
             return Err(unsafe_path("Pi 文件工具不能读取硬链接").at(path));
         }
         if checked.bytes.contains(&0) {
@@ -399,7 +697,7 @@ impl Location<'_> {
         Ok((text, checked.snapshot))
     }
 
-    pub fn read(&self, offset: Option<usize>, limit: Option<usize>) -> Result<String> {
+    pub fn read(&self, offset: Option<usize>, limit: Option<usize>) -> Result<ReadResult> {
         let path = self.file()?;
         let (text, snapshot) = match self.read_text(path) {
             Err(error)
@@ -418,20 +716,35 @@ impl Location<'_> {
                 .borrow_mut()
                 .insert(self.display(), descriptor.clone());
         }
+        let digest = snapshot
+            .descriptor()
+            .map(|descriptor| descriptor.sha256.clone());
         let start = offset.unwrap_or(1).saturating_sub(1);
         let mut lines = text.split_inclusive('\n').skip(start);
-        let mut result = String::new();
+        let mut result = ReadResult {
+            text: String::new(),
+            digest,
+            first_line: start + 1,
+            complete_lines: 0,
+            complete_bytes: 0,
+        };
         for line in (&mut lines).take(limit.unwrap_or(2000).clamp(1, 2000)) {
-            if result.len() + line.len() > MAX_READ {
-                result.push_str(bounded(line, MAX_READ.saturating_sub(result.len())));
-                result.push_str("\n[达到读取长度上限]");
+            if result.text.len() + line.len() > MAX_READ {
+                result
+                    .text
+                    .push_str(bounded(line, MAX_READ.saturating_sub(result.text.len())));
+                result.text.push_str("\n[达到读取长度上限]");
                 return Ok(result);
             }
-            result.push_str(line);
+            result.text.push_str(line);
+            result.complete_lines += 1;
+            result.complete_bytes = result.text.len();
         }
         if lines.next().is_some() {
-            let next = start + result.lines().count() + 1;
-            result.push_str(&format!("\n[后续内容从第 {next} 行继续读取]"));
+            let next = result.first_line + result.complete_lines;
+            result
+                .text
+                .push_str(&format!("\n[后续内容从第 {next} 行继续读取]"));
         }
         Ok(result)
     }
@@ -657,7 +970,7 @@ impl Location<'_> {
                 });
                 "add"
             }
-            FileSnapshot::File { .. } if self.project.root.source_metadata(path)?.nlink() == 1 => {
+            FileSnapshot::File { .. } if single_link(&self.project.root, path)? => {
                 ops.push(Operation::Replace {
                     path: path.clone(),
                     before: before.clone(),

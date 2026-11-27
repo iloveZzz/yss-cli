@@ -32,6 +32,8 @@ pub(super) struct Plan {
     pub objects: BTreeMap<Sha256, u64>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub business_files: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub command_writeback: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -298,6 +300,9 @@ fn read_record(root: &Root, id: &str) -> Result<(Loaded, RecordSnapshot)> {
         if plan.root != identity.root || plan.id != id || plan.records.is_empty() {
             return Err(required("事务计划身份不合法"));
         }
+        if plan.command_writeback && !plan.business_files {
+            return Err(required("命令事务必须是业务文件事务"));
+        }
         validate_records(&plan)?;
         Some(plan)
     } else {
@@ -382,6 +387,11 @@ fn validate_records(plan: &Plan) -> Result<()> {
     Ok(())
 }
 impl Loaded {
+    pub fn command_writeback(&self) -> bool {
+        self.plan
+            .as_ref()
+            .is_some_and(|plan| plan.command_writeback)
+    }
     fn accept(&mut self, event: &Event) -> Result<()> {
         match event {
             Event::Phase { phase } => {
@@ -693,7 +703,7 @@ pub(super) fn cleanup(root: &Root, loaded: &mut Loaded) -> Result<bool> {
                 snapshot: current.clone(),
             },
         )?;
-        match root.remove(&path, &current) {
+        match super::remove_recorded_entry(root, &path, &current, loaded.command_writeback()) {
             Ok(()) => loaded.append(root, Event::Cleaned { path })?,
             Err(e) if e.code == ErrorCode::Io => complete = false,
             Err(e) => return Err(e),

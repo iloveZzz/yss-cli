@@ -90,12 +90,12 @@ pub struct BindHome {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BoundHome {
-    pub home_id: String,
+pub(super) struct BoundHome {
+    pub(super) home_id: String,
     pub source_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     rows_digest: Option<String>,
-    pub bindings: Vec<HomeBinding>,
+    pub(super) bindings: Vec<HomeBinding>,
     pub updated_at: String,
 }
 fn cells(line: &str) -> Vec<String> {
@@ -312,7 +312,7 @@ fn home_rows_digest(home: &HomeImport) -> Result<String> {
     Ok(Sha256::of(&bytes).as_str().to_owned())
 }
 
-fn home_stale(
+pub(super) fn home_stale(
     home: &HomeImport,
     binding: Option<&BoundHome>,
     current: Option<&str>,
@@ -361,7 +361,7 @@ fn row_remote(row: &HomeRow) -> Option<String> {
         })
         .find_map(remote_identity)
 }
-fn row_subpath(row: &HomeRow) -> Result<Option<String>> {
+pub(super) fn row_subpath(row: &HomeRow) -> Result<Option<String>> {
     let mut explicit = None;
     for suffix in row.git.split("子路径").skip(1) {
         let Some(value) = suffix

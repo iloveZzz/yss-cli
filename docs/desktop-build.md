@@ -12,7 +12,7 @@
 
 桌面版默认使用独立 CLI 的工作台数据目录。若该目录正由缺少桌面协议的旧 CLI 服务使用，桌面设置会给出处理指引。先在原工作台处理活动作业和队列，再从原入口正常结束旧服务，并在桌面设置里重试。桌面随后通过随包服务打开同一目录。使用自定义目录时，可在设置中选择已有工作台目录。
 
-macOS 随包服务会从当前账号的登录 shell 恢复查找工具所需的环境，用于发现本机 Pi、Git、`gh` 和 `glab`。登录配置不可用或超时时继续使用应用继承的环境。Windows 首版可使用工作台，Pi Agent 暂不可运行。
+macOS 随包服务会从当前账号的登录 shell 恢复查找工具所需的环境，用于发现本机 Pi、Git、`gh` 和 `glab`。登录配置不可用或超时时继续使用应用继承的环境。Windows x64 随包服务会读取当前用户和系统的工具路径，并分别探测 Pi 基础作业和离线命令。就绪状态和失败原因可在本机诊断中查看。
 
 ## 候选构建
 
@@ -36,10 +36,12 @@ cp target/aarch64-apple-darwin/release/yss desktop/binaries/yss-aarch64-apple-da
 ```text
 npm install --prefix /absolute/tauri-cli --no-save --no-package-lock --ignore-scripts @tauri-apps/cli@2.12.6
 node /absolute/tauri-cli/node_modules/@tauri-apps/cli/tauri.js build --ci --no-sign --no-bundle --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
-CI=true node /absolute/tauri-cli/node_modules/@tauri-apps/cli/tauri.js bundle --ci --no-sign --target aarch64-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+CI=true TAURI_BUNDLER_DMG_IGNORE_CI=true node /absolute/tauri-cli/node_modules/@tauri-apps/cli/tauri.js bundle --ci --no-sign --target aarch64-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
-Windows 候选使用 `x86_64-pc-windows-msvc`，先生成 `desktop/binaries/yss-x86_64-pc-windows-msvc.exe`，再将 bundle 目标改为 `nsis`。Windows 候选中用于 `yss` 的 Cargo build 使用 `RUSTFLAGS=-C target-feature=+crt-static`；在独立桌面应用构建前清除此环境变量。NSIS 按当前用户安装，缺少 WebView2 时提供联网引导。启用防降级配置的安装器发现已有较新版本时，禁止直接覆盖安装。
+DMG 背景包含同一逻辑尺寸的 1× 和 2× 图像，窗口尺寸和图标落点由 `desktop/tauri.conf.json` 配置。Tauri 在 `CI=true` 时默认跳过 Finder 布局，候选与签名构建都在打包步骤设置 `TAURI_BUNDLER_DMG_IGNORE_CI=true`，使安装窗口写入布局。打包的 macOS 会话需要允许构建进程控制 Finder。
+
+Windows 候选使用 `x86_64-pc-windows-msvc`，先生成 `desktop/binaries/yss-x86_64-pc-windows-msvc.exe`，再将 bundle 目标改为 `nsis`。Windows 候选中用于 `yss` 的 Cargo build 使用 `RUSTFLAGS=-C target-feature=+crt-static`，在独立桌面应用构建前清除此环境变量。NSIS 使用简体中文原生向导和 YSS 安装及卸载图标，按当前用户安装，缺少 WebView2 时提供联网引导。启用防降级配置的安装器发现已有较新版本时，禁止直接覆盖安装。
 
 ## 桌面发行与 CLI latest
 

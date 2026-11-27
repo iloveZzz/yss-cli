@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowRight, CircleCheck } from '@lucide/vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { Alert } from '@/components/ui/alert'
@@ -19,6 +20,7 @@ const pending = shallowRef<'initial' | 'retry' | 'poll' | null>('initial')
 const loading = computed(() => pending.value !== null)
 const loaded = shallowRef(false)
 const initialLoading = computed(() => !loaded.value && loading.value && pending.value !== 'poll')
+const idle = computed(() => loaded.value && !jobs.value.length && !error.value)
 const id = useId()
 let controller: AbortController | undefined
 let version: string | undefined
@@ -68,12 +70,17 @@ function action(job: WorkbenchJob) {
 }
 </script>
 <template>
-  <section class="work-section" :aria-labelledby="id">
-    <div class="section-heading jobs-heading">
-      <h2 :id="id">执行与待处理</h2>
-      <span v-if="loaded && !jobs.length && !error" class="jobs-empty-note muted">暂无待处理的执行</span>
-      <span v-else-if="jobs.length < total" class="muted text-xs">已显示 {{ jobs.length }} / {{ total }} 条</span>
-      <RouterLink :to="{ path: '/jobs', query: { scope: 'all' } }">全部执行记录 →</RouterLink>
+  <section :class="idle ? 'home-status' : 'work-section'" :aria-labelledby="id">
+    <div :class="idle ? 'home-status-row' : 'section-heading jobs-heading'">
+      <CircleCheck v-if="idle" class="home-status-icon" aria-hidden="true" />
+      <div :class="{ 'home-status-copy': idle }">
+        <h2 :id="id">执行与待处理</h2>
+        <p v-if="idle">暂无待处理的执行</p>
+      </div>
+      <span v-if="!idle && jobs.length < total" class="muted text-xs">已显示 {{ jobs.length }} / {{ total }} 条</span>
+      <RouterLink :to="{ path: '/jobs', query: { scope: 'all' } }" :class="{ 'home-status-link': idle }">
+        全部执行记录 <ArrowRight v-if="idle" aria-hidden="true" /><span v-else aria-hidden="true">→</span>
+      </RouterLink>
     </div>
     <Alert v-if="error" role="alert" class="notice warning">
       执行记录读取失败。{{ error }}
@@ -144,8 +151,6 @@ function action(job: WorkbenchJob) {
 </template>
 <style scoped>
 .jobs-heading { flex-wrap: wrap; column-gap: 10px; row-gap: 2px; }
-.jobs-heading:has(.jobs-empty-note) { margin-block-end: 0; }
-.jobs-empty-note { margin-inline-end: auto; font-size: 11px; }
 .active-jobs :deep(table) {
   min-width: 620px;
   width: 100%;

@@ -13,6 +13,13 @@
     "allow-desktop-set-notifications",
     "allow-desktop-check-updates",
     "allow-desktop-install-update",
+    "allow-desktop-tools-status",
+    "allow-desktop-install-tool",
+    "allow-desktop-acknowledge-tool",
+    "allow-desktop-refresh-tools",
+    "allow-desktop-check-tool-updates",
+    "allow-desktop-open-tool-release",
+    "allow-desktop-update-tool",
     "allow-desktop-exit"
   ]
 }

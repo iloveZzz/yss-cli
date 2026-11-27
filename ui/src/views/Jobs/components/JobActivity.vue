@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useDelayedBusy } from '@/hooks/useDelayedBusy'
-import { dateLabel, errorMessage } from '@/services/workbench'
+import { ApiError, dateLabel, errorMessage } from '@/services/workbench'
 import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
 import { activityFailed, activityLabels, stepResult } from '../schemas/job'
 import ActivityDetail from './ActivityDetail.vue'
@@ -19,8 +19,9 @@ const props = defineProps<{
   status: string
   error: string
   visible: boolean
+  activityTarget?: number | null
 }>()
-const emit = defineEmits<{ retry: [] }>()
+const emit = defineEmits<{ retry: []; clearActivityTarget: [] }>()
 const log = useTemplateRef<HTMLElement>('log')
 const pagination = useTemplateRef<HTMLElement>('pagination')
 const detailId = useId()
@@ -31,12 +32,15 @@ const open = shallowRef<number>()
 const busy = shallowRef(false)
 const loadingHistory = useDelayedBusy(busy, () => 180)
 const historyError = shallowRef('')
+const activityError = shallowRef('')
+const activityNotice = shallowRef('')
+const activityRetry = shallowRef(0)
 const page = computed(() => history.value ?? frozen.value ?? props.latest)
 const following = computed(() => !history.value && !frozen.value)
 const rows = computed(() => page.value?.items ?? [])
 let controller: AbortController | undefined
 onBeforeUnmount(() => controller?.abort())
-async function navigate(nextBounds: number[]) {
+async function navigate(nextBounds: number[], activityId?: number | null, knownPage?: ActivityPage) {
   const focused = document.activeElement
   const fromPagination = pagination.value?.contains(focused)
   controller?.abort()
@@ -44,29 +48,83 @@ async function navigate(nextBounds: number[]) {
   controller = request
   busy.value = true
   historyError.value = ''
+  activityError.value = ''
+  activityNotice.value = ''
   try {
     const before = nextBounds.at(-1)
-    const result =
-      before === undefined ? undefined : await getJobActivities(props.jobId, before, request.signal)
+    const result = before === undefined
+      ? undefined
+      : knownPage ?? await getJobActivities(props.jobId, before, request.signal).catch((cause: unknown) => {
+        if (activityId !== undefined && cause instanceof ApiError && cause.status === 404) return undefined
+        throw cause
+      })
     if (request.signal.aborted) return
-    bounds.value = nextBounds
-    history.value = result
-    frozen.value = undefined
-    open.value = undefined
+    const targetPage = knownPage ?? result ?? props.latest
+    const found = typeof activityId === 'number' && targetPage?.items.some((row) => row.id === activityId)
+    const missed = activityId !== undefined && !found
+    if (missed) {
+      activityNotice.value = activityId === null
+        ? '无效的活动链接，已显示本轮最新日志。'
+        : '未找到指定活动，已显示本轮最新日志。'
+    }
+    bounds.value = missed || !result ? [] : nextBounds
+    history.value = missed ? undefined : result
+    frozen.value = found && !result ? targetPage : undefined
+    open.value = found ? activityId : undefined
     await nextTick()
+    if (request.signal.aborted || !props.visible) return
     if (log.value) {
-      log.value.scrollTop = result ? 0 : log.value.scrollHeight
-      if (fromPagination && focused && !focused.isConnected) log.value.focus({ preventScroll: true })
+      if (found) {
+        const trigger = log.value.querySelector<HTMLElement>(`[data-activity-trigger="${activityId}"]`)
+        trigger?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
+        trigger?.focus({ preventScroll: true })
+      } else {
+        log.value.scrollTop = history.value ? 0 : log.value.scrollHeight
+        if (fromPagination && focused && !focused.isConnected) log.value.focus({ preventScroll: true })
+      }
     }
   } catch (cause) {
-    if (!request.signal.aborted) historyError.value = errorMessage(cause)
+    if (!request.signal.aborted) {
+      if (activityId === undefined) historyError.value = errorMessage(cause)
+      else activityError.value = errorMessage(cause)
+    }
   } finally {
-    if (!request.signal.aborted) busy.value = false
+    if (controller === request) {
+      controller = undefined
+      busy.value = false
+    }
   }
+}
+function locateActivity() {
+  const activityId = props.activityTarget
+  if (activityId === undefined || !props.visible) return
+  if (activityId === null) void navigate([], null)
+  else if (page.value?.items.some((row) => row.id === activityId)) void navigate(bounds.value, activityId, page.value)
+  else if (props.latest?.items.some((row) => row.id === activityId)) void navigate([], activityId, props.latest)
+  else void navigate([activityId + 1], activityId)
+}
+watch(
+  [() => props.activityTarget, () => props.visible, () => !!props.latest, activityRetry],
+  ([activityId, visible, ready], _, onCleanup) => {
+    if (activityId === undefined) {
+      activityError.value = ''
+      activityNotice.value = ''
+      return
+    }
+    if (!visible || !ready) return
+    locateActivity()
+    const request = controller
+    onCleanup(() => request?.abort())
+  },
+  { immediate: true, flush: 'post' }
+)
+function browse(nextBounds: number[]) {
+  emit('clearActivityTarget')
+  void navigate(nextBounds)
 }
 function older() {
   const first = rows.value[0]
-  if (first) void navigate([...bounds.value, first.id])
+  if (first) browse([...bounds.value, first.id])
 }
 function scrolled() {
   const el = log.value
@@ -82,12 +140,12 @@ function toggle(id: number) {
 // Keep the same page boundaries while reading. An older, long-running command may
 // still receive output after it has fallen off the latest page.
 watch(
-  () => [props.latest?.cursor, props.visible],
+  () => [props.latest?.cursor, props.visible, busy.value],
   async (_, __, onCleanup) => {
     if (!props.visible || busy.value) return
     if (following.value) {
       await nextTick()
-      if (log.value) log.value.scrollTop = log.value.scrollHeight
+      if (props.visible && !busy.value && following.value && log.value) log.value.scrollTop = log.value.scrollHeight
       return
     }
     const pinned = history.value ?? frozen.value
@@ -131,6 +189,13 @@ function summary(text: string, command: boolean) {
         <Button v-if="error" type="button" variant="ghost" @click="emit('retry')">重新连接</Button>
       </AlertDescription>
     </Alert>
+    <Alert v-if="activityError" class="notice warning">
+      <AlertDescription class="text-current">
+        <p>无法定位指定活动。{{ activityError }}</p>
+        <Button type="button" variant="ghost" :disabled="busy" @click="activityRetry++">重试定位</Button>
+      </AlertDescription>
+    </Alert>
+    <p v-if="activityNotice" class="muted" role="status">{{ activityNotice }}</p>
     <LoadingSkeleton v-if="!page && !error" variant="table" label="正在读取执行活动" />
     <div class="activity-result">
       <div
@@ -175,6 +240,7 @@ function summary(text: string, command: boolean) {
                     type="button"
                     variant="ghost"
                     size="sm"
+                    :data-activity-trigger="row.id"
                     :aria-controls="`${detailId}-${row.id}`"
                     :aria-disabled="busy"
                     :aria-expanded="open === row.id"
@@ -194,7 +260,7 @@ function summary(text: string, command: boolean) {
               <TableRow v-show="open === row.id" :id="`${detailId}-${row.id}`">
                 <TableCell colspan="4" class="activity-detail">
                   <div v-if="open === row.id" class="activity-detail-content" data-workbench-reveal>
-                    <ActivityDetail :job-id="jobId" :row="row" />
+                    <ActivityDetail :job-id="jobId" :row="row" :terminal="latest?.terminal || page?.terminal" />
                   </div>
                 </TableCell>
               </TableRow>
@@ -216,10 +282,10 @@ function summary(text: string, command: boolean) {
         type="button"
         variant="outline"
         :aria-disabled="busy"
-        @click="!busy && navigate(bounds.slice(0, -1))"
+        @click="!busy && browse(bounds.slice(0, -1))"
         >较新活动</Button
       >
-      <Button v-if="!following" type="button" variant="ghost" :aria-disabled="busy" @click="!busy && navigate([])"
+      <Button v-if="!following || activityTarget !== undefined" type="button" variant="ghost" :aria-disabled="busy" @click="!busy && browse([])"
         >回到最新活动</Button
       >
     </nav>
@@ -253,6 +319,7 @@ function summary(text: string, command: boolean) {
   overflow: auto;
   overscroll-behavior: contain;
   overflow-anchor: none;
+  scroll-padding-block-start: 42px;
   container-type: inline-size;
 }
 .activity-table {

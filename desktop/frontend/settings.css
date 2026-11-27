@@ -82,10 +82,37 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .check-row input { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--primary); }
 .check-row label { color: #25272b; font-weight: 500; cursor: pointer; }
 .hint { margin-top: 12px; }
+.tools-options { margin: 14px 0 0; padding: 0; border: 0; min-width: 0; }
+.tools-options legend { padding: 0; font-weight: 600; }
+.tool-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #e4e6eb; }
+.tool-row input { flex: 0 0 auto; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--primary); }
+.tool-row label { font-weight: 500; }
+.tool-row p { margin-top: 3px; color: var(--muted); overflow-wrap: anywhere; }
+.tool-confirm { margin-top: 8px; }
+.tools-actions { margin-top: 14px; }
+.tools-progress, .tools-results { margin-top: 16px; }
+.tools-progress label, .tools-progress progress { display: block; }
+.tools-progress progress { width: 100%; margin-top: 6px; accent-color: var(--primary); }
+.tools-results h4 { margin: 0; font-size: 13px; }
+.tools-results ul { margin: 8px 0 0; padding-left: 20px; }
+.tools-results li { padding: 4px 0; overflow-wrap: anywhere; }
+.tools-results li .button { margin-left: 10px; }
+.tools-results > .button { margin-top: 12px; }
+.tool-update-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tool-update-dialog { width: min(440px, calc(100% - 32px)); padding: 20px; color: inherit; background: #fff; border: 1px solid #cbd0da; border-radius: 12px; }
+.tool-update-dialog h1 { margin: 0 0 10px; font-size: 18px; }
+.tool-update-dialog ul { padding-inline-start: 22px; }
+.tool-update-dialog p, .tool-update-dialog li { overflow-wrap: anywhere; }
+.tool-source-options { display: grid; gap: 6px; margin: 8px 0 12px; padding: 0; border: 0; min-width: 0; }
+.tool-source-options legend { margin-bottom: 6px; font-weight: 600; }
+.tool-source-options label { display: flex; align-items: flex-start; gap: 7px; }
+.tool-source-options input { margin: 3px 0 0; accent-color: var(--primary); }
+.tool-update-dialog .actions { justify-content: flex-end; }
+.tool-update-dialog:modal { overscroll-behavior: contain; }
+.tool-update-dialog::backdrop { background: rgb(22 29 47 / 45%); overflow: hidden; overscroll-behavior: contain; }
 .alert, .notice { margin-bottom: 16px; padding: 10px 12px; border: 1px solid; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .alert { color: #9f252c; background: #fff2f2; border-color: #f3c6c9; }
 .notice { color: #345cc9; background: #edf2ff; border-color: #cfdafc; }
-.platform-notice { margin-bottom: 16px; padding: 10px 12px; border: 1px solid #cfdafc; border-radius: 8px; background: #edf2ff; color: #345cc9; }
 [hidden] { display: none !important; }
 
 @keyframes settings-panel-in {

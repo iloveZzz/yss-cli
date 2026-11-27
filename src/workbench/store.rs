@@ -9,7 +9,10 @@ use crate::{
     fs::{self, FileSnapshot, Root, RootLock},
     model::RelPath,
 };
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 use std::time::{Duration, Instant};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,12 +21,21 @@ use std::{
 };
 use tokio::sync::Notify;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 const DELTA_WINDOW: Duration = Duration::from_millis(32);
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 const DELTA_BYTES: usize = 16 * 1024;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 struct BufferedDelta {
     kind: &'static str,
     item_id: String,
@@ -40,7 +52,10 @@ pub struct Store {
     projection_changed: Arc<Notify>,
     activity_changed: Arc<Notify>,
     job_event_subscribers: BTreeMap<String, Weak<Notify>>,
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     job_deltas: BTreeMap<String, BufferedDelta>,
     // Keep the directory locked until the SQLite connection has closed.
     lock: RootLock,
@@ -342,7 +357,10 @@ impl Store {
             projection_changed: Arc::new(Notify::new()),
             activity_changed: Arc::new(Notify::new()),
             job_event_subscribers: BTreeMap::new(),
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            #[cfg(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "windows", target_arch = "x86_64")
+            ))]
             job_deltas: BTreeMap::new(),
             lock,
         })
@@ -546,6 +564,16 @@ impl Store {
         self.write_extensions_with(effects, None)
     }
 
+    /// Commit related extension records and a job event in one SQLite transaction.
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    pub(super) fn write_extensions_with_event(
+        &mut self,
+        effects: &CommitEffects,
+        event: EventWrite<'_>,
+    ) -> Result<()> {
+        self.write_extensions_with(effects, Some(ExtensionChange::Event(event)))
+    }
+
     pub(super) fn delete_agent_history(
         &mut self,
         run_id: &str,
@@ -570,7 +598,10 @@ impl Store {
             Some(ExtensionChange::Event(event)) => Some((event.job_id, event.kind)),
             _ => None,
         };
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ))]
         if let Some((job_id, _)) = event {
             self.flush_job_delta(job_id)?;
         }
@@ -617,7 +648,10 @@ impl Store {
             if let Some(job_ids) = deleted_jobs {
                 self.activity_changed.notify_one();
                 for job_id in job_ids {
-                    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+                    #[cfg(any(
+                        all(target_os = "macos", target_arch = "aarch64"),
+                        all(target_os = "windows", target_arch = "x86_64")
+                    ))]
                     self.job_deltas.remove(job_id);
                     self.wake_job_stream(job_id);
                 }
@@ -668,7 +702,10 @@ impl Store {
         }
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     pub(super) fn append_pi_delta(
         &mut self,
         job_id: &str,
@@ -712,7 +749,10 @@ impl Store {
         Ok(Some(deadline))
     }
 
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     pub(super) fn flush_job_delta(&mut self, job_id: &str) -> Result<()> {
         let Some(batch) = self.job_deltas.remove(job_id) else {
             return Ok(());
@@ -731,7 +771,10 @@ impl Store {
         kind: &str,
         payload: &serde_json::Value,
     ) -> Result<u64> {
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ))]
         self.flush_job_delta(job_id)?;
         self.persist_event(job_id, kind, payload)
     }

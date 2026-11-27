@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowRight, CircleCheck } from '@lucide/vue'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -58,10 +59,17 @@ function location(specId: string, questionId?: string) {
 }
 </script>
 <template>
-  <section v-if="!hasReminders" class="attention-zero">
-    <h2>内容待办</h2>
-    <span>当前没有待你处理的内容事项</span>
-    <RouterLink to="/specs">查看 Spec →</RouterLink>
+  <section v-if="!hasReminders" class="home-status" :aria-labelledby="id">
+    <div class="home-status-row">
+      <CircleCheck class="home-status-icon" aria-hidden="true" />
+      <div class="home-status-copy">
+        <h2 :id="id">内容待办</h2>
+        <p>暂无内容待办</p>
+      </div>
+      <RouterLink to="/specs" class="home-status-link">
+        查看 Spec <ArrowRight aria-hidden="true" />
+      </RouterLink>
+    </div>
   </section>
   <section v-else class="work-section content-attention" :aria-labelledby="id">
     <div class="section-heading">
@@ -156,26 +164,8 @@ function location(specId: string, questionId?: string) {
   </section>
 </template>
 <style scoped>
-.attention-zero {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 16px;
-  padding-block: 8px;
-  border-block-end: 1px solid var(--yss-colors-border);
-}
-.attention-zero h2 {
-  font-size: 13px;
-  font-weight: 550;
-}
-.attention-zero span,
 .attention-empty {
   color: var(--brand-color-text-secondary);
-  font-size: 12px;
-}
-.attention-zero a {
-  margin-left: auto;
-  color: #315dcf;
   font-size: 12px;
 }
 .attention-table :deep(table.spec-table) {

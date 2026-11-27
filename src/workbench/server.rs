@@ -349,6 +349,12 @@ async fn dispatch(server: Server, request: Request) -> Response {
             );
         }
     };
+    // The API handler owns the guard so a disconnected reader also stops its
+    // Git and platform commands inside the blocking task.
+    let merge_read_cancel = (path.starts_with("/api/merge-requests/")
+        && matches!(method, axum::http::Method::GET | axum::http::Method::POST))
+    .then(|| server.cancel.child());
+    let _merge_read_guard = merge_read_cancel.as_ref().map(Cancellation::cancel_on_drop);
     let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
         server.cancel.check()?;
         let limits = Limits {
@@ -386,7 +392,13 @@ async fn dispatch(server: Server, request: Request) -> Response {
             server.shutdown.cancel();
             return Ok(json!({"restarting":true,"message":"正在重启工作台，新会话将自动打开，请在新页面恢复草稿"}));
         }
-        if let Some(value) = server.platform.route(method.as_str(), &path, &query, &bytes)? {
+        if let Some(value) = server.platform.route(
+            method.as_str(),
+            &path,
+            &query,
+            &bytes,
+            merge_read_cancel.as_ref(),
+        )? {
             return Ok(value);
         }
         if method == axum::http::Method::POST && path == "/api/register" {

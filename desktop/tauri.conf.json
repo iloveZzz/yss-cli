@@ -17,10 +17,25 @@
     "targets": ["dmg", "nsis"],
     "externalBin": ["binaries/yss"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "12.7.6" },
+    "macOS": {
+      "minimumSystemVersion": "12.7.6",
+      "dmg": {
+        "background": "installer/macos/background.tiff",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 172, "y": 219 },
+        "applicationFolderPosition": { "x": 488, "y": 219 }
+      }
+    },
     "windows": {
       "allowDowngrades": false,
-      "nsis": { "installMode": "currentUser" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"],
+        "headerImage": "installer/windows/header.bmp",
+        "sidebarImage": "installer/windows/sidebar.bmp",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      },
       "webviewInstallMode": { "type": "downloadBootstrapper" }
     }
   }

@@ -37,7 +37,7 @@ jobs:
       TAURI_CLI_VERSION: 2.12.6
       YSS_TARGET: ${{ matrix.target }}
       YSS_SIDECAR_RUSTFLAGS: ${{ matrix.sidecar-rustflags }}
-      YSS_TEMPLATE_COMMIT: d8b45cba9e53b1332083accc1acdae861a2d211a
+      YSS_TEMPLATE_COMMIT: eefc4c679eb099ce9c7189f857683f9415269863
       YSS_DESKTOP_VERSION: ${{ inputs.version }}
     steps:
       - name: Preserve source line endings
@@ -196,6 +196,7 @@ jobs:
           } finally { Remove-Item -LiteralPath $p12 -Force -ErrorAction SilentlyContinue }
       - name: Build signed desktop candidate
         env:
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
           YSS_DESKTOP_UPDATE_PUBKEY: ${{ secrets.YSS_DESKTOP_UPDATE_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

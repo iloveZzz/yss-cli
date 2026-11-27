@@ -3,7 +3,7 @@ import { useId } from 'vue'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import AgentCommandPermission from '@/components/AgentCommandPermission.vue'
 
-defineProps<{ disabled?: boolean }>()
+defineProps<{ disabled?: boolean; commandsUnavailable?: boolean; commandsMessage?: string | null }>()
 const readOnly = defineModel<boolean>('readOnly', { required: true })
 const allowCommands = defineModel<boolean>('allowCommands', { required: true })
 const descriptionId = useId()
@@ -26,7 +26,9 @@ function setMode(value: unknown) {
     <p :id="descriptionId" class="muted">
       {{ readOnly ? '可读取和搜索选定工程的当前文件。' : '文件直接写入原工程。运行失败或停止后，已写入的内容会保留。' }}
     </p>
-    <AgentCommandPermission v-if="!readOnly" v-model="allowCommands" :disabled="disabled" />
+    <AgentCommandPermission v-if="!readOnly" v-model="allowCommands"
+      :disabled="disabled || (commandsUnavailable && !allowCommands)" />
+    <p v-if="!readOnly && commandsUnavailable" role="status">离线命令不可用：{{ commandsMessage || '命令隔离尚未通过检测。' }}<template v-if="allowCommands">请取消离线命令授权后运行。</template></p>
   </fieldset>
 </template>
 

@@ -4,6 +4,7 @@
 mod macos_navigation;
 #[cfg(target_os = "macos")]
 mod menu_bar_panel;
+mod tools;
 mod update;
 mod window_placement;
 
@@ -309,9 +310,14 @@ fn get(session: &Session, path: &str) -> Result<Value, String> {
     validate_live_session(session)?;
     let client = client()?;
     challenge(&client, session)?;
-    let response = client
+    let mut request = client
         .get(format!("{}{}", session.origin.trim_end_matches('/'), path))
-        .bearer_auth(&session.token)
+        .bearer_auth(&session.token);
+    // Diagnostics runs several version checks and starts Pi's model probe.
+    if path == "/api/system" {
+        request = request.timeout(Duration::from_secs(60));
+    }
+    let response = request
         .send()
         .map_err(|_| "无法连接工作台服务".to_owned())?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -493,7 +499,15 @@ fn show_main_view(window: &Window, view: &Webview) -> tauri::Result<()> {
 }
 
 fn open_desktop_settings(app: &tauri::AppHandle, show_updates: bool) -> Result<(), String> {
+    open_desktop_settings_section(app, show_updates, None)
+}
+fn open_desktop_settings_section(
+    app: &tauri::AppHandle,
+    show_updates: bool,
+    tool: Option<&str>,
+) -> Result<(), String> {
     const UPDATE_SECTION: &str = "window.__yssShowUpdateSettings = true; window.dispatchEvent(new Event('yss:settings-update'));";
+    let tool_script = tool.map(|id| format!("window.__yssShowToolSettings = {}; window.dispatchEvent(new Event('yss:settings-tools'));", json!(id)));
     let _layout = MAIN_VIEW.lock().map_err(|_| "主窗口不可用")?;
     let window = main_window(app).map_err(|_| "无法创建主窗口")?;
     let settings = match app.get_webview("settings") {
@@ -512,6 +526,9 @@ fn open_desktop_settings(app: &tauri::AppHandle, show_updates: bool) -> Result<(
             if show_updates {
                 builder = builder.initialization_script(UPDATE_SECTION);
             }
+            if let Some(script) = &tool_script {
+                builder = builder.initialization_script(script);
+            }
             window
                 .add_child(
                     builder,
@@ -525,6 +542,9 @@ fn open_desktop_settings(app: &tauri::AppHandle, show_updates: bool) -> Result<(
     let _ = settings.eval("window.dispatchEvent(new Event('yss:settings-shown'));");
     if show_updates {
         let _ = settings.eval(UPDATE_SECTION);
+    }
+    if let Some(script) = tool_script {
+        let _ = settings.eval(&script);
     }
     Ok(())
 }
@@ -553,11 +573,29 @@ fn handle_desktop_control(app: &tauri::AppHandle, target: &Url, settings_url: &U
     {
         return false;
     }
-    if target == settings_url && !WORKBENCH_FROZEN.load(Ordering::SeqCst) {
+    let selection = if target == settings_url {
+        Some(None)
+    } else if target.path() == settings_url.path() && target.fragment().is_none() {
+        let pairs = target.query_pairs().collect::<Vec<_>>();
+        if pairs.len() == 1
+            && pairs[0].0 == "tools"
+            && matches!(
+                pairs[0].1.as_ref(),
+                "git" | "gh" | "glab" | "pi" | "missing"
+            )
+        {
+            Some(Some(pairs[0].1.to_string()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(selection) = selection.filter(|_| !WORKBENCH_FROZEN.load(Ordering::SeqCst)) {
         let app = app.clone();
         // Creating a WebView during a synchronous navigation callback may block the event loop.
         thread::spawn(move || {
-            let _ = show_settings(&app);
+            let _ = open_desktop_settings_section(&app, false, selection.as_deref());
         });
     }
     true
@@ -942,6 +980,24 @@ fn cleanup_failed_spawn(child: &mut Child, data_dir: &Path, owner: &str) -> bool
     }
     false
 }
+fn clear_exited_service(app: &tauri::AppHandle, state: &mut State) -> Result<(), String> {
+    let owned_exited = state
+        .connection
+        .as_mut()
+        .and_then(|conn| conn.child.as_mut())
+        .and_then(|child| child.try_wait().ok())
+        .flatten()
+        .is_some();
+    if owned_exited {
+        if let Some(view) = app.get_webview("workbench") {
+            view.close()
+                .map_err(|_| "工作台服务已退出，但原视图未关闭。请重启桌面应用。")?;
+        }
+        state.connection = None;
+    }
+    Ok(())
+}
+
 fn connect(
     app: &tauri::AppHandle,
     requested: Option<PathBuf>,
@@ -949,6 +1005,10 @@ fn connect(
 ) -> Result<(), String> {
     let state = app.state::<Mutex<State>>();
     let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
+    if tools::updating() {
+        return Err("正在更新本机工具，请等待更新结束后连接".into());
+    }
+    clear_exited_service(app, &mut state)?;
     let mut config = read_config()?;
     let remembered = config.last_data_dir.is_some();
     let dir = requested
@@ -1049,6 +1109,21 @@ fn connect(
         let mut command = Command::new(path);
         #[cfg(target_os = "macos")]
         yss::workbench::process::host::apply_macos_login_environment(&mut command);
+        #[cfg(windows)]
+        yss::workbench::process::apply_windows_user_path(&mut command);
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ))]
+        for tool in [
+            yss::workbench::managed_tools::Tool::Gh,
+            yss::workbench::managed_tools::Tool::Glab,
+        ] {
+            command.env_remove(tool.environment());
+            if let Ok(Some(install)) = yss::workbench::managed_tools::inspect(tool) {
+                command.env(tool.environment(), install.path);
+            }
+        }
         command
             .args(["workbench", "--no-open", "--port", "0", "--data-dir"])
             .arg(&canonical)
@@ -1857,6 +1932,10 @@ async fn desktop_exit(app: tauri::AppHandle, stop_jobs: bool) -> Result<(), Stri
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Mutex<State>>();
         let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
+        if tools::updating() {
+            return Err("正在更新本机工具，请等待更新结束后退出".into());
+        }
+        clear_exited_service(&app, &mut state)?;
         let _freeze = if let Some(conn) = state.connection.as_mut() {
             if stop_jobs && conn.child.is_none() {
                 return Err("外部工作台的作业请从原入口处理；可单独退出桌面应用".into());
@@ -1905,6 +1984,13 @@ fn main() {
             desktop_set_notifications,
             desktop_check_updates,
             desktop_install_update,
+            tools::desktop_tools_status,
+            tools::desktop_install_tool,
+            tools::desktop_acknowledge_tool,
+            tools::desktop_refresh_tools,
+            tools::updates::desktop_check_tool_updates,
+            tools::updates::desktop_open_tool_release,
+            tools::updates::desktop_update_tool,
             desktop_exit,
             menubar_snapshot,
             menubar_action
@@ -1936,9 +2022,9 @@ fn main() {
                     &settings,
                     &updates,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::hide(app, None)?,
-                    &PredefinedMenuItem::hide_others(app, None)?,
-                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::hide(app, Some("隐藏 YSS 工作台"))?,
+                    &PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?,
+                    &PredefinedMenuItem::show_all(app, Some("显示全部"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &quit,
                 ])?;
@@ -1949,15 +2035,18 @@ fn main() {
                     &PredefinedMenuItem::close_window(app, Some("关闭窗口"))?,
                 ])?;
                 let edit_menu = Submenu::with_items(app, "编辑", true, &[
-                    &PredefinedMenuItem::undo(app, None)?, &PredefinedMenuItem::redo(app, None)?,
-                    &PredefinedMenuItem::separator(app)?, &PredefinedMenuItem::cut(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?, &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
+                    &PredefinedMenuItem::undo(app, Some("撤销"))?,
+                    &PredefinedMenuItem::redo(app, Some("重做"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, Some("剪切"))?,
+                    &PredefinedMenuItem::copy(app, Some("拷贝"))?,
+                    &PredefinedMenuItem::paste(app, Some("粘贴"))?,
+                    &PredefinedMenuItem::select_all(app, Some("全选"))?,
                 ])?;
                 let overview = MenuItem::with_id(app, "app-menu-bar-overview", "菜单栏概览", true, None::<&str>)?;
                 let window_menu = Submenu::with_items(app, "窗口", true, &[
-                    &PredefinedMenuItem::minimize(app, None)?,
-                    &PredefinedMenuItem::fullscreen(app, None)?,
+                    &PredefinedMenuItem::minimize(app, Some("最小化"))?,
+                    &PredefinedMenuItem::fullscreen(app, Some("切换全屏"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &overview,
                 ])?;

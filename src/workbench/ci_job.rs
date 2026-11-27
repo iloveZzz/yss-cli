@@ -16,7 +16,6 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -384,7 +383,7 @@ struct GitLab {
 
 impl GitLab {
     fn open(target: &Target, cancel: &Cancellation) -> Result<Self> {
-        let mut command = Command::new("glab");
+        let mut command = process::tool_command("glab");
         command.current_dir(&target.credential_dir).args([
             "auth",
             "credential-helper",

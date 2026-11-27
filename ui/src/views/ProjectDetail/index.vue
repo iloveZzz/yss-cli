@@ -85,7 +85,7 @@ async function retryProject(event: MouseEvent) {
     </Alert>
     <p v-else-if="refreshing && section !== 'specs'" class="view-note muted" role="status">正在核验工程 Spec。</p>
     <Tabs :key="project.record.id" :model-value="section" :unmount-on-hide="false" activation-mode="manual" @update:model-value="selectSection">
-      <TabsList class="detail-navigation" aria-label="工程详情分组" moving-indicator>
+      <TabsList class="detail-navigation" aria-label="工程详情分组">
         <TabsTrigger v-for="item in sections" :key="item.value" :value="item.value">{{ item.label }}</TabsTrigger>
       </TabsList>
       <TabsContent value="specs" class="min-w-0">
@@ -137,5 +137,10 @@ async function retryProject(event: MouseEvent) {
   flex: 0 0 auto;
   min-height: var(--yss-control-min-height);
   padding-inline: 12px;
+}
+@media (forced-colors: active) {
+  .detail-navigation :deep([data-slot='tabs-trigger'][aria-selected='true']) {
+    border-color: Highlight;
+  }
 }
 </style>

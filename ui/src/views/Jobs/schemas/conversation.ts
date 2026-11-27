@@ -1,6 +1,30 @@
-import { objectValue, type JobActivity, type JobEvent } from '@/services/workbench-platform'
+import { objectValue, type AssistantCitation, type JobActivity, type JobEvent } from '@/services/workbench-platform'
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
+const positiveInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+
+export function assistantCitations(value: unknown): AssistantCitation[] {
+  if (!Array.isArray(value)) return []
+  const result: AssistantCitation[] = []
+  for (const raw of value.slice(0, 12)) {
+    const { number, marker, kind, projectId, path, startLine, endLine, snippet, digest, snippetTruncated,
+      activityId, command, exitCode } = objectValue(raw)
+    if (!positiveInteger(number) || number > 12 || result.some(citation => citation.number === number) ||
+      typeof marker !== 'string' || !/^\{\{yss-citation:[0-9a-f]{32}:\d{1,2}\}\}$/.test(marker) ||
+      !marker.endsWith(`:${number}}}`)) continue
+    if (kind === 'command' && positiveInteger(activityId) && typeof command === 'string') {
+      result.push({ number, marker, kind, activityId, command,
+        exitCode: typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? exitCode : null })
+    } else if ((kind === 'excerpt' || kind === 'file') && typeof projectId === 'string' && projectId &&
+      typeof path === 'string' && path && positiveInteger(startLine) && positiveInteger(endLine) && endLine >= startLine &&
+      typeof snippet === 'string' && typeof digest === 'string' && digest) {
+      result.push({ number, marker, kind, projectId, path, startLine, endLine, snippet, digest,
+        snippetTruncated: snippetTruncated === true })
+    }
+  }
+  return result
+}
 
 export function isPiQuestion(event: JobEvent) {
   return objectValue(objectValue(event.payload).request).protocolMethod === 'pi/askSpecQuestion'
@@ -108,9 +132,11 @@ export function conversationEvent(
     const delta = event.kind === 'item/agentMessage/delta'
     const body = delta ? (previous?.text ?? '') + text(payload.delta) : text(item.text)
     const status = delta ? '' : 'completed'
+    const valid = event.kind === 'item/completed' ? assistantCitations(item.citations) : []
+    const citations = valid.length ? valid : undefined
     return previous
-      ? update(previous, { text: body, status })
-      : { ...row('message', body, status), itemId }
+      ? update(previous, { text: body, status, citations })
+      : { ...row('message', body, status), itemId, citations }
   }
   if (item.type === 'commandExecution' && itemId) {
     const status = text(item.status) || (event.kind === 'item/started' ? 'inProgress' : 'completed')

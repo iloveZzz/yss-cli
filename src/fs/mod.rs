@@ -90,6 +90,33 @@ pub fn absolute(path: &Path) -> Result<PathBuf> {
 pub fn alias_key(path: &str) -> String {
     path.to_lowercase().nfd().collect()
 }
+/// Windows ordinal, case-insensitive component prefix comparison.
+#[cfg(windows)]
+pub(crate) fn windows_path_under(path: &str, prefix: &str) -> Option<bool> {
+    use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+    if prefix.is_empty() {
+        return Some(true);
+    }
+    let mut parts = path.split('/');
+    for expected in prefix.split('/') {
+        let Some(actual) = parts.next() else {
+            return Some(false);
+        };
+        let actual: Vec<u16> = actual.encode_utf16().collect();
+        let expected: Vec<u16> = expected.encode_utf16().collect();
+        let left = i32::try_from(actual.len()).ok()?;
+        let right = i32::try_from(expected.len()).ok()?;
+        let result =
+            unsafe { CompareStringOrdinal(actual.as_ptr(), left, expected.as_ptr(), right, 1) };
+        if result == 0 {
+            return None;
+        }
+        if result != CSTR_EQUAL {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
 pub fn observable_mode(mode: u32) -> u32 {
     if cfg!(windows) {
         if mode & 0o222 == 0 { 0o444 } else { 0o644 }
@@ -443,8 +470,24 @@ impl Root {
         let parent = self
             .parent(path)?
             .ok_or_else(|| unsafe_path("读取路径的父目录不存在").at(path))?;
-        let checked =
-            read_in_dir_impl(&parent.dir, &parent.name, limit, true).map_err(|e| e.at(path))?;
+        let checked = read_in_dir_impl(&parent.dir, &parent.name, limit, true, false)
+            .map_err(|e| e.at(path))?;
+        if platform::identity_dir(&walk_absolute(&self.path, false)?)? != self.identity
+            || self
+                .parent(path)?
+                .is_none_or(|p| p.identity != parent.identity)
+        {
+            return Err(drift().at(path));
+        }
+        Ok(checked)
+    }
+    /// Read only while the actual open file remains a single-link ordinary file.
+    pub fn read_checked_single_link(&self, path: &RelPath, limit: u64) -> Result<CheckedFile> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("读取路径的父目录不存在").at(path))?;
+        let checked = read_in_dir_impl(&parent.dir, &parent.name, limit, false, true)
+            .map_err(|e| e.at(path))?;
         if platform::identity_dir(&walk_absolute(&self.path, false)?)? != self.identity
             || self
                 .parent(path)?
@@ -460,6 +503,23 @@ impl Root {
             .parent_checked(path, PathLookup::BundleSource)?
             .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
         let file = read_in_dir(&parent.dir, &parent.name, limit)?;
+        if self
+            .parent_checked(path, PathLookup::BundleSource)?
+            .is_none_or(|p| p.identity != parent.identity)
+        {
+            return Err(drift());
+        }
+        Ok(file)
+    }
+    pub(crate) fn source_read_single_link(
+        &self,
+        path: &RelPath,
+        limit: u64,
+    ) -> Result<CheckedFile> {
+        let parent = self
+            .parent_checked(path, PathLookup::BundleSource)?
+            .ok_or_else(|| YssError::from(std::io::Error::from(std::io::ErrorKind::NotFound)))?;
+        let file = read_in_dir_impl(&parent.dir, &parent.name, limit, false, true)?;
         if self
             .parent_checked(path, PathLookup::BundleSource)?
             .is_none_or(|p| p.identity != parent.identity)
@@ -540,16 +600,242 @@ impl Root {
         Ok(entries)
     }
     pub fn create_dir(&self, path: &RelPath) -> Result<FileIdentity> {
+        self.create_dir_with(path, &cap_std::fs::DirBuilder::new())
+    }
+    fn create_dir_with(
+        &self,
+        path: &RelPath,
+        builder: &cap_std::fs::DirBuilder,
+    ) -> Result<FileIdentity> {
         let parent = self
             .parent(path)?
             .ok_or_else(|| unsafe_path("创建目录的父目录不存在"))?;
         self.revalidate_parent(&parent)?;
-        parent.dir.create_dir(&parent.name)?;
+        parent.dir.create_dir_with(&parent.name, builder)?;
         let child = parent.dir.open_dir_nofollow(&parent.name)?;
         let identity = platform::identity_dir(&child)?;
         platform::sync_dir(&parent.dir)?;
         self.revalidate_parent(&parent)?;
         Ok(identity)
+    }
+    /// Create a Unix directory with private mode at creation.
+    #[cfg(unix)]
+    pub fn create_private_dir(&self, path: &RelPath) -> Result<FileIdentity> {
+        use cap_std::fs::DirBuilderExt;
+        let mut builder = cap_std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        self.create_dir_with(path, &builder)
+    }
+    /// Create a Windows directory with a protected inheritable private DACL at creation.
+    #[cfg(windows)]
+    pub fn create_private_dir(&self, path: &RelPath) -> Result<FileIdentity> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("创建目录的父目录不存在"))?;
+        self.revalidate_parent(&parent)?;
+        let directory = platform::create_private_directory(&parent.dir, &parent.name)?;
+        let identity = platform::identity_std_file(&directory)?;
+        self.revalidate_parent(&parent)?;
+        let child = parent.dir.open_dir_nofollow(&parent.name)?;
+        if platform::identity_dir(&child)? != identity {
+            return Err(drift().at(path));
+        }
+        platform::verify_private_directory(&child)?;
+        platform::sync_dir(&parent.dir)?;
+        self.revalidate_parent(&parent)?;
+        Ok(identity)
+    }
+    #[cfg(windows)]
+    pub fn verify_private_dir(&self) -> Result<()> {
+        platform::verify_private_directory(&self.dir)?;
+        if platform::identity_dir(&walk_absolute(&self.path, false)?)? != self.identity {
+            return Err(drift());
+        }
+        Ok(())
+    }
+    /// Remove a directly owned private scratch child without reading its contents.
+    #[cfg(windows)]
+    pub(crate) fn remove_private_tree(
+        &self,
+        name: &RelPath,
+        identity: &FileIdentity,
+        max_entries: usize,
+        max_depth: usize,
+    ) -> Result<()> {
+        if name.as_str().contains('/') {
+            return Err(unsafe_path("暂存目录须是直接子目录").at(name));
+        }
+        self.verify_trusted_dir()?;
+        platform::remove_private_tree(&self.dir, name.as_str(), identity, max_entries, max_depth)
+            .map_err(|error| io_at(error, name))?;
+        self.revalidate()
+    }
+    /// Verify that a Windows directory has no untrusted modification grants.
+    #[cfg(windows)]
+    pub fn verify_trusted_dir(&self) -> Result<()> {
+        platform::verify_trusted_directory(&self.dir)?;
+        self.revalidate()
+    }
+    /// Borrow a security-write handle opened relative to a verified parent.
+    #[cfg(windows)]
+    #[allow(dead_code)] // AppContainer candidate is not enabled in production yet.
+    pub(crate) fn with_verified_handle<T>(
+        &self,
+        operation: impl FnOnce(std::os::windows::io::RawHandle) -> Result<T>,
+    ) -> Result<T> {
+        use std::os::windows::io::AsRawHandle;
+        self.revalidate()?;
+        let parent_path = self
+            .path
+            .parent()
+            .ok_or_else(|| unsafe_path("根目录没有父目录"))?;
+        let name = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| unsafe_path("目录名无效"))?;
+        let parent = Root::open(parent_path)?;
+        let directory = platform::open_security_directory(&parent.dir, name)?;
+        if platform::identity_std_file(&directory)? != self.identity {
+            return Err(drift());
+        }
+        parent.revalidate()?;
+        let result = operation(directory.as_raw_handle());
+        parent.revalidate()?;
+        self.revalidate()?;
+        result
+    }
+    /// Hold this directory open without delete sharing after checking its identity.
+    #[cfg(windows)]
+    pub fn pin_directory(&self) -> Result<std::fs::File> {
+        self.revalidate()?;
+        let parent_path = self
+            .path
+            .parent()
+            .ok_or_else(|| unsafe_path("根目录没有父目录"))?;
+        let name = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| unsafe_path("目录名无效"))?;
+        let parent = Root::open(parent_path)?;
+        let directory = platform::open_pinned_directory(&parent.dir, name)?;
+        if platform::identity_std_file(&directory)? != self.identity {
+            return Err(drift());
+        }
+        parent.revalidate()?;
+        self.revalidate()?;
+        Ok(directory)
+    }
+    /// Pin an inherited private file against replacement while retaining write sharing.
+    #[cfg(windows)]
+    pub(crate) fn pin_private_file(&self, path: &RelPath) -> Result<std::fs::File> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("私有文件父目录不存在"))?;
+        self.revalidate_parent(&parent)?;
+        let file = platform::open_pinned_private_file(&parent.dir, &parent.name)?;
+        let identity = platform::identity_std_file(&file)?;
+        if platform::identity_at(&parent.dir, &parent.name)? != identity {
+            return Err(drift().at(path));
+        }
+        self.revalidate_parent(&parent)?;
+        Ok(file)
+    }
+    /// Pin a linked-worktree .git pointer before reading its external Git directories.
+    #[cfg(windows)]
+    pub(crate) fn pin_git_marker(&self) -> Result<Option<std::fs::File>> {
+        self.revalidate()?;
+        let metadata = self.dir.symlink_metadata(".git")?;
+        plain(&metadata)?;
+        if metadata.is_dir() {
+            return Ok(None);
+        }
+        if !metadata.is_file() {
+            return Err(unsafe_path("Git 工作树入口无效"));
+        }
+        let before = platform::identity_at(&self.dir, ".git")?;
+        let file = platform::open_unchanging_file(&self.dir, ".git")?;
+        if platform::identity_std_file(&file)? != before
+            || platform::identity_at(&self.dir, ".git")? != before
+        {
+            return Err(drift());
+        }
+        self.revalidate()?;
+        Ok(Some(file))
+    }
+    /// Resolve containment by directory identity, including an absent final path.
+    #[cfg(windows)]
+    pub(crate) fn relative_windows_path(&self, target: &Path) -> Result<Option<String>> {
+        use std::ffi::OsString;
+        if !target.is_absolute()
+            || target
+                .components()
+                .any(|part| matches!(part, Component::ParentDir))
+        {
+            return Err(unsafe_path("路径不在授权范围内"));
+        }
+        self.revalidate()?;
+        let mut current = target.to_owned();
+        let mut tail: Vec<OsString> = Vec::new();
+        loop {
+            match std::fs::canonicalize(&current) {
+                Ok(canonical) => {
+                    if canonical.is_dir() {
+                        current = canonical;
+                        break;
+                    }
+                    tail.push(
+                        canonical
+                            .file_name()
+                            .ok_or_else(|| unsafe_path("路径无效"))?
+                            .to_owned(),
+                    );
+                    current = canonical
+                        .parent()
+                        .ok_or_else(|| unsafe_path("路径无效"))?
+                        .to_owned();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if std::fs::symlink_metadata(&current).is_ok() {
+                        return Err(unsafe_path("路径包含无效重解析点"));
+                    }
+                    tail.push(
+                        current
+                            .file_name()
+                            .ok_or_else(|| unsafe_path("路径无效"))?
+                            .to_owned(),
+                    );
+                    current = current
+                        .parent()
+                        .ok_or_else(|| unsafe_path("路径无效"))?
+                        .to_owned();
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        for ancestor in current.ancestors() {
+            let opened = Root::open(ancestor)?;
+            if opened.identity == self.identity {
+                let mut suffix = current
+                    .strip_prefix(ancestor)
+                    .map_err(|_| unsafe_path("路径无效"))?
+                    .to_owned();
+                for part in tail.iter().rev() {
+                    suffix.push(part);
+                }
+                let text = suffix
+                    .to_str()
+                    .ok_or_else(|| unsafe_path("路径不是 UTF-8"))?
+                    .replace('\\', "/");
+                if !text.is_empty() {
+                    RelPath::new(&text)?;
+                }
+                self.revalidate()?;
+                return Ok(Some(text));
+            }
+        }
+        Ok(None)
     }
     pub fn create_file(&self, path: &RelPath, bytes: &[u8], mode: u32) -> Result<FileSnapshot> {
         if bytes.len() as u64 > MAX_ASSET || mode & !0o777 != 0 {
@@ -755,6 +1041,112 @@ impl Root {
                 .context("to", to)
         })
     }
+
+    /// Move the exact verified object without replacing another directory entry.
+    /// The Windows handle holds deny-write and deny-delete sharing. The name
+    /// operation never changes the data or attributes of other hard links.
+    #[cfg(windows)]
+    pub(crate) fn move_verified_entry(
+        &self,
+        from: &RelPath,
+        to: &RelPath,
+        expected: &FileSnapshot,
+    ) -> Result<()> {
+        let source = self
+            .parent(from)?
+            .ok_or_else(|| unsafe_path("发布源父目录不存在"))?;
+        let target = self
+            .parent(to)?
+            .ok_or_else(|| unsafe_path("发布目标父目录不存在"))?;
+        let entry = self.verified_entry(&source, from, expected, false)?;
+        self.revalidate_parent(&target)?;
+        if self.inspect(to)? != FileSnapshot::Missing {
+            return Err(drift().at(to));
+        }
+        platform::rename_verified_entry(&entry, &target.dir, &target.name)
+            .map_err(|error| io_at(error, to).context("systemOperation", "rename"))?;
+        drop(entry);
+        (|| {
+            self.revalidate_parent(&source)?;
+            self.revalidate_parent(&target)?;
+            if &self.inspect(to)? != expected {
+                return Err(drift().at(to));
+            }
+            Ok(())
+        })()
+        .map_err(|error: YssError| {
+            error
+                .context("renameApplied", "true")
+                .context("from", from)
+                .context("to", to)
+        })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn remove_verified_entry(
+        &self,
+        path: &RelPath,
+        expected: &FileSnapshot,
+    ) -> Result<()> {
+        let parent = self
+            .parent(path)?
+            .ok_or_else(|| unsafe_path("删除路径父目录不存在"))?;
+        let entry = self.verified_entry(&parent, path, expected, true)?;
+        platform::unlink_verified_entry(&entry, matches!(expected, FileSnapshot::Directory { .. }))
+            .map_err(|error| io_at(error, path))?;
+        drop(entry);
+        self.revalidate_parent(&parent)?;
+        if self.inspect(path)? != FileSnapshot::Missing {
+            return Err(drift().at(path));
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn verified_entry(
+        &self,
+        parent: &Parent,
+        path: &RelPath,
+        expected: &FileSnapshot,
+        unlink: bool,
+    ) -> Result<std::fs::File> {
+        let identity = expected
+            .identity()
+            .ok_or_else(|| unsafe_path("需核验已知对象").at(path))?;
+        self.revalidate_parent(parent)?;
+        let directory = matches!(expected, FileSnapshot::Directory { .. });
+        let mut file = platform::open_verified_entry(&parent.dir, &parent.name, directory, unlink)
+            .map_err(|error| io_at(error, path))?;
+        platform::verify_cleanup_entry(&file, identity, directory).map_err(|_| drift().at(path))?;
+        if let Some(descriptor) = expected.descriptor() {
+            if descriptor.size > MAX_ASSET || !platform::has_single_link(&file)? {
+                return Err(unsafe_path("事务对象长度或硬链接不安全").at(path));
+            }
+            let metadata = file.metadata()?;
+            let mode = if metadata.permissions().readonly() {
+                0o444
+            } else {
+                0o644
+            };
+            if metadata.len() != descriptor.size || descriptor.mode != mode {
+                return Err(drift().at(path));
+            }
+            let mut bytes = Vec::new();
+            (&mut file)
+                .take(descriptor.size + 1)
+                .read_to_end(&mut bytes)?;
+            if FileDescriptor::new(&bytes, mode) != *descriptor {
+                return Err(drift().at(path));
+            }
+        }
+        self.revalidate_parent(parent)?;
+        platform::verify_cleanup_entry(&file, identity, directory).map_err(|_| drift().at(path))?;
+        if !directory && !platform::has_single_link(&file)? {
+            return Err(unsafe_path("事务对象出现硬链接").at(path));
+        }
+        Ok(file)
+    }
+
     pub fn remove(&self, path: &RelPath, expected: &FileSnapshot) -> Result<()> {
         let parent = self
             .parent(path)?
@@ -938,9 +1330,15 @@ pub fn unique_id() -> Result<String> {
 }
 
 fn read_in_dir(dir: &Dir, name: &str, limit: u64) -> Result<CheckedFile> {
-    read_in_dir_impl(dir, name, limit, false)
+    read_in_dir_impl(dir, name, limit, false, false)
 }
-fn read_in_dir_impl(dir: &Dir, name: &str, limit: u64, private: bool) -> Result<CheckedFile> {
+fn read_in_dir_impl(
+    dir: &Dir,
+    name: &str,
+    limit: u64,
+    private: bool,
+    single_link: bool,
+) -> Result<CheckedFile> {
     let before = dir.symlink_metadata(name)?;
     plain(&before)?;
     if !before.is_file() || before.len() > limit.min(MAX_ASSET) {
@@ -954,6 +1352,17 @@ fn read_in_dir_impl(dir: &Dir, name: &str, limit: u64, private: bool) -> Result<
     plain(&opened)?;
     if before_id != platform::identity_file(&file)? {
         return Err(drift().at(name));
+    }
+    #[cfg(unix)]
+    if single_link {
+        use cap_std::fs::MetadataExt;
+        if opened.nlink() != 1 {
+            return Err(unsafe_path("不能读取硬链接").at(name));
+        }
+    }
+    #[cfg(windows)]
+    if single_link && !platform::has_single_link(&file)? {
+        return Err(unsafe_path("不能读取硬链接").at(name));
     }
     if private {
         #[cfg(unix)]
@@ -969,6 +1378,17 @@ fn read_in_dir_impl(dir: &Dir, name: &str, limit: u64, private: bool) -> Result<
         .take(limit.min(MAX_ASSET) + 1)
         .read_to_end(&mut bytes)?;
     let after = file.metadata()?;
+    #[cfg(unix)]
+    if single_link {
+        use cap_std::fs::MetadataExt;
+        if after.nlink() != 1 {
+            return Err(unsafe_path("不能读取硬链接").at(name));
+        }
+    }
+    #[cfg(windows)]
+    if single_link && !platform::has_single_link(&file)? {
+        return Err(unsafe_path("不能读取硬链接").at(name));
+    }
     #[cfg(windows)]
     if private {
         platform::verify_private_file(&file)

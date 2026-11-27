@@ -105,6 +105,9 @@ defineExpose({ focusQuestion })
                   :user="row.kind === 'user'"
                   :created-at="row.createdAt"
                   :row-id="row.id"
+                  :job-id="jobId"
+                  :citations="row.citations"
+                  :citation-streaming="row.kind === 'message' && !row.status"
                   :streaming="row.kind === 'message' && !row.status && !terminal"
                 />
                 <ConversationQuestion

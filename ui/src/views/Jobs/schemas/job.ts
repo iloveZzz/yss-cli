@@ -7,6 +7,7 @@ import {
 
 export const jobKindLabels: Record<string, string> = {
   agent: 'Agent 运行',
+  localProjectTask: '本机工程任务',
   engineering: '工程操作',
   externalRefresh: '外部关联读取',
   backup: '数据备份',

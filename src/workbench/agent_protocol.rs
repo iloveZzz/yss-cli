@@ -7,9 +7,27 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
 #[path = "pi/mod.rs"]
 mod pi;
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+pub(crate) use pi::{
+    StoppedCommand,
+    windows_mapping::{Change as WindowsCommandChange, VerifiedManifest},
+};
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[path = "pi/windows_pipe.rs"]
+mod windows_pipe;
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[allow(dead_code)]
+#[path = "pi/windows_sandbox.rs"]
+mod windows_sandbox;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct PiSession {
@@ -68,13 +86,26 @@ impl PiModel {
 )]
 pub(crate) struct PiRuntime {
     pub executable: PathBuf,
+    pub entry: Option<PathBuf>,
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    pub command_node: Option<PathBuf>,
     pub config_dir: PathBuf,
     pub version: semver::Version,
     pub model: PiModel,
     pub thinking_levels: Vec<ThinkingLevel>,
+    pub sandbox_message: Option<String>,
 }
 
 impl PiRuntime {
+    pub fn verify_commands(&self, allow_commands: bool) -> Result<()> {
+        if allow_commands && let Some(message) = &self.sandbox_message {
+            return Err(YssError::new(ErrorCode::NotReady, message)
+                .context("piIssue", "commandsUnavailable")
+                .context("httpStatus", 409));
+        }
+        Ok(())
+    }
+
     pub fn verify_expected(&self, expected: Option<&PiModel>) -> Result<()> {
         if expected.is_some_and(|expected| *expected != self.model) {
             return Err(
@@ -101,7 +132,10 @@ impl PiRuntime {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RuntimeStatus {
     pub available: bool,
+    pub managed: bool,
+    pub explicit_executable: bool,
     pub sandbox_ready: bool,
+    pub sandbox_message: Option<String>,
     pub version: Option<semver::Version>,
     pub model: Option<PiModel>,
     pub thinking_levels: Vec<ThinkingLevel>,
@@ -110,8 +144,20 @@ pub(crate) struct RuntimeStatus {
     pub credentials_ready: Option<bool>,
     pub config_dir: Option<String>,
     pub executable: Option<String>,
+    pub node_executable: Option<String>,
     pub issue: Option<String>,
     pub message: Option<String>,
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+pub fn probe_managed_pi_update(
+    command: std::process::Command,
+    cancel: &Cancellation,
+) -> Result<()> {
+    pi::probe_update_rpc(command, cancel)
 }
 
 #[cfg_attr(
@@ -127,6 +173,7 @@ pub(crate) struct RunRequest<'a> {
     pub workspaces: &'a [Workspace],
     pub unselected_projects: &'a [PathBuf],
     pub prompt: &'a str,
+    pub citations: &'a [Value],
     pub resume: Option<&'a PiSession>,
     pub thinking_level: Option<ThinkingLevel>,
     pub read_only: bool,
@@ -135,12 +182,21 @@ pub(crate) struct RunRequest<'a> {
 }
 
 pub(crate) const fn supported() -> bool {
-    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    cfg!(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+)))]
 fn unsupported() -> YssError {
-    YssError::new(ErrorCode::NotReady, "Pi Agent 运行当前仅支持 macOS ARM64")
+    YssError::new(
+        ErrorCode::NotReady,
+        "Pi Agent 支持 macOS ARM64 与 Windows x64",
+    )
 }
 
 fn check(
@@ -149,11 +205,17 @@ fn check(
     protected: &[PathBuf],
     model: Option<&PiModel>,
 ) -> Result<PiRuntime> {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     {
         pi::check_runtime(cancel, status, protected, model)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
     {
         let _ = (cancel, status, protected, model);
         Err(unsupported())
@@ -192,7 +254,15 @@ pub(crate) fn available_models(
     {
         pi::available_models(cancel, protected)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        pi::probe_base(cancel)?;
+        pi::available_models(cancel, protected)
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
     {
         let _ = (cancel, protected);
         Err(unsupported())
@@ -205,11 +275,17 @@ pub(crate) fn test_model(
     model: Option<&PiModel>,
     expected: &PiModel,
 ) -> Result<()> {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     {
         pi::test_model(cancel, protected, model, expected)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
     {
         let _ = (cancel, protected, model, expected);
         Err(unsupported())
@@ -222,11 +298,17 @@ pub(crate) fn session_available(
     cwd: &Path,
     session: &PiSession,
 ) -> bool {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     {
         pi::verify_session(data_dir, run_id, cwd, session).is_ok()
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
     {
         let _ = (data_dir, run_id, cwd, session);
         false
@@ -243,7 +325,16 @@ pub(crate) fn run(
     {
         pi::run(request, context, save_session, ask)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        request.runtime.verify_commands(request.allow_commands)?;
+        pi::probe_base(&context.cancel)?;
+        pi::run(request, context, save_session, ask)
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
     {
         let _ = (request, context, save_session, ask);
         Err(unsupported())

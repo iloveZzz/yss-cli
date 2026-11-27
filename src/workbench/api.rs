@@ -2,6 +2,7 @@ use super::{
     agent, agent_protocol, agent_scope, artifacts, backup, ci_job, drafts, engineering,
     integrations,
     jobs::{self, JobManager},
+    merge_requests,
     model::*,
     read_model, sources,
 };
@@ -69,6 +70,16 @@ fn number(query: &BTreeMap<String, String>, key: &str, default: usize) -> Result
         .unwrap_or(Ok(default))
 }
 
+// Resolve only the service's absolute PATH entries and execute that same path for
+// diagnostics. This makes the displayed path evidence of the probe, rather than
+// an independently guessed location.
+fn system_tool_path(program: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    super::process::system_tool_path(program, &path)?
+        .canonicalize()
+        .ok()
+}
+
 fn event_cursor(value: &str) -> Result<u64> {
     value
         .parse::<u64>()
@@ -115,6 +126,31 @@ fn shared_pi_probe(
 }
 
 impl PlatformApi {
+    fn pi_runtime_status(
+        &self,
+        protected: &[PathBuf],
+        model: Option<&agent_protocol::PiModel>,
+    ) -> Result<agent_protocol::RuntimeStatus> {
+        let status = agent_protocol::runtime_status(&self.cancel, protected, model);
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        {
+            let mut status = status;
+            let mut store = jobs::lock_store(&self.jobs.store)?;
+            if let Err(error) = super::command_recovery::check_diagnostics(&mut store) {
+                status.sandbox_ready = false;
+                status.sandbox_message = Some(error.message.clone());
+                if status.available {
+                    status.available = false;
+                    status.issue = Some("commandRecoveryRequired".into());
+                    status.message = Some(error.message);
+                }
+            }
+            Ok(status)
+        }
+        #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+        Ok(status)
+    }
+
     pub fn source_state(&self) -> Result<Value> {
         let (state, mut records, external_links) = {
             let mut store = jobs::lock_store(&self.jobs.store)?;
@@ -250,6 +286,7 @@ impl PlatformApi {
         path: &str,
         query: &str,
         bytes: &[u8],
+        merge_read_cancel: Option<&Cancellation>,
     ) -> Result<Option<Value>> {
         let query = query_values(query);
         if method == "POST"
@@ -283,21 +320,25 @@ impl PlatformApi {
             let fingerprint = job_fingerprint(path, &request)?;
             let mut store = jobs::lock_store(&self.jobs.store)?;
             jobs::ensure_request_not_deleted(&mut store, id)?;
-            if let Some(previous) = store.record::<String>("jobRequest", id)? {
-                if previous != fingerprint {
+            let previous = store.record::<String>("jobRequest", id)?;
+            if previous.as_ref().is_some_and(|value| value != &fingerprint) {
+                return Err(crate::error::YssError::new(
+                    crate::error::ErrorCode::Conflict,
+                    "执行请求 ID 已用于不同参数",
+                ));
+            }
+            if let Some(job) = jobs::job_by_request(&mut store, id)? {
+                if job.local_project_task.is_some() {
                     return Err(crate::error::YssError::new(
                         crate::error::ErrorCode::Conflict,
-                        "执行请求 ID 已用于不同参数",
+                        "请求 ID 已用于本机测试或构建",
                     ));
                 }
-                if let Some(job) = store
-                    .records::<super::jobs::JobRecord>("job")?
-                    .into_iter()
-                    .find(|job| job.request_id == id)
-                {
+                if previous.is_some() {
                     return Ok(Some(encode(job)?));
                 }
-            } else {
+            }
+            if previous.is_none() {
                 store.put_record("jobRequest", id, &fingerprint)?;
             }
         }
@@ -383,11 +424,7 @@ impl PlatformApi {
                 let mut store = jobs::lock_store(&self.jobs.store)?;
                 if let Some(receipt) = store.record::<Value>("mutationReceipt", id)? {
                     json!({"found":true,"result":receipt["result"],"requestDigest":receipt["request_digest"]})
-                } else if let Some(job) = store
-                    .records::<super::jobs::JobRecord>("job")?
-                    .into_iter()
-                    .find(|job| job.request_id == id)
-                {
+                } else if let Some(job) = jobs::job_by_request(&mut store, id)? {
                     json!({"found":true,"result":job})
                 } else {
                     json!({"found":false})
@@ -618,6 +655,56 @@ impl PlatformApi {
                     .collect::<Vec<_>>();
                 json!({"total":events.len(),"items":events.into_iter().skip(number(&query,"offset",0)?).take(number(&query,"limit",50)?.clamp(1,200)).collect::<Vec<_>>()})
             }
+            ("GET", ["api", "desktop", "tool-integrations"]) => {
+                // Read only each registered active project's tracker file, with a bounded
+                // count. Unavailable projects are reported as incomplete, never inferred.
+                let (roots, protected) = {
+                    let store = jobs::lock_store(&self.jobs.store)?;
+                    (
+                        store
+                            .state()
+                            .projects
+                            .iter()
+                            .filter(|project| project.active)
+                            .map(|project| project.root_path.clone())
+                            .collect::<Vec<_>>(),
+                        agent::pi_protected_paths(&store),
+                    )
+                };
+                let mut providers = std::collections::BTreeSet::new();
+                let mut complete = roots.len() <= 64;
+                for root in roots.iter().take(64) {
+                    match integrations::tracker(root) {
+                        Ok(tracker) => {
+                            for key in ["platform", "provider"] {
+                                if let Some(value) = tracker
+                                    .pointer(&format!("/fields/{key}"))
+                                    .and_then(Value::as_str)
+                                {
+                                    let value = value.to_ascii_lowercase();
+                                    if value == "github" || value == "gitlab" {
+                                        providers.insert(value);
+                                    }
+                                }
+                            }
+                        }
+                        Err(_) => complete = false,
+                    }
+                }
+                let canonical = protected
+                    .into_iter()
+                    .map(std::fs::canonicalize)
+                    .collect::<std::io::Result<Vec<_>>>();
+                let protected_complete = canonical
+                    .as_ref()
+                    .is_ok_and(|paths| paths.iter().all(|path| path.to_str().is_some()));
+                let protected = canonical
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|path| path.to_str().map(str::to_owned))
+                    .collect::<Vec<_>>();
+                json!({"providers": providers, "complete": complete, "protectedComplete": protected_complete, "protectedPaths": protected})
+            }
             ("GET", ["api", "system"]) => {
                 let (data_dir, usage, protected) = {
                     let store = jobs::lock_store(&self.jobs.store)?;
@@ -630,16 +717,18 @@ impl PlatformApi {
                 };
                 let mut tools = Vec::new();
                 for program in ["git", "gh", "glab"] {
-                    let result = super::process::run(
-                        program,
-                        &["--version".into()],
-                        &self.cancel,
-                        Duration::from_secs(5),
-                    );
-                    tools.push(match result {Ok(bytes)=>json!({"name":program,"available":true,"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),Err(error)=>json!({"name":program,"available":false,"message":error.message})});
+                    let Some(path) = system_tool_path(program) else {
+                        tools.push(json!({"name":program,"available":false,"message":"工作台服务的 PATH 中未找到此工具"}));
+                        continue;
+                    };
+                    let mut command = std::process::Command::new(&path);
+                    command.arg("--version");
+                    let result =
+                        super::process::run_command(command, &self.cancel, Duration::from_secs(5));
+                    tools.push(match result {Ok(bytes)=>json!({"name":program,"available":true,"path":path.to_string_lossy(),"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),Err(error)=>json!({"name":program,"available":false,"path":path.to_string_lossy(),"message":error.message})});
                 }
                 let executable = std::env::current_exe()?;
-                let pi = agent_protocol::runtime_status(&self.cancel, &protected, None);
+                let pi = self.pi_runtime_status(&protected, None)?;
                 json!({"version":BuildInfo::current(),"dataDir":data_dir,"executable":executable,"storage":usage,"databaseBytes":std::fs::metadata(data_dir.join(super::storage_migration::DATABASE_NAME)).map(|metadata|metadata.len()).unwrap_or(0),"tools":tools,"pi":pi})
             }
             ("POST", ["api", "backups"]) => {
@@ -768,6 +857,25 @@ impl PlatformApi {
             ("POST", ["api", "home", "bind"]) => {
                 integrations::bind_home(&self.jobs.store, decode(bytes)?)?
             }
+            ("GET", ["api", "merge-requests", "sources"]) => encode(merge_requests::discover(
+                &self.jobs.store,
+                merge_read_cancel.unwrap_or(&self.cancel),
+            )?)?,
+            ("PUT", ["api", "merge-requests", "sources"]) => encode(merge_requests::save(
+                &self.jobs.store,
+                decode(bytes)?,
+                &self.cancel,
+            )?)?,
+            ("POST", ["api", "merge-requests", "page"]) => encode(merge_requests::page(
+                &self.jobs.store,
+                decode(bytes)?,
+                merge_read_cancel.unwrap_or(&self.cancel),
+            )?)?,
+            ("POST", ["api", "merge-requests", "detail"]) => encode(merge_requests::detail(
+                &self.jobs.store,
+                decode(bytes)?,
+                merge_read_cancel.unwrap_or(&self.cancel),
+            )?)?,
             ("GET", ["api", "external"]) => encode(integrations::external_list(&self.jobs.store)?)?,
             ("POST", ["api", "external"]) => encode(integrations::external_add(
                 &self.jobs.store,
@@ -847,11 +955,7 @@ impl PlatformApi {
                     selected,
                 )?;
                 shared_pi_probe("runtime", &protected, model.as_ref(), || {
-                    encode(agent_protocol::runtime_status(
-                        &self.cancel,
-                        &protected,
-                        model.as_ref(),
-                    ))
+                    encode(self.pi_runtime_status(&protected, model.as_ref())?)
                 })?
             }
             ("POST", ["api", "agent", "test-model"]) => {
@@ -879,6 +983,14 @@ impl PlatformApi {
             ("GET", ["api", "agent", id]) => {
                 agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
             }
+            ("GET", ["api", "agent", id, "local-tasks"]) => {
+                agent::local_tasks::list(&mut *jobs::lock_store(&self.jobs.store)?, id)?
+            }
+            ("POST", ["api", "agent", id, "local-tasks"]) => encode(agent::local_tasks::start(
+                self.jobs.clone(),
+                id,
+                decode(bytes)?,
+            )?)?,
             ("POST", ["api", "agent", id, "queue", "receipt"]) => {
                 let request: agent::queue::Draft = decode(bytes)?;
                 // Verify the queue target exists before consulting its idempotency record.

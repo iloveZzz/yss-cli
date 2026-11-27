@@ -56,15 +56,16 @@ fn main() {
         "rust-toolchain.toml".to_owned(),
         "build.rs".to_owned(),
     ];
-    fn walk(dir: &Path, paths: &mut Vec<String>, rust_only: bool) {
+    fn walk(dir: &Path, paths: &mut Vec<String>, cli_sources_only: bool) {
         for entry in fs::read_dir(dir).expect("cannot list build sources") {
             let entry = entry.expect("cannot read source entry");
             let path = entry.path();
             let kind = entry.file_type().expect("cannot inspect source entry");
             assert!(!kind.is_symlink(), "build sources cannot contain links");
             if kind.is_dir() {
-                walk(&path, paths, rust_only);
-            } else if kind.is_file() && (!rust_only || path.extension().is_some_and(|v| v == "rs"))
+                walk(&path, paths, cli_sources_only);
+            } else if kind.is_file()
+                && (!cli_sources_only || path.extension().is_some_and(|v| v == "rs" || v == "mjs"))
             {
                 paths.push(
                     path.to_str()

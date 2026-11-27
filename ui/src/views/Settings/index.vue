@@ -65,6 +65,17 @@ const storageLabels: Record<string, string> = {
   eventBytes: '执行日志'
 }
 const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
+const desktopSettingsUrl = (window as Window & { __YSS_DESKTOP_SETTINGS_URL__?: string }).__YSS_DESKTOP_SETTINGS_URL__
+function installUrl(tool: 'git' | 'gh' | 'glab' | 'pi' | 'missing') {
+  if (!desktopSettingsUrl) return undefined
+  const url = new URL(desktopSettingsUrl)
+  url.searchParams.set('tools', tool)
+  return url.href
+}
+function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
+  const id = name.toLowerCase()
+  return id === 'git' || id === 'gh' || id === 'glab' ? id : undefined
+}
 </script>
 <template>
   <div class="page-heading">
@@ -124,7 +135,13 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
             </TableBody>
           </Table>
         </div>
-        <h3 class="tools-heading">本机工具</h3>
+        <div class="tools-heading">
+          <h3>本机工具</h3>
+          <Button v-if="desktopSettingsUrl" as-child variant="outline" size="sm">
+            <a :href="installUrl('missing')">安装缺失工具</a>
+          </Button>
+        </div>
+        <p v-if="!desktopSettingsUrl" class="muted tools-help">请在本机安装工具后重新诊断；桌面版可在本机设置中安装。</p>
         <div class="table-scroll" tabindex="0" role="region" aria-label="本机工具状态">
           <Table class="spec-table tools-table">
             <TableCaption class="sr-only">
@@ -135,6 +152,7 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
                 <TableHead scope="col">工具</TableHead>
                 <TableHead scope="col">状态</TableHead>
                 <TableHead scope="col">版本或处理提示</TableHead>
+                <TableHead v-if="desktopSettingsUrl" scope="col">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -142,16 +160,23 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
                 <TableHead scope="row">Pi Agent</TableHead>
                 <TableCell>
                   <Badge variant="outline" :class="{ 'warning-text': !info.pi.available }">
-                    {{ info.pi.available ? '本机检查通过' : '运行不可用' }}
+                    {{ info.pi.available ? '基础作业可用' : '基础作业不可用' }}
                   </Badge>
                 </TableCell>
                 <TableCell>
                   {{ [
                     info.pi.version,
+                    info.pi.executable,
                     info.pi.model && `${info.pi.model.provider} / ${info.pi.model.id}`,
-                    info.pi.sandboxReady && '命令沙箱就绪',
-                    info.pi.message
+                    info.pi.sandboxReady ? '离线命令可用' : '离线命令不可用',
+                    info.pi.message,
+                    !info.pi.sandboxReady && info.pi.sandboxMessage
                   ].filter(Boolean).join(' · ') }}
+                </TableCell>
+                <TableCell v-if="desktopSettingsUrl">
+                  <Button v-if="!info.pi.executable" as-child variant="outline" size="sm">
+                    <a :href="installUrl('pi')">安装</a>
+                  </Button>
                 </TableCell>
               </TableRow>
               <TableRow v-for="tool in info.tools" :key="tool.name">
@@ -161,7 +186,12 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
                     {{ tool.available ? '可用' : '不可用' }}
                   </Badge>
                 </TableCell>
-                <TableCell>{{ tool.version || tool.message || '请核对本机安装与认证' }}</TableCell>
+                <TableCell>{{ [tool.version || tool.message || '请核对本机安装', tool.path].filter(Boolean).join(' · ') }}</TableCell>
+                <TableCell v-if="desktopSettingsUrl">
+                  <Button v-if="!tool.available && !tool.path && installableTool(tool.name)" as-child variant="outline" size="sm">
+                    <a :href="installUrl(installableTool(tool.name)!)">安装</a>
+                  </Button>
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -250,7 +280,13 @@ const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
 }
 .tools-heading {
   margin: 24px 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
 }
+.tools-help { margin: 0 0 10px; }
 .tools-table {
   min-width: 430px;
 }

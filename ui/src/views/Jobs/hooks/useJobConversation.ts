@@ -18,8 +18,10 @@ export function useJobConversation(trackFirstText?: () => boolean) {
   const historyError = shallowRef('')
   const loadingHistory = shallowRef(false)
   const firstText = shallowRef<{ jobId: string; rowId: number; receivedAt: number }>()
+  const toolMotion = shallowRef<ReadonlyMap<number, 'enter' | 'settled'>>()
   const rows = new Map<number, JobActivity>()
   const keys = new Map<string, number>()
+  let pendingToolMotion = new Map<number, 'enter' | 'settled'>()
   let history: AbortController | undefined
   let buffered: JobEvent[] | undefined
   let cursor: number | undefined
@@ -57,6 +59,10 @@ export function useJobConversation(trackFirstText?: () => boolean) {
   function publish() {
     cancelPublish()
     items.value = [...rows.values()].sort((a, b) => a.id - b.id)
+    if (pendingToolMotion.size) {
+      toolMotion.value = pendingToolMotion
+      pendingToolMotion = new Map()
+    }
   }
 
   function schedulePublish() {
@@ -71,12 +77,18 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     firstText.value = { jobId, rowId, receivedAt: mark.startTime }
   }
 
-  function ingest(event: JobEvent) {
+  function ingest(event: JobEvent, animate = false) {
     if (cursor === undefined || event.id <= cursor) return
     cursor = event.id
     const row = conversationEvent(event, (key) => rows.get(keys.get(key) ?? -1))
     if (row) {
+      const previous = rows.get(row.id)
       const rowId = remember(row)
+      if (animate && ['command', 'tool', 'files'].includes(row.kind)) {
+        if (!previous) pendingToolMotion.set(rowId, 'enter')
+        else if (previous.status === 'inProgress' && row.status !== previous.status && !pendingToolMotion.has(rowId))
+          pendingToolMotion.set(rowId, 'settled')
+      }
       markFirstText(event.jobId, row, rowId)
       schedulePublish()
     }
@@ -146,6 +158,8 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     historyError.value = ''
     loadingHistory.value = false
     firstText.value = undefined
+    pendingToolMotion.clear()
+    toolMotion.value = undefined
   }
 
   return {
@@ -155,14 +169,15 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     historyError,
     loadingHistory,
     firstText,
+    toolMotion,
     flushPending() {
       if (frame !== undefined || timer !== undefined) publish()
     },
     pending: computed(() => items.value.find((row) => row.kind === 'question' && row.status === 'pending')),
     getCursor: () => cursor,
-    receive(event: JobEvent) {
+    receive(event: JobEvent, animate = false) {
       if (buffered) buffered.push(event)
-      else ingest(event)
+      else ingest(event, animate)
     },
     accepted,
     open,

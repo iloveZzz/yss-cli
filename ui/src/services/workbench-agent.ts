@@ -1,5 +1,6 @@
 import { apiRequest, type SpecView, type SourceDocument, type SpecRecord, type Stage } from './workbench'
-import { requestId, type JobRecord, type JsonObject, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
+import { requestId, type JobRecord, type JsonObject, type LocalProjectCheckout, type LocalProjectTaskAction,
+  type LocalProjectTaskJob, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
 import type { Verification } from './workbench-read'
 export type AgentWorkspaceMode = 'direct' | 'isolated'
 export type ProjectAccessMode = 'read' | 'edit' | 'execute'
@@ -83,7 +84,7 @@ export interface AgentDiff {
   files: AgentFile[]
 }
 export type AgentFileSummary = Omit<AgentFile, 'binary' | 'initialText' | 'resultText' | 'currentText' | 'reviewedBefore'>
-export type AgentDiffSummary = Omit<AgentDiff, 'files'> & { files: AgentFileSummary[] }
+export type AgentDiffSummary = Omit<AgentDiff, 'files'> & { files: AgentFileSummary[]; bindingRevision?: number }
 export interface AgentDiffHunk {
   side: 'initial' | 'current'
   oldStart: number
@@ -207,6 +208,8 @@ export interface ReviewCitation {
 export interface ReviewExcerpt extends ReviewCitation {
   jobId: string
   snippet: string
+  runId?: string
+  bindingRevision?: number
 }
 export interface PiQueueEntry {
   id: string
@@ -384,6 +387,19 @@ export const getAgentRounds = (id: string, signal?: AbortSignal) =>
   apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[]; roundCiJobs?: Record<string, AgentCiEvidence> }>(
     `/api/agent/${encodeURIComponent(id)}/rounds`, { signal }
   )
+export interface LocalProjectTaskInput {
+  projectId: string
+  directory: string
+  action: LocalProjectTaskAction
+  expectedJobId: string
+  expectedCheckout?: LocalProjectCheckout
+  requestId: string
+}
+export const agentLocalTasksPath = (id: string) => `/api/agent/${encodeURIComponent(id)}/local-tasks`
+export const getAgentLocalTasks = (id: string, signal?: AbortSignal) =>
+  apiRequest<{ items: LocalProjectTaskJob[] }>(agentLocalTasksPath(id), { signal })
+export const startAgentLocalTask = (id: string, body: LocalProjectTaskInput) =>
+  apiRequest<LocalProjectTaskJob>(agentLocalTasksPath(id), { body, retryUncertain: false, persistInBrowser: true })
 export const deleteAgentSession = (id: string, expectedJobId: string) =>
   apiRequest<{ deleted: boolean; runId: string }>(`/api/agent/${encodeURIComponent(id)}`, {
     method: 'DELETE', body: { expectedJobId }

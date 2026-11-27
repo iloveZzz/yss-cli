@@ -1,7 +1,7 @@
 use super::{
     ChangeSet, Desired, Operation, TransactionPhase, TransactionReport,
     journal::{self, Event, ExecutableReplacement, Identity, Plan, Record, ReplacementDirection},
-    required, status_root,
+    move_recorded_entry, required, status_root,
 };
 use crate::{
     cancel::Cancellation,
@@ -11,9 +11,16 @@ use crate::{
     model::{FileDescriptor, MAX_ASSET, RelPath, RenderedTree, Sha256},
 };
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
+
+pub(super) struct Reservation<'a> {
+    pub id: &'a str,
+    pub digest: &'a Sha256,
+    pub started: &'a Cell<bool>,
+}
 
 pub fn apply(path: &Path, changes: ChangeSet, cancel: &Cancellation) -> Result<TransactionReport> {
     let mut operations = changes.operations;
@@ -26,9 +33,11 @@ pub fn apply(path: &Path, changes: ChangeSet, cancel: &Cancellation) -> Result<T
         false,
         cancel,
         &|| Ok(()),
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_operations(
     path: &Path,
     root_identity: crate::fs::RootIdentity,
@@ -37,22 +46,47 @@ pub(super) fn apply_operations(
     business_files: bool,
     cancel: &Cancellation,
     validate: &dyn Fn() -> Result<()>,
+    reserved: Option<Reservation<'_>>,
 ) -> Result<TransactionReport> {
     cancel.check()?;
+    #[cfg(not(windows))]
+    if reserved.is_some() {
+        return Err(required("Windows 命令事务须在原平台执行"));
+    }
     let root = Root::open(path)?;
-    preflight(&root, &root_identity, &operations, &guards, business_files)?;
+    preflight(
+        &root,
+        &root_identity,
+        &operations,
+        &guards,
+        business_files,
+        reserved.is_some(),
+    )?;
     validate()?;
     if !status_root(&root)?.pending.is_empty() {
         return Err(required("存在未完成事务，请先 recover"));
     }
     let lock = fs::lock_root(path)?;
     let root = &lock.root;
-    preflight(root, &root_identity, &operations, &guards, business_files)?;
+    preflight(
+        root,
+        &root_identity,
+        &operations,
+        &guards,
+        business_files,
+        reserved.is_some(),
+    )?;
     validate()?;
     if !status_root(root)?.pending.is_empty() {
         return Err(required("加锁后发现未完成事务"));
     }
-    let id = fs::unique_id()?;
+    let id = match &reserved {
+        Some(ticket) => {
+            journal::base(ticket.id)?;
+            ticket.id.to_owned()
+        }
+        None => fs::unique_id()?,
+    };
     let base = journal::base(&id)?;
     let mut objects = BTreeMap::new();
     let mut records = Vec::new();
@@ -61,7 +95,11 @@ pub(super) fn apply_operations(
         let path = operation.path().clone();
         let before = operation.before();
         if let FileSnapshot::File { descriptor, .. } = &before {
-            let checked = root.read_checked(&path, MAX_ASSET)?;
+            let checked = if reserved.is_some() {
+                root.read_checked_single_link(&path, MAX_ASSET)?
+            } else {
+                root.read_checked(&path, MAX_ASSET)?
+            };
             if checked.snapshot != before {
                 return Err(
                     YssError::new(ErrorCode::ConcurrentChange, "准备前原文件改变").at(path),
@@ -98,6 +136,7 @@ pub(super) fn apply_operations(
         records,
         guards,
         business_files,
+        command_writeback: reserved.is_some(),
         objects: objects
             .iter()
             .map(|(h, b)| (h.clone(), b.len() as u64))
@@ -110,10 +149,32 @@ pub(super) fn apply_operations(
             "事务计划超过大小限制",
         ));
     }
+    if reserved
+        .as_ref()
+        .is_some_and(|ticket| Sha256::of(&plan_bytes) != *ticket.digest)
+    {
+        return Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            "事务计划与已登记的内容不一致，未写入工程",
+        ));
+    }
     let transactions = RelPath::new(".yss/transactions")?;
+    if let Some(ticket) = &reserved {
+        cancel.check()?;
+        // From this point even a failed filesystem call could leave a
+        // journal or control entry, so absence alone is not a proof.
+        ticket.started.set(true);
+    }
     if root.inspect(&transactions)? == FileSnapshot::Missing {
         root.create_dir(&transactions)?;
     }
+    #[cfg(windows)]
+    let directory = if reserved.is_some() {
+        root.create_private_dir(&base)?
+    } else {
+        root.create_dir(&base)?
+    };
+    #[cfg(not(windows))]
     let directory = root.create_dir(&base)?;
     let mut private_files = BTreeSet::new();
     let mut private_directories = BTreeSet::new();
@@ -186,17 +247,17 @@ pub(super) fn apply_operations(
             },
         )?;
         let count = loaded.plan.as_ref().unwrap().records.len();
-        recheck_progress(root, &loaded, 0)?;
+        recheck_progress(root, &loaded, 0, reserved.is_some())?;
         for index in 0..count {
             cancel.check()?;
             validate()?;
             root.revalidate()?;
             if index + 1 == count {
-                recheck_progress(root, &loaded, index)?;
+                recheck_progress(root, &loaded, index, reserved.is_some())?;
             }
-            apply_record(root, &mut loaded, index, cancel)?;
+            apply_record(root, &mut loaded, index, cancel, reserved.is_some())?;
         }
-        recheck_progress(root, &loaded, count)?;
+        recheck_progress(root, &loaded, count, reserved.is_some())?;
         cancel.check()?;
         validate()?;
         loaded.append(
@@ -246,6 +307,7 @@ fn preflight(
     operations: &[Operation],
     guards: &BTreeMap<RelPath, FileSnapshot>,
     business_files: bool,
+    single_link: bool,
 ) -> Result<()> {
     if &root.identity != root_identity {
         return Err(YssError::new(
@@ -305,16 +367,41 @@ fn preflight(
         if root.inspect(path)? != operation.before() {
             return Err(YssError::new(ErrorCode::ConcurrentChange, "事务输入已改变").at(path));
         }
+        if single_link
+            && matches!(operation.before(), FileSnapshot::File { .. })
+            && root.read_checked_single_link(path, MAX_ASSET)?.snapshot != operation.before()
+        {
+            return Err(YssError::new(ErrorCode::ConcurrentChange, "事务输入身份已改变").at(path));
+        }
     }
     fs::validate_tree(&tree)?;
     for (path, expected) in guards {
-        if &root.inspect(path)? != expected {
+        if !matches_checked(root, path, expected, single_link)? {
             return Err(YssError::new(ErrorCode::ConcurrentChange, "只读输入已改变").at(path));
         }
     }
     root.revalidate()
 }
-fn recheck_progress(root: &Root, loaded: &journal::Loaded, done: usize) -> Result<()> {
+fn matches_checked(
+    root: &Root,
+    path: &RelPath,
+    expected: &FileSnapshot,
+    single_link: bool,
+) -> Result<bool> {
+    if &root.inspect(path)? != expected {
+        return Ok(false);
+    }
+    if single_link && matches!(expected, FileSnapshot::File { .. }) {
+        return Ok(root.read_checked_single_link(path, MAX_ASSET)?.snapshot == *expected);
+    }
+    Ok(true)
+}
+fn recheck_progress(
+    root: &Root,
+    loaded: &journal::Loaded,
+    done: usize,
+    single_link: bool,
+) -> Result<()> {
     let plan = loaded
         .plan
         .as_ref()
@@ -336,14 +423,15 @@ fn recheck_progress(root: &Root, loaded: &journal::Loaded, done: usize) -> Resul
         } else {
             &record.before
         };
-        if &root.inspect(&record.path)? != expected {
+        if !matches_checked(root, &record.path, expected, single_link)? {
             return Err(
                 YssError::new(ErrorCode::ConcurrentChange, "事务执行期间文件改变").at(&record.path),
             );
         }
     }
+    let changed: BTreeSet<_> = plan.records.iter().map(|record| &record.path).collect();
     for (path, expected) in &plan.guards {
-        if !plan.records.iter().any(|r| &r.path == path) && &root.inspect(path)? != expected {
+        if !changed.contains(path) && !matches_checked(root, path, expected, single_link)? {
             return Err(
                 YssError::new(ErrorCode::ConcurrentChange, "只读输入在执行期间改变").at(path),
             );
@@ -356,6 +444,7 @@ fn apply_record(
     loaded: &mut journal::Loaded,
     index: usize,
     cancel: &Cancellation,
+    single_link: bool,
 ) -> Result<()> {
     let plan = loaded.plan.as_ref().unwrap();
     let record = &plan.records[index];
@@ -365,7 +454,7 @@ fn apply_record(
     let id = plan.id.clone();
     loaded.append(root, Event::Intent { index })?;
     let candidate = journal::candidate(&id, index)?;
-    if let Desired::File { descriptor } = &after {
+    let prepared = if let Desired::File { descriptor } = &after {
         let bytes = root
             .read_checked(&journal::object(&id, &descriptor.sha256)?, MAX_ASSET)?
             .bytes;
@@ -376,12 +465,21 @@ fn apply_record(
         if !after.matches(&snapshot) {
             return Err(required("候选文件写入不完整"));
         }
+        snapshot
     } else if after == Desired::Directory {
-        loaded.own_dir(root, &candidate)?;
-    }
+        loaded.own_dir(root, &candidate)?
+    } else {
+        FileSnapshot::Missing
+    };
     cancel.check()?;
     if root.inspect(&path)? != before {
         return Err(YssError::new(ErrorCode::ConcurrentChange, "发布前基线改变").at(path));
+    }
+    if single_link
+        && matches!(before, FileSnapshot::File { .. })
+        && root.read_checked_single_link(&path, MAX_ASSET)?.snapshot != before
+    {
+        return Err(YssError::new(ErrorCode::ConcurrentChange, "发布前文件身份改变").at(path));
     }
     if before != FileSnapshot::Missing {
         if after == Desired::Missing || fs::platform::REPLACE_REQUIRES_BACKUP {
@@ -397,19 +495,19 @@ fn apply_record(
                             retained: backup.clone(),
                             candidate: candidate.clone(),
                             before: before.clone(),
-                            after: root.inspect(&candidate)?,
+                            after: prepared.clone(),
                         },
                     },
                 )?;
             }
-            root.rename(&path, &backup, &FileSnapshot::Missing, false)?;
+            move_recorded_entry(root, &path, &backup, &before, single_link)?;
             if root.inspect(&backup)? != before {
                 return Err(required("移出的原文件与基线不一致"));
             }
             loaded.append(root, Event::BackedUp { index })?;
             if after != Desired::Missing {
                 loaded.append(root, Event::Publishing { index })?;
-                root.rename(&candidate, &path, &FileSnapshot::Missing, false)?;
+                move_recorded_entry(root, &candidate, &path, &prepared, single_link)?;
             }
         } else {
             root.exchange(&candidate, &path, &before)?;
@@ -418,7 +516,7 @@ fn apply_record(
             }
         }
     } else {
-        root.rename(&candidate, &path, &FileSnapshot::Missing, false)?;
+        move_recorded_entry(root, &candidate, &path, &prepared, single_link)?;
     }
     let actual = root.inspect(&path)?;
     if !after.matches(&actual) {

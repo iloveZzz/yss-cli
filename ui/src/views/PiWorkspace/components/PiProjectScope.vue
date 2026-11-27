@@ -17,6 +17,8 @@ const props = defineProps<{
   locked: boolean
   participatingIds: string[]
   perProject: boolean
+  commandsUnavailable?: boolean
+  commandsMessage?: string | null
 }>()
 const emit = defineEmits<{ refresh: []; clearStaleProjectGrants: [] }>()
 const selected = defineModel<string[]>('selected', { required: true })
@@ -91,6 +93,7 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
       {{ locked ? '沿用本会话的工程和本机路径。' : '主工程始终参与。可以按本机检出路径添加其他工程。' }}
       <template v-if="perProject">权限按工程和轮次生效。</template>
     </p>
+    <p v-if="commandsUnavailable" role="status">离线命令不可用：{{ commandsMessage || '命令隔离尚未通过检测。' }} 已选离线命令权限需改为只读或编辑后才能运行。</p>
     <div class="pi-scope-actions">
       <Button type="button" variant="outline" size="sm" :disabled="loading" @click="emit('refresh')">
         <LoadingIndicator :active="loading" />{{ loading ? '正在核对工程…' : '重新核对工程' }}
@@ -123,7 +126,8 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
         <select :id="id + '-mode-' + project.id" :name="'projectMode-' + project.id"
           :value="modes[project.id] ?? 'read'" :disabled="loading"
           @change="modes = { ...modes, [project.id]: ($event.target as HTMLSelectElement).value as ProjectAccessMode }">
-          <option v-for="choice in accessChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
+          <option v-for="choice in accessChoices" :key="choice.value" :value="choice.value"
+            :disabled="choice.value === 'execute' && commandsUnavailable">{{ choice.label }}</option>
         </select>
       </div>
     </div>

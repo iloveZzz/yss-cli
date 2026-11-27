@@ -1,3 +1,4 @@
+use super::evidence::Evidence;
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
@@ -9,10 +10,11 @@ use crate::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::{
     collections::{BTreeMap, btree_map::Entry},
     io::{BufRead, BufReader, Read, Write},
-    os::fd::AsRawFd,
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver, RecvTimeoutError},
     thread,
@@ -90,7 +92,12 @@ impl SessionUsage {
 pub(super) struct Session {
     child: Child,
     tree: process::ProcessTree,
+    #[cfg(unix)]
     input: ChildStdin,
+    #[cfg(windows)]
+    input: mpsc::Sender<Vec<u8>>,
+    #[cfg(windows)]
+    written: Receiver<std::io::Result<()>>,
     messages: Receiver<Result<Value>>,
     active: bool,
 }
@@ -110,16 +117,39 @@ impl Session {
         let mut child = command
             .spawn()
             .map_err(|_| YssError::new(ErrorCode::NotReady, "无法启动本机 Pi RPC"))?;
+        #[allow(unused_mut)]
         let mut tree = process::ProcessTree::attach(&mut child, scope)?;
         let input = child.stdin.take().expect("piped stdin");
-        let fd = input.as_raw_fd();
-        // A stuck Pi process must not hold cancellation behind a full stdin pipe.
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1
+        #[cfg(unix)]
         {
-            process::stop(&mut child, &mut tree);
-            return Err(protocol("无法设置 Pi RPC 写入超时"));
+            let fd = input.as_raw_fd();
+            // A stuck Pi process must not hold cancellation behind a full stdin pipe.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if flags == -1
+                || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1
+            {
+                process::stop(&mut child, &mut tree);
+                return Err(protocol("无法设置 Pi RPC 写入超时"));
+            }
         }
+        #[cfg(windows)]
+        let (input, written) = {
+            let (send, receive) = mpsc::channel::<Vec<u8>>();
+            let (result, written) = mpsc::sync_channel(1);
+            thread::Builder::new()
+                .name("pi-stdin".into())
+                .spawn(move || {
+                    let mut input: ChildStdin = input;
+                    while let Ok(line) = receive.recv() {
+                        let write = input.write_all(&line);
+                        let failed = write.is_err();
+                        if result.send(write).is_err() || failed {
+                            break;
+                        }
+                    }
+                })?;
+            (send, written)
+        };
         let output = child.stdout.take().expect("piped stdout");
         let (send, messages) = mpsc::sync_channel(8);
         thread::spawn(move || {
@@ -153,35 +183,66 @@ impl Session {
             child,
             tree,
             input,
+            #[cfg(windows)]
+            written,
             messages,
             active: false,
         })
     }
 
     fn send(&mut self, command: Value, cancel: &Cancellation, timeout: Duration) -> Result<()> {
+        cancel.check()?;
         let mut line = serde_json::to_vec(&command).map_err(|_| protocol("Pi RPC 请求编码失败"))?;
         line.push(b'\n');
         if line.len() as u64 > FRAME_LIMIT {
             return Err(protocol("Pi RPC 请求超过 8 MiB"));
         }
         let deadline = Instant::now() + timeout;
-        let mut bytes = line.as_slice();
-        while !bytes.is_empty() {
-            cancel.check()?;
-            if Instant::now() >= deadline {
-                return Err(protocol("Pi RPC 请求写入超时"));
-            }
-            match self.input.write(bytes) {
-                Ok(0) => return Err(protocol("Pi RPC 请求通道已关闭")),
-                Ok(size) => bytes = &bytes[size..],
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
+        #[cfg(windows)]
+        {
+            self.input
+                .send(line)
+                .map_err(|_| protocol("Pi RPC 请求通道已关闭"))?;
+            loop {
+                if let Err(error) = cancel.check() {
+                    self.active = false;
+                    process::stop(&mut self.child, &mut self.tree);
+                    return Err(error);
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => return Err(protocol("Pi RPC 请求写入失败")),
+                if Instant::now() >= deadline {
+                    self.active = false;
+                    process::stop(&mut self.child, &mut self.tree);
+                    return Err(protocol("Pi RPC 请求写入超时"));
+                }
+                match self.written.recv_timeout(Duration::from_millis(20)) {
+                    Ok(Ok(())) => return Ok(()),
+                    Ok(Err(_)) | Err(RecvTimeoutError::Disconnected) => {
+                        return Err(protocol("Pi RPC 请求写入失败"));
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
             }
         }
-        Ok(())
+        #[cfg(unix)]
+        {
+            let mut bytes = line.as_slice();
+            while !bytes.is_empty() {
+                cancel.check()?;
+                if Instant::now() >= deadline {
+                    return Err(protocol("Pi RPC 请求写入超时"));
+                }
+                match self.input.write(bytes) {
+                    Ok(0) => return Err(protocol("Pi RPC 请求通道已关闭")),
+                    Ok(size) => bytes = &bytes[size..],
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => return Err(protocol("Pi RPC 请求写入失败")),
+                }
+            }
+            Ok(())
+        }
     }
 
     fn receive(&mut self, cancel: &Cancellation, deadline: Option<Instant>) -> Result<Value> {
@@ -325,9 +386,15 @@ impl Session {
         SessionUsage::parse(&data)
     }
 
-    pub fn prompt(&mut self, prompt: &str, context: &JobContext) -> Result<()> {
+    pub fn prompt(
+        &mut self,
+        prompt: &str,
+        context: &JobContext,
+        evidence: &Evidence,
+    ) -> Result<()> {
         let mut output = Output {
             context,
+            evidence,
             flush_at: None,
         };
         let result = self.complete_prompt(prompt, &context.cancel, Some(&mut output), None);
@@ -532,6 +599,7 @@ fn provider_error(raw: Option<&str>) -> YssError {
 
 struct Output<'a> {
     context: &'a JobContext,
+    evidence: &'a Evidence,
     flush_at: Option<Instant>,
 }
 
@@ -708,7 +776,7 @@ impl Messages {
                 update["delta"].as_str().unwrap_or_default(),
             );
         }
-        let context = output.map(|output| output.context);
+        let context = output.as_ref().map(|output| output.context);
         let event = match kind {
             "message_end" if message["role"] == "assistant" => {
                 if !self.current {
@@ -719,9 +787,9 @@ impl Messages {
                 self.reason = reason.map(str::to_owned);
                 self.error = (reason == Some("error"))
                     .then(|| provider_error(message["errorMessage"].as_str()));
-                if context.is_none() {
+                let Some(output) = output.as_ref() else {
                     return Ok(());
-                }
+                };
                 let content = message["content"]
                     .as_array()
                     .into_iter()
@@ -733,12 +801,16 @@ impl Messages {
                 if content.is_empty() {
                     None
                 } else {
-                    Some((
-                        "item/completed",
-                        json!({
-                            "item": { "id": format!("pi-message-{}", self.seq), "type": "agentMessage", "text": content }
-                        }),
-                    ))
+                    let allow_refs = matches!(reason, Some("stop" | "toolUse"))
+                        && !output.context.cancel.is_cancelled();
+                    let (text, citations) = output.evidence.finalize(&content, allow_refs);
+                    let mut item = json!({
+                        "id": format!("pi-message-{}", self.seq), "type": "agentMessage", "text": text
+                    });
+                    if !citations.is_empty() {
+                        item["citations"] = json!(citations);
+                    }
+                    Some(("item/completed", json!({ "item": item })))
                 }
             }
             _ => None,
