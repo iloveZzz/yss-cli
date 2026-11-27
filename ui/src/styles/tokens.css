@@ -9,6 +9,7 @@
  --yss-colors-primary-bg: #edf2ff; --yss-colors-border: #e4e6eb; --yss-colors-border-control: #cbd0da;
  --yss-colors-text-title: #171a20; --yss-colors-error-text: #bd3037;
  --workbench-rail-width: 168px;
+ --workbench-nav-font-size: 12px;
 }
 
 :root {

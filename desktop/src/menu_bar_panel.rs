@@ -10,13 +10,14 @@ use tauri::{
     WebviewWindowBuilder, WindowEvent,
     image::Image,
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconEvent},
+    webview::PageLoadEvent,
     window::{Color, Effect, EffectState, EffectsBuilder},
 };
 
 const LABEL: &str = "menu-bar";
 pub(super) const TRAY_ID: &str = "yss-menu-bar";
-const WIDTH: f64 = 360.0;
-const HEIGHT: f64 = 380.0;
+const WIDTH: f64 = 392.0;
+const HEIGHT: f64 = 384.0;
 const MARGIN: f64 = 8.0;
 static PRESENTATION: AtomicU64 = AtomicU64::new(0);
 
@@ -61,11 +62,28 @@ pub(super) fn icon() -> Image<'static> {
 }
 
 pub(super) fn hide(app: &AppHandle) -> tauri::Result<()> {
-    PRESENTATION.fetch_add(1, Ordering::Relaxed);
-    if let Some(window) = app.get_webview_window(LABEL) {
-        window.hide()?;
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        PRESENTATION.fetch_add(1, Ordering::Relaxed);
+        if let Some(window) = handle.get_webview_window(LABEL) {
+            if let Err(error) = window.hide() {
+                eprintln!("无法收起菜单栏面板：{error}");
+            } else {
+                publish_visibility(&window, false);
+            }
+        }
+    })
+}
+
+fn publish_visibility(window: &WebviewWindow, visible: bool) {
+    let script = if visible {
+        "window.__YSS_MENU_BAR_VISIBLE__ = true; window.dispatchEvent(new Event('yss:menu-bar-visibility'));"
+    } else {
+        "window.__YSS_MENU_BAR_VISIBLE__ = false; window.dispatchEvent(new Event('yss:menu-bar-visibility'));"
+    };
+    if let Err(error) = window.eval(script) {
+        eprintln!("无法同步菜单栏面板可见性：{error}");
     }
-    Ok(())
 }
 
 pub(super) fn prepare(app: &AppHandle) -> tauri::Result<()> {
@@ -105,6 +123,14 @@ fn panel_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             url.scheme() == "tauri"
                 && url.host_str() == Some("localhost")
                 && url.path() == "/menu-bar.html"
+        })
+        .on_page_load(|window, payload| {
+            // The panel may have been shown before the page started listening.
+            if payload.event() == PageLoadEvent::Finished
+                && let Ok(visible) = window.is_visible()
+            {
+                publish_visibility(&window, visible);
+            }
         })
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .build()?;
@@ -185,6 +211,7 @@ fn show(window: &WebviewWindow, tray: Option<&TrayIcon>) -> tauri::Result<()> {
         window.center()?;
     }
     window.show()?;
+    publish_visibility(window, true);
     window.set_focus()
 }
 

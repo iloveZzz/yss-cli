@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { router } from './router'
 import './styles/main.css'
+import { registerDesktopSpecNavigation } from '@/services/desktop-spec-navigation'
 import { registerDesktopFlush, restoreDesktopDrafts } from '@/services/desktop-storage'
 import { restorePendingRequests } from '@/services/workbench'
 
@@ -10,6 +11,7 @@ async function start() {
     await restoreDesktopDrafts()
     restorePendingRequests()
     registerDesktopFlush()
+    registerDesktopSpecNavigation(router)
     createApp(App).use(router).mount('#app')
   } catch {
     // No editable page was mounted, so a directory switch can safely detach it.

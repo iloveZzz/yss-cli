@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "menu-bar",
-  "description": "菜单栏面板仅能读取作业计数并打开原生窗口",
+  "description": "菜单栏面板可读取本机工作台概览并执行原生操作",
   "platforms": ["macOS"],
   "windows": ["menu-bar"],
   "permissions": ["allow-menubar-snapshot", "allow-menubar-action"]

@@ -768,6 +768,14 @@ impl ReadStatus {
         })
     }
 
+    pub(super) fn desktop_specs(&self, stamp: (u64, u64)) -> Value {
+        let buckets = self
+            .projection
+            .as_ref()
+            .map_or_else(|| json!({}), |view| json!(view.overview.desktop_specs));
+        json!({"verification": self.verification_at(stamp), "buckets": buckets})
+    }
+
     pub(super) fn jobs(&self) -> Value {
         json!({
             "items": self.activity.jobs,
@@ -1160,9 +1168,81 @@ struct ReminderBucket {
     spec_total: usize,
 }
 
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopSpecBucket {
+    count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spec_id: Option<String>,
+}
+
+impl DesktopSpecBucket {
+    fn add(&mut self, spec_id: &str) {
+        self.count += 1;
+        self.spec_id = (self.count == 1).then(|| spec_id.to_owned());
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopSpecBuckets {
+    pending_confirmation: DesktopSpecBucket,
+    pending_verification: DesktopSpecBucket,
+    pending_handling: DesktopSpecBucket,
+    #[serde(flatten)]
+    stages: BTreeMap<Stage, DesktopSpecBucket>,
+}
+
+impl Default for DesktopSpecBuckets {
+    fn default() -> Self {
+        Self {
+            pending_confirmation: DesktopSpecBucket::default(),
+            pending_verification: DesktopSpecBucket::default(),
+            pending_handling: DesktopSpecBucket::default(),
+            stages: Stage::LIFECYCLE
+                .into_iter()
+                .map(|stage| (stage, DesktopSpecBucket::default()))
+                .collect(),
+        }
+    }
+}
+
+impl DesktopSpecBuckets {
+    fn add(&mut self, item: &WorkItem, progress: Option<&ProgressSummary>) {
+        if item
+            .reminder_counts
+            .get("ready")
+            .is_some_and(|count| *count > 0)
+        {
+            self.pending_confirmation.add(&item.spec_id);
+        }
+        if progress.is_some_and(|progress| {
+            progress.attention.iter().any(|value| {
+                matches!(
+                    value.as_str(),
+                    "unverified" | "needsReview" | "awaitingConfirmation"
+                )
+            })
+        }) {
+            self.pending_verification.add(&item.spec_id);
+        }
+        if item.status == Status::Todo {
+            self.pending_handling.add(&item.spec_id);
+        }
+        if !query::is_closed(item.status) {
+            for (stage, bucket) in &mut self.stages {
+                if query::matches_stages(item.stage, progress, std::slice::from_ref(stage)) {
+                    bucket.add(&item.spec_id);
+                }
+            }
+        }
+    }
+}
+
 struct Overview {
     groups: BTreeMap<&'static str, Bucket>,
     reminders: BTreeMap<&'static str, ReminderBucket>,
+    desktop_specs: DesktopSpecBuckets,
 }
 
 impl Default for Overview {
@@ -1176,6 +1256,7 @@ impl Default for Overview {
                 .into_iter()
                 .map(|kind| (kind, ReminderBucket::default()))
                 .collect(),
+            desktop_specs: DesktopSpecBuckets::default(),
         }
     }
 }
@@ -1196,6 +1277,8 @@ fn overview(view: &Snapshot) -> Result<Overview> {
         },
     )?;
     for item in work_items.items {
+        let progress = view.progress.get(&item.spec_id);
+        overview.desktop_specs.add(&item, progress);
         let content = content.get(&item.spec_id).expect("projected Spec");
         for (kind, bucket) in &mut overview.reminders {
             let count = item.reminder_counts.get(*kind).copied().unwrap_or_default();
@@ -1225,10 +1308,7 @@ fn overview(view: &Snapshot) -> Result<Overview> {
                 "questions":questions
             }));
         }
-        let in_attention = view
-            .progress
-            .get(&item.spec_id)
-            .is_some_and(|progress| !progress.attention.is_empty());
+        let in_attention = progress.is_some_and(|progress| !progress.attention.is_empty());
         let membership = [
             ("attention", in_attention),
             ("blocked", item.status == Status::Blocked),

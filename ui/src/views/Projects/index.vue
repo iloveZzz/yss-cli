@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, shallowRef, useTemplateRef } from 'vue'
+import { FolderClosed, Search } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import TableLoadingOverlay from '@/components/TableLoadingOverlay.vue'
+import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { registerWorkbenchRouteReads, useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import ProjectForm from './components/ProjectForm.vue'
 import HomeManager from './components/HomeManager.vue'
@@ -43,8 +43,8 @@ const projects = computed(() => {
   )
 })
 const { directoryCheck, refreshDirectories, checking } = useProjectDirectoryChecks(() => projects.value)
-const rows = computed(() => projects.value.map((project) => ({ project, directory: directoryCheck(project) })))
-const hasDirectoryErrors = computed(() => rows.value.some(({ directory }) => directory?.available === null))
+const projectCards = computed(() => projects.value.map((project) => ({ project, directory: directoryCheck(project) })))
+const hasDirectoryErrors = computed(() => projectCards.value.some(({ directory }) => directory?.available === null))
 
 registerWorkbenchRouteReads({
   busy: computed(() => catalogLoading.value || homeManager.value?.refreshing === true),
@@ -71,102 +71,82 @@ async function retryRead(event: MouseEvent, action: () => Promise<unknown>) {
 <template>
   <template v-if="!expired">
     <div class="page-heading">
-      <h1>产品与工程</h1>
+      <WorkbenchBreadcrumb title="产品与工程" />
       <div class="inline-actions">
         <Button as-child variant="outline"><RouterLink to="/settings?operation=init">初始化工程</RouterLink></Button>
         <Button :disabled="!catalog" @click="edit()">登记本机工程</Button>
       </div>
     </div>
     <HomeManager ref="home-manager" />
-    <section aria-labelledby="local-projects-heading">
-      <div class="section-heading">
+    <section class="local-projects" aria-labelledby="local-projects-heading">
+      <div class="section-heading project-list-heading">
         <h2 id="local-projects-heading" ref="local-projects-heading" tabindex="-1">本机工程</h2>
-        <span v-if="catalog" class="muted">{{ projects.length }} 项</span>
+        <div v-if="catalog" class="project-list-status">
+          <LoadingIndicator :active="catalogLoading" label="正在刷新本机工程" />
+          <span class="muted">{{ projects.length }} 项</span>
+        </div>
       </div>
       <Alert v-if="catalogError" class="notice warning" role="status">
         <AlertTitle>{{ catalog ? '显示上次读取的工程列表' : '未能读取工程列表' }}</AlertTitle>
         <AlertDescription>{{ catalogError }}</AlertDescription>
         <Button type="button" variant="outline" class="justify-self-start" :disabled="catalogLoading" @click="retryRead($event, refreshCatalog)">重试读取</Button>
       </Alert>
-      <div v-if="catalog" class="toolbar project-toolbar">
+      <div v-if="catalog" class="project-toolbar">
         <div role="search" aria-label="搜索工程" class="project-search">
-          <div class="inline-field">
-            <FieldLabel for="project-search" class="shrink-0">查找工程</FieldLabel>
-            <Input
-              id="project-search"
-              v-model="search"
-              name="projectSearch"
-              type="search"
-              placeholder="工程名或本机路径"
-            />
-          </div>
+          <FieldLabel for="project-search" class="sr-only">查找工程</FieldLabel>
+          <Search :size="16" class="project-search-icon" aria-hidden="true" />
+          <Input
+            id="project-search"
+            v-model="search"
+            name="projectSearch"
+            type="search"
+            placeholder="搜索工程名或本机路径"
+          />
         </div>
-        <FieldLabel class="check-label has-data-[state=checked]:bg-transparent has-data-[state=checked]:border-transparent" for="include-inactive-projects">
-          <Checkbox id="include-inactive-projects" v-model="showInactive" name="showInactive" />
-          显示停用工程
-        </FieldLabel>
-        <Button v-if="hasDirectoryErrors" type="button" variant="ghost" :disabled="checking" @click="retryRead($event, () => refreshDirectories('failed'))">
-          重试目录核验
-        </Button>
+        <div class="project-filters">
+          <FieldLabel class="check-label has-data-[state=checked]:bg-transparent has-data-[state=checked]:border-transparent" for="include-inactive-projects">
+            <Checkbox id="include-inactive-projects" v-model="showInactive" name="showInactive" />
+            显示停用工程
+          </FieldLabel>
+          <Button v-if="hasDirectoryErrors" type="button" variant="ghost" :disabled="checking" @click="retryRead($event, () => refreshDirectories('failed'))">
+            重试目录核验
+          </Button>
+        </div>
       </div>
-      <LoadingSkeleton v-if="!catalog && !catalogError" variant="table" :rows="3" label="正在读取工程列表" />
-      <Card
-        v-else-if="rows.length"
-        class="panel block gap-0 py-0 shadow-none table-scroll project-table-wrap"
-        tabindex="0"
-        role="region"
+      <LoadingSkeleton v-if="!catalog && !catalogError" variant="cards" :rows="4" class="project-list-skeleton" label="正在读取工程列表" />
+      <ul
+        v-else-if="projectCards.length"
+        class="project-list-grid"
+        role="list"
         aria-labelledby="local-projects-heading"
         :aria-busy="catalogLoading"
       >
-        <Table class="spec-table project-table">
-          <TableCaption class="sr-only">
-            本机工程、关联 Spec 与目录状态
-          </TableCaption>
-          <TableHeader>
-            <TableRow>
-              <TableHead scope="col">工程</TableHead>
-              <TableHead scope="col">本机目录</TableHead>
-              <TableHead scope="col">关联 Spec</TableHead>
-              <TableHead scope="col">状态</TableHead>
-              <TableHead scope="col">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow v-for="{ project, directory } in rows" :key="project.id">
-              <TableHead scope="row">
-                <RouterLink :to="`/projects/${project.id}`" class="project-name">{{
-                  project.name
-                }}</RouterLink>
-              </TableHead>
-              <TableCell class="project-path">
-                <span class="path-text">{{ project.rootPath }}</span><span
-                  v-if="directory?.message"
-                  class="row-sub warning-text"
-                  >{{ directory.message }}</span
-                >
-              </TableCell>
-              <TableCell class="numeric">{{ specCounts.get(project.id) ?? 0 }}</TableCell>
-              <TableCell>
+        <li v-for="{ project, directory } in projectCards" :key="project.id" class="project-list-item">
+          <article class="local-project-card">
+            <header class="project-card-header">
+              <span class="project-card-icon" aria-hidden="true"><FolderClosed :size="19" /></span>
+              <div class="project-card-identity">
+                <h3 :title="project.name">
+                  <RouterLink :to="`/projects/${project.id}`" class="project-name">{{ project.name }}</RouterLink>
+                </h3>
                 <Badge v-if="!project.active" variant="secondary">已停用</Badge>
                 <Badge v-else-if="directory?.available" variant="outline">可访问</Badge>
                 <Badge v-else-if="directory?.available === false" variant="outline" class="warning-text">目录不可访问</Badge>
                 <Badge v-else-if="directory" variant="outline">未核验</Badge>
                 <Badge v-else variant="outline">待核验</Badge>
-              </TableCell>
-              <TableCell>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  :aria-label="`编辑 ${project.name}`"
-                  @click="edit(project)"
-                  >编辑</Button
-                >
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-        <TableLoadingOverlay :active="catalogLoading" label="正在刷新本机工程" />
-      </Card>
+              </div>
+            </header>
+            <div>
+              <p class="path-text project-card-path" :title="project.rootPath">{{ project.rootPath }}</p>
+              <p v-if="directory?.message" class="project-card-note warning-text">{{ directory.message }}</p>
+            </div>
+            <footer class="project-card-footer">
+              <span class="muted project-spec-count">{{ specCounts.get(project.id) ?? 0 }} 个关联 Spec</span>
+              <Button type="button" variant="outline" size="sm" :aria-label="`编辑 ${project.name}`" @click="edit(project)">编辑</Button>
+            </footer>
+          </article>
+        </li>
+      </ul>
       <Empty v-else-if="catalog" class="panel" data-workbench-reveal>
         <EmptyHeader>
           <EmptyTitle role="heading" aria-level="2" v-if="search.trim()">没有匹配的工程</EmptyTitle>
@@ -187,53 +167,136 @@ async function retryRead(event: MouseEvent, action: () => Promise<unknown>) {
   </template>
 </template>
 <style scoped>
+.local-projects {
+  --project-grid-gap: 14px;
+}
+.project-list-heading {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-block-end: 10px;
+}
+.project-list-status, .project-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.project-list-status {
+  font-size: 12px;
+}
 .project-toolbar {
-  justify-content: space-between;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-block-end: 12px;
 }
 .project-search {
-  min-width: 0;
-  flex: 1;
-  max-width: 420px;
+  position: relative;
+  min-inline-size: 0;
+  flex: 1 1 18rem;
 }
-.project-table {
-  min-width: 680px;
+.project-search [data-slot='input'] {
+  min-block-size: max(40px, var(--yss-control-min-height));
+  padding-inline-start: 36px;
+  background: var(--workbench-glass-card);
 }
-.project-table :deep(th[scope='row']) {
-  position: sticky;
-  inset-inline-start: 0;
-  background: var(--brand-color-bg-container, #fff);
-  font-weight: 550;
-  text-align: left;
-  min-width: 150px;
+.project-search-icon {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 12px;
+  margin-block: auto;
+  color: var(--brand-color-text-secondary);
+  pointer-events: none;
 }
-.project-table :deep(thead) {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.project-list-grid, .project-list-skeleton :deep(.skeleton-layout) {
+  /* Keep a narrow minimum and reserve the empty columns when the list is filtered. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(248px, calc((100% - 3 * var(--project-grid-gap)) / 4))), 1fr));
+  gap: var(--project-grid-gap);
 }
-.project-path {
-  max-width: 420px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+.project-list-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.numeric {
-  font-variant-numeric: tabular-nums;
+.project-list-item {
+  display: flex;
+  min-inline-size: 0;
 }
-.project-table-wrap {
-  max-height: 65vh;
+.local-project-card {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: 14px;
+  background: var(--workbench-glass-card);
+  border: 1px solid var(--workbench-glass-edge);
+  border-radius: var(--brand-border-radius-lg);
 }
-.project-name {
+.project-list-skeleton :deep(.skeleton-card) {
+  min-block-size: 144px;
+}
+.project-card-header, .project-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.project-card-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: var(--brand-border-radius);
+  background: var(--yss-colors-primary-bg);
   color: var(--yss-color-primary-control);
 }
+.project-card-identity {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-inline-size: 0;
+}
+.project-card-identity h3 {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.project-name {
+  color: var(--brand-color-text);
+}
+.project-name:hover, .project-name:focus-visible {
+  color: var(--yss-color-primary-control);
+  text-decoration: underline;
+}
+.project-name, .project-card-path {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: clip;
+  overflow-wrap: anywhere;
+}
+.project-card-note {
+  margin-block-start: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.project-card-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.project-spec-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 @media (width < 720px) {
-  .project-search {
-    max-width: none;
-    flex-basis: 100%;
-  }
-  .project-table :deep(th[scope='row']) {
-    max-width: 170px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
+  .project-search [data-slot='input'] { font-size: 16px; }
+  .project-filters :is(.check-label, [data-slot='button']),
+  .project-card-footer [data-slot='button'] { min-block-size: var(--yss-control-min-height); }
 }
 </style>

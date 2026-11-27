@@ -8,7 +8,7 @@ import {
 } from '@/services/workbench-agent'
 import { getJob, terminalJob, type JobRecord } from '@/services/workbench-platform'
 
-export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonly<Ref<string>>) {
+export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonly<Ref<string>>, linkedRound: Readonly<Ref<string>>) {
   const { sourceState } = useWorkbench()
   const observedSession = computed(() => sourceState.value?.agentSessionVersions?.[specId.value])
   const observedSpec = computed(() => sourceState.value?.specVersions?.[specId.value])
@@ -129,7 +129,8 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     const pending = tracked?.session === id && tracked.spec === spec ? tracked.job : undefined
     const knownSummary = summary.value
     const jobId = pending?.id ?? knownSummary?.jobId
-    const stillCurrent = () => !request.signal.aborted && id === sessionId.value && spec === specId.value
+    const selected = linkedRound.value
+    const stillCurrent = () => !request.signal.aborted && id === sessionId.value && spec === specId.value && selected === linkedRound.value
     reading.value = true
     try {
       const [runRead, roundsRead] = await Promise.allSettled([
@@ -138,54 +139,53 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
       ])
       if (!stillCurrent()) return
       const nextRun = runRead.status === 'fulfilled' ? runRead.value : undefined
-      if (nextRun && (nextRun.id !== id || nextRun.host !== 'pi' || nextRun.specId !== spec)) {
-        rounds.value = []
-        snapshotJobs.value = new Set()
-        roundCiJobs.value = {}
-        roundActions.value = {}
-        run.value = undefined
-        throw new Error('此 Pi 会话不属于当前 Spec')
-      }
+      const mismatchedRun = nextRun && (nextRun.id !== id || nextRun.host !== 'pi' || nextRun.specId !== spec)
       const previousRun = run.value
-      const verifiedRun = nextRun ?? (runRead.status === 'rejected' && previousRun?.id === id && previousRun.specId === spec
-        ? previousRun : undefined)
+      const verifiedRun = mismatchedRun ? undefined : nextRun ??
+        (runRead.status === 'rejected' && previousRun?.id === id && previousRun.specId === spec ? previousRun : undefined)
       run.value = verifiedRun
-      const detailError = runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
-      if (roundsRead.status === 'rejected') {
-        runError.value = detailError || errorMessage(roundsRead.reason)
-        return
-      }
-      const list = roundsRead.value
-      if (detailError && !list) {
-        runError.value = detailError
-        return
-      }
-      const belongs = (item: JobRecord) => item.kind === 'agent'
-        && (item.agentRunId === id || (item.agentRunId === undefined && (!!verifiedRun || item.id === jobId)))
-        && (item.agentSpecId === spec || (item.agentSpecId === undefined && (!!verifiedRun || item.id === jobId)))
-      const visible = (list?.rounds ?? []).filter(belongs)
+      const detailError = mismatchedRun ? '此 Pi 会话不属于当前 Spec' :
+        runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
+      const roundsError = roundsRead.status === 'rejected' ? errorMessage(roundsRead.reason) : ''
+      runError.value = detailError || roundsError
+      const list = roundsRead.status === 'fulfilled' ? roundsRead.value : undefined
+      const belongs = (item: JobRecord, allowLegacy: boolean) => item.kind === 'agent'
+        && (item.agentRunId === id || (allowLegacy && item.agentRunId === undefined))
+        && (item.agentSpecId === spec || (allowLegacy && item.agentSpecId === undefined))
+      const visible = (list?.rounds ?? (roundsError ? rounds.value : []))
+        .filter((item) => belongs(item, !!verifiedRun || item.id === jobId))
       rounds.value = visible
       const visibleIds = new Set(visible.map((item) => item.id))
-      snapshotJobs.value = new Set(list?.snapshotJobIds?.filter((id) => visibleIds.has(id)))
+      snapshotJobs.value = new Set((list?.snapshotJobIds ?? (roundsError ? [...snapshotJobs.value] : [])).filter((id) => visibleIds.has(id)))
       roundCiJobs.value = list?.roundCiJobs
         ? Object.fromEntries(Object.entries(list.roundCiJobs).filter(([id]) => visibleIds.has(id)))
         : verifiedRun?.ciJob ? { [verifiedRun.jobId]: verifiedRun.ciJob } : {}
       roundActions.value = Object.fromEntries(Object.entries(list?.roundActions ?? {}).filter(([id]) => visibleIds.has(id)))
-      if (jobId && verifiedRun?.jobId !== jobId) {
-        const job = visible.find((item) => item.id === jobId) ?? await getJob(jobId, request.signal)
-        if (!stillCurrent()) return
-        if (job.id !== jobId || !belongs(job)) throw new Error('此执行记录不属于当前 Spec 会话')
-        if (!visibleIds.has(job.id)) rounds.value = [...visible, job]
-      } else if (verifiedRun && accepted.value === tracked) {
+      // A job with a persisted Spec and session binding is readable even without optional session projections.
+      const linkedJob = selected || (!verifiedRun && !jobId ? id : undefined)
+      const missing = [...new Set([!list ? linkedJob : undefined, !list ? verifiedRun?.jobId : undefined, jobId])]
+        .filter((target): target is string => !!target && !visibleIds.has(target))
+      const restored = await Promise.allSettled(missing.map(async (target) => {
+        const item = await getJob(target, request.signal)
+        if (item.id !== target || !belongs(item, target === jobId || target === verifiedRun?.jobId))
+          throw new Error('此执行记录不属于当前 Spec 会话')
+        return item
+      }))
+      if (!stillCurrent()) return
+      const supplemental = restored.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+      const combined = [...visible, ...supplemental]
+      rounds.value = !list && supplemental.length ? combined.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)) : combined
+      if (verifiedRun?.jobId === jobId && accepted.value === tracked) {
         accepted.value = undefined
       }
       const latestJob = rounds.value.at(-1)
-      if (!detailError && !verifiedRun && !latestJob && (list || context.value || contextError.value)) {
+      if (!detailError && !roundsError && !verifiedRun && !latestJob && (list || context.value || contextError.value)) {
+        const failed = restored.find((result) => result.status === 'rejected')
+        if (failed) throw failed.reason
         throw new Error('当前 Spec 中找不到此 Pi 会话')
       }
       launchError.value = latestJob && latestJob.id !== verifiedRun?.jobId && !latestJob.agentStartedAt &&
         latestJob.status !== 'completed' && terminalJob(latestJob.status) ? launchFailure(latestJob) : ''
-      runError.value = detailError
     } catch (cause) {
       if (stillCurrent()) runError.value = errorMessage(cause)
     } finally {
@@ -260,6 +260,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
   watch([() => summary.value?.jobId, () => summary.value?.status, () => !!context.value], () => {
     if (sessionId.value) void refreshRounds()
   })
+  watch(linkedRound, () => { if (sessionId.value) void refreshRounds() })
   useEventListener(window, 'focus', scheduleRefresh)
   onScopeDispose(() => {
     disposed = true

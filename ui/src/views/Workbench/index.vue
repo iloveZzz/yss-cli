@@ -11,6 +11,7 @@ import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import RegisteredSpecs from '@/components/RegisteredSpecs.vue'
 import WorkItemRows from '@/components/WorkItemRows.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import ContentAttention from './components/ContentAttention.vue'
 import ActiveJobs from './components/ActiveJobs.vue'
 import { registerWorkbenchRouteReads, useWorkbenchCatalog, useWorkbenchRefreshAction } from '@/hooks/useWorkbenchReads'
@@ -73,7 +74,7 @@ function selectFocus(value: string | number) {
       <div class="home-identity">
         <span class="home-brand-mark" aria-hidden="true">Y</span>
         <div class="home-heading-copy">
-          <h1>工作台</h1>
+          <WorkbenchBreadcrumb title="工作台" :home="false" />
           <p class="home-meta">
             <span>全部工程</span>
             <template v-if="overview?.readAt">
@@ -239,7 +240,6 @@ function selectFocus(value: string | number) {
   font-size: 16px;
   font-weight: 700;
 }
-.home-heading h1 { line-height: 1.2; }
 .home-meta {
   display: flex;
   flex-wrap: wrap;

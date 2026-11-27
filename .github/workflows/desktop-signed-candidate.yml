@@ -96,13 +96,14 @@ jobs:
           cache-bin: false
           cache-workspace-crates: false
           save-if: false
-      - name: Build the workbench UI
+      - name: Build the workbench and desktop terminal UIs
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           pnpm --dir ui install --frozen-lockfile --prefer-offline
           pnpm --dir ui typecheck
           pnpm --dir ui lint
           pnpm --dir ui build
+          pnpm --dir ui build:desktop-terminal
       - name: Build and verify the pinned template bundle
         run: |
           $PSNativeCommandUseErrorActionPreference = $true

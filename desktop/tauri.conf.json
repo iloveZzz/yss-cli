@@ -3,12 +3,12 @@
   "productName": "YSS 工作台",
   "version": "0.1.0",
   "identifier": "com.ysstech.yss-workbench.desktop",
-  "build": { "frontendDist": "frontend" },
+  "build": { "frontendDist": ["frontend", "target/terminal-web"] },
   "app": {
     "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'",
-      "capabilities": ["settings", "menu-bar"]
+      "capabilities": ["settings", "menu-bar", "terminal"]
     }
   },
   "plugins": { "updater": { "pubkey": "", "requireSignedVersion": true } },

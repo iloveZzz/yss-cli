@@ -41,45 +41,96 @@
           <strong id="connection-title">工作台状态</strong>
         </div>
         <p id="connection-description">正在读取连接…</p>
+        <span id="service-version" hidden></span>
       </section>
 
-      <section class="activity" aria-labelledby="activity-title" aria-busy="true">
-        <div class="activity-heading">
-          <h2 id="activity-title">作业概览</h2>
-          <span id="service-version" hidden></span>
+      <article class="summary-card spec-overview" aria-labelledby="spec-title" aria-busy="true">
+        <header class="card-heading">
+          <h2 id="spec-title">Spec 概览</h2>
+          <p class="card-meta spec-status">正在读取…</p>
+        </header>
+        <div class="spec-todos" role="group" aria-label="Spec 待办">
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="pendingConfirmation" disabled>
+            <span>待确认</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="pendingVerification" disabled>
+            <span>待核实</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="pendingHandling" disabled>
+            <span>待处理</span><span class="spec-count">—</span>
+          </button>
         </div>
-        <dl id="counts" hidden>
-          <div class="activity-row">
-            <dt>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
-              <span>执行中</span>
-            </dt>
-            <dd id="running">—</dd>
-          </div>
-          <div class="activity-row">
-            <dt>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4m0 4h.01"/></svg>
-              <span>待处理</span>
-            </dt>
-            <dd id="attention">—</dd>
-          </div>
-          <div class="activity-row">
-            <dt>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
-              <span>排队</span>
-            </dt>
-            <dd id="queued">—</dd>
-          </div>
-        </dl>
-        <p id="activity-note" class="empty-state">正在读取作业…</p>
-      </section>
+        <div class="spec-stages" role="group" aria-label="Spec 推进阶段">
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="research" disabled>
+            <span>调研</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="analysis" disabled>
+            <span>分析</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="spec" disabled>
+            <span>规格</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="prototype" disabled>
+            <span>原型</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="handoff" disabled>
+            <span>交接</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="implementation" disabled>
+            <span>实施</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="verification" disabled>
+            <span>验证</span><span class="spec-count">—</span>
+          </button>
+          <button class="spec-action" type="button" data-action="specOverview" data-scope="delivery" disabled>
+            <span>目标结果核实</span><span class="spec-count">—</span>
+          </button>
+        </div>
+      </article>
 
-      <p id="action-error" class="action-error" role="alert" hidden></p>
+      <div class="summary-grid">
+        <article class="summary-card" aria-labelledby="project-title">
+          <header class="card-heading">
+            <h2 id="project-title">工程统计</h2>
+            <p id="project-total" class="card-meta">尚未读取</p>
+          </header>
+          <dl class="metrics">
+            <div>
+              <dt>已启用</dt>
+              <dd id="project-active">—</dd>
+            </div>
+            <div>
+              <dt>已停用</dt>
+              <dd id="project-inactive">—</dd>
+            </div>
+          </dl>
+        </article>
+        <article class="summary-card" aria-labelledby="merge-title">
+          <header class="card-heading">
+            <h2 id="merge-title">PR / MR</h2>
+            <p id="merge-status" class="card-meta">本机已关联</p>
+          </header>
+          <dl class="metrics">
+            <div>
+              <dt>GitHub PR</dt>
+              <dd id="merge-github">—</dd>
+            </div>
+            <div>
+              <dt>GitLab MR</dt>
+              <dd id="merge-gitlab">—</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
       <p id="announcement" class="visually-hidden" role="status"></p>
     </div>
 
     <footer class="panel-footer">
-      <span id="updated">尚未更新</span>
+      <div class="footer-status">
+        <p id="action-error" class="action-error" role="alert" hidden></p>
+        <span id="updated">尚未更新</span>
+      </div>
       <button class="exit-button" type="button" data-action="exit">退出…</button>
     </footer>
   </main>

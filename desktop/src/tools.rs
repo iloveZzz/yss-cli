@@ -1,5 +1,5 @@
 //! Narrow, fixed desktop tool installation commands. The remote workbench never receives them.
-use super::{Connection, State, connect, detach_or_stop, freeze_and_flush, get};
+use super::{State, connect, freeze_and_flush, get, retire_connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1036,18 +1036,13 @@ pub async fn desktop_refresh_tools(view: tauri::Webview) -> Result<(), String> {
         {
             let state = app.state::<Mutex<State>>();
             let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
-            let conn: &mut Connection = state.connection.as_mut().ok_or("请先连接工作台")?;
+            let conn = state.connection.as_ref().ok_or("请先连接工作台")?;
             if conn.child.is_none() {
                 return Err("当前连接的是外部服务，请由服务所有者自行刷新后重新检测。".into());
             }
             let freeze = freeze_and_flush(&app, conn)?;
-            detach_or_stop(conn)?;
-            state.connection = None;
+            retire_connection(&app, &mut state)?;
             state.message = "原工作台已停止，正在重新连接".into();
-            if let Some(view) = app.get_webview("workbench") {
-                view.close()
-                    .map_err(|_| "无法关闭原工作台视图，请重新连接")?;
-            }
             drop(freeze);
         }
         connect(&app, None, false)

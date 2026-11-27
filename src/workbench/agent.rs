@@ -526,8 +526,8 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
     };
     let mut native_issue = None;
     if resume_issue.is_none() {
-        if store
-            .records::<JobRecord>("job")?
+        let jobs = store.records::<JobRecord>("job")?;
+        if jobs
             .iter()
             .any(|job| !job.terminal() && job.session_run_id() == Some(run_id))
         {
@@ -541,11 +541,18 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
             }
             native_issue = Some(error.context("resumeReason", "queuePending"));
         }
-        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-        if native_issue.is_none()
-            && let Err(error) = super::command_recovery::ensure_none(&mut store)
-        {
-            native_issue = Some(error.context("resumeReason", "commandRecoveryRequired"));
+        if native_issue.is_none() {
+            let roots = acceptance::roots(&run);
+            if let Err(error) = super::jobs::check_roots(&jobs, &roots, None)
+                .and_then(|_| ensure_roots_available(&mut store, &roots))
+            {
+                let reason = if error.code == ErrorCode::RecoveryRequired {
+                    "commandRecoveryRequired"
+                } else {
+                    "workspaceBusy"
+                };
+                native_issue = Some(error.context("resumeReason", reason));
+            }
         }
     }
     let rebindings = store
@@ -584,7 +591,7 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
                 .and_then(|error| error.context.get("resumeReason"))
         ),
     );
-    let native_issue = native_issue.as_ref().or(resume_issue.as_ref());
+    let native_issue = resume_issue.as_ref().or(native_issue.as_ref());
     fields.insert(
         "actions".into(),
         json!({"resumeNative": action_availability(
@@ -975,6 +982,7 @@ pub(crate) fn delete_session(
         records.push(remove("job", job));
         records.push(remove("agentRound", job));
         records.push(remove(agent_protocol::NATIVE_FORK_ANCHOR_RECORD, job));
+        records.push(remove(native_fork::SOURCE_ROUND, job));
     }
     for (key, rebind) in store.record_entries::<Value>("agentRebind")? {
         if rebind["runId"] == id {
@@ -1225,13 +1233,15 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         let fork = native_fork::capture_expected(&mut store, &request, &projects)?;
         let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
         let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);
-        sources::read_source(store.state(), &spec.id).map_err(|error| {
-            YssError::new(
-                ErrorCode::NotReady,
-                format!("主 Spec 来源不可用：{}", error.message),
-            )
-            .context("httpStatus", 409)
-        })?;
+        if fork.is_none() {
+            sources::read_source(store.state(), &spec.id).map_err(|error| {
+                YssError::new(
+                    ErrorCode::NotReady,
+                    format!("主 Spec 来源不可用：{}", error.message),
+                )
+                .context("httpStatus", 409)
+            })?;
+        }
         if request.carry_files.values().any(|paths| !paths.is_empty()) {
             return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
         }
@@ -1783,6 +1793,8 @@ fn execute(
         }
         if reviewable(&current) {
             store.put_record("agentRound", &current.job_id, &current)?;
+        } else {
+            native_fork::archive_source_round(&mut store, &current)?;
         }
         Some(current)
     } else {
@@ -1859,13 +1871,16 @@ fn execute(
     run.snapshot_error = None;
     run.preparation_failed = false;
     let prior_workspaces = std::mem::take(&mut run.workspaces);
-    let excluded_projects: Vec<_> = store
+    let mut excluded_projects: Vec<_> = store
         .state()
         .projects
         .iter()
         .filter(|project| !request.project_ids.contains(&project.id))
         .map(|project| PathBuf::from(&project.root_path))
         .collect();
+    if let Some(fork) = &fork {
+        excluded_projects.extend(fork.excluded_paths()?);
+    }
 
     progress_agent::apply_binding(&mut run, binding.as_ref());
     let mut run_event = json!({
@@ -2217,7 +2232,13 @@ fn execute(
         Ok(())
     };
     context.trace("freezeStart");
-    let frozen = can_freeze.then(|| freeze_shared(&context.store, &run.id, &Cancellation::new()));
+    let frozen = can_freeze.then(|| {
+        if fork.is_some() {
+            native_fork::freeze_result(&context.store, &run)
+        } else {
+            freeze_shared(&context.store, &run.id, &Cancellation::new())
+        }
+    });
     let diff_available = frozen.as_ref().is_some_and(Result::is_ok);
     context.trace("freezeEnd");
     let mut store = lock_store(&context.store)?;

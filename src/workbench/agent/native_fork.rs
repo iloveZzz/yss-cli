@@ -7,6 +7,8 @@ use crate::workbench::{
     agent_scope::{SourceRound, digest},
 };
 
+pub(super) const SOURCE_ROUND: &str = "agentNativeForkSourceRound";
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct NativeForkSource {
@@ -145,13 +147,6 @@ pub(in crate::workbench) fn capture(
     if !spec.active {
         return Err(workspace_changed());
     }
-    sources::read_source(store.state(), spec_id).map_err(|_| {
-        issue(
-            ErrorCode::NotReady,
-            "specUnavailable",
-            "主 Spec 来源当前不可读取",
-        )
-    })?;
     let latest = round.latest.as_ref().ok_or_else(source_unavailable)?;
     for job in store
         .records::<JobRecord>("job")?
@@ -200,7 +195,15 @@ pub(in crate::workbench) fn capture(
     {
         return Err(source_unavailable());
     }
-    let run = round.into_run().ok_or_else(source_unavailable)?;
+    let run = match round.into_run() {
+        Some(run) => run,
+        None => store
+            .record::<AgentRun>(SOURCE_ROUND, &source.job_id)?
+            .filter(|run| {
+                run.id == source.run_id && run.spec_id == spec_id && run.job_id == source.job_id
+            })
+            .ok_or_else(source_unavailable)?,
+    };
     if run.host != AgentHost::Pi
         || run.workspace_mode != WorkspaceMode::Direct
         || run.preparation_failed
@@ -260,10 +263,7 @@ pub(in crate::workbench) fn capture(
     })?;
     let cwd = session_project_cwd(&spec.project_id, &run).map_err(|_| workspace_changed())?;
     let mut workspaces = run.workspaces;
-    for workspace in &mut workspaces {
-        workspace.initial.clear();
-        workspace.result_snapshot = None;
-    }
+    strip_file_snapshots(&mut workspaces);
     Ok(Target {
         anchor,
         spec,
@@ -274,24 +274,32 @@ pub(in crate::workbench) fn capture(
     })
 }
 
+fn strip_file_snapshots(workspaces: &mut [Workspace]) {
+    for workspace in workspaces {
+        workspace.initial.clear();
+        workspace.result_snapshot = None;
+    }
+}
+
+pub(super) fn archive_source_round(store: &mut Store, run: &AgentRun) -> Result<()> {
+    if run.status == "completed"
+        && !run.preparation_failed
+        && store.has_record(NATIVE_FORK_ANCHOR_RECORD, &run.job_id)?
+    {
+        let mut source = run.clone();
+        strip_file_snapshots(&mut source.workspaces);
+        store.put_record(SOURCE_ROUND, &source.job_id, &source)?;
+    }
+    Ok(())
+}
+
 impl Target {
     fn verify(&self, cancel: &Cancellation) -> Result<BTreeMap<String, GitBaseline>> {
+        cancel.check()?;
         let mut baselines = BTreeMap::new();
         for workspace in &self.workspaces {
-            let (root, baseline) = agent_workspace::native_fork_checkout(workspace, cancel)
+            let (_, baseline) = agent_workspace::native_fork_checkout(workspace, cancel)
                 .map_err(|error| preserve_cancellation(error, workspace_changed))?;
-            for prefix in workspace
-                .project_prefixes
-                .values()
-                .filter(|prefix| !prefix.is_empty())
-            {
-                if agent_workspace::agent_git_root(&root.path.join(prefix), cancel)
-                    .map_err(|error| preserve_cancellation(error, workspace_changed))?
-                    != root.path
-                {
-                    return Err(workspace_changed());
-                }
-            }
             if baselines
                 .insert(workspace.original_root.clone(), baseline)
                 .is_some()
@@ -299,6 +307,18 @@ impl Target {
                 return Err(workspace_changed());
             }
         }
+        Root::open(&self.cwd)
+            .and_then(|root| {
+                sources::text(&root, &self.spec.source_path)?;
+                root.revalidate()
+            })
+            .map_err(|_| {
+                issue(
+                    ErrorCode::NotReady,
+                    "specUnavailable",
+                    "主 Spec 来源当前不可读取",
+                )
+            })?;
         verify_native_fork_source(&self.data_dir, &self.cwd, &self.anchor, cancel)
             .map_err(|error| preserve_cancellation(error, anchor_changed))?;
         Ok(baselines)
@@ -306,12 +326,13 @@ impl Target {
 
     fn digest(&self, baselines: &BTreeMap<String, GitBaseline>) -> Result<Sha256> {
         digest(&(
-            "agent-native-fork.v1",
+            "agent-native-fork.v2",
             &self.spec.id,
             &self.spec.project_id,
             &self.spec.source_path,
             &self.anchor,
             &self.projects,
+            &self.workspaces,
             baselines,
         ))
     }
@@ -466,10 +487,6 @@ fn load(store: &mut Store, spec_id: &str, source: &ContinuationSource) -> Result
 }
 
 impl Verified {
-    pub(super) fn git_roots(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        self.baselines.keys().map(PathBuf::from)
-    }
-
     pub(super) fn verify_prepared(&self, workspaces: &[Workspace]) -> Result<()> {
         if self.baselines.len() != workspaces.len()
             || workspaces.iter().any(|workspace| {
@@ -482,6 +499,22 @@ impl Verified {
             return Err(workspace_changed());
         }
         Ok(())
+    }
+
+    pub(super) fn excluded_paths(&self) -> Result<Vec<PathBuf>> {
+        self.source_workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace
+                    .direct
+                    .iter()
+                    .flat_map(|direct| &direct.excluded_prefixes)
+                    .map(|prefix| {
+                        let relative = RelPath::new(prefix).map_err(|_| workspace_changed())?;
+                        Ok(Path::new(&workspace.original_root).join(relative.as_str()))
+                    })
+            })
+            .collect()
     }
 
     pub(super) fn recheck_source(&self, store: &mut Store, spec_id: &str) -> Result<()> {
@@ -523,4 +556,18 @@ pub(super) fn verify_runtime(runtime: &PiRuntime, anchor: &NativeForkAnchor) -> 
             )
         })
     })
+}
+
+pub(super) fn freeze_result(shared: &Arc<Mutex<Store>>, run: &AgentRun) -> Result<()> {
+    for workspace in &run.workspaces {
+        agent_workspace::validate(workspace)?;
+    }
+    let mut store = lock_store(shared)?;
+    let mut latest = check_freeze_base(&mut store, run)?;
+    // Read-only forks have no project writes to attribute to this round.
+    for workspace in &mut latest.workspaces {
+        workspace.result_snapshot = Some(workspace.initial.clone());
+    }
+    latest.updated_at = sources::now();
+    store.put_record("agentRun", &latest.id, &latest)
 }

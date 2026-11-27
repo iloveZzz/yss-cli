@@ -12,6 +12,7 @@ use crate::{
             PiSession, RunRequest, native_fork_model_identity, native_fork_unavailable,
             native_fork_version_supported,
         },
+        agent_workspace,
         jobs::{JobContext, lock_store},
     },
 };
@@ -44,6 +45,13 @@ struct Entry {
     kind: String,
     role: Option<String>,
     digest: Sha256,
+}
+
+impl Entry {
+    fn digest(value: &Value) -> Result<Sha256> {
+        let encoded = serde_json::to_vec(value).map_err(|_| native_fork_unavailable())?;
+        Ok(Sha256::of(&encoded))
+    }
 }
 
 struct Transcript {
@@ -198,12 +206,11 @@ fn read_transcript(
         {
             return Err(native_fork_unavailable());
         }
-        let encoded = serde_json::to_vec(&value).map_err(|_| native_fork_unavailable())?;
         let entry = Entry {
             parent: entry_parent,
             kind: kind.to_owned(),
             role,
-            digest: Sha256::of(&encoded),
+            digest: Entry::digest(&value)?,
         };
         if entries.insert(entry_id.clone(), entry).is_some() {
             return Err(native_fork_unavailable());
@@ -315,6 +322,7 @@ pub(super) struct Capture {
     checkpoint: Option<Checkpoint>,
     config_identity: NativeForkConfig,
     model_identity: Sha256,
+    prompt_digest: Sha256,
 }
 
 fn is_settled(state: &Value) -> bool {
@@ -334,6 +342,7 @@ pub(super) fn before_prompt(
     directory: &Path,
     resumed: Option<&PiSession>,
     state: &Value,
+    prompt: &str,
     cancel: &Cancellation,
 ) -> Result<Capture> {
     if !native_fork_version_supported(&request.runtime.version) || !is_settled(state) {
@@ -374,6 +383,7 @@ pub(super) fn before_prompt(
         checkpoint,
         config_identity: NativeForkConfig::read(&request.runtime.config_dir)?,
         model_identity: native_fork_model_identity(state)?,
+        prompt_digest: Sha256::of(prompt.as_bytes()),
     })
 }
 
@@ -418,8 +428,17 @@ pub(super) fn capture(
     if users.next().is_some() {
         return Err(native_fork_unavailable());
     }
+    let content = selected["message"]["content"]
+        .as_array()
+        .ok_or_else(native_fork_unavailable)?;
+    if !matches!(content.as_slice(), [block] if block["type"] == "text"
+        && block["text"].as_str().is_some_and(|text| Sha256::of(text.as_bytes()) == capture.prompt_digest))
+    {
+        return Err(native_fork_unavailable());
+    }
     let entry_id = id(&selected["id"])?;
     let parent_id = parent(selected.get("parentId"))?;
+    let entry_digest = Entry::digest(selected)?;
     let transcript = read_transcript(file, bytes, request.cwd, &session, None, &context.cancel)?;
     let (_, after) = open_session(&root, &session)?;
     if !unchanged(&metadata, &after)? {
@@ -442,7 +461,7 @@ pub(super) fn capture(
             .zip(entries)
             .all(|(stored, rpc)| rpc["id"].as_str() == Some(stored))
         || transcript.entries.get(entry_id).is_none_or(|entry| {
-            entry.parent.as_deref() != parent_id || entry.role.as_deref() != Some("user")
+            entry.parent.as_deref() != parent_id || entry.digest != entry_digest
         })
     {
         return Err(native_fork_unavailable());
@@ -488,6 +507,32 @@ pub(super) fn prepare(
     cancel: &Cancellation,
 ) -> Result<PiSession> {
     prepare_inner(request, directory, anchor, cancel).map_err(fork_error)
+}
+
+pub(super) fn verify_checkout(request: &RunRequest<'_>, cancel: &Cancellation) -> Result<()> {
+    let changed = || {
+        YssError::new(
+            ErrorCode::ConcurrentChange,
+            "原生分叉启动前工程的 Git 检出已变化，请重新核对后发送",
+        )
+        .context("nativeForkIssue", "workspaceChanged")
+        .context("projectScopeChanged", true)
+    };
+    for workspace in request.workspaces {
+        let direct = workspace.direct.as_ref().ok_or_else(changed)?;
+        let (_, actual) =
+            agent_workspace::native_fork_checkout(workspace, cancel).map_err(|error| {
+                if error.code == ErrorCode::Cancelled {
+                    error
+                } else {
+                    changed()
+                }
+            })?;
+        if direct.baseline != actual {
+            return Err(changed());
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn read_only_command(
@@ -656,15 +701,22 @@ fn prepare_inner(
         || !expected.iter().zip(&branch.ids).all(|(want, actual)| {
             *want == actual && transcript.entries[*want] == branch.entries[actual]
         })
-        || extra.iter().any(|id| {
-            transcript.entries.contains_key(id)
-                || !matches!(
-                    branch.entries[id].kind.as_str(),
-                    "model_change" | "thinking_level_change"
-                )
-        })
     {
         return Err(native_fork_unavailable());
+    }
+    let mut leaf = expected.last().copied();
+    for id in extra {
+        let entry = &branch.entries[id];
+        if transcript.entries.contains_key(id)
+            || entry.parent.as_deref() != leaf
+            || !matches!(
+                entry.kind.as_str(),
+                "model_change" | "thinking_level_change"
+            )
+        {
+            return Err(native_fork_unavailable());
+        }
+        leaf = Some(id);
     }
     let target = Root::open(directory)?;
     let temporary = RelPath::new(format!(".{}.tmp", unique_id()?))?;

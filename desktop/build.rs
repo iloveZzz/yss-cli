@@ -25,6 +25,14 @@ fn main() {
             "desktop_exit",
             "menubar_snapshot",
             "menubar_action",
+            "terminal_context",
+            "terminal_start",
+            "terminal_write",
+            "terminal_resize",
+            "terminal_ack",
+            "terminal_close",
+            "terminal_ready",
+            "terminal_panel_layout",
         ]),
     ))
     .expect("构建桌面应用失败");

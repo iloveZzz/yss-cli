@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { Alert } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
@@ -18,7 +19,7 @@ import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
 import BackupForms from './components/BackupForms.vue'
 import { useSystemInfo } from './hooks/useSystemInfo'
 import { byteLabel } from './schemas/system'
-import { restartWorkbench, readableValue, type RuntimeCapability } from '@/services/workbench-platform'
+import { piCapabilityLabels, piCommandCapability, piRuntimeAvailable, restartWorkbench, readableValue } from '@/services/workbench-platform'
 const { info, readAt, loading, error, refresh } = useSystemInfo()
 registerWorkbenchRouteReads({ busy: loading, readAt, refresh })
 const route = useRoute()
@@ -65,14 +66,11 @@ const storageLabels: Record<string, string> = {
   eventBytes: '执行日志'
 }
 const measurements = computed(() => Object.entries(info.value?.storage ?? {}))
-const capabilityStatus: Record<RuntimeCapability['state'], string> = {
-  available: '可用', blocked: '暂不可用', unsupported: '平台不支持'
-}
 const piCapabilities = computed(() => {
-  const capabilities = info.value?.pi?.capabilities
-  return capabilities ? [
-    { label: '沙箱离线命令', ...capabilities.sandbox },
-    { label: '本机命令', ...capabilities.hostCommands }
+  const runtime = info.value?.pi
+  return runtime ? [
+    { label: '沙箱离线命令', ...piCommandCapability(runtime, 'sandbox') },
+    { label: '本机命令', ...piCommandCapability(runtime, 'host') }
   ] : []
 })
 const desktopSettingsUrl = (window as Window & { __YSS_DESKTOP_SETTINGS_URL__?: string }).__YSS_DESKTOP_SETTINGS_URL__
@@ -89,7 +87,7 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
 </script>
 <template>
   <div class="page-heading">
-    <h1>设置</h1>
+    <WorkbenchBreadcrumb title="本机设置" />
     <Button variant="outline" :disabled="loading" @click="refresh">
       <LoadingIndicator :active="loading && !!info" />
       {{ loading ? '诊断中…' : '重新诊断' }}
@@ -169,25 +167,23 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
               <TableRow v-if="info.pi">
                 <TableHead scope="row">Pi Agent</TableHead>
                 <TableCell>
-                  <Badge variant="outline" :class="{ 'warning-text': !info.pi.available }">
-                    基础作业{{ info.pi.capabilities ? capabilityStatus[info.pi.capabilities.pi.state] : info.pi.available ? '可用' : '不可用' }}
+                  <Badge variant="outline" :class="{ 'warning-text': !piRuntimeAvailable(info.pi) }">
+                    基础作业{{ piCapabilityLabels[info.pi.capabilities?.pi.state ?? (info.pi.available ? 'available' : 'blocked')] }}
                   </Badge>
                 </TableCell>
                 <TableCell>
                   <p v-if="info.pi.version || info.pi.executable || info.pi.model" class="path-text">
                     {{ [info.pi.version, info.pi.executable, info.pi.model && `${info.pi.model.provider} / ${info.pi.model.id}`].filter(Boolean).join(' · ') }}
                   </p>
-                  <p v-if="info.pi.capabilities?.pi.reason">{{ info.pi.capabilities.pi.reason }}</p>
+                  <p v-if="info.pi.capabilities?.pi.reason || info.pi.message">{{ info.pi.capabilities?.pi.reason || info.pi.message }}</p>
                   <dl v-if="piCapabilities.length" class="grid gap-1">
                     <div v-for="capability in piCapabilities" :key="capability.label">
                       <dt class="inline">{{ capability.label }}</dt>
                       <dd class="ml-2 inline" :class="{ 'warning-text': capability.state === 'blocked' }">
-                        {{ capabilityStatus[capability.state] }}<template v-if="capability.reason"> · {{ capability.reason }}</template>
+                        {{ piCapabilityLabels[capability.state] }}<template v-if="capability.reason"> · {{ capability.reason }}</template>
                       </dd>
                     </div>
                   </dl>
-                  <p v-else>{{ [info.pi.sandboxReady ? '离线命令可用' : '离线命令不可用', info.pi.message,
-                    !info.pi.sandboxReady && info.pi.sandboxMessage].filter(Boolean).join(' · ') }}</p>
                 </TableCell>
                 <TableCell v-if="desktopSettingsUrl">
                   <Button v-if="!info.pi.executable" as-child variant="outline" size="sm">

@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { getPiRuntime, piModelKey, testPiConnection } from '@/services/workbench-agent'
 import { ApiError, errorMessage } from '@/services/workbench'
-import type { PiModel, PiRuntimeStatus } from '@/services/workbench-platform'
+import { piCapabilityLabels, piRuntimeAvailable, type PiModel, type PiRuntimeStatus } from '@/services/workbench-platform'
 
 const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resumeRunId?: string; allowModelSwitch?: boolean }>(), {
   active: true
@@ -22,14 +22,17 @@ const status = defineModel<PiRuntimeStatus>('runtimeStatus')
 const operation = shallowRef<'initial' | 'check' | 'selection' | 'test'>()
 const checkError = shallowRef('')
 const testResult = shallowRef<{ message: string; connected: boolean; issue?: string }>()
-function piReady(runtime?: PiRuntimeStatus) {
-  return runtime?.capabilities ? runtime.capabilities.pi.state === 'available' : runtime?.available
-}
-const model = computed(() => piReady(status.value) ? status.value?.model : undefined)
-const canChooseModel = computed(() => !props.resumeRunId || props.allowModelSwitch)
-const chosen = computed(() => canChooseModel.value ? selectedModel.value : undefined)
+const model = computed(() => status.value && piRuntimeAvailable(status.value) ? status.value.model : undefined)
+const canChooseModel = computed(() => props.allowModelSwitch ?? !props.resumeRunId)
+const chosen = computed(() => selectedModel.value)
 const visibleModel = computed(() => chosen.value ?? status.value?.model)
-const modelLabel = computed(() => chosen.value ? '本次选择' : props.resumeRunId ? '会话模型' : 'Pi 默认模型')
+const modelLabel = computed(() => chosen.value ? (canChooseModel.value ? '本次选择' : '来源轮次模型')
+  : props.resumeRunId ? '会话模型' : 'Pi 默认模型')
+const capabilityLabel = computed(() => {
+  const runtime = status.value
+  if (!runtime) return ''
+  return piCapabilityLabels[runtime.capabilities?.pi.state ?? (runtime.available ? 'available' : 'blocked')]
+})
 const statusMessage = computed(() => {
   switch (operation.value) {
     case 'initial': return ''
@@ -72,7 +75,7 @@ async function checkRuntime(kind: 'initial' | 'check' | 'selection' = 'check') {
     const result = await getPiRuntime({ resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     status.value = result
-    if (piReady(result) && result.model) {
+    if (piRuntimeAvailable(result) && result.model) {
       const restriction = modelRestrictions.value[piModelKey(result.model)] ?? ''
       blockedReason.value = restriction
       if (!restriction) readyModel.value = result.model
@@ -148,9 +151,10 @@ onBeforeUnmount(() => request?.abort())
 </script>
 
 <template>
-  <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || piReady(status) === false || testResult?.connected === false }">
+  <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || (status && !piRuntimeAvailable(status)) || testResult?.connected === false }">
     <p class="model-label">
       <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : 'Pi' }}</Badge>
+      <span v-if="capabilityLabel">基础作业{{ capabilityLabel }}</span>
       <span v-if="visibleModel">
         {{ modelLabel }} · {{ visibleModel.provider }} / {{ visibleModel.id }}
       </span>
@@ -161,7 +165,7 @@ onBeforeUnmount(() => request?.abort())
       {{ statusMessage }}
     </AlertDescription>
     <div v-if="showSetup" class="model-setup">
-      <p class="font-medium">{{ resumeRunId ? '如何恢复原会话模型' : '如何配置模型' }}</p>
+      <p class="font-medium">{{ !canChooseModel && chosen ? '如何恢复来源轮次模型' : resumeRunId ? '如何恢复原会话模型' : '如何配置模型' }}</p>
       <p v-if="!status?.configDir">
         检查启动工作台时的 <code>PI_CODING_AGENT_DIR</code> 设置。Pi 默认使用 <code>~/.pi/agent</code>。
       </p>
@@ -176,7 +180,8 @@ onBeforeUnmount(() => request?.abort())
             内置供应商可在确认工作台使用的 Pi 程序和配置目录后，通过 <code>/login</code> 登录。
           </template>
         </li>
-        <li v-if="resumeRunId">确认本机 Pi 可用的供应商和模型。可在会话的输入区为下一轮选择其他模型。</li>
+        <li v-if="!canChooseModel && chosen">确认本机 Pi 配置目录提供来源轮次使用的供应商和模型。</li>
+        <li v-else-if="resumeRunId">确认本机 Pi 可用的供应商和模型。<template v-if="canChooseModel">可在会话的输入区为下一轮选择其他模型。</template></li>
         <li v-else>
           用 <code>/model</code> 找到模型并按 <kbd>Ctrl+S</kbd> 保存为默认，或在 <code>settings.json</code> 中设置 <code>defaultProvider</code> 和 <code>defaultModel</code>。
           如果配置了 <code>enabledModels</code>，请确保启动范围包含所需模型。

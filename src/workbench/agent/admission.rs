@@ -236,13 +236,15 @@ fn prepare(
             agent_workspace::validate_resume(workspace, &context.cancel)?;
         }
     }
-    sources::read_source(&state, &target.spec.id).map_err(|error| {
-        YssError::new(
-            ErrorCode::NotReady,
-            format!("主 Spec 来源不可用：{}", error.message),
-        )
-        .context("httpStatus", 409)
-    })?;
+    if fork.is_none() {
+        sources::read_source(&state, &target.spec.id).map_err(|error| {
+            YssError::new(
+                ErrorCode::NotReady,
+                format!("主 Spec 来源不可用：{}", error.message),
+            )
+            .context("httpStatus", 409)
+        })?;
+    }
     let roots: Vec<String> = target
         .projects
         .iter()

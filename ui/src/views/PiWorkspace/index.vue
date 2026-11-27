@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
 import {
   ArrowLeft, ArrowUp, ChevronDown, FileDiff, FileText, Folder, ListChecks, ListPlus, PanelLeft,
-  Settings2, Square
+  Settings2, Square, Terminal
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -20,13 +20,15 @@ import PiModelPicker from '@/components/PiModelPicker.vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { sorted } from '@/lib/collections'
+import { terminalPanelOpenUrl } from '@/services/terminal-panel'
 import { acknowledgeRequest, ApiError, contentEqual, errorMessage, resolvePendingRequest, type Stage } from '@/services/workbench'
 import {
   admitAgent, deleteAgentSession, getAgentContinuation, getPiRuntime, piModelKey,
   type AgentAttention, type AgentContinuation, type AgentContinuationPreview, type AgentContinuationSource, type AgentProjectAccess, type AgentSummary,
   type ProjectAccessMode, type ReviewExcerpt
 } from '@/services/workbench-agent'
-import { cancelJob, getReceipt, jobStatusLabels, piCommandPermissionLabels, piPhaseLabels, piThinkingLabels, requestId, terminalJob,
+import { cancelJob, getReceipt, jobStatusLabels, piCommandCapability, piCommandPermissionLabels, piPhaseLabels,
+  piRuntimeAvailable, piThinkingLabels, requestId, terminalJob,
   type JobRecord, type PiCommandExecution, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from '@/services/workbench-platform'
 import PiSessionList from './components/PiSessionList.vue'
 import PiWorkspaceSettings from './components/PiWorkspaceSettings.vue'
@@ -45,6 +47,7 @@ import './workspace.css'
 const props = defineProps<{ specId: string }>()
 const route = useRoute()
 const router = useRouter()
+const terminalOpen = terminalPanelOpenUrl()
 const { catalog } = useWorkbenchCatalog()
 const { scopeOptions, lastAgentSpec } = useAgentScope()
 const fromAgentWorkbench = computed(() => route.name === 'agent-workbench')
@@ -55,7 +58,7 @@ const handoffJob = computed(() => !session.value && typeof route.query.handoff =
 const linkedRound = computed(() => typeof route.query.round === 'string' ? route.query.round : '')
 const { context, contextError, pageNotice, listBusy, listCurrent, search, attentionOnly,
   run, runError, launchError, rounds, latest, summary, snapshotJobs, roundCiJobs, roundActions, reading,
-  refresh, recordAccepted, forgetSession, scheduleRefresh, loadMore } = usePiWorkspace(spec, session)
+  refresh, recordAccepted, forgetSession, scheduleRefresh, loadMore } = usePiWorkspace(spec, session, linkedRound)
 const { projectScope, projectBusy, projectError, refreshProjects, invalidateProjects } = usePiProjects(spec)
 const projectNames = computed(() => Object.fromEntries(
   (projectScope.value?.projects ?? context.value?.projects ?? []).map((project) => [project.id, project.name])
@@ -106,10 +109,10 @@ const { draft, getDraft, removeDraft, persistDraft, storageIssue, pending, setPe
 const nativeForkSelected = computed(() => !!draft.value.nativeForkDigest && !!draft.value.handoff)
 const forkOffer = computed(() => draft.value.handoff?.nativeFork)
 const nativeForkReady = computed(() => nativeForkSelected.value && forkOffer.value?.state === 'available' &&
-  forkOffer.value.digest === draft.value.nativeForkDigest && !!forkOffer.value.model && !!forkOffer.value.projectIds?.length)
+  forkOffer.value.digest === draft.value.nativeForkDigest && !!forkOffer.value.model && !!forkOffer.value.projectIds?.includes(mainId.value))
 const queuePerProject = computed(() => !!run.value?.projectAccess?.length)
-const selectedProjectIds = computed(() => [...new Set([mainId.value, ...(session.value
-  ? run.value?.projectIds ?? [] : nativeForkSelected.value ? forkOffer.value?.projectIds ?? [] : draft.value.selected)])].filter(Boolean))
+const selectedProjectIds = computed(() => nativeForkSelected.value ? forkOffer.value?.projectIds ?? [] :
+  [...new Set([mainId.value, ...(session.value ? run.value?.projectIds ?? [] : draft.value.selected)])].filter(Boolean))
 const candidates = computed(() => new Map(projectScope.value?.projects.map((project) => [project.id, project])))
 const hostConfirmation = shallowRef<string>()
 const hostConfirmationStale = shallowRef(false)
@@ -138,8 +141,7 @@ const projectGrantIssue = computed(() => staleProjectGrants.value.length
 const projectModes = computed<Record<string, ProjectAccessMode>>({
   get: () => {
     if (nativeForkSelected.value) return Object.fromEntries(selectedProjectIds.value.map((id) => [id, 'read' as const]))
-    const sandbox = runtimeStatus.value?.capabilities?.sandbox
-    const sandboxReady = sandbox ? sandbox.state === 'available' : runtimeStatus.value?.sandboxReady !== false
+    const sandboxReady = runtimeStatus.value && piCommandCapability(runtimeStatus.value, 'sandbox').state === 'available'
     const defaultMode = handoffJob.value ? 'read' : sandboxReady ? 'execute' : 'edit'
     return Object.fromEntries(selectedProjectIds.value.filter((id) => !staleProjectGrants.value.includes(id))
       .map((id) => [id, draft.value.projectGrants[id]?.mode ?? defaultMode]))
@@ -194,6 +196,10 @@ const ciIssue = computed(() => {
 const handoffBusy = shallowRef('')
 const handoffError = shallowRef('')
 let handoffRequest: AbortController | undefined
+watch([draftKey, nativeForkSelected, hostScopeKey], ([key, selected, checkout], [previousKey, previousSelected, previous]) => {
+  if (key === previousKey && selected && previousSelected && nativeForkReady.value && !handoffBusy.value && previous && checkout !== previous)
+    invalidateForkPreview(draft.value, '来源工程检出已变化，请刷新历史摘要并重新选择原生分叉。')
+}, { flush: 'sync' })
 const recoverableDraft = computed(() => {
   const job = latest.value
   if (!job || !terminalJob(job.status) || job.status === 'completed') return undefined
@@ -217,6 +223,8 @@ async function restoreSubmittedDraft() {
   target.citations = saved.text.citations
   target.handoff = saved.text.handoff
   target.nativeForkDigest = saved.text.nativeForkDigest
+  if (saved.text.nativeForkDigest && (job.error?.context?.nativeForkIssue || projectScopeChanged(job.error?.context?.projectScopeChanged)))
+    invalidateForkPreview(target, job.error?.message)
   target.selected = (saved.text.selected ?? []).filter((id) => !scope || scope.projects.some((item) =>
     item.id === id && item.status === 'ready' && item.head))
   target.readOnly = true
@@ -266,26 +274,20 @@ watch([draftKey, availableStages], () => {
 }, { immediate: true })
 const readyModel = shallowRef<PiModel>()
 const runtimeStatus = shallowRef<PiRuntimeStatus>()
+const hostSelectable = computed(() => !!runtimeStatus.value && piCommandCapability(runtimeStatus.value, 'host').state === 'available' &&
+  !!hostScopeKey.value && !projectBusy.value && !projectError.value)
 const commandExecution = computed<PiCommandExecution>({
   get: () => !nativeForkSelected.value && hostConfirmation.value && hostConfirmation.value === hostScopeKey.value ? 'host' : 'sandbox',
   set: (value) => {
-    const host = runtimeStatus.value?.capabilities?.hostCommands
-    const available = host ? host.state === 'available' : runtimeStatus.value?.hostCommandsReady === true
-    hostConfirmation.value = value === 'host' && available &&
-      hostScopeKey.value && !projectBusy.value && !projectError.value ? hostScopeKey.value : undefined
+    hostConfirmation.value = value === 'host' && hostSelectable.value ? hostScopeKey.value : undefined
     if (value === 'sandbox' || hostConfirmation.value) hostConfirmationStale.value = false
     draft.value.error = ''
   }
 })
-const commandCapability = computed(() => commandExecution.value === 'host'
-  ? runtimeStatus.value?.capabilities?.hostCommands : runtimeStatus.value?.capabilities?.sandbox)
-const commandUnavailable = computed(() => !!runtimeStatus.value && (commandCapability.value
-  ? commandCapability.value.state !== 'available'
-  : commandExecution.value === 'host' ? !runtimeStatus.value.hostCommandsSupported || runtimeStatus.value.hostCommandsReady !== true
-    : !runtimeStatus.value.sandboxReady))
+const commandCapability = computed(() => runtimeStatus.value && piCommandCapability(runtimeStatus.value, commandExecution.value))
+const commandUnavailable = computed(() => commandCapability.value?.state !== 'available')
 const commandUnavailableReason = computed(() => commandCapability.value?.reason || (commandExecution.value === 'host'
-  ? runtimeStatus.value?.hostCommandsMessage || '本机终端命令尚未就绪。'
-  : runtimeStatus.value?.sandboxMessage || '命令隔离尚未通过检测。'))
+  ? '本机终端命令尚未就绪。' : '命令隔离尚未通过检测。'))
 const legacyHostPending = computed(() => pending.value?.input.commandExecution === 'host' &&
   (pending.value.input.hostExecutionConfirmed !== true || !pending.value.input.expectedRepositoryKeys))
 const displayedExecution = computed(() => pending.value ? pending.value.input.commandExecution ?? 'sandbox' : commandExecution.value)
@@ -345,7 +347,7 @@ const maxMountedRounds = 9
 const showing = shallowRef(roundStep)
 const lastVisibleRound = shallowRef<string>()
 const readyForResume = computed(() => direct.value && !runError.value &&
-  (run.value?.actions?.resumeNative.available ?? run.value?.canResume) && run.value &&
+  (run.value?.actions?.resumeNative?.available ?? run.value?.canResume) && run.value &&
   (run.value.jobId === latest.value?.id || (!active.value && !!launchError.value)))
 const modelPickerDisabled = computed(() => nativeForkSelected.value || !context.value || active.value || sending.value ||
   (!!session.value && !readyForResume.value))
@@ -355,7 +357,8 @@ const recordedModel = computed<PiModel | undefined>(() => {
     ? { provider: settings.provider, id: settings.model } : undefined
 })
 const currentModel = computed(() => selectedModel.value ?? readyModel.value ?? recordedModel.value)
-const thinkingLevels = computed(() => runtimeStatus.value?.available ? runtimeStatus.value.thinkingLevels ?? [] : [])
+const thinkingLevels = computed(() => !nativeForkSelected.value && runtimeStatus.value && piRuntimeAvailable(runtimeStatus.value)
+  ? runtimeStatus.value.thinkingLevels ?? [] : [])
 const currentThinking = computed(() => {
   const remembered = run.value?.hostSettings?.thinkingLevel as PiThinkingLevel | undefined
   const model = currentModel.value
@@ -376,7 +379,7 @@ const blocked = computed(() => {
   if (context.value.sourceError) return context.value.sourceError
   if (!context.value.projects.find((project) => project.id === mainId.value)?.active) return '主工程已停用，请检查工程登记'
   if (active.value) return ''
-  if (session.value && !readyForResume.value) return run.value?.actions?.resumeNative.reason || run.value?.resumeIssue || runError.value ||
+  if (session.value && !readyForResume.value) return runError.value || run.value?.actions?.resumeNative?.reason || run.value?.resumeIssue ||
     (reading.value ? '正在核对原会话' : '当前会话无法续接，请从原 Spec 新建会话')
   return ''
 })
@@ -404,11 +407,15 @@ const commandCapabilityIssue = computed(() => {
   const requestsCommands = selectedProjectIds.value.some((id) => projectModes.value[id] === 'execute')
   return requestsCommands ? `${commandUnavailableReason.value} 请在运行设置中调整命令运行方式或工程权限。` : ''
 })
+const nativeForkScopeIssue = computed(() => nativeForkReady.value && !projectBusy.value &&
+  (projectError.value || (selectedProjectIds.value.some((id) => !projectCheckout(candidates.value.get(id)))
+    ? '请重新核对分叉涉及的工程检出。' : '')))
 const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !verificationIssue.value && !sending.value && !pending.value &&
   (!queueRun.value || (!!queue.value && !queue.value.items.length && !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value)) &&
   !checking.value && (!!projectScope.value || !projectBusy.value) && !hostConfirmationStale.value && !settingsOpen.value && !deleteTarget.value &&
   !reviewState.value.busy && !reviewState.value.pending && !commandCapabilityIssue.value && !handoffBusy.value &&
-  (!nativeForkSelected.value || (nativeForkReady.value && contentEqual(readyModel.value, forkOffer.value?.model))) &&
+  (!nativeForkSelected.value || (nativeForkReady.value && !projectBusy.value && !nativeForkScopeIssue.value &&
+    contentEqual(readyModel.value, forkOffer.value?.model))) &&
   !!readyModel.value && !!draft.value.prompt.trim())
 const roundEnd = computed(() => {
   const index = lastVisibleRound.value ? rounds.value.findIndex((job) => job.id === lastVisibleRound.value) : -1
@@ -537,13 +544,19 @@ function continuationPreview(result: AgentContinuation): AgentContinuationPrevie
   return { ...source, originalPrompt: prompt }
 }
 function canHandoff(job: JobRecord) {
+  if (context.value && !context.value.spec.active) return false
   return roundActions.value[job.id]?.continueSameSpec.available ??
     (terminalJob(job.status) && (run.value?.specId === spec.value ||
       (job.agentRunId === session.value && job.agentSpecId === spec.value)))
 }
+function invalidateForkPreview(target: ReturnType<typeof getDraft>, message?: string) {
+  if (!target.handoff || !target.nativeForkDigest) return
+  target.handoff = { ...target.handoff, nativeFork: { ...target.handoff.nativeFork,
+    state: 'blocked', message: message || '请刷新历史摘要并重新核对原生分叉。' } }
+}
 function selectNativeFork(selected: boolean) {
   const offer = forkOffer.value
-  if (selected && (offer?.state !== 'available' || !offer.digest || !offer.model || !offer.projectIds?.length)) return
+  if (selected && (offer?.state !== 'available' || !offer.digest || !offer.model || !offer.projectIds?.includes(mainId.value))) return
   draft.value.nativeForkDigest = selected ? offer?.digest : undefined
   draft.value.error = ''
   resetCommandExecution()
@@ -564,12 +577,12 @@ async function createHandoff(job: JobRecord) {
       refreshProjects()
     ])
     if (!stillCurrent()) return
-    if (!scope) throw new Error(projectError.value || '请重新核对参与工程。')
+    if (result.runId !== runId || result.jobId !== job.id) throw new Error('交接摘要与所选来源轮次不一致。')
     const key = specId + ':handoff:' + result.jobId
     const target = getDraft(key)
     if (!target.handoff) {
-      target.selected = result.projectIds.filter((id) => id !== mainId.value && scope.projects.some((candidate) =>
-        candidate.id === id && candidate.status === 'ready' && candidate.head))
+      target.selected = result.projectIds.filter((id) => id !== mainId.value && (!scope || scope.projects.some((candidate) =>
+        candidate.id === id && candidate.status === 'ready' && candidate.head)))
       target.prompt ||= result.prompt
     }
     target.handoff = continuationPreview(result)
@@ -598,17 +611,21 @@ async function refreshHandoff() {
   handoffBusy.value = source.jobId
   handoffError.value = ''
   try {
-    const [result, scope] = await Promise.all([
+    const [result] = await Promise.all([
       getAgentContinuation(spec.value, source, request.signal),
       refreshProjects()
     ])
     if (alive && !request.signal.aborted && key === draftKey.value) {
-      if (!scope) throw new Error(projectError.value || '请重新核对参与工程。')
+      if (result.runId !== source.runId || result.jobId !== source.jobId) throw new Error('交接摘要与所选来源轮次不一致。')
       target.handoff = continuationPreview(result)
+      target.error = ''
       persistDraft(key)
     }
   } catch (cause) {
-    if (alive && !request.signal.aborted && key === draftKey.value) handoffError.value = errorMessage(cause)
+    if (alive && !request.signal.aborted && key === draftKey.value) {
+      handoffError.value = errorMessage(cause)
+      invalidateForkPreview(target, handoffError.value)
+    }
   } finally {
     if (handoffRequest === request) {
       handoffRequest = undefined
@@ -757,9 +774,14 @@ watch([spec, session], () => {
   reviewOpen.value = false
   focusActivity.value = undefined
   focusRoundSummaryOnClose = false
-  handoffRequest?.abort()
-  handoffError.value = ''
 })
+watch(draftKey, () => {
+  handoffRequest?.abort()
+  handoffRequest = undefined
+  handoffBusy.value = ''
+  handoffError.value = ''
+  if (nativeForkSelected.value) void refreshHandoff()
+}, { immediate: true })
 watch([() => context.value?.spec.id, () => context.value?.spec.active, spec], ([id, enabled, target]) => {
   if (id === target && enabled && !projectScope.value && !projectBusy.value) void refreshProjects()
 }, { immediate: true })
@@ -791,8 +813,8 @@ watch([() => context.value?.spec.id, session, readyForResume, selectedModel, set
   void getPiRuntime({ resumeRunId: id || undefined, selectedModel: selected }, controller.signal).then((result) => {
     if (controller.signal.aborted) return
     runtimeStatus.value = result
-    const model = result.available ? result.model ?? undefined : undefined
-    modelIssue.value = model ? modelRestrictions.value[piModelKey(model)] ?? '' : result.message || 'Pi 模型未就绪'
+    const model = piRuntimeAvailable(result) ? result.model ?? undefined : undefined
+    modelIssue.value = model ? modelRestrictions.value[piModelKey(model)] ?? '' : result.capabilities?.pi.reason || result.message || 'Pi 模型未就绪'
     readyModel.value = modelIssue.value ? undefined : model
   }).catch((cause) => {
     if (!controller.signal.aborted) modelIssue.value = errorMessage(cause)
@@ -810,7 +832,8 @@ watch(latest, (job) => {
   const saved = admittedDraft(job.id)
   if (!saved) return
   staleScopeJob = job.id
-  revokeStaleProjectGrants(saved.key, [mainId.value, ...(saved.text.selected ?? [])].filter(Boolean), error?.projectId)
+  if (saved.text.nativeForkDigest) void invalidateProjects()
+  else revokeStaleProjectGrants(saved.key, [mainId.value, ...(saved.text.selected ?? [])].filter(Boolean), error?.projectId)
 })
 onScopeDispose(() => {
   alive = false
@@ -857,8 +880,8 @@ async function settlePending(item: PendingPiRequest, job: JobRecord) {
     current.handoff?.runId === sourceRound?.runId &&
     (!item.input.expectedContinuationDigest || current.handoff?.summaryDigest === item.input.expectedContinuationDigest)
   const saved = started || rememberAdmitted(job.id, item.key, {
-    prompt: item.input.prompt, citations: excerpts, handoff: current.handoff,
-    selected: fork ? current.selected : expectedSelected, ciRecovery: expectedCi,
+    prompt: item.input.prompt, citations: fork ? current.citations : excerpts, handoff: current.handoff,
+    selected: fork ? current.selected : expectedSelected, ciRecovery: fork ? ciSelection(current) : expectedCi,
     nativeForkDigest: fork?.expectedForkDigest
   })
   if (saved && submittedDraftMatches) {
@@ -970,10 +993,18 @@ async function dispatch(item: PendingPiRequest) {
     }
     setPending(item.key)
     current.error = errorMessage(cause)
-    if (draftKey.value === item.key && projectScopeChanged(cause.context.projectScopeChanged)) {
-      revokeStaleProjectGrants(item.key, item.input.projectAccess?.map((grant) => grant.projectId) ?? [], cause.context.projectId)
-      hostConfirmationStale.value = item.input.commandExecution === 'host'
-      openSettings()
+    const scopeChanged = projectScopeChanged(cause.context.projectScopeChanged)
+    if (item.input.nativeForkSource && (cause.context.nativeForkIssue || scopeChanged)) {
+      invalidateForkPreview(current, current.error)
+      persistDraft(item.key)
+    }
+    if (draftKey.value === item.key && scopeChanged) {
+      if (item.input.nativeForkSource) void invalidateProjects()
+      else {
+        revokeStaleProjectGrants(item.key, item.input.projectAccess?.map((grant) => grant.projectId) ?? [], cause.context.projectId)
+        hostConfirmationStale.value = item.input.commandExecution === 'host'
+        openSettings()
+      }
     }
     if (draftKey.value === item.key && cause.context.piIssue) {
       readyModel.value = undefined
@@ -1161,6 +1192,13 @@ function onEnter(event: KeyboardEvent) {
         </ControlTooltip>
         <Folder :size="16" class="pi-heading-icon" />
         <h1 :title="title">{{ title }}</h1>
+        <ControlTooltip v-if="terminalOpen" label="终端">
+          <Button variant="ghost" size="icon" as-child>
+            <a :href="terminalOpen" aria-label="终端" draggable="false">
+              <Terminal :size="18" aria-hidden="true" />
+            </a>
+          </Button>
+        </ControlTooltip>
         <ControlTooltip label="会话摘要">
           <Button type="button" variant="ghost" size="icon" aria-label="会话摘要" class="pi-summary-toggle"
             :aria-expanded="inlineSummary ? summaryOpen : summaryDrawer" @click="toggleSummary">
@@ -1198,7 +1236,7 @@ function onEnter(event: KeyboardEvent) {
         <Button v-if="recoverableDraft" type="button" variant="ghost" size="sm" :disabled="projectBusy" @click="restoreSubmittedDraft">
           <LoadingIndicator :active="projectBusy" />恢复任务草稿
         </Button>
-        <RouterLink v-if="latest" :to="'/jobs/' + latest.id">查看执行记录</RouterLink>
+        <RouterLink v-if="latest" :to="{ path: '/jobs/' + latest.id, query: { detail: '1' } }">查看执行记录</RouterLink>
       </div>
       <div v-if="pending" class="pi-top-note" role="status">
         {{ sending ? '正在提交 Pi 任务…' : receiptBusy ? '正在核对受理记录…' : receiptError || '本次请求的受理结果待核对。' }}
@@ -1385,8 +1423,8 @@ function onEnter(event: KeyboardEvent) {
           参与工程或检出已变化，请重新确认本机执行。
           <Button type="button" variant="ghost" size="sm" @click="commandExecution = 'sandbox'">改用沙箱离线执行</Button>
         </p>
-        <p v-if="draft.error || storageIssue || (!active && (commandCapabilityIssue || (modelIssue && !readyModel)))" class="pi-composer-error" role="status">
-          {{ draft.error || storageIssue || commandCapabilityIssue || modelIssue }}
+        <p v-if="draft.error || storageIssue || (!active && (nativeForkScopeIssue || commandCapabilityIssue || (modelIssue && !readyModel)))" class="pi-composer-error" role="status">
+          {{ draft.error || storageIssue || nativeForkScopeIssue || commandCapabilityIssue || modelIssue }}
         </p>
         <p v-if="pendingEnqueue" class="pi-composer-error" role="status">
           {{ queueBusy ? '正在读取队列…' : queueError || '原入队请求待核对。' }}
@@ -1474,8 +1512,7 @@ function onEnter(event: KeyboardEvent) {
             v-model:blocked-reason="modelIssue" v-model:model-restrictions="modelRestrictions"
             v-model:selected="draft.selected" v-model:project-modes="projectModes"
             v-model:stage="selectedStage" v-model:command-execution="commandExecution"
-            :command-unavailable="commandUnavailable" :command-unavailable-reason="commandUnavailableReason"
-            :host-selectable="!!hostScopeKey && !projectBusy && !projectError"
+            :command-unavailable="commandUnavailable" :host-selectable="hostSelectable"
             :ci-attachment="draft.ciAttachment" :ci-recovery="draft.ciRecovery" @update:ci-attachment="changeCiAttachment"
             :spec-id="spec" :main-id="mainId" :projects="context.projects" :project-scope="projectScope"
             :project-busy="projectBusy" :project-error="projectError" :ci-issue="ciIssue"

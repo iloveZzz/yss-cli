@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { computed, onBeforeUnmount, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'
@@ -20,6 +21,7 @@ import {
   answerJob,
   terminalJob,
   objectValue,
+  piCommandCapability,
   piCommandExecutionLabels,
   piPhaseLabels,
   readableValue,
@@ -70,17 +72,15 @@ const readOnly = shallowRef(true)
 const allowCommands = shallowRef(false)
 const readyModel = shallowRef<PiModel>()
 const continuationRuntime = shallowRef<PiRuntimeStatus>()
-const continuationCommandsUnavailable = computed(() => {
-  const runtime = continuationRuntime.value
-  return runtime?.capabilities ? runtime.capabilities.sandbox.state !== 'available' : runtime?.sandboxReady === false
-})
-const continuationCommandsMessage = computed(() =>
-  continuationRuntime.value?.capabilities?.sandbox.reason ?? continuationRuntime.value?.sandboxMessage)
+const continuationSandbox = computed(() => continuationRuntime.value && piCommandCapability(continuationRuntime.value, 'sandbox'))
+const continuationCommandsUnavailable = computed(() => continuationSandbox.value?.state !== 'available')
+const continuationCommandsMessage = computed(() => continuationSandbox.value?.reason ?? undefined)
 watch(continuationOpen, (open) => {
   if (!open) {
     readOnly.value = true
     allowCommands.value = false
     readyModel.value = undefined
+    continuationRuntime.value = undefined
   }
 })
 const stopRequestedFor = shallowRef('')
@@ -107,10 +107,14 @@ function clearActivityTarget() {
   delete query.activity
   void router.replace({ query: { ...query, detail: '1', tab: 'log' } })
 }
-const eventStream = useJobEvents(jobId, scheduleRefresh)
+const hasPiBinding = computed(() => job.value?.kind === 'agent' && !!job.value.agentRunId && !!job.value.agentSpecId)
+const eventStream = useJobEvents(jobId, scheduleRefresh, { knownPiJob: hasPiBinding })
 const conversation = eventStream.conversation
 const conversationPanel = useTemplateRef<InstanceType<typeof JobConversation>>('conversationPanel')
-const isPi = computed(() => eventStream.latest.value?.host === 'pi')
+const isPi = computed(() => {
+  const host = eventStream.latest.value?.host ?? run.value?.host
+  return host ? host === 'pi' : hasPiBinding.value
+})
 watch(tab, (value) => {
   if (value === 'files') filesVisited.value = true
 })
@@ -121,10 +125,12 @@ const legacyInputs = computed(() =>
 const runId = computed(
   () => job.value?.agentRunId || eventStream.latest.value?.runId || String(objectValue(job.value?.result).runId ?? '')
 )
-const piRoute = computed(() => isPi.value && run.value && job.value && {
-  name: 'pi-workspace',
-  params: { specId: run.value.specId },
-  query: { session: run.value.id, round: job.value.id }
+const piRoute = computed(() => {
+  const item = job.value
+  const specId = item?.agentSpecId ?? run.value?.specId
+  const session = item?.agentRunId ?? run.value?.id
+  if (!isPi.value || item?.id !== jobId.value || !specId || !session) return
+  return { name: 'pi-workspace', params: { specId }, query: { session, round: item.id } }
 })
 watch(piRoute, (target) => {
   if (target && !showExecutionDetail.value) void router.replace(target)
@@ -187,6 +193,7 @@ async function loadJobResults(target: string, own: number, signal: AbortSignal) 
       if (!active || target !== jobId.value || own !== refreshGeneration) return
       job.value = value
       const session = runId.value
+      if (run.value?.id !== session) run.value = undefined
       if (session) {
         try {
           const current = await getAgentRun(session, signal)
@@ -197,8 +204,9 @@ async function loadJobResults(target: string, own: number, signal: AbortSignal) 
           }
           run.value = current
         } catch (cause) {
+          if (!active || own !== refreshGeneration) return
+          run.value = undefined
           if (!(cause instanceof ApiError && cause.status === 404)) throw cause
-          if (active && own === refreshGeneration) run.value = undefined
         }
       }
     } else {
@@ -372,9 +380,11 @@ async function resume() {
 <template>
   <div class="page-heading jobs-heading">
     <div>
-      <RouterLink v-if="jobId" to="/jobs" class="back-link">← 执行记录</RouterLink>
-      <RouterLink v-if="piRoute && showExecutionDetail" :to="piRoute" class="back-link ml-3">打开 Pi 会话</RouterLink>
-      <h1>{{ jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录' }}</h1>
+      <WorkbenchBreadcrumb
+        :title="jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录'"
+        :ancestors="jobId ? [{ label: '执行记录', to: '/jobs' }] : []"
+      />
+      <RouterLink v-if="piRoute && showExecutionDetail" :to="piRoute" class="text-link mt-1 inline-block">打开 Pi 会话</RouterLink>
     </div>
     <Button type="button" variant="outline" :aria-disabled="loading" @click="!loading && refresh()">
       <LoadingIndicator v-if="job" :active="loading" />
@@ -516,7 +526,8 @@ async function resume() {
         </JobDisclosure>
       </JobDisclosure>
     </section>
-    <nav v-if="conversation.page.value?.previousJobId || (run && run.jobId !== job.id)" class="job-related" aria-label="相关执行">
+    <nav v-if="piRoute || conversation.page.value?.previousJobId || (run && run.jobId !== job.id)" class="job-related" aria-label="相关执行">
+      <RouterLink v-if="piRoute" :to="piRoute">在 Pi 工作区查看轮次</RouterLink>
       <RouterLink
         v-if="conversation.page.value?.previousJobId"
         :to="{ path: `/jobs/${conversation.page.value.previousJobId}`, query: { run: runId } }"
@@ -627,9 +638,6 @@ async function resume() {
 }
 .job-pending {
   margin-bottom: 12px;
-}
-.jobs-heading h1 {
-  overflow-wrap: anywhere;
 }
 .jobs-heading button[aria-disabled='true'] {
   opacity: 0.65;

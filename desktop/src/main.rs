@@ -4,6 +4,8 @@
 mod macos_navigation;
 #[cfg(target_os = "macos")]
 mod menu_bar_panel;
+mod terminal;
+mod terminal_panel;
 mod tools;
 mod update;
 mod window_placement;
@@ -35,15 +37,20 @@ use tauri::{
     webview::NewWindowResponse,
 };
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
 use tauri_plugin_notification::NotificationExt;
 use url::Url;
 
 const MAX_RESPONSE: u64 = 1024 * 1024;
 const DESKTOP_CONTROL_PATH: &str = "/.yss-desktop/";
+const DESKTOP_OVERVIEW_PATH: &str = "/api/desktop/overview";
 static MAIN_VIEW: Mutex<()> = Mutex::new(());
 static WORKBENCH_VIEW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static WORKBENCH_FROZEN: AtomicBool = AtomicBool::new(false);
+static EXITING: AtomicBool = AtomicBool::new(false);
+static EXIT_CONFIRMATION: AtomicBool = AtomicBool::new(false);
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Config {
@@ -98,7 +105,6 @@ struct State {
     connection: Option<Connection>,
     message: String,
     service_version: Option<String>,
-    exiting: bool,
     notifications: BTreeMap<i32, (String, String)>,
     update: Option<update::Release>,
     update_message: String,
@@ -306,7 +312,7 @@ fn challenge(client: &Client, session: &Session) -> Result<(), String> {
     mac.verify_slice(&decoded)
         .map_err(|_| "工作台身份验证失败，请检查端口和会话".into())
 }
-fn get(session: &Session, path: &str) -> Result<Value, String> {
+fn get_response(session: &Session, path: &str) -> Result<Response, String> {
     validate_live_session(session)?;
     let client = client()?;
     challenge(&client, session)?;
@@ -317,9 +323,10 @@ fn get(session: &Session, path: &str) -> Result<Value, String> {
     if path == "/api/system" {
         request = request.timeout(Duration::from_secs(60));
     }
-    let response = request
-        .send()
-        .map_err(|_| "无法连接工作台服务".to_owned())?;
+    request.send().map_err(|_| "无法连接工作台服务".to_owned())
+}
+fn get(session: &Session, path: &str) -> Result<Value, String> {
+    let response = get_response(session, path)?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err("当前工作台版本尚不支持桌面连接，请先通过原入口处理运行中的作业并升级".into());
     }
@@ -476,9 +483,22 @@ fn main_window(app: &tauri::AppHandle) -> tauri::Result<Window> {
 }
 
 fn show_main_view(window: &Window, view: &Webview) -> tauri::Result<()> {
+    if view.label() == "workbench"
+        && terminal_panel::requested(window.app_handle())
+        && let Err(error) = terminal::attach(window)
+    {
+        let _ = terminal_panel::set_visible(window.app_handle(), false);
+        window
+            .app_handle()
+            .dialog()
+            .message(error.to_string())
+            .title("无法恢复终端面板")
+            .kind(MessageDialogKind::Error)
+            .show(|_| {});
+    }
     view.show()?;
     for sibling in window.webviews() {
-        if sibling.label() != view.label() {
+        if sibling.label() != view.label() && !terminal::is_renderer(&sibling) {
             if sibling.label() == "settings" {
                 let _ = sibling.eval("window.dispatchEvent(new Event('yss:settings-hidden'));");
             }
@@ -488,13 +508,20 @@ fn show_main_view(window: &Window, view: &Webview) -> tauri::Result<()> {
     if matches!(window.is_visible(), Ok(false)) {
         let _ = window_placement::keep_on_screen(window);
     }
+    WORKBENCH_VIEW_ACTIVE.store(view.label() == "workbench", Ordering::Release);
+    let layout = terminal_panel::apply(window.app_handle(), window)?;
     window.show()?;
     if window.is_minimized()? {
         window.unminimize()?;
     }
     window.set_focus()?;
-    view.set_focus()?;
-    WORKBENCH_VIEW_ACTIVE.store(view.label() == "workbench", Ordering::Relaxed);
+    if layout.is_maximized()
+        && let Some(terminal) = terminal::webview(window.app_handle())
+    {
+        terminal.set_focus()?;
+    } else {
+        view.set_focus()?;
+    }
     Ok(())
 }
 
@@ -600,42 +627,133 @@ fn handle_desktop_control(app: &tauri::AppHandle, target: &Url, settings_url: &U
     }
     true
 }
+
+enum TerminalControl<'a> {
+    Project(&'a str),
+    Open,
+    RailWidth(u16),
+}
+
+fn terminal_control<'a>(target: &'a Url, control: &Url) -> Option<TerminalControl<'a>> {
+    if target.origin() != control.origin()
+        || target.path() != control.path()
+        || target.fragment().is_some()
+        || !target.username().is_empty()
+        || target.password().is_some()
+    {
+        return None;
+    }
+    let query = target.query()?;
+    if query == "action=open" {
+        return Some(TerminalControl::Open);
+    }
+    if let Some(width) = query.strip_prefix("railWidth=") {
+        return (width.len() <= 3 && width.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| width.parse::<u16>().ok())
+            .flatten()
+            .filter(|width| *width <= 512)
+            .map(TerminalControl::RailWidth);
+    }
+    let id = query.strip_prefix("projectId=")?;
+    (id.len() == 32
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    .then_some(TerminalControl::Project(id))
+}
+
 fn open_window(
     app: &tauri::AppHandle,
     connection: &Connection,
     visible: bool,
 ) -> Result<(), String> {
+    open_window_at(app, connection, visible, None)
+}
+
+fn open_window_at(
+    app: &tauri::AppHandle,
+    connection: &Connection,
+    visible: bool,
+    spec_route: Option<&str>,
+) -> Result<(), String> {
     let _layout = MAIN_VIEW.lock().map_err(|_| "主窗口不可用")?;
     let window = main_window(app).map_err(|_| "无法创建主窗口")?;
     if let Some(view) = app.get_webview("workbench") {
+        if spec_route.is_some() {
+            let service = Url::parse(&connection.session.origin).map_err(|_| "工作台地址无效")?;
+            let target = view.url().map_err(|_| "工作台尚未就绪，请稍后重试")?;
+            if target.origin() != service.origin() || target.path() != "/" {
+                return Err("工作台尚未就绪，请稍后重试".into());
+            }
+        }
         if visible {
             show_main_view(&window, &view).map_err(|_| "无法显示工作台")?;
+        }
+        if let Some(route) = spec_route {
+            view.eval(format!(
+                "window.__YSS_DESKTOP_SPEC_ROUTE__ = {}; window.dispatchEvent(new Event('yss:desktop-spec-navigate'));",
+                json!(route),
+            ))
+            .map_err(|_| "无法打开指定的 Spec，请重试")?;
         }
         return Ok(());
     }
     let mut url = Url::parse(&connection.session.origin).map_err(|_| "工作台地址无效")?;
     url.query_pairs_mut()
         .append_pair("desktopEditor", &connection.editor_id);
+    if let Some(route) = spec_route {
+        url.query_pairs_mut().append_pair("desktopSpecRoute", route);
+    }
     url.set_fragment(Some(&format!("token={}", connection.session.token)));
     let allowed_origin = url.origin();
     let settings_url = url
         .join(&format!("{DESKTOP_CONTROL_PATH}settings/{}", random_id()?))
         .map_err(|_| "桌面设置地址无效")?;
-    // Keep the control link in the workbench's top document and accept only its exact URL.
-    let init_settings_link = format!(
+    let terminal_url = url
+        .join(&format!("{DESKTOP_CONTROL_PATH}terminal/{}", random_id()?))
+        .map_err(|_| "桌面终端地址无效")?;
+    // Control links belong to the workbench's top document.
+    let init_control_links = format!(
         "if (window === window.top && location.origin === {} && location.pathname === '/') {{\
           Object.defineProperty(window, '__YSS_DESKTOP_SETTINGS_URL__', {{ value: {} }});\
+          Object.defineProperty(window, '__YSS_DESKTOP_TERMINAL_URL__', {{ value: {} }});\
         }}",
         json!(allowed_origin.ascii_serialization()),
         json!(settings_url.as_str()),
+        json!(terminal_url.as_str()),
     );
+    let terminal_rail = terminal_panel::register_workbench_rail(app);
+    let client_id = connection.client_id.clone();
     let navigation_app = app.clone();
     let navigation_settings_url = settings_url.clone();
     let new_window_app = app.clone();
     let builder = WebviewBuilder::new("workbench", WebviewUrl::External(url))
-        .auto_resize()
-        .initialization_script(init_settings_link)
+        .initialization_script(init_control_links)
         .on_navigation(move |target| {
+            if let Some(control) = terminal_control(target, &terminal_url) {
+                if !WORKBENCH_FROZEN.load(Ordering::SeqCst) && !EXITING.load(Ordering::Acquire) {
+                    let app = navigation_app.clone();
+                    let client_id = client_id.clone();
+                    let project_id = match control {
+                        TerminalControl::Project(id) => Some(id.to_owned()),
+                        TerminalControl::Open => None,
+                        TerminalControl::RailWidth(width) => {
+                            terminal_panel::queue_rail_width(&app, &terminal_rail, width);
+                            return false;
+                        }
+                    };
+                    thread::spawn(move || {
+                        if let Err(error) = terminal::show(&app, project_id, client_id) {
+                            app.dialog()
+                                .message(error)
+                                .title("无法打开终端")
+                                .kind(MessageDialogKind::Error)
+                                .show(|_| {});
+                        }
+                    });
+                }
+                return false;
+            }
             if handle_desktop_control(&navigation_app, target, &navigation_settings_url) {
                 return false;
             }
@@ -773,50 +891,96 @@ fn freeze_and_flush(app: &tauri::AppHandle, conn: &Connection) -> Result<FrozenW
     Err("等待草稿保存超时，请回到工作台重试".into())
 }
 
-fn detach_or_stop(conn: &mut Connection) -> Result<(), String> {
-    if conn.child.is_some() {
+struct DesktopLease {
+    session: Session,
+    client_id: String,
+    id: String,
+    shutdown_requested: bool,
+}
+
+impl DesktopLease {
+    fn acquire(conn: &Connection) -> Result<Self, String> {
+        // The desktop state lock pauses heartbeats during coordination.
+        // Renew the attachment so it outlives the lease and terminal cleanup.
+        let attachment = post(
+            &conn.session,
+            "/api/desktop/attach",
+            json!({"clientId":conn.client_id,"managedOwner":conn.managed_owner}),
+        )?;
+        if conn.child.is_some() && attachment.get("owner").and_then(Value::as_bool) != Some(true) {
+            return Err("无法确认工作台服务所有权，请重新连接".into());
+        }
         let lease = post(
             &conn.session,
             "/api/desktop/quiesce",
             json!({"clientId":conn.client_id}),
         )?;
-        let lease_id = lease
+        let id = lease
             .get("leaseId")
             .and_then(Value::as_str)
             .ok_or("工作台未返回有效协调租约")?;
-        if let Err(error) = post(
-            &conn.session,
-            "/api/desktop/shutdown",
-            json!({"clientId":conn.client_id,"leaseId":lease_id,"managedOwner":conn.managed_owner}),
-        ) {
-            let _ = post(
-                &conn.session,
-                "/api/desktop/release",
-                json!({"clientId":conn.client_id,"leaseId":lease_id}),
-            );
-            return Err(error);
-        }
-        let until = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < until {
-            if conn
-                .child
-                .as_mut()
-                .and_then(|child| child.try_wait().ok())
-                .flatten()
-                .is_some()
-            {
-                return Ok(());
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        return Err("工作台正在停止，请稍后重试；未强制终止进程".into());
+        Ok(Self {
+            session: conn.session.clone(),
+            client_id: conn.client_id.clone(),
+            id: id.to_owned(),
+            shutdown_requested: false,
+        })
     }
+
+    fn request_shutdown(mut self, managed_owner: &str) -> Result<(), String> {
+        post(
+            &self.session,
+            "/api/desktop/shutdown",
+            json!({"clientId":self.client_id,"leaseId":self.id,"managedOwner":managed_owner}),
+        )?;
+        self.shutdown_requested = true;
+        Ok(())
+    }
+}
+
+impl Drop for DesktopLease {
+    fn drop(&mut self) {
+        if !self.shutdown_requested {
+            let _ = post(
+                &self.session,
+                "/api/desktop/release",
+                json!({"clientId":self.client_id,"leaseId":self.id}),
+            );
+        }
+    }
+}
+
+fn detach(conn: &Connection) -> Result<(), String> {
     post(
         &conn.session,
         "/api/desktop/detach",
         json!({"clientId":conn.client_id}),
     )?;
     Ok(())
+}
+
+fn detach_or_stop(app: &tauri::AppHandle, conn: &mut Connection) -> Result<(), String> {
+    if conn.child.is_none() {
+        terminal::shutdown(app)?;
+        return detach(conn);
+    }
+    let managed_owner = conn
+        .managed_owner
+        .as_deref()
+        .ok_or("无法确认工作台服务所有权，请重新连接")?;
+    // Hold admission closed between checking for work and stopping our service.
+    let lease = DesktopLease::acquire(conn)?;
+    terminal::shutdown(app)?;
+    lease.request_shutdown(managed_owner)?;
+    let child = conn.child.as_mut().expect("owned service child");
+    let until = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < until {
+        if child.try_wait().ok().flatten().is_some() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Err("工作台正在停止，请稍后重试；未强制终止进程".into())
 }
 fn stop_jobs(conn: &Connection) -> Result<(), String> {
     post(
@@ -980,6 +1144,26 @@ fn cleanup_failed_spawn(child: &mut Child, data_dir: &Path, owner: &str) -> bool
     }
     false
 }
+fn retire_workbench_views(app: &tauri::AppHandle) -> Result<(), String> {
+    let _layout = MAIN_VIEW.lock().map_err(|_| "主窗口不可用")?;
+    let terminal_retired = terminal::retire_renderer(app);
+    if let Some(view) = app.get_webview("workbench") {
+        view.close().map_err(|_| "无法关闭原工作台窗口")?;
+    }
+    WORKBENCH_VIEW_ACTIVE.store(false, Ordering::Release);
+    terminal_retired
+}
+
+fn retire_connection(app: &tauri::AppHandle, state: &mut State) -> Result<(), String> {
+    let conn = state.connection.as_mut().ok_or("工作台连接已中断")?;
+    detach_or_stop(app, conn)?;
+    state.connection = None;
+    retire_workbench_views(app).map_err(|error| {
+        state.message = format!("{error}，请重新连接工作台");
+        state.message.clone()
+    })
+}
+
 fn clear_exited_service(app: &tauri::AppHandle, state: &mut State) -> Result<(), String> {
     let owned_exited = state
         .connection
@@ -989,10 +1173,8 @@ fn clear_exited_service(app: &tauri::AppHandle, state: &mut State) -> Result<(),
         .flatten()
         .is_some();
     if owned_exited {
-        if let Some(view) = app.get_webview("workbench") {
-            view.close()
-                .map_err(|_| "工作台服务已退出，但原视图未关闭。请重启桌面应用。")?;
-        }
+        terminal::shutdown(app)?;
+        retire_workbench_views(app)?;
         state.connection = None;
     }
     Ok(())
@@ -1005,10 +1187,16 @@ fn connect(
 ) -> Result<(), String> {
     let state = app.state::<Mutex<State>>();
     let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
+    if EXITING.load(Ordering::Acquire) {
+        return Err("桌面应用正在退出".into());
+    }
     if tools::updating() {
         return Err("正在更新本机工具，请等待更新结束后连接".into());
     }
     clear_exited_service(app, &mut state)?;
+    if state.connection.is_none() {
+        retire_workbench_views(app)?;
+    }
     let mut config = read_config()?;
     let remembered = config.last_data_dir.is_some();
     let dir = requested
@@ -1264,26 +1452,14 @@ fn connect(
     } else {
         None
     };
-    if let Some(current) = state.connection.as_mut() {
-        if let Err(error) = detach_or_stop(current) {
-            if !cleanup_staged(&mut conn) {
-                return Err(format!(
-                    "{error}；新启动的工作台状态未知，已保留，请检查后重试"
-                ));
-            }
-            return Err(error);
-        }
-        if let Some(view) = app.get_webview("workbench")
-            && view.close().is_err()
-        {
-            let cleaned = cleanup_staged(&mut conn);
-            state.connection = None;
-            return Err(if cleaned {
-                "无法关闭原工作台窗口，请重试".into()
-            } else {
-                "无法关闭原工作台窗口；新工作台状态未知，已保留，请检查后重试".into()
-            });
-        }
+    if state.connection.is_some()
+        && let Err(error) = retire_connection(app, &mut state)
+    {
+        return Err(if cleanup_staged(&mut conn) {
+            error
+        } else {
+            format!("{error}；新工作台状态未知，已保留，请检查后重试")
+        });
     }
     config.last_data_dir = Some(canonical.clone());
     config.editors.insert(canonical.clone(), editor_id);
@@ -1311,6 +1487,8 @@ fn connect(
         state.connection.as_ref().expect("connection set"),
         visible,
     )?;
+    drop(state);
+    terminal::connection_changed(app);
     Ok(())
 }
 #[tauri::command]
@@ -1348,10 +1526,30 @@ async fn desktop_status(app: tauri::AppHandle) -> Result<Status, String> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MenuBarActivity {
-    running: u64,
-    attention: u64,
-    queued: u64,
+struct MenuBarProjectCounts {
+    total: u64,
+    active: u64,
+    inactive: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MenuBarMergeRequestCounts {
+    github: u64,
+    gitlab: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MenuBarSpecOverview {
+    verification: String,
+    buckets: BTreeMap<String, MenuBarSpecBucket>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MenuBarSpecBucket {
+    count: u64,
+    #[serde(skip_serializing)]
+    spec_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1359,8 +1557,24 @@ struct MenuBarActivity {
 struct MenuBarSnapshot {
     connection: &'static str,
     service_version: Option<String>,
-    activity: Option<MenuBarActivity>,
+    specs: Option<MenuBarSpecOverview>,
+    projects: Option<MenuBarProjectCounts>,
+    merge_requests: Option<MenuBarMergeRequestCounts>,
     message: Option<&'static str>,
+}
+
+fn get_menu_bar_overview(session: &Session) -> Result<Value, String> {
+    let response = get_response(session, DESKTOP_OVERVIEW_PATH)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return get(session, "/api/desktop/activity");
+    }
+    json_response(response)
+}
+
+fn menu_bar_specs(payload: &Value) -> Option<MenuBarSpecOverview> {
+    payload
+        .get("specs")
+        .and_then(|value| MenuBarSpecOverview::deserialize(value).ok())
 }
 
 #[tauri::command]
@@ -1388,13 +1602,20 @@ async fn menubar_snapshot(window: tauri::WebviewWindow) -> Result<MenuBarSnapsho
             return Ok(MenuBarSnapshot {
                 connection: "disconnected",
                 service_version: None,
-                activity: None,
+                specs: None,
+                projects: None,
+                merge_requests: None,
                 message: Some("在桌面设置中连接工作台。"),
             });
         };
-        let activity = get(&session, "/api/desktop/activity")
-            .ok()
-            .and_then(|value| serde_json::from_value(value).ok());
+        let payload = get_menu_bar_overview(&session).unwrap_or_default();
+        let specs = menu_bar_specs(&payload);
+        let projects = payload
+            .get("projects")
+            .and_then(|value| MenuBarProjectCounts::deserialize(value).ok());
+        let merge_requests = payload
+            .get("mergeRequests")
+            .and_then(|value| MenuBarMergeRequestCounts::deserialize(value).ok());
         let state = app.state::<Mutex<State>>();
         let current = state
             .try_lock()
@@ -1409,8 +1630,10 @@ async fn menubar_snapshot(window: tauri::WebviewWindow) -> Result<MenuBarSnapsho
         Ok(MenuBarSnapshot {
             connection,
             service_version,
-            message: activity.is_none().then_some("暂时无法读取作业状态。"),
-            activity,
+            message: specs.is_none().then_some("暂时无法读取 Spec 状态。"),
+            specs,
+            projects,
+            merge_requests,
         })
     })
     .await
@@ -1424,15 +1647,118 @@ enum MenuBarAction {
     Settings,
     Exit,
     Dismiss,
+    SpecOverview,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum MenuBarSpecScope {
+    PendingConfirmation,
+    PendingVerification,
+    PendingHandling,
+    Research,
+    Analysis,
+    Spec,
+    Prototype,
+    Handoff,
+    Implementation,
+    Verification,
+    Delivery,
+}
+
+impl MenuBarSpecScope {
+    fn key(self) -> &'static str {
+        match self {
+            Self::PendingConfirmation => "pendingConfirmation",
+            Self::PendingVerification => "pendingVerification",
+            Self::PendingHandling => "pendingHandling",
+            Self::Research => "research",
+            Self::Analysis => "analysis",
+            Self::Spec => "spec",
+            Self::Prototype => "prototype",
+            Self::Handoff => "handoff",
+            Self::Implementation => "implementation",
+            Self::Verification => "verification",
+            Self::Delivery => "delivery",
+        }
+    }
+
+    fn route(self, bucket: &MenuBarSpecBucket) -> Result<String, String> {
+        if bucket.count == 0 {
+            return Err("这个范围目前没有 Spec，请刷新概览".into());
+        }
+        if bucket.count == 1 {
+            let id = bucket
+                .spec_id
+                .as_deref()
+                .filter(|id| {
+                    id.len() == 32
+                        && id
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                })
+                .ok_or("无法定位这份 Spec，请刷新概览")?;
+            return Ok(match self {
+                Self::PendingConfirmation => format!("/specs/{id}?tab=content&category=ready"),
+                Self::PendingVerification => format!("/specs/{id}?tab=lifecycle"),
+                Self::PendingHandling => format!("/specs/{id}"),
+                stage => format!("/specs/{id}?tab=lifecycle&stage={}", stage.key()),
+            });
+        }
+        Ok(match self {
+            Self::PendingConfirmation => "/specs?reminder=ready&showClosed=true".into(),
+            Self::PendingVerification => "/specs?attention=unverified&attention=needsReview&attention=awaitingConfirmation&showClosed=true".into(),
+            Self::PendingHandling => "/specs?status=todo".into(),
+            stage => format!("/specs?stage={}", stage.key()),
+        })
+    }
+}
+
+fn open_menu_bar_specs(app: &tauri::AppHandle, scope: MenuBarSpecScope) -> Result<(), String> {
+    let state = app.state::<Mutex<State>>();
+    let session = state
+        .try_lock()
+        .map_err(|_| "工作台正在处理其他操作，请稍后重试")?
+        .connection
+        .as_ref()
+        .ok_or("请先连接工作台服务")?
+        .session
+        .clone();
+    let payload =
+        get(&session, DESKTOP_OVERVIEW_PATH).map_err(|_| "暂时无法读取 Spec 状态，请刷新重试")?;
+    let overview = menu_bar_specs(&payload)
+        .filter(|overview| overview.verification == "current")
+        .ok_or("Spec 状态正在核实，请稍后重试")?;
+    let bucket = overview.buckets.get(scope.key()).ok_or("Spec 状态不可用")?;
+    let route = scope.route(bucket)?;
+    let state = state
+        .try_lock()
+        .map_err(|_| "工作台正在处理其他操作，请稍后重试")?;
+    let connection = state
+        .connection
+        .as_ref()
+        .filter(|connection| connection.session == session)
+        .ok_or("工作台连接已变化，请刷新概览")?;
+    if WORKBENCH_FROZEN.load(Ordering::SeqCst) || EXITING.load(Ordering::Acquire) {
+        return Err("工作台正在处理其他操作，请稍后重试".into());
+    }
+    open_window_at(app, connection, true, Some(&route))
 }
 
 #[tauri::command]
-async fn menubar_action(window: tauri::WebviewWindow, action: MenuBarAction) -> Result<(), String> {
+async fn menubar_action(
+    window: tauri::WebviewWindow,
+    action: MenuBarAction,
+    scope: Option<MenuBarSpecScope>,
+) -> Result<(), String> {
     if window.label() != "menu-bar" {
         return Err("菜单栏面板不可用".into());
     }
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        if matches!(action, MenuBarAction::SpecOverview) {
+            open_menu_bar_specs(&app, scope.ok_or("未指定 Spec 统计范围")?)?;
+        }
         #[cfg(target_os = "macos")]
         menu_bar_panel::hide(&app).map_err(|_| "无法收起菜单栏面板")?;
         match action {
@@ -1441,8 +1767,11 @@ async fn menubar_action(window: tauri::WebviewWindow, action: MenuBarAction) -> 
                 Ok(())
             }
             MenuBarAction::Settings => show_settings(&app),
-            MenuBarAction::Exit => open_desktop_settings(&app, true),
-            MenuBarAction::Dismiss => Ok(()),
+            MenuBarAction::Exit => {
+                request_desktop_exit(app);
+                Ok(())
+            }
+            MenuBarAction::Dismiss | MenuBarAction::SpecOverview => Ok(()),
         }
     })
     .await
@@ -1596,43 +1925,30 @@ async fn desktop_install_update(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Mutex<State>>();
         let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
-        let mut external_lease: Option<(Session, String, String)> = None;
-        let mut stopped_owned = false;
-        let coordinated = (|| -> Result<FrozenWorkbench, String> {
-            if let Some(conn) = state.connection.as_mut() {
-                let guard = freeze_and_flush(&app, conn)?;
-                if conn.child.is_some() {
-                    detach_or_stop(conn)?;
-                    stopped_owned = true;
-                } else {
-                    let lease = post(
-                        &conn.session,
-                        "/api/desktop/quiesce",
-                        json!({"clientId":conn.client_id}),
-                    )?;
-                    let lease_id = lease
-                        .get("leaseId")
-                        .and_then(Value::as_str)
-                        .ok_or("工作台未返回有效协调租约")?
-                        .to_owned();
-                    external_lease = Some((conn.session.clone(), conn.client_id.clone(), lease_id));
-                }
-                Ok(guard)
+        let coordinated = (|| -> Result<(FrozenWorkbench, Option<DesktopLease>), String> {
+            let conn = state
+                .connection
+                .as_ref()
+                .ok_or("工作台连接已中断，请重新连接后安装更新")?;
+            let guard = freeze_and_flush(&app, conn)?;
+            let external_lease = if conn.child.is_some() {
+                retire_connection(&app, &mut state)?;
+                None
             } else {
-                Err("工作台连接已中断，请重新连接后安装更新".into())
-            }
+                let lease = DesktopLease::acquire(conn)?;
+                terminal::shutdown(&app)?;
+                Some(lease)
+            };
+            Ok((guard, external_lease))
         })();
-        let _freeze = match coordinated {
-            Ok(guard) => guard,
+        let (_freeze, external_lease) = match coordinated {
+            Ok(guards) => guards,
             Err(error) => {
                 state.update_checking = false;
                 state.update_message = format!("暂不能安装更新：{error}");
                 return Err(error);
             }
         };
-        if stopped_owned {
-            state.connection = None;
-        }
         // On Windows the updater terminates this process after launching the
         // installer. An external service remains alive and releases its lease
         // through the server-side TTL if this process can no longer release it.
@@ -1640,30 +1956,22 @@ async fn desktop_install_update(app: tauri::AppHandle) -> Result<(), String> {
             window_placement::save(&window);
         }
         let result = ready.install();
-        if let Some((session, client_id, lease_id)) = external_lease {
-            let _ = post(
-                &session,
-                "/api/desktop/release",
-                json!({"clientId":client_id,"leaseId":lease_id}),
-            );
-            if result.is_ok() {
-                let _ = post(
-                    &session,
-                    "/api/desktop/detach",
-                    json!({"clientId":client_id}),
-                );
-            }
+        drop(external_lease);
+        if result.is_ok()
+            && let Some(conn) = state.connection.as_ref()
+        {
+            let _ = detach(conn);
         }
         match result {
             Ok(()) => {
-                state.exiting = true;
+                EXITING.store(true, Ordering::Release);
                 drop(state);
                 app.restart();
             }
             Err(error) => {
                 state.update_checking = false;
                 state.update_message = format!("安装更新失败：{error}");
-                if stopped_owned {
+                if state.connection.is_none() {
                     state.message = "更新未完成，请重新连接工作台".into();
                 }
                 Err(error)
@@ -1929,41 +2237,99 @@ fn monitor_jobs(app: tauri::AppHandle) {
 }
 #[tauri::command]
 async fn desktop_exit(app: tauri::AppHandle, stop_jobs: bool) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<Mutex<State>>();
-        let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
-        if tools::updating() {
-            return Err("正在更新本机工具，请等待更新结束后退出".into());
+    tauri::async_runtime::spawn_blocking(move || exit_desktop(&app, stop_jobs))
+        .await
+        .map_err(|_| "退出任务失败")?
+}
+
+fn exit_desktop(app: &tauri::AppHandle, stop_jobs: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<State>>();
+    let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
+    if EXITING.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if tools::updating() {
+        return Err("正在更新本机工具，请等待更新结束后退出".into());
+    }
+    clear_exited_service(app, &mut state)?;
+    let _freeze = if let Some(conn) = state.connection.as_mut() {
+        if stop_jobs && conn.child.is_none() {
+            return Err("外部工作台的作业请从原入口处理；可单独退出桌面应用".into());
         }
-        clear_exited_service(&app, &mut state)?;
-        let _freeze = if let Some(conn) = state.connection.as_mut() {
-            if stop_jobs && conn.child.is_none() {
-                return Err("外部工作台的作业请从原入口处理；可单独退出桌面应用".into());
-            }
-            let freeze = freeze_and_flush(&app, conn)?;
-            if stop_jobs {
-                self::stop_jobs(conn)?;
-            }
-            detach_or_stop(conn)?;
-            Some(freeze)
-        } else {
-            None
+        let freeze = freeze_and_flush(app, conn)?;
+        if stop_jobs {
+            self::stop_jobs(conn)?;
+        }
+        detach_or_stop(app, conn)?;
+        Some(freeze)
+    } else {
+        terminal::shutdown(app)?;
+        None
+    };
+    if let Some(window) = app.get_window("workbench") {
+        window_placement::save(&window);
+    }
+    state.connection = None;
+    EXITING.store(true, Ordering::Release);
+    drop(state);
+    app.exit(0);
+    Ok(())
+}
+
+fn request_desktop_exit(app: tauri::AppHandle) {
+    if EXITING.load(Ordering::Acquire) || EXIT_CONFIRMATION.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    thread::spawn(move || {
+        let visible_parent = || {
+            app.get_window("workbench").filter(|window| {
+                window.is_visible().unwrap_or(false)
+                    && !window.is_minimized().unwrap_or(true)
+                    && window.set_focus().is_ok()
+            })
         };
-        if let Some(window) = app.get_window("workbench") {
-            window_placement::save(&window);
-            window.destroy().map_err(|_| "无法关闭工作台窗口，请重试")?;
+        let dialog = app
+            .dialog()
+            .message(
+                "退出前会保存工作台草稿。由桌面启动的服务有活动作业或排队任务时，应用会保持运行。",
+            )
+            .title("退出 YSS 工作台？")
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "退出".into(),
+                "取消".into(),
+            ));
+        let dialog = match visible_parent() {
+            Some(window) => dialog.parent(&window),
+            None => dialog,
+        };
+        let confirmed = dialog.blocking_show_with_result();
+        if confirmed == MessageDialogResult::Custom("退出".into())
+            && let Err(error) = exit_desktop(&app, false)
+        {
+            let dialog = app
+                .dialog()
+                .message(error)
+                .title("无法退出 YSS 工作台")
+                .kind(MessageDialogKind::Error);
+            match visible_parent() {
+                Some(window) => dialog.parent(&window).blocking_show(),
+                None => dialog.blocking_show(),
+            };
         }
-        state.connection = None;
-        state.exiting = true;
-        drop(state);
-        app.exit(0);
-        Ok(())
-    })
-    .await
-    .map_err(|_| "退出任务失败")?
+        EXIT_CONFIRMATION.store(false, Ordering::Release);
+    });
 }
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_web_content_process_terminate(|view| {
+        if terminal::is_renderer(view) {
+            terminal::renderer_crashed(view);
+        } else {
+            let _ = view.reload();
+        }
+    });
+    builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             reopen_workbench(app.clone());
         }))
@@ -1974,6 +2340,8 @@ fn main() {
         ))
         .plugin(tauri_plugin_notification::init())
         .manage(Mutex::new(State::default()))
+        .manage(terminal::TerminalState::default())
+        .manage(terminal_panel::PanelState::default())
         .invoke_handler(tauri::generate_handler![
             desktop_status,
             desktop_connect,
@@ -1993,11 +2361,35 @@ fn main() {
             tools::updates::desktop_update_tool,
             desktop_exit,
             menubar_snapshot,
-            menubar_action
+            menubar_action,
+            terminal::terminal_context,
+            terminal::terminal_start,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_ack,
+            terminal::terminal_close,
+            terminal::terminal_ready,
+            terminal_panel::terminal_panel_layout
         ])
         .on_window_event(|window, event| {
+            if window.label() == "workbench" {
+                match event {
+                    WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                        terminal_panel::resized(window.app_handle());
+                    }
+                    WindowEvent::Destroyed => {
+                        terminal::window_destroyed(window.app_handle());
+                    }
+                    _ => {}
+                }
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                #[cfg(target_os = "macos")]
+                if window.label() == "menu-bar" {
+                    let _ = menu_bar_panel::hide(window.app_handle());
+                    return;
+                }
                 if window.label() == "workbench" {
                     window_placement::save(window);
                 }
@@ -2054,12 +2446,12 @@ fn main() {
                 app.on_menu_event(|app, event| match event.id().as_ref() {
                     "app-open-workbench" => reopen_workbench(app.clone()),
                     "app-menu-bar-overview" => menu_bar_panel::open_from_menu(app.clone()),
-                    "app-settings" | "app-quit" | "app-updates" => {
+                    "app-quit" => request_desktop_exit(app.clone()),
+                    "app-settings" | "app-updates" => {
                         let app = app.clone();
-                        let updates_tab = event.id().as_ref() != "app-settings";
                         let check = event.id().as_ref() == "app-updates";
                         thread::spawn(move || {
-                            let _ = open_desktop_settings(&app, updates_tab);
+                            let _ = open_desktop_settings(&app, check);
                             if check {
                                 let _ = check_updates(&app);
                             }
@@ -2129,10 +2521,10 @@ fn main() {
                     "show" => {
                         reopen_workbench(app.clone());
                     }
-                    "settings" | "exit" => {
+                    "exit" => request_desktop_exit(app.clone()),
+                    "settings" => {
                         let app = app.clone();
-                        let show_updates = event.id().as_ref() == "exit";
-                        thread::spawn(move || { let _ = open_desktop_settings(&app, show_updates); });
+                        thread::spawn(move || { let _ = show_settings(&app); });
                     }
                     _ => {}
                 })
@@ -2199,14 +2591,9 @@ fn main() {
                 reopen_workbench(app.clone());
             }
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                let may_exit = app
-                    .state::<Mutex<State>>()
-                    .try_lock()
-                    .is_ok_and(|state| state.exiting);
-                if !may_exit {
+                if !EXITING.load(Ordering::Acquire) {
                     api.prevent_exit();
-                    let handle = app.clone();
-                    thread::spawn(move || { let _ = show_settings(&handle); });
+                    request_desktop_exit(app.clone());
                 }
             }
         });

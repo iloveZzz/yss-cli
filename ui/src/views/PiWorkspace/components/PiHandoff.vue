@@ -106,7 +106,8 @@ async function prepare(generate = false) {
   <details class="mb-2 rounded-md border bg-card px-3 py-2 text-sm">
     <summary class="cursor-pointer font-medium">
       {{ nativeSelected ? 'Pi 原生分叉 · 首轮只读' : '历史交接摘要' }}
-      <span v-if="!nativeSelected && source.nativeFork?.state === 'available'" class="ml-2 font-normal text-muted-foreground">可原生分叉</span>
+      <span v-if="nativeSelected && !nativeReady" class="ml-2 font-normal text-destructive">{{ refreshing ? '正在重新核对' : '待重新核对' }}</span>
+      <span v-else-if="!nativeSelected && source.nativeFork?.state === 'available'" class="ml-2 font-normal text-muted-foreground">可原生分叉</span>
     </summary>
     <div class="mt-2 grid max-h-[42dvh] gap-3 overflow-auto">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">

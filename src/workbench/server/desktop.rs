@@ -4,8 +4,11 @@
 //! that order makes checking for work and blocking new work one atomic step.
 use super::super::{
     agent::queue,
+    integrations::{self, ExternalKind, ExternalLink, Provider},
     jobs::{JobManager, JobRecord, lock_store},
+    read_model::ReadModel,
     storage_migration::{self, StorageState},
+    store::Store,
 };
 use crate::{
     cancel::Cancellation,
@@ -18,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, MutexGuard},
     time::{Duration, Instant},
 };
@@ -283,8 +286,33 @@ pub(crate) fn begin_restart(manager: &JobManager) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn route(
+fn project_counts(store: &Store) -> Value {
+    let projects = &store.state().projects;
+    let total = projects.len() as u64;
+    let active = projects.iter().filter(|project| project.active).count() as u64;
+    json!({"total": total, "active": active, "inactive": total - active})
+}
+
+fn linked_merge_request_counts(store: &mut Store) -> Result<Value> {
+    let (mut github, mut gitlab) = (BTreeSet::new(), BTreeSet::new());
+    for link in store.records::<ExternalLink>("externalLink")? {
+        let target = link.target;
+        if target.kind != ExternalKind::PullRequest {
+            continue;
+        }
+        let origin = integrations::validate_external(&target)?.origin;
+        let (targets, project) = match target.provider {
+            Provider::Github => (&mut github, target.project.to_ascii_lowercase()),
+            Provider::Gitlab => (&mut gitlab, target.project),
+        };
+        targets.insert((origin, project, target.number));
+    }
+    Ok(json!({"github": github.len() as u64, "gitlab": gitlab.len() as u64}))
+}
+
+pub(super) fn route(
     manager: &Arc<JobManager>,
+    reads: &ReadModel,
     shutdown: &Cancellation,
     method: &str,
     path: &str,
@@ -334,7 +362,29 @@ pub(crate) fn route(
                     _ => (),
                 }
             }
-            Ok(json!({"running":running,"attention":attention,"queued":queued}))
+            Ok(json!({
+                "running": running,
+                "attention": attention,
+                "queued": queued,
+                "projects": project_counts(&store),
+                "mergeRequests": linked_merge_request_counts(&mut store).ok(),
+            }))
+        }
+        ("GET", "/api/desktop/overview") => {
+            let (projects, merge_requests, stamp, published) = {
+                let mut store = lock_store(&manager.store)?;
+                (
+                    project_counts(&store),
+                    linked_merge_request_counts(&mut store).ok(),
+                    store.projection_stamp(),
+                    reads.latest(),
+                )
+            };
+            Ok(json!({
+                "projects": projects,
+                "mergeRequests": merge_requests,
+                "specs": published.desktop_specs(stamp),
+            }))
         }
         ("POST", "/api/desktop/attach") => {
             let request: AttachClient = decode(bytes)?;

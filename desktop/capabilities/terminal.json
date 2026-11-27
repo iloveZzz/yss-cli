@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "terminal",
+  "description": "仅打包的本机终端视图可访问交互式终端会话",
+  "webviews": ["terminal-*"],
+  "permissions": [
+    "allow-terminal-context",
+    "allow-terminal-start",
+    "allow-terminal-write",
+    "allow-terminal-resize",
+    "allow-terminal-ack",
+    "allow-terminal-close",
+    "allow-terminal-ready",
+    "allow-terminal-panel-layout",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

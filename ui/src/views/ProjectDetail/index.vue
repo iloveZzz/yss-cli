@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import EngineeringPanel from '@/components/EngineeringPanel.vue'
 import ExternalLinks from '@/components/ExternalLinks.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyTitle } from '@/components/ui/empty'
@@ -17,11 +18,23 @@ const router = useRouter()
 const projectId = computed(() =>
   typeof route.params.projectId === 'string' ? route.params.projectId : undefined
 )
-const heading = useTemplateRef<HTMLElement>('project-heading')
+const heading = useTemplateRef<InstanceType<typeof WorkbenchBreadcrumb>>('project-heading')
 const specPanel = useTemplateRef<InstanceType<typeof ProjectSpecs>>('project-specs')
 const {
   project, directoryKnown, registeredCount, loading, error, refresh, reloadProject, refreshing, refreshError, snapshot
 } = provideProjectDetailWorkbench(() => projectId.value, () => specPanel.value?.reloadFailed())
+const desktopTerminalUrl = (window as Window & { __YSS_DESKTOP_TERMINAL_URL__?: string }).__YSS_DESKTOP_TERMINAL_URL__
+const terminalAvailable = computed(() =>
+  project.value?.record.active === true && (!directoryKnown.value || project.value.available)
+)
+
+function openTerminal() {
+  if (!desktopTerminalUrl || !project.value || !terminalAvailable.value) return
+  const url = new URL(desktopTerminalUrl)
+  url.searchParams.set('projectId', project.value.record.id)
+  window.location.assign(url.href)
+}
+
 const edit = shallowRef(false)
 const sections = [
   { value: 'specs', label: 'Spec 与文件' },
@@ -61,11 +74,25 @@ async function retryProject(event: MouseEvent) {
   <template v-if="project">
     <div class="page-heading">
       <div>
-        <RouterLink to="/projects" class="back-link">← 产品与工程</RouterLink>
-        <h1 ref="project-heading" tabindex="-1">{{ project.record.name }}</h1>
+        <WorkbenchBreadcrumb
+          ref="project-heading"
+          :title="project.record.name"
+          :ancestors="[{ label: '产品与工程', to: '/projects' }]"
+        />
         <p class="path-text">{{ project.record.rootPath }}</p>
       </div>
-      <Button variant="outline" @click="edit = true">编辑项目</Button>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          v-if="desktopTerminalUrl"
+          type="button"
+          variant="outline"
+          :disabled="!terminalAvailable"
+          @click="openTerminal"
+        >
+          打开终端
+        </Button>
+        <Button variant="outline" @click="edit = true">编辑项目</Button>
+      </div>
     </div>
     <Alert v-if="!project.record.active" class="notice warning">
       项目已停用，记录保留。可通过“编辑项目”恢复。

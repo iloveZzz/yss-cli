@@ -373,6 +373,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
             path.as_str(),
             "/api/desktop-info"
                 | "/api/desktop/activity"
+                | "/api/desktop/overview"
                 | "/api/desktop/attach"
                 | "/api/desktop/detach"
                 | "/api/desktop/quiesce"
@@ -382,6 +383,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
         ) {
             return desktop::route(
                 &server.platform.jobs,
+                &server.platform.reads,
                 &server.shutdown,
                 method.as_str(),
                 &path,

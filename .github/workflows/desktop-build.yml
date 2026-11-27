@@ -86,13 +86,14 @@ jobs:
           cache-workspace-crates: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build the workbench UI
+      - name: Build the workbench and desktop terminal UIs
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           pnpm --dir ui install --frozen-lockfile --prefer-offline
           pnpm --dir ui typecheck
           pnpm --dir ui lint
           pnpm --dir ui build
+          pnpm --dir ui build:desktop-terminal
 
       - name: Build and verify the pinned template bundle
         run: |

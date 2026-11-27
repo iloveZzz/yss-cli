@@ -7,7 +7,7 @@ import { isConversationTextDelta, useJobConversation } from './useJobConversatio
 // Reconnection repeats that handshake, including pending inputs and already-started commands.
 export function useJobEvents(
   jobId: Readonly<Ref<string>>, updated: () => void,
-  options: { piRound?: boolean; trackFirstText?: () => boolean } = {}
+  options: { piRound?: boolean; knownPiJob?: Readonly<Ref<boolean>>; trackFirstText?: () => boolean } = {}
 ) {
   const latest = shallowRef<ActivityPage>()
   const error = shallowRef('')
@@ -18,8 +18,8 @@ export function useJobEvents(
   const conversation = useJobConversation(jobId, options.trackFirstText)
   watch(
     // Parent refreshes may replace a job record without changing the subscribed job.
-    [() => jobId.value, () => retryKey.value],
-    ([id], previous, onCleanup) => {
+    [() => jobId.value, () => retryKey.value, () => options.knownPiJob?.value],
+    ([id, , knownPiJob], previous, onCleanup) => {
       if (previous?.[0] !== id) {
         latest.value = undefined
         livePlanEventId.value = undefined
@@ -50,7 +50,7 @@ export function useJobEvents(
         return page.host
       }
       async function sync() {
-        if (options.piRound) {
+        if (options.piRound || knownPiJob) {
           // The Pi round already knows its host. Each snapshot keeps its own cursor.
           const results = await Promise.allSettled([readOverview(), conversation.open(id, signal)])
           for (const result of results) if (result.status === 'rejected') throw result.reason

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, useTemplateRef } from 'vue'
 import { useRoute, type RouteLocationRaw } from 'vue-router'
-import { Check, ChevronDown, CircleUserRound, FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, Monitor, MonitorCog, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Sparkles } from '@lucide/vue'
+import { Check, ChevronDown, CircleUserRound, FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, Monitor, MonitorCog, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Sparkles, Terminal } from '@lucide/vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,8 @@ const props = defineProps<{
   showRefresh: boolean
   refreshBusy: boolean
   refreshDisabled: boolean
+  terminalUrl?: string
+  terminalVisible: boolean
 }>()
 const emit = defineEmits<{ refresh: []; retryProjects: []; toggleCollapse: [] }>()
 const route = useRoute()
@@ -156,6 +158,14 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
     </nav>
 
     <div class="rail-actions">
+      <ControlTooltip v-if="terminalUrl" label="终端" side="right">
+        <Button variant="ghost" as-child>
+          <a :href="terminalUrl" class="rail-link" aria-label="终端" draggable="false" :aria-expanded="terminalVisible">
+            <Terminal class="size-[17px]" :stroke-width="1.7" aria-hidden="true" />
+            <span class="rail-label-wide">终端</span>
+          </a>
+        </Button>
+      </ControlTooltip>
       <ControlTooltip v-if="desktopSettingsUrl" label="桌面设置" side="right">
         <Button variant="ghost" as-child>
           <a :href="desktopSettingsUrl" class="rail-link" aria-label="桌面设置" draggable="false">
@@ -264,7 +274,7 @@ function restoreMenuFocus(menu: MenuName, event: Event) {
   min-block-size: 44px;
   padding: 4px 8px;
   color: var(--brand-color-text-secondary);
-  font-size: 12px;
+  font-size: var(--workbench-nav-font-size);
   line-height: 1.2;
   text-decoration: none;
 }

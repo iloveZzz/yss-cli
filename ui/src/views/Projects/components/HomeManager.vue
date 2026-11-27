@@ -11,7 +11,6 @@ import { reactive, shallowRef, computed, nextTick, onBeforeUnmount, onMounted, r
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Separator } from '@/components/ui/separator'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { ApiError, errorFeedback, type ErrorFeedback } from '@/services/workbench'
@@ -251,10 +250,18 @@ async function save() {
 </script>
 <template>
   <Card class="block gap-0 py-0 shadow-none platform-section home-manager" role="region" aria-labelledby="home-heading">
-    <div class="section-heading">
-      <div>
+    <div class="home-heading">
+      <div class="home-heading-copy">
         <h2 id="home-heading">产品 Home</h2>
-        <p class="muted">沿用项目仓库地图，绑定本机工程目录。</p>
+        <LoadingSkeleton
+          v-if="loading && !homes.length && !open"
+          class="home-heading-loading"
+          variant="text"
+          :rows="1"
+          label="正在读取产品 Home"
+        />
+        <p v-else-if="homes.length || open" class="muted">沿用仓库地图，绑定本机工程目录。</p>
+        <p v-else-if="!error && !loadError" class="muted">尚未导入仓库地图。</p>
       </div>
       <Button
         :id="`${formId}-trigger`"
@@ -529,43 +536,61 @@ async function save() {
         </template>
       </section>
     </div>
-    <LoadingSkeleton
-      v-if="loading && !homes.length && !open"
-      variant="text"
-      :rows="2"
-      label="正在读取产品 Home"
-    />
-    <Empty v-else-if="!homes.length && !open && !error && !loadError" class="home-empty">
-      <EmptyDescription>尚未导入仓库地图。</EmptyDescription>
-    </Empty>
   </Card>
 </template>
 <style scoped>
 .home-manager {
-  padding-block: 18px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+}
+.home-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+.home-heading-copy {
+  display: flex;
+  flex: 1 1 7rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  min-width: 0;
+}
+.home-heading-copy p {
+  font-size: 12px;
+}
+.home-heading-loading {
+  align-self: center;
+  width: min(100%, 156px);
+}
+.home-manager > :deep(.notice) {
+  margin-block: 10px 0;
+}
+.home-list {
+  margin-top: 10px;
 }
 .home-record {
-  border-bottom: 1px solid var(--yss-colors-border);
-  padding-block: 12px;
+  border-top: 1px solid var(--yss-colors-border);
+  padding-block: 8px;
 }
 .home-record:last-child {
-  border-bottom: 0;
+  padding-bottom: 0;
 }
 .home-record-heading {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
 }
 .home-identity {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .home-count {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-.home-record :deep([data-slot='collapsible']) {
-  margin-top: 4px;
 }
 .binding-list {
   list-style: none;
@@ -579,7 +604,7 @@ async function save() {
   padding: 6px 0;
 }
 .home-task {
-  margin-top: 16px;
+  margin-top: 10px;
   border-top: 1px solid var(--yss-colors-border);
 }
 .home-preview {
@@ -615,19 +640,10 @@ async function save() {
 .source-step :deep([data-slot='collapsible-trigger']) {
   font-weight: 550;
 }
-.home-empty {
-  align-items: flex-start;
-  padding: 4px 0 0;
-  border: 0;
-  text-align: start;
-}
 @media (width < 720px) {
-  .home-manager .section-heading {
-    flex-wrap: wrap;
-  }
   .home-record-heading {
     flex-wrap: wrap;
-    gap: 8px 16px;
+    gap: 4px 12px;
   }
   .home-identity {
     flex-basis: 100%;

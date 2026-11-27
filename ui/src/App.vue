@@ -17,6 +17,7 @@ import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { failedRoute, pendingRoute, retryFailedRoute } from '@/router'
 import { dateLabel } from '@/services/workbench'
 import { desktopDraftError, flushDesktopDrafts } from '@/services/desktop-storage'
+import { initialTerminalLayout, reportTerminalRailWidth, terminalPanelOpenUrl, workbenchTerminalLayout } from '@/services/terminal-panel'
 import { sorted } from '@/lib/collections'
 import { useAgentScope } from '@/views/PiWorkspace/useAgentScope'
 const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges, requireSnapshot, sourceState, changesError } =
@@ -39,14 +40,25 @@ const agentTarget = computed(() => {
   return specId ? { name: 'agent-workbench', params: { specId } } : '/agent'
 })
 const piWorkspace = computed(() => route.meta.piWorkspace === true)
-const canExpandRail = useMediaQuery('(min-width: 720px)')
-const wideRailViewport = useMediaQuery('(min-width: 880px)')
+const terminalOpen = terminalPanelOpenUrl()
+const nativeLayout = shallowRef(terminalOpen ? initialTerminalLayout() : undefined)
+const terminalMode = computed(() => nativeLayout.value?.mode ?? 'hidden')
+const terminalMaximized = computed(() => terminalMode.value === 'maximized')
+const canExpandBrowserRail = useMediaQuery('(min-width: 720px)')
+const wideBrowserRail = useMediaQuery('(min-width: 880px)')
+const canExpandRail = computed(() => nativeLayout.value?.railViewport?.canExpand ?? canExpandBrowserRail.value)
+const defaultRailCollapsed = computed(() => nativeLayout.value?.railViewport?.defaultCollapsed ?? !wideBrowserRail.value)
 const railPreference = shallowRef<boolean>()
-const railCollapsed = computed(() => !canExpandRail.value || (railPreference.value ?? !wideRailViewport.value))
+const railCollapsed = computed(() => !canExpandRail.value || (railPreference.value ?? defaultRailCollapsed.value))
 const isHome = computed(() => route.path === '/workbench')
 const preferredMotion = usePreferredReducedMotion()
+// Resolving the Agent entry to a Spec keeps the same animated surface.
+const pageMotionKey = computed(() => piWorkspace.value ? 'pi-workspace' : route.path)
 const surface = useTemplateRef<HTMLElement>('surface')
 let pageMotion: Animation | undefined
+let railObserver: ResizeObserver | undefined
+let railReportFrame = 0
+let reportedRailWidth: number | undefined
 const refreshAction = shallowRef<{ type: 'manual' | 'retry' }>()
 const projects = computed(() => {
   if (expired.value) return []
@@ -94,7 +106,29 @@ const initialLayout = computed(() => {
   return path === '/' || path === '/workbench' ? 'cards' : 'table'
 })
 function focusMain() {
-  document.getElementById('main')?.focus({ preventScroll: true })
+  if (!terminalMaximized.value) document.getElementById('main')?.focus({ preventScroll: true })
+}
+function acceptTerminalLayout(layout: ReturnType<typeof workbenchTerminalLayout>) {
+  const current = nativeLayout.value?.revision
+  if (!layout || (current !== undefined && (layout.revision ?? 0) <= current)) return
+  nativeLayout.value = layout
+}
+function reportRail() {
+  if (railReportFrame || !terminalOpen) return
+  railReportFrame = window.requestAnimationFrame(() => {
+    railReportFrame = 0
+    const rail = document.getElementById('workbench-rail')
+    if (!rail && !piWorkspace.value) return
+    const width = Math.ceil(rail?.getBoundingClientRect().width ?? 0)
+    if (reportedRailWidth !== width && reportTerminalRailWidth(width)) reportedRailWidth = width
+  })
+}
+function observeRail() {
+  if (!railObserver) return
+  const rail = document.getElementById('workbench-rail')
+  railObserver.disconnect()
+  if (rail) railObserver.observe(rail)
+  reportRail()
 }
 function refreshCurrentPage() {
   return refreshFrom('manual')
@@ -127,19 +161,29 @@ watch(() => route.path, (_path, previous) => {
   refreshAction.value = undefined
   if (previous !== '/') focusMain()
 }, { flush: 'post' })
-watch([() => route.path, surface, preferredMotion], ([path, element, preference], [previousPath, previousElement]) => {
+watch([pageMotionKey, surface, preferredMotion], ([key, element, preference], [previousKey, previousElement]) => {
   pageMotion?.cancel()
   pageMotion = undefined
   // Only animate navigation within the mounted surface. First paint and loaded data show immediately.
-  if (!element?.animate || element !== previousElement || preference !== 'no-preference' || path === previousPath) return
-  pageMotion = element.animate([{ opacity: .9 }, { opacity: 1 }], {
-    duration: 145,
+  if (!element?.animate || element !== previousElement || preference !== 'no-preference' || key === previousKey) return
+  const enteringAgent = piWorkspace.value
+  const keyframes = enteringAgent
+    ? [{ opacity: .25, scale: .99 }, { opacity: 1, scale: 1 }]
+    : [{ opacity: .9 }, { opacity: 1 }]
+  pageMotion = element.animate(keyframes, {
+    duration: enteringAgent ? 220 : 145,
     easing: 'cubic-bezier(.2, .72, .24, 1)'
   })
 }, { flush: 'post' })
 onMounted(() => {
   if (!expired.value) startChanges()
+  if (terminalOpen) {
+    acceptTerminalLayout(initialTerminalLayout())
+    railObserver = new ResizeObserver(reportRail)
+    observeRail()
+  }
 })
+watch(piWorkspace, observeRail, { flush: 'post' })
 watch([routeReady, lightweight], ([ready, compact]) => {
   requireSnapshot(ready && !compact)
 }, { immediate: true })
@@ -149,14 +193,20 @@ watch([routeReady, () => sourceState.value?.revision], ([ready, revision]) => {
 }, { immediate: true })
 onBeforeUnmount(() => {
   pageMotion?.cancel()
+  railObserver?.disconnect()
+  if (railReportFrame) window.cancelAnimationFrame(railReportFrame)
   stopChanges()
 })
 useEventListener(window, 'focus', () => void checkChanges())
+useEventListener(window, 'yss:terminal-layout', (event) => {
+  if (!terminalOpen || !(event instanceof CustomEvent)) return
+  acceptTerminalLayout(workbenchTerminalLayout(event.detail))
+})
 </script>
 <template>
   <TooltipProvider :delay-duration="220">
-    <div class="app-shell" :data-rail-collapsed="railCollapsed">
-      <a class="skip-link" href="#main" @click.prevent="focusMain">跳到主内容</a>
+    <div class="app-shell" :data-rail-collapsed="railCollapsed" :data-terminal-mode="terminalMode">
+      <a v-show="!terminalMaximized" class="skip-link" href="#main" @click.prevent="focusMain">跳到主内容</a>
       <WorkbenchRail
         v-if="!piWorkspace"
         :collapsed="railCollapsed"
@@ -169,11 +219,19 @@ useEventListener(window, 'focus', () => void checkChanges())
         :show-refresh="!isHome"
         :refresh-busy="manualRefreshBusy"
         :refresh-disabled="refreshDisabled"
+        :terminal-url="terminalOpen"
+        :terminal-visible="terminalMode !== 'hidden'"
         @refresh="refreshCurrentPage"
         @retry-projects="refreshCatalog()"
         @toggle-collapse="railPreference = !railCollapsed"
       />
-      <main id="main" :class="piWorkspace ? 'pi-main' : 'main'" tabindex="-1">
+      <main
+        id="main"
+        :class="piWorkspace ? 'pi-main' : 'main'"
+        :inert="terminalMaximized"
+        :aria-hidden="terminalMaximized ? 'true' : undefined"
+        tabindex="-1"
+      >
         <Alert v-if="desktopDraftError" variant="destructive" class="notice error" role="alert">
           <AlertTitle>{{ desktopDraftError }}</AlertTitle>
           <Button type="button" variant="outline" @click="flushDesktopDrafts">重试保存</Button>
@@ -227,6 +285,7 @@ useEventListener(window, 'focus', () => void checkChanges())
 
 <style scoped>
 .app-shell[data-rail-collapsed='true'] { --workbench-rail-width: 62px; }
+.app-shell[data-terminal-mode='maximized'] > main { visibility: hidden; }
 @media (prefers-reduced-motion: no-preference) {
   .app-shell > .main {
     transition: margin-inline-start var(--workbench-motion-panel) var(--workbench-motion-ease);

@@ -605,7 +605,7 @@ fn check_git_directory_identity(prior: &GitBaseline, current: &GitBaseline) -> R
 
 pub(crate) fn validate_resume(workspace: &Workspace, cancel: &Cancellation) -> Result<()> {
     resume_checkout(workspace, cancel)
-        .map(|_| ())
+        .and_then(|(root, _)| check_project_git_roots(workspace, &root, cancel))
         .map_err(|error| {
             if error.code == ErrorCode::Cancelled || error.context.contains_key("resumeReason") {
                 return error;
@@ -631,7 +631,28 @@ pub(super) fn native_fork_checkout(
 ) -> Result<(Root, GitBaseline)> {
     let (root, current, prior) = direct_checkout(workspace, cancel)?;
     check_git_directory_identity(prior, &current)?;
+    check_project_git_roots(workspace, &root, cancel)?;
     Ok((root, current))
+}
+
+fn check_project_git_roots(
+    workspace: &Workspace,
+    root: &Root,
+    cancel: &Cancellation,
+) -> Result<()> {
+    for prefix in workspace
+        .project_prefixes
+        .values()
+        .filter(|prefix| !prefix.is_empty())
+    {
+        if git_root_cancel(&root.path.join(prefix), cancel)? != root.path {
+            return Err(
+                concurrent("登记工程所在 Git 工作树已变化，请从原 Spec 新建会话")
+                    .context("resumeReason", "workspaceChanged"),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn direct_checkout<'a>(

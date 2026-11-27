@@ -330,7 +330,11 @@ pub(super) fn roots_overlap(left: &[String], right: &[String]) -> Result<bool> {
     Ok(false)
 }
 
-fn check_roots(jobs: &[JobRecord], roots: &[String], exclude: Option<&str>) -> Result<()> {
+pub(super) fn check_roots(
+    jobs: &[JobRecord],
+    roots: &[String],
+    exclude: Option<&str>,
+) -> Result<()> {
     for active in jobs
         .iter()
         .filter(|job| !job.terminal() && Some(job.id.as_str()) != exclude)

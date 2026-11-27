@@ -3,6 +3,7 @@ import { computed, nextTick, onScopeDispose, shallowRef, useTemplateRef, watch }
 import { ChevronLeft, ChevronRight, CircleAlert, ExternalLink, FolderOpen, RefreshCw, Search, X } from '@lucide/vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -90,7 +91,7 @@ const {
 } = useMergeRequestBrowser(scope, activeTab, queryValue, order, filterKey)
 const pageBusy = computed(() => sourcesLoading.value || busy.value || saving.value)
 
-const heading = useTemplateRef<HTMLElement>('heading')
+const heading = useTemplateRef<InstanceType<typeof WorkbenchBreadcrumb>>('heading')
 const searchField = useTemplateRef<InstanceType<typeof Input>>('search-field')
 const results = useTemplateRef<HTMLElement>('results')
 let detailTrigger: HTMLElement | undefined
@@ -276,7 +277,7 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
   <template v-if="!expired">
     <header class="page-heading requests-heading">
       <div>
-        <h1 ref="heading" tabindex="-1">合并请求</h1>
+        <WorkbenchBreadcrumb ref="heading" title="合并请求" />
         <p v-if="sources" class="muted request-scope">
           <span>已纳入 {{ included.length }} 个仓库</span>
           <span v-if="readAt">读取于 <time :datetime="readAt">{{ dateLabel(readAt) }}</time></span>

@@ -16,6 +16,7 @@ const props = defineProps<{
   error: string
   grantIssue: string
   locked: boolean
+  readOnly?: boolean
   participatingIds: string[]
   commandsUnavailable?: boolean
   commandExecution: PiCommandExecution
@@ -123,7 +124,7 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
       <div v-if="project.status === 'ready' && project.head" class="pi-scope-access">
         <label :for="id + '-mode-' + project.id">{{ project.name }}的权限</label>
         <select :id="id + '-mode-' + project.id" :name="'projectMode-' + project.id"
-          :value="modes[project.id] ?? 'read'" :disabled="loading"
+          :value="modes[project.id] ?? 'read'" :disabled="loading || readOnly"
           @change="modes = { ...modes, [project.id]: ($event.target as HTMLSelectElement).value as ProjectAccessMode }">
           <option v-for="choice in accessChoices" :key="choice.value" :value="choice.value"
             :disabled="choice.value === 'execute' && commandsUnavailable">{{ choice.label }}</option>

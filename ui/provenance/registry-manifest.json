@@ -193,6 +193,7 @@
       "component_groups": [
         "alert",
         "badge",
+        "breadcrumb",
         "card",
         "checkbox",
         "collapsible",
@@ -247,6 +248,54 @@
           "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/badge/index.ts",
           "source_digest": "sha256:40059c209ec5a43b52aed1339767bfb9801d76a837aeed9b5a6991608c501c67",
           "adapted_digest": "sha256:40059c209ec5a43b52aed1339767bfb9801d76a837aeed9b5a6991608c501c67"
+        },
+        {
+          "path": "ui/breadcrumb/Breadcrumb.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/Breadcrumb.vue",
+          "source_digest": "sha256:e2e365b6f2524e3b89ffb2c889c38fdd9a64e9eb3a497f7157df4d9c132d3741",
+          "adapted_digest": "sha256:e2e365b6f2524e3b89ffb2c889c38fdd9a64e9eb3a497f7157df4d9c132d3741"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbEllipsis.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbEllipsis.vue",
+          "source_digest": "sha256:f1732c298edcbdc8974f7e5203652f5379999c1262462c7804d70d4876a977f0",
+          "adapted_digest": "sha256:f1732c298edcbdc8974f7e5203652f5379999c1262462c7804d70d4876a977f0"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbItem.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbItem.vue",
+          "source_digest": "sha256:9c25b7bec572a334c3f6fd59754a55b01220d4eaa7938274dd8f41e8400b1b18",
+          "adapted_digest": "sha256:9c25b7bec572a334c3f6fd59754a55b01220d4eaa7938274dd8f41e8400b1b18"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbLink.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbLink.vue",
+          "source_digest": "sha256:3104a45b2ac59b5b099ac4efcf690134646433cdc77381f0f40dc488452984f2",
+          "adapted_digest": "sha256:3104a45b2ac59b5b099ac4efcf690134646433cdc77381f0f40dc488452984f2"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbList.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbList.vue",
+          "source_digest": "sha256:1f23da90687d57d988a76cb629af0b133d690e55ed818ad29d0b671eb2b0e117",
+          "adapted_digest": "sha256:1f23da90687d57d988a76cb629af0b133d690e55ed818ad29d0b671eb2b0e117"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbPage.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbPage.vue",
+          "source_digest": "sha256:6d41c1b212ea3d129ab122b84a5a344b9f76cd2a19e5093f00862bc5ef240729",
+          "adapted_digest": "sha256:6d41c1b212ea3d129ab122b84a5a344b9f76cd2a19e5093f00862bc5ef240729"
+        },
+        {
+          "path": "ui/breadcrumb/BreadcrumbSeparator.vue",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/BreadcrumbSeparator.vue",
+          "source_digest": "sha256:7e59e930240f8d34c9b979e3adf8e1b9eba7f2e4e4aa6c92fcb7f86cd33ae4dc",
+          "adapted_digest": "sha256:7e59e930240f8d34c9b979e3adf8e1b9eba7f2e4e4aa6c92fcb7f86cd33ae4dc"
+        },
+        {
+          "path": "ui/breadcrumb/index.ts",
+          "source_url": "https://github.com/unovue/shadcn-vue/blob/67c9a3926dc0a854507b325c6337ff2210d16379/apps/v4/registry/new-york-v4/ui/breadcrumb/index.ts",
+          "source_digest": "sha256:eb4d1c95b806e5d498f2199dea3b0fc777686b318a96e3f53d7d5c1b48c2d509",
+          "adapted_digest": "sha256:eb4d1c95b806e5d498f2199dea3b0fc777686b318a96e3f53d7d5c1b48c2d509"
         },
         {
           "path": "ui/card/Card.vue",

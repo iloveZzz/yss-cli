@@ -7,7 +7,8 @@ import type { AgentProject, AgentProjects, ProjectAccessMode } from '@/services/
 import type { PiCiAttachment, PiCiRecovery } from '../usePiDrafts'
 import PiProjectScope from './PiProjectScope.vue'
 import PiCiJobSettings from './PiCiJobSettings.vue'
-import type { PiCommandExecution, PiModel, PiRuntimeStatus } from '@/services/workbench-platform'
+import { piCapabilityLabels, piCommandCapability, piCommandExecutionLabels,
+  type PiCommandExecution, type PiModel, type PiRuntimeStatus } from '@/services/workbench-platform'
 
 const props = defineProps<{
   specId: string
@@ -18,7 +19,6 @@ const props = defineProps<{
   projectGrantIssue: string
   hostSelectable: boolean
   commandUnavailable: boolean
-  commandUnavailableReason: string
   ciIssue: string
   ciRecovery?: PiCiRecovery
   projects: AgentProject[]
@@ -43,10 +43,12 @@ const ciOpen = shallowRef(!!ciAttachment.value || !!props.ciRecovery)
 const ciId = useId()
 const commandExecution = defineModel<PiCommandExecution>('commandExecution', { required: true })
 const commandId = useId()
-const hostSupported = computed(() => {
+const commandModes = ['sandbox', 'host'] as const
+const commandCapabilities = computed(() => {
   const runtime = runtimeStatus.value
-  return runtime?.capabilities ? runtime.capabilities.hostCommands.state !== 'unsupported' : runtime?.hostCommandsSupported
+  return runtime ? commandModes.map((mode) => ({ mode, ...piCommandCapability(runtime, mode) })) : []
 })
+const hostSupported = computed(() => commandCapabilities.value.some(({ mode, state }) => mode === 'host' && state !== 'unsupported'))
 const stage = defineModel<Stage | ''>('stage', { required: true })
 const stageId = useId()
 const stageValue = computed({
@@ -82,21 +84,28 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
     <div v-if="runtimeStatus && !nativeFork" class="pi-settings-fieldset">
       <label :for="commandId" class="font-semibold">命令运行方式</label>
       <select :id="commandId" v-model="commandExecution" name="commandExecution" class="pi-settings-stage" :disabled="busy"
-        :aria-describedby="commandId + '-help' + (commandUnavailable ? ' ' + commandId + '-status' : '')">
+        :aria-describedby="commandId + '-help ' + commandId + '-status'">
         <option value="sandbox">沙箱离线执行</option>
-        <option v-if="hostSupported" value="host" :disabled="!hostSelectable">本机直接执行（仅本轮）</option>
+        <option v-if="hostSupported || commandExecution === 'host'" value="host" :disabled="!hostSelectable">本机直接执行（仅本轮）</option>
       </select>
       <p :id="commandId + '-help'">
         <template v-if="hostSupported">本机直接执行以当前用户权限运行，可访问工程之外的本机文件和网络。选择仅对本轮已核对的工程范围有效。</template>
         <template v-else>命令在工程的隔离环境中离线执行。</template>
       </p>
-      <p v-if="commandUnavailable" :id="commandId + '-status'" role="status">{{ commandUnavailableReason }}</p>
     </div>
+    <dl v-if="commandCapabilities.length" :id="commandId + '-status'" class="pi-settings-fieldset">
+      <div v-for="capability in commandCapabilities" :key="capability.mode">
+        <dt class="inline text-xs font-medium">{{ piCommandExecutionLabels[capability.mode] }}</dt>
+        <dd class="ml-2 inline text-xs text-muted-foreground">
+          {{ piCapabilityLabels[capability.state] }}<template v-if="capability.reason"> · {{ capability.reason }}</template>
+        </dd>
+      </div>
+    </dl>
     <PiProjectScope v-model:selected="selected" v-model:modes="projectModes"
       :main-id="mainId" :projects="projects" :scope="projectScope" :loading="projectBusy" :error="projectError"
       :locked="!!reviewResumeId || nativeFork" :participating-ids="participatingIds"
       :command-execution="commandExecution" :commands-unavailable="commandUnavailable"
-      :busy="busy || !!nativeFork" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
+      :busy="busy" :read-only="nativeFork" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
       @clear-stale-project-grants="emit('clearStaleProjectGrants')" />
     <div v-if="!reviewResumeId && !nativeFork && projectScope" class="pi-ci-settings">
       <Button type="button" variant="outline" size="sm" :aria-expanded="ciOpen" :aria-controls="ciId" @click="ciOpen = !ciOpen">

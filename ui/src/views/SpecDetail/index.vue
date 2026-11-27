@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import ProgressSummary from '@/components/ProgressSummary.vue'
 import LifecycleOverview from './components/LifecycleOverview.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
@@ -129,6 +130,20 @@ const back = computed(() =>
     ? route.query.return
     : '/specs'
 )
+const breadcrumb = computed(() => {
+  const origin = router.resolve(back.value)
+  if (origin.path === '/workbench') return { home: back.value, ancestors: [] }
+  if (origin.params.projectId) {
+    const name = snapshot.value?.projects.find(({ record }) => record.id === origin.params.projectId)?.record.name
+    return {
+      ancestors: [
+        { label: '产品与工程', to: '/projects' },
+        { label: name ?? '工程详情', to: back.value }
+      ]
+    }
+  }
+  return { ancestors: [{ label: origin.path === '/projects' ? '产品与工程' : '规格管理', to: back.value }] }
+})
 const copyNotice = shallowRef('')
 const syncError = shallowRef('')
 const savingSpec = shallowRef(false)
@@ -192,10 +207,9 @@ async function copyPath(path: string) {
 </script>
 <template>
   <template v-if="spec">
-    <RouterLink :to="back" class="back-link">← 返回</RouterLink>
     <div class="page-heading spec-detail-heading">
       <div>
-        <h1>{{ spec.record.title }}</h1>
+        <WorkbenchBreadcrumb :title="spec.record.title" v-bind="breadcrumb" />
         <div class="inline-meta">
           <Badge variant="secondary">{{ contentStatuses[spec.content.status] }}</Badge>
           <span v-if="!spec.record.active">已停用</span>

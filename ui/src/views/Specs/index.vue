@@ -11,6 +11,7 @@ import { Alert } from '@/components/ui/alert'
 import { computed, reactive, shallowRef, watch, nextTick, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { Button } from '@/components/ui/button'
+import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { Card } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
@@ -124,7 +125,7 @@ function all() {
 </script>
 <template>
   <div class="page-heading specs-heading">
-    <h1>全部 Spec</h1>
+    <WorkbenchBreadcrumb title="规格管理" />
     <RouterLink to="/projects" class="text-link">关联更多 Spec ↗</RouterLink>
   </div>
   <Card class="spec-query gap-0 p-0 shadow-none" role="region" aria-label="Spec 查询与视图">

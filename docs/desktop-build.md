@@ -6,7 +6,7 @@
 
 启动「YSS 工作台」后，应用优先在自己的窗口打开现有工作台界面。左侧栏底部的「桌面」会在主窗口内切换到桌面设置。「返回工作台」返回先前页面。macOS 的应用菜单、菜单栏图标和 Windows 托盘也提供入口。桌面设置会显示桌面版本、工作台实际版本和服务来源。
 
-在 macOS 上，点击菜单栏的 Y 图标可查看当前连接和作业计数，并打开工作台或设置。右键可打开简短菜单，按 Esc 可收起面板。也可以从「窗口 → 菜单栏概览」打开面板。应用菜单中的「桌面设置」使用 `⌘,`，文件菜单中的「打开工作台」和「关闭窗口」分别使用 `⌘O` 和 `⌘W`。关闭窗口后服务继续运行，需要结束桌面应用时从「退出」协调作业后确认。
+在 macOS 上，点击菜单栏的 Y 图标可查看服务连接、Spec 生命周期与待办、工程统计及本机已关联的 PR/MR。Spec 数字按工作台已核实的有效状态统计，并行阶段可各计同一份 Spec。点击有结果的数字，只有一份时进入对应详情，有多份时打开筛选列表。右键可打开简短菜单，按 Esc 可收起面板。也可以从「窗口 → 菜单栏概览」打开面板。应用菜单中的「桌面设置」使用 `⌘,`，文件菜单中的「打开工作台」和「关闭窗口」分别使用 `⌘O` 和 `⌘W`。关闭窗口后服务继续运行，需要结束桌面应用时从「退出」协调作业后确认。
 
 关闭普通主窗口时会记住位置和大小。记录中的屏幕不可用时，主窗口会在当前可用屏幕内重新定位。菜单栏面板每次按菜单栏图标定位；开机自动启动后的主窗口保持隐藏，直到用户主动打开。
 
@@ -25,11 +25,14 @@ macOS 随包服务会从当前账号的登录 shell 恢复查找工具所需的�
 ```text
 pnpm --dir ui install --frozen-lockfile
 pnpm --dir ui build
+pnpm --dir ui build:desktop-terminal
 cargo run --locked --bin yss-bundle -- --source-root /absolute/yss-spec-project-template --out assets/bundle.tar.gz
 cargo build --locked --release --bin yss --target aarch64-apple-darwin
 mkdir -p desktop/binaries
 cp target/aarch64-apple-darwin/release/yss desktop/binaries/yss-aarch64-apple-darwin
 ```
+
+终端页面生成在 `desktop/target/terminal-web`，与桌面设置和菜单栏页面一起由 Tauri 打包。
 
 然后在 `desktop/` 目录使用锁定版本的 Tauri CLI 构建。正式签名和 updater 需要对应真实配置与密钥，不应将密钥放入仓库：
 

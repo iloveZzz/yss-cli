@@ -531,7 +531,7 @@ pub(super) fn run(
     let mut pi = rpc::Session::open(command, &context.cancel)?;
     let mut state = pi.state(&context.cancel)?;
     bridge.await_ready()?;
-    let session = session_ref(&directory, &state)?;
+    let mut session = session_ref(&directory, &state)?;
     if let Some(original) = expected_session
         && session.as_ref().is_none_or(|opened| opened != original)
     {
@@ -598,7 +598,9 @@ pub(super) fn run(
         "allowCommands": allow_commands,
         "commandExecution": allow_commands.then_some(request.command_execution)
     });
-    save_session(session, metadata.clone())?;
+    if !native_first_round {
+        save_session(session.take(), metadata.clone())?;
+    }
     context.emit(
         "piStatus",
         json!({
@@ -664,10 +666,16 @@ pub(super) fn run(
         &directory,
         expected_session,
         &state,
+        &prompt,
         &context.cancel,
     )
     .ok();
     let usage_before = pi.session_usage("session-stats-before", &context.cancel);
+    #[cfg(target_os = "macos")]
+    if native_first_round {
+        native_fork::verify_checkout(&request, &context.cancel)?;
+        save_session(session, metadata.clone())?;
+    }
     let mut prompt_context = context.clone();
     prompt_context.cancel = bridge.prompt_cancellation();
     let result = pi.prompt(&prompt, &prompt_context, &evidence);

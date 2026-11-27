@@ -1,5 +1,6 @@
 use super::{
     model::*,
+    progress::{ProgressBasis, ProgressSummary},
     sources::{invalid, missing},
 };
 use crate::{error::Result, fs};
@@ -21,15 +22,31 @@ pub fn normalize_query(mut query: WorkQuery) -> Result<WorkQuery> {
     }) {
         return Err(invalid("进度关注条件无效"));
     }
-    if query
-        .statuses
-        .iter()
-        .any(|s| matches!(s, Status::Done | Status::Canceled))
-    {
+    if query.statuses.iter().copied().any(is_closed) {
         query.include_closed = true;
     }
     Ok(query)
 }
+
+pub(super) fn is_closed(status: Status) -> bool {
+    matches!(status, Status::Done | Status::Canceled)
+}
+
+pub(super) fn matches_stages(
+    primary: Stage,
+    effective: Option<&ProgressSummary>,
+    stages: &[Stage],
+) -> bool {
+    stages.is_empty()
+        || stages.contains(&primary)
+        || effective.is_some_and(|progress| {
+            progress
+                .active_stages
+                .iter()
+                .any(|stage| stages.contains(stage))
+        })
+}
+
 fn broken(resources: &[ResourceView]) -> bool {
     resources.iter().any(|r| {
         !matches!(
@@ -106,7 +123,7 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
             let effective = snapshot
                 .progress
                 .get(&s.id)
-                .filter(|_| request.progress_basis == super::progress::ProgressBasis::Effective);
+                .filter(|_| request.progress_basis == ProgressBasis::Effective);
             items.push(WorkItem {
                 entity: WorkEntity::Spec,
                 id: s.id.clone(),
@@ -178,12 +195,13 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
         let progress = (item.entity == WorkEntity::Spec)
             .then(|| snapshot.progress.get(&item.spec_id))
             .flatten();
+        let effective = progress.filter(|_| request.progress_basis == ProgressBasis::Effective);
         (match request.activity {
             ActivityScope::Active => item.active,
             ActivityScope::Inactive => !item.active,
             ActivityScope::All => true,
         }) && (request.include_closed
-            || !matches!(item.status, Status::Done | Status::Canceled)
+            || !is_closed(item.status)
             || item.status == Status::Done
                 && item.entity == WorkEntity::Spec
                 && (item.needs_reconfirmation
@@ -192,15 +210,7 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
                     || !request.attention.is_empty()))
             && (request.project_ids.is_empty() || request.project_ids.contains(&item.project_id))
             && (request.spec_ids.is_empty() || request.spec_ids.contains(&item.spec_id))
-            && (request.stages.is_empty()
-                || request.stages.contains(&item.stage)
-                || (request.progress_basis == super::progress::ProgressBasis::Effective
-                    && progress.is_some_and(|progress| {
-                        progress
-                            .active_stages
-                            .iter()
-                            .any(|stage| request.stages.contains(stage))
-                    })))
+            && matches_stages(item.stage, effective, &request.stages)
             && (request.statuses.is_empty() || request.statuses.contains(&item.status))
             && (!request.source_problems_only || item.has_source_problem)
             && (request.content_statuses.is_empty()

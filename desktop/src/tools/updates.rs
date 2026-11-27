@@ -1,7 +1,8 @@
 use super::{
     INSTALL, InstallResult, ToolId, ToolStatus, ToolsStatus, UPDATE_IN_PROGRESS, UpdateTarget,
-    begin_action, channel, compatible_node, connect, detach_or_stop, end_install, freeze_and_flush,
-    get, mark_completed, node_options, protected_path, protected_paths, settings, status, versions,
+    begin_action, channel, compatible_node, connect, end_install, freeze_and_flush, get,
+    mark_completed, node_options, protected_path, protected_paths, retire_connection, settings,
+    status, versions,
 };
 use crate::{Session, State};
 use serde::{Deserialize, Serialize};
@@ -562,10 +563,10 @@ impl Drop for Maintenance {
 fn stop_for_update(app: &tauri::AppHandle, session: &Session) -> Result<Maintenance, String> {
     let state = app.state::<Mutex<State>>();
     let mut state = state.lock().map_err(|_| "桌面状态不可用")?;
-    if state.update_checking || state.exiting {
+    if state.update_checking || crate::EXITING.load(Ordering::Acquire) {
         return Err("桌面应用正在更新或退出，请稍后重试。".into());
     }
-    let conn = state.connection.as_mut().ok_or("工作台连接已中断")?;
+    let conn = state.connection.as_ref().ok_or("工作台连接已中断")?;
     if conn.child.is_none()
         || conn.session.token != session.token
         || conn.session.origin != session.origin
@@ -573,14 +574,7 @@ fn stop_for_update(app: &tauri::AppHandle, session: &Session) -> Result<Maintena
         return Err("工作台连接已变化，请重新检查版本。".into());
     }
     let freeze = freeze_and_flush(app, conn)?;
-    detach_or_stop(conn)?;
-    state.connection = None;
-    if let Some(view) = app.get_webview("workbench")
-        && view.close().is_err()
-    {
-        state.message = "工作台服务已停止，但未能关闭原视图。请重启桌面应用后重试。".into();
-        return Err(state.message.clone());
-    }
+    retire_connection(app, &mut state)?;
     UPDATE_IN_PROGRESS.store(true, Ordering::Release);
     state.message = "本机工具更新中，工作台服务已协调停止。".into();
     drop(freeze);

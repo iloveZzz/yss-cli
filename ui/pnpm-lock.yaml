@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@xterm/xterm@6.0.0':
+    hash: d3f45c99ce714e74882dbc385fd07ca799b5e61f933a854203fc83cc3e71a8ae
+    path: patches/@xterm__xterm@6.0.0.patch
+
 importers:
 
   .:
@@ -14,6 +19,12 @@ importers:
       '@vueuse/core':
         specifier: 15.0.0
         version: 15.0.0(vue@3.5.40(typescript@5.9.3))
+      '@xterm/addon-fit':
+        specifier: 0.11.0
+        version: 0.11.0
+      '@xterm/xterm':
+        specifier: 6.0.0
+        version: 6.0.0(patch_hash=d3f45c99ce714e74882dbc385fd07ca799b5e61f933a854203fc83cc3e71a8ae)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -734,6 +745,12 @@ packages:
     engines: {node: '>=22'}
     peerDependencies:
       vue: ^3.5.0
+
+  '@xterm/addon-fit@0.11.0':
+    resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
+
+  '@xterm/xterm@6.0.0':
+    resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -2396,6 +2413,10 @@ snapshots:
   '@vueuse/shared@15.0.0(vue@3.5.40(typescript@5.9.3))':
     dependencies:
       vue: 3.5.40(typescript@5.9.3)
+
+  '@xterm/addon-fit@0.11.0': {}
+
+  '@xterm/xterm@6.0.0(patch_hash=d3f45c99ce714e74882dbc385fd07ca799b5e61f933a854203fc83cc3e71a8ae)': {}
 
   acorn-jsx@5.3.2(acorn@8.19.0):
     dependencies:
