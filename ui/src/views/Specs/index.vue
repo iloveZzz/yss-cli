@@ -2,7 +2,6 @@
 interface DisplayState {
   anchor?: { id: string; top: number }
   scrollTop: number
-  scrollLeft: number
 }
 const displays = new Map<string, DisplayState>()
 </script>
@@ -13,7 +12,6 @@ import { computed, reactive, shallowRef, watch, nextTick, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
@@ -24,28 +22,27 @@ import { registerWorkbenchRouteReads, useWorkbenchCatalog } from '@/hooks/useWor
 import type { WorkQuery } from '@/services/workbench'
 import { useSpecFilters } from './hooks/useSpecFilters'
 import { useSpecWorkItems } from './hooks/useSpecWorkItems'
-import SpecBoard from './components/SpecBoard.vue'
 import SavedViews from './components/SavedViews.vue'
 import WorkFilters from './components/WorkFilters.vue'
 const { catalog, catalogError, refreshCatalog } = useWorkbenchCatalog()
-const { filters, layout, groupBy, viewId, update, toggle, apply, clear, detachView } =
+const { filters, viewId, update, toggle, apply, clear, detachView } =
   useSpecFilters()
 const id = useId()
 const {
-  result, resultProgressBasis, resultsCurrent, loading, loadingMore, error,
-  verification, verificationError, writable, refresh, reload, loadMore
-} = useSpecWorkItems(filters, layout, groupBy)
+  result, resultsCurrent, loading, loadingMore, error,
+  verification, verificationError, writable, refresh, loadMore
+} = useSpecWorkItems(filters)
 registerWorkbenchRouteReads({ busy: loading, readAt: computed(() => result.value?.readAt), refresh })
 const showPlaceholder = computed(() =>
   !registered.value.length && !error.value && verification.value !== 'failed' &&
   (loading.value || verification.value === 'pending') &&
   (!result.value?.projectionVersion || (!resultsCurrent.value && !result.value.items.length))
 )
-const displayKey = computed(() => JSON.stringify([filters.value, layout.value, groupBy.value]))
+const displayKey = computed(() => JSON.stringify(filters.value))
 const display = computed(() => {
   let value = displays.get(displayKey.value)
   if (!value) {
-    value = reactive({ scrollTop: 0, scrollLeft: 0 })
+    value = reactive({ scrollTop: 0 })
     displays.set(displayKey.value, value)
     if (displays.size > 20) displays.delete(displays.keys().next().value!)
   }
@@ -121,17 +118,8 @@ const missingScope = computed(
   )
 )
 const coverage = computed(() => resultsCurrent.value ? result.value?.coverage : undefined)
-async function refreshAfterMutation(revision?: number) {
-  await Promise.all([refreshCatalog(revision), reload()])
-}
 function all() {
   update({ activity: 'all', includeClosed: true, statuses: [] })
-}
-function selectBasis(value: unknown) {
-  if (value === 'effective' || value === 'personal') update({ progressBasis: value })
-}
-function selectLayout(value: unknown) {
-  if (value === 'list' || value === 'board') update({}, { layout: value })
 }
 </script>
 <template>
@@ -143,49 +131,24 @@ function selectLayout(value: unknown) {
     <div class="query-toolbar">
       <SavedViews
         :query="filters"
-        :layout="layout"
-        :group-by="groupBy"
         :view-id="viewId"
         @apply="apply"
         @removed="detachView"
       />
-      <div class="result-controls">
-        <ToggleGroup class="segmented" type="single" aria-label="进度依据" :model-value="filters.progressBasis" @update:model-value="selectBasis">
-          <ToggleGroupItem value="effective">自动进度</ToggleGroupItem>
-          <ToggleGroupItem value="personal">个人标记</ToggleGroupItem>
-        </ToggleGroup>
-        <label class="inline-field sort-control" :for="id + 'sort'">
-          <span>排序</span>
-          <SingleSelect
-            :id="id + 'sort'"
-            :model-value="filters.sort"
-            :options="[
-              { value: 'updatedDesc', label: '最近更新' },
-              { value: 'titleAsc', label: '标题顺序' }
-            ]"
-            name="sort"
-            class="sort-select"
-            @update:model-value="update({ sort: $event as 'updatedDesc' | 'titleAsc' })"
-          />
-        </label>
-        <ToggleGroup class="segmented" type="single" aria-label="显示方式" :model-value="layout" @update:model-value="selectLayout">
-          <ToggleGroupItem value="list">列表</ToggleGroupItem>
-          <ToggleGroupItem value="board">看板</ToggleGroupItem>
-        </ToggleGroup>
-        <label v-if="layout === 'board'" class="inline-field group-control" :for="id + 'group'" data-workbench-reveal>
-          <span>分组</span>
-          <SingleSelect
-            :id="id + 'group'"
-            :model-value="groupBy"
-            :options="[
-              { value: 'status', label: '按状态' },
-              { value: 'stage', label: '按阶段' }
-            ]"
-            name="groupBy"
-            @update:model-value="update({}, { groupBy: $event as 'status' | 'stage' })"
-          />
-        </label>
-      </div>
+      <label class="inline-field sort-control" :for="id + 'sort'">
+        <span>排序</span>
+        <SingleSelect
+          :id="id + 'sort'"
+          :model-value="filters.sort"
+          :options="[
+            { value: 'updatedDesc', label: '最近更新' },
+            { value: 'titleAsc', label: '标题顺序' }
+          ]"
+          name="sort"
+          class="sort-select"
+          @update:model-value="updateFromFilters({ sort: $event as 'updatedDesc' | 'titleAsc' })"
+        />
+      </label>
     </div>
     <WorkFilters
       :query="filters"
@@ -228,7 +191,7 @@ function selectLayout(value: unknown) {
   <RegisteredSpecs v-if="registered.length" :projects="projects" :specs="registered"
     :failed="!!error || verification === 'failed'" />
   <Card v-if="showPlaceholder" class="query-placeholder gap-0 p-0 shadow-none" aria-busy="true">
-    <LoadingSkeleton :variant="layout === 'board' ? 'cards' : 'table'" :rows="layout === 'board' ? 3 : 4" />
+    <LoadingSkeleton variant="table" :rows="4" />
   </Card>
   <template v-else-if="result?.projectionVersion">
     <Empty v-if="!result.items.length" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空" data-workbench-reveal>
@@ -241,8 +204,8 @@ function selectLayout(value: unknown) {
         <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
       </EmptyContent>
     </Empty>
-    <Card v-else-if="layout === 'list'" class="panel result-list gap-0 p-0 shadow-none" data-workbench-reveal>
-      <WorkItemRows :items="result.items" :progress-basis="resultProgressBasis" :refreshing="loading && !loadingMore" />
+    <Card v-else class="panel result-list gap-0 p-0 shadow-none" data-workbench-reveal>
+      <WorkItemRows :items="result.items" :refreshing="loading && !loadingMore" />
       <div v-if="result.total > result.items.length" class="load-more">
         <Button type="button" variant="outline" :disabled="loading || !writable" @click="loadMore()">
           <LoadingIndicator :active="loadingMore" />
@@ -251,20 +214,6 @@ function selectLayout(value: unknown) {
       </div>
     </Card>
   </template>
-  <SpecBoard
-    v-if="layout === 'board' && result?.projectionVersion"
-    v-model:scroll-left="display.scrollLeft"
-    :items="result.items"
-    :column-totals="result.columnTotals ?? {}"
-    :group-by="groupBy"
-    :revision="result.revision"
-    :progress-basis="resultProgressBasis"
-    :readonly-results="!writable"
-    :busy="loading"
-    :refreshing="loading && !loadingMore"
-    :refresh-after="refreshAfterMutation"
-    @load-more="loadMore"
-  />
   <Collapsible v-if="coverage" class="coverage-note">
     <CollapsibleTrigger>纳管范围 · 当前工程范围共 {{ coverage.total }} 项</CollapsibleTrigger>
     <CollapsibleContent>
@@ -299,28 +248,12 @@ function selectLayout(value: unknown) {
   border-bottom: 1px solid #edf0f4;
   min-width: 0;
 }
-.result-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-width: 0;
-}
-.sort-control,
-.group-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.sort-control {
   color: var(--brand-color-text-secondary);
   font-size: 12px;
 }
 .sort-control :deep(.sort-select) {
   width: 140px;
-  min-width: 0;
-}
-.group-control :deep(button) {
-  width: 116px;
   min-width: 0;
 }
 .results-toolbar {
@@ -394,18 +327,8 @@ function selectLayout(value: unknown) {
   .query-toolbar :deep(.saved-views) {
     flex-basis: 100%;
   }
-  .result-controls {
-    width: 100%;
-    gap: 10px;
-  }
-  .segmented button {
-    min-height: 44px;
-  }
   .sort-control :deep(.sort-select) {
     width: 126px;
-  }
-  .group-control {
-    flex-basis: 100%;
   }
 }
 </style>

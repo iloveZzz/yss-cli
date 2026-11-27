@@ -1,15 +1,19 @@
-use super::{not_ready, rpc::Session, sandbox};
+use super::{bridge::Bridge, not_ready, rpc::Session, sandbox};
+#[cfg(windows)]
+use crate::model::RelPath;
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
-    fs::Root,
+    fs::{FileIdentity, FileSnapshot, Root},
     workbench::{
-        agent_protocol::{PiModel, PiRuntime, RuntimeStatus},
+        agent::CommandExecution,
+        agent_protocol::{
+            CommandChecks, PiModel, PiRuntime, RuntimeStatus, native_fork_model_identity,
+            native_fork_version_supported,
+        },
         managed_pi, process,
     },
 };
-#[cfg(windows)]
-use crate::{fs::FileSnapshot, model::RelPath};
 use semver::Version;
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,11 +23,11 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 #[cfg(unix)]
 use std::{
-    ffi::{CStr, OsStr},
+    ffi::{CStr, OsStr, OsString},
     mem::MaybeUninit,
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
     ptr,
@@ -36,6 +40,66 @@ const SUPPORTED_VERSIONS: [Version; 3] = [
 ];
 const SETTINGS_LIMIT: u64 = 1024 * 1024;
 static CONNECTION_TEST: Mutex<()> = Mutex::new(());
+static CONTINUATION_DRAFT: Mutex<()> = Mutex::new(());
+static MANAGED_VERSION: Mutex<Option<ManagedVersionKey>> = Mutex::new(None);
+const DRAFT_PROMPT_HOOK: &str = "yss-draft-prompt-ready";
+
+#[derive(PartialEq, Eq)]
+struct ExecutableStamp {
+    identity: FileIdentity,
+    bytes: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    change_time: (i64, i64),
+}
+
+impl ExecutableStamp {
+    fn read(path: &Path) -> Option<Self> {
+        let file = fs::File::open(path).ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() {
+            return None;
+        }
+        let file = cap_std::fs::File::from_std(file);
+        Some(Self {
+            identity: crate::fs::platform::identity_file(&file).ok()?,
+            bytes: metadata.len(),
+            modified: metadata.modified().ok()?,
+            #[cfg(unix)]
+            change_time: (metadata.ctime(), metadata.ctime_nsec()),
+        })
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct ManagedVersionKey {
+    activation: FileSnapshot,
+    expected: Version,
+    node: (PathBuf, ExecutableStamp),
+    entry: (PathBuf, ExecutableStamp),
+    environment: Vec<(std::ffi::OsString, Option<std::ffi::OsString>)>,
+}
+
+impl ManagedVersionKey {
+    fn capture(
+        expected: &Version,
+        activation: &FileSnapshot,
+        executable: &Path,
+        entry: &Path,
+        command: &Command,
+    ) -> Option<Self> {
+        Some(Self {
+            activation: activation.clone(),
+            expected: expected.clone(),
+            node: (executable.to_owned(), ExecutableStamp::read(executable)?),
+            entry: (entry.to_owned(), ExecutableStamp::read(entry)?),
+            environment: command
+                .get_envs()
+                .map(|(name, value)| (name.to_owned(), value.map(<_>::to_owned)))
+                .collect(),
+        })
+    }
+}
 
 #[cfg(unix)]
 fn locate_pi() -> Result<PathBuf> {
@@ -205,10 +269,9 @@ fn windows_node(cancel: &Cancellation, protected: &[PathBuf]) -> Result<Option<P
 }
 
 fn managed_pi(
-    cancel: &Cancellation,
     status: &mut RuntimeStatus,
     protected: &[PathBuf],
-) -> Result<(PathBuf, PathBuf, Version)> {
+) -> Result<(PathBuf, PathBuf, (Version, FileSnapshot))> {
     let tools = managed_pi::directory().ok_or_else(|| not_ready("无法确定桌面版工具目录"))?;
     let missing = || not_ready("未找到本机 Pi，请安装 Pi 1.6.1");
     let root = match Root::open(&tools) {
@@ -234,8 +297,8 @@ fn managed_pi(
         validate_protected_paths(protected)?;
         return Err(not_ready("受管 Pi 必须位于工程和工作台数据目录之外"));
     }
-    validate_node(&node, cancel, protected)?;
-    Ok((node, entry_path, managed.version))
+    let activation = managed.activation().clone();
+    Ok((node, entry_path, (managed.version, activation)))
 }
 
 fn validate_node(node: &Path, cancel: &Cancellation, protected: &[PathBuf]) -> Result<()> {
@@ -388,6 +451,64 @@ fn host_home() -> Result<PathBuf> {
     ))
 }
 
+#[cfg(unix)]
+pub(super) fn host_command_environment() -> Result<Vec<(OsString, OsString)>> {
+    let path = env::var_os("PATH").unwrap_or_default();
+    let path = env::join_paths(env::split_paths(&path).filter(|entry| entry.is_absolute()))
+        .map_err(|_| not_ready("本机命令无法解析工作台启动时的 PATH"))?;
+    if path.is_empty() {
+        return Err(not_ready("本机命令需要工作台 PATH 中的绝对目录"));
+    }
+    // Keep toolchain locations and package caches without inheriting credentials or shell hooks.
+    const TOOL_VARIABLES: &[&str] = &[
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "JAVA_HOME",
+        "MAVEN_HOME",
+        "M2_HOME",
+        "MAVEN_USER_HOME",
+        "GRADLE_USER_HOME",
+        "COREPACK_HOME",
+        "PNPM_HOME",
+        "PYENV_ROOT",
+        "VIRTUAL_ENV",
+        "UV_CACHE_DIR",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "GOPATH",
+    ];
+    let mut variables = vec![
+        ("PATH".into(), path),
+        ("HOME".into(), host_home()?.into_os_string()),
+    ];
+    variables.extend(
+        TOOL_VARIABLES
+            .iter()
+            .filter_map(|name| env::var_os(name).map(|value| (OsString::from(*name), value))),
+    );
+    Ok(variables)
+}
+
+#[cfg(unix)]
+fn probe_host_commands(cancel: &Cancellation) -> Result<()> {
+    let mut command = Command::new("/bin/bash");
+    command
+        .args(["--noprofile", "--norc", "-c", ":"])
+        .current_dir("/")
+        .env_clear()
+        .envs(host_command_environment()?);
+    match process::capture_command(command, cancel, Duration::from_secs(5)) {
+        Ok((exit, _, _)) if exit.success() => Ok(()),
+        Err(error) if error.code == ErrorCode::Cancelled => Err(error),
+        _ => Err(not_ready("本机命令无法启动 /bin/bash")),
+    }
+}
+
 #[cfg(windows)]
 fn host_home() -> Result<PathBuf> {
     directories::BaseDirs::new()
@@ -529,18 +650,71 @@ const RPC_ARGS: &[&str] = &[
     "--no-skills",
 ];
 
-pub(in super::super) fn probe_update_rpc(
-    mut command: Command,
+pub(in super::super) fn verify_managed_package(
+    executable: &Path,
+    entry: &Path,
+    expected: &Version,
     cancel: &Cancellation,
 ) -> Result<()> {
-    command.args(RPC_ARGS).args(["--no-session", "--no-tools"]);
-    let mut session = Session::open(command, cancel)?;
-    if !session.state(cancel)?.is_object()
-        || !session.available_models(cancel)?["models"].is_array()
-    {
-        return Err(not_ready("受管 Pi 新版本返回的 RPC 状态或模型列表不兼容"));
+    let private = sandbox::PrivateDir::new()?;
+    let path = private.path();
+    let command = || {
+        let mut command = Command::new(executable);
+        command
+            .arg(entry)
+            .env_clear()
+            .env("HOME", path)
+            .env("PI_CODING_AGENT_DIR", path.join("agent"))
+            .env("PI_OFFLINE", "1")
+            .env("PI_TELEMETRY", "0")
+            .current_dir(path);
+        #[cfg(unix)]
+        command.env("PATH", "/usr/bin:/bin").env("TMPDIR", path);
+        #[cfg(windows)]
+        {
+            command
+                .env("USERPROFILE", path)
+                .env("APPDATA", path.join("AppData/Roaming"))
+                .env("LOCALAPPDATA", path.join("AppData/Local"))
+                .env("TMP", path)
+                .env("TEMP", path);
+            if let Some(root) = env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+            {
+                command
+                    .env("PATH", root.join("System32"))
+                    .env("SystemRoot", root);
+            }
+        }
+        command
+    };
+    let mut version = command();
+    version.arg("--version");
+    let (status, stdout, _) = process::capture_command(version, cancel, Duration::from_secs(15))?;
+    let actual = std::str::from_utf8(&stdout)
+        .ok()
+        .and_then(|text| Version::parse(text.trim().trim_start_matches('v')).ok());
+    if !status.success() || actual.as_ref() != Some(expected) {
+        return Err(not_ready("Pi 入口版本校验失败"));
     }
-    Ok(())
+
+    let extension = path.join("workbench.ts");
+    fs::write(&extension, include_bytes!("tools.mjs"))?;
+    let bridge = Bridge::start_probe(path, cancel)?;
+    let mut command = command();
+    command
+        .args(RPC_ARGS)
+        .args(["--no-session", "--extension"])
+        .arg(&extension)
+        .env("YSS_PI_READ_ONLY", "1");
+    bridge.configure(&mut command);
+    let mut session = Session::open(command, cancel)?;
+    session.state(cancel)?;
+    if !session.available_models(cancel)?["models"].is_array() {
+        return Err(not_ready("受管 Pi 返回的模型列表格式不兼容"));
+    }
+    bridge.await_ready()
 }
 
 pub(super) fn select_model(command: &mut Command, model: &PiModel) {
@@ -551,13 +725,36 @@ fn model_identity(model: &Value) -> Option<PiModel> {
     PiModel::new(model["provider"].as_str()?, model["id"].as_str()?)
 }
 
-fn model_unavailable() -> YssError {
+pub(super) fn model_unavailable() -> YssError {
     not_ready("Pi 中找不到要使用的模型，请核对本机供应商与模型配置")
         .context("piIssue", "modelUnavailable")
 }
 
 pub(super) fn verify_model(state: &Value, expected: &PiModel) -> Result<()> {
     if model_identity(&state["model"]).as_ref() != Some(expected) {
+        return Err(model_unavailable());
+    }
+    Ok(())
+}
+
+pub(super) fn state_model(state: &Value) -> Result<PiModel> {
+    model_identity(&state["model"]).ok_or_else(|| {
+        not_ready("Pi 没有可用模型，请在本机 Pi 中选择模型并配置凭证")
+            .context("piIssue", "modelUnavailable")
+    })
+}
+
+pub(super) fn verify_available_model(
+    session: &mut Session,
+    model: &PiModel,
+    cancel: &Cancellation,
+) -> Result<()> {
+    let available = session.available_models(cancel)?;
+    if !available["models"].as_array().is_some_and(|models| {
+        models
+            .iter()
+            .any(|entry| model_identity(entry).as_ref() == Some(model))
+    }) {
         return Err(model_unavailable());
     }
     Ok(())
@@ -588,7 +785,7 @@ impl PiProbe {
             && env::var_os("YSS_DESKTOP_MANAGED").is_some_and(|value| value == "1")
             && managed_pi::has_selected_release()?;
         let (executable, entry, managed_version) = if prefer_selected {
-            let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+            let (node, entry, version) = managed_pi(status, &protected)?;
             (node, Some(entry), Some(version))
         } else {
             match locate_pi() {
@@ -612,13 +809,13 @@ impl PiProbe {
                         Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
                         Err(error) if status.executable.is_some() => return Err(error),
                         Err(_) => {
-                            let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+                            let (node, entry, version) = managed_pi(status, &protected)?;
                             (node, Some(entry), Some(version))
                         }
                     };
                     #[cfg(unix)]
                     let discovered = {
-                        let (node, entry, version) = managed_pi(cancel, status, &protected)?;
+                        let (node, entry, version) = managed_pi(status, &protected)?;
                         (node, Some(entry), Some(version))
                     };
                     discovered
@@ -647,22 +844,49 @@ impl PiProbe {
             .current_dir(private.path())
             .env("PI_CODING_AGENT_DIR", &config_dir)
             .arg("--version");
-        let (exit, stdout, _) = process::capture_command(probe, cancel, Duration::from_secs(5))?;
-        let version = std::str::from_utf8(&stdout)
-            .ok()
-            .and_then(|text| Version::parse(text.trim()).ok())
-            .filter(|_| exit.success())
-            .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
-        status.version = Some(version.clone());
-        if let Some(expected) = managed_version {
-            if version != expected {
-                return Err(not_ready("受管 Pi 的实际版本与活动记录不一致"));
+        let managed_stamp = || {
+            let (expected, activation) = managed_version.as_ref()?;
+            ManagedVersionKey::capture(expected, activation, &executable, entry.as_deref()?, &probe)
+        };
+        let stamp = managed_stamp();
+        cancel.check()?;
+        let version = if let Some(cached) = stamp.as_ref().filter(|key| {
+            MANAGED_VERSION
+                .lock()
+                .is_ok_and(|current| current.as_ref() == Some(key))
+        }) {
+            cached.expected.clone()
+        } else {
+            if managed_version.is_some() {
+                validate_node(&executable, cancel, &protected)?;
             }
-        } else if !SUPPORTED_VERSIONS.contains(&version) {
-            return Err(not_ready(
-                "工作台当前支持 Pi 1.5.2、1.6.0 和 1.6.1，请核对本机 Pi 版本",
-            ));
-        }
+            let (exit, stdout, _) =
+                process::capture_command(probe, cancel, Duration::from_secs(5))?;
+            let version = std::str::from_utf8(&stdout)
+                .ok()
+                .and_then(|text| Version::parse(text.trim()).ok())
+                .filter(|_| exit.success())
+                .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
+            status.version = Some(version.clone());
+            if let Some((expected, _)) = managed_version {
+                if version != expected {
+                    return Err(not_ready("受管 Pi 的实际版本与活动记录不一致"));
+                }
+                if let Some(stamp) = stamp
+                    && ExecutableStamp::read(&stamp.node.0).as_ref() == Some(&stamp.node.1)
+                    && ExecutableStamp::read(&stamp.entry.0).as_ref() == Some(&stamp.entry.1)
+                    && let Ok(mut current) = MANAGED_VERSION.lock()
+                {
+                    *current = Some(stamp);
+                }
+            } else if !SUPPORTED_VERSIONS.contains(&version) {
+                return Err(not_ready(
+                    "工作台当前支持 Pi 1.5.2、1.6.0 和 1.6.1，请核对本机 Pi 版本",
+                ));
+            }
+            version
+        };
+        status.version = Some(version.clone());
         Ok(Self {
             private,
             protected,
@@ -673,7 +897,7 @@ impl PiProbe {
         })
     }
 
-    fn open(&self, cancel: &Cancellation, model: Option<&PiModel>) -> Result<Session> {
+    fn command(&self, model: Option<&PiModel>) -> Result<Command> {
         let mut command = rpc_command(
             &self.executable,
             self.entry.as_deref(),
@@ -686,24 +910,100 @@ impl PiProbe {
         if let Some(model) = model {
             select_model(&mut command, model);
         }
-        Session::open(command, cancel)
+        Ok(command)
+    }
+
+    fn open(&self, cancel: &Cancellation, model: Option<&PiModel>) -> Result<Session> {
+        Session::open(self.command(model)?, cancel)
     }
 
     fn credentials_command(&self, model: &PiModel) -> Result<Command> {
-        let mut command = pi_command(&self.executable, self.entry.as_deref(), &self.protected)?;
-        command
-            .current_dir(self.private.path())
-            .env("PI_CODING_AGENT_DIR", &self.config_dir)
-            .args([
-                "auth",
-                "check",
-                "--provider",
-                &model.provider,
-                "--json",
-                "--no-refresh",
-            ]);
-        Ok(command)
+        credentials_command(
+            &self.executable,
+            self.entry.as_deref(),
+            &self.config_dir,
+            &self.protected,
+            self.private.path(),
+            model,
+        )
     }
+}
+
+fn credentials_command(
+    executable: &Path,
+    entry: Option<&Path>,
+    config_dir: &Path,
+    protected: &[PathBuf],
+    private: &Path,
+    model: &PiModel,
+) -> Result<Command> {
+    let mut command = pi_command(executable, entry, protected)?;
+    command
+        .current_dir(private)
+        .env("PI_CODING_AGENT_DIR", config_dir)
+        .args([
+            "auth",
+            "check",
+            "--provider",
+            &model.provider,
+            "--json",
+            "--no-refresh",
+        ]);
+    Ok(command)
+}
+
+pub(super) fn verify_credentials(
+    runtime: &PiRuntime,
+    private: &Path,
+    model: &PiModel,
+    cancel: &Cancellation,
+) -> Result<()> {
+    let command = credentials_command(
+        &runtime.executable,
+        runtime.entry.as_deref(),
+        &runtime.config_dir,
+        &runtime.protected,
+        private,
+        model,
+    )?;
+    check_credentials(command, cancel, &mut RuntimeStatus::default())
+}
+
+pub(crate) fn generate_continuation_draft(
+    cancel: &Cancellation,
+    protected: &[PathBuf],
+    model: &PiModel,
+    system_prompt: &str,
+    input: &str,
+) -> Result<String> {
+    let _draft = CONTINUATION_DRAFT
+        .try_lock()
+        .map_err(|_| YssError::new(ErrorCode::Locked, "已有接续草稿正在生成，请稍后重试"))?;
+    let mut status = RuntimeStatus::default();
+    let probe = PiProbe::new(cancel, &mut status, protected)?;
+    check_credentials(probe.credentials_command(model)?, cancel, &mut status)?;
+    let extension = probe.private.path().join("draft-prompt.mjs");
+    let system_prompt = serde_json::to_string(system_prompt)
+        .map_err(|_| not_ready("无法准备接续草稿系统提示词"))?;
+    // Pi normally appends cwd even for a custom prompt. Force the exact
+    // previewed text and verify the hook is active before submitting data.
+    fs::write(
+        &extension,
+        format!(
+            "export default function(pi) {{\n  pi.on('before_agent_start', () => ({{ systemPrompt: {system_prompt} }}));\n  pi.registerCommand('{DRAFT_PROMPT_HOOK}', {{ handler: async () => {{}} }});\n}}\n"
+        ),
+    )?;
+    let mut command = probe.command(Some(model))?;
+    command
+        .args(["--thinking", "off", "--extension"])
+        .arg(extension);
+    let mut session = Session::open(command, cancel)?;
+    let state = session.state(cancel)?;
+    verify_model(&state, model)?;
+    if !state["sessionFile"].is_null() || !session.has_only_command(DRAFT_PROMPT_HOOK, cancel)? {
+        return Err(not_ready("Pi 接续草稿会话的隔离或提示词自检未通过"));
+    }
+    session.generate_draft(input, cancel)
 }
 
 pub(crate) fn available_models(
@@ -730,9 +1030,19 @@ pub(crate) fn check_runtime(
     status: &mut RuntimeStatus,
     protected: &[PathBuf],
     model: Option<&PiModel>,
+    commands: CommandChecks,
+    check_model_in_session: bool,
 ) -> Result<PiRuntime> {
+    #[cfg(unix)]
+    if commands.includes(CommandExecution::Host) {
+        match probe_host_commands(cancel) {
+            Ok(()) => status.host_commands_ready = true,
+            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+            Err(error) => status.host_commands_message = Some(error.message),
+        }
+    }
     #[cfg(windows)]
-    {
+    if commands.includes(CommandExecution::Sandbox) {
         status.sandbox_message = Some(sandbox::OFFLINE_UNAVAILABLE.into());
     }
     let probe = PiProbe::new(cancel, status, protected)?;
@@ -743,24 +1053,33 @@ pub(crate) fn check_runtime(
         }
         error
     })?;
-    #[cfg(unix)]
-    let sandbox = sandbox::probe(cancel);
     #[cfg(windows)]
-    let command_node = if probe.entry.is_some() {
-        Some(probe.executable.clone())
-    } else {
-        windows_node(cancel, &probe.protected)?
-    };
-    #[cfg(windows)]
-    let sandbox = sandbox::probe(command_node.as_deref(), cancel);
-    match sandbox {
-        Ok(()) => {
-            status.sandbox_ready = true;
-            status.sandbox_message = None;
-        }
-        Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-        Err(error) => {
-            status.sandbox_message = Some(error.message);
+    let mut command_sandbox = None;
+    if commands.includes(CommandExecution::Sandbox) {
+        #[cfg(unix)]
+        let sandbox = sandbox::probe(cancel);
+        #[cfg(windows)]
+        let sandbox = {
+            let command_node = if probe.entry.is_some() {
+                Some(probe.executable.clone())
+            } else {
+                windows_node(cancel, &probe.protected)?
+            };
+            sandbox::Sandbox::new(command_node.as_deref(), cancel)
+        };
+        match sandbox {
+            Ok(sandbox) => {
+                #[cfg(windows)]
+                {
+                    command_sandbox = Some(Box::new(sandbox));
+                }
+                #[cfg(unix)]
+                let () = sandbox;
+                status.sandbox_ready = true;
+                status.sandbox_message = None;
+            }
+            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+            Err(error) => status.sandbox_message = Some(error.message),
         }
     }
 
@@ -768,56 +1087,62 @@ pub(crate) fn check_runtime(
         Some(model) => Some(model.clone()),
         None => fixed_default_model(&probe.config_dir)?,
     };
-    if let Some(model) = &status.model {
-        check_credentials(probe.credentials_command(model)?, cancel, status)?;
-    }
-
-    let mut session = probe.open(cancel, status.model.as_ref())?;
-    let mut state = session.state(cancel)?;
-    let model = match &status.model {
-        Some(model) => {
-            let available = session.available_models(cancel)?;
-            if !available["models"].as_array().is_some_and(|models| {
-                models
-                    .iter()
-                    .any(|entry| model_identity(entry).as_ref() == Some(model))
-            }) {
-                return Err(model_unavailable());
-            }
-            if verify_model(&state, model).is_err() {
-                session.set_model(model, cancel)?;
-                state = session.state(cancel)?;
-                verify_model(&state, model)?;
-            }
-            model.clone()
-        }
-        None => {
-            let model = model_identity(&state["model"]).ok_or_else(|| {
-                not_ready("Pi 没有可用模型，请在本机 Pi 中选择模型并配置凭证")
-                    .context("piIssue", "modelUnavailable")
-            })?;
-            status.model = Some(model.clone());
-            check_credentials(probe.credentials_command(&model)?, cancel, status)?;
-            model
+    let native_fork_model_identity = if check_model_in_session {
+        None
+    } else {
+        let state = check_model_status(&probe, status, cancel)?;
+        if native_fork_version_supported(&probe.version) {
+            native_fork_model_identity(&state).ok()
+        } else {
+            None
         }
     };
-    let thinking_levels = session.thinking_levels(cancel)?;
-    status.thinking_levels.clone_from(&thinking_levels);
-    status.thinking_level = serde_json::from_value(state["thinkingLevel"].clone()).ok();
-    status.context_window = state["model"]["contextWindow"]
-        .as_u64()
-        .filter(|value| *value > 0);
     Ok(PiRuntime {
         executable: probe.executable,
         entry: probe.entry,
         #[cfg(windows)]
-        command_node,
+        command_sandbox,
         config_dir: probe.config_dir,
         version: probe.version,
-        model,
-        thinking_levels,
+        protected: probe.protected,
+        model: status.model.clone(),
+        native_fork_model_identity,
+        thinking_levels: status.thinking_levels.clone(),
+        check_model_in_session,
         sandbox_message: status.sandbox_message.clone(),
+        host_commands_message: status.host_commands_message.clone(),
     })
+}
+
+fn check_model_status(
+    probe: &PiProbe,
+    status: &mut RuntimeStatus,
+    cancel: &Cancellation,
+) -> Result<Value> {
+    let preferred = status.model.clone();
+    if let Some(model) = &preferred {
+        check_credentials(probe.credentials_command(model)?, cancel, status)?;
+    }
+    let mut session = probe.open(cancel, preferred.as_ref())?;
+    let mut state = session.state(cancel)?;
+    if let Some(model) = &preferred {
+        verify_available_model(&mut session, model, cancel)?;
+        if verify_model(&state, model).is_err() {
+            session.set_model(model, cancel)?;
+            state = session.state(cancel)?;
+            verify_model(&state, model)?;
+        }
+    } else {
+        let model = state_model(&state)?;
+        status.model = Some(model.clone());
+        check_credentials(probe.credentials_command(&model)?, cancel, status)?;
+    }
+    status.thinking_levels = session.thinking_levels(cancel)?;
+    status.thinking_level = serde_json::from_value(state["thinkingLevel"].clone()).ok();
+    status.context_window = state["model"]["contextWindow"]
+        .as_u64()
+        .filter(|value| *value > 0);
+    Ok(state)
 }
 
 pub(crate) fn test_model(
@@ -829,8 +1154,16 @@ pub(crate) fn test_model(
     let _test = CONNECTION_TEST
         .try_lock()
         .map_err(|_| YssError::new(ErrorCode::Locked, "已有 Pi 模型连接测试进行中，请稍后重试"))?;
-    let runtime = check_runtime(cancel, &mut RuntimeStatus::default(), protected, model)?;
+    let runtime = check_runtime(
+        cancel,
+        &mut RuntimeStatus::default(),
+        protected,
+        model,
+        CommandChecks::All,
+        false,
+    )?;
     runtime.verify_expected(Some(expected))?;
+    let model = runtime.model.as_ref().ok_or_else(model_unavailable)?;
     let private = sandbox::PrivateDir::new()?;
     let mut command = rpc_command(
         &runtime.executable,
@@ -846,8 +1179,8 @@ pub(crate) fn test_model(
         "--system-prompt",
         "This is a model connection test. Reply with only OK.",
     ]);
-    select_model(&mut command, &runtime.model);
+    select_model(&mut command, model);
     let mut session = Session::open(command, cancel)?;
-    verify_model(&session.state(cancel)?, &runtime.model)?;
+    verify_model(&session.state(cancel)?, model)?;
     session.test_connection(cancel)
 }

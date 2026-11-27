@@ -1,5 +1,9 @@
 mod bridge;
 mod evidence;
+#[cfg(unix)]
+mod host_command;
+#[cfg(target_os = "macos")]
+mod native_fork;
 mod readiness;
 mod rpc;
 #[cfg(target_os = "macos")]
@@ -14,17 +18,26 @@ mod windows_command;
 pub(crate) mod windows_mapping;
 mod workspace;
 
-pub(super) use readiness::{available_models, check_runtime, probe_update_rpc, test_model};
+pub(super) use readiness::generate_continuation_draft;
+
+#[cfg(target_os = "macos")]
+pub(super) use native_fork::verify_source as verify_native_fork_source;
+pub(super) use readiness::{available_models, check_runtime, test_model, verify_managed_package};
+#[cfg(windows)]
+pub(super) use sandbox::Sandbox as WindowsSandbox;
 #[cfg(windows)]
 pub(crate) use sandbox::StoppedCommand;
 
-use super::{PiSession, RunRequest};
+use super::{PiRuntime, PiSession, RunRequest};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::{FileSnapshot, Root},
     model::RelPath,
-    workbench::{agent::ProjectMode, jobs::JobContext},
+    workbench::{
+        agent::{CommandExecution, ProjectMode},
+        jobs::JobContext,
+    },
 };
 use serde_json::{Value, json};
 #[cfg(unix)]
@@ -359,14 +372,30 @@ fn project_context(
 }
 
 pub(super) fn run(
-    request: RunRequest<'_>,
+    #[allow(unused_mut)] mut request: RunRequest<'_>,
     context: &JobContext,
     mut save_session: impl FnMut(Option<PiSession>, Value) -> Result<()>,
     ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
 ) -> Result<()> {
     context.cancel.check()?;
-    request.runtime.verify_commands(request.allow_commands)?;
+    let native_first_round = request.native_fork.is_some();
+    #[cfg(windows)]
+    if native_first_round {
+        return Err(super::native_fork_unavailable());
+    }
+    request
+        .runtime
+        .verify_commands(request.allow_commands, request.command_execution)?;
     let directory = session_directory(request.data_dir, request.run_id, request.resume.is_none())?;
+    #[cfg(target_os = "macos")]
+    let native_session = request
+        .native_fork
+        .map(|anchor| native_fork::prepare(&request, &directory, anchor, &context.cancel))
+        .transpose()?;
+    #[cfg(target_os = "macos")]
+    let expected_session = native_session.as_ref().or(request.resume);
+    #[cfg(windows)]
+    let expected_session = request.resume;
     #[cfg(windows)]
     let session_root = Root::open(&directory)?;
     #[cfg(windows)]
@@ -385,8 +414,7 @@ pub(super) fn run(
         .map(|session| verify_session_file(&session_root, &execution_cwd, session))
         .transpose()?;
     #[cfg(unix)]
-    let resume = request
-        .resume
+    let resume = expected_session
         .map(|session| verify_session(request.data_dir, request.run_id, request.cwd, session))
         .transpose()?;
     #[cfg(windows)]
@@ -411,30 +439,45 @@ pub(super) fn run(
     let extension = private.path().join("workbench.ts");
     fs::write(&extension, include_bytes!("tools.mjs"))?;
     let allow_commands = request.allow_commands && !request.read_only;
-    #[cfg(unix)]
-    let sandbox = allow_commands
-        .then(|| {
-            sandbox::Sandbox::new(
+    let commands = match (allow_commands, request.command_execution) {
+        (false, _) => bridge::Commands::Disabled,
+        #[cfg(unix)]
+        (true, CommandExecution::Host) => bridge::Commands::Host,
+        #[cfg(windows)]
+        (true, CommandExecution::Host) => return Err(not_ready("Windows 当前仅支持隔离离线命令")),
+        (true, CommandExecution::Sandbox) => {
+            #[cfg(unix)]
+            let sandbox = sandbox::Sandbox::new(
                 &private,
                 &request.runtime.config_dir,
                 &projects,
                 request.unselected_projects,
                 request.explicit_access,
                 &context.cancel,
-            )
-        })
-        .transpose()?;
-    #[cfg(windows)]
-    let sandbox = allow_commands
-        .then(|| sandbox::Sandbox::new(request.runtime.command_node.as_deref(), &context.cancel))
-        .transpose()?;
+            )?;
+            #[cfg(windows)]
+            let sandbox = request.runtime.command_sandbox.take().ok_or_else(|| {
+                not_ready(sandbox::OFFLINE_UNAVAILABLE).context("piIssue", "commandsUnavailable")
+            })?;
+            #[cfg(unix)]
+            let sandbox = Box::new(sandbox);
+            bridge::Commands::Sandbox(sandbox)
+        }
+    };
     let evidence = evidence::Evidence::default();
+    let access = if native_first_round {
+        bridge::Access::NativeFork
+    } else if request.read_only {
+        bridge::Access::ReadOnly
+    } else {
+        bridge::Access::ReadWrite
+    };
     let bridge = bridge::Bridge::start(
         private.path(),
         context,
         projects,
-        sandbox,
-        request.read_only,
+        commands,
+        access,
         ask,
         evidence.clone(),
     )?;
@@ -458,36 +501,85 @@ pub(super) fn run(
         .arg(&extension)
         .arg("--session-dir")
         .arg(&directory);
-    readiness::select_model(&mut command, &request.runtime.model);
+    if let Some(model) = &request.runtime.model {
+        readiness::select_model(&mut command, model);
+    }
     if let Some(file) = &resume {
         command.arg("--session").arg(file);
     }
-    for path in &skills {
-        command.arg("--skill").arg(path);
+    if !native_first_round {
+        for path in &skills {
+            command.arg("--skill").arg(path);
+        }
     }
-    bridge.configure(&mut command, allow_commands);
-    command.env(
-        "YSS_PI_READ_ONLY",
-        if request.read_only { "1" } else { "0" },
-    );
+    bridge.configure(&mut command);
+    command
+        .env(
+            "YSS_PI_READ_ONLY",
+            if request.read_only { "1" } else { "0" },
+        )
+        .env(
+            "YSS_PI_NATIVE_FORK_READ_ONLY",
+            if native_first_round { "1" } else { "0" },
+        );
+    #[cfg(target_os = "macos")]
+    let command = if native_first_round {
+        native_fork::read_only_command(command, &request, &directory, private.path())?
+    } else {
+        command
+    };
     let mut pi = rpc::Session::open(command, &context.cancel)?;
     let mut state = pi.state(&context.cancel)?;
     bridge.await_ready()?;
     let session = session_ref(&directory, &state)?;
-    if let Some(original) = request.resume
-        && session
-            .as_ref()
-            .is_none_or(|opened| opened.id != original.id || opened.file != original.file)
+    if let Some(original) = expected_session
+        && session.as_ref().is_none_or(|opened| opened != original)
     {
         return Err(not_ready("Pi 打开的会话与原运行不匹配"));
     }
-    if request.resume.is_some() && readiness::verify_model(&state, &request.runtime.model).is_err()
-    {
-        pi.set_model(&request.runtime.model, &context.cancel)?;
-        state = pi.state(&context.cancel)?;
+    let model = if let Some(model) = &request.runtime.model {
+        if request.runtime.check_model_in_session {
+            readiness::verify_credentials(
+                &request.runtime,
+                private.path(),
+                model,
+                &context.cancel,
+            )?;
+            readiness::verify_available_model(&mut pi, model, &context.cancel)?;
+        }
+        if (expected_session.is_some() || request.runtime.check_model_in_session)
+            && readiness::verify_model(&state, model).is_err()
+        {
+            pi.set_model(model, &context.cancel)?;
+            state = pi.state(&context.cancel)?;
+        }
+        readiness::verify_model(&state, model)?;
+        model.clone()
+    } else {
+        let model = readiness::state_model(&state)?;
+        readiness::verify_credentials(&request.runtime, private.path(), &model, &context.cancel)?;
+        model
+    };
+    PiRuntime::verify_model_choice(&model, request.expected_model)?;
+    #[cfg(target_os = "macos")]
+    if let Some(anchor) = request.native_fork {
+        request.runtime.verify_native_fork(anchor)?;
+        native_fork::verify_model(&state, anchor)?;
     }
-    readiness::verify_model(&state, &request.runtime.model)?;
-    if let Some(level) = request.thinking_level {
+    let levels = if request.runtime.check_model_in_session {
+        pi.thinking_levels(&context.cancel)?
+    } else {
+        request.runtime.thinking_levels.clone()
+    };
+    PiRuntime::verify_thinking_choice(&levels, request.thinking_level)?;
+    let remembered = request
+        .remembered_thinking
+        .as_ref()
+        .filter(|(previous, level)| previous == &model && levels.contains(level));
+    if let Some(level) = request
+        .thinking_level
+        .or(remembered.map(|(_, level)| *level))
+    {
         if state["thinkingLevel"] != json!(level) {
             pi.set_thinking_level(level, &context.cancel)?;
             state = pi.state(&context.cancel)?;
@@ -499,25 +591,31 @@ pub(super) fn run(
     }
     let metadata = json!({
         "host": "pi", "version": request.runtime.version,
-        "model": request.runtime.model.id,
-        "provider": request.runtime.model.provider,
+        "model": model.id,
+        "provider": model.provider,
         "thinkingLevel": state["thinkingLevel"].as_str(),
         "readOnly": request.read_only,
-        "allowCommands": allow_commands
+        "allowCommands": allow_commands,
+        "commandExecution": allow_commands.then_some(request.command_execution)
     });
     save_session(session, metadata.clone())?;
     context.emit(
         "piStatus",
         json!({
-            "message": "已连接 Pi 会话", "model": request.runtime.model,
+            "message": "已连接 Pi 会话", "model": model,
             "thinkingLevel": metadata["thinkingLevel"],
-        "readOnly": request.read_only,
+            "readOnly": request.read_only,
+            "commandExecution": metadata["commandExecution"],
             "contextWindow": state["model"]["contextWindow"].as_u64().filter(|value| *value > 0)
         }),
     )?;
     context.trace("piReady");
-    let commands = if request.read_only {
+    let commands = if native_first_round {
+        "此轮从历史 Pi 会话分叉。请用本轮只读的读取、列出和搜索工具核对资料，并把建议写在答复里。"
+    } else if request.read_only {
         "本轮只读。可以读取、搜索、更新展示计划和询问已登记业务问题。把建议写在答复里。"
+    } else if allow_commands && request.command_execution == CommandExecution::Host {
+        "本轮授权在 execute 工程的原目录通过本机非登录 Bash 执行命令，使用当前账户的文件与网络权限。只处理本轮已授权工程与任务。read 可读取和搜索，edit 可编辑。修改已有文件前先读取现状。允许只读 Git 查询。保留各工程分支、HEAD 和暂存区，变更后本轮将停止并保留现场。"
     } else if request.explicit_access {
         "按每个工程列出的权限操作。read 可读取和搜索，edit 可直接编辑，execute 另可运行离线命令。修改已有文件前先用 read 确认最新内容。离线命令可以读取其他所选工程，只能写入实际执行工程和临时目录。"
     } else if allow_commands {
@@ -529,10 +627,14 @@ pub(super) fn run(
         "{}\n{commands}\n工程路径、Git 分支、HEAD 和 YSS 版本以本轮工作台提供的信息为准。本轮文件变化以工作台「执行成果」的差异为依据。按关联资源状态说明原型是否有可预览入口。有构建产物时，可请用户从「执行成果 → 产物」打开预览。浏览器交互在实际操作前标记为待验证。\n",
         request.prompt
     );
-    if allow_commands {
+    if allow_commands && request.command_execution == CommandExecution::Host {
+        prompt.push_str("每项独立的构建或测试单独调用命令工具，以保留各自的退出结果。\n");
+    } else if allow_commands {
         prompt.push_str("每项独立的离线构建或测试单独调用命令工具，以保留各自的退出结果。\n");
         #[cfg(unix)]
-        prompt.push_str("Maven 与 pnpm 构建使用本机已准备的离线依赖。\n");
+        prompt.push_str(
+            "离线命令无法读取受保护的 .git。Maven 与 pnpm 构建使用本机已准备的离线依赖。\n",
+        );
         #[cfg(windows)]
         prompt.push_str("Windows 离线命令使用 cmd.exe，在指定工程的隔离副本中执行。每次提交一行，组合命令请使用 && 传播失败。优先使用相对路径和受检 Node.js。环境变量 YSS_PROJECTS_JSON 提供本轮工程 ID 对应的副本路径。其他工程副本只读，成功退出后才会核对执行工程并写回。\n");
     }
@@ -556,8 +658,21 @@ pub(super) fn run(
         prompt.push('\n');
     }
     prompt.push_str("\n在答复的普通正文中，可在有根据的结论后标注工作台签发的本轮来源。用户提交的选段和命令结果用 {{cite:ID}}。文件读取用 {{cite:ID:12-18}}，将 12-18 换为实际返回范围内的连续行，每段最多 20 行、4 KiB。用实际 sourceId 替换 ID。没有本轮编号的材料无需标注。\n");
+    #[cfg(target_os = "macos")]
+    let native_capture = native_fork::before_prompt(
+        &request,
+        &directory,
+        expected_session,
+        &state,
+        &context.cancel,
+    )
+    .ok();
     let usage_before = pi.session_usage("session-stats-before", &context.cancel);
-    let result = pi.prompt(&prompt, context, &evidence);
+    let mut prompt_context = context.clone();
+    prompt_context.cancel = bridge.prompt_cancellation();
+    let result = pi.prompt(&prompt, &prompt_context, &evidence);
+    #[cfg(unix)]
+    bridge.verify_command_failure()?;
     if !context.cancel.is_cancelled()
         && let Some(usage) = pi.session_usage("session-stats-after", &context.cancel)
     {
@@ -569,8 +684,15 @@ pub(super) fn run(
         && let Some(session) = session_ref(&directory, &state)?
     {
         save_session(Some(session), metadata)?;
+        #[cfg(target_os = "macos")]
+        if result.is_ok()
+            && let Some(capture) = native_capture
+        {
+            // Unavailable or oversized native history does not affect a finished Pi round.
+            let _ = native_fork::capture(&request, context, &directory, &mut pi, &state, capture);
+        }
     }
     #[cfg(windows)]
-    bridge.verify_command_recovery()?;
+    bridge.verify_command_failure()?;
     result
 }

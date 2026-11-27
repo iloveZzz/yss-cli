@@ -1,10 +1,10 @@
 use super::{
     agent_protocol::{self, PiModel, PiRuntime, PiSession, RunRequest, ThinkingLevel},
-    agent_scope::ContinuationSource,
+    agent_scope::{self, ContinuationSource},
     agent_workspace::{self, GitBaseline, Workspace},
     ci_job::{CiJobMode, CiJobSelection},
     content as spec_content,
-    jobs::{JobContext, JobManager, JobRecord, lock_store},
+    jobs::{JobContext, JobManager, JobRecord, PiPhase, lock_store},
     model::{
         Action, MutationRequest, QuestionKind, QuestionResponse, QuestionState, QuestionStatus,
         ResourceHealth, ResourceKind, ResponseKind, SpecMetadata, SpecRecord, Stage, TargetType,
@@ -35,6 +35,7 @@ mod diff_hunks;
 pub(super) use admission::start_async;
 pub(super) mod activity;
 pub(super) mod local_tasks;
+pub(super) mod native_fork;
 pub(super) mod queue;
 pub(super) mod reads;
 
@@ -51,7 +52,13 @@ pub struct AgentStartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_access: Option<Vec<ProjectAccess>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_repository_keys: Option<BTreeMap<String, Option<Sha256>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     continuation_source: Option<ContinuationSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_continuation_digest: Option<Sha256>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_fork_source: Option<native_fork::NativeForkSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ci_job: Option<CiJobSelection>,
     #[serde(default)]
@@ -72,11 +79,30 @@ pub struct AgentStartRequest {
     pub read_only: bool,
     #[serde(default)]
     pub allow_commands: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) command_execution: Option<CommandExecution>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    host_execution_confirmed: bool,
     #[serde(default)]
     pub lifecycle_stage: Option<Stage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_goal_version: Option<String>,
 }
+
+impl AgentStartRequest {
+    fn command_execution(&self) -> CommandExecution {
+        self.command_execution.unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum CommandExecution {
+    #[default]
+    Sandbox,
+    Host,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectMode {
@@ -207,11 +233,15 @@ pub struct AgentRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_access: Option<Vec<ProjectAccess>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    command_execution: Option<CommandExecution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     queue_project_access: Option<Vec<ProjectAccess>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     continuation_source: Option<ContinuationSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ci_job: Option<Value>,
+    native_fork_source: Option<ContinuationSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) ci_job: Option<Value>,
 }
 
 impl AgentRun {
@@ -316,7 +346,8 @@ fn load(store: &mut Store, id: &str) -> Result<AgentRun> {
                 return Err(YssError::new(
                     ErrorCode::ConcurrentChange,
                     "运行记录与当前登记工程路径不一致",
-                ));
+                )
+                .context("resumeReason", "workspaceChanged"));
             }
         }
         for source in &workspace.resource_sources {
@@ -352,10 +383,6 @@ fn save_preparing_run(context: &JobContext, run: &mut AgentRun) -> Result<()> {
 pub fn result(store: &mut Store, run_id: &str) -> Result<AgentRun> {
     load(store, run_id)
 }
-fn session_cwd(store: &Store, run: &AgentRun) -> Result<PathBuf> {
-    let project = &sources::spec(store.state(), &run.spec_id)?.project_id;
-    session_project_cwd(project, run)
-}
 fn session_project_cwd(project: &str, run: &AgentRun) -> Result<PathBuf> {
     run.workspaces
         .iter()
@@ -365,19 +392,61 @@ fn session_project_cwd(project: &str, run: &AgentRun) -> Result<PathBuf> {
         })
         .ok_or_else(|| invalid("运行缺少主 Spec 工程"))
 }
-fn can_resume(store: &Store, run: &AgentRun) -> bool {
-    agent_protocol::supported()
-        && run.host == AgentHost::Pi
-        && run.workspace_mode == WorkspaceMode::Direct
-        && terminal(&run.status)
-        && run.pi_session.as_ref().is_some_and(|session| {
-            session_cwd(store, run).is_ok_and(|cwd| {
-                run.workspaces.iter().all(|workspace| {
-                    Root::open(Path::new(&workspace.worktree_root))
-                        .is_ok_and(|root| root.identity == workspace.worktree_identity)
-                }) && agent_protocol::session_available(store.data_dir(), &run.id, &cwd, session)
-            })
-        })
+fn resume_error(reason: &str, message: &str) -> YssError {
+    YssError::new(ErrorCode::NotReady, message)
+        .context("resumeReason", reason)
+        .context("httpStatus", 409)
+}
+
+fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun) -> Result<()> {
+    if !agent_protocol::supported() {
+        return Err(resume_error(
+            "platformUnsupported",
+            "当前平台无法续接 Pi 会话",
+        ));
+    }
+    if run.host != AgentHost::Pi || run.workspace_mode != WorkspaceMode::Direct {
+        return Err(resume_error(
+            "legacySession",
+            "该历史会话仅供审阅，可从原 Spec 新建会话",
+        ));
+    }
+    if !terminal(&run.status) {
+        return Err(resume_error("roundActive", "当前轮次仍在执行"));
+    }
+    let workspace_changed = || {
+        resume_error(
+            "workspaceChanged",
+            "原工作区已变化或不可用，请从 Spec 新建会话",
+        )
+    };
+    let spec = sources::spec(state, &run.spec_id).map_err(|_| workspace_changed())?;
+    if !spec.active
+        || run
+            .project_ids
+            .iter()
+            .any(|id| !sources::project(state, id).is_ok_and(|project| project.active))
+    {
+        return Err(workspace_changed());
+    }
+    let cwd = session_project_cwd(&spec.project_id, run).map_err(|_| workspace_changed())?;
+    if !run.workspaces.iter().all(|workspace| {
+        Root::open(Path::new(&workspace.worktree_root))
+            .is_ok_and(|root| root.identity == workspace.worktree_identity)
+    }) {
+        return Err(workspace_changed());
+    }
+    if !run
+        .pi_session
+        .as_ref()
+        .is_some_and(|session| agent_protocol::session_available(data_dir, &run.id, &cwd, session))
+    {
+        return Err(resume_error(
+            "piSessionUnavailable",
+            "原 Pi 会话记录缺失或无效，请从 Spec 新建会话",
+        ));
+    }
+    Ok(())
 }
 
 fn recorded_model(run: &AgentRun) -> Result<PiModel> {
@@ -416,9 +485,7 @@ pub(crate) fn runtime_target(
     let mut model = selected_model;
     if let Some(id) = resume_id {
         let run = load(store, id)?;
-        if !can_resume(store, &run) {
-            return Err(invalid("Pi 会话或工作区不可用，请从 Spec 重新发起"));
-        }
+        check_resume_session(store.state(), store.data_dir(), &run)?;
         if model.is_none() {
             model = Some(recorded_model(&run)?);
         }
@@ -426,21 +493,30 @@ pub(crate) fn runtime_target(
     Ok((pi_protected_paths(store), model))
 }
 
-pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
-    let current = load(store, run_id);
+pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> Result<Value> {
+    let mut store = lock_store(shared)?;
+    let current = load(&mut store, run_id);
     let recovery = match &current {
         Ok(run) if terminal(&run.status) => {
-            acceptance::recovery_block(store, &acceptance::roots(run))?
+            acceptance::recovery_block(&mut store, &acceptance::roots(run))?
         }
         _ => None,
     };
-    let resume = recovery.is_none() && current.as_ref().is_ok_and(|run| can_resume(store, run));
-    let mut issue = current
+    let mut resume_issue = current
         .as_ref()
         .err()
-        .or(recovery.as_ref())
-        .map(|error| &error.message)
-        .cloned();
+        .cloned()
+        .or_else(|| {
+            recovery
+                .clone()
+                .map(|error| error.context("resumeReason", "recoveryRequired"))
+        })
+        .or_else(|| {
+            current
+                .as_ref()
+                .ok()
+                .and_then(|run| check_resume_session(store.state(), store.data_dir(), run).err())
+        });
     let run = match current {
         Ok(run) => run,
         Err(error) if error.code == ErrorCode::ConcurrentChange => {
@@ -448,9 +524,43 @@ pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
         }
         Err(error) => return Err(error),
     };
-    if issue.is_none() && run.workspace_mode == WorkspaceMode::Isolated {
-        issue = Some("历史隔离会话已停止续接，请从原 Spec 新建会话".into());
+    let mut native_issue = None;
+    if resume_issue.is_none() {
+        if store
+            .records::<JobRecord>("job")?
+            .iter()
+            .any(|job| !job.terminal() && job.session_run_id() == Some(run_id))
+        {
+            native_issue = Some(resume_error(
+                "roundActive",
+                "此会话已有准备或运行中的轮次或本机任务",
+            ));
+        } else if let Err(error) = queue::check_start(&mut store, Some(run_id), None) {
+            if error.code != ErrorCode::Conflict {
+                return Err(error);
+            }
+            native_issue = Some(error.context("resumeReason", "queuePending"));
+        }
+        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+        if native_issue.is_none()
+            && let Err(error) = super::command_recovery::ensure_none(&mut store)
+        {
+            native_issue = Some(error.context("resumeReason", "commandRecoveryRequired"));
+        }
     }
+    let rebindings = store
+        .records::<Value>("agentRebind")?
+        .into_iter()
+        .filter(|item| item["runId"] == run_id)
+        .collect::<Vec<_>>();
+    drop(store);
+    if resume_issue.is_none() {
+        resume_issue = run
+            .workspaces
+            .iter()
+            .find_map(|workspace| agent_workspace::validate_resume(workspace, cancel).err());
+    }
+    cancel.check()?;
     let snapshot_error = snapshot_issue(&run).map(str::to_owned);
     let can_edit_queued_projects = run.can_edit_queued_projects();
     let mut value = serde_json::to_value(run).map_err(|_| invalid("执行详情编码失败"))?;
@@ -461,8 +571,27 @@ pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
         "canEditQueuedProjects".into(),
         json!(can_edit_queued_projects),
     );
-    fields.insert("canResume".into(), json!(resume));
-    fields.insert("resumeIssue".into(), json!(issue));
+    fields.insert("canResume".into(), json!(resume_issue.is_none()));
+    fields.insert(
+        "resumeIssue".into(),
+        json!(resume_issue.as_ref().map(|error| &error.message)),
+    );
+    fields.insert(
+        "resumeReason".into(),
+        json!(
+            resume_issue
+                .as_ref()
+                .and_then(|error| error.context.get("resumeReason"))
+        ),
+    );
+    let native_issue = native_issue.as_ref().or(resume_issue.as_ref());
+    fields.insert(
+        "actions".into(),
+        json!({"resumeNative": action_availability(
+            native_issue.map(|error| error.message.as_str()),
+            native_issue.map(|error| error.context.get("resumeReason").map_or("workspaceChanged", String::as_str)),
+        )}),
+    );
     if let Some(error) = snapshot_error {
         fields.insert("snapshotError".into(), json!(error));
     }
@@ -482,16 +611,7 @@ pub fn view(store: &mut Store, run_id: &str) -> Result<Value> {
                 .and_then(|error| error.context.get("runId"))
         ),
     );
-    fields.insert(
-        "rebindings".into(),
-        json!(
-            store
-                .records::<Value>("agentRebind")?
-                .into_iter()
-                .filter(|item| item["runId"] == run_id)
-                .collect::<Vec<_>>()
-        ),
-    );
+    fields.insert("rebindings".into(), json!(rebindings));
     Ok(value)
 }
 
@@ -593,26 +713,65 @@ pub fn rounds(store: &mut Store, id: &str) -> Result<Value> {
         let job: JobRecord = store
             .record("job", id)?
             .filter(|job: &JobRecord| {
-                job.agent_spec_id.is_some() && job.agent_run_id.as_deref() == Some(id)
+                job.id == id
+                    && job.kind == "agent"
+                    && job.agent_spec_id.is_some()
+                    && job.agent_run_id.as_deref() == Some(id)
             })
             .ok_or_else(|| invalid("Agent 会话不存在").context("httpStatus", 404))?;
-        return Ok(json!({"rounds": [job], "snapshotJobIds": []}));
+        let spec_id = job.agent_spec_id.as_deref().expect("job scope checked");
+        let spec_active = sources::spec(store.state(), spec_id)
+            .ok()
+            .map(|spec| spec.active);
+        let actions = round_actions(&job, spec_id, id, spec_active);
+        return Ok(
+            json!({"rounds": [job], "snapshotJobIds": [], "roundActions": {(&job.id): actions}}),
+        );
     };
-    let mut rounds = job_rounds(store, &run)?;
-    rounds.extend(
-        store
-            .records::<JobRecord>("job")?
-            .into_iter()
-            .filter(|job| {
-                !job.terminal()
-                    && job.id != run.job_id
-                    && job.agent_run_id.as_deref() == Some(id)
-                    && job.agent_spec_id.as_deref() == Some(run.spec_id.as_str())
-            }),
-    );
+    if run.id != id {
+        return Err(invalid("运行记录 ID 不一致"));
+    }
+    let bound = job_rounds(store, &run)?;
+    let bound_ids: BTreeSet<_> = bound.iter().map(|job| job.id.as_str()).collect();
+    let admitted_at = |job: &JobRecord| {
+        time::OffsetDateTime::parse(
+            &job.created_at,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .ok()
+    };
+    let mut reservations: Vec<_> = store
+        .records::<JobRecord>("job")?
+        .into_iter()
+        .filter(|job| {
+            (!job.terminal() || (job.agent_started_at.is_none() && job.status != "completed"))
+                && !bound_ids.contains(job.id.as_str())
+                && job.kind == "agent"
+                && job.agent_run_id.as_deref() == Some(id)
+                && job.agent_spec_id.as_deref() == Some(run.spec_id.as_str())
+        })
+        .map(|job| (admitted_at(&job), job))
+        .collect();
+    reservations.sort_by(|(left, a), (right, b)| (left, &a.id).cmp(&(right, &b.id)));
+    let mut rounds = Vec::with_capacity(bound.len() + reservations.len());
+    let mut reservations = reservations.into_iter().peekable();
+    // Insert admitted attempts by time while preserving the lineage order of bound rounds.
+    for job in bound {
+        let at = admitted_at(&job);
+        while let Some((_, reserved)) = reservations.next_if(|(time, _)| *time < at) {
+            rounds.push(reserved);
+        }
+        rounds.push(job);
+    }
+    rounds.extend(reservations.map(|(_, job)| job));
     let mut snapshots = Vec::new();
     let mut round_ci_jobs = BTreeMap::new();
+    let mut actions = BTreeMap::new();
+    let spec_active = sources::spec(store.state(), &run.spec_id)
+        .ok()
+        .map(|spec| spec.active);
     for job in &rounds {
+        actions.insert(&job.id, round_actions(job, &run.spec_id, id, spec_active));
         let (saved, evidence) = if job.id == run.job_id {
             (
                 terminal(&job.status) && has_frozen_outcome(&run),
@@ -631,7 +790,35 @@ pub fn rounds(store: &mut Store, id: &str) -> Result<Value> {
             round_ci_jobs.insert(&job.id, evidence);
         }
     }
-    Ok(json!({"rounds": rounds, "snapshotJobIds": snapshots, "roundCiJobs": round_ci_jobs}))
+    Ok(
+        json!({"rounds": rounds, "snapshotJobIds": snapshots, "roundCiJobs": round_ci_jobs,
+        "roundActions": actions}),
+    )
+}
+
+fn action_availability(reason: Option<&str>, code: Option<&str>) -> Value {
+    match (reason, code) {
+        (Some(reason), Some(code)) => {
+            json!({"available": false, "reason": reason, "reasonCode": code})
+        }
+        (Some(reason), None) => json!({"available": false, "reason": reason}),
+        (None, _) => json!({"available": true, "reason": null}),
+    }
+}
+
+fn round_actions(job: &JobRecord, spec_id: &str, run_id: &str, spec_active: Option<bool>) -> Value {
+    // A round reaches this projection only through the run's recorded lineage or an explicit
+    // (Spec, run) pair on an admitted job that has yet to bind.
+    let continuation = if let Err(error) = agent_scope::check_round_source(job, spec_id, run_id) {
+        action_availability(Some(&error.message), Some("roundActive"))
+    } else {
+        match spec_active {
+            Some(true) => action_availability(None, None),
+            Some(false) => action_availability(Some("原 Spec 已归档"), Some("specArchived")),
+            None => action_availability(Some("原 Spec 不可用"), Some("specUnavailable")),
+        }
+    };
+    json!({"viewHistory": action_availability(None, None), "continueSameSpec": continuation})
 }
 
 fn job_rounds(store: &mut Store, run: &AgentRun) -> Result<Vec<JobRecord>> {
@@ -645,6 +832,9 @@ fn job_rounds(store: &mut Store, run: &AgentRun) -> Result<Vec<JobRecord>> {
         let Some(job) = store.record::<JobRecord>("job", &job_id)? else {
             break;
         };
+        if job.id != job_id || !agent_scope::job_matches_session(&job, &run.spec_id, &run.id) {
+            break;
+        }
         let event = store.run_event(&job_id)?.unwrap_or(Value::Null);
         if items.is_empty() || event["runId"] == run.id {
             next = event["previousJobId"].as_str().map(str::to_owned);
@@ -719,7 +909,13 @@ pub(crate) fn delete_session(
     for job in store
         .records::<JobRecord>("job")?
         .into_iter()
-        .filter(|job| job.session_run_id() == Some(id))
+        .filter(|job| {
+            job.session_run_id() == Some(id)
+                && job
+                    .agent_spec_id
+                    .as_deref()
+                    .is_none_or(|spec| spec == run.spec_id)
+        })
     {
         related.insert(job.id.clone(), job);
     }
@@ -778,6 +974,7 @@ pub(crate) fn delete_session(
     for job in &job_ids {
         records.push(remove("job", job));
         records.push(remove("agentRound", job));
+        records.push(remove(agent_protocol::NATIVE_FORK_ANCHOR_RECORD, job));
     }
     for (key, rebind) in store.record_entries::<Value>("agentRebind")? {
         if rebind["runId"] == id {
@@ -823,7 +1020,10 @@ fn pending_review_files(run: &AgentRun, targets: &mut Vec<(String, String)>) -> 
     Ok(count)
 }
 
-fn review_path<'a>(workspace: &'a Workspace, path: &'a str) -> Result<(&'a str, &'a str)> {
+pub(super) fn review_path<'a>(
+    workspace: &'a Workspace,
+    path: &'a str,
+) -> Result<(&'a str, &'a str)> {
     workspace
         .project_prefixes
         .iter()
@@ -840,6 +1040,60 @@ fn review_path<'a>(workspace: &'a Workspace, path: &'a str) -> Result<(&'a str, 
         .ok_or_else(|| invalid("成果文件无法映射到已选择工程"))
 }
 fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<()> {
+    if request.native_fork_source.is_some() {
+        if queued
+            || request.resume_run_id.is_some()
+            || request.continuation_source.is_some()
+            || request.expected_continuation_digest.is_some()
+            || request.expected_job_id.is_some()
+        {
+            return Err(invalid("原生分叉只能单独发起新 Pi 会话"));
+        }
+        if !request.read_only
+            || request.allow_commands
+            || request.command_execution() != CommandExecution::Sandbox
+            || request.host_execution_confirmed
+            || request
+                .project_access
+                .as_ref()
+                .is_some_and(|grants| grants.iter().any(|grant| grant.mode != ProjectMode::Read))
+        {
+            return Err(invalid("原生分叉只允许读取来源工程文件"));
+        }
+        if request.ci_job.is_some()
+            || !request.citations.is_empty()
+            || request.lifecycle_stage.is_some()
+            || request.expected_goal_version.is_some()
+        {
+            return Err(invalid("原生分叉只使用本轮任务、原工程和 Pi 历史上下文"));
+        }
+    }
+    if let Some(keys) = &request.expected_repository_keys
+        && (queued
+            || request.project_access.as_ref().is_none_or(|grants| {
+                grants.len() != keys.len()
+                    || grants
+                        .iter()
+                        .any(|grant| !keys.contains_key(&grant.project_id))
+            }))
+    {
+        return Err(invalid("仓库标识必须与本轮选择的工程授权对应"));
+    }
+    if request.command_execution() == CommandExecution::Host {
+        if queued {
+            return Err(invalid("本机命令只能由用户手动发起本轮运行"));
+        }
+        if !request.host_execution_confirmed {
+            return Err(invalid("请在运行设置中明确选择本轮本机直接执行"));
+        }
+        if !request.project_access.as_ref().is_some_and(|access| {
+            access
+                .iter()
+                .any(|grant| grant.mode == ProjectMode::Execute)
+        }) {
+            return Err(invalid("本机命令需要显式授权至少一个工程运行命令"));
+        }
+    }
     if request.project_access.is_none() && request.read_only && request.allow_commands {
         return Err(invalid("只读模式不能运行隔离命令"));
     }
@@ -859,6 +1113,21 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
             "请重新核对各参与工程的登记路径、分支和 Git HEAD 后发送",
         ));
     }
+    if request.project_access.as_ref().is_some_and(|access| {
+        access.iter().any(|grant| {
+            grant.expected_head.as_ref().is_some_and(|head| {
+                !matches!(head.len(), 40 | 64)
+                    || !head
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            })
+        })
+    }) {
+        return Err(invalid("工程预期 HEAD 须为完整的 Git 提交 SHA"));
+    }
+    if request.command_execution() == CommandExecution::Host {
+        agent_protocol::verify_host_commands_platform()?;
+    }
     if request.prompt.trim().is_empty() || request.prompt.len() > 128 * 1024 {
         return Err(invalid("请填写 128 KiB 以内的续办要求"));
     }
@@ -871,6 +1140,9 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
     if request.resume_run_id.is_some() && request.continuation_source.is_some() {
         return Err(invalid("接续来源仅用于新建会话"));
     }
+    if request.expected_continuation_digest.is_some() && request.continuation_source.is_none() {
+        return Err(invalid("接续摘要版本须对应本次新建会话的来源轮次"));
+    }
     if request.resume_run_id.is_none()
         && (!request.citations.is_empty() || request.expected_job_id.is_some())
     {
@@ -879,9 +1151,64 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
     Ok(())
 }
 
+fn verify_repository_keys(
+    request: &AgentStartRequest,
+    workspaces: &[Workspace],
+    cancel: &Cancellation,
+) -> Result<()> {
+    let Some((keys, grants)) = request
+        .expected_repository_keys
+        .as_ref()
+        .zip(request.project_access.as_ref())
+    else {
+        return Ok(());
+    };
+    let host = request.command_execution() == CommandExecution::Host;
+    for workspace in workspaces {
+        let mut checked = grants
+            .iter()
+            .filter(|grant| host || grant.mode != ProjectMode::Read)
+            .filter_map(|grant| {
+                workspace
+                    .project_prefixes
+                    .get(&grant.project_id)
+                    .map(|prefix| (&grant.project_id, prefix))
+            })
+            .peekable();
+        let Some((first_id, _)) = checked.peek() else {
+            continue;
+        };
+        let origin =
+            super::integrations::checkout_origin(Path::new(&workspace.original_root), cancel)
+                .map_err(|error| {
+                    if error.code == ErrorCode::Cancelled {
+                        error
+                    } else {
+                        error
+                            .context("projectScopeChanged", true)
+                            .context("projectId", first_id)
+                    }
+                })?;
+        for (id, prefix) in checked {
+            let current = super::integrations::repository_key(origin.as_deref(), prefix);
+            if keys.get(id) != Some(&current) {
+                return Err(YssError::new(
+                    ErrorCode::ConcurrentChange,
+                    "工程仓库标识已变化，请重新核对本轮工程范围和权限",
+                )
+                .context("httpStatus", 409)
+                .context("projectScopeChanged", true)
+                .context("projectId", id));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result<JobRecord> {
     validate_start_request(&request, false)?;
-    let (projects, prior, spec, title, mut protected) = {
+    let cancel = Cancellation::new();
+    let (projects, prior, spec, title, mut protected, fork) = {
         let mut store = lock_store(&manager.store)?;
         let admission::Target {
             spec,
@@ -889,6 +1216,13 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             prior,
             protected,
         } = admission::capture_target(&mut store, &mut request)?;
+        super::agent_scope::check_expected(
+            &mut store,
+            &spec.id,
+            request.continuation_source.as_ref(),
+            request.expected_continuation_digest.as_ref(),
+        )?;
+        let fork = native_fork::check_expected(&mut store, &request, &projects, &cancel)?;
         let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
         let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);
         sources::read_source(store.state(), &spec.id).map_err(|error| {
@@ -902,14 +1236,11 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
         }
         if let Some(prior) = &prior {
-            if !can_resume(&store, prior) {
-                return Err(invalid("Pi 会话或工作区不可用，请从 Spec 重新发起"));
-            }
+            check_resume_session(store.state(), store.data_dir(), prior)?;
             acceptance::ensure_recovered(&mut store, &acceptance::roots(prior))?;
         }
-        (projects, prior, spec, title, protected)
+        (projects, prior, spec, title, protected, fork)
     };
-    let cancel = Cancellation::new();
     let roots: Vec<_> = projects
         .iter()
         .map(|(_, path)| {
@@ -920,22 +1251,33 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         .into_iter()
         .collect();
     protected.extend(roots.iter().map(PathBuf::from));
-    let model = match (&request.selected_model, &prior) {
-        (None, Some(run)) => Some(recorded_model(run)?),
-        (selected, _) => selected.clone(),
+    let model = match (&request.selected_model, &prior, &fork) {
+        (_, _, Some(fork)) => Some(fork.anchor.model.clone()),
+        (None, Some(run), _) => Some(recorded_model(run)?),
+        (selected, _, _) => selected.clone(),
     };
-    let pi =
-        agent_protocol::require_runtime(&cancel, &protected, model.as_ref()).map_err(|error| {
-            if request.selected_model.is_some() && error.code == ErrorCode::NotReady {
-                // This request was rejected before creating a job.
-                error.context("httpStatus", 409)
-            } else {
-                error
-            }
-        })?;
+    let pi = agent_protocol::require_runtime(
+        &cancel,
+        &protected,
+        model.as_ref(),
+        request.allow_commands.then(|| request.command_execution()),
+    )
+    .map_err(|error| {
+        if fork.is_some() {
+            native_fork::runtime_unavailable(error)
+        } else if request.selected_model.is_some() && error.code == ErrorCode::NotReady {
+            // This request was rejected before creating a job.
+            error.context("httpStatus", 409)
+        } else {
+            error
+        }
+    })?;
+    if let Some(fork) = &fork {
+        native_fork::verify_runtime(&pi, &fork.anchor)?;
+    }
     pi.verify_expected(request.expected_model.as_ref())?;
     pi.verify_thinking(request.thinking_level)?;
-    pi.verify_commands(request.allow_commands)?;
+    pi.verify_commands(request.allow_commands, request.command_execution())?;
     let citations = request.citations.clone();
     let verified_prior = prior
         .as_ref()
@@ -944,7 +1286,10 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
     let expected_spec = spec.clone();
     let lifecycle_stage = request.lifecycle_stage;
     let expected_goal_version = request.expected_goal_version.clone();
+    let continuation_source = request.continuation_source.clone();
+    let expected_continuation_digest = request.expected_continuation_digest.clone();
     let queued_run = request.resume_run_id.clone();
+    let fork_validation = fork.is_some().then(|| request.clone());
     manager.start_checked(
         "agent".into(),
         title,
@@ -952,6 +1297,17 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         roots,
         |store, job| {
             queue::check_start(store, queued_run.as_deref(), None)?;
+            super::agent_scope::check_expected(
+                store,
+                &spec.id,
+                continuation_source.as_ref(),
+                expected_continuation_digest.as_ref(),
+            )?;
+            if let Some(validation) = &fork_validation {
+                native_fork::check_expected(store, validation, &verified_projects, &cancel)?;
+                job.agent_run_id = Some(job.id.clone());
+                job.agent_spec_id = Some(spec.id.clone());
+            }
             let current_spec = sources::spec(store.state(), &spec.id)?;
             if !current_spec.active
                 || current_spec.source_path != spec.source_path
@@ -972,13 +1328,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                     return Err(stale_round(&current));
                 }
                 acceptance::ensure_recovered(store, &acceptance::roots(&current))?;
-                if !can_resume(store, &current) {
-                    return Err(YssError::new(
-                        ErrorCode::NotReady,
-                        "原 Pi 会话或登记原工程不可用，请从 Spec 新建会话",
-                    )
-                    .context("httpStatus", 409));
-                }
+                check_resume_session(store.state(), store.data_dir(), &current)?;
                 for workspace in &current.workspaces {
                     agent_workspace::validate_resume(workspace, &cancel)?;
                 }
@@ -987,13 +1337,21 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             } else {
                 Vec::new()
             };
-            let binding = progress_agent::select_binding(
-                store,
-                &spec.id,
-                lifecycle_stage,
-                expected_goal_version.as_deref(),
-                &cancel,
-            )?;
+            let binding = if fork_validation.is_some() {
+                None
+            } else {
+                progress_agent::select_binding(
+                    store,
+                    &spec.id,
+                    lifecycle_stage,
+                    expected_goal_version.as_deref(),
+                    &cancel,
+                )?
+            };
+            let phase_at = sources::now();
+            job.pi_phase = Some(PiPhase::PrepareWorkspace);
+            job.pi_phase_at = Some(phase_at.clone());
+            job.updated_at = phase_at;
             Ok((verified_citations, binding, false))
         },
         move |context, admission| {
@@ -1002,7 +1360,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                 request,
                 projects,
                 prior,
-                &pi,
+                pi,
                 admission,
                 expected_spec,
             )
@@ -1365,22 +1723,29 @@ fn execute(
     request: AgentStartRequest,
     projects: Vec<(String, String)>,
     prior: Option<AgentRun>,
-    pi: &PiRuntime,
+    pi: PiRuntime,
     admission: (Vec<Value>, Option<RoundBinding>, bool),
     expected_spec: SpecRecord,
 ) -> Result<Value> {
     let (citations, binding, queued) = admission;
+    let command_execution = request.command_execution();
     let at = sources::now();
     let resumed = prior.is_some();
     let previous_job_id = prior.as_ref().map(|run| run.job_id.clone());
     let mut store = lock_store(&context.store)?;
     let spec = sources::spec(store.state(), &request.spec_id)?.clone();
     check_spec_binding(&spec, &expected_spec)?;
-    let continuation = request
-        .continuation_source
-        .as_ref()
-        .map(|source| super::agent_scope::continuation(&mut store, &spec.id, source))
-        .transpose()?;
+    let fork = native_fork::check_expected(&mut store, &request, &projects, &context.cancel)?;
+    if let Some(fork) = &fork {
+        native_fork::verify_runtime(&pi, &fork.anchor)?;
+    }
+    let continuation = super::agent_scope::continuation(
+        &mut store,
+        &spec.id,
+        request.continuation_source.as_ref(),
+        request.expected_continuation_digest.as_ref(),
+        &request.project_ids,
+    )?;
     let job: JobRecord = store
         .record("job", &context.id)?
         .ok_or_else(|| invalid("执行记录不存在"))?;
@@ -1409,6 +1774,7 @@ fn execute(
             run.read_only,
             run.project_access.clone(),
             run.queue_project_access.clone(),
+            run.command_execution,
         )
     });
     let previous_snapshot_issue = prior.as_ref().and_then(snapshot_issue).map(str::to_owned);
@@ -1446,8 +1812,13 @@ fn execute(
         spec_digest: None,
         read_only: None,
         project_access: None,
+        command_execution: None,
         queue_project_access: None,
         continuation_source: request.continuation_source.clone(),
+        native_fork_source: request
+            .native_fork_source
+            .as_ref()
+            .map(|source| source.origin()),
         ci_job: None,
     });
     run.job_id = context.id.clone();
@@ -1464,6 +1835,7 @@ fn execute(
         None
     };
     run.project_access = request.project_access.clone();
+    run.command_execution = request.allow_commands.then_some(command_execution);
     run.ci_job = None;
     run.snapshot_error = None;
     run.preparation_failed = false;
@@ -1477,6 +1849,20 @@ fn execute(
         .collect();
 
     progress_agent::apply_binding(&mut run, binding.as_ref());
+    let mut run_event = json!({
+        "runId": run.id, "resumed": resumed, "host": run.host, "workspaceMode": run.workspace_mode,
+        "allowCommands": request.allow_commands, "readOnly": request.read_only, "prompt": request.prompt,
+        "previousJobId": previous_job_id, "projectIds": run.project_ids,
+        "goalVersion": run.goal_version, "specDigest": run.spec_digest, "lifecycleStage": run.lifecycle_stage,
+        "citations": citations,
+        "projectAccess": run.project_access, "continuationSource": run.continuation_source
+    });
+    if let Some(mode) = run.command_execution {
+        run_event["commandExecution"] = json!(mode);
+    }
+    if let Some(source) = &run.native_fork_source {
+        run_event["nativeForkSource"] = json!(source);
+    }
     store.put_record_with_event(
         "agentRun",
         &run.id,
@@ -1484,16 +1870,13 @@ fn execute(
         Some(super::sqlite::EventWrite {
             job_id: &context.id,
             kind: "run",
-            payload: &json!({
-                "runId": run.id, "resumed": resumed, "host": run.host, "workspaceMode": run.workspace_mode,
-                "allowCommands": request.allow_commands, "readOnly":request.read_only, "prompt": request.prompt,
-                "previousJobId": previous_job_id, "citations": citations,
-                "projectAccess": run.project_access, "continuationSource": run.continuation_source
-            }),
+            payload: &run_event,
         }),
     )?;
     drop(store);
     let mut captured_initial = false;
+    let needs_session_check = pi.check_model_in_session || fork.is_some();
+    let mut session_checked = false;
     #[cfg(windows)]
     let mut boundary_pins = None;
     let work = (|| -> Result<Value> {
@@ -1515,7 +1898,9 @@ fn execute(
         run.workspaces = agent_workspace::prepare_direct(
             &data_dir,
             &projects,
-            resumed.then_some(prior_workspaces.as_slice()),
+            resumed
+                .then_some(prior_workspaces.as_slice())
+                .or_else(|| fork.as_ref().map(|fork| fork.source_workspaces.as_slice())),
             &spec,
             &excluded_projects,
             request.project_access.as_deref().map_or(
@@ -1530,6 +1915,9 @@ fn execute(
                 .as_ref()
                 .ok_or_else(|| invalid("Windows 工程边界未固定"))?,
         )?;
+        if let Some(fork) = &fork {
+            fork.verify_prepared(&run.workspaces)?;
+        }
         let prepared_roots: BTreeSet<_> = run
             .workspaces
             .iter()
@@ -1540,7 +1928,8 @@ fn execute(
                 ErrorCode::ConcurrentChange,
                 "准备期间运行工程的 Git 根已变化，请刷新工程范围",
             )
-            .context("httpStatus", 409));
+            .context("httpStatus", 409)
+            .context("projectScopeChanged", true));
         }
         let ci_workspace = request
             .ci_job
@@ -1599,6 +1988,40 @@ fn execute(
         save_preparing_run(&context, &mut run)?;
         context.trace("workspaceReady");
         captured_initial = true;
+        let effective_access = projects
+            .iter()
+            .map(|(id, path)| {
+                let direct = run
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.project_prefixes.contains_key(id))
+                    .and_then(|workspace| workspace.direct.as_ref())
+                    .ok_or_else(|| invalid("参与工程缺少本轮 Git 基线"))?;
+                let mode = direct
+                    .project_modes
+                    .as_ref()
+                    .and_then(|modes| modes.get(id).copied())
+                    .unwrap_or(if request.read_only {
+                        ProjectMode::Read
+                    } else if request.allow_commands {
+                        ProjectMode::Execute
+                    } else {
+                        ProjectMode::Edit
+                    });
+                Ok(ProjectAccess {
+                    project_id: id.clone(),
+                    mode,
+                    expected_head: Some(direct.baseline.head.clone()),
+                    expected_root_path: Some(path.clone()),
+                    expected_branch: Some(direct.baseline.branch_name().map(str::to_owned)),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut access_event = json!({"projectAccess": effective_access});
+        if let Some(mode) = run.command_execution {
+            access_event["commandExecution"] = json!(mode);
+        }
+        context.emit("runProjectAccess", access_event)?;
         for workspace in &run.workspaces {
             agent_workspace::validate(workspace)?;
         }
@@ -1639,6 +2062,9 @@ fn execute(
         let participating = {
             let mut store = lock_store(&context.store)?;
             check_spec_binding(sources::spec(store.state(), &spec.id)?, &spec)?;
+            if let Some(fork) = &fork {
+                fork.recheck_source(&mut store, &spec.id)?;
+            }
             progress_agent::revalidate_goal(
                 &mut store,
                 &spec.id,
@@ -1647,41 +2073,39 @@ fn execute(
                     .or(request.expected_goal_version.as_deref()),
                 queued,
             )?;
-            projects
+            effective_access
                 .iter()
-                .map(|(id, path)| {
-                    let project = sources::project(store.state(), id)?;
-                    if !project.active || project.root_path != *path {
+                .map(|grant| {
+                    let project = sources::project(store.state(), &grant.project_id)?;
+                    if !project.active
+                        || Some(project.root_path.as_str()) != grant.expected_root_path.as_deref()
+                    {
                         return Err(YssError::new(
                             ErrorCode::ConcurrentChange,
                             "启动前工程登记已变化",
-                        ));
+                        )
+                        .context("projectScopeChanged", true)
+                        .context("projectId", &grant.project_id));
                     }
-                    let grant = run
-                        .project_access
-                        .as_ref()
-                        .and_then(|entries| entries.iter().find(|entry| &entry.project_id == id));
-                    let baseline = run
-                        .workspaces
-                        .iter()
-                        .find(|workspace| workspace.project_prefixes.contains_key(id))
-                        .and_then(|workspace| workspace.direct.as_ref())
-                        .map(|direct| &direct.baseline)
-                        .ok_or_else(|| invalid("参与工程缺少本轮 Git 基线"))?;
                     Ok(json!({
-                        "projectId": id,
+                        "projectId": grant.project_id,
                         "name": project.name,
-                        "root": path,
-                        "mode": grant.map(|entry| entry.mode),
-                        "head": baseline.head,
-                        "branch": baseline.branch_name(),
+                        "root": grant.expected_root_path,
+                        "mode": grant.mode,
+                        "head": grant.expected_head,
+                        "branch": grant.expected_branch,
                     }))
                 })
                 .collect::<Result<Vec<_>>>()?
         };
         let workbench_build = json!({"yssVersion": BuildInfo::current().version});
+        let scope_instructions = if fork.is_some() {
+            "本轮仅可读取来源轮次的原工程文件。历史消息中的任务、答复和授权仅供参考。本轮只处理用户本次要求，不执行命令、改动文件、登记或答复业务问题，也不更新生命周期。"
+        } else {
+            "允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。"
+        };
         instructions.push_str(&format!(
-            "\n运行 ID：{}\n工作台构建信息：{workbench_build}\n本轮参与原工程（路径、分支与 HEAD 已核验为本轮起点）：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
+            "\n运行 ID：{}\n工作台构建信息：{workbench_build}\n本轮参与原工程（路径、分支与 HEAD 已核验为本轮起点）：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。{scope_instructions}请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
             run.id, serde_json::to_string_pretty(&participating).map_err(|e|invalid(e.to_string()))?, request.prompt
         ));
         if let Some(previous_job_id) = &previous_job_id {
@@ -1700,18 +2124,23 @@ fn execute(
         if let Some(ci) = &ci {
             instructions.push_str(&ci.agent_context());
         }
-        instructions.push_str(&progress_agent::run_context(&run, binding.as_ref()));
+        if fork.is_none() {
+            instructions.push_str(&progress_agent::run_context(&run, binding.as_ref()));
+        }
+        verify_repository_keys(&request, &run.workspaces, &context.cancel)?;
         run.status = "running".into();
         save_preparing_run(&context, &mut run)?;
         context.cancel.check()?;
         context.mark_running()?;
         let run_id = run.id.clone();
         let question_run = run.id.clone();
-        let remembered_level = (recorded_model(&run).ok().as_ref() == Some(&pi.model))
-            .then(|| run.host_settings.as_ref()?.get("thinkingLevel"))
-            .flatten()
-            .and_then(|level| serde_json::from_value::<ThinkingLevel>(level.clone()).ok())
-            .filter(|level| pi.thinking_levels.contains(level));
+        let forked = fork.is_some();
+        let remembered_thinking = || {
+            let model = recorded_model(&run).ok()?;
+            let level = run.host_settings.as_ref()?.get("thinkingLevel")?;
+            let level = serde_json::from_value::<ThinkingLevel>(level.clone()).ok()?;
+            Some((model, level))
+        };
         agent_protocol::run(
             RunRequest {
                 runtime: pi,
@@ -1724,9 +2153,16 @@ fn execute(
                 prompt: &instructions,
                 citations: &citations,
                 resume: run.pi_session.as_ref(),
-                thinking_level: request.thinking_level.or(remembered_level),
+                native_fork: fork.as_ref().map(|fork| &fork.anchor),
+                expected_model: fork
+                    .as_ref()
+                    .map(|fork| &fork.anchor.model)
+                    .or(request.expected_model.as_ref()),
+                thinking_level: request.thinking_level,
+                remembered_thinking: remembered_thinking(),
                 read_only: request.read_only,
                 allow_commands: request.allow_commands,
+                command_execution,
                 explicit_access: request.project_access.is_some(),
             },
             &context,
@@ -1738,20 +2174,38 @@ fn execute(
                 }
                 latest.host_settings = Some(settings);
                 latest.updated_at = sources::now();
-                store.put_record("agentRun", &run_id, &latest)
+                store.put_record("agentRun", &run_id, &latest)?;
+                session_checked = true;
+                Ok(())
             },
-            move |context, question_id| ask_question(context, &question_run, question_id),
+            move |context, question_id| {
+                if forked {
+                    return Err(invalid("原生分叉本轮不能提交业务问题"));
+                }
+                ask_question(context, &question_run, question_id)
+            },
         )?;
         Ok(json!({"runId":run.id,"host":run.host,"status":"completed"}))
     })();
+    let scope_changed = work
+        .as_ref()
+        .is_err_and(|error| error.context.contains_key("projectScopeChanged"));
+    let can_freeze =
+        captured_initial && !scope_changed && (!needs_session_check || session_checked);
+    let finalizing = if can_freeze {
+        context.set_pi_phase(PiPhase::FinalizeArtifacts)
+    } else {
+        Ok(())
+    };
     context.trace("freezeStart");
-    let frozen =
-        captured_initial.then(|| freeze_shared(&context.store, &run.id, &Cancellation::new()));
+    let frozen = can_freeze.then(|| freeze_shared(&context.store, &run.id, &Cancellation::new()));
     let diff_available = frozen.as_ref().is_some_and(Result::is_ok);
     context.trace("freezeEnd");
     let mut store = lock_store(&context.store)?;
     let mut latest = load(&mut store, &run.id)?;
-    if !captured_initial && let Some((read_only, project_access, queue_access)) = previous_grants {
+    if !can_freeze
+        && let Some((read_only, project_access, queue_access, command_execution)) = previous_grants
+    {
         latest.workspaces = prior_workspaces;
         for workspace in &mut latest.workspaces {
             workspace.result_snapshot = None;
@@ -1759,6 +2213,7 @@ fn execute(
         latest.read_only = read_only;
         latest.project_access = project_access;
         latest.queue_project_access = queue_access;
+        latest.command_execution = command_execution;
     }
     latest.status = match &work {
         Ok(_) => "completed",
@@ -1767,13 +2222,13 @@ fn execute(
     }
     .into();
     latest.updated_at = sources::now();
-    latest.preparation_failed = !captured_initial;
+    latest.preparation_failed = !can_freeze;
     latest.snapshot_error = match &frozen {
         Some(result) => result.as_ref().err().map(|error| error.message.clone()),
         None => previous_snapshot_issue,
     };
     store.put_record("agentRun", &run.id, &latest)?;
-    let refresh = diff_available
+    let refresh = (diff_available && fork.is_none())
         .then(|| refresh_direct_spec(&mut store, &latest, &spec))
         .transpose();
     let reconciliation = if work.is_ok()
@@ -1803,6 +2258,7 @@ fn execute(
     }
     match work {
         Ok(mut value) => {
+            finalizing?;
             value["diffAvailable"] = json!(diff_available);
             value["snapshotError"] = json!(latest.snapshot_error);
             Ok(value)

@@ -7,12 +7,14 @@ import { Separator } from '@/components/ui/separator'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { errorMessage, dateLabel } from '@/services/workbench'
-import { answerJob, jobStatusLabels, objectValue, piThinkingLabels, terminalJob, type JobActivity, type JobRecord } from '@/services/workbench-platform'
+import { answerJob, jobStatusLabels, objectValue, piCommandExecutionLabels, piPhaseLabels, piThinkingLabels, terminalJob,
+  type JobActivity, type JobRecord, type PiCommandExecution } from '@/services/workbench-platform'
 import { useJobEvents } from '@/views/Jobs/hooks/useJobEvents'
 import { activityFailed } from '@/views/Jobs/schemas/job'
 import ConversationMessage from '@/views/Jobs/components/ConversationMessage.vue'
 import ConversationQuestion from '@/views/Jobs/components/ConversationQuestion.vue'
 import ConversationTool from '@/views/Jobs/components/ConversationTool.vue'
+import PiRoundPermissions from '@/views/Jobs/components/PiRoundPermissions.vue'
 import PiContextUsage from './PiContextUsage.vue'
 import PiTokenUsage from './PiTokenUsage.vue'
 import PiPlan from './PiPlan.vue'
@@ -25,6 +27,7 @@ const props = defineProps<{
   latest: boolean
   direct: boolean
   readOnly?: boolean | null
+  commandExecution?: PiCommandExecution
   focusActivity?: { id: number }
   stopping: boolean
   canReview: boolean
@@ -41,14 +44,16 @@ const emit = defineEmits<{
 }>()
 const round = useTemplateRef<HTMLElement>('round')
 const jobId = toRef(() => props.job.id)
-const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, () => !!props.trackFirstText, true)
+const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, {
+  piRound: true, trackFirstText: () => !!props.trackFirstText
+})
 const { items, page, hasOlder, loadingHistory, historyError, firstText, toolMotion } = events.conversation
 const firstTextRendered = computed(() => !!firstText.value && items.value.some((row) => row.id === firstText.value?.rowId))
 watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
   const target = text && rendered ? round.value?.querySelector(`[data-assistant-row="${text.rowId}"]`) : undefined
   if (!text || !target) return
   const renderedTarget = target
-  const { jobId: measuredJob, receivedAt } = text
+  const { receivedAt, ...detail } = text
   let visible = false
   let measured = false
   let frame: number | undefined
@@ -60,9 +65,10 @@ watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
         frame = undefined
         if (!visible || measured || document.hidden || !renderedTarget.isConnected || !renderedTarget.textContent?.trim()) return
         measured = true
-        const mark = performance.mark('yss.pi.first-text.visible', { detail: { jobId: measuredJob } })
+        textObserver.disconnect()
+        const mark = performance.mark('yss.pi.first-text.visible', { detail })
         performance.measure('yss.pi.first-text.receive-to-visible', {
-          start: receivedAt, end: mark.startTime, detail: { jobId: measuredJob }
+          start: receivedAt, end: mark.startTime, detail
         })
       })
     })
@@ -71,19 +77,37 @@ watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
     visible = entry?.isIntersecting === true
     recordVisible()
   })
+  // An initial delta may only contain hidden Markdown syntax or a pending citation.
+  const textObserver = new MutationObserver(recordVisible)
+  textObserver.observe(target, { childList: true, characterData: true, subtree: true })
   observer.observe(target)
   document.addEventListener('visibilitychange', recordVisible)
   onCleanup(() => {
     observer.disconnect()
+    textObserver.disconnect()
     document.removeEventListener('visibilitychange', recordVisible)
     if (frame !== undefined) cancelAnimationFrame(frame)
   })
 }, { flush: 'post' })
 const settings = computed(() => events.latest.value?.piSettings)
+const commandExecution = computed(() => page.value?.commandExecution ?? settings.value?.commandExecution ??
+  events.latest.value?.commandExecution ?? props.job.commandExecution ?? props.commandExecution ??
+  (page.value?.allowCommands ? 'sandbox' : undefined))
 const onlyReads = computed(() => settings.value?.readOnly ?? props.readOnly)
 const plan = computed(() => events.latest.value?.piPlan)
 const terminal = computed(() => terminalJob(props.job.status) || !!events.latest.value?.terminal)
-const status = computed(() => props.stopping && !terminal.value ? '正在停止' : jobStatusLabels[props.job.status] || props.job.status)
+const phase = computed(() => events.piPhase.value?.phase ?? props.job.piPhase)
+const status = computed(() => {
+  const label = jobStatusLabels[props.job.status] || props.job.status
+  if (terminal.value) return label
+  if (props.stopping) return '正在停止'
+  if (events.pendingInputs.value.length || props.job.status === 'waitingInput') return '等待答复'
+  if (phase.value === 'promptAccepted' && items.value.some((item) => item.kind === 'command' && item.status === 'inProgress'))
+    return '正在执行命令'
+  return phase.value && (phase.value !== 'promptAccepted' || !items.value.some((item) => item.kind === 'message'))
+    ? piPhaseLabels[phase.value]
+    : label
+})
 const ready = computed(() => !!page.value || !!events.error.value || terminal.value)
 const answering = shallowRef('')
 const inputSync = shallowRef('')
@@ -217,8 +241,8 @@ watch(events.statusLabel, (status) => {
   <article ref="round" class="pi-round" :aria-label="'执行轮次 ' + dateLabel(job.createdAt)" tabindex="-1">
     <header class="pi-round-meta">
       <time :datetime="job.createdAt">{{ dateLabel(job.createdAt) }}</time>
-      <span>{{ status }}</span>
-      <span v-if="page?.allowCommands">已授权离线命令</span>
+      <span :role="latest ? 'status' : undefined">{{ status }}</span>
+      <span v-if="commandExecution">已授权{{ piCommandExecutionLabels[commandExecution] }}</span>
       <span v-if="onlyReads">{{ direct ? '只读原工程' : '只读分析' }}</span>
       <span v-else-if="direct && onlyReads === false">编辑原工程</span>
       <span v-if="settings" :title="settings.model.provider + ' / ' + settings.model.id">
@@ -227,6 +251,9 @@ watch(events.statusLabel, (status) => {
       <PiContextUsage :usage="events.latest.value?.piContext" :limit="settings?.contextWindow" />
       <RouterLink :to="{ path: '/jobs/' + job.id, query: { detail: '1', tab: 'log' } }">本轮日志 <ArrowUpRight :size="12" /></RouterLink>
     </header>
+    <PiRoundPermissions v-if="events.latest.value?.projectAccess?.length" :access="events.latest.value.projectAccess"
+      :execution="commandExecution" :names="projectNames" />
+    <p v-if="!terminal && events.statusLabel.value === '正在重连'" class="pi-round-note">记录连接中断，正在重连。</p>
     <PiTokenUsage v-if="events.latest.value?.piUsage" :usage="events.latest.value.piUsage" />
     <p v-if="direct && onlyReads === false &&
       (stopping || (terminalJob(job.status) && !['completed', 'succeeded'].includes(job.status)))" class="pi-round-note">
@@ -251,7 +278,7 @@ watch(events.statusLabel, (status) => {
       </Button>
     </div>
     <LoadingSkeleton v-if="!page && !terminal && !events.error.value" :rows="2" variant="text" label="正在读取 Pi 对话" />
-    <p v-else-if="page && !items.length && !terminal" class="pi-round-note">等待 Pi 开始答复…</p>
+    <p v-else-if="page && !items.length && !terminal && !phase" class="pi-round-note">等待 Pi 开始答复…</p>
     <PiPlan v-if="plan?.length" :steps="plan" :terminal="terminal" />
     <template v-for="entry in entries" :key="entry.key">
       <Collapsible v-if="entry.group" :open="expanded(entry)" class="pi-tool-group" @update:open="toggle(entry, $event)">
@@ -269,9 +296,8 @@ watch(events.statusLabel, (status) => {
       </Collapsible>
       <template v-else>
         <template v-for="row in entry.rows" :key="row.id">
-          <ConversationMessage v-if="row.kind === 'message' || row.kind === 'user'" :text="row.text" :created-at="row.createdAt"
-            :row-id="row.id" :user="row.kind === 'user'" :streaming="row.kind === 'message' && !row.status && !terminal"
-            :citations="row.citations" :job-id="jobId" :project-names="projectNames"
+          <ConversationMessage v-if="row.kind === 'message' || row.kind === 'user'" :row="row"
+            :streaming="row.kind === 'message' && !row.status && !terminal" :job-id="jobId" :project-names="projectNames"
             :citation-streaming="row.kind === 'message' && !row.status" />
           <PiReasoning v-else-if="row.kind === 'reasoning'" :row="row" :terminal="terminal" />
           <ConversationQuestion v-else-if="row.question" :row="row" :question="row.question" :terminal="terminal"

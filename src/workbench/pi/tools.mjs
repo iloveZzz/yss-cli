@@ -4,7 +4,17 @@ import { Type } from "typebox";
 const socketPath = process.env.YSS_PI_SOCKET;
 const token = process.env.YSS_PI_SOCKET_TOKEN;
 const allowCommands = process.env.YSS_PI_ALLOW_COMMANDS === "1";
+const hostCommands = process.env.YSS_PI_COMMAND_EXECUTION === "host";
 const readOnly = process.env.YSS_PI_READ_ONLY === "1";
+const nativeFirstRound = process.env.YSS_PI_NATIVE_FORK_READ_ONLY === "1";
+
+function resultDetails(result) {
+  const details = {};
+  for (const key of ["exitCode", "terminationSignal", "commandDiagnostics", "commandExecution", "errorCode", "displayPath", "hint"]) {
+    if (result[key] !== undefined) details[key] = result[key];
+  }
+  return details;
+}
 
 function request(operation, signal, attempt = 0) {
   return new Promise((resolve, reject) => {
@@ -93,24 +103,19 @@ export default function workbench(pi) {
       async execute(id, args, signal) {
         try {
           const result = await request({ ...args, operation: name, id }, signal);
-          const details = {};
-          for (const key of ["exitCode", "terminationSignal", "commandDiagnostics"]) {
-            if (result[key] !== undefined) details[key] = result[key];
-          }
           const text = typeof result.sourceHint === "string"
             ? `${result.text}\n\n${result.sourceHint}`
             : result.text;
           return {
             content: [{ type: "text", text }],
-            details,
+            details: resultDetails(result),
             isError: result.exitCode != null && result.exitCode !== 0,
           };
         } catch (error) {
           if (!error.toolFailure) throw error;
-          const { errorCode, displayPath, hint } = error.toolFailure;
           return {
             content: [{ type: "text", text: error.message }],
-            details: { errorCode, displayPath, hint },
+            details: resultDetails(error.toolFailure),
             isError: true,
           };
         }
@@ -126,7 +131,7 @@ export default function workbench(pi) {
   register("grep", "搜索文件", "按字面文本搜索工程内的 UTF-8 文件或目录，根目录使用空路径。", {
     ...location, query: text("要查找的原文"),
   });
-  if (!readOnly) {
+  if (!readOnly && !nativeFirstRound) {
     register("write", "写文件", "直接创建或覆盖原工程中的 UTF-8 文件。覆盖前先用 read 读取目标。", {
       ...location, content: text("完整文件内容"),
     });
@@ -134,17 +139,23 @@ export default function workbench(pi) {
       ...location, oldText: text("完整旧文本"), newText: text("替换文本"),
     });
   }
-  register("ask_spec_question", "询问业务问题", "先在主 Spec 的 questions 登记业务问题，再用其 ID 请求用户答复。", {
-    questionId: text("主 Spec 中已登记的业务问题 ID"),
-  });
-  register("update_plan", "更新计划", "在复杂任务中报告本轮实际步骤。每次提交完整列表，随执行更新状态。", {
-    steps: Type.Array(Type.Object({
-      title: Type.String({ minLength: 1, maxLength: 512 }),
-      status: Type.Union([Type.Literal("pending"), Type.Literal("inProgress"), Type.Literal("completed")]),
-    }), { minItems: 1, maxItems: 20 }),
-  });
-  if (allowCommands) {
-    register("bash", "运行离线命令", "在所选工程中运行离线 shell 命令。优先使用本轮已提供的工程和版本信息，必要的独立检查分别执行。构建和测试使用已准备的离线依赖。页面验证使用工作台预览。", {
+  if (!nativeFirstRound) {
+    register("ask_spec_question", "询问业务问题", "先在主 Spec 的 questions 登记业务问题，再用其 ID 请求用户答复。", {
+      questionId: text("主 Spec 中已登记的业务问题 ID"),
+    });
+    register("update_plan", "更新计划", "在复杂任务中报告本轮实际步骤。每次提交完整列表，随执行更新状态。", {
+      steps: Type.Array(Type.Object({
+        title: Type.String({ minLength: 1, maxLength: 512 }),
+        status: Type.Union([Type.Literal("pending"), Type.Literal("inProgress"), Type.Literal("completed")]),
+      }), { minItems: 1, maxItems: 20 }),
+    });
+  }
+  if (allowCommands && !nativeFirstRound) {
+    const label = hostCommands ? "运行本机命令" : "运行离线命令";
+    const description = hostCommands
+      ? "在本轮授予 execute 权限的原工程目录使用本机 Bash。命令拥有当前用户的文件与网络权限。可以读取 Git 状态。保留分支、HEAD 和暂存区，变更会停止本轮。独立检查分别执行。"
+      : "在所选工程中运行离线 shell 命令。Git 分支和 HEAD 使用工作台本轮已核验的信息，文件变化查看执行成果。必要的独立检查分别执行，构建和测试使用已准备的离线依赖，页面验证使用工作台预览。";
+    register("bash", label, description, {
       ...location,
       path: Type.Optional(Type.String({ description: "工作目录，缺省为工程根" })),
       command: text(process.platform === "win32" ? "在 Windows cmd.exe 中执行的一行命令" : "在 bash 中执行的命令"),

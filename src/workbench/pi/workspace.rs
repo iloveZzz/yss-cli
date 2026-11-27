@@ -668,6 +668,14 @@ impl Location<'_> {
         Ok(self.display())
     }
 
+    #[cfg(unix)]
+    pub fn host_directory(&self) -> Result<cap_std::fs::Dir> {
+        match &self.path {
+            Some(path) => self.project.root.open_dir(path),
+            None => self.project.root.pin_directory(),
+        }
+    }
+
     fn metadata(&self, path: &RelPath) -> Result<cap_std::fs::Metadata> {
         self.project.root.source_metadata(path).map_err(|error| {
             if missing(&error) {

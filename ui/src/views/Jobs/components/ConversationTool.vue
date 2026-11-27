@@ -11,7 +11,7 @@ import {
   TraceLine,
   TraceTitle
 } from '@/components/ui/trace'
-import type { JobActivity } from '@/services/workbench-platform'
+import { piCommandExecutionLabels, type JobActivity } from '@/services/workbench-platform'
 import { activityFailed, commandFailureResult } from '../schemas/job'
 import ActivityDetail from './ActivityDetail.vue'
 
@@ -36,7 +36,8 @@ const state = computed(() => {
 })
 const failureResult = computed(() => state.value === '失败' ? commandFailureResult(props.row) : undefined)
 const label = computed(() =>
-  command.value ? '执行命令' : operations[props.row.operation ?? ''] ?? '文件操作'
+  props.row.commandExecution ? piCommandExecutionLabels[props.row.commandExecution]
+    : command.value ? '执行命令' : operations[props.row.operation ?? ''] ?? '文件操作'
 )
 const detail = computed(() =>
   props.row.displayPath ?? props.row.path ?? (props.row.error && props.row.operation ? '' : props.row.text)

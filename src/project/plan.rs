@@ -69,39 +69,56 @@ pub fn plan(bundle: &Bundle, request: &ProjectRequest) -> Result<ProjectPlan> {
         (None, FileSnapshot::Missing)
     };
     if new && previous.is_some() {
-        return Err(YssError::new(
-            ErrorCode::Conflict,
-            "项目已接入；请使用 sync",
-        ));
+        return Err(
+            YssError::new(ErrorCode::Conflict, "此工程已经接入 YSS").context(
+                "hint",
+                "在工作台选择「同步工程」，或运行 yss sync --root <工程路径>。",
+            ),
+        );
     }
     if !new && previous.is_none() {
-        return Err(YssError::new(
-            ErrorCode::NotReady,
-            "项目未接入；请先 init 或 attach",
-        ));
+        return Err(
+            YssError::new(ErrorCode::NotReady, "此工程尚未接入 YSS").context(
+                "hint",
+                "已有代码请选择「接入已有工程」；新建空目录请选择「初始化空目录」。",
+            ),
+        );
     }
     if init
         && root
             .as_ref()
             .is_some_and(|r| r.list(None).is_ok_and(|l| !l.is_empty()))
     {
-        return Err(YssError::new(
-            ErrorCode::Conflict,
-            "init 需要空目录；已有项目请使用 attach",
-        ));
+        return Err(
+            YssError::new(ErrorCode::Conflict, "初始化需要空目录").context(
+                "hint",
+                "选择空目录或新的子目录。若要接入当前已有代码的目录，请选择「接入已有工程」。",
+            ),
+        );
     }
     if let Some(root) = &root {
         if !transaction::status(&root.path)?.pending.is_empty() {
             return Err(YssError::new(
                 ErrorCode::RecoveryRequired,
-                "存在未完成事务；请先 recover",
-            ));
+                "工程存在未完成的文件事务",
+            )
+            .context("hint", "先在工作台查看「恢复未完成事务」，或运行 yss recover --root <工程路径> --dry-run 查看恢复预览。"));
         }
     } else {
         let parent = path
             .parent()
             .ok_or_else(|| YssError::new(ErrorCode::UnsafePath, "目标没有父目录"))?;
-        let parent = Root::open(parent)?;
+        let parent = Root::open(parent).map_err(|mut error| {
+            if error
+                .context
+                .get("kind")
+                .is_some_and(|kind| kind == "NotFound")
+            {
+                error.message = "初始化目录的父目录不存在".into();
+                return error.context("hint", "先创建父目录，或选择一个已存在的父目录下的新目录。");
+            }
+            error
+        })?;
         let name = RelPath::new(
             path.file_name()
                 .and_then(|s| s.to_str())

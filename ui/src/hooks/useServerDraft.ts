@@ -27,7 +27,8 @@ export function useServerDraft<T extends object>(options: {
   const saving = shallowRef(false)
   const adopted = shallowRef<DraftRecord<T>[]>([])
   const recoveryConflict = shallowRef<{ base: T; local: T; current: T }>()
-  let recovering: DraftRecord<T> | undefined
+  let recovering: { record: DraftRecord<T>; preserveOriginal: boolean } | undefined
+  const preserved = new Map<string, number>()
   let timer: ReturnType<typeof setTimeout> | undefined
   let inflight: Promise<void> | undefined
   let generation = 0
@@ -48,6 +49,7 @@ export function useServerDraft<T extends object>(options: {
       savedPayload.value = ''
       recoverable.value = []
       adopted.value = []
+      preserved.clear()
       recoveryConflict.value = undefined
       recovering = undefined
       error.value = ''
@@ -130,7 +132,7 @@ export function useServerDraft<T extends object>(options: {
       if (changed.value) timer = setTimeout(() => void flush(), 650)
     }
   )
-  async function restore(record: DraftRecord<T>) {
+  async function restore(record: DraftRecord<T>, { preserveOriginal = false } = {}) {
     const own = generation
     try {
       await flush()
@@ -138,7 +140,7 @@ export function useServerDraft<T extends object>(options: {
       if (changed.value && revision.value) {
         const records = await listDrafts<T>(options.targetType, options.targetId())
         if (own !== generation) return
-        recoverable.value = records
+        recoverable.value = records.filter((item) => preserved.get(item.id) !== item.revision)
         id.value = crypto.randomUUID()
         revision.value = 0
         savedPayload.value = ''
@@ -149,7 +151,7 @@ export function useServerDraft<T extends object>(options: {
         setBase(target.values, target.token)
       }
       if (own !== generation) return
-      recovering = record
+      recovering = { record, preserveOriginal }
       if (base.value && record.baseToken !== baseToken.value && !contentEqual(record.base, base.value)) {
         recoveryConflict.value = { base: record.base, local: record.payload, current: base.value }
         status.value = '草稿基线已变化，请核对合并内容'
@@ -162,8 +164,15 @@ export function useServerDraft<T extends object>(options: {
   }
   async function mergeRecovered(value: T) {
     options.restore(structuredClone(toRaw(value)))
-    if (recovering)
-      adopted.value = [...adopted.value.filter((item) => item.id !== recovering?.id), recovering]
+    if (recovering) {
+      const { record, preserveOriginal } = recovering
+      if (preserveOriginal) {
+        preserved.set(record.id, record.revision)
+        recoverable.value = recoverable.value.filter((item) => item.id !== record.id)
+      } else {
+        adopted.value = [...adopted.value.filter((item) => item.id !== record.id), record]
+      }
+    }
     recovering = undefined
     recoveryConflict.value = undefined
     status.value = '已恢复草稿，请核对后保存'

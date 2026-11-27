@@ -1303,6 +1303,77 @@ impl Database {
         self.first_event_payload(job_id, "ciEvidence")
     }
 
+    pub(super) fn continuation_tasks(
+        &self,
+        run_id: &str,
+        job_id: &str,
+        per_project_limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "WITH tasks AS (
+                SELECT id, payload,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY json_extract(payload, '$.localProjectTask.projectId')
+                        ORDER BY json_extract(payload, '$.createdAt') DESC, id DESC
+                    ) AS ordinal
+                FROM workbench_records
+                WHERE kind='job' AND json_extract(payload, '$.localProjectTask.runId')=?1
+                    AND json_extract(payload, '$.localProjectTask.sourceJobId')=?2
+                    AND json_extract(payload, '$.status') IN
+                        ('completed','failed','canceled','interrupted','recoveryRequired')
+             )
+             SELECT json_object(
+                    'jobId', id,
+                    'projectId', json_extract(payload, '$.localProjectTask.projectId'),
+                    'directory', json_extract(payload, '$.localProjectTask.directory'),
+                    'action', json_extract(payload, '$.localProjectTask.action'),
+                    'status', json_extract(payload, '$.status'),
+                    'exitCode', json_extract(payload, '$.result.exitCode'),
+                    'terminationSignal', json_extract(payload, '$.result.terminationSignal'),
+                    'errorCode', json_extract(payload, '$.error.code'))
+             FROM tasks WHERE ordinal<=?3
+             ORDER BY json_extract(payload, '$.localProjectTask.projectId'), ordinal",
+            )
+            .map_err(sql_error)?;
+        let per_project_limit =
+            i64::try_from(per_project_limit).map_err(|_| invalid("本机作业限额无效"))?;
+        let rows = statement
+            .query_map(params![run_id, job_id, per_project_limit], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(sql_error)?;
+        rows.map(|row| {
+            serde_json::from_str(&row.map_err(sql_error)?)
+                .map_err(|_| invalid("本机测试或构建结果无效"))
+        })
+        .collect()
+    }
+
+    pub(super) fn continuation_response_ids(
+        &self,
+        job_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT DISTINCT json_extract(payload, '$.responseId') AS response_id
+             FROM job_events WHERE job_id=?1 AND kind='piQuestionResult'
+                AND json_type(payload, '$.responseId')='text'
+                AND length(json_extract(payload, '$.responseId')) BETWEEN 1 AND 128
+             ORDER BY response_id LIMIT ?2",
+            )
+            .map_err(sql_error)?;
+        let limit = i64::try_from(limit).map_err(|_| invalid("作业答复限额无效"))?;
+        statement
+            .query_map(params![job_id, limit], |row| row.get(0))
+            .map_err(sql_error)?
+            .map(|row| row.map_err(sql_error))
+            .collect()
+    }
+
     fn first_event_payload(&self, job_id: &str, kind: &str) -> Result<Option<serde_json::Value>> {
         let payload: Option<String> = self
             .connection

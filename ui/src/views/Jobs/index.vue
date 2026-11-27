@@ -20,9 +20,12 @@ import {
   answerJob,
   terminalJob,
   objectValue,
+  piCommandExecutionLabels,
+  piPhaseLabels,
   readableValue,
   type JobRecord,
-  type PiModel
+  type PiModel,
+  type PiRuntimeStatus
 } from '@/services/workbench-platform'
 import { getAgentRun, startAgent, type AgentRun } from '@/services/workbench-agent'
 import { useWorkbench } from '@/hooks/useWorkbench'
@@ -37,6 +40,7 @@ import JobConversation from './components/JobConversation.vue'
 import JobList from './components/JobList.vue'
 import JobDisclosure from './components/JobDisclosure.vue'
 import JobStatus from './components/JobStatus.vue'
+import PiRoundPermissions from './components/PiRoundPermissions.vue'
 import RunArtifacts from './components/RunArtifacts.vue'
 
 const route = useRoute()
@@ -65,6 +69,13 @@ const continuation = shallowRef(defaultContinuation)
 const readOnly = shallowRef(true)
 const allowCommands = shallowRef(false)
 const readyModel = shallowRef<PiModel>()
+const continuationRuntime = shallowRef<PiRuntimeStatus>()
+const continuationCommandsUnavailable = computed(() => {
+  const runtime = continuationRuntime.value
+  return runtime?.capabilities ? runtime.capabilities.sandbox.state !== 'available' : runtime?.sandboxReady === false
+})
+const continuationCommandsMessage = computed(() =>
+  continuationRuntime.value?.capabilities?.sandbox.reason ?? continuationRuntime.value?.sandboxMessage)
 watch(continuationOpen, (open) => {
   if (!open) {
     readOnly.value = true
@@ -108,7 +119,7 @@ const legacyInputs = computed(() =>
   eventStream.pendingInputs.value.filter((event) => !isPi.value || !isPiQuestion(event))
 )
 const runId = computed(
-  () => eventStream.latest.value?.runId || String(objectValue(job.value?.result).runId ?? '')
+  () => job.value?.agentRunId || eventStream.latest.value?.runId || String(objectValue(job.value?.result).runId ?? '')
 )
 const piRoute = computed(() => isPi.value && run.value && job.value && {
   name: 'pi-workspace',
@@ -119,6 +130,24 @@ watch(piRoute, (target) => {
   if (target && !showExecutionDetail.value) void router.replace(target)
 })
 const currentRun = computed(() => (run.value?.jobId === jobId.value ? run.value : undefined))
+const nativeResume = computed(() => {
+  const current = currentRun.value
+  return current?.actions?.resumeNative ?? (current && { available: current.canResume, reason: current.resumeIssue })
+})
+const commandExecution = computed(() => eventStream.latest.value?.piSettings?.commandExecution ??
+  eventStream.latest.value?.commandExecution ?? job.value?.commandExecution ?? currentRun.value?.commandExecution)
+const permissions = computed(() => eventStream.latest.value?.projectAccess ?? currentRun.value?.projectAccess ?? [])
+const permissionNames = computed(() => Object.fromEntries(
+  (snapshot.value?.projects ?? []).map(({ record }) => [record.id, record.name])
+))
+const piPhase = computed(() => eventStream.piPhase.value?.phase ?? job.value?.piPhase)
+const phaseLabel = computed(() => {
+  if (finished.value || stopping.value || eventStream.pendingInputs.value.length || job.value?.status === 'waitingInput') return ''
+  const phase = piPhase.value
+  if (phase === 'promptAccepted' && eventStream.latest.value?.items.some((item) => item.kind === 'command' && item.status === 'inProgress'))
+    return '正在执行命令'
+  return phase && (phase !== 'promptAccepted' || !eventStream.latest.value?.latestMessage) ? piPhaseLabels[phase] : ''
+})
 const artifactRun = computed(() => currentRun.value ?? (run.value?.workspaceMode === 'direct' ? run.value : undefined))
 const latestRunActive = computed(() => !!run.value && !terminalJob(run.value.status))
 const stopping = computed(
@@ -157,13 +186,19 @@ async function loadJobResults(target: string, own: number, signal: AbortSignal) 
       const value = await getJob(target, signal)
       if (!active || target !== jobId.value || own !== refreshGeneration) return
       job.value = value
-      if (runId.value) {
+      const session = runId.value
+      if (session) {
         try {
-          const currentRun = await getAgentRun(runId.value, signal)
-          if (active && own === refreshGeneration) run.value = currentRun
+          const current = await getAgentRun(session, signal)
+          if (!active || own !== refreshGeneration) return
+          if (current.id !== session || (value.agentSpecId && current.specId !== value.agentSpecId)) {
+            run.value = undefined
+            throw new Error('此会话与当前执行记录不匹配')
+          }
+          run.value = current
         } catch (cause) {
-          if (!(cause instanceof ApiError && cause.status === 404 && !terminalJob(value.status)))
-            throw cause
+          if (!(cause instanceof ApiError && cause.status === 404)) throw cause
+          if (active && own === refreshGeneration) run.value = undefined
         }
       }
     } else {
@@ -300,11 +335,12 @@ async function resume() {
   const target = jobId.value
   const expectedModel = readyModel.value
   if (
-    !current?.canResume || current.projectAccess?.length ||
+    !current || !nativeResume.value?.available || current.projectAccess?.length ||
     current.jobId !== target ||
     latestRunActive.value ||
     busy.value ||
     !expectedModel ||
+    (!readOnly.value && allowCommands.value && continuationCommandsUnavailable.value) ||
     !continuation.value.trim()
   )
     return
@@ -320,7 +356,8 @@ async function resume() {
       expectedJobId: target,
       expectedModel,
       readOnly: readOnly.value,
-      allowCommands: !readOnly.value && allowCommands.value
+      allowCommands: !readOnly.value && allowCommands.value,
+      commandExecution: !readOnly.value && allowCommands.value ? 'sandbox' : undefined
     })
     if (!currentOperation(owner)) return
     await router.push({ path: `/jobs/${value.id}`, query: { run: current.id } })
@@ -362,6 +399,7 @@ async function resume() {
           <h2>{{ terminalJob(job.status) ? '执行结果' : '当前进展' }}</h2>
           <JobStatus :status="job.status" :stopping="stopping" role="status" />
           <span class="muted">{{ projectNames(job) || '本机工作台' }}<template v-if="run?.workspaceMode === 'direct'"> · 原工程运行</template></span>
+          <span v-if="commandExecution" class="muted">{{ piCommandExecutionLabels[commandExecution] }}</span>
         </div>
         <Button
           v-if="!terminalJob(job.status)"
@@ -373,12 +411,12 @@ async function resume() {
           <LoadingIndicator :active="operation?.kind === 'stop' || stopping" />
           {{ operation?.kind === 'stop' || stopping ? '正在停止…' : '停止运行' }}
         </Button>
-        <Button v-else-if="currentRun?.canResume && currentRun.projectAccess?.length && !latestRunActive && piRoute"
+        <Button v-else-if="nativeResume?.available && currentRun?.projectAccess?.length && !latestRunActive && piRoute"
           variant="outline" as-child>
           <RouterLink :to="piRoute">在 Pi 工作区继续处理</RouterLink>
         </Button>
         <Button
-          v-else-if="currentRun?.canResume && !currentRun.projectAccess?.length && !latestRunActive"
+          v-else-if="nativeResume?.available && !currentRun?.projectAccess?.length && !latestRunActive"
           type="button"
           variant="outline"
           :aria-expanded="continuationOpen"
@@ -391,7 +429,12 @@ async function resume() {
       <Alert v-if="job.error" variant="destructive" class="notice error">
         <AlertDescription class="text-current">{{ job.error.message }}</AlertDescription>
       </Alert>
-      <p v-if="isPi && job.status === 'failed' && currentRun?.canResume" class="muted">
+      <p v-if="phaseLabel" class="muted" role="status">{{ phaseLabel }}</p>
+      <p v-if="!finished && piPhase && eventStream.statusLabel.value === '正在重连'" class="muted">
+        记录连接中断，正在重连。
+      </p>
+      <PiRoundPermissions v-if="permissions.length" :access="permissions" :names="permissionNames" :execution="commandExecution" />
+      <p v-if="isPi && job.status === 'failed' && currentRun && nativeResume?.available" class="muted">
         如需更换模型，可
         <RouterLink :to="{ path: '/specs/' + encodeURIComponent(currentRun.specId), query: { tab: 'run' } }" class="underline">
           返回原 Spec 选择模型并发起新运行
@@ -418,14 +461,14 @@ async function resume() {
         </div>
       </dl>
       <form
-        v-if="continuationOpen && currentRun?.canResume && terminalJob(job.status) && !latestRunActive"
+        v-if="continuationOpen && currentRun && nativeResume?.available && terminalJob(job.status) && !latestRunActive"
         id="continuation-form"
         class="form-stack continuation-form"
         aria-label="续接 Pi"
         :aria-busy="operation?.kind === 'resume'"
         @submit.prevent="resume"
       >
-        <PiReadiness v-model:ready-model="readyModel" :resume-run-id="currentRun.id" :busy="busy" />
+        <PiReadiness v-model:ready-model="readyModel" v-model:runtime-status="continuationRuntime" :resume-run-id="currentRun.id" :busy="busy" />
         <Field class="gap-1.5">
           <FieldLabel for="job-continuation">继续处理的内容</FieldLabel>
           <Textarea
@@ -437,17 +480,19 @@ async function resume() {
             :disabled="busy"
           />
         </Field>
-        <AgentRunPermissions v-model:read-only="readOnly" v-model:allow-commands="allowCommands" :disabled="busy" />
+        <AgentRunPermissions v-model:read-only="readOnly" v-model:allow-commands="allowCommands" :disabled="busy"
+          :commands-unavailable="continuationCommandsUnavailable" :commands-message="continuationCommandsMessage" />
         <div class="form-actions">
-          <Button type="submit" :disabled="busy || !readyModel || !continuation.trim()">
+          <Button type="submit" :disabled="busy || !readyModel || !continuation.trim() || (!readOnly && allowCommands && continuationCommandsUnavailable)">
             <LoadingIndicator :active="operation?.kind === 'resume'" />
             {{ operation?.kind === 'resume' ? '正在续接…' : '续接 Pi' }}
           </Button>
         </div>
       </form>
-      <p v-if="currentRun && terminalJob(job.status) && !currentRun.canResume" class="muted">
-        {{ currentRun.resumeIssue || (currentRun.workspaceMode !== 'direct' ? '这是历史隔离运行。' : '当前会话不可续接。') }}
-        <RouterLink :to="'/specs/' + encodeURIComponent(currentRun.specId)" class="underline">
+      <p v-if="currentRun && terminalJob(job.status) && !nativeResume?.available" class="muted">
+        {{ nativeResume?.reason || (currentRun.workspaceMode !== 'direct' ? '这是历史隔离运行。' : '当前会话不可续接。') }}
+        <RouterLink v-if="piRoute" :to="piRoute" class="underline">在 Pi 工作区查看交接入口</RouterLink>
+        <RouterLink v-else :to="'/specs/' + encodeURIComponent(currentRun.specId)" class="underline">
           返回 Spec 发起新运行
         </RouterLink>
       </p>

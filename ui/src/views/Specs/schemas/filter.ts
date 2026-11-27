@@ -5,16 +5,13 @@ import {
   statuses,
   contentStatuses,
   type WorkQuery,
-  type Layout,
-  type GroupBy,
+  type SavedView,
   type Stage,
   type Status,
   type ContentStatus
 } from '@/services/workbench-model'
 export function encodeWorkQuery(
   query: WorkQuery,
-  layout: Layout,
-  groupBy: GroupBy,
   viewId?: string
 ): LocationQueryRaw {
   return {
@@ -33,15 +30,11 @@ export function encodeWorkQuery(
     showClosed: String(query.includeClosed),
     sourceProblems: String(query.sourceProblemsOnly),
     sort: query.sort,
-    layout,
-    groupBy,
     viewId
   }
 }
 export function decodeWorkQuery(raw: LocationQuery): {
   query: WorkQuery
-  layout: Layout
-  groupBy: GroupBy
   viewId?: string
 } {
   const values = (key: string): string[] => {
@@ -53,10 +46,6 @@ export function decodeWorkQuery(raw: LocationQuery): {
   const text = (key: string) => values(key)[0] ?? ''
   const query: WorkQuery = {
     ...defaultWorkQuery(),
-    progressBasis:
-      text('progressBasis') === 'effective' || !Object.keys(raw).length
-        ? 'effective'
-        : 'personal',
     attention: values('attention').filter((value) =>
       ['any', 'awaitingConfirmation', 'unverified', 'needsSync', 'needsReview', 'conflict'].includes(value)
     ),
@@ -80,8 +69,18 @@ export function decodeWorkQuery(raw: LocationQuery): {
     query.includeClosed = true
   return {
     query,
-    layout: text('layout') === 'board' ? 'board' : 'list',
-    groupBy: text('groupBy') === 'stage' ? 'stage' : 'status',
     viewId: text('viewId') || undefined
+  }
+}
+
+export function savedSpecQuery(view: SavedView): WorkQuery {
+  return {
+    ...defaultWorkQuery(),
+    ...view.query,
+    progressBasis: 'effective',
+    attention: view.query.attention ?? [],
+    includeClosed: view.query.includeClosed || view.query.statuses.some((status) =>
+      status === 'done' || status === 'canceled'
+    )
   }
 }

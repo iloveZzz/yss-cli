@@ -150,7 +150,7 @@ impl StoppedCommand {
     }
 }
 
-pub(super) struct Sandbox {
+pub(crate) struct Sandbox {
     tools: SystemTools,
     node_root: Root,
     _tool_dir: PrivateDir,
@@ -742,10 +742,4 @@ fn not_ready(message: impl Into<String>) -> YssError {
 
 fn native<T>(phase: &str, result: io::Result<T>) -> Result<T> {
     result.map_err(|error| not_ready(format!("Windows 离线命令隔离未就绪（{phase}）：{error}")))
-}
-
-pub(super) fn probe(node: Option<&Path>, cancel: &Cancellation) -> Result<()> {
-    let result = Sandbox::new(node, cancel).map(drop);
-    cancel.check()?;
-    result
 }

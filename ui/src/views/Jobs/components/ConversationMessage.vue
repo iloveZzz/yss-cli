@@ -8,46 +8,49 @@ import { computed, nextTick, shallowRef, useTemplateRef } from 'vue'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
 import { Button } from '@/components/ui/button'
 import { dateLabel } from '@/services/workbench'
-import type { AssistantCitation } from '@/services/workbench-platform'
+import type { JobActivity } from '@/services/workbench-platform'
 import { assistantCitations } from '../schemas/conversation'
 import { renderMarkdown } from '../../SpecDetail/schemas/markdown'
 
 const props = defineProps<{
-  text: string
+  text?: string
   user?: boolean
+  row?: Readonly<JobActivity>
   streaming?: boolean
-  createdAt?: string
-  rowId?: number
   jobId?: string
   projectNames?: Record<string, string>
-  citations?: AssistantCitation[]
   citationStreaming?: boolean
 }>()
 
+const text = computed(() => props.row?.text ?? props.text ?? '')
+const user = computed(() => props.row ? props.row.kind === 'user' : props.user)
+const rowId = computed(() => props.row?.id)
+const createdAt = computed(() => props.row?.createdAt)
 const sourcesPanel = useTemplateRef<HTMLDetailsElement>('sourcesPanel')
 const selectedSource = shallowRef<number>()
 let citationTrigger: HTMLButtonElement | null = null
 
 const formatted = computed(() => {
-  if (props.user) return { html: '', sources: [] }
-  const { rowId, streaming, text } = props
-  const pending = props.citationStreaming ?? streaming ?? false
-  const candidates = pending ? [] : assistantCitations(props.citations)
+  if (user.value) return { html: '', sources: [] }
+  const id = rowId.value
+  const body = text.value
+  const pending = props.citationStreaming ?? props.streaming ?? false
+  const candidates = pending ? [] : assistantCitations(props.row?.citations)
   const withCitations = pending || candidates.length > 0
-  const cached = rowId !== undefined && !withCitations ? completedMarkdown.get(rowId) : undefined
-  if (cached?.text === text) return { html: cached.html, sources: [] }
+  const cached = id !== undefined && !withCitations ? completedMarkdown.get(id) : undefined
+  if (cached?.text === body) return { html: cached.html, sources: [] }
   const rendered = new Set<number>()
-  const value = renderMarkdown(text, {
+  const value = renderMarkdown(body, {
     documentLinks: false,
     hideSpecMetadata: false,
-    headingPrefix: `pi-message-${rowId}-`,
+    headingPrefix: `pi-message-${id}-`,
     assistantCitations: withCitations
       ? { pending, verified: new Map(candidates.map(item => [item.marker, item.number])), rendered }
       : undefined
   })
-  if (rowId !== undefined && !withCitations && text.length + value.length <= 64 * 1024) {
-    completedMarkdown.delete(rowId)
-    completedMarkdown.set(rowId, { text, html: value })
+  if (id !== undefined && !withCitations && body.length + value.length <= 64 * 1024) {
+    completedMarkdown.delete(id)
+    completedMarkdown.set(id, { text: body, html: value })
     if (completedMarkdown.size > 32) completedMarkdown.delete(completedMarkdown.keys().next().value!)
   }
   return { html: value, sources: candidates.filter(item => rendered.has(item.number)) }

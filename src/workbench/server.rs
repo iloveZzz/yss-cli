@@ -349,13 +349,18 @@ async fn dispatch(server: Server, request: Request) -> Response {
             );
         }
     };
-    // The API handler owns the guard so a disconnected reader also stops its
-    // Git and platform commands inside the blocking task.
-    let merge_read_cancel = (path.starts_with("/api/merge-requests/")
-        && matches!(method, axum::http::Method::GET | axum::http::Method::POST))
+    // Keep request cancellation scoped to the blocking Git/platform commands or draft session.
+    let draft = method == axum::http::Method::POST
+        && path.starts_with("/api/specs/")
+        && path
+            .trim_end_matches('/')
+            .ends_with("/agent-continuation/draft");
+    let request_cancel = (draft
+        || (path.starts_with("/api/merge-requests/")
+            && matches!(method, axum::http::Method::GET | axum::http::Method::POST)))
     .then(|| server.cancel.child());
-    let _merge_read_guard = merge_read_cancel.as_ref().map(Cancellation::cancel_on_drop);
-    let result = tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
+    let _request_guard = request_cancel.as_ref().map(Cancellation::cancel_on_drop);
+    let worker = tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
         server.cancel.check()?;
         let limits = Limits {
             bytes: 1024 * 1024,
@@ -364,8 +369,24 @@ async fn dispatch(server: Server, request: Request) -> Response {
         let decode_error = |e: YssError| {
             YssError::new(ErrorCode::InvalidInput, "请求内容不合法").context("detail", e.message)
         };
-        if matches!(path.as_str(), "/api/desktop-info" | "/api/desktop/activity" | "/api/desktop/attach" | "/api/desktop/detach" | "/api/desktop/quiesce" | "/api/desktop/release" | "/api/desktop/shutdown" | "/api/desktop/pause-queues") {
-            return desktop::route(&server.platform.jobs, &server.shutdown, method.as_str(), &path, &bytes);
+        if matches!(
+            path.as_str(),
+            "/api/desktop-info"
+                | "/api/desktop/activity"
+                | "/api/desktop/attach"
+                | "/api/desktop/detach"
+                | "/api/desktop/quiesce"
+                | "/api/desktop/release"
+                | "/api/desktop/shutdown"
+                | "/api/desktop/pause-queues"
+        ) {
+            return desktop::route(
+                &server.platform.jobs,
+                &server.shutdown,
+                method.as_str(),
+                &path,
+                &bytes,
+            );
         }
         if method == axum::http::Method::POST && path == "/api/restart" {
             #[derive(serde::Deserialize)]
@@ -384,20 +405,23 @@ async fn dispatch(server: Server, request: Request) -> Response {
             } else {
                 std::env::current_exe()?
             };
-            let mut restart = server.restart.lock().map_err(|_| {
-                YssError::new(ErrorCode::Io, "重启状态失效")
-            })?;
+            let mut restart = server
+                .restart
+                .lock()
+                .map_err(|_| YssError::new(ErrorCode::Io, "重启状态失效"))?;
             desktop::begin_restart(&server.platform.jobs)?;
             *restart = Some(executable);
             server.shutdown.cancel();
-            return Ok(json!({"restarting":true,"message":"正在重启工作台，新会话将自动打开，请在新页面恢复草稿"}));
+            return Ok(
+                json!({"restarting":true,"message":"正在重启工作台，新会话将自动打开，请在新页面恢复草稿"}),
+            );
         }
         if let Some(value) = server.platform.route(
             method.as_str(),
             &path,
             &query,
             &bytes,
-            merge_read_cancel.as_ref(),
+            request_cancel.as_ref(),
         )? {
             return Ok(value);
         }
@@ -467,8 +491,9 @@ async fn dispatch(server: Server, request: Request) -> Response {
             let source = super::sources::read_source(&state, id)?;
             let meta = super::content::metadata(&source.text)?;
             let root = crate::fs::Root::open(std::path::Path::new(&project.root_path))?;
-            let target = super::content::preview_target(spec, meta.as_ref(), &root, &request.target)
-                .ok_or_else(|| super::sources::invalid("只能预览此 Spec 已关联的本地原型"))?;
+            let target =
+                super::content::preview_target(spec, meta.as_ref(), &root, &request.target)
+                    .ok_or_else(|| super::sources::invalid("只能预览此 Spec 已关联的本地原型"))?;
             serde_json::to_value(super::preview::start(
                 &project.root_path,
                 &target,
@@ -489,7 +514,11 @@ async fn dispatch(server: Server, request: Request) -> Response {
         {
             let mut store = super::jobs::lock_store(&server.store)?;
             let id = &path[11..path.len() - 8];
-            serde_json::to_value(service::agent_request_from_store(&mut store, id, &server.cancel)?)
+            serde_json::to_value(service::agent_request_from_store(
+                &mut store,
+                id,
+                &server.cancel,
+            )?)
         } else if method == axum::http::Method::GET && path == "/api/snapshot" {
             {
                 let mut snapshot = immediate_snapshot(&server, None)?;
@@ -532,8 +561,21 @@ async fn dispatch(server: Server, request: Request) -> Response {
             );
         };
         value.map_err(|_| YssError::new(ErrorCode::Io, "响应编码失败"))
-    })
-    .await;
+    });
+    let result = if draft {
+        match tokio::time::timeout(Duration::from_secs(50), worker).await {
+            Ok(result) => result,
+            Err(_) => {
+                return failure(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "DRAFT_TIMEOUT",
+                    "接续草稿生成超时，请重试",
+                );
+            }
+        }
+    } else {
+        worker.await
+    };
     match result {
         Ok(Ok(value)) => Json(value).into_response(),
         Ok(Err(e)) => error(e),

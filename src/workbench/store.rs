@@ -565,7 +565,6 @@ impl Store {
     }
 
     /// Commit related extension records and a job event in one SQLite transaction.
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     pub(super) fn write_extensions_with_event(
         &mut self,
         effects: &CommitEffects,
@@ -907,6 +906,22 @@ impl Store {
     }
     pub(super) fn ci_evidence(&self, job_id: &str) -> Result<Option<serde_json::Value>> {
         self.database.ci_evidence(job_id)
+    }
+    pub(super) fn continuation_tasks(
+        &self,
+        run_id: &str,
+        job_id: &str,
+        per_project_limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        self.database
+            .continuation_tasks(run_id, job_id, per_project_limit)
+    }
+    pub(super) fn continuation_response_ids(
+        &self,
+        job_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        self.database.continuation_response_ids(job_id, limit)
     }
     pub(crate) fn agent_question_events(&self, job_id: &str) -> Result<Vec<super::jobs::JobEvent>> {
         self.database.agent_question_events(job_id)

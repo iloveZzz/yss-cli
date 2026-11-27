@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { FieldLabel } from '@/components/ui/field'
 import { useDelayedBusy } from '@/hooks/useDelayedBusy'
-import { defaultWorkQuery, type GroupBy, type Layout, type ProjectView } from '@/services/workbench'
+import { defaultWorkQuery, type ProjectView } from '@/services/workbench'
 import { useSpecWorkItems } from '@/views/Specs/hooks/useSpecWorkItems'
 import { encodeWorkQuery } from '@/views/Specs/schemas/filter'
 import DiscoverSpecs from './DiscoverSpecs.vue'
@@ -49,7 +49,7 @@ const query = computed(() => ({
 }))
 const {
   result, resultsCurrent, loading, loadingMore, verification, verificationError, writable, error, reload, loadMore
-} = useSpecWorkItems(query, shallowRef<Layout>('list'), shallowRef<GroupBy>('status'), toRef(() => props.active))
+} = useSpecWorkItems(query, toRef(() => props.active))
 
 // Pending responses have no verified rows or coverage, even when their counts are zero.
 const page = computed(() => result.value?.projectionVersion ? result.value : undefined)
@@ -66,7 +66,7 @@ const awaitingFirstPage = computed(() => !page.value && !listError.value &&
   (listBusy.value || verification.value === 'pending' || verification.value === 'stale'))
 const allLink = computed(() => ({
   path: '/specs',
-  query: encodeWorkQuery({ ...query.value, activity: 'all', includeClosed: true }, 'list', 'status')
+  query: encodeWorkQuery({ ...query.value, activity: 'all', includeClosed: true })
 }))
 
 function reloadFailed() {

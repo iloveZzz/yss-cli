@@ -36,6 +36,12 @@ pub struct ActiveInstall {
     activation: FileSnapshot,
 }
 
+impl ActiveInstall {
+    pub(crate) fn activation(&self) -> &FileSnapshot {
+        &self.activation
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum UpdateOrigin<'a> {
     Managed(&'a Version),

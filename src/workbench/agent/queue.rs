@@ -183,7 +183,10 @@ fn request_for(run: &AgentRun, entry: &Entry) -> Result<AgentStartRequest> {
                 .map(|grant| grant.narrowed(entry.read_only, false))
                 .collect()
         }),
+        expected_repository_keys: None,
         continuation_source: None,
+        expected_continuation_digest: None,
+        native_fork_source: None,
         ci_job: None,
         carry_files: Default::default(),
         request_id: entry.request_id().to_owned(),
@@ -195,6 +198,8 @@ fn request_for(run: &AgentRun, entry: &Entry) -> Result<AgentStartRequest> {
         thinking_level: None,
         read_only: entry.read_only,
         allow_commands: false,
+        command_execution: None,
+        host_execution_confirmed: false,
         lifecycle_stage: None,
         expected_goal_version: entry.goal_version.clone(),
     })

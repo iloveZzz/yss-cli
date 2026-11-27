@@ -45,4 +45,5 @@ pub mod integrations;
 pub mod managed_pi;
 pub mod managed_tools;
 mod merge_requests;
+mod pnpm;
 pub mod process;

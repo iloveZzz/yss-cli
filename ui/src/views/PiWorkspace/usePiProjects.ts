@@ -41,11 +41,17 @@ export function usePiProjects(specId: Readonly<Ref<string>>) {
       }
     }
   }
+  function invalidateProjects() {
+    projectScope.value = undefined
+    return refreshProjects()
+  }
   watch(specId, () => {
     request?.abort()
+    request = undefined
+    projectBusy.value = false
     projectScope.value = undefined
     projectError.value = ''
   }, { flush: 'sync' })
   onScopeDispose(() => request?.abort())
-  return { projectScope, projectBusy, projectError, refreshProjects }
+  return { projectScope, projectBusy, projectError, refreshProjects, invalidateProjects }
 }

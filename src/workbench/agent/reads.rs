@@ -1,6 +1,7 @@
 use super::{
-    AgentHost, AgentRun, JobManager, JobRecord, Store, WorkspaceMode, acceptance, accepted_result,
-    deletion_issue, invalid, last_accepted_file, lock_store, review_paths, sources, terminal,
+    AgentHost, AgentRun, CommandExecution, JobManager, JobRecord, Store, WorkspaceMode, acceptance,
+    accepted_result, deletion_issue, invalid, last_accepted_file, lock_store, review_paths,
+    sources, terminal,
 };
 use crate::{
     cancel::Cancellation,
@@ -26,6 +27,7 @@ struct StoredRun {
     host: AgentHost,
     #[serde(default)]
     workspace_mode: WorkspaceMode,
+    command_execution: Option<CommandExecution>,
     #[serde(default)]
     binding_revision: u64,
     snapshot_error: Option<String>,
@@ -48,6 +50,8 @@ struct SessionRow {
     updated_at: String,
     attention: Vec<Value>,
     workspace_mode: WorkspaceMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_execution: Option<CommandExecution>,
     has_snapshot: bool,
     has_acceptance: bool,
     delete_issue: Option<&'static str>,
@@ -173,6 +177,7 @@ fn run_row(
             updated_at: updated_at.clone(),
             attention,
             workspace_mode: run.workspace_mode,
+            command_execution: run.command_execution,
             has_snapshot,
             has_acceptance: !reports.is_empty(),
             delete_issue: deletion_issue(status, &reports),
@@ -242,6 +247,7 @@ fn collect(
                 updated_at: job.updated_at.clone(),
                 attention: job_attention(store, Some(job), &job.status)?,
                 workspace_mode: WorkspaceMode::Direct,
+                command_execution: None,
                 has_snapshot: false,
                 has_acceptance: false,
                 delete_issue: Some("本轮尚未建立可删除的会话记录"),

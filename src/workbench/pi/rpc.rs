@@ -4,7 +4,7 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     workbench::{
         agent_protocol::{PiModel, ThinkingLevel},
-        jobs::JobContext,
+        jobs::{JobContext, PiPhase},
         process,
     },
 };
@@ -23,6 +23,7 @@ use std::{
 
 const FRAME_LIMIT: u64 = 8 * 1024 * 1024;
 const REASONING_LIMIT: usize = 6_000;
+const DRAFT_TEXT_LIMIT: usize = 32 * 1024;
 const SESSION_STATS_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Serialize)]
@@ -291,8 +292,41 @@ impl Session {
         self.query("get_state", cancel)
     }
 
+    #[cfg(target_os = "macos")]
+    pub(super) fn entries(&mut self, since: Option<&str>, cancel: &Cancellation) -> Result<Value> {
+        if let Some(since) = since {
+            self.request(
+                "get_entries",
+                json!({"type":"get_entries", "id":"get_entries", "since":since}),
+                cancel,
+            )
+        } else {
+            self.query("get_entries", cancel)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn fork_before(&mut self, entry_id: &str, cancel: &Cancellation) -> Result<()> {
+        let result = self.request(
+            "fork",
+            json!({"type":"fork", "id":"fork", "entryId":entry_id}),
+            cancel,
+        )?;
+        if result["cancelled"] != false {
+            return Err(protocol("Pi 未完成原生分叉"));
+        }
+        Ok(())
+    }
+
     pub fn available_models(&mut self, cancel: &Cancellation) -> Result<Value> {
         self.query("get_available_models", cancel)
+    }
+
+    pub(super) fn has_only_command(&mut self, name: &str, cancel: &Cancellation) -> Result<bool> {
+        let data = self.query("get_commands", cancel)?;
+        Ok(data["commands"].as_array().is_some_and(|commands| {
+            matches!(commands.as_slice(), [command] if command["source"] == "extension" && command["name"] == name)
+        }))
     }
 
     pub fn thinking_levels(&mut self, cancel: &Cancellation) -> Result<Vec<ThinkingLevel>> {
@@ -396,8 +430,10 @@ impl Session {
             context,
             evidence,
             flush_at: None,
+            saw_text: false,
         };
-        let result = self.complete_prompt(prompt, &context.cancel, Some(&mut output), None);
+        let result = self.complete_prompt(prompt, &context.cancel, Some(&mut output), None, false);
+        let result = result.map(|_| ());
         result.and(output.flush())
     }
 
@@ -407,6 +443,18 @@ impl Session {
             cancel,
             None,
             Some(Instant::now() + Duration::from_secs(20)),
+            false,
+        )
+        .map(|_| ())
+    }
+
+    pub(super) fn generate_draft(&mut self, prompt: &str, cancel: &Cancellation) -> Result<String> {
+        self.complete_prompt(
+            prompt,
+            cancel,
+            None,
+            Some(Instant::now() + Duration::from_secs(35)),
+            true,
         )
     }
 
@@ -416,16 +464,23 @@ impl Session {
         cancel: &Cancellation,
         mut output: Option<&mut Output<'_>>,
         finish_deadline: Option<Instant>,
-    ) -> Result<()> {
+        capture_text: bool,
+    ) -> Result<String> {
         self.active = true;
         self.send(
             json!({ "type": "prompt", "id": "prompt", "message": prompt }),
             cancel,
             Duration::from_secs(5),
         )?;
+        if let Some(output) = output.as_ref() {
+            output.context.trace("promptSent");
+        }
         let mut accepted = false;
         let mut settled = None;
-        let mut messages = Messages::default();
+        let mut messages = Messages {
+            capture_text,
+            ..Messages::default()
+        };
         let deadline = Instant::now() + Duration::from_secs(30);
         while !accepted || settled.is_none() {
             let event = match self.receive_events(
@@ -464,7 +519,7 @@ impl Session {
                     }
                     accepted = true;
                     if let Some(output) = output.as_ref() {
-                        output.context.mark_agent_started()?;
+                        output.context.set_pi_phase(PiPhase::PromptAccepted)?;
                         output.context.trace("promptAccepted");
                     }
                 }
@@ -482,6 +537,9 @@ impl Session {
                 Some("message_start" | "message_update" | "message_end") => {
                     messages.record(&event, output.as_deref_mut())?;
                 }
+                Some("tool_execution_start") if capture_text => {
+                    return Err(protocol("Pi 草稿会话意外尝试调用工具"));
+                }
                 Some("auto_retry_start") => {
                     if let Some(output) = output.as_ref() {
                         output
@@ -498,7 +556,13 @@ impl Session {
             return Err(YssError::new(ErrorCode::Cancelled, "Pi 本轮已停止"));
         }
         match messages.reason.as_deref() {
-            Some("stop") => cancel.check(),
+            Some("stop") => {
+                cancel.check()?;
+                if capture_text && messages.text.is_empty() {
+                    return Err(protocol("Pi 未返回接续草稿正文"));
+                }
+                Ok(messages.text)
+            }
             Some("error") => Err(messages.error.unwrap_or_else(|| provider_error(None))),
             Some("length") => Err(protocol("Pi 达到模型输出上限，本轮未完成")),
             _ => Err(protocol("Pi 本轮缺少完整的最终答复")),
@@ -601,10 +665,21 @@ struct Output<'a> {
     context: &'a JobContext,
     evidence: &'a Evidence,
     flush_at: Option<Instant>,
+    saw_text: bool,
 }
 
 impl Output<'_> {
+    fn trace_first_text(&mut self, text: &str) {
+        if !self.saw_text && !text.trim().is_empty() {
+            self.saw_text = true;
+            self.context.trace("firstTextDecoded");
+        }
+    }
+
     fn delta(&mut self, kind: &'static str, item_id: &str, text: &str) -> Result<()> {
+        if kind == "item/agentMessage/delta" {
+            self.trace_first_text(text);
+        }
         if !text.is_empty() {
             self.flush_at = self.context.emit_pi_delta(kind, item_id, text)?;
         }
@@ -626,6 +701,8 @@ struct Messages {
     current: bool,
     reason: Option<String>,
     error: Option<YssError>,
+    capture_text: bool,
+    text: String,
     reasoning: BTreeMap<u64, ReasoningBlock>,
     reasoning_seq: u64,
 }
@@ -673,6 +750,31 @@ impl ReasoningBlock {
 }
 
 impl Messages {
+    fn capture_draft_text(&mut self, message: &Value) -> Result<()> {
+        let mut text = String::new();
+        for part in message["content"].as_array().into_iter().flatten() {
+            if part["type"] == "toolCall" {
+                return Err(protocol("Pi 草稿会话意外尝试调用工具"));
+            }
+            let Some(part) = part["text"].as_str().filter(|_| part["type"] == "text") else {
+                continue;
+            };
+            if text.len() + part.len() + 1 > DRAFT_TEXT_LIMIT
+                || part
+                    .chars()
+                    .any(|ch| ch.is_control() && !matches!(ch, '\n' | '\r' | '\t'))
+            {
+                return Err(protocol("Pi 返回的接续草稿过长或含有无效字符"));
+            }
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(part);
+        }
+        self.text = text.trim().to_owned();
+        Ok(())
+    }
+
     fn reasoning_block(&mut self, index: u64, context: &JobContext) -> Result<&mut ReasoningBlock> {
         Ok(match self.reasoning.entry(index) {
             Entry::Occupied(block) => block.into_mut(),
@@ -787,7 +889,10 @@ impl Messages {
                 self.reason = reason.map(str::to_owned);
                 self.error = (reason == Some("error"))
                     .then(|| provider_error(message["errorMessage"].as_str()));
-                let Some(output) = output.as_ref() else {
+                if self.capture_text {
+                    self.capture_draft_text(message)?;
+                }
+                let Some(output) = output else {
                     return Ok(());
                 };
                 let content = message["content"]
@@ -798,6 +903,7 @@ impl Messages {
                     .filter_map(|chunk| chunk["text"].as_str())
                     .collect::<Vec<_>>()
                     .join("\n");
+                output.trace_first_text(&content);
                 if content.is_empty() {
                     None
                 } else {

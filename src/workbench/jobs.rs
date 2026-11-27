@@ -27,6 +27,10 @@ pub struct JobRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_started_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pi_phase: Option<PiPhase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pi_phase_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) local_project_task: Option<LocalProjectTask>,
     pub request_id: String,
     pub roots: Vec<String>,
@@ -34,6 +38,16 @@ pub struct JobRecord {
     pub updated_at: String,
     pub result: Option<Value>,
     pub error: Option<Value>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PiPhase {
+    VerifyScope,
+    CheckRuntime,
+    PrepareWorkspace,
+    PromptAccepted,
+    FinalizeArtifacts,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -87,6 +101,10 @@ impl From<YssError> for JobFailure {
 }
 
 impl JobRecord {
+    fn pi_phase_payload(&self) -> Option<Value> {
+        Some(json!({"phase": self.pi_phase?, "at": self.pi_phase_at.as_deref()?}))
+    }
+
     pub(super) fn session_run_id(&self) -> Option<&str> {
         self.agent_run_id.as_deref().or_else(|| {
             self.local_project_task
@@ -353,20 +371,22 @@ pub fn lock_store(store: &Arc<Mutex<Store>>) -> Result<std::sync::MutexGuard<'_,
 }
 
 impl JobContext {
-    #[cfg(any(
-        all(target_os = "macos", target_arch = "aarch64"),
-        all(target_os = "windows", target_arch = "x86_64")
-    ))]
-    pub(super) fn mark_agent_started(&self) -> Result<()> {
+    pub(super) fn set_pi_phase(&self, phase: PiPhase) -> Result<()> {
         let mut store = lock_store(&self.store)?;
         let mut job: JobRecord = store
             .record("job", &self.id)?
             .ok_or_else(|| YssError::new(ErrorCode::InvalidInput, "执行记录不存在"))?;
-        if !job.terminal() && job.agent_started_at.is_none() {
-            job.agent_started_at = Some(now());
-            store.put_record("job", &job.id, &job)?;
+        if job.terminal() || job.kind != "agent" || job.pi_phase >= Some(phase) {
+            return Ok(());
         }
-        Ok(())
+        let at = now();
+        job.pi_phase = Some(phase);
+        job.pi_phase_at = Some(at.clone());
+        job.updated_at.clone_from(&at);
+        if phase == PiPhase::PromptAccepted {
+            job.agent_started_at.get_or_insert_with(|| at.clone());
+        }
+        job.persist_event(&mut store, "piPhase", &json!({"phase": phase, "at": at}))
     }
 
     pub(super) fn trace(&self, phase: &str) {
@@ -400,6 +420,19 @@ impl JobContext {
         if kind == "piTool" && !self.control.saw_tool.swap(true, Ordering::Relaxed) {
             self.trace("firstTool");
         }
+        #[cfg(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ))]
+        if kind == "item/completed"
+            && payload["item"]["type"] == "agentMessage"
+            && payload["item"]["text"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty())
+            && !self.control.saw_text.swap(true, Ordering::Relaxed)
+        {
+            self.trace("firstTextStored");
+        }
         Ok(id)
     }
 
@@ -414,10 +447,10 @@ impl JobContext {
         text: &str,
     ) -> Result<Option<Instant>> {
         let mut store = lock_store(&self.store)?;
-        let first_text =
+        let awaiting_text =
             kind == "item/agentMessage/delta" && !self.control.saw_text.load(Ordering::Relaxed);
-        let deadline = store.append_pi_delta(&self.id, kind, item_id, text, first_text)?;
-        if first_text {
+        let deadline = store.append_pi_delta(&self.id, kind, item_id, text, awaiting_text)?;
+        if awaiting_text && !text.trim().is_empty() {
             self.control.saw_text.store(true, Ordering::Relaxed);
             drop(store);
             self.trace("firstTextStored");
@@ -740,6 +773,8 @@ impl JobManager {
                 .map(|value| value.run_id.clone().unwrap_or_else(|| id.clone())),
             agent_spec_id: agent.as_ref().map(|value| value.spec_id.clone()),
             agent_started_at: None,
+            pi_phase: agent.as_ref().map(|_| PiPhase::VerifyScope),
+            pi_phase_at: agent.as_ref().map(|_| at.clone()),
             local_project_task,
             request_id,
             roots,
@@ -801,6 +836,7 @@ impl JobManager {
             check_roots(&jobs, &job.roots, None)?;
             super::agent::ensure_roots_available(&mut store, &job.roots)?;
             let admission = check(&mut store, &mut job)?;
+            let phase = job.pi_phase_payload();
             let fingerprint = if let Some(agent) = &agent {
                 Some(agent.fingerprint.clone())
             } else if let Some(task) = &job.local_project_task {
@@ -832,10 +868,24 @@ impl JobManager {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-                store.write_extensions(&super::sqlite::CommitEffects {
+                let effects = super::sqlite::CommitEffects {
                     records,
                     blobs: Vec::new(),
-                })?;
+                };
+                if let Some(payload) = &phase {
+                    store.write_extensions_with_event(
+                        &effects,
+                        EventWrite {
+                            job_id: &id,
+                            kind: "piPhase",
+                            payload,
+                        },
+                    )?;
+                } else {
+                    store.write_extensions(&effects)?;
+                }
+            } else if let Some(payload) = &phase {
+                job.persist_event(&mut store, "piPhase", payload)?;
             } else {
                 store.put_record("job", &id, &job)?;
             }
@@ -919,7 +969,20 @@ impl JobManager {
                     );
                 }
                 job.updated_at = now();
-                let _ = job.persist_event(&mut store, "finished", &json!(job));
+                if job
+                    .persist_event(&mut store, "finished", &json!(job))
+                    .is_ok()
+                    && job.kind == "agent"
+                {
+                    context.trace("jobFinished");
+                    if job
+                        .result
+                        .as_ref()
+                        .is_some_and(|result| result["diffAvailable"] == true)
+                    {
+                        context.trace("resultReady");
+                    }
+                }
             }
             if let Ok(mut controls) = manager.controls.lock() {
                 controls.remove(&id);

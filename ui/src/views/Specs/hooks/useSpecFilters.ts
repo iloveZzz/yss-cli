@@ -4,11 +4,9 @@ import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import {
   defaultWorkQuery,
   type WorkQuery,
-  type Layout,
-  type GroupBy,
   type SavedView
 } from '@/services/workbench'
-import { decodeWorkQuery, encodeWorkQuery } from '../schemas/filter'
+import { decodeWorkQuery, encodeWorkQuery, savedSpecQuery } from '../schemas/filter'
 export function useSpecFilters() {
   const route = useRoute()
   const router = useRouter()
@@ -17,8 +15,6 @@ export function useSpecFilters() {
   let navigation = 0
   let pending = false
   const filters = computed(() => state.value.query)
-  const layout = computed(() => state.value.layout)
-  const groupBy = computed(() => state.value.groupBy)
   const viewId = computed(() => state.value.viewId)
   watch(
     () => route.query,
@@ -32,19 +28,19 @@ export function useSpecFilters() {
     pending = true
     const own = ++navigation
     void router
-      .replace({ query: encodeWorkQuery(next.query, next.layout, next.groupBy, next.viewId) })
+      .replace({ query: encodeWorkQuery(next.query, next.viewId) })
       .finally(() => {
         if (own !== navigation) return
         pending = false
         state.value = decodeWorkQuery(route.query)
       })
   }
-  function update(patch: Partial<WorkQuery>, display?: { layout?: Layout; groupBy?: GroupBy }) {
-    const next: WorkQuery = { ...filters.value, ...patch, entity: 'spec' }
+  function update(patch: Partial<WorkQuery>) {
+    const next: WorkQuery = { ...filters.value, ...patch, entity: 'spec', progressBasis: 'effective' }
     if (patch.includeClosed === false)
       next.statuses = next.statuses.filter((s) => s !== 'done' && s !== 'canceled')
     if (next.statuses.some((s) => s === 'done' || s === 'canceled')) next.includeClosed = true
-    navigate({ ...state.value, query: next, ...display })
+    navigate({ ...state.value, query: next })
   }
   watch(
     [viewId, catalog],
@@ -56,17 +52,7 @@ export function useSpecFilters() {
   )
   function apply(view: SavedView) {
     if (view.query.entity === 'spec')
-      navigate({
-        query: {
-          ...defaultWorkQuery(),
-          ...view.query,
-          progressBasis: view.query.progressBasis ?? 'personal',
-          attention: view.query.attention ?? []
-        },
-        layout: view.layout,
-        groupBy: view.groupBy,
-        viewId: view.id
-      })
+      navigate({ query: savedSpecQuery(view), viewId: view.id })
   }
   function toggle(
     key: 'projectIds' | 'stages' | 'statuses' | 'contentStatuses' | 'reminderKinds' | 'attention',
@@ -82,13 +68,11 @@ export function useSpecFilters() {
   }
   function clear() {
     navigate({
-      ...state.value,
-      query: { ...defaultWorkQuery(), sort: filters.value.sort, progressBasis: filters.value.progressBasis },
-      viewId: undefined
+      query: { ...defaultWorkQuery(), sort: filters.value.sort }
     })
   }
   function detachView() {
     navigate({ ...state.value, viewId: undefined })
   }
-  return { filters, layout, groupBy, viewId, update, toggle, apply, clear, detachView }
+  return { filters, viewId, update, toggle, apply, clear, detachView }
 }

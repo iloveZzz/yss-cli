@@ -205,7 +205,7 @@ async function clear() {
             name="q"
             :model-value="search"
             :aria-describedby="id + '-hint'"
-            placeholder="搜索标题、工程、路径、下一步、阻塞或备注"
+            placeholder="搜索标题、工程、路径、下一步或阻塞"
             class="work-search"
             autocorrect="off"
             autocapitalize="none"

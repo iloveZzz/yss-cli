@@ -20,7 +20,7 @@ use std::{
 };
 
 mod agent_projects;
-pub(super) use agent_projects::agent_projects;
+pub(super) use agent_projects::{agent_projects, checkout_origin, repository_key};
 
 fn invalid(message: &str) -> YssError {
     YssError::new(ErrorCode::InvalidInput, message)
@@ -31,6 +31,33 @@ fn lock(store: &Arc<Mutex<Store>>) -> Result<std::sync::MutexGuard<'_, Store>> {
 fn text(root: &Root, path: &str) -> Result<String> {
     let checked = root.read_checked(&RelPath::new(path)?, 2 * 1024 * 1024)?;
     String::from_utf8(checked.bytes).map_err(|_| invalid("资料必须为 UTF-8"))
+}
+
+fn home_map_text(root: &Root, path: &str) -> Result<String> {
+    text(root, path).map_err(|mut error| {
+        if error
+            .context
+            .get("kind")
+            .is_some_and(|kind| kind == "NotFound")
+        {
+            error.message = "找不到仓库地图文件".into();
+            return error.context("reason", "home_map_unreadable").context(
+                "hint",
+                "核对 Home 根目录和地图相对路径，确认 REPOSITORIES.md 或指定的 README 存在。",
+            );
+        }
+        if error.message == "资料必须为 UTF-8" {
+            error.message = "无法读取仓库地图的文字编码".into();
+            return error
+                .context("reason", "home_map_unreadable")
+                .context("hint", "将仓库地图保存为 UTF-8 文本后，重新读取。");
+        }
+        error
+            .context
+            .entry("reason".into())
+            .or_insert_with(|| "home_map_unreadable".into());
+        error
+    })
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -261,7 +288,7 @@ pub fn import_home(store: &Arc<Mutex<Store>>, request: ImportHome) -> Result<Hom
             }
         }
     };
-    let source = text(&root, &path)?;
+    let source = home_map_text(&root, &path)?;
     let (rows, warnings) = match request.rows {
         Some(rows) => (rows, Vec::new()),
         None => parse_rows(&source, &request.column_mapping.unwrap_or_default()),
@@ -295,7 +322,8 @@ pub fn homes(store: &Arc<Mutex<Store>>) -> Result<Value> {
     };
     let mut views = Vec::new();
     for home in imports {
-        let current = Root::open(Path::new(&home.root)).and_then(|r| text(&r, &home.source_path));
+        let current =
+            Root::open(Path::new(&home.root)).and_then(|r| home_map_text(&r, &home.source_path));
         let binding = bindings.iter().find(|b| b.home_id == home.id);
         let stale = home_stale(&home, binding, current.as_deref().ok())?;
         let mut view = serde_json::to_value(&home).map_err(|_| invalid("无法编码Home"))?;
@@ -410,14 +438,16 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
         .record("homeImport", &request.home_id)?
         .ok_or_else(|| invalid("Home导入记录不存在"))?;
     let root = Root::open(Path::new(&home.root))?;
-    let source = text(&root, &home.source_path)?;
+    let source = home_map_text(&root, &home.source_path)?;
     if home.source_digest != request.source_digest
         || Sha256::of(source.as_bytes()).as_str() != request.source_digest
     {
-        return Err(YssError::new(
-            ErrorCode::ConcurrentChange,
-            "Home地图已改变，请重新导入核对",
-        ));
+        return Err(YssError::new(ErrorCode::ConcurrentChange, "仓库地图已变化")
+            .context("reason", "home_map_changed")
+            .context(
+                "hint",
+                "重新读取地图并核对受影响的条目。仍有相同标识的条目会保留已填目录。",
+            ));
     }
     if home.requires_review {
         return Err(invalid("请先用字段映射或核对行完成地图导入"));
@@ -435,7 +465,8 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
         if !Path::new(&binding.root_path).is_absolute() {
             return Err(invalid("绑定工程目录必须为绝对路径"));
         }
-        let actual = Root::open(Path::new(&binding.root_path))?;
+        let actual = Root::open(Path::new(&binding.root_path))
+            .map_err(|error| error.context("entryId", &binding.entry_id))?;
         if let Some(expected) = row_remote(row) {
             let output = process::run(
                 "git",
@@ -448,12 +479,24 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
                 ],
                 &Cancellation::new(),
                 Duration::from_secs(10),
-            )?;
+            )
+            .map_err(|mut error| {
+                error.message = "无法读取绑定工程的 Git origin".into();
+                error.context("entryId", &binding.entry_id).context(
+                    "hint",
+                    "确认所选目录属于这个工程，并在该仓库中检查 Git 的 origin 远端。",
+                )
+            })?;
             let found = std::str::from_utf8(&output).ok().and_then(remote_identity);
             if found.as_ref() != Some(&expected) {
                 return Err(
-                    YssError::new(ErrorCode::Conflict, "绑定目录的Git身份与地图不一致")
-                        .at(&binding.entry_id),
+                    YssError::new(ErrorCode::Conflict, "绑定目录的 Git 远端与地图不一致")
+                        .at(&binding.entry_id)
+                        .context("entryId", &binding.entry_id)
+                        .context(
+                            "hint",
+                            "选择地图所列仓库的本机检出目录，或核对地图中的仓库地址。",
+                        ),
                 );
             }
         }
@@ -482,7 +525,9 @@ pub fn bind_home(store: &Arc<Mutex<Store>>, mut request: BindHome) -> Result<Val
                     ErrorCode::Conflict,
                     "绑定目录与地图中的仓内子路径不一致",
                 )
-                .at(&binding.entry_id));
+                .at(&binding.entry_id)
+                .context("entryId", &binding.entry_id)
+                .context("hint", "请按地图填写仓库根目录或指定的仓内工程子目录。"));
             }
         }
         actual.revalidate()?;

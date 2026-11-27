@@ -6,7 +6,7 @@ use yss::{
     fs::Root,
     model::RelPath,
     workbench::{
-        agent_protocol::probe_managed_pi_update,
+        agent_protocol::verify_managed_pi_package,
         managed_pi::{self, NodeRecord},
         process::capture_command,
     },
@@ -119,23 +119,8 @@ impl PackageStage<'_> {
         }
         let entry =
             managed_pi::verify_package(self.root, self.version).map_err(|error| error.message)?;
-        let mut version = command(self.node, stage);
-        version.arg(&entry).arg("--version");
-        let (status, stdout, _) = capture_command(version, &cancel, Duration::from_secs(15))
-            .map_err(|_| "无法验证 Pi 入口")?;
-        let output = std::str::from_utf8(&stdout)
-            .ok()
-            .and_then(|text| Version::parse(text.trim().trim_start_matches('v')).ok());
-        if !status.success() || output.as_ref() != Some(self.version) {
-            return Err("Pi 入口版本校验失败".into());
-        }
-        if self.update {
-            let mut rpc = command(self.node, stage);
-            rpc.arg(&entry);
-            probe_managed_pi_update(rpc, &cancel).map_err(|error| {
-                format!("Pi 新版本的本机 RPC 兼容性自检未通过：{}", error.message)
-            })?;
-        }
+        verify_managed_pi_package(self.node, &entry, self.version, &cancel)
+            .map_err(|error| format!("Pi 本机兼容性自检未通过：{}", error.message))?;
         let bytes = serde_json::to_vec(&NodeRecord {
             node_path: self.installed_node.into(),
         })

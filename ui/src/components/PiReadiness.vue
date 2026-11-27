@@ -22,7 +22,10 @@ const status = defineModel<PiRuntimeStatus>('runtimeStatus')
 const operation = shallowRef<'initial' | 'check' | 'selection' | 'test'>()
 const checkError = shallowRef('')
 const testResult = shallowRef<{ message: string; connected: boolean; issue?: string }>()
-const model = computed(() => status.value?.available ? status.value.model : undefined)
+function piReady(runtime?: PiRuntimeStatus) {
+  return runtime?.capabilities ? runtime.capabilities.pi.state === 'available' : runtime?.available
+}
+const model = computed(() => piReady(status.value) ? status.value?.model : undefined)
 const canChooseModel = computed(() => !props.resumeRunId || props.allowModelSwitch)
 const chosen = computed(() => canChooseModel.value ? selectedModel.value : undefined)
 const visibleModel = computed(() => chosen.value ?? status.value?.model)
@@ -34,12 +37,12 @@ const statusMessage = computed(() => {
     case 'selection': return '正在检测本次模型…'
     case 'test': return '正在请求模型…'
     default:
-      return testResult.value?.message || checkError.value || blockedReason.value || status.value?.message ||
+      return testResult.value?.message || checkError.value || blockedReason.value || status.value?.capabilities?.pi.reason || status.value?.message ||
         (status.value?.credentialsReady ? '已找到本机凭证。' : '')
   }
 })
 const showSetup = computed(() => {
-  const issue = testResult.value?.issue ?? status.value?.issue
+  const issue = testResult.value?.issue ?? status.value?.capabilities?.pi.reasonCode ?? status.value?.issue
   return !operation.value && ['configuration', 'credentials', 'modelUnavailable', 'modelAccess'].includes(issue ?? '')
 })
 const piCommand = computed(() => {
@@ -69,11 +72,11 @@ async function checkRuntime(kind: 'initial' | 'check' | 'selection' = 'check') {
     const result = await getPiRuntime({ resumeRunId: props.resumeRunId, selectedModel: chosen.value }, current.signal)
     if (current.signal.aborted) return
     status.value = result
-    if (result.available && result.model) {
+    if (piReady(result) && result.model) {
       const restriction = modelRestrictions.value[piModelKey(result.model)] ?? ''
       blockedReason.value = restriction
       if (!restriction) readyModel.value = result.model
-    } else blockedReason.value = result.message || 'Pi 模型未就绪'
+    } else blockedReason.value = result.capabilities?.pi.reason || result.message || 'Pi 模型未就绪'
   } catch (cause) {
     if (current.signal.aborted) return
     status.value = undefined
@@ -145,7 +148,7 @@ onBeforeUnmount(() => request?.abort())
 </script>
 
 <template>
-  <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || status?.available === false || testResult?.connected === false }">
+  <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || piReady(status) === false || testResult?.connected === false }">
     <p class="model-label">
       <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : 'Pi' }}</Badge>
       <span v-if="visibleModel">

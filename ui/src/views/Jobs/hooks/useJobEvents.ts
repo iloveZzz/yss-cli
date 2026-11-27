@@ -1,25 +1,29 @@
 import { computed, shallowRef, watch, type Ref } from 'vue'
 import { ApiError, errorMessage } from '@/services/workbench'
-import { getJobActivities, streamJob, type ActivityPage } from '@/services/workbench-platform'
-import { useJobConversation } from './useJobConversation'
+import { getJobActivities, objectValue, piPhaseLabels, streamJob, type ActivityPage, type PiPhase } from '@/services/workbench-platform'
+import { isConversationTextDelta, useJobConversation } from './useJobConversation'
 
 // Read a consistent snapshot, then subscribe strictly after its persisted event cursor.
 // Reconnection repeats that handshake, including pending inputs and already-started commands.
 export function useJobEvents(
-  jobId: Readonly<Ref<string>>, updated: () => void, trackFirstText?: () => boolean, trackExecutionMotion = false
+  jobId: Readonly<Ref<string>>, updated: () => void,
+  options: { piRound?: boolean; trackFirstText?: () => boolean } = {}
 ) {
   const latest = shallowRef<ActivityPage>()
   const error = shallowRef('')
   const statusLabel = shallowRef('')
   const retryKey = shallowRef(0)
   const livePlanEventId = shallowRef<number>()
-  const conversation = useJobConversation(trackFirstText)
+  const livePhase = shallowRef<{ id: number; phase: PiPhase; at?: string }>()
+  const conversation = useJobConversation(jobId, options.trackFirstText)
   watch(
-    [jobId, retryKey],
+    // Parent refreshes may replace a job record without changing the subscribed job.
+    [() => jobId.value, () => retryKey.value],
     ([id], previous, onCleanup) => {
       if (previous?.[0] !== id) {
         latest.value = undefined
         livePlanEventId.value = undefined
+        livePhase.value = undefined
         conversation.reset()
       }
       error.value = ''
@@ -29,18 +33,30 @@ export function useJobEvents(
       let timer: ReturnType<typeof setTimeout> | undefined
       let syncing: Promise<void> | undefined
       let observed = 0
+      let overviewObserved = 0
       onCleanup(() => {
         connection.abort()
         clearTimeout(timer)
       })
 
-      async function sync() {
+      async function readOverview() {
         const page = await getJobActivities(id, undefined, signal)
         if (signal.aborted) return
         const prior = latest.value
-        latest.value = page
-        if (prior?.runId !== page.runId || prior?.terminal !== page.terminal) updated()
-        if (page.host === 'pi') await conversation.open(id, signal)
+        if (!prior || page.cursor >= prior.cursor) {
+          latest.value = page
+          if (prior?.runId !== page.runId || prior?.terminal !== page.terminal) updated()
+        }
+        return page.host
+      }
+      async function sync() {
+        if (options.piRound) {
+          // The Pi round already knows its host. Each snapshot keeps its own cursor.
+          const results = await Promise.allSettled([readOverview(), conversation.open(id, signal)])
+          for (const result of results) if (result.status === 'rejected') throw result.reason
+        } else if ((await readOverview()) === 'pi' && !signal.aborted) {
+          await conversation.open(id, signal)
+        }
         if (!signal.aborted) error.value = ''
       }
       function flush() {
@@ -54,6 +70,7 @@ export function useJobEvents(
         if (timer || signal.aborted) return
         timer = setTimeout(async () => {
           timer = undefined
+          if (overviewObserved <= (latest.value?.cursor ?? 0)) return
           try {
             await flush()
           } catch (cause) {
@@ -63,7 +80,7 @@ export function useJobEvents(
             }
             return
           }
-          if (observed > (latest.value?.cursor ?? 0)) schedule()
+          if (overviewObserved > (latest.value?.cursor ?? 0)) schedule()
         }, delay)
       }
       async function connect() {
@@ -80,10 +97,20 @@ export function useJobEvents(
             await streamJob(id, after, signal, (event) => {
               if (signal.aborted) return
               observed = Math.max(observed, event.id)
-              const animate = trackExecutionMotion && event.id > snapshotCursor
+              const animate = !!options.piRound && event.id > snapshotCursor
               if (animate && event.kind === 'piPlan') livePlanEventId.value = event.id
+              if (event.kind === 'piPhase' && event.id > Math.max(latest.value?.cursor ?? 0, livePhase.value?.id ?? 0)) {
+                const { phase, at } = objectValue(event.payload)
+                if (typeof phase === 'string' && Object.hasOwn(piPhaseLabels, phase)) {
+                  livePhase.value = { id: event.id, phase: phase as PiPhase, at: typeof at === 'string' ? at : undefined }
+                  updated()
+                }
+              }
               conversation.receive(event, animate)
-              schedule()
+              if (!options.piRound || !isConversationTextDelta(event)) {
+                overviewObserved = Math.max(overviewObserved, event.id)
+                if (overviewObserved > (latest.value?.cursor ?? 0)) schedule()
+              }
               if (
                 [
                   'status',
@@ -96,8 +123,9 @@ export function useJobEvents(
                 ].includes(event.kind)
               )
                 updated()
+            }).finally(() => {
+              if (!signal.aborted) conversation.flushPending()
             })
-            conversation.flushPending()
             await flush()
             // A scheduled read could have started before the last event was committed.
             if (!signal.aborted && observed > (latest.value?.cursor ?? 0)) await flush()
@@ -142,6 +170,13 @@ export function useJobEvents(
     error,
     statusLabel,
     livePlanEventId,
+    piPhase: computed(() => {
+      const page = latest.value
+      const live = livePhase.value
+      return live && live.id > (page?.cursor ?? 0)
+        ? { phase: live.phase, at: live.at }
+        : page?.piPhase ? { phase: page.piPhase, at: page.piPhaseAt } : undefined
+    }),
     resolved,
     retry: () => retryKey.value++,
     pendingInputs: computed(() => latest.value?.pendingInputs ?? []),

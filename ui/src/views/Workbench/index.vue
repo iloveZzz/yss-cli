@@ -52,7 +52,7 @@ const focus = computed(() =>
 )
 const progressItems = computed(() => focus.value.items)
 const recent = computed(() => overview.value?.recent ?? [])
-const recentSpecList = { path: '/specs', query: { progressBasis: 'personal', showClosed: 'true', sort: 'updatedDesc' } }
+const recentSpecList = { path: '/specs', query: { progressBasis: 'effective', showClosed: 'true', sort: 'updatedDesc' } }
 const activity = computed(() => overview.value?.activity ?? [])
 function target(event: ChangeEvent) {
   const title = event.specId

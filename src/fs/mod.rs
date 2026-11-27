@@ -370,6 +370,11 @@ impl Root {
     pub(crate) fn open_dir(&self, path: &RelPath) -> Result<Dir> {
         self.open_dir_checked(path, PathLookup::Project)
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn pin_directory(&self) -> Result<Dir> {
+        self.revalidate()?;
+        Ok(self.dir.try_clone()?)
+    }
     fn open_dir_checked(&self, path: &RelPath, lookup: PathLookup) -> Result<Dir> {
         let parent = self
             .parent_checked(path, lookup)?

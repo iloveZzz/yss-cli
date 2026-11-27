@@ -1,7 +1,6 @@
 import { apiRequest } from './workbench'
 import type {
   ChangeEvent,
-  GroupBy,
   ProjectRecord,
   ProjectView,
   SavedView,
@@ -96,7 +95,6 @@ export interface CompactWorkPage extends ProjectionState {
   readAt: string
   total: number
   items: CompactWorkItem[]
-  columnTotals?: Record<string, number>
   queryVersion?: string | null
   nextReviewAt?: string | null
   coverage?: { total: number; inactive: number; closed: number }
@@ -130,7 +128,6 @@ export const loadCompactWorkPage = (
     limit?: number
     expectedProjectionVersion?: string
     expectedQueryVersion?: string
-    board?: { groupBy: GroupBy; column?: string }
   },
   signal?: AbortSignal
 ) => apiRequest<CompactWorkPage>('/api/work-items', { body: { query, compact: true, ...page }, signal })

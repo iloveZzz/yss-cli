@@ -133,6 +133,8 @@ struct Activity {
     status: String,
     exit_code: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    command_execution: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     termination_signal: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command_diagnostics: Option<Value>,
@@ -172,6 +174,7 @@ impl Activity {
             text: String::new(),
             status: String::new(),
             exit_code: None,
+            command_execution: None,
             termination_signal: None,
             command_diagnostics: None,
             output: String::new(),
@@ -274,6 +277,9 @@ impl Activity {
                 }
             }
             Kind::Command => {
+                if let Some(mode @ ("host" | "sandbox")) = item["commandExecution"].as_str() {
+                    self.command_execution = Some(mode.to_owned());
+                }
                 if let Some(command) = item["command"].as_str() {
                     self.replace(command, full);
                 } else if let Some(parts) = item["command"].as_array() {
@@ -481,6 +487,9 @@ fn standalone(event: &JobEvent, full: bool) -> Option<Activity> {
         row.error_code = text_field(&p["errorCode"]);
         row.display_path = text_field(&p["displayPath"]);
         row.hint = text_field(&p["hint"]);
+        if let Some(mode @ ("host" | "sandbox")) = p["commandExecution"].as_str() {
+            row.command_execution = Some(mode.into());
+        }
         if row.status.is_empty() {
             row.status = "completed".into();
         }
@@ -509,6 +518,10 @@ struct Index {
     previous_job_id: Option<String>,
     citations: Vec<Value>,
     allow_commands: Option<bool>,
+    command_execution: Option<String>,
+    project_access: Option<Value>,
+    pi_phase: Option<String>,
+    pi_phase_at: Option<String>,
     pi_settings: Option<Value>,
     pi_context: Option<Value>,
     pi_usage: Option<Value>,
@@ -530,6 +543,17 @@ impl Index {
                 self.previous_job_id = text_field(&p["previousJobId"]);
                 self.citations = p["citations"].as_array().cloned().unwrap_or_default();
                 self.allow_commands = p["allowCommands"].as_bool();
+                self.command_execution = text_field(&p["commandExecution"]);
+            }
+            "runProjectAccess" => {
+                self.project_access = p["projectAccess"]
+                    .as_array()
+                    .map(|_| p["projectAccess"].clone());
+                self.command_execution = text_field(&p["commandExecution"]);
+            }
+            "piPhase" => {
+                self.pi_phase = text_field(&p["phase"]);
+                self.pi_phase_at = text_field(&p["at"]);
             }
             "piStatus" if p["model"].is_object() => {
                 self.pi_settings = Some(
@@ -685,6 +709,8 @@ pub(crate) fn page(jobs: &JobManager, id: &str, before: Option<u64>) -> Result<V
             "latestMessage": index.last_message.map(|pos| &index.rows[pos].text),
             "piSettings": index.pi_settings, "piContext": index.pi_context, "piUsage": index.pi_usage,
             "piPlan": index.pi_plan,
+            "piPhase": index.pi_phase, "piPhaseAt": index.pi_phase_at,
+            "projectAccess": index.project_access, "commandExecution": index.command_execution,
             "pendingInputs": if terminal { Vec::new() } else { index.pending.values().collect() }
         });
         if let Some(summary) = index.pi_round_summary() {
@@ -736,7 +762,8 @@ pub(crate) fn conversation(jobs: &JobManager, id: &str, before: Option<u64>) -> 
             "items": items, "hasOlder": has_older || matching.next().is_some(), "cursor": index.cursor,
             "terminal": terminal, "runId": index.run_id, "host": index.host,
             "prompt": index.prompt, "previousJobId": index.previous_job_id,
-            "citations": index.citations, "allowCommands": index.allow_commands
+            "citations": index.citations, "allowCommands": index.allow_commands,
+            "commandExecution": index.command_execution
         }))
     })
 }

@@ -11,9 +11,24 @@ import {
   type QueryResult,
   type WorkQuery
 } from './workbench'
-import type { ReviewExcerpt } from './workbench-agent'
+import type { AgentProjectAccess, ReviewExcerpt } from './workbench-agent'
 
 export type JsonObject = Record<string, unknown>
+export type PiCommandExecution = 'host' | 'sandbox'
+export const piPhaseLabels = {
+  verifyScope: '正在核对规格与工程',
+  checkRuntime: '正在检查 Pi 和模型',
+  prepareWorkspace: '正在准备工作区',
+  promptAccepted: 'Pi 已接收请求',
+  finalizeArtifacts: '正在整理本轮成果'
+} as const
+export type PiPhase = keyof typeof piPhaseLabels
+export const piCommandExecutionLabels: Record<PiCommandExecution, string> = {
+  host: '本机终端命令', sandbox: '隔离离线命令'
+}
+export const piCommandPermissionLabels: Record<PiCommandExecution, string> = {
+  host: '在本机运行命令', sandbox: '在隔离环境中运行离线命令'
+}
 export type LocalProjectTaskAction = 'test' | 'build'
 export interface LocalProjectCheckout {
   rootPath: string
@@ -33,6 +48,9 @@ export interface JobRecord {
   agentRunId?: string
   agentSpecId?: string
   agentStartedAt?: string
+  piPhase?: PiPhase
+  piPhaseAt?: string
+  commandExecution?: PiCommandExecution
   kind: string
   title: string
   status: string
@@ -89,8 +107,22 @@ export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'x
 export const piThinkingLabels: Record<PiThinkingLevel, string> = {
   off: '关闭', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高'
 }
+export interface RuntimeCapability {
+  state: 'available' | 'blocked' | 'unsupported'
+  reason: string | null
+  reasonCode?: string | null
+  isolation: 'piTools' | 'offline' | 'none'
+}
 export interface PiRuntimeStatus {
   available: boolean
+  capabilities?: {
+    pi: RuntimeCapability
+    sandbox: RuntimeCapability
+    hostCommands: RuntimeCapability
+  }
+  hostCommandsSupported?: boolean
+  hostCommandsReady?: boolean
+  hostCommandsMessage?: string | null
   sandboxReady: boolean
   sandboxMessage?: string | null
   version: string | null
@@ -244,6 +276,7 @@ export interface JobActivity {
   exitCode: number | null
   terminationSignal?: CommandTerminationSignal
   commandDiagnostics?: CommandDiagnostic[]
+  commandExecution?: PiCommandExecution
   output?: string
   itemId?: string
   operation?: string
@@ -260,6 +293,7 @@ export interface PiRoundSettings {
   model: PiModel
   thinkingLevel?: PiThinkingLevel | null
   readOnly?: boolean | null
+  commandExecution?: PiCommandExecution
   contextWindow?: number | null
 }
 export interface PiContextUsage {
@@ -317,6 +351,10 @@ export interface ActivityPage {
   piUsage?: PiUsage | null
   piPlan?: PiPlanStep[] | null
   piRoundSummary?: PiRoundSummary
+  piPhase?: PiPhase | null
+  piPhaseAt?: string | null
+  projectAccess?: AgentProjectAccess[] | null
+  commandExecution?: PiCommandExecution | null
 }
 export interface ConversationPage {
   items: JobActivity[]
@@ -326,6 +364,7 @@ export interface ConversationPage {
   prompt: string | null
   previousJobId: string | null
   allowCommands?: boolean
+  commandExecution?: PiCommandExecution | null
   citations?: ReviewExcerpt[]
 }
 export function getJobActivities(id: string, before?: number, signal?: AbortSignal) {

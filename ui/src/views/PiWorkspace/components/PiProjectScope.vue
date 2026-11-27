@@ -5,6 +5,7 @@ import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import type {
   AgentHomeEntry, AgentProject, AgentProjectCandidate, AgentProjects, ProjectAccessMode
 } from '@/services/workbench-agent'
+import { piCommandPermissionLabels, type PiCommandExecution } from '@/services/workbench-platform'
 
 const props = defineProps<{
   mainId: string
@@ -16,9 +17,8 @@ const props = defineProps<{
   grantIssue: string
   locked: boolean
   participatingIds: string[]
-  perProject: boolean
   commandsUnavailable?: boolean
-  commandsMessage?: string | null
+  commandExecution: PiCommandExecution
 }>()
 const emit = defineEmits<{ refresh: []; clearStaleProjectGrants: [] }>()
 const selected = defineModel<string[]>('selected', { required: true })
@@ -47,11 +47,11 @@ const home = computed(() => props.scope?.homes.find((item) => item.id === homeId
 const labels = {
   ready: '可用', inactive: '已停用', unavailable: '本机路径或 Git 不可用', unbound: '未绑定本机工程', stale: '地图待重新导入'
 }
-const accessChoices: { value: ProjectAccessMode; label: string }[] = [
+const accessChoices = computed<{ value: ProjectAccessMode; label: string }[]>(() => [
   { value: 'read', label: '只读' },
   { value: 'edit', label: '编辑' },
-  { value: 'execute', label: '编辑并运行离线命令' }
-]
+  { value: 'execute', label: '编辑并' + piCommandPermissionLabels[props.commandExecution] }
+])
 watch(manualChoices, (choices) => {
   if (!choices.some((project) => project.id === manualProject.value)) manualProject.value = ''
 })
@@ -91,9 +91,8 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
     <legend>参与工程</legend>
     <p :id="id + '-help'">
       {{ locked ? '沿用本会话的工程和本机路径。' : '主工程始终参与。可以按本机检出路径添加其他工程。' }}
-      <template v-if="perProject">权限按工程和轮次生效。</template>
+      权限按工程和轮次生效。
     </p>
-    <p v-if="commandsUnavailable" role="status">离线命令不可用：{{ commandsMessage || '命令隔离尚未通过检测。' }} 已选离线命令权限需改为只读或编辑后才能运行。</p>
     <div class="pi-scope-actions">
       <Button type="button" variant="outline" size="sm" :disabled="loading" @click="emit('refresh')">
         <LoadingIndicator :active="loading" />{{ loading ? '正在核对工程…' : '重新核对工程' }}
@@ -121,7 +120,7 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
         {{ labels[project.status] }}
         <RouterLink to="/projects">检查工程登记</RouterLink>
       </p>
-      <div v-if="perProject && project.status === 'ready' && project.head" class="pi-scope-access">
+      <div v-if="project.status === 'ready' && project.head" class="pi-scope-access">
         <label :for="id + '-mode-' + project.id">{{ project.name }}的权限</label>
         <select :id="id + '-mode-' + project.id" :name="'projectMode-' + project.id"
           :value="modes[project.id] ?? 'read'" :disabled="loading"

@@ -89,6 +89,18 @@ fn event_cursor(value: &str) -> Result<u64> {
 }
 
 pub(super) fn job_fingerprint(path: &str, request: &Value) -> Result<String> {
+    let normalized;
+    let request = if let Some(fields) = request.as_object().filter(|fields| {
+        path == "/api/agent/start"
+            && fields.get("hostExecutionConfirmed") == Some(&Value::Bool(false))
+    }) {
+        let mut fields = fields.clone();
+        fields.remove("hostExecutionConfirmed");
+        normalized = Value::Object(fields);
+        &normalized
+    } else {
+        request
+    };
     Ok(Sha256::of(
         &serde_json::to_vec(&(path, request)).map_err(|_| sources::invalid("执行请求编码失败"))?,
     )
@@ -130,7 +142,7 @@ impl PlatformApi {
         &self,
         protected: &[PathBuf],
         model: Option<&agent_protocol::PiModel>,
-    ) -> Result<agent_protocol::RuntimeStatus> {
+    ) -> Result<agent_protocol::RuntimeStatusView> {
         let status = agent_protocol::runtime_status(&self.cancel, protected, model);
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
         {
@@ -139,16 +151,17 @@ impl PlatformApi {
             if let Err(error) = super::command_recovery::check_diagnostics(&mut store) {
                 status.sandbox_ready = false;
                 status.sandbox_message = Some(error.message.clone());
+                status.sandbox_issue = Some("commandRecoveryRequired");
                 if status.available {
                     status.available = false;
                     status.issue = Some("commandRecoveryRequired".into());
                     status.message = Some(error.message);
                 }
             }
-            Ok(status)
+            Ok(status.with_capabilities())
         }
         #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
-        Ok(status)
+        Ok(status.with_capabilities())
     }
 
     pub fn source_state(&self) -> Result<Value> {
@@ -286,7 +299,7 @@ impl PlatformApi {
         path: &str,
         query: &str,
         bytes: &[u8],
-        merge_read_cancel: Option<&Cancellation>,
+        request_cancel: Option<&Cancellation>,
     ) -> Result<Option<Value>> {
         let query = query_values(query);
         if method == "POST"
@@ -859,7 +872,7 @@ impl PlatformApi {
             }
             ("GET", ["api", "merge-requests", "sources"]) => encode(merge_requests::discover(
                 &self.jobs.store,
-                merge_read_cancel.unwrap_or(&self.cancel),
+                request_cancel.unwrap_or(&self.cancel),
             )?)?,
             ("PUT", ["api", "merge-requests", "sources"]) => encode(merge_requests::save(
                 &self.jobs.store,
@@ -869,12 +882,12 @@ impl PlatformApi {
             ("POST", ["api", "merge-requests", "page"]) => encode(merge_requests::page(
                 &self.jobs.store,
                 decode(bytes)?,
-                merge_read_cancel.unwrap_or(&self.cancel),
+                request_cancel.unwrap_or(&self.cancel),
             )?)?,
             ("POST", ["api", "merge-requests", "detail"]) => encode(merge_requests::detail(
                 &self.jobs.store,
                 decode(bytes)?,
-                merge_read_cancel.unwrap_or(&self.cancel),
+                request_cancel.unwrap_or(&self.cancel),
             )?)?,
             ("GET", ["api", "external"]) => encode(integrations::external_list(&self.jobs.store)?)?,
             ("POST", ["api", "external"]) => encode(integrations::external_add(
@@ -906,8 +919,19 @@ impl PlatformApi {
                         .cloned()
                         .ok_or_else(|| sources::invalid("缺少来源轮次"))?,
                 };
-                encode(agent_scope::preview(&self.jobs.store, id, &source)?)?
+                encode(agent_scope::preview(
+                    &self.jobs.store,
+                    id,
+                    &source,
+                    request_cancel.unwrap_or(&self.cancel),
+                )?)?
             }
+            ("POST", ["api", "specs", id, "agent-continuation", "draft"]) => agent_scope::draft(
+                &self.jobs.store,
+                id,
+                decode(bytes)?,
+                request_cancel.unwrap_or(&self.cancel),
+            )?,
             ("POST", ["api", "specs", id, "agent-ci-job", "preview"]) => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -980,9 +1004,7 @@ impl PlatformApi {
                 )?;
                 json!({"connected": true})
             }
-            ("GET", ["api", "agent", id]) => {
-                agent::view(&mut *jobs::lock_store(&self.jobs.store)?, id)?
-            }
+            ("GET", ["api", "agent", id]) => agent::view(&self.jobs.store, id, &self.cancel)?,
             ("GET", ["api", "agent", id, "local-tasks"]) => {
                 agent::local_tasks::list(&mut *jobs::lock_store(&self.jobs.store)?, id)?
             }

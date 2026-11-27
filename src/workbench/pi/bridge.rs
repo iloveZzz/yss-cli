@@ -10,7 +10,10 @@ use crate::{
     error::{ErrorCode, Result, YssError},
     fs::unique_id,
     model::Sha256,
-    workbench::{agent::ProjectMode, jobs::JobContext},
+    workbench::{
+        agent::{CommandExecution, ProjectMode},
+        jobs::JobContext,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -21,24 +24,56 @@ use std::os::unix::{
     net::{UnixListener, UnixStream},
     process::ExitStatusExt,
 };
-#[cfg(windows)]
-use std::sync::Mutex;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     process::ExitStatus,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-const TOOLS: &[&str] = &["read", "ls", "grep", "ask_spec_question", "update_plan"];
+const READ_TOOLS: &[&str] = &["read", "ls", "grep"];
 #[cfg(unix)]
 const MAX_REQUEST: u64 = 4 * 1024 * 1024;
 const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024;
+#[cfg(unix)]
+const COMMAND_STDERR_LIMIT: usize = 64 * 1024;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Access {
+    ReadWrite,
+    ReadOnly,
+    NativeFork,
+}
+
+pub(super) enum Commands {
+    Disabled,
+    Sandbox(Box<Sandbox>),
+    #[cfg(unix)]
+    Host,
+}
+
+impl Commands {
+    fn execution(&self) -> Option<CommandExecution> {
+        match self {
+            Self::Disabled => None,
+            Self::Sandbox(_) => Some(CommandExecution::Sandbox),
+            #[cfg(unix)]
+            Self::Host => Some(CommandExecution::Host),
+        }
+    }
+}
+
+fn execution_name(execution: CommandExecution) -> &'static str {
+    match execution {
+        CommandExecution::Host => "host",
+        CommandExecution::Sandbox => "sandbox",
+    }
+}
 
 fn append_output(output: &mut String, text: &str) {
     if output.len() > COMMAND_OUTPUT_LIMIT {
@@ -116,9 +151,52 @@ fn bash_command_not_found(line: &str) -> bool {
         })
 }
 
-fn command_diagnostics(stderr: &str) -> Vec<CommandDiagnostic> {
+#[cfg(target_os = "macos")]
+fn apple_developer_tools_unavailable(line: &str) -> bool {
+    line.starts_with(
+        "xcode-select: error: No developer tools were found and no install could be requested",
+    ) || line
+        .strip_prefix("xcrun: error: missing DEVELOPER_DIR path: ")
+        .is_some_and(|path| !path.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn git_metadata_access_denied(line: &str) -> bool {
+    let Some(details) = line.strip_prefix("fatal: error reading ") else {
+        return false;
+    };
+    if let Some(quoted) = details.strip_prefix('\'') {
+        let Some((path, suffix)) = quoted.rsplit_once('\'') else {
+            return false;
+        };
+        // Apple Git can name the denied .git directory without including errno text.
+        if suffix.is_empty() {
+            return path == ".git" || path.ends_with("/.git");
+        }
+        return matches!(suffix, ": Operation not permitted" | ": Permission denied")
+            && path.split('/').any(|part| part == ".git");
+    }
+    details.rsplit_once(": ").is_some_and(|(path, reason)| {
+        matches!(reason, "Operation not permitted" | "Permission denied")
+            && path.split('/').any(|part| part == ".git")
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn pnpm_wrapper_permission_denied(line: &str) -> bool {
+    let Some((prefix, reason)) = line.rsplit_once(": cannot execute: ") else {
+        return false;
+    };
+    let path = prefix.rsplit_once(": ").map_or(prefix, |(_, path)| path);
+    matches!(reason, "Operation not permitted" | "Permission denied")
+        && Path::new(path)
+            .file_name()
+            .is_some_and(|name| name == "pnpm")
+}
+
+fn command_diagnostics(stderr: &str, execution: CommandExecution) -> Vec<CommandDiagnostic> {
     let mut diagnostics = Vec::new();
-    if dyld_library_sandbox_denied(stderr) {
+    if execution == CommandExecution::Sandbox && dyld_library_sandbox_denied(stderr) {
         diagnostics.push(CommandDiagnostic {
             code: "dyld_library_sandbox_denied",
             message: "动态库加载被沙箱阻止。",
@@ -129,18 +207,72 @@ fn command_diagnostics(stderr: &str) -> Vec<CommandDiagnostic> {
         diagnostics.push(CommandDiagnostic {
             code: "command_not_found",
             message: "Bash 未找到要执行的命令。",
-            hint: "核对工程约定的命令和离线环境可用的工具，按需单独验证。",
+            hint: if execution == CommandExecution::Host {
+                "核对本机 PATH、工具安装和工程约定的命令。"
+            } else {
+                "核对工程约定的命令和离线环境可用的工具，按需单独验证。"
+            },
         });
+    }
+    #[cfg(target_os = "macos")]
+    if execution == CommandExecution::Sandbox {
+        if stderr.lines().any(apple_developer_tools_unavailable) {
+            diagnostics.push(CommandDiagnostic {
+                code: "apple_developer_tools_unavailable",
+                message: "macOS 系统工具启动器在离线环境中找不到开发工具。",
+                hint: "Git 分支和 HEAD 使用工作台本轮已核验的信息，文件变化查看「执行成果」。构建或测试可使用工程已准备的离线入口。",
+            });
+        }
+        if stderr.lines().any(git_metadata_access_denied) {
+            diagnostics.push(CommandDiagnostic {
+                code: "git_metadata_sandbox_denied",
+                message: "离线沙箱保护 Git 仓库元数据。",
+                hint: "本轮 Git 分支和 HEAD 由工作台核验，文件变化可在「执行成果」中查看。",
+            });
+        }
+        if stderr.lines().any(pnpm_wrapper_permission_denied) {
+            diagnostics.push(CommandDiagnostic {
+                code: "pnpm_wrapper_permission_denied",
+                message: "离线环境无法执行当前的 pnpm 启动入口。",
+                hint: "核对命令工作目录与 package.json 声明的 pnpm 版本，使用该工程已准备的离线入口。前端脚本也可在本轮结束后通过「本机测试与构建」运行。",
+            });
+        }
+        if stderr
+            .lines()
+            .any(|line| line == "yss-pi-pnpm: PNPM_INTEGRITY_MISMATCH")
+        {
+            diagnostics.push(CommandDiagnostic {
+                code: "pnpm_offline_integrity_mismatch",
+                message: "无法从离线缓存记录核对工程声明的 pnpm 校验值。",
+                hint: "在本机按 package.json 声明的精确版本和校验值准备 Corepack 缓存后重试。",
+            });
+        }
+        if stderr
+            .lines()
+            .any(|line| line == "yss-pi-pnpm: PNPM_PIN_UNAVAILABLE")
+        {
+            diagnostics.push(CommandDiagnostic {
+                code: "pnpm_offline_runtime_unavailable",
+                message: "工程锁定的 pnpm 在离线环境中无法启动。",
+                hint: "检查本机 Node 和对应版本的 Corepack 缓存后重试。",
+            });
+        }
     }
     diagnostics
 }
 
-fn command_result(item: &mut Value, status: ExitStatus, stderr: &[u8], output: &str) -> Value {
+fn command_result(
+    item: &mut Value,
+    status: ExitStatus,
+    stderr: &[u8],
+    output: &str,
+    execution: CommandExecution,
+) -> Value {
     let code = status.code().unwrap_or(-1);
     item["exitCode"] = json!(code);
     item["status"] = json!(if code == 0 { "completed" } else { "failed" });
     item["aggregatedOutput"] = json!(output);
-    let mut reply = json!({ "exitCode": code });
+    let mut reply = json!({ "exitCode": code, "commandExecution": execution });
     #[cfg(unix)]
     let signal = status.signal();
     #[cfg(windows)]
@@ -169,7 +301,7 @@ fn command_result(item: &mut Value, status: ExitStatus, stderr: &[u8], output: &
         format!("退出码 {code}")
     };
     if !status.success() {
-        let diagnostics = command_diagnostics(&String::from_utf8_lossy(stderr));
+        let diagnostics = command_diagnostics(&String::from_utf8_lossy(stderr), execution);
         if !diagnostics.is_empty() {
             for diagnostic in &diagnostics {
                 text.push('\n');
@@ -290,8 +422,13 @@ pub(super) struct Bridge {
     ready: Arc<AtomicBool>,
     cancel: Cancellation,
     worker: Option<JoinHandle<()>>,
-    #[cfg(windows)]
-    recovery_error: Arc<Mutex<Option<YssError>>>,
+    execution: Option<CommandExecution>,
+    command_failure: Arc<Mutex<Option<YssError>>>,
+}
+
+struct ToolReply {
+    body: Value,
+    ready: bool,
 }
 
 impl Bridge {
@@ -299,11 +436,72 @@ impl Bridge {
         private: &Path,
         context: &JobContext,
         projects: Projects,
-        sandbox: Option<Sandbox>,
-        read_only: bool,
+        commands: Commands,
+        access: Access,
         ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
         evidence: Evidence,
     ) -> Result<Self> {
+        let command_failure = Arc::new(Mutex::new(None));
+        let execution = commands.execution();
+        Self::start_transport(
+            private,
+            &context.cancel,
+            execution,
+            command_failure.clone(),
+            |token, ready, cancel| {
+                let mut context = context.clone();
+                context.cancel = cancel;
+                let broker = Broker {
+                    context,
+                    projects,
+                    commands,
+                    access,
+                    evidence,
+                    token,
+                    ready,
+                    command_failure,
+                };
+                move |request| broker.response(request, &ask)
+            },
+        )
+    }
+
+    pub fn start_probe(private: &Path, cancel: &Cancellation) -> Result<Self> {
+        Self::start_transport(
+            private,
+            cancel,
+            None,
+            Arc::new(Mutex::new(None)),
+            |token, _, _| {
+                move |request: Result<Request>| {
+                    let result = request.and_then(|request| match request.operation {
+                        Operation::Ready { tools } if request.token == token => {
+                            ready_response(&tools, Access::ReadOnly, false)
+                        }
+                        _ => Err(invalid("Pi 工具自检请求无效")),
+                    });
+                    match result {
+                        Ok(body) => ToolReply { body, ready: true },
+                        Err(error) => ToolReply {
+                            body: json!({"error": error.message}),
+                            ready: false,
+                        },
+                    }
+                }
+            },
+        )
+    }
+
+    fn start_transport<F>(
+        private: &Path,
+        parent_cancel: &Cancellation,
+        execution: Option<CommandExecution>,
+        failure: Arc<Mutex<Option<YssError>>>,
+        response: impl FnOnce(String, Arc<AtomicBool>, Cancellation) -> F,
+    ) -> Result<Self>
+    where
+        F: Fn(Result<Request>) -> ToolReply + Send + 'static,
+    {
         #[cfg(unix)]
         let path = private.join("tools.sock");
         #[cfg(unix)]
@@ -319,29 +517,26 @@ impl Bridge {
         };
         let token = unique_id()?;
         let ready = Arc::new(AtomicBool::new(false));
-        let cancel = context.cancel.child();
-        let mut context = context.clone();
-        context.cancel = cancel.clone();
-        #[cfg(windows)]
-        let recovery_error = Arc::new(Mutex::new(None));
-        let broker = Broker {
-            context,
-            projects,
-            sandbox,
-            read_only,
-            evidence,
-            token: token.clone(),
-            ready: ready.clone(),
-            #[cfg(windows)]
-            recovery_error: recovery_error.clone(),
-        };
+        let cancel = parent_cancel.child();
+        let response = response(token.clone(), ready.clone(), cancel.clone());
+        let worker_cancel = cancel.clone();
+        let worker_ready = ready.clone();
+        #[cfg(unix)]
+        let worker_failure = failure.clone();
         let worker = thread::Builder::new()
             .name("pi-tools".into())
             .spawn(move || {
-                while !broker.context.cancel.is_cancelled() {
+                while !worker_cancel.is_cancelled() {
                     #[cfg(unix)]
                     match listener.accept() {
-                        Ok((stream, _)) => broker.serve(stream, &ask),
+                        Ok((stream, _)) => {
+                            if serve_request(stream, &response) {
+                                worker_ready.store(true, Ordering::Release);
+                            }
+                            if command_failure(&worker_failure).is_err() {
+                                worker_cancel.cancel();
+                            }
+                        }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(20));
                         }
@@ -349,19 +544,21 @@ impl Bridge {
                         Err(_) => break,
                     }
                     #[cfg(windows)]
-                    match listener.receive(&broker.context.cancel) {
+                    match listener.receive(&worker_cancel) {
                         Ok(Some(bytes)) => {
-                            let value = broker.response(
+                            let reply = response(
                                 serde_json::from_slice(&bytes)
                                     .map_err(|_| invalid("Pi 工具请求格式无效")),
-                                &ask,
                             );
-                            if let Ok(bytes) = serde_json::to_vec(&value) {
-                                let _ = listener.reply(&bytes, &broker.context.cancel);
+                            if let Ok(bytes) = serde_json::to_vec(&reply.body)
+                                && listener.reply(&bytes, &worker_cancel).is_ok()
+                                && reply.ready
+                            {
+                                worker_ready.store(true, Ordering::Release);
                             }
                         }
                         Ok(None) => {}
-                        Err(_) if broker.context.cancel.is_cancelled() => break,
+                        Err(_) if worker_cancel.is_cancelled() => break,
                         Err(_) => continue,
                     }
                 }
@@ -372,18 +569,23 @@ impl Bridge {
             ready,
             cancel,
             worker: Some(worker),
-            #[cfg(windows)]
-            recovery_error,
+            execution,
+            command_failure: failure,
         })
     }
 
-    pub fn configure(&self, command: &mut std::process::Command, allow_commands: bool) {
+    pub fn configure(&self, command: &mut std::process::Command) {
         command
             .env("YSS_PI_SOCKET", &self.path)
             .env("YSS_PI_SOCKET_TOKEN", &self.token)
+            .env("YSS_PI_NATIVE_FORK_READ_ONLY", "0")
             .env(
                 "YSS_PI_ALLOW_COMMANDS",
-                if allow_commands { "1" } else { "0" },
+                if self.execution.is_some() { "1" } else { "0" },
+            )
+            .env(
+                "YSS_PI_COMMAND_EXECUTION",
+                self.execution.map_or("", execution_name),
             );
     }
 
@@ -402,13 +604,12 @@ impl Bridge {
         Ok(())
     }
 
-    #[cfg(windows)]
-    pub fn verify_command_recovery(&self) -> Result<()> {
-        self.recovery_error
-            .lock()
-            .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "无法核对命令恢复状态"))?
-            .clone()
-            .map_or(Ok(()), Err)
+    pub fn prompt_cancellation(&self) -> Cancellation {
+        self.cancel.clone()
+    }
+
+    pub fn verify_command_failure(&self) -> Result<()> {
+        command_failure(&self.command_failure)
     }
 }
 
@@ -424,13 +625,32 @@ impl Drop for Bridge {
 struct Broker {
     context: JobContext,
     projects: Projects,
-    sandbox: Option<Sandbox>,
-    read_only: bool,
+    commands: Commands,
+    access: Access,
     evidence: Evidence,
     token: String,
     ready: Arc<AtomicBool>,
-    #[cfg(windows)]
-    recovery_error: Arc<Mutex<Option<YssError>>>,
+    command_failure: Arc<Mutex<Option<YssError>>>,
+}
+
+fn command_failure(cell: &Mutex<Option<YssError>>) -> Result<()> {
+    cell.lock()
+        .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "无法核对命令恢复状态"))?
+        .clone()
+        .map_or(Ok(()), Err)
+}
+
+#[cfg(unix)]
+fn host_baseline_failure(source: YssError, finished: bool) -> YssError {
+    let message = if finished {
+        "本机命令结束后 Git 基线已变化或无法核对。本轮已停止，命令结果和原工程变更已保留。"
+    } else {
+        "命令执行前 Git 基线已变化或无法核对。本轮已停止。"
+    };
+    YssError::new(ErrorCode::ConcurrentChange, message)
+        .context("piErrorCode", "host_baseline_changed")
+        .context("piCommandExecution", execution_name(CommandExecution::Host))
+        .context("cause", source.message)
 }
 
 fn invalid(message: &str) -> YssError {
@@ -471,6 +691,7 @@ fn failure_fields(error: &YssError) -> (&str, &'static str) {
         "concurrent_change" => {
             "重新读取当前文件。若 Git 分支、HEAD 或暂存区已改变，请结束本轮并重新发起。"
         }
+        "host_baseline_changed" => "请先核对当前 Git 分支、HEAD、暂存区和文件变更，再发起下一轮。",
         "recovery_required" => "命令现场已保留。请先处理工作台的命令恢复，再继续本轮任务。",
         _ => "查看本次工具错误，其他核对可以继续。",
     };
@@ -489,36 +710,84 @@ fn read_request(stream: &mut UnixStream) -> Result<Request> {
     serde_json::from_slice(&line).map_err(|_| invalid("Pi 工具请求格式无效"))
 }
 
-impl Broker {
-    #[cfg(unix)]
-    fn serve(&self, mut stream: UnixStream, ask: &impl Fn(&JobContext, &str) -> Result<String>) {
-        // BSD can inherit nonblocking mode from the listener and bypass the read timeout.
-        if stream.set_nonblocking(false).is_err()
-            || stream
-                .set_read_timeout(Some(Duration::from_secs(1)))
-                .is_err()
-            || stream
-                .set_write_timeout(Some(Duration::from_secs(1)))
-                .is_err()
-        {
-            return;
+#[cfg(unix)]
+fn serve_request(mut stream: UnixStream, response: &impl Fn(Result<Request>) -> ToolReply) -> bool {
+    // BSD can inherit nonblocking mode from the listener and bypass the read timeout.
+    if stream.set_nonblocking(false).is_err()
+        || stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .is_err()
+        || stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .is_err()
+    {
+        return false;
+    }
+    let reply = response(read_request(&mut stream));
+    serde_json::to_writer(&mut stream, &reply.body).is_ok() && reply.ready
+}
+
+fn ready_response(tools: &[String], access: Access, commands: bool) -> Result<Value> {
+    let mut expected: BTreeSet<&str> = READ_TOOLS.iter().copied().collect();
+    if access != Access::NativeFork {
+        expected.extend(["ask_spec_question", "update_plan"]);
+        if access == Access::ReadWrite {
+            expected.extend(["write", "edit"]);
         }
-        let value = self.response(read_request(&mut stream), ask);
-        let _ = serde_json::to_writer(&mut stream, &value);
+        if commands {
+            expected.insert("bash");
+        }
+    }
+    if tools.len() != expected.len()
+        || tools.iter().map(String::as_str).collect::<BTreeSet<_>>() != expected
+    {
+        return Err(invalid("Pi 启用的工具超出工作台授权"));
+    }
+    Ok(json!({"text": "工作台工具已就绪"}))
+}
+
+impl Broker {
+    fn verify_command_failure(&self) -> Result<()> {
+        command_failure(&self.command_failure)
+    }
+
+    fn stop_commands_after(&self, error: YssError) -> YssError {
+        match self.command_failure.lock() {
+            Ok(mut stored) => stored.get_or_insert(error).clone(),
+            Err(_) => YssError::new(ErrorCode::RecoveryRequired, "无法记录命令恢复状态"),
+        }
     }
 
     fn response(
         &self,
         request: Result<Request>,
         ask: &impl Fn(&JobContext, &str) -> Result<String>,
-    ) -> Value {
-        request
-            .and_then(|request| self.execute(request, ask))
-            .unwrap_or_else(|error| {
+    ) -> ToolReply {
+        let ready = request
+            .as_ref()
+            .is_ok_and(|request| matches!(&request.operation, Operation::Ready { .. }));
+        match request.and_then(|request| self.execute(request, ask)) {
+            Ok(body) => ToolReply { body, ready },
+            Err(error) => {
                 let (code, hint) = failure_fields(&error);
-                json!({ "error": error.message, "errorCode": code,
-                    "displayPath": error.context.get("piDisplayPath"), "hint": hint })
-            })
+                let mut reply = json!({ "error": error.message, "errorCode": code,
+                    "displayPath": error.context.get("piDisplayPath"), "hint": hint });
+                if let Some(mode) = error.context.get("piCommandExecution") {
+                    reply["commandExecution"] = json!(mode);
+                    if let Some(code) = error
+                        .context
+                        .get("exitCode")
+                        .and_then(|code| code.parse::<i32>().ok())
+                    {
+                        reply["exitCode"] = json!(code);
+                    }
+                }
+                ToolReply {
+                    body: reply,
+                    ready: false,
+                }
+            }
+        }
     }
 
     fn execute(
@@ -530,30 +799,9 @@ impl Broker {
         if request.token != self.token {
             return Err(invalid("Pi 工具连接无效"));
         }
-        #[cfg(windows)]
-        if let Some(error) = self
-            .recovery_error
-            .lock()
-            .map_err(|_| YssError::new(ErrorCode::RecoveryRequired, "无法核对命令恢复状态"))?
-            .clone()
-        {
-            return Err(error);
-        }
+        self.verify_command_failure()?;
         if let Operation::Ready { tools } = &request.operation {
-            let mut expected: BTreeSet<&str> = TOOLS.iter().copied().collect();
-            if !self.read_only {
-                expected.extend(["write", "edit"]);
-            }
-            if self.sandbox.is_some() {
-                expected.insert("bash");
-            }
-            if tools.len() != expected.len()
-                || tools.iter().map(String::as_str).collect::<BTreeSet<_>>() != expected
-            {
-                return Err(invalid("Pi 启用的工具超出工作台授权"));
-            }
-            self.ready.store(true, Ordering::Release);
-            return Ok(json!({ "text": "工作台工具已就绪" }));
+            return ready_response(tools, self.access, self.commands.execution().is_some());
         }
         if !self.ready.load(Ordering::Acquire) {
             return Err(invalid("Pi 工具尚未就绪"));
@@ -589,6 +837,14 @@ impl Broker {
                 return Ok(json!({"text":"已更新上下文压缩状态"}));
             }
             _ => {}
+        }
+        if self.access == Access::NativeFork
+            && !matches!(
+                &request.operation,
+                Operation::Read { .. } | Operation::Ls { .. } | Operation::Grep { .. }
+            )
+        {
+            return Err(invalid("Pi 原生分叉首轮只允许读取、列出和搜索"));
         }
         let id = request
             .id
@@ -671,11 +927,16 @@ impl Broker {
                 Ok(("已编辑原工程文件".into(), Some(change)))
             })?,
             Operation::Bash { location, command } => {
+                let label = if self.commands.execution() == Some(CommandExecution::Host) {
+                    "执行本机命令"
+                } else {
+                    "执行离线命令"
+                };
                 let target = self.prepare_command(&location, &command).map_err(|error| {
-                    self.record_failure(id, "bash", "执行离线命令", &location, None, error)
+                    self.record_failure(id, "bash", label, &location, None, error)
                 })?;
                 let cwd = target.directory().map_err(|error| {
-                    self.record_failure(id, "bash", "执行离线命令", &location, None, error)
+                    self.record_failure(id, "bash", label, &location, None, error)
                 })?;
                 return self.run_command(id, &target, &cwd, &command);
             }
@@ -739,23 +1000,30 @@ impl Broker {
         label: &str,
         location: &Location,
         review: Option<(String, String)>,
-        error: YssError,
+        mut error: YssError,
     ) -> YssError {
         let display_path = self
             .projects
             .error_display_path(location.project_id.as_deref(), &location.path);
         let (code, hint) = failure_fields(&error);
-        let _ = self.context.emit("piTool", json!({
+        let mut event = json!({
             "id": id, "operation": operation, "path": null, "status": "failed", "message": label,
             "error": error.message, "errorCode": code, "displayPath": display_path, "hint": hint,
             "projectId": review.as_ref().map(|(id, _)| id), "reviewPath": review.as_ref().map(|(_, path)| path)
-        }));
+        });
+        if operation == "bash"
+            && let Some(execution) = self.commands.execution()
+        {
+            event["commandExecution"] = json!(execution);
+            error = error.context("piCommandExecution", execution_name(execution));
+        }
+        let _ = self.context.emit("piTool", event);
         error.context("piDisplayPath", display_path)
     }
 
     fn prepare_command(&self, location: &Location, command: &str) -> Result<ProjectLocation<'_>> {
-        if self.sandbox.is_none() {
-            return Err(invalid("本轮未授权离线命令").context("piErrorCode", "permission_denied"));
+        if self.commands.execution().is_none() {
+            return Err(invalid("本轮未授权命令").context("piErrorCode", "permission_denied"));
         }
         if command.trim().is_empty() || command.len() > 64 * 1024 || command.contains('\0') {
             return Err(invalid("命令须为 64 KiB 以内的有效文本"));
@@ -764,9 +1032,17 @@ impl Broker {
             .projects
             .locate(location.project_id.as_deref(), &location.path)?;
         if target.mode() != ProjectMode::Execute {
-            return Err(invalid("此工程未授权离线命令").context("piErrorCode", "permission_denied"));
+            return Err(invalid("此工程未授权命令").context("piErrorCode", "permission_denied"));
         }
-        self.projects.check_baselines(&self.context.cancel)?;
+        self.projects
+            .check_baselines(&self.context.cancel)
+            .map_err(|error| {
+                #[cfg(unix)]
+                if matches!(self.commands, Commands::Host) && error.code != ErrorCode::Cancelled {
+                    return self.stop_commands_after(host_baseline_failure(error, false));
+                }
+                error
+            })?;
         Ok(target)
     }
 
@@ -777,21 +1053,29 @@ impl Broker {
         cwd: &Path,
         command: &str,
     ) -> Result<Value> {
-        let sandbox = self
-            .sandbox
-            .as_ref()
-            .ok_or_else(|| invalid("本轮未授权离线命令"))?;
-        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd, "projectId": target.project_id });
+        let execution = self
+            .commands
+            .execution()
+            .ok_or_else(|| invalid("本轮未授权命令"))?;
+        let base = json!({ "id": id, "type": "commandExecution", "command": command, "cwd": cwd,
+            "projectId": target.project_id, "commandExecution": execution });
         let activity_id = self
             .context
             .emit_with_id("item/started", json!({ "item": base.clone() }))?;
         let mut item = base;
         let mut output = String::new();
         let mut fragments = [Vec::new(), Vec::new()];
+        #[cfg(unix)]
+        let mut host_stderr = Vec::new();
         let mut published = 0;
         let mut last_publish: Option<Instant> = None;
         let publish = |chunk: Option<(bool, &[u8])>| {
             if let Some((stdout, bytes)) = chunk {
+                #[cfg(unix)]
+                if execution == CommandExecution::Host && !stdout {
+                    let remaining = COMMAND_STDERR_LIMIT - host_stderr.len();
+                    host_stderr.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+                }
                 let pending = &mut fragments[usize::from(!stdout)];
                 pending.extend_from_slice(bytes);
                 let prefix = complete_utf8_prefix(pending);
@@ -803,41 +1087,51 @@ impl Broker {
             {
                 self.context.emit(
                     "item/commandExecution/outputDelta",
-                    json!({"itemId":id,"delta":&output[published..]}),
+                    json!({"itemId":id,"delta":&output[published..],"commandExecution":execution}),
                 )?;
                 published = output.len();
                 last_publish = Some(Instant::now());
             }
             Ok(())
         };
-        #[cfg(unix)]
-        let result = sandbox.run(target.root(), cwd, command, &self.context.cancel, publish);
-        #[cfg(windows)]
-        let result = super::windows_command::run(
-            sandbox,
-            &self.projects,
-            target,
-            &self.context,
-            command,
-            publish,
-        );
-        #[cfg(unix)]
-        let result = result.and_then(|result| {
-            self.projects.check_baselines(&self.context.cancel)?;
-            Ok(result)
-        });
+        let result = match &self.commands {
+            Commands::Disabled => unreachable!("command execution checked before recording"),
+            #[cfg(unix)]
+            Commands::Host => target
+                .host_directory()
+                .and_then(|directory| {
+                    super::host_command::run(cwd, directory, command, &self.context.cancel, publish)
+                })
+                .map(|status| (status, host_stderr)),
+            #[cfg(unix)]
+            Commands::Sandbox(sandbox) => sandbox
+                .run(target.root(), cwd, command, &self.context.cancel, publish)
+                .and_then(|(status, _, stderr)| {
+                    self.projects.check_baselines(&self.context.cancel)?;
+                    Ok((status, stderr))
+                }),
+            #[cfg(windows)]
+            Commands::Sandbox(sandbox) => super::windows_command::run(
+                sandbox,
+                &self.projects,
+                target,
+                &self.context,
+                command,
+                publish,
+            )
+            .map(|(status, _, stderr)| (status, stderr)),
+        };
         for fragment in fragments {
             append_output(&mut output, &String::from_utf8_lossy(&fragment));
         }
-        let (status, _, stderr) = match result {
-            Ok(result) => result,
+        let result = match result {
+            Ok((status, stderr)) => Ok(command_result(
+                &mut item, status, &stderr, &output, execution,
+            )),
             Err(error) => {
                 #[cfg(windows)]
                 if error.code == ErrorCode::RecoveryRequired {
-                    let mut recovery = self.recovery_error.lock().map_err(|_| {
-                        YssError::new(ErrorCode::RecoveryRequired, "无法记录命令恢复状态")
-                    })?;
-                    *recovery = Some(error.clone());
+                    self.stop_commands_after(error.clone());
                 }
                 item["status"] = json!(if error.code == ErrorCode::Cancelled {
                     "canceled"
@@ -849,14 +1143,29 @@ impl Broker {
                 }
                 output.push_str(&error.message);
                 item["aggregatedOutput"] = json!(output);
-                self.context
-                    .emit("item/completed", json!({ "item": item }))?;
-                return Err(error);
+                Err(error.context("piCommandExecution", execution_name(execution)))
             }
         };
-        let mut reply = command_result(&mut item, status, &stderr, &output);
-        self.context
-            .emit("item/completed", json!({ "item": item }))?;
+        let recorded = self.context.emit("item/completed", json!({ "item": item }));
+        // Check the repository even if the command exited unsuccessfully or was canceled.
+        #[cfg(unix)]
+        if execution == CommandExecution::Host
+            && let Err(cause) = self.projects.check_baselines(&Cancellation::new())
+        {
+            let mut drift = host_baseline_failure(cause, true);
+            if let Err(error) = recorded {
+                drift.message = "本机命令结束后 Git 基线已变化或无法核对。本轮已停止，原工程变更已保留，命令日志写入失败。".into();
+                drift = drift.context("commandLogError", error.message);
+            }
+            if let Ok(reply) = &result
+                && let Some(code) = reply["exitCode"].as_i64()
+            {
+                drift = drift.context("exitCode", code);
+            }
+            return Err(self.stop_commands_after(drift));
+        }
+        recorded?;
+        let mut reply = result?;
         if let Some(source_id) =
             self.evidence
                 .register_command(activity_id, command, reply["exitCode"].as_i64())

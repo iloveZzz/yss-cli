@@ -2,13 +2,12 @@
 import { computed, shallowRef, useId } from 'vue'
 import { Button } from '@/components/ui/button'
 import PiReadiness from '@/components/PiReadiness.vue'
-import AgentRunPermissions from '@/components/AgentRunPermissions.vue'
 import { stages, type Stage } from '@/services/workbench'
 import type { AgentProject, AgentProjects, ProjectAccessMode } from '@/services/workbench-agent'
 import type { PiCiAttachment, PiCiRecovery } from '../usePiDrafts'
 import PiProjectScope from './PiProjectScope.vue'
 import PiCiJobSettings from './PiCiJobSettings.vue'
-import type { PiModel, PiRuntimeStatus } from '@/services/workbench-platform'
+import type { PiCommandExecution, PiModel, PiRuntimeStatus } from '@/services/workbench-platform'
 
 const props = defineProps<{
   specId: string
@@ -17,12 +16,15 @@ const props = defineProps<{
   projectBusy: boolean
   projectError: string
   projectGrantIssue: string
-  perProject: boolean
+  hostSelectable: boolean
+  commandUnavailable: boolean
+  commandUnavailableReason: string
   ciIssue: string
   ciRecovery?: PiCiRecovery
   projects: AgentProject[]
   busy: boolean
   reviewResumeId?: string
+  nativeFork?: boolean
   participatingIds?: string[]
   availableStages: Stage[]
   automaticStage?: Stage
@@ -39,8 +41,12 @@ const projectModes = defineModel<Record<string, ProjectAccessMode>>('projectMode
 const ciAttachment = defineModel<PiCiAttachment | undefined>('ciAttachment')
 const ciOpen = shallowRef(!!ciAttachment.value || !!props.ciRecovery)
 const ciId = useId()
-const allowCommands = defineModel<boolean>('allowCommands', { required: true })
-const readOnly = defineModel<boolean>('readOnly', { required: true })
+const commandExecution = defineModel<PiCommandExecution>('commandExecution', { required: true })
+const commandId = useId()
+const hostSupported = computed(() => {
+  const runtime = runtimeStatus.value
+  return runtime?.capabilities ? runtime.capabilities.hostCommands.state !== 'unsupported' : runtime?.hostCommandsSupported
+})
 const stage = defineModel<Stage | ''>('stage', { required: true })
 const stageId = useId()
 const stageValue = computed({
@@ -49,7 +55,7 @@ const stageValue = computed({
     if (value === '' || props.availableStages.includes(value as Stage)) stage.value = value as Stage | ''
   }
 })
-const participatingIds = computed(() => props.reviewResumeId ? props.participatingIds ?? [] : selected.value)
+const participatingIds = computed(() => props.reviewResumeId || props.nativeFork ? props.participatingIds ?? [] : selected.value)
 const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((project) =>
   project.status === 'ready' && project.head && (project.id === props.mainId || participatingIds.value.includes(project.id))))
 </script>
@@ -59,8 +65,9 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
     <PiReadiness v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
       v-model:runtime-status="runtimeStatus"
       v-model:blocked-reason="blockedReason" v-model:model-restrictions="modelRestrictions"
-      :resume-run-id="reviewResumeId" :busy="busy" allow-model-switch />
-    <fieldset v-if="availableStages.length || stageNeedsReview" :disabled="busy" class="pi-settings-fieldset">
+      :resume-run-id="reviewResumeId" :busy="busy" :allow-model-switch="!nativeFork" />
+    <p v-if="nativeFork" class="muted">分叉首轮使用原工程范围和模型，只读当前工程。</p>
+    <fieldset v-else-if="availableStages.length || stageNeedsReview" :disabled="busy" class="pi-settings-fieldset">
       <legend>本轮进度</legend>
       <label :for="stageId">跟进阶段</label>
       <select :id="stageId" v-model="stageValue" name="lifecycleStage" class="pi-settings-stage"
@@ -72,15 +79,26 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
       <p v-if="stageNeedsReview" :id="stageId + '-review'" role="status">目标版本或适用阶段已变化，请重新选择。</p>
     </fieldset>
     <p v-else class="muted">本轮暂无可跟进的生命周期阶段。</p>
+    <div v-if="runtimeStatus && !nativeFork" class="pi-settings-fieldset">
+      <label :for="commandId" class="font-semibold">命令运行方式</label>
+      <select :id="commandId" v-model="commandExecution" name="commandExecution" class="pi-settings-stage" :disabled="busy"
+        :aria-describedby="commandId + '-help' + (commandUnavailable ? ' ' + commandId + '-status' : '')">
+        <option value="sandbox">沙箱离线执行</option>
+        <option v-if="hostSupported" value="host" :disabled="!hostSelectable">本机直接执行（仅本轮）</option>
+      </select>
+      <p :id="commandId + '-help'">
+        <template v-if="hostSupported">本机直接执行以当前用户权限运行，可访问工程之外的本机文件和网络。选择仅对本轮已核对的工程范围有效。</template>
+        <template v-else>命令在工程的隔离环境中离线执行。</template>
+      </p>
+      <p v-if="commandUnavailable" :id="commandId + '-status'" role="status">{{ commandUnavailableReason }}</p>
+    </div>
     <PiProjectScope v-model:selected="selected" v-model:modes="projectModes"
       :main-id="mainId" :projects="projects" :scope="projectScope" :loading="projectBusy" :error="projectError"
-      :locked="!!reviewResumeId" :participating-ids="participatingIds" :per-project="perProject"
-      :commands-unavailable="runtimeStatus?.sandboxReady === false" :commands-message="runtimeStatus?.sandboxMessage"
-      :busy="busy" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
+      :locked="!!reviewResumeId || nativeFork" :participating-ids="participatingIds"
+      :command-execution="commandExecution" :commands-unavailable="commandUnavailable"
+      :busy="busy || !!nativeFork" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
       @clear-stale-project-grants="emit('clearStaleProjectGrants')" />
-    <AgentRunPermissions v-if="!perProject" v-model:read-only="readOnly" v-model:allow-commands="allowCommands"
-      :disabled="busy" :commands-unavailable="runtimeStatus?.sandboxReady === false" :commands-message="runtimeStatus?.sandboxMessage" />
-    <div v-if="!reviewResumeId && projectScope" class="pi-ci-settings">
+    <div v-if="!reviewResumeId && !nativeFork && projectScope" class="pi-ci-settings">
       <Button type="button" variant="outline" size="sm" :aria-expanded="ciOpen" :aria-controls="ciId" @click="ciOpen = !ciOpen">
         {{ ciOpen ? '收起 GitLab CI 作业' : ciAttachment ? '查看已附加的 CI 作业' : '选择 GitLab CI 作业' }}
       </Button>

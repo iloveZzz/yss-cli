@@ -4,7 +4,7 @@ import { useWorkbench } from '@/hooks/useWorkbench'
 import { ApiError, errorMessage } from '@/services/workbench'
 import {
   getAgentRun, getAgentRounds, getAgentSessionPage,
-  type AgentCiEvidence, type AgentRun, type AgentSessionPage
+  type AgentCiEvidence, type AgentRoundActions, type AgentRun, type AgentSessionPage
 } from '@/services/workbench-agent'
 import { getJob, terminalJob, type JobRecord } from '@/services/workbench-platform'
 
@@ -35,6 +35,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
   const rounds = shallowRef<JobRecord[]>([])
   const snapshotJobs = shallowRef(new Set<string>())
   const roundCiJobs = shallowRef<Record<string, AgentCiEvidence>>({})
+  const roundActions = shallowRef<Record<string, AgentRoundActions>>({})
   const runError = shallowRef('')
   const launchError = shallowRef('')
   const accepted = shallowRef<{ spec: string; session: string; job: JobRecord }>()
@@ -131,47 +132,62 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     const stillCurrent = () => !request.signal.aborted && id === sessionId.value && spec === specId.value
     reading.value = true
     try {
-      const [nextRun, list] = await Promise.all([
-        getAgentRun(id, request.signal),
-        getAgentRounds(id, request.signal)
+      const [runRead, roundsRead] = await Promise.allSettled([
+        getAgentRun(id, request.signal).catch(missingAgentRecord),
+        getAgentRounds(id, request.signal).catch(missingAgentRecord)
       ])
       if (!stillCurrent()) return
-      if (nextRun.host !== 'pi' || nextRun.specId !== spec) {
+      const nextRun = runRead.status === 'fulfilled' ? runRead.value : undefined
+      if (nextRun && (nextRun.id !== id || nextRun.host !== 'pi' || nextRun.specId !== spec)) {
         rounds.value = []
         snapshotJobs.value = new Set()
         roundCiJobs.value = {}
+        roundActions.value = {}
         run.value = undefined
         throw new Error('此 Pi 会话不属于当前 Spec')
       }
-      run.value = nextRun
-      rounds.value = list.rounds
-      snapshotJobs.value = new Set(list.snapshotJobIds)
-      roundCiJobs.value = list.roundCiJobs ?? (nextRun.ciJob ? { [nextRun.jobId]: nextRun.ciJob } : {})
-      if (jobId && nextRun.jobId !== jobId) {
-        const job = list.rounds.find((item) => item.id === jobId) ?? await getJob(jobId, request.signal)
+      const previousRun = run.value
+      const verifiedRun = nextRun ?? (runRead.status === 'rejected' && previousRun?.id === id && previousRun.specId === spec
+        ? previousRun : undefined)
+      run.value = verifiedRun
+      const detailError = runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
+      if (roundsRead.status === 'rejected') {
+        runError.value = detailError || errorMessage(roundsRead.reason)
+        return
+      }
+      const list = roundsRead.value
+      if (detailError && !list) {
+        runError.value = detailError
+        return
+      }
+      const belongs = (item: JobRecord) => item.kind === 'agent'
+        && (item.agentRunId === id || (item.agentRunId === undefined && (!!verifiedRun || item.id === jobId)))
+        && (item.agentSpecId === spec || (item.agentSpecId === undefined && (!!verifiedRun || item.id === jobId)))
+      const visible = (list?.rounds ?? []).filter(belongs)
+      rounds.value = visible
+      const visibleIds = new Set(visible.map((item) => item.id))
+      snapshotJobs.value = new Set(list?.snapshotJobIds?.filter((id) => visibleIds.has(id)))
+      roundCiJobs.value = list?.roundCiJobs
+        ? Object.fromEntries(Object.entries(list.roundCiJobs).filter(([id]) => visibleIds.has(id)))
+        : verifiedRun?.ciJob ? { [verifiedRun.jobId]: verifiedRun.ciJob } : {}
+      roundActions.value = Object.fromEntries(Object.entries(list?.roundActions ?? {}).filter(([id]) => visibleIds.has(id)))
+      if (jobId && verifiedRun?.jobId !== jobId) {
+        const job = visible.find((item) => item.id === jobId) ?? await getJob(jobId, request.signal)
         if (!stillCurrent()) return
-        if (!list.rounds.some((item) => item.id === job.id)) rounds.value = [...list.rounds, job]
-        launchError.value = terminalJob(job.status) ? launchFailure(job) : ''
-      } else {
-        if (accepted.value === tracked) accepted.value = undefined
-        launchError.value = ''
+        if (job.id !== jobId || !belongs(job)) throw new Error('此执行记录不属于当前 Spec 会话')
+        if (!visibleIds.has(job.id)) rounds.value = [...visible, job]
+      } else if (verifiedRun && accepted.value === tracked) {
+        accepted.value = undefined
       }
-      runError.value = ''
+      const latestJob = rounds.value.at(-1)
+      if (!detailError && !verifiedRun && !latestJob && (list || context.value || contextError.value)) {
+        throw new Error('当前 Spec 中找不到此 Pi 会话')
+      }
+      launchError.value = latestJob && latestJob.id !== verifiedRun?.jobId && !latestJob.agentStartedAt &&
+        latestJob.status !== 'completed' && terminalJob(latestJob.status) ? launchFailure(latestJob) : ''
+      runError.value = detailError
     } catch (cause) {
-      if (!stillCurrent()) return
-      if (cause instanceof ApiError && cause.status === 404 && jobId) {
-        try {
-          const job = await getJob(jobId, request.signal)
-          if (!stillCurrent()) return
-          rounds.value = [job]
-          launchError.value = terminalJob(job.status) ? launchFailure(job) : ''
-          runError.value = ''
-        } catch (error) {
-          if (stillCurrent()) runError.value = errorMessage(error)
-        }
-      } else if (!(cause instanceof ApiError && cause.status === 404 && !context.value && !contextError.value)) {
-        runError.value = errorMessage(cause)
-      }
+      if (stillCurrent()) runError.value = errorMessage(cause)
     } finally {
       if (roundRequest === request) reading.value = false
     }
@@ -237,6 +253,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     reading.value = false
     snapshotJobs.value = new Set()
     roundCiJobs.value = {}
+    roundActions.value = {}
     rounds.value = id && accepted.value?.session === id && accepted.value.spec === spec ? [accepted.value.job] : []
     void refreshRounds()
   }, { immediate: true })
@@ -254,9 +271,14 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
 
   return {
     context, contextError, pageNotice, listBusy, listCurrent, search, attentionOnly,
-    run, rounds, latest, summary, snapshotJobs, roundCiJobs, runError, launchError, reading,
+    run, rounds, latest, summary, snapshotJobs, roundCiJobs, roundActions, runError, launchError, reading,
     refresh, scheduleRefresh, recordAccepted, forgetSession, loadMore: () => refreshContext(true)
   }
+}
+
+function missingAgentRecord(cause: unknown): undefined {
+  if (cause instanceof ApiError && cause.status === 404) return undefined
+  throw cause
 }
 
 function launchFailure(job: JobRecord) {

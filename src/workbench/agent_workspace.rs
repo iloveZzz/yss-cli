@@ -580,36 +580,71 @@ fn direct_root(workspace: &Workspace, direct: &DirectWorkspace) -> Result<Root> 
 }
 
 fn check_resume_baseline(prior: &GitBaseline, current: &GitBaseline) -> Result<()> {
-    if prior.branch != current.branch
-        || (prior.branch.is_none() && prior.head != current.head)
-        || prior.git_dir != current.git_dir
+    if prior.branch != current.branch || (prior.branch.is_none() && prior.head != current.head) {
+        return Err(
+            concurrent("原工程 Git 分支或分离 HEAD 已改变，请从原 Spec 新建会话")
+                .context("resumeReason", "checkoutChanged"),
+        );
+    }
+    check_git_directory_identity(prior, current)
+}
+
+fn check_git_directory_identity(prior: &GitBaseline, current: &GitBaseline) -> Result<()> {
+    if prior.git_dir != current.git_dir
         || prior.git_dir_identity != current.git_dir_identity
         || prior.common_dir != current.common_dir
         || prior.common_dir_identity != current.common_dir_identity
     {
-        return Err(concurrent(
-            "原工程 Git 分支或目录身份已改变，请从原 Spec 开始新会话",
-        ));
+        return Err(
+            concurrent("原工程 Git 目录身份已改变，请从原 Spec 新建会话")
+                .context("resumeReason", "workspaceChanged"),
+        );
     }
     Ok(())
 }
 
 pub(crate) fn validate_resume(workspace: &Workspace, cancel: &Cancellation) -> Result<()> {
-    resume_checkout(workspace, cancel).map(|_| ())
+    resume_checkout(workspace, cancel)
+        .map(|_| ())
+        .map_err(|error| {
+            if error.code == ErrorCode::Cancelled || error.context.contains_key("resumeReason") {
+                return error;
+            }
+            concurrent("原工作区或 Git 检出不可用，请从原 Spec 新建会话")
+                .context("resumeReason", "workspaceChanged")
+                .context("cause", error.message)
+        })
 }
 
 pub(super) fn resume_checkout(
     workspace: &Workspace,
     cancel: &Cancellation,
 ) -> Result<(Root, GitBaseline)> {
+    let (root, current, prior) = direct_checkout(workspace, cancel)?;
+    check_resume_baseline(prior, &current)?;
+    Ok((root, current))
+}
+
+pub(super) fn native_fork_checkout(
+    workspace: &Workspace,
+    cancel: &Cancellation,
+) -> Result<(Root, GitBaseline)> {
+    let (root, current, prior) = direct_checkout(workspace, cancel)?;
+    check_git_directory_identity(prior, &current)?;
+    Ok((root, current))
+}
+
+fn direct_checkout<'a>(
+    workspace: &'a Workspace,
+    cancel: &Cancellation,
+) -> Result<(Root, GitBaseline, &'a GitBaseline)> {
     let direct = workspace
         .direct
         .as_ref()
         .ok_or_else(|| invalid("历史隔离会话请从原 Spec 开始新会话"))?;
     let root = direct_root(workspace, direct)?;
     let current = git_baseline(&root.path, cancel)?;
-    check_resume_baseline(&direct.baseline, &current)?;
-    Ok((root, current))
+    Ok((root, current, &direct.baseline))
 }
 
 fn direct_metadata(root: &Root, workspace: &Workspace, path: &RelPath) -> Result<bool> {
@@ -913,6 +948,7 @@ pub(super) fn prepare_direct(
                 {
                     return Err(concurrent("原工程 HEAD 已变化，请刷新本轮工程范围")
                         .context("httpStatus", 409)
+                        .context("projectScopeChanged", true)
                         .context("projectId", id)
                         .context(
                             "expectedHead",
@@ -925,6 +961,7 @@ pub(super) fn prepare_direct(
                 {
                     return Err(concurrent("原工程 Git 分支已变化，请刷新本轮工程范围")
                         .context("httpStatus", 409)
+                        .context("projectScopeChanged", true)
                         .context("projectId", id)
                         .context(
                             "expectedBranch",

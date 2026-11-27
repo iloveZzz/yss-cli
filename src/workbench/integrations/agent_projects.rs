@@ -6,6 +6,7 @@ use crate::{
     cancel::Cancellation,
     error::Result,
     fs::{Root, alias_key},
+    model::Sha256,
     workbench::{agent_workspace, model::ProjectRecord, process, sources, store::Store},
 };
 use serde_json::{Value, json};
@@ -21,6 +22,39 @@ struct Checkout {
     branch: Option<String>,
     prefix: String,
     remote: Option<String>,
+    repository_key: Option<Sha256>,
+}
+
+pub(in crate::workbench) fn checkout_origin(
+    root: &Path,
+    cancel: &Cancellation,
+) -> Result<Option<String>> {
+    let mut command = crate::fs::git::command(root);
+    command.args(["remote", "get-url", "origin"]);
+    let (status, stdout, _) = process::capture_command(command, cancel, Duration::from_secs(10))?;
+    if status.success() {
+        let origin =
+            String::from_utf8(stdout).map_err(|_| sources::invalid("无法核对工程的 Git origin"))?;
+        return Ok(Some(origin.trim_end_matches(['\r', '\n']).to_owned()));
+    }
+    let mut command = crate::fs::git::command(root);
+    command.arg("remote");
+    let remotes = process::run_command(command, cancel, Duration::from_secs(10))?;
+    if remotes
+        .split(|byte| *byte == b'\n')
+        .any(|line| line == b"origin" || line == b"origin\r")
+    {
+        return Err(sources::invalid("无法核对工程的 Git origin"));
+    }
+    Ok(None)
+}
+
+pub(in crate::workbench) fn repository_key(origin: Option<&str>, prefix: &str) -> Option<Sha256> {
+    let prefix = if prefix.is_empty() { "." } else { prefix };
+    origin.map(|origin| {
+        let remote = remote_identity(origin).unwrap_or_else(|| format!("origin:{origin}"));
+        Sha256::of(format!("{remote}\n{prefix}").as_bytes())
+    })
 }
 
 impl Checkout {
@@ -28,24 +62,31 @@ impl Checkout {
         let path = Path::new(&project.root_path);
         let root = agent_workspace::agent_git_root(path, cancel)?;
         let baseline = agent_workspace::git_baseline(&root, cancel)?;
+        #[cfg(unix)]
         let prefix = path
             .strip_prefix(&root)
             .ok()
             .and_then(Path::to_str)
+            .ok_or_else(|| sources::invalid("工程目录与 Git 根不一致"))?
+            .to_owned();
+        #[cfg(windows)]
+        let prefix = Root::open(&root)?
+            .relative_windows_path(path)?
             .ok_or_else(|| sources::invalid("工程目录与 Git 根不一致"))?;
-        let mut command = crate::fs::git::command(&root);
-        command.args(["remote", "get-url", "origin"]);
-        let remote = process::run_command(command, cancel, Duration::from_secs(10));
-        cancel.check()?;
+        let origin = checkout_origin(&root, cancel)?;
+        let repository_key = repository_key(origin.as_deref(), &prefix);
         Ok(Self {
             head: baseline.head,
             branch: baseline
                 .branch
                 .and_then(|branch| branch.strip_prefix("refs/heads/").map(str::to_owned)),
-            prefix: if prefix.is_empty() { "." } else { prefix }.to_owned(),
-            remote: remote
-                .ok()
-                .and_then(|output| remote_identity(std::str::from_utf8(&output).ok()?)),
+            prefix: if prefix.is_empty() {
+                ".".into()
+            } else {
+                prefix
+            },
+            remote: origin.as_deref().and_then(remote_identity),
+            repository_key,
         })
     }
 }
@@ -155,9 +196,7 @@ pub(in crate::workbench) fn agent_projects(
             "active":project.active, "status":project_status(project, checkout.is_some()),
             "branch":checkout.as_ref().and_then(|checkout| checkout.branch.as_deref()),
             "head":checkout.as_ref().map(|checkout| &checkout.head),
-            "repositoryKey":checkout.as_ref().and_then(|checkout| checkout.remote.as_ref().map(|remote| {
-                crate::model::Sha256::of(format!("{remote}\n{}", checkout.prefix).as_bytes()).as_str().to_owned()
-            })),
+            "repositoryKey":checkout.as_ref().and_then(|checkout| checkout.repository_key.as_ref()),
         }));
         if let Some(checkout) = checkout {
             checkouts.insert(project.id.as_str(), checkout);

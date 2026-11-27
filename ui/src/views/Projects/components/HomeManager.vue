@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchErrorAlert from '@/components/WorkbenchErrorAlert.vue'
 import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,7 +14,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Separator } from '@/components/ui/separator'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
-import { errorMessage } from '@/services/workbench'
+import { ApiError, errorFeedback, type ErrorFeedback } from '@/services/workbench'
 import {
   getHomes,
   importHome,
@@ -24,7 +25,7 @@ import {
 const { catalog, refreshCatalog } = useWorkbenchCatalog()
 const homes = shallowRef<HomeImport[]>([])
 const loading = shallowRef(true)
-const loadError = shallowRef('')
+const loadError = shallowRef<ErrorFeedback>()
 const preview = shallowRef<HomeImport>()
 const manualRows = shallowRef('')
 const manualEntries = ref<HomeRow[]>([])
@@ -37,7 +38,7 @@ const sourceOpen = shallowRef(true)
 const previewHeading = shallowRef<HTMLHeadingElement>()
 const mapping = reactive<Record<string, string>>({})
 const bindings = reactive<Record<string, string>>({})
-const error = shallowRef('')
+const error = shallowRef<ErrorFeedback>()
 const action = shallowRef<'inspect' | 'review' | 'bind'>()
 const busy = computed(() => !!action.value)
 const notice = shallowRef('')
@@ -47,6 +48,10 @@ const sourceKey = computed(() =>
 const sourceCurrent = computed(
   () => !!preview.value && !preview.value.stale && sourceFingerprint.value === sourceKey.value
 )
+const sourceReadError = computed(() => {
+  const issue = preview.value?.sourceError
+  return issue ? errorFeedback(new ApiError(issue.message, 0, issue.context)) : undefined
+})
 const columns = [
   { key: 'id', label: '工程标识列' },
   { key: 'responsibility', label: '职责列' },
@@ -72,9 +77,9 @@ async function load() {
     const result = await getHomes(controller.signal)
     if (controller.signal.aborted) return
     homes.value = result.homes
-    loadError.value = ''
+    loadError.value = undefined
   } catch (cause) {
-    if (!controller.signal.aborted) loadError.value = errorMessage(cause)
+    if (!controller.signal.aborted) loadError.value = errorFeedback(cause)
   } finally {
     if (loadingHomes === controller) {
       loadingHomes = undefined
@@ -90,7 +95,7 @@ async function inspect(event: SubmitEvent) {
   const sourceForm = event.currentTarget as HTMLFormElement
   const initialFocus = document.activeElement
   action.value = 'inspect'
-  error.value = ''
+  error.value = undefined
   notice.value = ''
   sourceFingerprint.value = ''
   const fingerprint = sourceKey.value
@@ -115,18 +120,19 @@ async function inspect(event: SubmitEvent) {
     sourceOpen.value = false
     if (moveFocus) await nextTick(() => previewHeading.value?.focus())
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   } finally {
     action.value = undefined
   }
 }
 function edit(home: HomeImport) {
+  error.value = undefined
   preview.value = home
   setEntries(home)
   root.value = home.root
   sourcePath.value = home.sourcePath
   sourceFingerprint.value = sourceKey.value
-  sourceOpen.value = false
+  sourceOpen.value = !!home.stale
   open.value = true
   for (const row of home.rows)
     bindings[row.id] = home.bindings?.find((item) => item.entryId === row.id)?.rootPath ?? ''
@@ -147,7 +153,7 @@ function addEntry() {
   })
 }
 function applyJson() {
-  error.value = ''
+  error.value = undefined
   try {
     const rows: unknown = JSON.parse(manualRows.value)
     if (!Array.isArray(rows)) throw new Error('工程条目须为 JSON 数组。')
@@ -167,7 +173,7 @@ function applyJson() {
       )
     manualEntries.value = rows.map((row) => ({ ...row, hints: row.hints ?? '' }))
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   }
 }
 function beginImport() {
@@ -184,11 +190,11 @@ function dismissImport() {
 async function reviewRows() {
   if (!preview.value || busy.value) return
   if (!sourceCurrent.value) {
-    error.value = '地图来源已变化，请重新读取后继续。'
+    sourceOpen.value = true
     return
   }
   action.value = 'review'
-  error.value = ''
+  error.value = undefined
   try {
     preview.value = await importHome(
       preview.value.root,
@@ -199,7 +205,7 @@ async function reviewRows() {
     setEntries(preview.value)
     notice.value = '已保存人工核对的地图条目，可继续绑定工程。'
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   } finally {
     action.value = undefined
   }
@@ -207,11 +213,13 @@ async function reviewRows() {
 async function save() {
   if (!preview.value || busy.value) return
   if (!sourceCurrent.value) {
-    error.value = '地图来源已变化，请重新读取后继续。'
+    sourceOpen.value = true
     return
   }
+  const initialFocus = document.activeElement
+  let reread = false
   action.value = 'bind'
-  error.value = ''
+  error.value = undefined
   try {
     await bindHome(
       preview.value.id,
@@ -225,10 +233,19 @@ async function save() {
     open.value = false
     await Promise.all([load(), refreshCatalog()])
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
+    if (cause instanceof ApiError &&
+      (cause.context.reason === 'home_map_changed' || cause.context.reason === 'home_map_unreadable')) {
+      sourceFingerprint.value = ''
+      sourceOpen.value = true
+      reread = true
+    }
   } finally {
     action.value = undefined
     if (!open.value) await nextTick(focusImportTrigger)
+    else if (reread && (document.activeElement === initialFocus || document.activeElement === document.body)) {
+      await nextTick(() => document.getElementById(`${formId}-source`)?.focus())
+    }
   }
 }
 </script>
@@ -251,8 +268,8 @@ async function save() {
       >
     </div>
     <Alert v-if="notice" role="status" class="notice">{{ notice }}</Alert>
-    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
-    <Alert v-if="loadError" role="alert" class="notice error" variant="destructive">{{ loadError }}</Alert>
+    <WorkbenchErrorAlert v-if="error" :feedback="error" />
+    <WorkbenchErrorAlert v-if="loadError" :feedback="loadError" />
     <div v-if="homes.length" class="home-list" :aria-busy="loading">
       <article v-for="home in homes" :key="home.id" class="home-record">
         <div class="home-record-heading">
@@ -264,7 +281,7 @@ async function save() {
           <span class="muted home-count"
             >{{ home.bindings?.length ?? 0 }} / {{ home.rows.length }} 已绑定</span
           ><Badge variant="outline" :class="{ 'warning-text': home.stale || home.requiresReview }">{{
-            home.stale ? '地图已变化' : home.requiresReview ? '待核对' : '已读取'
+            home.sourceError ? '地图无法读取' : home.requiresReview ? '待核对' : home.stale ? '地图已变化' : '已读取'
           }}</Badge
           ><Button type="button" variant="ghost" :disabled="busy" @click="edit(home)">{{
             home.stale ? '重新核对' : '管理绑定'
@@ -287,7 +304,7 @@ async function save() {
     </div>
     <div v-if="open" :id="formId" class="home-task">
       <Collapsible class="source-step" v-model:open="sourceOpen" :unmount-on-hide="false">
-        <CollapsibleTrigger>{{ preview ? `地图来源 · ${preview.sourcePath}` : '选择地图来源' }}</CollapsibleTrigger>
+        <CollapsibleTrigger :id="`${formId}-source`">{{ preview ? `地图来源 · ${preview.sourcePath}` : '选择地图来源' }}</CollapsibleTrigger>
         <CollapsibleContent>
           <form class="form-stack" aria-label="导入 Home" @submit.prevent="inspect">
             <fieldset :disabled="busy" class="plain-fieldset form-stack">
@@ -338,7 +355,8 @@ async function save() {
           <h3 ref="previewHeading" tabindex="-1">{{ preview.requiresReview ? '核对地图条目' : '绑定本机工程' }}</h3>
           <span class="muted">{{ preview.rows.length }} 个条目</span>
         </div>
-        <Alert v-if="!sourceCurrent" class="notice warning">地图来源已变化，请重新读取后继续绑定。</Alert>
+        <WorkbenchErrorAlert v-if="sourceReadError" :feedback="sourceReadError" />
+        <Alert v-else-if="!sourceCurrent && !error" class="notice warning">请重新读取当前地图后继续绑定。</Alert>
         <Alert v-if="preview.warnings.length" class="notice warning">
           <ul>
             <li v-for="warning in preview.warnings" :key="warning">{{ warning }}</li>

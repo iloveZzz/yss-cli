@@ -2,44 +2,35 @@ import { computed, onScopeDispose, shallowRef, watch, type Ref } from 'vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { useVerifiedWorkbenchRefresh } from '@/hooks/useWorkbenchVerification'
-import { ApiError, errorMessage, type GroupBy, type Layout, type WorkQuery } from '@/services/workbench'
+import { ApiError, errorMessage, type WorkQuery } from '@/services/workbench'
 import { loadCompactWorkPage, type CompactWorkPage } from '@/services/workbench-read'
 
 const listPageSize = 50
-const boardPageSize = 20
-type Display = { list: number; columns: Record<string, number> }
 interface View {
   key: string
   query: WorkQuery
-  layout: Layout
-  groupBy: GroupBy
 }
-interface Settled extends View {
+interface Settled {
+  key: string
   page: CompactWorkPage
   scope?: string
 }
 const cache = new Map<string, Settled>()
-const depths = new Map<string, Display>()
+const depths = new Map<string, number>()
 
 export function useSpecWorkItems(
   query: Readonly<Ref<WorkQuery>>,
-  layout: Readonly<Ref<Layout>>,
-  groupBy: Readonly<Ref<GroupBy>>,
   enabled?: Readonly<Ref<boolean>>
 ) {
   const { expired, sourceState } = useWorkbench()
   const { catalog } = useWorkbenchCatalog()
   const view = computed<View>(() => ({
-    key: JSON.stringify([query.value, layout.value, layout.value === 'board' ? groupBy.value : null]),
-    query: query.value,
-    layout: layout.value,
-    groupBy: groupBy.value
+    key: JSON.stringify(query.value),
+    query: query.value
   }))
   const settled = shallowRef<Settled>()
-  const result = computed(() => settled.value?.layout === layout.value &&
-    (layout.value === 'list' || settled.value.groupBy === groupBy.value) ? settled.value.page : undefined)
+  const result = computed(() => settled.value?.page)
   const resultsCurrent = computed(() => settled.value?.key === view.value.key)
-  const resultProgressBasis = computed(() => settled.value?.query.progressBasis ?? query.value.progressBasis)
   const scope = computed(() => {
     const versions = sourceState.value?.specVersions
     if (!versions) return undefined
@@ -54,7 +45,7 @@ export function useSpecWorkItems(
   const pending = shallowRef<'replace' | 'append'>()
   const readError = shallowRef('')
   const { refresh, refreshing, refreshError } = useVerifiedWorkbenchRefresh(
-    () => read('replace', undefined, true), () => enabled?.value !== false
+    () => read('replace', true), () => enabled?.value !== false
   )
   const loading = computed(() => refreshing.value || !!pending.value)
   const loadingMore = computed(() => pending.value === 'append')
@@ -85,18 +76,13 @@ export function useSpecWorkItems(
   let invalidatedWhileReading = false
   let disposed = false
 
-  function display(key: string) {
-    let value = depths.get(key)
-    if (!value) {
-      value = { list: listPageSize, columns: {} }
-      depths.set(key, value)
-      if (depths.size > 20) depths.delete(depths.keys().next().value!)
-    }
-    return value
+  function rememberDepth(key: string, count: number) {
+    depths.set(key, Math.max(depths.get(key) ?? listPageSize, count))
+    if (depths.size > 20) depths.delete(depths.keys().next().value!)
   }
 
   function save(current: View, page: CompactWorkPage) {
-    const record = { ...current, page, scope: page.projectionVersion === observedProjection.value ? scope.value : undefined }
+    const record = { key: current.key, page, scope: page.projectionVersion === observedProjection.value ? scope.value : undefined }
     settled.value = record
     if (!page.projectionVersion) return
     cache.delete(current.key)
@@ -105,40 +91,31 @@ export function useSpecWorkItems(
   }
 
   async function replacement(current: View, signal: AbortSignal): Promise<CompactWorkPage> {
-    const shown = display(current.key)
-    const board = current.layout === 'board' ? { groupBy: current.groupBy } : undefined
+    const shown = depths.get(current.key) ?? listPageSize
     const first = await loadCompactWorkPage(current.query, {
-      limit: board ? boardPageSize : Math.min(200, shown.list), board
+      limit: Math.min(200, shown)
     }, signal)
     const version = first.projectionVersion
     if (!version) return first
 
-    async function remainder(target: number, start: number, column?: string) {
-      const items: CompactWorkPage['items'] = []
-      while (start + items.length < target && !signal.aborted) {
-        const next = await loadCompactWorkPage(current.query, {
-          offset: start + items.length,
-          limit: Math.min(200, target - start - items.length),
-          expectedProjectionVersion: version!,
-          expectedQueryVersion: first.queryVersion ?? undefined,
-          board: board && { ...board, column }
-        }, signal)
-        if (next.projectionVersion !== version || next.queryVersion !== first.queryVersion)
-          throw new ApiError('查询期间进度已更新，请重试。', 409)
-        items.push(...next.items)
-        if (!next.items.length) break
-      }
-      return items
+    const target = Math.min(shown, first.total)
+    const items = [...first.items]
+    while (items.length < target && !signal.aborted) {
+      const next = await loadCompactWorkPage(current.query, {
+        offset: items.length,
+        limit: Math.min(200, target - items.length),
+        expectedProjectionVersion: version,
+        expectedQueryVersion: first.queryVersion ?? undefined
+      }, signal)
+      if (next.projectionVersion !== version || next.queryVersion !== first.queryVersion)
+        throw new ApiError('查询期间进度已更新，请重试。', 409)
+      if (!next.items.length) break
+      items.push(...next.items)
     }
-    const extra = board
-      ? await Promise.all(Object.entries(shown.columns).map(([column, limit]) =>
-          remainder(Math.min(limit, first.columnTotals?.[column] ?? 0),
-            first.items.filter((item) => item[board.groupBy] === column).length, column)))
-      : [await remainder(Math.min(shown.list, first.total), first.items.length)]
-    return { ...first, items: [...first.items, ...extra.flat()] }
+    return { ...first, items }
   }
 
-  async function read(mode: 'replace' | 'append', column?: string, replacePending = false) {
+  async function read(mode: 'replace' | 'append', replacePending = false) {
     if (expired.value || disposed || enabled?.value === false) return
     const current = view.value
     if (pending.value && mode === 'replace' && ownerKey === current.key && !replacePending) {
@@ -156,18 +133,13 @@ export function useSpecWorkItems(
     readError.value = ''
     try {
       if (mode === 'append' && previous?.projectionVersion) {
-        const board = current.layout === 'board' ? { groupBy: current.groupBy, column } : undefined
-        const pageSize = board ? boardPageSize : listPageSize
-        const offset = board ? previous.items.filter((item) => item[board.groupBy] === column).length : previous.items.length
-        const target = display(current.key)
-        if (column) target.columns[column] = Math.max(pageSize, target.columns[column] ?? 0, offset + pageSize)
-        else target.list = Math.max(pageSize, target.list, offset + pageSize)
+        const offset = previous.items.length
+        rememberDepth(current.key, offset + listPageSize)
         try {
           const next = await loadCompactWorkPage(current.query, {
-            offset, limit: pageSize,
+            offset, limit: listPageSize,
             expectedProjectionVersion: previous.projectionVersion,
-            expectedQueryVersion: previous.queryVersion ?? undefined,
-            board
+            expectedQueryVersion: previous.queryVersion ?? undefined
           }, request.signal)
           if (request.signal.aborted || view.value.key !== current.key) return
           if (next.projectionVersion !== previous.projectionVersion || next.queryVersion !== previous.queryVersion)
@@ -249,7 +221,7 @@ export function useSpecWorkItems(
     controller?.abort()
   })
   return {
-    result, resultsCurrent, resultProgressBasis, loading, loadingMore, error, verification, verificationError,
-    writable, refresh, reload, loadMore: (column?: string) => read('append', column)
+    result, resultsCurrent, loading, loadingMore, error, verification, verificationError,
+    writable, refresh, reload, loadMore: () => read('append')
   }
 }

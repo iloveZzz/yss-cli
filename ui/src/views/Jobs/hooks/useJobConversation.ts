@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, shallowRef } from 'vue'
+import { computed, onScopeDispose, shallowReactive, shallowRef, type Ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { errorMessage } from '@/services/workbench'
 import {
@@ -11,16 +11,32 @@ import {
 } from '@/services/workbench-platform'
 import { activityKey, conversationEvent } from '../schemas/conversation'
 
-export function useJobConversation(trackFirstText?: () => boolean) {
+type FirstText = { jobId: string; rowId: number; eventId: number; source: 'snapshot' | 'stream' }
+
+export function isConversationTextDelta(event: JobEvent) {
+  return event.kind === 'item/agentMessage/delta' || event.kind === 'item/piReasoning/delta'
+}
+
+function hasLiveText(row: JobActivity) {
+  return (row.kind === 'message' && !row.status) || (row.kind === 'reasoning' && row.status === 'inProgress')
+}
+
+export function useJobConversation(jobId: Readonly<Ref<string>>, trackFirstText?: () => boolean) {
   const page = shallowRef<ConversationPage>()
   const items = shallowRef<JobActivity[]>([])
   const hasOlder = shallowRef(false)
   const historyError = shallowRef('')
   const loadingHistory = shallowRef(false)
-  const firstText = shallowRef<{ jobId: string; rowId: number; receivedAt: number }>()
+  const firstText = shallowRef<FirstText & { receivedAt: number }>()
   const toolMotion = shallowRef<ReadonlyMap<number, 'enter' | 'settled'>>()
   const rows = new Map<number, JobActivity>()
   const keys = new Map<string, number>()
+  // Canonical snapshots handle event order. Only a live row's displayed body is reactive.
+  const displayed = new Map<number, { source: JobActivity; row: JobActivity }>()
+  const pendingText = new Map<number, JobActivity>()
+  const trackStructure = new URLSearchParams(location.search).get('piTimings') === '1' ||
+    Reflect.get(globalThis, '__YSS_PI_TIMINGS__') === true
+  let structureChanged = false
   let pendingToolMotion = new Map<number, 'enter' | 'settled'>()
   let history: AbortController | undefined
   let buffered: JobEvent[] | undefined
@@ -37,15 +53,26 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     schedulePublish()
   })
 
-  function remember(row: JobActivity) {
+  function remember(row: JobActivity, textOnly = false) {
     const key = row.itemId ? activityKey(row.kind, row.itemId) : undefined
     const knownId = key ? keys.get(key) : undefined
     const id = Math.min(knownId ?? row.id, row.id)
     const previous = rows.get(knownId ?? id)
-    if (knownId !== undefined && knownId !== id) rows.delete(knownId)
+    if (knownId !== undefined && knownId !== id) {
+      rows.delete(knownId)
+      displayed.delete(knownId)
+    }
     const current = previous && previous.updatedEventId > row.updatedEventId ? previous : row
-    rows.set(id, current.id === id ? current : { ...current, id })
+    const entry = current.id === id ? current : { ...current, id }
+    if (entry === previous) return id
+    rows.set(id, entry)
     if (key) keys.set(key, id)
+    if (textOnly && !structureChanged && displayed.has(id) && hasLiveText(entry) &&
+      previous?.status === entry.status && previous?.durationMs === entry.durationMs) {
+      pendingText.set(id, entry)
+    } else {
+      structureChanged = true
+    }
     return id
   }
 
@@ -58,7 +85,30 @@ export function useJobConversation(trackFirstText?: () => boolean) {
 
   function publish() {
     cancelPublish()
-    items.value = [...rows.values()].sort((a, b) => a.id - b.id)
+    for (const [id, source] of pendingText) {
+      const view = displayed.get(id)
+      if (view && rows.get(id) === source) {
+        view.row.text = source.text
+        view.row.updatedEventId = source.updatedEventId
+        view.source = source
+      }
+    }
+    pendingText.clear()
+    if (structureChanged) {
+      structureChanged = false
+      items.value = [...rows.values()].sort((a, b) => a.id - b.id).map((source) => {
+        if (!hasLiveText(source)) {
+          displayed.delete(source.id)
+          return source
+        }
+        const view = displayed.get(source.id)
+        if (view?.source === source) return view.row
+        const row = shallowReactive({ ...source })
+        displayed.set(source.id, { source, row })
+        return row
+      })
+      if (trackStructure) performance.mark('yss.pi.conversation.structure', { detail: { jobId: jobId.value } })
+    }
     if (pendingToolMotion.size) {
       toolMotion.value = pendingToolMotion
       pendingToolMotion = new Map()
@@ -71,10 +121,11 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     else frame = requestAnimationFrame(publish)
   }
 
-  function markFirstText(jobId: string, row: JobActivity, rowId: number) {
+  function markFirstText(row: JobActivity, rowId: number, source: FirstText['source']) {
     if (!trackFirstText?.() || firstText.value || row.kind !== 'message' || !row.text.trim()) return
-    const mark = performance.mark('yss.pi.first-text.received', { detail: { jobId } })
-    firstText.value = { jobId, rowId, receivedAt: mark.startTime }
+    const detail = { jobId: jobId.value, rowId, eventId: row.updatedEventId, source }
+    const mark = performance.mark('yss.pi.first-text.received', { detail })
+    firstText.value = { ...detail, receivedAt: mark.startTime }
   }
 
   function ingest(event: JobEvent, animate = false) {
@@ -83,13 +134,13 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     const row = conversationEvent(event, (key) => rows.get(keys.get(key) ?? -1))
     if (row) {
       const previous = rows.get(row.id)
-      const rowId = remember(row)
+      const rowId = remember(row, isConversationTextDelta(event))
       if (animate && ['command', 'tool', 'files'].includes(row.kind)) {
         if (!previous) pendingToolMotion.set(rowId, 'enter')
         else if (previous.status === 'inProgress' && row.status !== previous.status && !pendingToolMotion.has(rowId))
           pendingToolMotion.set(rowId, 'settled')
       }
-      markFirstText(event.jobId, row, rowId)
+      markFirstText(row, rowId, 'stream')
       schedulePublish()
     }
     if ((frame !== undefined || timer !== undefined) && (event.kind === 'finished' ||
@@ -105,7 +156,7 @@ export function useJobConversation(trackFirstText?: () => boolean) {
       if (signal.aborted) return
       for (const row of snapshot.items) {
         const rowId = remember(row)
-        if (!snapshot.terminal) markFirstText(id, row, rowId)
+        markFirstText(row, rowId, 'snapshot')
       }
       cursor = snapshot.cursor
       page.value = snapshot
@@ -142,6 +193,7 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     const row = id === undefined ? undefined : rows.get(id)
     if (row?.status !== 'pending') return
     rows.set(row.id, { ...row, status: 'saving' })
+    structureChanged = true
     publish()
   }
 
@@ -150,6 +202,9 @@ export function useJobConversation(trackFirstText?: () => boolean) {
     cancelPublish()
     rows.clear()
     keys.clear()
+    displayed.clear()
+    pendingText.clear()
+    structureChanged = false
     buffered = undefined
     cursor = undefined
     page.value = undefined

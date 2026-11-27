@@ -1,6 +1,6 @@
 import { computed, onScopeDispose, reactive, shallowRef, watch, type Ref } from 'vue'
 import { useDebounceFn, useEventListener } from '@vueuse/core'
-import type { AgentCiJob, AgentCiMode, AgentCiPreview, AgentContinuation, AgentStart, ProjectAccessMode, ReviewExcerpt } from '@/services/workbench-agent'
+import type { AgentCiJob, AgentCiMode, AgentCiPreview, AgentContinuationPreview, AgentStart, ProjectAccessMode, ReviewExcerpt } from '@/services/workbench-agent'
 import type { Stage } from '@/services/workbench'
 import type { PiModel, PiThinkingLevel } from '@/services/workbench-platform'
 import { writeDesktopStorage } from '@/services/desktop-storage'
@@ -9,7 +9,8 @@ import type { PiCheckout } from './usePiProjects'
 type DraftText = {
   prompt: string
   citations: ReviewExcerpt[]
-  handoff?: Omit<AgentContinuation, 'prompt'>
+  handoff?: AgentContinuationPreview
+  nativeForkDigest?: string
   selected?: string[]
   ciRecovery?: PiCiRecovery
 }
@@ -31,7 +32,6 @@ export function ciSelection(draft: Pick<PiDraft, 'ciAttachment' | 'ciRecovery'>)
 export interface PiDraft extends DraftText {
   selected: string[]
   readOnly: boolean
-  allowCommands: boolean
   projectGrants: Record<string, ProjectGrant>
   ciAttachment?: PiCiAttachment
   selectedModel?: PiModel
@@ -84,6 +84,7 @@ function draftText(value?: DraftText): DraftText {
     selected: Array.isArray(value?.selected) ? value.selected.filter((id) => typeof id === 'string') : undefined,
     ciRecovery: value?.ciRecovery && typeof value.ciRecovery.projectId === 'string' && typeof value.ciRecovery.linkId === 'string' &&
       Number.isSafeInteger(value.ciRecovery.jobId) && ['reproduce', 'compare'].includes(value.ciRecovery.mode) ? value.ciRecovery : undefined,
+    nativeForkDigest: typeof value?.nativeForkDigest === 'string' ? value.nativeForkDigest : undefined,
     handoff: value?.handoff && typeof value.handoff.runId === 'string' && typeof value.handoff.jobId === 'string' &&
       Array.isArray(value.handoff.projectIds) && Array.isArray(value.handoff.workspaces) ? value.handoff : undefined
   }
@@ -108,7 +109,7 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
         selected: selected ?? [],
         projectGrants: Object.fromEntries(readProjectIds.filter((projectId) => typeof projectId === 'string')
           .map((projectId) => [projectId, { mode: 'read' }])),
-        readOnly: true, allowCommands: false, error: ''
+        readOnly: true, error: ''
       })
     }
     return drafts.get(id)!
@@ -122,7 +123,8 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
       const text = draftText({ ...value, ciRecovery: ciSelection(value) })
       // Reloading must not raise a restricted draft to the command-enabled default.
       const readProjectIds = Object.keys(value.projectGrants).filter((projectId) => value.projectGrants[projectId].mode !== 'execute')
-      const hasDraft = text.prompt || text.citations.length || text.handoff || text.ciRecovery || text.selected?.length || readProjectIds.length
+      const hasDraft = text.prompt || text.citations.length || text.handoff || text.ciRecovery || text.selected?.length ||
+        readProjectIds.length
       if (!write('draft', id, hasDraft ? { ...text, readProjectIds } : undefined)) ok = false
     }
     dirty.clear()
@@ -135,7 +137,7 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
     return flushDrafts()
   }
   watch(() => [key.value, draft.value.prompt, draft.value.citations, draft.value.handoff, draft.value.selected, draft.value.projectGrants,
-    draft.value.ciRecovery, draft.value.ciAttachment] as const, ([id], prior) => {
+    draft.value.ciRecovery, draft.value.ciAttachment, draft.value.nativeForkDigest] as const, ([id], prior) => {
     dirty.add(id)
     if (prior[0] !== id) flushDrafts()
     else void persistSoon()
@@ -161,8 +163,8 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
     const value = read<PendingPiRequest>('pending', key.value)
     if (value?.id && value.key === key.value && typeof value.input?.prompt === 'string' &&
       (Array.isArray(value.input.projectIds) || Array.isArray(value.input.projectAccess))) {
-      const target = value.input.resumeRunId || (value.input.continuationSource
-        ? 'handoff:' + value.input.continuationSource.jobId : 'new')
+      const source = value.input.nativeForkSource ?? value.input.continuationSource
+      const target = value.input.resumeRunId || (source ? 'handoff:' + source.jobId : 'new')
       if (value.input.specId + ':' + target === key.value) return value
     }
     return undefined

@@ -1556,6 +1556,10 @@ pub fn run(
                 error.message,
                 error.path.map(|p| format!("：{p}")).unwrap_or_default()
             )
+            .and_then(|()| match error.context.get("hint") {
+                Some(hint) => writeln!(err, "处理建议：{hint}"),
+                None => Ok(()),
+            })
             .map_err(Into::into),
         }
     };

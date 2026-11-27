@@ -81,6 +81,7 @@ export interface HomeImport {
   requiresReview: boolean
   bindings?: { entryId: string; rootPath: string; projectId?: string }[]
   stale?: boolean
+  sourceError?: { message: string; context?: Record<string, unknown> } | null
 }
 export interface ExternalLink {
   id: string

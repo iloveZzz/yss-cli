@@ -11,13 +11,18 @@ use std::{
     env,
     ffi::{OsStr, OsString},
     fs,
-    os::unix::fs::{DirBuilderExt, MetadataExt},
-    path::{Path, PathBuf},
+    io::Read,
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    path::{Component, Path, PathBuf},
     process::{Command, ExitStatus},
     time::Duration,
 };
 
+mod pnpm;
+
 const SANDBOX: &str = "/usr/bin/sandbox-exec";
+const ALLOW_METADATA: &str = "(allow file-read-metadata file-test-existence (literal $PATH))";
+const ALLOW_READ: &str = "(allow file-read* file-map-executable (subpath $PATH))";
 const POLICY: &str = r#"
 (version 1)
 (deny default)
@@ -71,28 +76,68 @@ fn overlaps(a: &Path, b: &Path) -> bool {
     a.starts_with(b) || b.starts_with(a)
 }
 
+#[derive(Default)]
+struct ToolPathScope {
+    home: Option<PathBuf>,
+    excluded: Vec<PathBuf>,
+}
+
+impl ToolPathScope {
+    fn allows(&self, path: &Path) -> bool {
+        path.is_absolute()
+            && path != Path::new("/")
+            && !path.components().any(|part| match part {
+                Component::ParentDir => true,
+                Component::Normal(name) => name.to_str().is_some_and(|name| {
+                    [".git", ".gitmodules", ".yss"]
+                        .iter()
+                        .any(|reserved| name.eq_ignore_ascii_case(reserved))
+                }),
+                _ => false,
+            })
+            && !self.excluded.iter().any(|other| overlaps(path, other))
+            && !self.home.as_ref().is_some_and(|home| {
+                home.starts_with(path)
+                    || [
+                        ".aws",
+                        ".codex",
+                        ".config",
+                        ".git-credentials",
+                        ".gnupg",
+                        ".kube",
+                        ".netrc",
+                        ".npm",
+                        ".npmrc",
+                        ".pi",
+                        ".ssh",
+                    ]
+                    .iter()
+                    .any(|name| overlaps(path, &home.join(name)))
+            })
+    }
+}
+
 struct Toolchain {
     path: OsString,
     readable: BTreeSet<PathBuf>,
+    metadata_only: BTreeSet<PathBuf>,
+    homebrew_opt: Option<PathBuf>,
+    scope: ToolPathScope,
+    node: Option<PathBuf>,
     java_home: Option<PathBuf>,
     maven_repo: Option<PathBuf>,
     pnpm_store: Option<PathBuf>,
 }
 
 impl Toolchain {
-    fn discover(excluded: &[PathBuf], pi_config: &Path) -> Result<Self> {
-        let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_owned());
-        let safe = |path: &Path| {
-            path != Path::new("/")
-                && !excluded.iter().any(|other| overlaps(path, other))
-                && !overlaps(path, pi_config)
-                && !home.as_ref().is_some_and(|other| {
-                    other.starts_with(path)
-                        || [".pi", ".ssh", ".codex", ".config", ".npm", ".gnupg"]
-                            .iter()
-                            .any(|directory| overlaps(path, &other.join(directory)))
-                })
+    fn discover(mut excluded: Vec<PathBuf>, pi_config: &Path) -> Result<Self> {
+        excluded.push(pi_config.to_owned());
+        excluded.extend(fs::canonicalize(pi_config).ok());
+        let scope = ToolPathScope {
+            home: directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_owned()),
+            excluded,
         };
+        let safe = |path: &Path| scope.allows(path);
         let directories: Vec<PathBuf> = env::split_paths(&env::var_os("PATH").unwrap_or_default())
             .filter(|path| path.is_absolute() && safe(path))
             .filter(|path| fs::canonicalize(path).is_ok_and(|real| real.is_dir() && safe(&real)))
@@ -100,10 +145,16 @@ impl Toolchain {
         let on_path = |name: &str| {
             directories
                 .iter()
-                .find_map(|dir| fs::canonicalize(dir.join(name)).ok())
-                .filter(|path| path.is_file() && safe(path))
+                .filter_map(|dir| fs::canonicalize(dir.join(name)).ok())
+                .find(|path| {
+                    safe(path)
+                        && path
+                            .metadata()
+                            .is_ok_and(|meta| meta.is_file() && meta.mode() & 0o111 != 0)
+                })
         };
         let mut readable = BTreeSet::new();
+        let mut metadata_only = BTreeSet::new();
         for path in directories.iter().map(PathBuf::as_path).chain([
             Path::new("/usr/local/lib"),
             Path::new("/opt/homebrew/Cellar"),
@@ -113,6 +164,28 @@ impl Toolchain {
                 && safe(&resolved)
             {
                 readable.insert(resolved);
+            }
+        }
+        // Homebrew binaries reference dynamic libraries through opt symlinks. Allow
+        // traversal there while keeping file data and executable maps in the Cellar.
+        let homebrew_opt = PathBuf::from("/opt/homebrew/opt");
+        let homebrew_opt = (readable.contains(Path::new("/opt/homebrew/Cellar"))
+            && safe(&homebrew_opt)
+            && fs::canonicalize(&homebrew_opt)
+                .is_ok_and(|path| path == homebrew_opt && path.is_dir()))
+        .then_some(homebrew_opt);
+        for name in ["python3", "python"] {
+            if let Some(executable) = on_path(name)
+                && let Some((bin, version)) = executable
+                    .parent()
+                    .zip(executable.parent().and_then(Path::parent))
+                && bin.ends_with("bin")
+                && version.parent()
+                    == Some(Path::new("/Library/Frameworks/Python.framework/Versions"))
+                && safe(version)
+                && version.join("Python").is_file()
+            {
+                readable.insert(version.to_owned());
             }
         }
         let java_home = env::var_os("JAVA_HOME")
@@ -136,7 +209,8 @@ impl Toolchain {
         {
             readable.insert(distribution.to_owned());
         }
-        if let Some(node) = on_path("node") {
+        let node = on_path("node");
+        if let Some(node) = &node {
             readable.insert(node.clone());
             if let Some(distribution) = node.parent().and_then(Path::parent)
                 && safe(distribution)
@@ -148,10 +222,22 @@ impl Toolchain {
         if let Some(pnpm) = on_path("pnpm") {
             readable.insert(pnpm);
         }
+        let pnpm_home = env::var_os("PNPM_HOME")
+            .map(PathBuf::from)
+            .or_else(|| scope.home.as_ref().map(|home| home.join("Library/pnpm")));
+        if let Some(home) = pnpm_home.as_deref().filter(|home| safe(home)) {
+            for directory in &directories {
+                let shim = directory.join("pnpm");
+                if let Some((package, alias)) = global_pnpm_runtime(home, &shim, safe) {
+                    readable.insert(package);
+                    metadata_only.extend(alias.ancestors().skip(1).map(Path::to_owned));
+                }
+            }
+        }
         let cache = |name: &str, suffix: &str| -> Result<Option<PathBuf>> {
             let Some(path) = env::var_os(name)
                 .map(PathBuf::from)
-                .or_else(|| home.as_ref().map(|home| home.join(suffix)))
+                .or_else(|| scope.home.as_ref().map(|home| home.join(suffix)))
             else {
                 return Ok(None);
             };
@@ -176,6 +262,10 @@ impl Toolchain {
         Ok(Self {
             path,
             readable,
+            metadata_only,
+            homebrew_opt,
+            scope,
+            node,
             java_home,
             maven_repo,
             pnpm_store,
@@ -183,10 +273,68 @@ impl Toolchain {
     }
 }
 
+fn global_pnpm_runtime(
+    home: &Path,
+    shim: &Path,
+    safe: impl Fn(&Path) -> bool,
+) -> Option<(PathBuf, PathBuf)> {
+    let directory = shim.parent()?;
+    if directory != home && directory != home.join("bin") {
+        return None;
+    }
+    let shim = fs::canonicalize(shim).ok().filter(|p| safe(p))?;
+    if !shim.starts_with(fs::canonicalize(home).ok()?) {
+        return None;
+    }
+    const SHIM_LIMIT: u64 = 16 * 1024;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(shim)
+        .ok()?;
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(SHIM_LIMIT + 1).read_to_string(&mut text).ok()?;
+    if text.len() as u64 > SHIM_LIMIT || !text.starts_with("#!/bin/sh\n") {
+        return None;
+    }
+    let mut targets = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("# cmd-shim-target="));
+    let target = PathBuf::from(targets.next()?);
+    let global = home.join("global");
+    if targets.next().is_some() || !target.starts_with(&global) || !safe(&target) {
+        return None;
+    }
+    let package = target.parent()?;
+    let package = match target.file_name()?.to_str()? {
+        "pnpm" => package,
+        "pnpm.cjs" | "pnpm.mjs" if package.ends_with("bin") => package.parent()?,
+        _ => return None,
+    };
+    let pnpm_package = |path: &Path| {
+        path.ends_with("node_modules/pnpm") || path.ends_with("node_modules/@pnpm/exe")
+    };
+    if !pnpm_package(package) || !safe(package) {
+        return None;
+    }
+    let resolved_global = fs::canonicalize(global).ok().filter(|p| safe(p))?;
+    let resolved_package = fs::canonicalize(package).ok().filter(|p| safe(p))?;
+    let resolved_target = fs::canonicalize(&target).ok().filter(|p| safe(p))?;
+    (resolved_package.starts_with(resolved_global)
+        && pnpm_package(&resolved_package)
+        && resolved_target.starts_with(&resolved_package)
+        && resolved_target.is_file())
+    .then_some((resolved_package, target))
+}
+
 pub(super) struct Sandbox {
     scratch: PathBuf,
     profile: String,
     parameters: Vec<OsString>,
+    launcher_grants_offset: usize,
     toolchain: Toolchain,
     roots: BTreeMap<PathBuf, RootIdentity>,
     target_scoped: bool,
@@ -258,7 +406,7 @@ impl Sandbox {
             .chain(boundaries.paths().cloned())
             .chain(std::iter::once(private.path().to_owned()))
             .collect();
-        let tools = Toolchain::discover(&excluded, pi_config)?;
+        let tools = Toolchain::discover(excluded, pi_config)?;
         let paths: Vec<_> = roots.keys().cloned().collect();
         let mut sandbox = Self::build(private, &paths, boundaries, tools, target_scoped)?;
         sandbox.roots = roots;
@@ -280,32 +428,33 @@ impl Sandbox {
         let ancestors: BTreeSet<&Path> = toolchain
             .readable
             .iter()
+            .chain(toolchain.homebrew_opt.iter())
             .chain(roots)
             .chain(std::iter::once(&scratch))
             .flat_map(|path| path.ancestors().skip(1))
+            .chain(toolchain.metadata_only.iter().map(PathBuf::as_path))
             .collect();
         for path in ancestors {
-            parameter(
-                &mut profile,
-                &mut parameters,
-                "(allow file-read-metadata file-test-existence (literal $PATH))",
-                path,
-            );
+            parameter(&mut profile, &mut parameters, ALLOW_METADATA, path);
         }
         for path in &toolchain.readable {
+            parameter(&mut profile, &mut parameters, ALLOW_READ, path);
+        }
+        if let Some(opt) = &toolchain.homebrew_opt {
             parameter(
                 &mut profile,
                 &mut parameters,
-                "(allow file-read* file-map-executable (subpath $PATH))",
-                path,
+                "(allow file-read-metadata file-test-existence (subpath $PATH))",
+                opt,
             );
         }
+        let launcher_grants_offset = profile.len();
         for path in roots {
             parameter(
                 &mut profile,
                 &mut parameters,
                 if target_scoped {
-                    "(allow file-read* file-map-executable (subpath $PATH))"
+                    ALLOW_READ
                 } else {
                     "(allow file-read* file-write* file-map-executable (subpath $PATH)) (deny file-write* (literal $PATH))"
                 },
@@ -373,6 +522,7 @@ impl Sandbox {
             scratch,
             profile,
             parameters,
+            launcher_grants_offset,
             toolchain,
             roots: BTreeMap::new(),
             target_scoped,
@@ -380,10 +530,38 @@ impl Sandbox {
         })
     }
 
-    fn command(&self, root: &Path, cwd: &Path, script: &str) -> Command {
+    fn command(
+        &self,
+        root: &Path,
+        cwd: &Path,
+        script: &str,
+        pinned: Option<&pnpm::PinnedLauncher>,
+    ) -> Result<Command> {
         let mut command = Command::new(SANDBOX);
         let mut profile = self.profile.clone();
         let mut params = self.parameters.clone();
+        let path =
+            if let Some(pinned) = pinned {
+                let mut grants = String::new();
+                let paths = std::iter::once(&pinned.bin).chain(pinned.package.iter());
+                let ancestors: BTreeSet<_> = paths
+                    .clone()
+                    .flat_map(|path| path.ancestors().skip(1))
+                    .collect();
+                for ancestor in ancestors {
+                    parameter(&mut grants, &mut params, ALLOW_METADATA, ancestor);
+                }
+                for path in paths {
+                    parameter(&mut grants, &mut params, ALLOW_READ, path);
+                }
+                profile.insert_str(self.launcher_grants_offset, &grants);
+                env::join_paths(std::iter::once(pinned.bin.clone()).chain(
+                    env::split_paths(&self.toolchain.path).filter(|path| path.is_absolute()),
+                ))
+                .map_err(|_| not_ready("Pi 命令 PATH 无效"))?
+            } else {
+                self.toolchain.path.clone()
+            };
         if self.target_scoped {
             let mut target = OsString::from("TARGET_ROOT=");
             target.push(root);
@@ -418,20 +596,26 @@ impl Sandbox {
             .env_clear()
             .env("HOME", &self.scratch)
             .env("TMPDIR", &self.scratch)
-            .env("PATH", &self.toolchain.path)
+            .env("PATH", path)
             .env("LANG", "en_US.UTF-8")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("npm_config_offline", "true")
+            .env("pnpm_config_offline", "true")
             .env("npm_config_package_import_method", "copy")
+            .env("pnpm_config_package_import_method", "copy")
             // pnpm prepends ancestor node_modules paths. Use the shell's absolute path
             // so posix_spawn doesn't try paths outside the readable roots first.
             .env("npm_config_script_shell", "/bin/bash")
+            .env("pnpm_config_script_shell", "/bin/bash")
             .env("MAVEN_ARGS", "-o");
         if let Some(java) = &self.toolchain.java_home {
             command.env("JAVA_HOME", java);
         }
         if let Some(store) = &self.toolchain.pnpm_store {
-            command.env("npm_config_store_dir", store);
+            command
+                .env("npm_config_store_dir", store)
+                .env("pnpm_config_store_dir", store);
         }
         let mut java_options = OsString::from("\"-Djava.io.tmpdir=");
         java_options.push(&self.scratch);
@@ -444,7 +628,7 @@ impl Sandbox {
             java_options.push("\"");
         }
         command.env("JAVA_TOOL_OPTIONS", java_options);
-        command
+        Ok(command)
     }
 
     pub fn run(
@@ -470,8 +654,15 @@ impl Sandbox {
                 ));
             }
         }
+        let pinned = pnpm::PinnedLauncher::prepare(
+            root,
+            cwd,
+            self.scratch.parent().expect("scratch has a private parent"),
+            self.toolchain.node.as_deref(),
+            |path| self.toolchain.scope.allows(path),
+        )?;
         process::capture_command_output(
-            self.command(root, cwd, script),
+            self.command(root, cwd, script, pinned.as_ref())?,
             cancel,
             Duration::from_secs(600),
             on_output,
@@ -582,6 +773,10 @@ pub(super) fn probe(cancel: &Cancellation) -> Result<()> {
     let toolchain = Toolchain {
         path: OsStr::new("/usr/bin:/bin").to_owned(),
         readable: BTreeSet::new(),
+        metadata_only: BTreeSet::new(),
+        homebrew_opt: None,
+        scope: ToolPathScope::default(),
+        node: None,
         java_home: None,
         maven_repo: None,
         pnpm_store: None,
@@ -611,7 +806,7 @@ if /bin/mv shared-directory moved; then exit 10; fi
 printf allowed > shared-directory/own || exit 11
 printf allowed > "$TMPDIR/probe" || exit 12
 "#;
-    let mut command = sandbox.command(&root, &root, probe);
+    let mut command = sandbox.command(&root, &root, probe, None)?;
     command.args(["sandbox-probe", &port]);
     let (status, _, _) = process::capture_command(command, cancel, Duration::from_secs(5))?;
     if !status.success()

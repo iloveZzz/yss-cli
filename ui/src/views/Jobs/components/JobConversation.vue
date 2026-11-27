@@ -101,12 +101,8 @@ defineExpose({ focusQuestion })
               <MessageScrollerItem v-for="row in items" :key="row.id" :message-id="String(row.id)" class="conversation-entry">
                 <ConversationMessage
                   v-if="row.kind === 'message' || row.kind === 'user'"
-                  :text="row.text"
-                  :user="row.kind === 'user'"
-                  :created-at="row.createdAt"
-                  :row-id="row.id"
+                  :row="row"
                   :job-id="jobId"
-                  :citations="row.citations"
                   :citation-streaming="row.kind === 'message' && !row.status"
                   :streaming="row.kind === 'message' && !row.status && !terminal"
                 />

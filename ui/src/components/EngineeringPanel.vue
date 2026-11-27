@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import WorkbenchErrorAlert from '@/components/WorkbenchErrorAlert.vue'
 import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,7 +14,7 @@ import { FieldLabel } from '@/components/ui/field'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import SingleSelect from '@/components/SingleSelect.vue'
-import { errorMessage } from '@/services/workbench'
+import { errorFeedback, type ErrorFeedback } from '@/services/workbench'
 import { objectValue, readableValue, type JsonObject } from '@/services/workbench-platform'
 import {
   getEngineeringCatalog,
@@ -31,7 +32,7 @@ const id = useId()
 const route = useRoute()
 const catalog = shallowRef<EngineeringCatalog>()
 const catalogLoading = shallowRef(true)
-const catalogError = shallowRef('')
+const catalogError = shallowRef<ErrorFeedback>()
 const operation = shallowRef('doctor')
 const values = reactive<Record<string, string>>({
   root: props.rootPath ?? '',
@@ -60,7 +61,7 @@ const preview = shallowRef<EngineeringPreview>()
 const inspection = shallowRef<EngineeringInspection>()
 const action = shallowRef<'inspect' | 'prepare' | 'execute'>()
 const busy = computed(() => !!action.value)
-const error = shallowRef('')
+const error = shallowRef<ErrorFeedback>()
 const selected = computed(() =>
   catalog.value?.operations.find((item) => item.id === operation.value)
 )
@@ -128,7 +129,7 @@ watch(recipe, (id) => {
 })
 async function loadCatalog() {
   catalogLoading.value = true
-  catalogError.value = ''
+  catalogError.value = undefined
   try {
     catalog.value = await getEngineeringCatalog()
     if (
@@ -138,7 +139,7 @@ async function loadCatalog() {
       operation.value = route.query.operation
     recipe.value = catalog.value.scaffold.defaultRecipeId ?? recipes.value[0]?.id ?? ''
   } catch (cause) {
-    catalogError.value = errorMessage(cause)
+    catalogError.value = errorFeedback(cause)
   } finally {
     catalogLoading.value = false
   }
@@ -147,11 +148,11 @@ onMounted(loadCatalog)
 async function inspect() {
   if (busy.value) return
   action.value = 'inspect'
-  error.value = ''
+  error.value = undefined
   try {
     inspection.value = await inspectEngineering(values.root ?? '')
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   } finally {
     action.value = undefined
   }
@@ -161,13 +162,13 @@ async function prepare() {
   previewSource.value = ''
   changeLimit.value = 20
   action.value = 'prepare'
-  error.value = ''
+  error.value = undefined
   try {
     const encoded = JSON.stringify(request.value)
     preview.value = await previewEngineering(request.value)
     previewSource.value = encoded
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   } finally {
     action.value = undefined
   }
@@ -175,12 +176,12 @@ async function prepare() {
 async function execute() {
   if (!preview.value || !previewCurrent.value || busy.value) return
   action.value = 'execute'
-  error.value = ''
+  error.value = undefined
   try {
     const job = await executeEngineering(preview.value.id)
     await router.push(`/jobs/${job.id}`)
   } catch (cause) {
-    error.value = errorMessage(cause)
+    error.value = errorFeedback(cause)
   } finally {
     action.value = undefined
   }
@@ -348,13 +349,12 @@ function fieldOptions(value: unknown) {
         {{ action === 'inspect' ? '读取中…' : '读取工程状态' }}
       </Button>
     </div>
-    <Alert v-if="error" role="alert" class="notice error" variant="destructive">{{ error }}</Alert>
-    <Alert v-if="catalogError" class="notice error" variant="destructive">
-      {{ catalogError }}
-      <Button type="button" variant="outline" :disabled="catalogLoading" @click="loadCatalog">
+    <WorkbenchErrorAlert v-if="error" :feedback="error" />
+    <WorkbenchErrorAlert v-if="catalogError" :feedback="catalogError">
+      <Button class="self-start" type="button" variant="outline" :disabled="catalogLoading" @click="loadCatalog">
         重试读取可用操作
       </Button>
-    </Alert>
+    </WorkbenchErrorAlert>
     <LoadingSkeleton
       v-if="catalogLoading && !catalog"
       variant="form"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
-import { Alert } from '@/components/ui/alert'
+import WorkbenchErrorAlert from '@/components/WorkbenchErrorAlert.vue'
 import { reactive, shallowRef, useId, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { useWorkbench } from '@/hooks/useWorkbench'
-import { errorMessage, type ProjectRecord } from '@/services/workbench'
+import { errorFeedback, type ErrorFeedback, type ProjectRecord } from '@/services/workbench'
 const props = defineProps<{
   project?: ProjectRecord
   revision: number | undefined
@@ -20,7 +20,7 @@ const router = useRouter()
 const id = useId()
 const { submit, saving } = useWorkbench()
 const form = reactive({ name: '', rootPath: '', active: true })
-const error = shallowRef('')
+const error = shallowRef<ErrorFeedback>()
 const submitting = shallowRef(false)
 let openedRevision: number | undefined
 watch(open, (value) => {
@@ -31,17 +31,17 @@ watch(open, (value) => {
       active: props.project?.active ?? true
     })
     openedRevision = props.revision
-    error.value = ''
+    error.value = undefined
   }
 })
 async function save() {
   if (submitting.value || saving.value) return
   if (openedRevision === undefined) {
-    error.value = '请先读取工程列表，再打开此表单。'
+    error.value = { message: '请先读取工程列表，再打开此表单。' }
     return
   }
   submitting.value = true
-  error.value = ''
+  error.value = undefined
   try {
     const result = await submit(
       props.project
@@ -58,7 +58,7 @@ async function save() {
     open.value = false
     if (!props.project && result.projectId) await router.push(`/projects/${result.projectId}`)
   } catch (e) {
-    error.value = errorMessage(e)
+    error.value = errorFeedback(e)
   } finally {
     submitting.value = false
   }
@@ -98,7 +98,7 @@ async function save() {
           <Checkbox :id="`${id}-active`" v-model="form.active" :disabled="submitting || saving" />
           启用项目（停用后保留全部个人记录）
         </FieldLabel>
-        <Alert v-if="error" class="notice error" variant="destructive">{{ error }}</Alert>
+        <WorkbenchErrorAlert v-if="error" :feedback="error" />
         <div class="form-actions">
           <Button type="button" variant="outline" :disabled="submitting || saving" @click="open = false">取消</Button>
           <Button type="submit" :disabled="submitting || saving">

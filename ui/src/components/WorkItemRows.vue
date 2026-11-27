@@ -12,12 +12,10 @@ import { contentReminders } from '@/services/workbench-content'
 const props = withDefaults(defineProps<{
   items: CompactWorkItem[]
   caption?: string
-  progressBasis?: 'effective' | 'personal'
   refreshing?: boolean
   refreshLabel?: string
 }>(), {
   caption: 'Spec 查询结果',
-  progressBasis: 'effective',
   refreshLabel: '正在刷新 Spec 结果'
 })
 const route = useRoute()
@@ -43,7 +41,7 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
       <TableHeader>
         <TableRow>
           <TableHead scope="col">Spec / 工程</TableHead>
-          <TableHead scope="col">{{ progressBasis === 'effective' ? '自动进度' : '个人进度' }}</TableHead>
+          <TableHead scope="col">自动进度</TableHead>
           <TableHead scope="col">内容与待办</TableHead>
           <TableHead scope="col">下一步与阻塞</TableHead>
           <TableHead scope="col">最近更新</TableHead>
@@ -85,15 +83,7 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
             </div>
           </TableCell>
           <TableCell class="item-next">
-            <ProgressSummary v-if="progressBasis === 'effective'" :progress="item.progress" compact />
-            <template v-else>
-              <p v-if="item.status === 'blocked'" class="row-blocker">
-                {{ item.blocker || '待补充阻塞说明' }}
-              </p>
-              <p :class="{ 'row-sub': item.status === 'blocked' }">
-                {{ item.nextAction || (item.status === 'blocked' ? '下一步尚未填写' : '—') }}
-              </p>
-            </template>
+            <ProgressSummary :progress="item.progress" compact />
           </TableCell>
           <TableCell class="item-updated">
             <time :datetime="item.updatedAt">{{ dateLabel(item.updatedAt) }}</time>
@@ -193,9 +183,6 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
   font-size: 12px;
   overflow-wrap: anywhere;
   white-space: normal;
-}
-.row-blocker {
-  color: #9b5a0e;
 }
 .item-updated {
   min-width: 145px;

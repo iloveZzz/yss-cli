@@ -1,6 +1,6 @@
 import { apiRequest, type SpecView, type SourceDocument, type SpecRecord, type Stage } from './workbench'
 import { requestId, type JobRecord, type JsonObject, type LocalProjectCheckout, type LocalProjectTaskAction,
-  type LocalProjectTaskJob, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
+  type LocalProjectTaskJob, type PiCommandExecution, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
 import type { Verification } from './workbench-read'
 export type AgentWorkspaceMode = 'direct' | 'isolated'
 export type ProjectAccessMode = 'read' | 'edit' | 'execute'
@@ -15,10 +15,53 @@ export interface AgentContinuationSource {
   runId: string
   jobId: string
 }
+export interface AgentAction {
+  available: boolean
+  reason: string | null
+  reasonCode?: string | null
+}
+export interface AgentRoundActions {
+  viewHistory: AgentAction
+  continueSameSpec: AgentAction
+}
+export interface NativeForkPreview {
+  state: 'available' | 'blocked' | 'unsupported'
+  reasonCode?: string
+  message?: string
+  digest?: string
+  model?: PiModel
+  projectIds?: string[]
+}
 export interface AgentContinuation extends AgentContinuationSource {
   prompt: string
   projectIds: string[]
   workspaces: { projectIds: string[]; branch: string | null; head: string }[]
+  summary?: AgentContinuationSummary
+  summaryDigest?: string
+  nativeFork?: NativeForkPreview
+}
+export type AgentContinuationPreview = Omit<AgentContinuation, 'prompt'> & { originalPrompt?: string }
+interface AgentContinuationSummary {
+  status: string
+  errorCode?: string | null
+  goalVersion?: string | null
+  specDigest?: string | null
+  lifecycleStage?: Stage | null
+  projects: { projectId: string; branch?: string | null; head?: string | null; frozenPaths?: string[] | null }[]
+  ciJob?: { projectId: string; jobId: number; sha: string; status?: string | null } | null
+  localTasks: { projectId: string; jobId: string; action: string; status: string; exitCode?: number | null }[]
+  responseIds: string[]
+  gaps: string[]
+}
+export interface AgentContinuationDraftInput extends AgentContinuationSource {
+  expectedContinuationDigest: string
+  expectedModel: PiModel
+  projectIds: string[]
+  notes: string
+}
+export interface AgentContinuationDraftPreview {
+  input: { systemPrompt: string; prompt: string }
+  previewDigest: string
 }
 export type AgentCiMode = 'reproduce' | 'compare'
 export interface AgentCiJob {
@@ -138,12 +181,16 @@ export interface AgentRun {
   workspaceMode?: AgentWorkspaceMode
   snapshotError?: string
   readOnly?: boolean | null
+  commandExecution?: PiCommandExecution
   projectAccess?: AgentProjectAccess[]
   canEditQueuedProjects?: boolean
   continuationSource?: AgentContinuationSource
+  nativeForkSource?: AgentContinuationSource
   ciJob?: AgentCiEvidence
   canResume: boolean
   resumeIssue?: string
+  resumeReason?: string
+  actions?: { resumeNative: AgentAction }
   recoveryJobId?: string
   recoveryRunId?: string
   rebindings?: { id: string; createdAt: string; previousAppliedFiles: { projectId: string; path: string; acceptedAt: string }[] }[]
@@ -163,7 +210,10 @@ export interface AgentStart {
   prompt: string
   projectIds?: string[]
   projectAccess?: AgentProjectAccess[]
+  expectedRepositoryKeys?: Record<string, string | null>
   continuationSource?: AgentContinuationSource
+  expectedContinuationDigest?: string
+  nativeForkSource?: AgentContinuationSource & { expectedForkDigest: string }
   ciJob?: AgentCiJob
   resumeRunId?: string
   expectedJobId?: string
@@ -173,6 +223,8 @@ export interface AgentStart {
   readOnly?: boolean
   expectedModel?: PiModel
   allowCommands?: boolean
+  commandExecution?: PiCommandExecution
+  hostExecutionConfirmed?: boolean
 }
 export interface RunActivity {
   runId: string
@@ -364,6 +416,16 @@ export function getAgentContinuation(specId: string, source: AgentContinuationSo
   const query = new URLSearchParams({ runId: source.runId, jobId: source.jobId })
   return apiRequest<AgentContinuation>(`/api/specs/${encodeURIComponent(specId)}/agent-continuation?${query}`, { signal })
 }
+function continuationDraftPath(specId: string) {
+  return `/api/specs/${encodeURIComponent(specId)}/agent-continuation/draft`
+}
+export const previewAgentContinuationDraft = (specId: string, input: AgentContinuationDraftInput, signal: AbortSignal) =>
+  apiRequest<AgentContinuationDraftPreview>(continuationDraftPath(specId), { body: { ...input, previewOnly: true }, signal })
+export const generateAgentContinuationDraft = (
+  specId: string, input: AgentContinuationDraftInput, expectedPreviewDigest: string, signal: AbortSignal
+) => apiRequest<{ draft: string }>(continuationDraftPath(specId), {
+  body: { ...input, expectedPreviewDigest }, signal, retryUncertain: false
+})
 export const previewAgentCiJob = (
   specId: string, body: { projectId: string; linkId: string; jobRef: string }, signal?: AbortSignal
 ) => apiRequest<AgentCiPreview>(`/api/specs/${encodeURIComponent(specId)}/agent-ci-job/preview`, { body, signal })
@@ -384,7 +446,7 @@ export function getAgentSessionPage(
   return apiRequest<AgentSessionPage>(`/api/specs/${encodeURIComponent(specId)}/agent-sessions?${query}`, { signal })
 }
 export const getAgentRounds = (id: string, signal?: AbortSignal) =>
-  apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[]; roundCiJobs?: Record<string, AgentCiEvidence> }>(
+  apiRequest<{ rounds: JobRecord[]; snapshotJobIds?: string[]; roundCiJobs?: Record<string, AgentCiEvidence>; roundActions?: Record<string, AgentRoundActions> }>(
     `/api/agent/${encodeURIComponent(id)}/rounds`, { signal }
   )
 export interface LocalProjectTaskInput {

@@ -2,19 +2,16 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Textarea } from '@/components/ui/textarea'
 import { computed, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import ModalDialog from '@/components/ModalDialog.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
 import ProgressSummary from '@/components/ProgressSummary.vue'
 import LifecycleOverview from './components/LifecycleOverview.vue'
 import DraftNotice from '@/components/DraftNotice.vue'
@@ -23,13 +20,11 @@ import ExternalLinks from '@/components/ExternalLinks.vue'
 import { provideSpecDetailWorkbench } from '@/hooks/useSpecDetailWorkbench'
 import {
   stages,
-  statuses,
   healthLabels,
   dateLabel,
   contentStatuses,
   errorMessage,
-  type Stage,
-  type Status
+  type Stage
 } from '@/services/workbench'
 import { useSpecEditor } from './hooks/useSpecEditor'
 import SourcePreview from './components/SourcePreview.vue'
@@ -69,12 +64,10 @@ const tab = computed({
     tabs.some((item) => item.id === route.query.tab) ? String(route.query.tab) : 'overview',
   set: (value) => setQuery({ tab: value === 'overview' ? undefined : value })
 })
-const editOpen = shallowRef(false)
 const resourceEdit = shallowRef(false)
 const personalLifecycleOpen = shallowRef(false)
 const showEditor = computed(() =>
   tab.value === 'settings' ||
-  (tab.value === 'overview' && editOpen.value) ||
   (tab.value === 'resources' && resourceEdit.value)
 )
 const {
@@ -92,8 +85,11 @@ const {
   decide,
   allowLeave,
   drafts,
+  recoverableDrafts,
+  recoveryConflict,
   restoreDraft,
   cancelRecovery,
+  clearConflict,
   conflict,
   resolveConflict
 } = useSpecEditor(
@@ -143,7 +139,6 @@ const editBusy = computed(() =>
 watch(
   () => route.params.specId,
   () => {
-    editOpen.value = false
     resourceEdit.value = false
     personalLifecycleOpen.value = false
     copyNotice.value = ''
@@ -202,9 +197,6 @@ async function copyPath(path: string) {
       <div>
         <h1>{{ spec.record.title }}</h1>
         <div class="inline-meta">
-          <span class="muted">个人标记</span>
-          <StatusBadge :status="spec.record.status" />
-          <span>{{ stages[spec.record.stage] }}</span>
           <Badge variant="secondary">{{ contentStatuses[spec.content.status] }}</Badge>
           <span v-if="!spec.record.active">已停用</span>
           <span v-if="dirty" class="warning-text">有未保存修改</span>
@@ -270,8 +262,8 @@ async function copyPath(path: string) {
         v-if="draft && !initializing && !savingSpec"
         :status="drafts.status.value"
         :error="drafts.error.value"
-        :drafts="drafts.recoverable.value"
-        :conflict="drafts.recoveryConflict.value"
+        :drafts="recoverableDrafts"
+        :conflict="recoveryConflict"
         @merge="drafts.mergeRecovered"
         @cancel-recovery="cancelRecovery"
         @restore="restoreDraft"
@@ -280,10 +272,10 @@ async function copyPath(path: string) {
       <ConflictResolver
         v-if="conflict && draft"
         :base="conflict.base"
-        :local="{ ...draft }"
+        :local="draft"
         :current="conflict.current"
         @resolve="resolveConflict"
-        @close="conflict = undefined"
+        @close="clearConflict"
       />
       <Alert v-if="error" role="alert" class="notice error">
         {{ error }}
@@ -291,77 +283,6 @@ async function copyPath(path: string) {
       </Alert>
       <p v-if="notice" role="status" class="notice">{{ notice }}</p>
       <TabsContent value="overview" as="section">
-        <section class="focus-summary">
-          <div>
-            <h2>下一步</h2>
-            <p class="preserve-lines">{{ spec.record.nextAction || '尚未填写下一步' }}</p>
-            <p v-if="spec.record.blocker" class="warning-text preserve-lines">
-              阻塞说明 · {{ spec.record.blocker }}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            :aria-expanded="editOpen"
-            @click="editOpen = !editOpen"
-          >
-            {{ editOpen ? '收起编辑' : '编辑个人标记' }}
-          </Button>
-        </section>
-        <LoadingSkeleton v-if="tab === 'overview' && editOpen && initializing" variant="form" :rows="3" label="正在准备个人标记…" />
-        <form
-          v-else-if="editOpen && draft && !drafts.recoveryConflict.value"
-          class="platform-section form-stack"
-          aria-label="个人标记"
-          @submit.prevent="save"
-        >
-          <div class="form-grid">
-            <label>
-              当前关注阶段
-              <SingleSelect
-                :model-value="draft.stage"
-                :options="Object.entries(stages).map(([value, label]) => ({ value, label }))"
-                aria-label="当前关注阶段"
-                @update:model-value="draft.stage = $event as Stage"
-              />
-            </label>
-            <label>
-              个人状态
-              <SingleSelect
-                :model-value="draft.status"
-                :options="Object.entries(statuses).map(([value, label]) => ({ value, label }))"
-                aria-label="个人状态"
-                @update:model-value="draft.status = $event as Status"
-              />
-            </label>
-          </div>
-          <label>
-            下一步
-            <Input v-model="draft.nextAction" name="nextAction" />
-          </label>
-          <label>
-            阻塞说明{{ draft.status === 'blocked' ? '（必填）' : '' }}
-            <Textarea
-              v-model="draft.blocker"
-              name="blocker"
-              :required="draft.status === 'blocked'"
-              rows="3"
-            />
-          </label>
-          <label>
-            待决备注
-            <Textarea v-model="draft.notes" name="notes" rows="3" />
-          </label>
-          <div class="form-actions">
-            <Button type="button" variant="outline" :disabled="editBusy" @click="reload">
-              重新载入
-            </Button>
-            <Button :disabled="editBusy || !dirty">
-              <LoadingIndicator :active="savingSpec" />
-              {{ savingSpec ? '正在保存…' : '保存标记' }}
-            </Button>
-          </div>
-        </form>
         <div class="notice source-strip" :class="{ warning: spec.sourceHealth !== 'available' }">
           <span>{{ healthLabels[spec.sourceHealth] }}</span>
           <span>文件修改 {{ dateLabel(spec.sourceModifiedAt) }}</span>
@@ -431,7 +352,7 @@ async function copyPath(path: string) {
               v-if="(tab === 'lifecycle' && personalLifecycleOpen) || stageDirty"
               :key="spec.record.id"
               :spec-id="spec.record.id"
-              :initial-stage="selectedStage"
+              :initial-stage="selectedStage ?? progress?.primaryStage"
               :confirm-leave="allowLeave"
               @select="setQuery({ stage: $event })"
               @dirty="stageDirty = $event"
@@ -464,7 +385,7 @@ async function copyPath(path: string) {
         </div>
         <LoadingSkeleton v-if="tab === 'resources' && resourceEdit && initializing" variant="form" :rows="3" label="正在准备个人资源…" />
         <form
-          v-else-if="resourceEdit && draft && !drafts.recoveryConflict.value"
+          v-else-if="resourceEdit && draft && !recoveryConflict"
           class="platform-section form-stack"
           aria-label="编辑个人资源"
           @submit.prevent="save"
@@ -493,7 +414,7 @@ async function copyPath(path: string) {
       <TabsContent value="settings" as="section">
         <LoadingSkeleton v-if="initializing && tab === 'settings'" variant="form" :rows="3" label="正在读取关联设置…" />
         <form
-          v-else-if="draft && !drafts.recoveryConflict.value"
+          v-else-if="draft && !recoveryConflict"
           class="platform-section form-stack"
           aria-label="Spec 关联设置"
           @submit.prevent="save"
@@ -630,18 +551,6 @@ async function copyPath(path: string) {
   flex-wrap: wrap;
   margin: -6px 0 16px;
 }
-.focus-summary {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  margin: 0 0 20px;
-  padding: 0 0 20px;
-  border-bottom: 1px solid var(--yss-colors-border);
-}
-.focus-summary p {
-  margin-top: 7px;
-}
 .resource-shortcuts {
   display: flex;
   align-items: center;
@@ -656,10 +565,6 @@ async function copyPath(path: string) {
   color: #315dcf;
 }
 @media (width < 720px) {
-  .focus-summary {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
   .spec-origin > button {
     min-height: 44px;
   }

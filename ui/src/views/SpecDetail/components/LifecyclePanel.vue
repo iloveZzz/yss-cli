@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert } from '@/components/ui/alert'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
 import { computed, nextTick, ref, shallowRef, watch, onBeforeUnmount, useId, toRaw } from 'vue'
@@ -46,14 +45,12 @@ const error = shallowRef('')
 const openingStage = shallowRef<Stage>()
 const restoring = shallowRef(false)
 const submitting = shallowRef(false)
-const focusing = shallowRef(false)
-const busy = computed(() => saving.value || submitting.value || restoring.value || focusing.value)
+const busy = computed(() => saving.value || submitting.value || restoring.value)
 const notice = shallowRef('')
 const selected = shallowRef<Stage>(
   props.initialStage && props.initialStage !== 'unmarked' ? props.initialStage : 'research'
 )
 const open = shallowRef(false)
-const focusAfter = shallowRef(false)
 type StageDraft = Omit<StageRecord, 'updatedAt'>
 const draft = ref<StageDraft>({
   specId: props.specId,
@@ -116,9 +113,8 @@ function cancelRecovery() {
 }
 watch(dirty, (value) => emit('dirty', value), { flush: 'sync' })
 watch(
-  [() => props.initialStage, () => spec.value?.record.stage],
-  ([initialStage, currentStage]) => {
-    const stage = initialStage ?? currentStage
+  () => props.initialStage,
+  (stage) => {
     selected.value = stage && stage !== 'unmarked' ? stage : 'research'
   },
   { immediate: true }
@@ -158,7 +154,6 @@ async function edit(stage = selected.value) {
   conflict.value = undefined
   expectedTarget = ''
   restoreTarget = undefined
-  focusAfter.value = false
   try {
     const target = await getTarget<StageDraft>({ kind: 'setStageRecord', ...values })
     if (own !== generation) return
@@ -175,22 +170,6 @@ async function edit(stage = selected.value) {
     if (own === generation) error.value = errorMessage(cause)
   } finally {
     if (own === generation) openingStage.value = undefined
-  }
-}
-async function focus(stage = selected.value) {
-  if (focusing.value || openingStage.value) return
-  const own = generation
-  focusing.value = true
-  const action = { kind: 'setWorkStage' as const, entity: 'spec' as const, id: props.specId, stage }
-  try {
-    const target = await getTarget(action)
-    if (own !== generation) return
-    await submit(action, snapshot.value?.revision, target.token)
-    if (own === generation) emit('saved')
-  } catch (cause) {
-    if (own === generation) error.value = errorMessage(cause)
-  } finally {
-    if (own === generation) focusing.value = false
   }
 }
 async function save() {
@@ -226,8 +205,6 @@ async function save() {
     }
     if (own !== generation) return
     emit('saved')
-    if (focusAfter.value) await focus(submitted.stage)
-    if (own !== generation) return
     if (!canAdopt) {
       error.value = '阶段已保存。读取到更新的阶段记录，请合并本次新增输入。'
       conflict.value = {
@@ -318,9 +295,6 @@ async function close() {
                 >
                   {{ stages[node.stage] }}
                 </Button>
-                <span v-if="spec.record.stage === node.stage" class="row-sub focus-label">
-                  当前关注
-                </span>
               </TableHead>
               <TableCell class="stage-progress">
                 <span :data-progress="node.record?.progress ?? 'unmarked'">
@@ -362,25 +336,15 @@ async function close() {
                 <span v-else class="muted">—</span>
               </TableCell>
               <TableCell>
-                <div class="inline-actions stage-actions">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    :disabled="!enabled || busy || !!openingStage"
-                    @click="edit(node.stage)"
-                  >
-                    <LoadingIndicator :active="openingStage === node.stage" />
-                    {{ openingStage === node.stage ? '正在读取…' : '记录' }}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    :disabled="!enabled || busy || !!openingStage || spec.record.stage === node.stage"
-                    @click="focus(node.stage)"
-                  >
-                    设为关注
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  :disabled="!enabled || busy || !!openingStage"
+                  @click="edit(node.stage)"
+                >
+                  <LoadingIndicator :active="openingStage === node.stage" />
+                  {{ openingStage === node.stage ? '正在读取…' : '记录' }}
+                </Button>
               </TableCell>
             </TableRow>
           </TableBody>
@@ -437,10 +401,6 @@ async function close() {
           />
         </label>
         <ResourceEditor v-model="draft.resources" />
-        <label class="check-label">
-          <Checkbox :model-value="focusAfter" @update:model-value="focusAfter = $event === true" name="focusAfter" />
-          同时设为当前关注阶段
-        </label>
       </fieldset>
       <p v-if="notice" role="status">{{ notice }}</p>
       <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
@@ -549,9 +509,5 @@ async function close() {
 }
 .stage-resources a {
   color: #315dcf;
-}
-.stage-actions {
-  flex-wrap: nowrap;
-  gap: 4px;
 }
 </style>

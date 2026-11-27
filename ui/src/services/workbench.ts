@@ -48,6 +48,35 @@ export class ApiError extends Error {
     super(message)
   }
 }
+
+export interface ErrorFeedback {
+  message: string
+  hint?: string
+}
+
+export function errorFeedback(error: unknown): ErrorFeedback {
+  const message = error instanceof Error ? error.message : '操作失败'
+  if (!(error instanceof ApiError)) return { message }
+  const { hint, kind, entryId } = error.context
+  const withEntry = (text: string) =>
+    typeof entryId === 'string' && entryId.trim() ? `${entryId}：${text}` : text
+  if (typeof hint === 'string' && hint.trim()) return { message: withEntry(message), hint }
+  if (message === '文件操作失败') {
+    if (kind === 'NotFound') {
+      return {
+        message: withEntry('找不到文件或目录'),
+        hint: '核对所选位置。如果目录已移动，请使用新的本机路径。'
+      }
+    }
+    if (kind === 'PermissionDenied') {
+      return {
+        message: withEntry('没有权限访问文件或目录'),
+        hint: '确认启动工作台的账号有权访问所选位置，再重新操作。'
+      }
+    }
+  }
+  return { message: withEntry(message) }
+}
 export function sessionHeaders(): Record<string, string> {
   if (expired.value) throw new ApiError('会话无效，请从终端重新打开完整工作台链接。', 401)
   return { Authorization: `Bearer ${token}` }
@@ -225,12 +254,22 @@ export async function apiRequest<T>(
         signal: options.signal,
         priority: options.priority
       })
-      const value = response.status === 204 ? undefined : await response.json()
-      if (!response.ok) {
+      if (response.status === 401) {
+        expired.value = true
+        sessionStorage.removeItem('workbench.token')
+      }
+      const value = response.status === 204 ? undefined : await response.json().catch((cause: unknown) => {
+        if (intent || options.signal?.aborted) throw cause
         if (response.status === 401) {
-          expired.value = true
-          sessionStorage.removeItem('workbench.token')
+          throw new ApiError('会话已失效', 401, {
+            hint: '请从终端或桌面应用重新打开工作台。'
+          })
         }
+        throw new ApiError('工作台返回了无法读取的响应', response.status, {
+          hint: '确认当前页面来自运行中的工作台。如果刚提交过修改，先查看是否已保存。'
+        })
+      })
+      if (!response.ok) {
         const recovery =
           String(value?.error?.code ?? '')
             .replace(/[_-]/g, '')
@@ -265,7 +304,14 @@ export async function apiRequest<T>(
         }
         throw cause
       }
-      if (!intent) throw cause
+      if (!intent) {
+        if (cause instanceof TypeError && !options.signal?.aborted) {
+          throw new ApiError('无法连接工作台服务', 0, {
+            hint: '确认服务仍在运行。若刚提交过修改，重新打开工作台后先核对保存结果。'
+          })
+        }
+        throw cause
+      }
       if (attempt + 1 < attempts && !options.signal?.aborted) continue
       intent.status = 'uncertain'
       publishPending()
@@ -305,8 +351,10 @@ export const discoverSpecs = (
 ) => request<DiscoverResult>('/api/discover', body, signal)
 export const loadSource = (id: string, signal?: AbortSignal) =>
   request<SourceDocument>(`/api/specs/${encodeURIComponent(id)}/source`, undefined, signal)
-export const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : '操作失败，请重试'
+export const errorMessage = (error: unknown) => {
+  const { message, hint } = errorFeedback(error)
+  return hint ? `${message} 处理建议：${hint}` : message
+}
 export const dateLabel = (value: string | null) =>
   value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 export const isClosed = (status: Status) => status === 'done' || status === 'canceled'

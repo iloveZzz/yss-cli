@@ -30,14 +30,11 @@ fn start(
     fingerprint: String,
     queued: bool,
 ) -> Result<JobRecord> {
-    validate_start_request(&request, queued)?;
-    if request.carry_files.values().any(|paths| !paths.is_empty()) {
-        return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
-    }
     let spec_id = request.spec_id.clone();
     let run_id = request.resume_run_id.clone();
     let dispatch_id = queued.then(|| request.request_id.clone());
     let expected_goal_version = request.expected_goal_version.clone();
+    let validation = request.clone();
     let worker = manager.clone();
     manager.start_preparing(
         "Pi 会话续办".into(),
@@ -48,7 +45,39 @@ fn start(
             fingerprint,
         },
         move |store, job| {
+            validate_start_request(&validation, queued)?;
+            if validation
+                .carry_files
+                .values()
+                .any(|paths| !paths.is_empty())
+            {
+                return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
+            }
             queue::check_start(store, run_id.as_deref(), dispatch_id.as_deref())?;
+            super::super::agent_scope::check_expected(
+                store,
+                &spec_id,
+                validation.continuation_source.as_ref(),
+                validation.expected_continuation_digest.as_ref(),
+            )?;
+            if validation.native_fork_source.is_some() {
+                let cancel = Cancellation::new();
+                let mut request = validation.clone();
+                let mut target = capture_target(store, &mut request)?;
+                if let Some(fork) =
+                    native_fork::check_expected(store, &request, &target.projects, &cancel)?
+                {
+                    target.protected.extend(fork.git_roots());
+                    let runtime = agent_protocol::prepare_runtime(
+                        &cancel,
+                        &target.protected,
+                        Some(&fork.anchor.model),
+                        None,
+                    )
+                    .map_err(native_fork::runtime_unavailable)?;
+                    native_fork::verify_runtime(&runtime, &fork.anchor)?;
+                }
+            }
             if queued {
                 progress_agent::revalidate_goal(
                     store,
@@ -105,16 +134,6 @@ pub(super) fn capture_target(store: &mut Store, request: &mut AgentStartRequest)
             return Err(invalid(
                 "工程授权须明确包含主 Spec 工程，且每个工程只能指定一次",
             ));
-        }
-        if entries.iter().any(|entry| {
-            entry.expected_head.as_ref().is_some_and(|head| {
-                !matches!(head.len(), 40 | 64)
-                    || !head
-                        .bytes()
-                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-            })
-        }) {
-            return Err(invalid("工程预期 HEAD 须为完整的 Git 提交 SHA"));
         }
         if !request.project_ids.is_empty() {
             request.project_ids.sort();
@@ -193,6 +212,7 @@ pub(super) fn capture_target(store: &mut Store, request: &mut AgentStartRequest)
                     "工程登记路径已变化，请刷新本轮工程范围",
                 )
                 .context("httpStatus", 409)
+                .context("projectScopeChanged", true)
                 .context("projectId", id)
                 .context("expectedRootPath", expected_root)
                 .context("currentRootPath", &project.root_path));
@@ -215,16 +235,25 @@ fn prepare(
     queued: bool,
 ) -> Result<Value> {
     context.cancel.check()?;
-    let (mut target, state, data_dir) = {
+    let (mut target, state, data_dir, fork) = {
         let mut store = lock_store(&context.store)?;
         context.trace("firstLockAcquired");
         let target = capture_target(&mut store, &mut request)?;
+        let fork =
+            native_fork::check_expected(&mut store, &request, &target.projects, &context.cancel)?;
         (
             target,
             store.state().clone(),
             store.data_dir().to_path_buf(),
+            fork,
         )
     };
+    if let Some(prior) = &target.prior {
+        check_resume_session(&state, &data_dir, prior)?;
+        for workspace in &prior.workspaces {
+            agent_workspace::validate_resume(workspace, &context.cancel)?;
+        }
+    }
     sources::read_source(&state, &target.spec.id).map_err(|error| {
         YssError::new(
             ErrorCode::NotReady,
@@ -244,29 +273,34 @@ fn prepare(
         .collect();
     context.trace("gitReady");
     target.protected.extend(roots.iter().map(PathBuf::from));
-    let model = match (&request.selected_model, &target.prior) {
-        (None, Some(run)) => Some(recorded_model(run)?),
-        (selected, _) => selected.clone(),
+    let model = match (&request.selected_model, &target.prior, &fork) {
+        (_, _, Some(fork)) => Some(fork.anchor.model.clone()),
+        (None, Some(run), _) => Some(recorded_model(run)?),
+        (selected, _, _) => selected.clone(),
     };
-    let pi = agent_protocol::require_runtime(&context.cancel, &target.protected, model.as_ref())?;
+    context.set_pi_phase(PiPhase::CheckRuntime)?;
+    let pi = agent_protocol::prepare_runtime(
+        &context.cancel,
+        &target.protected,
+        model.as_ref(),
+        request.allow_commands.then(|| request.command_execution()),
+    )
+    .map_err(|error| {
+        if fork.is_some() {
+            native_fork::runtime_unavailable(error)
+        } else {
+            error
+        }
+    })?;
+    if let Some(fork) = &fork {
+        native_fork::verify_runtime(&pi, &fork.anchor)?;
+    }
     pi.verify_expected(request.expected_model.as_ref())?;
-    pi.verify_thinking(request.thinking_level)?;
-    pi.verify_commands(request.allow_commands)?;
+    pi.verify_commands(request.allow_commands, request.command_execution())?;
     context.trace("runtimeReady");
 
+    context.set_pi_phase(PiPhase::PrepareWorkspace)?;
     let citations = if let Some(prior) = &target.prior {
-        let cwd = session_project_cwd(&target.spec.project_id, prior)?;
-        if !prior.pi_session.as_ref().is_some_and(|session| {
-            agent_protocol::session_available(&data_dir, &prior.id, &cwd, session)
-        }) {
-            return Err(
-                YssError::new(ErrorCode::NotReady, "原 Pi 会话不可用，请从 Spec 新建会话")
-                    .context("httpStatus", 409),
-            );
-        }
-        for workspace in &prior.workspaces {
-            agent_workspace::validate_resume(workspace, &context.cancel)?;
-        }
         verify_citation_contents(prior, &request.citations, &context.cancel, &|descriptor| {
             frozen_bytes(&*lock_store(&context.store)?, descriptor)
         })?
@@ -289,12 +323,16 @@ fn prepare(
         )
         .context("progressBinding", true));
     }
-    let binding = progress_agent::select_snapshot_binding(
-        &snapshot,
-        &target.spec.id,
-        request.lifecycle_stage,
-        request.expected_goal_version.as_deref(),
-    )?;
+    let binding = if fork.is_some() {
+        None
+    } else {
+        progress_agent::select_snapshot_binding(
+            &snapshot,
+            &target.spec.id,
+            request.lifecycle_stage,
+            request.expected_goal_version.as_deref(),
+        )?
+    };
     context.trace("materialsReady");
     manager.reserve_agent_roots(&context, roots, |store| {
         context.trace("reservationLockAcquired");
@@ -329,7 +367,7 @@ fn prepare(
         request,
         target.projects,
         target.prior,
-        &pi,
+        pi,
         (citations, binding, queued),
         target.spec,
     )

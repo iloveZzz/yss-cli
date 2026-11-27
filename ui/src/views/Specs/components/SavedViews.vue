@@ -4,14 +4,15 @@ import { computed, nextTick, shallowRef, useId } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
-import { ApiError, errorMessage, type WorkQuery, type Layout, type GroupBy, type SavedView } from '@/services/workbench'
+import { ApiError, errorMessage, type WorkQuery, type SavedView } from '@/services/workbench'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { Button } from '@/components/ui/button'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-const props = defineProps<{ query: WorkQuery; layout: Layout; groupBy: GroupBy; viewId?: string }>()
+import { savedSpecQuery } from '../schemas/filter'
+const props = defineProps<{ query: WorkQuery; viewId?: string }>()
 const emit = defineEmits<{ apply: [view: SavedView]; removed: [] }>()
 const { submit, saving } = useWorkbench()
 const { catalog, refreshCatalog, catalogLoading } = useWorkbenchCatalog()
@@ -27,19 +28,16 @@ const views = computed(() => catalog.value?.savedViews.filter((view) => view.que
 const current = computed(() => views.value.find((view) => view.id === props.viewId))
 let revision = 0
 let submittedQuery: WorkQuery
-let submittedLayout: Layout
-let submittedGroup: GroupBy
-const changed = computed(() => current.value && (
-  (Object.keys(props.query) as (keyof WorkQuery)[]).some((key) =>
-    JSON.stringify(current.value?.query[key]) !== JSON.stringify(props.query[key])) ||
-  current.value.layout !== props.layout || current.value.groupBy !== props.groupBy
-))
+const changed = computed(() => {
+  if (!current.value) return false
+  const saved = savedSpecQuery(current.value)
+  return (Object.keys(props.query) as (keyof WorkQuery)[]).some((key) =>
+    JSON.stringify(saved[key]) !== JSON.stringify(props.query[key]))
+})
 function begin(update: boolean, remove = false) {
   if (!catalog.value) return
   revision = catalog.value.revision
   submittedQuery = structuredClone(props.query)
-  submittedLayout = props.layout
-  submittedGroup = props.groupBy
   editing.value = update ? current.value?.id ?? null : null
   name.value = update ? current.value?.name ?? '' : ''
   error.value = ''
@@ -80,7 +78,7 @@ async function save() {
     } else {
       const result = await submit({
         kind: 'saveView', viewId: editing.value, name: name.value, query: submittedQuery,
-        layout: submittedLayout, groupBy: submittedGroup
+        layout: 'list', groupBy: 'status'
       }, revision, undefined, refreshCatalog)
       if (result.viewId && !applySaved(result.viewId)) {
         committedView.value = result.viewId
@@ -141,7 +139,7 @@ async function runMenuAction() {
  <ModalDialog v-model="open" :title="removing?'移除保存的视图':'保存当前视图'" :busy="saving">
   <form class="form-stack" @submit.prevent="save">
    <p v-if="removing">仅移除这条查询收藏，保留所有 Spec 和历史。</p>
-   <template v-else><label :for="id+'name'">视图名称</label><Input :id="id+'name'" v-model="name" required maxlength="80" /><p class="muted">保存当前查询、列表／看板布局及分组方式。</p></template>
+   <template v-else><label :for="id+'name'">视图名称</label><Input :id="id+'name'" v-model="name" required maxlength="80" /><p class="muted">保存当前筛选和排序。</p></template>
    <Alert v-if="error" class="notice error" role="alert">{{ error }}</Alert>
    <Button v-if="stale" type="button" variant="outline" :disabled="catalogLoading" @click="reloadBase">采用最新记录，保留输入</Button>
    <Button v-if="committedView" type="button" variant="outline" :disabled="catalogLoading" @click="rereadSaved">重读视图</Button>

@@ -8,7 +8,7 @@ import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useDelayedBusy } from '@/hooks/useDelayedBusy'
 import { ApiError, dateLabel, errorMessage } from '@/services/workbench'
-import { getJobActivities, type ActivityPage } from '@/services/workbench-platform'
+import { getJobActivities, piCommandExecutionLabels, type ActivityPage, type JobActivity } from '@/services/workbench-platform'
 import { activityFailed, activityLabels, stepResult } from '../schemas/job'
 import ActivityDetail from './ActivityDetail.vue'
 import RawJobEvents from './RawJobEvents.vue'
@@ -38,6 +38,9 @@ const activityRetry = shallowRef(0)
 const page = computed(() => history.value ?? frozen.value ?? props.latest)
 const following = computed(() => !history.value && !frozen.value)
 const rows = computed(() => page.value?.items ?? [])
+function activityLabel(row: JobActivity) {
+  return row.commandExecution ? piCommandExecutionLabels[row.commandExecution] : activityLabels[row.kind]
+}
 let controller: AbortController | undefined
 onBeforeUnmount(() => controller?.abort())
 async function navigate(nextBounds: number[], activityId?: number | null, knownPage?: ActivityPage) {
@@ -234,7 +237,7 @@ function summary(text: string, command: boolean) {
                     dateLabel(row.createdAt).split(' ').at(-1)
                   }}</time>
                 </TableCell>
-                <TableHead scope="row">{{ activityLabels[row.kind] }}</TableHead>
+                <TableHead scope="row">{{ activityLabel(row) }}</TableHead>
                 <TableCell class="summary-cell">
                   <Button
                     type="button"
@@ -244,7 +247,7 @@ function summary(text: string, command: boolean) {
                     :aria-controls="`${detailId}-${row.id}`"
                     :aria-disabled="busy"
                     :aria-expanded="open === row.id"
-                    :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabels[row.kind]}：${(row.displayPath || row.text).slice(0, 80)}`"
+                    :aria-label="`${open === row.id ? '收起' : '展开'}${activityLabel(row)}：${(row.displayPath || row.text).slice(0, 80)}`"
                     @click="!busy && toggle(row.id)"
                   >
                     <span aria-hidden="true" class="chevron">{{ open === row.id ? '▾' : '▸' }}</span>

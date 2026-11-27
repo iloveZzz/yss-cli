@@ -99,7 +99,8 @@ export function conversationEvent(
       displayPath: text(payload.displayPath) || undefined,
       error: text(payload.error) || undefined,
       errorCode: text(payload.errorCode) || undefined,
-      hint: text(payload.hint) || undefined
+      hint: text(payload.hint) || undefined,
+      commandExecution: payload.commandExecution === 'host' || payload.commandExecution === 'sandbox' ? payload.commandExecution : undefined
     }
   }
   const itemId = text(item.id) || text(payload.itemId)
@@ -142,6 +143,7 @@ export function conversationEvent(
     const status = text(item.status) || (event.kind === 'item/started' ? 'inProgress' : 'completed')
     const previous = find('command', itemId)
     const details: Partial<JobActivity> = { status }
+    if (item.commandExecution === 'host' || item.commandExecution === 'sandbox') details.commandExecution = item.commandExecution
     if (typeof item.exitCode === 'number') details.exitCode = item.exitCode
     const signal = objectValue(item.terminationSignal)
     if (typeof signal.number === 'number' && Number.isInteger(signal.number) && signal.number > 0) {
