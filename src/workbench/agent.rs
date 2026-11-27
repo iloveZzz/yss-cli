@@ -1208,7 +1208,7 @@ fn verify_repository_keys(
 pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result<JobRecord> {
     validate_start_request(&request, false)?;
     let cancel = Cancellation::new();
-    let (projects, prior, spec, title, mut protected, fork) = {
+    let (projects, prior, spec, title, mut protected, fork_target) = {
         let mut store = lock_store(&manager.store)?;
         let admission::Target {
             spec,
@@ -1222,7 +1222,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             request.continuation_source.as_ref(),
             request.expected_continuation_digest.as_ref(),
         )?;
-        let fork = native_fork::check_expected(&mut store, &request, &projects, &cancel)?;
+        let fork = native_fork::capture_expected(&mut store, &request, &projects)?;
         let digest = Sha256::of(&serde_json::to_vec(&request).map_err(|e| invalid(e.to_string()))?);
         let title = format!("Spec 续办 · {} · {}", spec.title, &digest.as_str()[..8]);
         sources::read_source(store.state(), &spec.id).map_err(|error| {
@@ -1241,6 +1241,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         }
         (projects, prior, spec, title, protected, fork)
     };
+    let fork = native_fork::verify_expected(fork_target, &request, &cancel)?;
     let roots: Vec<_> = projects
         .iter()
         .map(|(_, path)| {
@@ -1289,7 +1290,6 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
     let continuation_source = request.continuation_source.clone();
     let expected_continuation_digest = request.expected_continuation_digest.clone();
     let queued_run = request.resume_run_id.clone();
-    let fork_validation = fork.is_some().then(|| request.clone());
     manager.start_checked(
         "agent".into(),
         title,
@@ -1303,8 +1303,8 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                 continuation_source.as_ref(),
                 expected_continuation_digest.as_ref(),
             )?;
-            if let Some(validation) = &fork_validation {
-                native_fork::check_expected(store, validation, &verified_projects, &cancel)?;
+            if let Some(fork) = &fork {
+                fork.recheck_source(store, &spec.id)?;
                 job.agent_run_id = Some(job.id.clone());
                 job.agent_spec_id = Some(spec.id.clone());
             }
@@ -1337,7 +1337,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             } else {
                 Vec::new()
             };
-            let binding = if fork_validation.is_some() {
+            let binding = if fork.is_some() {
                 None
             } else {
                 progress_agent::select_binding(
@@ -1352,7 +1352,12 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             job.pi_phase = Some(PiPhase::PrepareWorkspace);
             job.pi_phase_at = Some(phase_at.clone());
             job.updated_at = phase_at;
-            Ok((verified_citations, binding, false))
+            Ok(PreparedRun {
+                citations: verified_citations,
+                binding,
+                queued: false,
+                fork,
+            })
         },
         move |context, admission| {
             execute(
@@ -1718,26 +1723,40 @@ fn local_task_results(store: &mut Store, run_id: &str, source_job_id: &str) -> R
         .collect())
 }
 
+struct PreparedRun {
+    citations: Vec<Value>,
+    binding: Option<RoundBinding>,
+    queued: bool,
+    fork: Option<native_fork::Verified>,
+}
+
 fn execute(
     context: JobContext,
     request: AgentStartRequest,
     projects: Vec<(String, String)>,
     prior: Option<AgentRun>,
     pi: PiRuntime,
-    admission: (Vec<Value>, Option<RoundBinding>, bool),
+    admission: PreparedRun,
     expected_spec: SpecRecord,
 ) -> Result<Value> {
-    let (citations, binding, queued) = admission;
+    let PreparedRun {
+        citations,
+        binding,
+        queued,
+        fork,
+    } = admission;
     let command_execution = request.command_execution();
     let at = sources::now();
     let resumed = prior.is_some();
     let previous_job_id = prior.as_ref().map(|run| run.job_id.clone());
+    if let Some(fork) = &fork {
+        native_fork::verify_runtime(&pi, &fork.anchor)?;
+    }
     let mut store = lock_store(&context.store)?;
     let spec = sources::spec(store.state(), &request.spec_id)?.clone();
     check_spec_binding(&spec, &expected_spec)?;
-    let fork = native_fork::check_expected(&mut store, &request, &projects, &context.cancel)?;
     if let Some(fork) = &fork {
-        native_fork::verify_runtime(&pi, &fork.anchor)?;
+        fork.recheck_source(&mut store, &spec.id)?;
     }
     let continuation = super::agent_scope::continuation(
         &mut store,

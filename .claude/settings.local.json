@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/zhudaoming/Projects/yss-spec-project-template status --short)"
+    ]
+  }
+}

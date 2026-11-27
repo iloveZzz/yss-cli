@@ -332,6 +332,7 @@ export interface AgentProjectCandidate extends AgentProject {
   branch: string | null
   head: string | null
   repositoryKey?: string | null
+  repositoryGroupKey?: string | null
 }
 export interface AgentHomeEntry {
   id: string

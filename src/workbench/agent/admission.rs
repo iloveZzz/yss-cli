@@ -60,24 +60,6 @@ fn start(
                 validation.continuation_source.as_ref(),
                 validation.expected_continuation_digest.as_ref(),
             )?;
-            if validation.native_fork_source.is_some() {
-                let cancel = Cancellation::new();
-                let mut request = validation.clone();
-                let mut target = capture_target(store, &mut request)?;
-                if let Some(fork) =
-                    native_fork::check_expected(store, &request, &target.projects, &cancel)?
-                {
-                    target.protected.extend(fork.git_roots());
-                    let runtime = agent_protocol::prepare_runtime(
-                        &cancel,
-                        &target.protected,
-                        Some(&fork.anchor.model),
-                        None,
-                    )
-                    .map_err(native_fork::runtime_unavailable)?;
-                    native_fork::verify_runtime(&runtime, &fork.anchor)?;
-                }
-            }
             if queued {
                 progress_agent::revalidate_goal(
                     store,
@@ -235,12 +217,11 @@ fn prepare(
     queued: bool,
 ) -> Result<Value> {
     context.cancel.check()?;
-    let (mut target, state, data_dir, fork) = {
+    let (mut target, state, data_dir, fork_target) = {
         let mut store = lock_store(&context.store)?;
         context.trace("firstLockAcquired");
         let target = capture_target(&mut store, &mut request)?;
-        let fork =
-            native_fork::check_expected(&mut store, &request, &target.projects, &context.cancel)?;
+        let fork = native_fork::capture_expected(&mut store, &request, &target.projects)?;
         (
             target,
             store.state().clone(),
@@ -248,6 +229,7 @@ fn prepare(
             fork,
         )
     };
+    let fork = native_fork::verify_expected(fork_target, &request, &context.cancel)?;
     if let Some(prior) = &target.prior {
         check_resume_session(&state, &data_dir, prior)?;
         for workspace in &prior.workspaces {
@@ -358,6 +340,9 @@ fn prepare(
             }
             acceptance::ensure_recovered(store, &acceptance::roots(&current))?;
         }
+        if let Some(fork) = &fork {
+            fork.recheck_source(store, &target.spec.id)?;
+        }
         Ok(())
     })?;
     context.trace("rootsReserved");
@@ -368,7 +353,12 @@ fn prepare(
         target.projects,
         target.prior,
         pi,
-        (citations, binding, queued),
+        PreparedRun {
+            citations,
+            binding,
+            queued,
+            fork,
+        },
         target.spec,
     )
 }

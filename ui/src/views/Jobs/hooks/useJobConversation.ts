@@ -128,9 +128,27 @@ export function useJobConversation(jobId: Readonly<Ref<string>>, trackFirstText?
     firstText.value = { ...detail, receivedAt: mark.startTime }
   }
 
+  function applyTurnMetadata(kind: string, payload: unknown) {
+    const snapshot = page.value
+    if (!snapshot) return
+    const details = objectValue(payload)
+    const mode = details.commandExecution
+    const commandExecution = mode === 'host' || mode === 'sandbox' ? mode : null
+    // An async receipt can open the first snapshot before the run event is persisted.
+    page.value = kind === 'run' ? {
+      ...snapshot,
+      prompt: typeof details.prompt === 'string' ? details.prompt : null,
+      previousJobId: typeof details.previousJobId === 'string' ? details.previousJobId : null,
+      citations: Array.isArray(details.citations) ? details.citations : [],
+      allowCommands: typeof details.allowCommands === 'boolean' ? details.allowCommands : undefined,
+      commandExecution
+    } : { ...snapshot, commandExecution }
+  }
+
   function ingest(event: JobEvent, animate = false) {
     if (cursor === undefined || event.id <= cursor) return
     cursor = event.id
+    if (event.kind === 'run' || event.kind === 'runProjectAccess') applyTurnMetadata(event.kind, event.payload)
     const row = conversationEvent(event, (key) => rows.get(keys.get(key) ?? -1))
     if (row) {
       const previous = rows.get(row.id)

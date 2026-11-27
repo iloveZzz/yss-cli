@@ -393,12 +393,11 @@ pub(in crate::workbench) fn preview(
     }
 }
 
-pub(super) fn check_expected(
+pub(super) fn capture_expected(
     store: &mut Store,
     request: &AgentStartRequest,
     projects: &[(String, String)],
-    cancel: &Cancellation,
-) -> Result<Option<Verified>> {
+) -> Result<Option<Target>> {
     let Some(fork) = &request.native_fork_source else {
         return Ok(None);
     };
@@ -410,6 +409,18 @@ pub(super) fn check_expected(
             "原生分叉必须使用来源轮次的全部原工程",
         ));
     }
+    Ok(Some(target))
+}
+
+pub(super) fn verify_expected(
+    target: Option<Target>,
+    request: &AgentStartRequest,
+    cancel: &Cancellation,
+) -> Result<Option<Verified>> {
+    let Some(fork) = &request.native_fork_source else {
+        return Ok(None);
+    };
+    let target = target.ok_or_else(source_unavailable)?;
     let baselines = target.verify(cancel)?;
     let digest = target.digest(&baselines)?;
     if digest != fork.expected_fork_digest {

@@ -137,6 +137,27 @@ export interface PiRuntimeStatus {
   issue: string | null
   message: string | null
 }
+
+export const piCapabilityLabels: Record<RuntimeCapability['state'], string> = {
+  available: '可用', blocked: '暂不可用', unsupported: '平台不支持'
+}
+
+export function piRuntimeAvailable(runtime: PiRuntimeStatus) {
+  return runtime.capabilities ? runtime.capabilities.pi.state === 'available' : runtime.available
+}
+
+export function piCommandCapability(runtime: PiRuntimeStatus, execution: PiCommandExecution): RuntimeCapability {
+  if (execution === 'sandbox') return runtime.capabilities?.sandbox ?? {
+    state: runtime.sandboxReady ? 'available' : 'blocked',
+    reason: runtime.sandboxMessage ?? null,
+    isolation: 'offline'
+  }
+  return runtime.capabilities?.hostCommands ?? {
+    state: runtime.hostCommandsReady ? 'available' : runtime.hostCommandsSupported ? 'blocked' : 'unsupported',
+    reason: runtime.hostCommandsMessage ?? null,
+    isolation: 'none'
+  }
+}
 export interface SystemInfo {
   version: {
     version: string

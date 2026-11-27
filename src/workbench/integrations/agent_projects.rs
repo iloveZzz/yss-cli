@@ -23,6 +23,7 @@ struct Checkout {
     prefix: String,
     remote: Option<String>,
     repository_key: Option<Sha256>,
+    repository_group_key: Option<Sha256>,
 }
 
 pub(in crate::workbench) fn checkout_origin(
@@ -35,7 +36,10 @@ pub(in crate::workbench) fn checkout_origin(
     if status.success() {
         let origin =
             String::from_utf8(stdout).map_err(|_| sources::invalid("无法核对工程的 Git origin"))?;
-        return Ok(Some(origin.trim_end_matches(['\r', '\n']).to_owned()));
+        let origin = origin.strip_suffix('\n').unwrap_or(&origin);
+        #[cfg(windows)]
+        let origin = origin.strip_suffix('\r').unwrap_or(origin);
+        return Ok(Some(origin.to_owned()));
     }
     let mut command = crate::fs::git::command(root);
     command.arg("remote");
@@ -50,6 +54,13 @@ pub(in crate::workbench) fn checkout_origin(
 }
 
 pub(in crate::workbench) fn repository_key(origin: Option<&str>, prefix: &str) -> Option<Sha256> {
+    let prefix = if prefix.is_empty() { "." } else { prefix };
+    origin.map(|origin| {
+        Sha256::of(format!("pi-origin-v1\n{}\n{origin}{prefix}", origin.len()).as_bytes())
+    })
+}
+
+fn repository_group_key(origin: Option<&str>, prefix: &str) -> Option<Sha256> {
     let prefix = if prefix.is_empty() { "." } else { prefix };
     origin.map(|origin| {
         let remote = remote_identity(origin).unwrap_or_else(|| format!("origin:{origin}"));
@@ -75,6 +86,7 @@ impl Checkout {
             .ok_or_else(|| sources::invalid("工程目录与 Git 根不一致"))?;
         let origin = checkout_origin(&root, cancel)?;
         let repository_key = repository_key(origin.as_deref(), &prefix);
+        let repository_group_key = repository_group_key(origin.as_deref(), &prefix);
         Ok(Self {
             head: baseline.head,
             branch: baseline
@@ -87,6 +99,7 @@ impl Checkout {
             },
             remote: origin.as_deref().and_then(remote_identity),
             repository_key,
+            repository_group_key,
         })
     }
 }
@@ -197,6 +210,7 @@ pub(in crate::workbench) fn agent_projects(
             "branch":checkout.as_ref().and_then(|checkout| checkout.branch.as_deref()),
             "head":checkout.as_ref().map(|checkout| &checkout.head),
             "repositoryKey":checkout.as_ref().and_then(|checkout| checkout.repository_key.as_ref()),
+            "repositoryGroupKey":checkout.as_ref().and_then(|checkout| checkout.repository_group_key.as_ref()),
         }));
         if let Some(checkout) = checkout {
             checkouts.insert(project.id.as_str(), checkout);

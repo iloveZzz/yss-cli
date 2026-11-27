@@ -38,9 +38,12 @@ const project = computed(() => props.projects.find((item) => item.id === project
 const checkout = computed(() => projectCheckout(project.value))
 const checkoutKey = computed(() => JSON.stringify(checkout.value))
 const { externalVersion } = useWorkbench()
+function repositoryGroupKey(project?: AgentProjectCandidate) {
+  return project?.repositoryGroupKey === undefined ? project?.repositoryKey : project.repositoryGroupKey
+}
 const repositoryIds = computed(() => {
-  const key = project.value?.repositoryKey
-  const ids = key ? props.registry.filter((item) => item.active && item.repositoryKey === key).map((item) => item.id) : []
+  const key = repositoryGroupKey(project.value)
+  const ids = key ? props.registry.filter((item) => item.active && repositoryGroupKey(item) === key).map((item) => item.id) : []
   return new Set([projectId.value, ...ids])
 })
 const pipelines = computed(() => links.value.filter((item) =>
