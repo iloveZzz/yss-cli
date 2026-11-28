@@ -345,7 +345,7 @@ pub(super) fn before_prompt(
     prompt: &str,
     cancel: &Cancellation,
 ) -> Result<Capture> {
-    if !native_fork_version_supported(&request.runtime.version) || !is_settled(state) {
+    if !native_fork_version_supported(request.runtime.version.as_ref()) || !is_settled(state) {
         return Err(native_fork_unavailable());
     }
     let session_id = id(&state["sessionId"])?.to_owned();

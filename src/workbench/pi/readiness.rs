@@ -98,26 +98,26 @@ impl ManagedVersionKey {
 
 #[cfg(unix)]
 fn locate_pi() -> Result<PathBuf> {
-    let pi = if let Some(path) = env::var_os("YSS_PI_EXECUTABLE") {
+    if let Some(path) = env::var_os("YSS_PI_EXECUTABLE") {
         let path = PathBuf::from(path);
         if !path.is_absolute() {
             return Err(not_ready("YSS_PI_EXECUTABLE 须使用 Pi 的绝对路径"));
         }
-        Some(path)
-    } else {
-        env::split_paths(&env::var_os("PATH").unwrap_or_default())
-            .filter(|path| path.is_absolute())
-            .map(|path| path.join("pi"))
-            .find(|path| is_executable(path))
-    };
-    pi.and_then(|path| fs::canonicalize(path).ok())
-        .filter(|path| is_executable(path))
-        .ok_or_else(|| {
-            not_ready(&format!(
-                "未找到本机 Pi，请安装受支持的 Pi（{}），或设置 YSS_PI_EXECUTABLE",
-                managed_pi::EXTERNAL_VERSION_LABEL
-            ))
-        })
+        return fs::canonicalize(&path)
+            .ok()
+            .filter(|path| is_executable(path))
+            .ok_or_else(|| {
+                configuration_error(&format!(
+                    "YSS_PI_EXECUTABLE 指向的 Pi 不存在或无法执行：{}",
+                    path.display()
+                ))
+            });
+    }
+    env::split_paths(&env::var_os("PATH").unwrap_or_default())
+        .filter(|path| path.is_absolute())
+        .filter_map(|path| fs::canonicalize(path.join("pi")).ok())
+        .find(|path| is_executable(path))
+        .ok_or_else(|| not_ready("未找到本机 Pi，请安装 Pi 或设置 YSS_PI_EXECUTABLE"))
 }
 
 #[cfg(unix)]
@@ -200,14 +200,7 @@ fn windows_user_pi(
         let Ok(metadata) = serde_json::from_slice::<Value>(&file.bytes) else {
             continue;
         };
-        let version = metadata["version"]
-            .as_str()
-            .and_then(|value| Version::parse(value).ok());
-        if metadata["name"] != "@earendil-works/pi-coding-agent"
-            || !version
-                .as_ref()
-                .is_some_and(managed_pi::supports_external_version)
-        {
+        if metadata["name"] != managed_pi::PACKAGE {
             continue;
         }
         let Some(entry) = metadata["bin"]["pi"].as_str() else {
@@ -271,7 +264,7 @@ fn managed_pi(
     protected: &[PathBuf],
 ) -> Result<(PathBuf, PathBuf, (Version, FileSnapshot))> {
     let tools = managed_pi::directory().ok_or_else(|| not_ready("无法确定桌面版工具目录"))?;
-    let missing = || not_ready("未找到本机 Pi，请安装 Pi 1.6.1");
+    let missing = || not_ready("未找到本机 Pi，请安装 Pi 或设置 YSS_PI_EXECUTABLE");
     let root = match Root::open(&tools) {
         Ok(root) => root,
         Err(_)
@@ -614,10 +607,10 @@ fn check_credentials(
                     .context("piIssue", "credentials"),
             )
         }
-        _ => Err(
-            not_ready("无法检查 Pi 凭证，请核对本机 Pi 的供应商和凭证配置")
-                .context("piIssue", "credentials"),
-        ),
+        _ => Err(not_ready(
+            "Pi 的凭证检查命令未返回可识别的结果，请核对本机 Pi 的运行环境及供应商配置",
+        )
+        .context("piIssue", "credentials")),
     }
 }
 
@@ -764,7 +757,7 @@ struct PiProbe {
     executable: PathBuf,
     entry: Option<PathBuf>,
     config_dir: PathBuf,
-    version: Version,
+    version: Option<Version>,
 }
 
 impl PiProbe {
@@ -853,21 +846,27 @@ impl PiProbe {
                 .lock()
                 .is_ok_and(|current| current.as_ref() == Some(key))
         }) {
-            cached.expected.clone()
+            Some(cached.expected.clone())
         } else {
             if managed_version.is_some() {
                 validate_node(&executable, cancel, &protected)?;
             }
-            let (exit, stdout, _) =
-                process::capture_command(probe, cancel, Duration::from_secs(5))?;
-            let version = std::str::from_utf8(&stdout)
-                .ok()
-                .and_then(|text| Version::parse(text.trim()).ok())
-                .filter(|_| exit.success())
-                .ok_or_else(|| not_ready("Pi 版本探测失败，请检查可执行文件和运行环境"))?;
-            status.version = Some(version.clone());
+            // For a local executable --version is display information; readiness comes from RPC.
+            let version = match process::capture_command(probe, cancel, Duration::from_secs(5)) {
+                Ok((exit, stdout, _)) if exit.success() => std::str::from_utf8(&stdout)
+                    .ok()
+                    .and_then(|text| Version::parse(text.trim().trim_start_matches('v')).ok()),
+                Err(error) if error.code == ErrorCode::Cancelled || managed_version.is_some() => {
+                    return Err(error);
+                }
+                _ => None,
+            };
             if let Some((expected, _)) = managed_version {
-                if version != expected {
+                status.version.clone_from(&version);
+                let actual = version
+                    .as_ref()
+                    .ok_or_else(|| not_ready("受管 Pi 版本探测失败，请检查安装和运行环境"))?;
+                if actual != &expected {
                     return Err(not_ready("受管 Pi 的实际版本与活动记录不一致"));
                 }
                 if let Some(stamp) = stamp
@@ -877,16 +876,10 @@ impl PiProbe {
                 {
                     *current = Some(stamp);
                 }
-            } else if !managed_pi::supports_external_version(&version) {
-                return Err(not_ready(&format!(
-                    "当前检测到 Pi {version}，此平台支持 {}",
-                    managed_pi::EXTERNAL_VERSION_LABEL
-                ))
-                .context("piIssue", "versionUnsupported"));
             }
             version
         };
-        status.version = Some(version.clone());
+        status.version.clone_from(&version);
         Ok(Self {
             private,
             protected,
@@ -1091,7 +1084,7 @@ pub(crate) fn check_runtime(
         None
     } else {
         let state = check_model_status(&probe, status, cancel)?;
-        if native_fork_version_supported(&probe.version) {
+        if native_fork_version_supported(probe.version.as_ref()) {
             native_fork_model_identity(&state).ok()
         } else {
             None

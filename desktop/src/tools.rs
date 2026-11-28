@@ -784,12 +784,7 @@ fn build_status(
         let managed = is_pi && value.get("managed").and_then(Value::as_bool) == Some(true);
         let installed = if matches!(id, ToolId::Pi) {
             executable.is_some()
-                && version.is_some_and(|version| {
-                    managed
-                        || semver::Version::parse(version).is_ok_and(|version| {
-                            yss::workbench::managed_pi::supports_external_version(&version)
-                        })
-                })
+                && (version.is_some() || value["available"].as_bool() == Some(true))
         } else {
             value
                 .get("available")
@@ -927,7 +922,7 @@ pub async fn desktop_install_tool(
                 message: if item.installed {
                     "已检测到该工具，已复用现有安装。".into()
                 } else {
-                    "已发现现有工具但版本探测失败；请先检查现有安装，未执行安装。".into()
+                    item.message.clone().unwrap_or_else(|| "已发现现有工具但无法完成探测，请检查现有安装。".into())
                 },
             });
         }

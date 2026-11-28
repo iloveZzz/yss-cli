@@ -540,7 +540,7 @@ pub(super) fn runtime_unavailable(error: YssError) -> YssError {
 }
 
 pub(super) fn verify_runtime(runtime: &PiRuntime, anchor: &NativeForkAnchor) -> Result<()> {
-    if !native_fork_version_supported(&runtime.version) {
+    if !native_fork_version_supported(runtime.version.as_ref()) {
         return Err(issue(
             ErrorCode::UnsupportedFormat,
             "runtimeUnsupported",

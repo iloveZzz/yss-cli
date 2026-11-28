@@ -93,8 +93,9 @@ pub(crate) const fn native_fork_supported() -> bool {
     cfg!(all(target_os = "macos", target_arch = "aarch64"))
 }
 
-pub(crate) fn native_fork_version_supported(version: &semver::Version) -> bool {
-    native_fork_supported() && *version == semver::Version::new(1, 6, 1)
+pub(crate) fn native_fork_version_supported(version: Option<&semver::Version>) -> bool {
+    native_fork_supported()
+        && version.is_some_and(|version| *version == semver::Version::new(1, 6, 1))
 }
 
 fn native_fork_model_identity(state: &Value) -> Result<Sha256> {
@@ -187,7 +188,7 @@ pub(crate) struct PiRuntime {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     pub(super) command_sandbox: Option<Box<pi::WindowsSandbox>>,
     pub config_dir: PathBuf,
-    pub version: semver::Version,
+    pub version: Option<semver::Version>,
     pub(super) protected: Vec<PathBuf>,
     pub model: Option<PiModel>,
     native_fork_model_identity: Option<Sha256>,
@@ -201,7 +202,7 @@ fn pi_launch_identity(
     executable: &Path,
     node: Option<&Path>,
     directory: &Path,
-    version: &semver::Version,
+    version: Option<&semver::Version>,
 ) -> Option<String> {
     fn stamp(path: &Path) -> Option<Value> {
         let canonical = path.canonicalize().ok()?;
@@ -230,12 +231,12 @@ impl PiRuntime {
             self.entry.as_deref().unwrap_or(&self.executable),
             self.entry.as_ref().map(|_| self.executable.as_path()),
             &self.config_dir,
-            &self.version,
+            self.version.as_ref(),
         )
     }
 
     pub fn verify_native_fork(&self, anchor: &NativeForkAnchor) -> Result<()> {
-        if !native_fork_version_supported(&self.version)
+        if !native_fork_version_supported(self.version.as_ref())
             || !Path::new(NATIVE_FORK_SANDBOX).is_file()
             || self.config_dir != anchor.config_dir
             || !NativeForkConfig::read(&self.config_dir)
@@ -468,7 +469,7 @@ impl RuntimeStatus {
                     Path::new(self.executable.as_deref()?),
                     self.node_executable.as_deref().map(Path::new),
                     Path::new(self.config_dir.as_deref()?),
-                    self.version.as_ref()?,
+                    self.version.as_ref(),
                 )
             })
             .flatten();

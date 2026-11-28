@@ -19,9 +19,9 @@ type DraftText = {
   selected?: string[]
   ciRecovery?: PiCiRecovery
 }
-type StoredDraft = DraftText & { readProjectIds?: string[] }
 type RuntimeVerification = { identity: string; model: PiModel }
 type StoredRuntime = { runtimeReview?: string; verifiedGrok?: RuntimeVerification }
+type StoredDraft = DraftText & StoredRuntime & { readProjectIds?: string[]; sandboxOnly?: boolean }
 type ProjectGrant = { mode: 'read' } | { mode: Exclude<ProjectAccessMode, 'read'>; checkout: PiCheckout }
 export type PiCiRecovery = Omit<AgentCiJob, 'expectedSha'>
 export interface PiCiAttachment {
@@ -39,6 +39,7 @@ export function ciSelection(draft: Pick<PiDraft, 'ciAttachment' | 'ciRecovery'>)
 export interface PiDraft extends DraftText, StoredRuntime {
   selected: string[]
   readOnly: boolean
+  sandboxOnly: boolean
   projectGrants: Record<string, ProjectGrant>
   ciAttachment?: PiCiAttachment
   error: string
@@ -118,7 +119,7 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
 
   function getDraft(id: string) {
     if (!drafts.has(id)) {
-      const stored = read<StoredDraft & StoredRuntime>('draft', id)
+      const stored = read<StoredDraft>('draft', id)
       const text = draftText(stored)
       const selected = text.selected ?? text.handoff?.projectIds
       const readProjectIds = Array.isArray(stored?.readProjectIds) ? stored.readProjectIds : []
@@ -131,7 +132,10 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
         selected: selected ?? [],
         projectGrants: Object.fromEntries(readProjectIds.filter((projectId) => typeof projectId === 'string')
           .map((projectId) => [projectId, { mode: 'read' }])),
-        readOnly: true, error: ''
+        readOnly: true,
+        // Drafts saved before the host default used the sandbox on reload.
+        sandboxOnly: !!stored && stored.sandboxOnly !== false,
+        error: ''
       })
     }
     return drafts.get(id)!
@@ -143,12 +147,12 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
       const value = drafts.get(id)
       if (!value) continue
       const text = draftText({ ...value, ciRecovery: ciSelection(value) })
-      const { runtimeReview, verifiedGrok } = value
+      const { runtimeReview, verifiedGrok, sandboxOnly } = value
       // Reloading must not raise a restricted draft to the command-enabled default.
       const readProjectIds = Object.keys(value.projectGrants).filter((projectId) => value.projectGrants[projectId].mode !== 'execute')
-      const hasDraft = text.prompt || text.citations.length || text.handoff || text.crossHandoff || text.cli || text.selectedModel || text.ciRecovery || text.selected?.length ||
-        readProjectIds.length || runtimeReview
-      if (!write('draft', id, hasDraft ? { ...text, readProjectIds, runtimeReview, verifiedGrok } : undefined)) ok = false
+      const hasDraft = text.prompt || text.citations.length || text.handoff || text.crossHandoff || text.cli ||
+        text.selectedModel || text.ciRecovery || text.selected?.length || readProjectIds.length || runtimeReview || sandboxOnly
+      if (!write('draft', id, hasDraft ? { ...text, readProjectIds, runtimeReview, verifiedGrok, sandboxOnly } : undefined)) ok = false
     }
     dirty.clear()
     storageIssue.value = ok ? '' : '此标签页无法保存草稿，当前输入仍保留。'
@@ -162,7 +166,7 @@ export function usePiDrafts(key: Readonly<Ref<string>>) {
   watch(() => [key.value, draft.value.prompt, draft.value.citations, draft.value.handoff, draft.value.selected, draft.value.projectGrants,
     draft.value.ciRecovery, draft.value.ciAttachment, draft.value.nativeForkDigest, draft.value.cli,
     draft.value.selectedModel, draft.value.thinkingLevel, draft.value.crossHandoff, draft.value.handoffBinding,
-    draft.value.runtimeReview, draft.value.verifiedGrok] as const, ([id], prior) => {
+    draft.value.runtimeReview, draft.value.verifiedGrok, draft.value.sandboxOnly] as const, ([id], prior) => {
     dirty.add(id)
     if (prior[0] !== id) flushDrafts()
     else void persistSoon()

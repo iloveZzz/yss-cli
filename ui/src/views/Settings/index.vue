@@ -202,7 +202,7 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
                 </TableCell>
                 <TableCell>
                   <p v-if="info.pi.version || info.pi.executable || info.pi.model" class="path-text">
-                    {{ [info.pi.version, info.pi.executable, info.pi.model && `${info.pi.model.provider} / ${info.pi.model.id}`].filter(Boolean).join(' · ') }}
+                    {{ [info.pi.version ?? (info.pi.executable ? '版本未知' : undefined), info.pi.executable, info.pi.model && `${info.pi.model.provider} / ${info.pi.model.id}`].filter(Boolean).join(' · ') }}
                   </p>
                   <p v-if="info.pi.capabilities?.pi.reason || info.pi.message">{{ info.pi.capabilities?.pi.reason || info.pi.message }}</p>
                   <dl v-if="piCapabilities.length" class="grid gap-1">

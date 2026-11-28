@@ -103,7 +103,7 @@ pub(super) struct Session {
     active: bool,
 }
 
-fn protocol(message: &str) -> YssError {
+fn protocol(message: impl Into<String>) -> YssError {
     YssError::new(ErrorCode::UnsupportedFormat, message)
 }
 
@@ -364,7 +364,7 @@ impl Session {
     fn query(&mut self, command: &str, cancel: &Cancellation) -> Result<Value> {
         let data = self.request(command, json!({ "type": command, "id": command }), cancel)?;
         if !data.is_object() {
-            return Err(protocol("Pi 状态或模型查询响应不兼容"));
+            return Err(protocol(format!("Pi RPC {command} 返回的数据格式不兼容")));
         }
         Ok(data)
     }
@@ -399,7 +399,7 @@ impl Session {
                     )
                     .context("piIssue", "modelUnavailable"));
                 }
-                return Err(protocol("Pi 状态或模型查询响应不兼容"));
+                return Err(protocol(format!("Pi RPC {command} 返回的响应不兼容")));
             }
         }
     }

@@ -405,7 +405,7 @@ yss workbench review-materials --input /absolute/material-review.json --request-
 - Spec 信息、问题答复和阶段进度可恢复已保存的本机草稿，并发修改按字段核对合并。内容区提供确认版本差异，旧记录缺少正文基线时保留其原确认历史。
 - “设置 → 备份与恢复”在线生成一致备份，恢复到新的或空的个人数据目录后，按返回命令打开该目录核对。纯 CLI 或旧版的离线完整目录备份步骤见工作台说明。
 
-当前源码的 Pi 运行入口支持 macOS ARM64 与 Windows x64 的基础作业，使用本机 Pi 1.5.2、1.6.0 或 1.6.1。macOS ARM64 也支持本机 Pi 1.7.0。启动和续接表单显示模型、本机凭证和离线命令的检查结果，并提供按需连接测试。Windows 离线命令由 AppContainer、Job Object 和 Node.js 运行检查决定是否开放。Codex 和 Pi 的历史隔离记录可继续审阅及接收成果。远端关联读取采用 gh/glab 的已有认证。完整工作台说明提供界面入口、成果接收、进程与磁盘版本及恢复步骤。[工作台说明](workbench.md)
+当前源码的 Pi 运行入口支持 macOS ARM64 与 Windows x64 的基础作业。工作台探测本机 Pi 的实际运行能力，版本用于诊断。启动和续接表单显示模型、本机凭证和命令能力的检查结果，并提供按需连接测试。Windows 离线命令由 AppContainer、Job Object 和 Node.js 运行检查决定是否开放。Codex 和 Pi 的历史隔离记录可继续审阅及接收成果。远端关联读取采用 gh/glab 的已有认证。完整工作台说明提供界面入口、成果接收、进程与磁盘版本及恢复步骤。[工作台说明](workbench.md)
 
 ### 主 Spec、问题回复与确认（3.4.1 起）
 

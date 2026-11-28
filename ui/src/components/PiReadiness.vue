@@ -160,7 +160,7 @@ onBeforeUnmount(() => request?.abort())
 <template>
   <Alert v-if="active" role="group" aria-label="Pi 运行检查" class="notice pi-readiness grid-cols-1" :class="{ warning: checkError || (status && !piRuntimeAvailable(status)) || testResult?.connected === false }">
     <p class="model-label">
-      <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : 'Pi' }}</Badge>
+      <Badge variant="outline">{{ status?.version ? `Pi ${status.version}` : status?.executable ? 'Pi · 版本未知' : 'Pi' }}</Badge>
       <span v-if="capabilityLabel">基础作业{{ capabilityLabel }}</span>
       <span v-if="visibleModel">
         {{ modelLabel }} · {{ visibleModel.provider }} / {{ visibleModel.id }}

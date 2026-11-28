@@ -11,21 +11,6 @@ use std::{io::ErrorKind, path::PathBuf};
 pub const PACKAGE: &str = "@earendil-works/pi-coding-agent";
 pub const BASELINE: Version = Version::new(1, 6, 1);
 pub const ENTRY: &str = "node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js";
-const EXTERNAL_VERSIONS: [Version; 3] = [
-    Version::new(1, 5, 2),
-    Version::new(1, 6, 0),
-    Version::new(1, 6, 1),
-];
-#[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "windows", target_arch = "x86_64")
-))]
-pub(crate) const EXTERNAL_VERSION_LABEL: &str =
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        "1.5.2、1.6.0、1.6.1 和 1.7.0"
-    } else {
-        "1.5.2、1.6.0 和 1.6.1"
-    };
 const PACKAGE_MANIFEST: &str = "node_modules/@earendil-works/pi-coding-agent/package.json";
 const ACTIVE: &str = "pi-active.json";
 const RELEASE_PREFIX: &str = "pi-release-";
@@ -89,12 +74,6 @@ pub fn supports_update_version(version: &Version) -> bool {
         && *version >= BASELINE
         && version.pre.is_empty()
         && version.build.is_empty()
-}
-
-pub fn supports_external_version(version: &Version) -> bool {
-    EXTERNAL_VERSIONS.contains(version)
-        || (cfg!(all(target_os = "macos", target_arch = "aarch64"))
-            && *version == Version::new(1, 7, 0))
 }
 
 fn release_directory(name: &str) -> Result<RelPath> {

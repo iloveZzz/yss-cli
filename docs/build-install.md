@@ -1,6 +1,6 @@
 # 构建、发行包与安装
 
-当前源码为 Rust CLI `3.19.2`，构建固定 Template 5.19.2。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。构建过程需要 Rust 工具链及目标平台链接工具。yss 二进制包含 CLI、工作台界面和模板资源。macOS ARM64 的 Pi Agent 作业使用独立安装的 Pi 1.5.2、1.6.0、1.6.1 或 1.7.0 及其运行依赖。
+当前源码为 Rust CLI `3.19.2`，构建固定 Template 5.19.2。新建 Backend 默认采用 YSS `4.0.0-SNAPSHOT`、Boot `4.1.2` 和 Java `17`，支持显式版本选择。实际发行产物和验证范围以 GitHub Release 为准。`scaffold frontend` 从 3.3.0 起支持，模板以构建记录中的真实来源为准。工具链为 Rust/Cargo 1.99.1，Cargo.lock 固定依赖。构建过程需要 Rust 工具链及目标平台链接工具。yss 二进制包含 CLI、工作台界面和模板资源。macOS ARM64 和 Windows x64 的 Agent 作业使用本机 Pi 及其运行依赖，实际可用性由工作台探测。
 
 工作台存储使用 `rusqlite` 的 `bundled` 功能，构建时编译并链接随依赖提供的 SQLite C 源码。构建机需要对应目标平台的 C 编译/链接工具；用户运行时不需安装 SQLite 服务、命令行程序或动态库。依赖版本随 `Cargo.lock` 固定，不使用用户机器上的任意 SQLite 版本。
 

@@ -134,22 +134,14 @@ const selectedProjectIds = computed(() => {
   return [...new Set([mainId.value, ...(session.value ? run.value?.projectIds ?? [] : draft.value.selected)])].filter(Boolean)
 })
 const candidates = computed(() => new Map(projectScope.value?.projects.map((project) => [project.id, project])))
-const hostConfirmation = shallowRef<string>()
-const hostConfirmationStale = shallowRef(false)
-const hostScopeKey = computed(() => {
+const hostScope = computed(() => {
+  if (grok.value || (session.value && run.value?.id !== session.value)) return undefined
   const checkouts = sorted(selectedProjectIds.value).map((id) => [id, projectCheckout(candidates.value.get(id))] as const)
   if (!checkouts.length || checkouts.some(([, checkout]) => !checkout)) return undefined
-  return JSON.stringify([draftKey.value, run.value?.jobId, checkouts])
+  return { key: draftKey.value, jobId: session.value ? run.value?.jobId : undefined, checkouts: Object.fromEntries(checkouts) }
 })
-function resetCommandExecution() {
-  hostConfirmation.value = undefined
-  hostConfirmationStale.value = false
-}
-watch(hostScopeKey, () => {
-  if (hostConfirmation.value) hostConfirmationStale.value = true
-  hostConfirmation.value = undefined
-}, { flush: 'sync' })
-watch([draftKey, targetCli], resetCommandExecution, { flush: 'sync' })
+const hostConfirmation = shallowRef<{ scope: NonNullable<typeof hostScope.value>; explicit: boolean }>()
+const hostConfirmationStale = shallowRef(false)
 const staleProjectGrants = computed(() => projectScope.value
   && !nativeForkSelected.value && !grok.value ? Object.entries(draft.value.projectGrants)
     .filter(([id, grant]) => selectedProjectIds.value.includes(id) && grant.mode !== 'read' &&
@@ -161,10 +153,9 @@ const projectGrantIssue = computed(() => staleProjectGrants.value.length
 const projectModes = computed<Record<string, ProjectAccessMode>>({
   get: () => {
     if (nativeForkSelected.value || grok.value) return Object.fromEntries(selectedProjectIds.value.map((id) => [id, 'read' as const]))
-    const sandboxReady = runtimeStatus.value && piCommandCapability(runtimeStatus.value, 'sandbox').state === 'available'
-    const defaultMode = handoffJob.value ? 'read' : sandboxReady ? 'execute' : 'edit'
+    const defaultMainMode = commandUnavailable.value ? 'edit' : 'execute'
     return Object.fromEntries(selectedProjectIds.value.filter((id) => !staleProjectGrants.value.includes(id))
-      .map((id) => [id, draft.value.projectGrants[id]?.mode ?? defaultMode]))
+      .map((id) => [id, draft.value.projectGrants[id]?.mode ?? (id === mainId.value && !handoffJob.value ? defaultMainMode : 'read')]))
   },
   set: (modes) => {
     if (nativeForkSelected.value || grok.value) return
@@ -217,8 +208,8 @@ const ciIssue = computed(() => {
 const handoffBusy = shallowRef('')
 const handoffError = shallowRef('')
 let handoffRequest: AbortController | undefined
-watch([draftKey, nativeForkSelected, hostScopeKey], ([key, selected, checkout], [previousKey, previousSelected, previous]) => {
-  if (key === previousKey && selected && previousSelected && nativeForkReady.value && !handoffBusy.value && previous && checkout !== previous)
+watch([draftKey, nativeForkSelected, hostScope], ([key, selected, checkout], [previousKey, previousSelected, previous]) => {
+  if (key === previousKey && selected && previousSelected && nativeForkReady.value && !handoffBusy.value && previous && !contentEqual(checkout, previous))
     invalidateForkPreview(draft.value, '来源工程检出已变化，请刷新历史摘要并重新选择原生分叉。')
 }, { flush: 'sync' })
 const recoverableDraft = computed(() => {
@@ -255,6 +246,7 @@ async function restoreSubmittedDraft() {
   target.selected = (saved.text.selected ?? []).filter((id) => !scope || scope.projects.some((item) =>
     item.id === id && item.status === 'ready' && item.head))
   target.readOnly = true
+  target.sandboxOnly = true
   resetCommandExecution()
   target.projectGrants = Object.fromEntries([mainId.value, ...target.selected].filter(Boolean)
     .map((id) => [id, { mode: 'read' }]))
@@ -332,13 +324,49 @@ function markRuntimeForReview(key: string, message: string) {
   target.handoffBinding = undefined
   persistDraft(key)
 }
-const hostSelectable = computed(() => !grok.value && !!runtimeStatus.value && piCommandCapability(runtimeStatus.value, 'host').state === 'available' &&
-  !!hostScopeKey.value && !projectBusy.value && !projectError.value)
+const hostReady = computed(() => !!runtimeStatus.value && piCommandCapability(runtimeStatus.value, 'host').state === 'available')
+const hostSelectable = computed(() => hostReady.value && !!hostScope.value && !projectBusy.value && !projectError.value)
+const defaultHostScope = computed(() => hostSelectable.value && !nativeForkSelected.value && !handoffJob.value &&
+  !draft.value.sandboxOnly ? hostScope.value : undefined)
+function resetCommandExecution() {
+  const scope = defaultHostScope.value
+  hostConfirmation.value = scope ? { scope, explicit: false } : undefined
+  hostConfirmationStale.value = false
+}
+watch([draftKey, targetCli], resetCommandExecution, { flush: 'sync' })
+watch([hostScope, defaultHostScope], ([scope, defaultScope]) => {
+  if (grok.value) return
+  const confirmation = hostConfirmation.value
+  if (confirmation && confirmation.scope.key === draftKey.value) {
+    const previous = confirmation.scope
+    // Adding a read-only participant does not change the checkouts already in the default scope.
+    const checkoutChanged = !scope || (confirmation.explicit
+      ? !contentEqual(scope.checkouts, previous.checkouts)
+      : Object.entries(scope.checkouts).some(([id, checkout]) => Object.hasOwn(previous.checkouts, id) &&
+        !contentEqual(checkout, previous.checkouts[id])))
+    if (checkoutChanged) {
+      hostConfirmationStale.value = true
+      hostConfirmation.value = undefined
+      draft.value.sandboxOnly = true
+      return
+    }
+    if (scope.jobId !== previous.jobId) resetCommandExecution()
+    else if (scope !== previous) hostConfirmation.value = { ...confirmation, scope }
+  } else if (defaultScope && !hostConfirmationStale.value) {
+    hostConfirmation.value = { scope: defaultScope, explicit: false }
+  }
+}, { immediate: true, flush: 'sync' })
 const commandExecution = computed<PiCommandExecution>({
-  get: () => !nativeForkSelected.value && hostConfirmation.value && hostConfirmation.value === hostScopeKey.value ? 'host' : 'sandbox',
+  get: () => !nativeForkSelected.value && !draft.value.sandboxOnly && hostReady.value &&
+    hostConfirmation.value && hostConfirmation.value.scope === hostScope.value ? 'host' : 'sandbox',
   set: (value) => {
-    hostConfirmation.value = value === 'host' && hostSelectable.value ? hostScopeKey.value : undefined
-    if (value === 'sandbox' || hostConfirmation.value) hostConfirmationStale.value = false
+    if (value === 'host') {
+      const scope = hostScope.value
+      if (!scope || !hostSelectable.value) return
+      hostConfirmation.value = { scope, explicit: true }
+    } else hostConfirmation.value = undefined
+    draft.value.sandboxOnly = value === 'sandbox'
+    hostConfirmationStale.value = false
     draft.value.error = ''
   }
 })
@@ -506,7 +534,8 @@ const nativeForkScopeIssue = computed(() => nativeForkReady.value && !projectBus
     ? '请重新核对分叉涉及的工程检出。' : '')))
 const canSend = computed(() => !active.value && !blocked.value && !contextError.value && !verificationIssue.value && !sending.value && !pending.value &&
   (!queueRun.value || (!!queue.value && !queue.value.items.length && !queueBusy.value && !queueUncertain.value && !pendingEnqueue.value)) &&
-  !runtimeNeedsReview.value && !crossHandoffIssue.value && !handoffTaskTooLong.value && !checking.value && (!!projectScope.value || !projectBusy.value) && !hostConfirmationStale.value && !settingsOpen.value && !deleteTarget.value &&
+  !runtimeNeedsReview.value && !crossHandoffIssue.value && !handoffTaskTooLong.value &&
+  !checking.value && !projectBusy.value && !hostConfirmationStale.value && !settingsOpen.value && !deleteTarget.value &&
   !reviewState.value.busy && !reviewState.value.pending && !commandCapabilityIssue.value && !handoffBusy.value &&
   (!nativeForkSelected.value || (nativeForkReady.value && !projectBusy.value && !nativeForkScopeIssue.value &&
     contentEqual(readyModel.value, forkOffer.value?.model))) &&
@@ -1178,6 +1207,7 @@ async function settlePending(item: PendingPiRequest, job: JobRecord) {
       current.runtimeReview = undefined
     }
     current.readOnly = true
+    current.sandboxOnly = false
     current.projectGrants = {}
     current.stageSelection = null
     current.error = ''
@@ -1210,6 +1240,7 @@ async function checkPending() {
     if (!response.found) {
       if (legacyHostPending.value) {
         const current = getDraft(item.key)
+        current.sandboxOnly = true
         if (!current.prompt.trim() && !current.citations.length) {
           current.prompt = item.input.prompt
           current.citations = item.excerpts ?? []
@@ -1299,6 +1330,7 @@ async function dispatch(item: PendingPiRequest) {
       else {
         revokeStaleProjectGrants(item.key, item.input.projectAccess?.map((grant) => grant.projectId) ?? [], cause.context.projectId)
         hostConfirmationStale.value = item.input.commandExecution === 'host'
+        if (hostConfirmationStale.value) current.sandboxOnly = true
         openSettings()
       }
     }
@@ -1427,7 +1459,6 @@ async function send() {
     return
   }
   performance.mark('yss.pi.request.clicked', { startTime: clickedAt, detail: { requestId: item.id } })
-  resetCommandExecution()
   await dispatch(item)
 }
 
@@ -1452,6 +1483,7 @@ async function enqueue(retrying = false) {
     current.prompt = ''
     current.citations = []
     current.readOnly = true
+    current.sandboxOnly = false
     resetCommandExecution()
     current.projectGrants = {}
     persistDraft(key)

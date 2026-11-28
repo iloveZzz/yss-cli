@@ -157,10 +157,11 @@ function renderTools() {
       typeof tool.sandboxReady === 'boolean' && (tool.sandboxReady ? '离线命令可用' : '离线命令不可用'),
       tool.sandboxReady === false && tool.sandboxMessage
     ] : []
+    const version = tool.version ?? (tool.id === 'pi' && tool.detected ? '版本未知' : undefined)
     const detection = toolsState.scope !== 'workbench' && tool.id === 'pi' ? '等待检测'
       : tool.installed ? '已安装' : tool.detected ? '已发现，检测失败' : '未安装'
     const status = tool.pendingConfirmation ? `${tool.pendingUpdate ? '更新' : '安装'}结果待确认` : detection
-    description.textContent = [status, tool.version, tool.path, ...capabilities, tool.message,
+    description.textContent = [status, version, tool.path, ...capabilities, tool.message,
       tool.source && `来源：${tool.source}`, prerequisites && `前置项：${prerequisites}`].filter(Boolean).join(' · ')
     description.id = `${input.id}-detail`
     input.setAttribute('aria-describedby', description.id)
