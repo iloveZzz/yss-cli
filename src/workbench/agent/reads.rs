@@ -44,6 +44,7 @@ struct StoredWorkspace {
 #[serde(rename_all = "camelCase")]
 struct SessionRow {
     id: String,
+    host: AgentHost,
     job_id: String,
     title: String,
     status: String,
@@ -167,6 +168,7 @@ fn run_row(
     Ok((
         SessionRow {
             id: run.id,
+            host: run.host,
             job_id: run.job_id,
             title: if run.session_title.is_empty() {
                 run.prompt.chars().take(96).collect()
@@ -199,7 +201,7 @@ fn collect(
     let mut specs = BTreeMap::<String, SessionRead>::new();
     let mut owners = BTreeMap::new();
     for run in store.records::<StoredRun>("agentRun")? {
-        if run.host != AgentHost::Pi || spec_id.is_some_and(|id| id != run.spec_id) {
+        if !run.host.current() || spec_id.is_some_and(|id| id != run.spec_id) {
             continue;
         }
         let spec = run.spec_id.clone();
@@ -241,6 +243,7 @@ fn collect(
             id.clone(),
             SessionRow {
                 id: id.clone(),
+                host: job.agent_host.unwrap_or(AgentHost::Pi),
                 job_id: job.id.clone(),
                 title,
                 status: job.status.clone(),

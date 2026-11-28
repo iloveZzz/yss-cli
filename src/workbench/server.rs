@@ -349,13 +349,16 @@ async fn dispatch(server: Server, request: Request) -> Response {
             );
         }
     };
-    // Keep request cancellation scoped to the blocking Git/platform commands or draft session.
+    // Cancel read-only blocking probes with their request. Accepted jobs own their cancellation.
     let draft = method == axum::http::Method::POST
         && path.starts_with("/api/specs/")
         && path
             .trim_end_matches('/')
             .ends_with("/agent-continuation/draft");
+    let agent_probe = method == axum::http::Method::GET
+        && matches!(path.as_str(), "/api/agent/models" | "/api/agent/runtime");
     let request_cancel = (draft
+        || agent_probe
         || (path.starts_with("/api/merge-requests/")
             && matches!(method, axum::http::Method::GET | axum::http::Method::POST)))
     .then(|| server.cancel.child());

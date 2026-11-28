@@ -1,5 +1,5 @@
 import { apiRequest, type SpecView, type SourceDocument, type SpecRecord, type Stage } from './workbench'
-import { requestId, type JobRecord, type JsonObject, type LocalProjectCheckout, type LocalProjectTaskAction,
+import { requestId, type AgentHost, type GrokRuntimeStatus, type JobRecord, type JsonObject, type LocalProjectCheckout, type LocalProjectTaskAction,
   type LocalProjectTaskJob, type PiCommandExecution, type PiModel, type PiRuntimeStatus, type PiThinkingLevel } from './workbench-platform'
 import type { Verification } from './workbench-read'
 export type AgentWorkspaceMode = 'direct' | 'isolated'
@@ -14,6 +14,16 @@ export interface AgentProjectAccess {
 export interface AgentContinuationSource {
   runId: string
   jobId: string
+}
+export interface AgentHandoff {
+  source: AgentContinuationSource
+  digest: string
+  context: string
+}
+export interface AgentHandoffPreview extends AgentHandoff {
+  sourceTitle: string
+  sourceHost: AgentHost
+  targetHost: AgentHost
 }
 export interface AgentAction {
   available: boolean
@@ -177,7 +187,8 @@ export interface AgentRun {
   projectIds: string[]
   status: string
   jobId: string
-  host: 'codex' | 'pi'
+  host: AgentHost | 'codex'
+  handoff?: AgentHandoff | null
   workspaceMode?: AgentWorkspaceMode
   snapshotError?: string
   readOnly?: boolean | null
@@ -204,6 +215,9 @@ export interface AgentRun {
   updatedAt: string
 }
 export interface AgentStart {
+  host?: AgentHost
+  expectedRuntimeIdentity?: string
+  handoff?: AgentHandoff & { confirmation?: string }
   lifecycleStage?: Stage
   expectedGoalVersion?: string
   specId: string
@@ -306,6 +320,7 @@ export interface AgentAttention {
   status?: string
 }
 export interface AgentSummary {
+  host?: AgentHost | 'codex' | null
   id: string
   jobId: string
   title: string
@@ -385,18 +400,40 @@ export interface AgentAcceptance {
 type PiRunTarget = Pick<AgentStart, 'resumeRunId' | 'selectedModel'>
 export const piModelKey = (model: PiModel) => JSON.stringify([model.provider, model.id])
 
-export const getPiModels = (signal?: AbortSignal) =>
-  apiRequest<{ models: PiModel[] }>('/api/agent/models', { signal })
+export const getPiModels = (signal?: AbortSignal, host: AgentHost = 'pi') =>
+  apiRequest<{ models: PiModel[] }>(host === 'pi' ? '/api/agent/models' : '/api/agent/models?host=grok', { signal })
 
-export function getPiRuntime({ resumeRunId, selectedModel }: PiRunTarget, signal?: AbortSignal) {
+function runtimeQuery({ resumeRunId, selectedModel }: PiRunTarget, host: AgentHost) {
   const query = new URLSearchParams()
+  if (host !== 'pi') query.set('host', host)
   if (resumeRunId) query.set('resumeRunId', resumeRunId)
   if (selectedModel) {
     query.set('selectedProvider', selectedModel.provider)
     query.set('selectedModel', selectedModel.id)
   }
   const params = query.toString()
-  return apiRequest<PiRuntimeStatus>(`/api/agent/runtime${params ? `?${params}` : ''}`, { signal })
+  return params ? '?' + params : ''
+}
+
+export const getPiRuntime = (target: PiRunTarget, signal?: AbortSignal) =>
+  apiRequest<PiRuntimeStatus>('/api/agent/runtime' + runtimeQuery(target, 'pi'), { signal })
+
+export const getGrokRuntime = (target: PiRunTarget, signal?: AbortSignal) =>
+  apiRequest<GrokRuntimeStatus>('/api/agent/runtime' + runtimeQuery(target, 'grok'), { signal })
+
+type HandoffConfirmationInput = AgentHandoff & Pick<AgentStart, 'thinkingLevel' | 'expectedRepositoryKeys' | 'commandExecution'> & {
+  host: AgentHost
+  expectedRuntimeIdentity: string
+  expectedModel: PiModel
+  projectAccess: AgentProjectAccess[]
+}
+export function confirmAgentHandoff(specId: string, body: HandoffConfirmationInput, signal?: AbortSignal) {
+  return apiRequest<{ confirmation: string }>(`/api/specs/${encodeURIComponent(specId)}/agent-handoff`, { body, signal })
+}
+
+export function getAgentHandoff(specId: string, { runId, jobId }: AgentContinuationSource, host: AgentHost, signal?: AbortSignal) {
+  const query = new URLSearchParams({ runId, jobId, host })
+  return apiRequest<AgentHandoffPreview>(`/api/specs/${encodeURIComponent(specId)}/agent-handoff?${query}`, { signal })
 }
 
 export const testPiConnection = (expectedModel: PiModel, target: PiRunTarget, signal?: AbortSignal) =>

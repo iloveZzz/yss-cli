@@ -1,6 +1,6 @@
 import { computed, shallowRef, watch, type Ref } from 'vue'
 import { ApiError, errorMessage } from '@/services/workbench'
-import { getJobActivities, objectValue, piPhaseLabels, streamJob, type ActivityPage, type PiPhase } from '@/services/workbench-platform'
+import { getJobActivities, isWorkspaceAgent, objectValue, piPhaseLabels, streamJob, type ActivityPage, type PiPhase } from '@/services/workbench-platform'
 import { isConversationTextDelta, useJobConversation } from './useJobConversation'
 
 // Read a consistent snapshot, then subscribe strictly after its persisted event cursor.
@@ -51,10 +51,10 @@ export function useJobEvents(
       }
       async function sync() {
         if (options.piRound || knownPiJob) {
-          // The Pi round already knows its host. Each snapshot keeps its own cursor.
+          // The workspace round already knows its host. Each snapshot keeps its own cursor.
           const results = await Promise.allSettled([readOverview(), conversation.open(id, signal)])
           for (const result of results) if (result.status === 'rejected') throw result.reason
-        } else if ((await readOverview()) === 'pi' && !signal.aborted) {
+        } else if (isWorkspaceAgent(await readOverview()) && !signal.aborted) {
           await conversation.open(id, signal)
         }
         if (!signal.aborted) error.value = ''

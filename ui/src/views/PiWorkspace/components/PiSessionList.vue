@@ -7,7 +7,7 @@ import ControlTooltip from '@/components/ControlTooltip.vue'
 import SingleSelect from '@/components/SingleSelect.vue'
 import { dateLabel } from '@/services/workbench'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
-import { jobStatusLabels } from '@/services/workbench-platform'
+import { agentHostLabels, jobStatusLabels } from '@/services/workbench-platform'
 import { type AgentAttention, type AgentSessionPage, type AgentSummary } from '@/services/workbench-agent'
 
 const props = defineProps<{
@@ -46,9 +46,9 @@ async function toggleSearch() {
 </script>
 
 <template>
-  <section class="pi-history" aria-label="Pi 会话列表" :aria-busy="busy">
+  <section class="pi-history" aria-label="Agent 会话列表" :aria-busy="busy">
     <div class="pi-history-heading">
-      <h2>Pi 会话</h2>
+      <h2>会话</h2>
       <ControlTooltip label="搜索会话">
         <Button :id="searchTrigger" type="button" variant="ghost" size="icon" :aria-expanded="searching"
           :aria-controls="searching ? searchId : undefined" aria-label="搜索会话" @click="toggleSearch">
@@ -86,7 +86,7 @@ async function toggleSearch() {
           :aria-current="session.id === activeSession ? 'true' : undefined" @click="emit('choose', session)">
           <span>{{ session.title }}</span>
           <small>
-            {{ jobStatusLabels[session.status] ?? session.status }}<template v-if="session.workspaceMode !== 'direct'"> · 历史隔离运行</template>
+            {{ agentHostLabels[session.host ?? 'pi'] }} · {{ jobStatusLabels[session.status] ?? session.status }}<template v-if="session.workspaceMode !== 'direct'"> · 历史隔离运行</template>
             · {{ dateLabel(session.updatedAt) }}
           </small>
         </button>

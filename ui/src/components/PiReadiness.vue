@@ -13,6 +13,7 @@ import { piCapabilityLabels, piRuntimeAvailable, type PiModel, type PiRuntimeSta
 const props = withDefaults(defineProps<{ active?: boolean; busy?: boolean; resumeRunId?: string; allowModelSwitch?: boolean }>(), {
   active: true
 })
+const emit = defineEmits<{ recheck: [] }>()
 const readyModel = defineModel<PiModel>('readyModel')
 const selectedModel = defineModel<PiModel>('selectedModel')
 const blockedReason = defineModel<string>('blockedReason')
@@ -61,6 +62,12 @@ const piCommand = computed(() => {
   return `PI_CODING_AGENT_DIR=${quote(configDir)} ${node ? quote(node) + ' ' : ''}${quote(executable)} --no-extensions --no-approve`
 })
 let request: AbortController | undefined
+
+function recheckRuntime() {
+  if (props.busy || request) return
+  emit('recheck')
+  void checkRuntime()
+}
 
 async function checkRuntime(kind: 'initial' | 'check' | 'selection' = 'check') {
   if (request) return
@@ -197,7 +204,7 @@ onBeforeUnmount(() => request?.abort())
     <div class="model-actions">
       <PiModelPicker v-if="canChooseModel" :selected-model="chosen" :current-model="visibleModel ?? undefined"
         :default-label="resumeRunId ? '沿用会话模型' : undefined" :disabled="busy || operation === 'test'" @select="chooseModel" />
-      <Button type="button" variant="outline" size="sm" :aria-disabled="busy || !!operation" @click="!busy && checkRuntime()">
+      <Button type="button" variant="outline" size="sm" :aria-disabled="busy || !!operation" @click="recheckRuntime">
         <LoadingIndicator :active="operation === 'check' || operation === 'selection'" />
         重新检测
       </Button>

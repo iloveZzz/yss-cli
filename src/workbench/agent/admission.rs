@@ -36,22 +36,44 @@ fn start(
     let expected_goal_version = request.expected_goal_version.clone();
     let validation = request.clone();
     let worker = manager.clone();
+    let host = request.selected_host(None);
+    let selection = request.expected_model.as_ref().map(|model| {
+        json!({
+            "provider":model.provider, "model":model.id, "thinkingLevel":request.thinking_level,
+        })
+    });
     manager.start_preparing(
-        "Pi 会话续办".into(),
+        "Agent 会话续办".into(),
         request.request_id.clone(),
         DeferredAgent {
             spec_id: spec_id.clone(),
             run_id: request.resume_run_id.clone(),
             fingerprint,
+            host,
+            selection,
         },
         move |store, job| {
             validate_start_request(&validation, queued)?;
+            let prior = run_id.as_deref().map(|id| load(store, id)).transpose()?;
+            let host = validation.selected_host(prior.as_ref());
+            if let Some(prior) = &prior {
+                if prior.host != host || !host.current() {
+                    return Err(invalid("续接须使用原会话的 Agent CLI"));
+                }
+                ensure_handoff_source_idle(store, &prior.id)?;
+                check_dispatch_outcome(store, prior)?;
+            }
+            if let Some(handoff) = &validation.handoff {
+                validation.validate_handoff(store, &spec_id, host)?;
+                job.agent_handoff_source = Some(handoff.source.clone());
+            }
+            job.agent_host = Some(host);
             if validation
                 .carry_files
                 .values()
                 .any(|paths| !paths.is_empty())
             {
-                return Err(invalid("Pi 直接读取原工程，请清空带入文件后重试"));
+                return Err(invalid("Agent 直接核对原工程，请清空带入文件后重试"));
             }
             queue::check_start(store, run_id.as_deref(), dispatch_id.as_deref())?;
             super::super::agent_scope::check_expected(
@@ -100,9 +122,15 @@ pub(super) fn capture_target(store: &mut Store, request: &mut AgentStartRequest)
             {
                 return Err(stale_round(&prior));
             }
-            if prior.host != AgentHost::Pi || prior.workspace_mode != WorkspaceMode::Direct {
-                return Err(invalid("历史会话仅支持审阅，请从原 Spec 新建 Pi 会话"));
+            if !prior.host.current()
+                || request.selected_host(Some(&prior)) != prior.host
+                || prior.workspace_mode != WorkspaceMode::Direct
+            {
+                return Err(invalid(
+                    "请沿原会话的 Agent CLI 续接，历史会话可从原 Spec 新建",
+                ));
             }
+            check_dispatch_outcome(store, &prior)?;
             Ok(prior)
         })
         .transpose()?;
@@ -229,6 +257,8 @@ fn prepare(
             fork,
         )
     };
+    let host = request.selected_host(target.prior.as_ref());
+    validate_host_scope(&request, host, &target.spec, queued)?;
     let fork = native_fork::verify_expected(fork_target, &request, &context.cancel)?;
     if let Some(prior) = &target.prior {
         check_resume_session(&state, &data_dir, prior)?;
@@ -262,28 +292,54 @@ fn prepare(
         (None, Some(run), _) => Some(recorded_model(run)?),
         (selected, _, _) => selected.clone(),
     };
-    context.set_pi_phase(PiPhase::CheckRuntime)?;
-    let pi = agent_protocol::prepare_runtime(
-        &context.cancel,
-        &target.protected,
-        model.as_ref(),
-        request.allow_commands.then(|| request.command_execution()),
-    )
-    .map_err(|error| {
-        if fork.is_some() {
-            native_fork::runtime_unavailable(error)
-        } else {
-            error
+    let runtime = match host {
+        AgentHost::Pi => {
+            context.set_pi_phase(PiPhase::CheckRuntime)?;
+            let pi = agent_protocol::prepare_runtime(
+                &context.cancel,
+                &target.protected,
+                model.as_ref(),
+                request.allow_commands.then(|| request.command_execution()),
+            )
+            .map_err(|error| {
+                if fork.is_some() {
+                    native_fork::runtime_unavailable(error)
+                } else {
+                    error
+                }
+            })?;
+            if let Some(fork) = &fork {
+                native_fork::verify_runtime(&pi, &fork.anchor)?;
+            }
+            pi.verify_expected(request.expected_model.as_ref())?;
+            pi.verify_commands(request.allow_commands, request.command_execution())?;
+            if request.handoff.is_some() || request.expected_runtime_identity.is_some() {
+                request.verify_runtime_identity(pi.identity().as_deref(), host)?;
+            }
+            AgentRuntime::Pi(pi)
         }
-    })?;
-    if let Some(fork) = &fork {
-        native_fork::verify_runtime(&pi, &fork.anchor)?;
+        AgentHost::Grok => {
+            let (expected_model, identity) = request
+                .expected_model
+                .as_ref()
+                .zip(request.expected_runtime_identity.as_deref())
+                .ok_or_else(|| invalid("请核对本轮 Grok 模型和运行配置后发送"))?;
+            AgentRuntime::Grok(grok::prepare_run(
+                &context.cancel,
+                &target.protected,
+                model.as_ref(),
+                expected_model,
+                identity,
+            )?)
+        }
+        AgentHost::Codex => return Err(invalid("历史 Codex 会话仅供审阅")),
+    };
+    if host == AgentHost::Pi {
+        context.trace("runtimeReady");
+        context.set_pi_phase(PiPhase::PrepareWorkspace)?;
+    } else {
+        context.trace("grokInstallationReady");
     }
-    pi.verify_expected(request.expected_model.as_ref())?;
-    pi.verify_commands(request.allow_commands, request.command_execution())?;
-    context.trace("runtimeReady");
-
-    context.set_pi_phase(PiPhase::PrepareWorkspace)?;
     let citations = if let Some(prior) = &target.prior {
         verify_citation_contents(prior, &request.citations, &context.cancel, &|descriptor| {
             frozen_bytes(&*lock_store(&context.store)?, descriptor)
@@ -291,31 +347,38 @@ fn prepare(
     } else {
         Vec::new()
     };
-    let inputs = read_model::capture(&mut *lock_store(&context.store)?)?;
-    let stamp = inputs.stamp;
-    let snapshot = read_model::build_snapshot(inputs, Some(&target.spec.id), &context.cancel)?;
-    if queued
-        && snapshot
-            .progress
-            .get(&target.spec.id)
-            .and_then(|summary| summary.goal_version.as_deref())
-            != request.expected_goal_version.as_deref()
-    {
-        return Err(YssError::new(
-            ErrorCode::ConcurrentChange,
-            "队列目标版本已变化，请核对后重试",
-        )
-        .context("progressBinding", true));
-    }
-    let binding = if fork.is_some() {
-        None
+    let (stamp, binding) = if host == AgentHost::Grok {
+        let mut store = lock_store(&context.store)?;
+        store.capture_read_records(&[])?;
+        (store.projection_stamp(), None)
     } else {
-        progress_agent::select_snapshot_binding(
-            &snapshot,
-            &target.spec.id,
-            request.lifecycle_stage,
-            request.expected_goal_version.as_deref(),
-        )?
+        let inputs = read_model::capture(&mut *lock_store(&context.store)?)?;
+        let stamp = inputs.stamp;
+        let snapshot = read_model::build_snapshot(inputs, Some(&target.spec.id), &context.cancel)?;
+        if queued
+            && snapshot
+                .progress
+                .get(&target.spec.id)
+                .and_then(|summary| summary.goal_version.as_deref())
+                != request.expected_goal_version.as_deref()
+        {
+            return Err(YssError::new(
+                ErrorCode::ConcurrentChange,
+                "队列目标版本已变化，请核对后重试",
+            )
+            .context("progressBinding", true));
+        }
+        let binding = if fork.is_some() {
+            None
+        } else {
+            progress_agent::select_snapshot_binding(
+                &snapshot,
+                &target.spec.id,
+                request.lifecycle_stage,
+                request.expected_goal_version.as_deref(),
+            )?
+        };
+        (stamp, binding)
     };
     context.trace("materialsReady");
     manager.reserve_agent_roots(&context, roots, |store| {
@@ -345,6 +408,7 @@ fn prepare(
         if let Some(fork) = &fork {
             fork.recheck_source(store, &target.spec.id)?;
         }
+        request.validate_handoff(store, &target.spec.id, host)?;
         Ok(())
     })?;
     context.trace("rootsReserved");
@@ -354,7 +418,7 @@ fn prepare(
         request,
         target.projects,
         target.prior,
-        pi,
+        runtime,
         PreparedRun {
             citations,
             binding,

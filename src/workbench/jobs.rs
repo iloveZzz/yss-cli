@@ -1,4 +1,7 @@
-use super::{sources::now, sqlite::EventWrite, store::Store};
+use super::{
+    agent::AgentHost, agent_scope::ContinuationSource, process, sources::now, sqlite::EventWrite,
+    store::Store,
+};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
@@ -24,6 +27,17 @@ pub struct JobRecord {
     pub agent_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_spec_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) agent_host: Option<AgentHost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_selection: Option<Value>,
+    // Persisted before writing the native prompt and cleared by authoritative settlement.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_dispatch_uncertain: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) agent_handoff_source: Option<ContinuationSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_submitted: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_started_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -120,6 +134,18 @@ impl JobRecord {
         )
     }
 
+    pub(super) fn interrupt(&mut self, recovery: Option<YssError>) {
+        if let Some(error) =
+            recovery.or_else(|| self.agent_dispatch_uncertain.then(agent_dispatch_error))
+        {
+            self.status = "recoveryRequired".into();
+            self.error = serde_json::to_value(error).ok();
+        } else {
+            self.status = "interrupted".into();
+        }
+        self.updated_at = now();
+    }
+
     fn persist_event(&self, store: &mut Store, kind: &str, payload: &Value) -> Result<()> {
         store.put_record_with_event(
             "job",
@@ -205,6 +231,91 @@ pub(super) struct DeferredAgent {
     pub spec_id: String,
     pub run_id: Option<String>,
     pub fingerprint: String,
+    pub host: AgentHost,
+    pub selection: Option<Value>,
+}
+
+pub(super) const GROK_CLEANUP_LEASE: &str = "grokCleanupLease";
+
+#[derive(Deserialize, Serialize)]
+struct GrokCleanupLease {
+    roots: Vec<String>,
+    scope: String,
+    child: Option<process::ProcessIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    boot_session: Option<process::HostBootSession>,
+}
+
+impl GrokCleanupLease {
+    fn cleanup_confirmed(&self) -> bool {
+        let (Some(previous), Some(current)) = (&self.boot_session, process::host_boot_session())
+        else {
+            return false;
+        };
+        match current.rebooted_since(previous) {
+            Some(true) => true,
+            Some(false) => self
+                .child
+                .as_ref()
+                .is_some_and(|child| process::group_gone(child, &self.scope)),
+            None => false,
+        }
+    }
+}
+
+fn grok_cleanup_error() -> YssError {
+    YssError::new(
+        ErrorCode::RecoveryRequired,
+        "Grok Build 进程收尾待核实，工程暂时保持占用",
+    )
+}
+
+fn agent_dispatch_error() -> YssError {
+    YssError::new(
+        ErrorCode::RecoveryRequired,
+        "Agent CLI 可能已收到任务，原轮次结果待核实",
+    )
+    .context("resumeReason", "dispatchUncertain")
+}
+
+fn release_finished_grok_lease(
+    store: &mut Store,
+    job_id: &str,
+    lease: &GrokCleanupLease,
+) -> Result<bool> {
+    if store
+        .record::<JobRecord>("job", job_id)?
+        .is_some_and(|job| job.terminal())
+        && lease.cleanup_confirmed()
+    {
+        store.delete_record(GROK_CLEANUP_LEASE, job_id)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub(super) fn ensure_grok_backup_available(store: &mut Store) -> Result<()> {
+    for (job_id, lease) in store.record_entries::<GrokCleanupLease>(GROK_CLEANUP_LEASE)? {
+        if !release_finished_grok_lease(store, &job_id, &lease)? {
+            return Err(grok_cleanup_error().context("jobId", job_id));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_grok_roots_available(store: &mut Store, roots: &[String]) -> Result<()> {
+    if roots.is_empty() {
+        return Ok(());
+    }
+    for (job_id, lease) in store.record_entries::<GrokCleanupLease>(GROK_CLEANUP_LEASE)? {
+        if !roots_overlap(&lease.roots, roots)? {
+            continue;
+        }
+        if !release_finished_grok_lease(store, &job_id, &lease)? {
+            return Err(grok_cleanup_error().context("jobId", job_id));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -375,12 +486,160 @@ pub fn lock_store(store: &Arc<Mutex<Store>>) -> Result<std::sync::MutexGuard<'_,
 }
 
 impl JobContext {
+    fn update_agent_job(
+        &self,
+        update: impl FnOnce(&mut JobRecord) -> Result<()>,
+        event: &str,
+    ) -> Result<()> {
+        let mut store = lock_store(&self.store)?;
+        let mut job = store
+            .record::<JobRecord>("job", &self.id)?
+            .filter(|job| job.kind == "agent" && !job.terminal())
+            .ok_or_else(|| YssError::new(ErrorCode::Conflict, "Agent 轮次已经结束"))?;
+        update(&mut job)?;
+        job.updated_at = now();
+        job.persist_event(
+            &mut store,
+            event,
+            &json!({"agentStartedAt":job.agent_started_at,
+                "agentDispatchUncertain":job.agent_dispatch_uncertain,
+                "handoffSubmitted":job.handoff_submitted.is_some()}),
+        )
+    }
+
+    pub(super) fn mark_agent_dispatching(&self) -> Result<()> {
+        self.update_agent_job(
+            |job| {
+                self.cancel.check()?;
+                if job.agent_dispatch_uncertain || job.agent_started_at.is_some() {
+                    return Err(YssError::new(ErrorCode::Conflict, "本轮已开始提交任务"));
+                }
+                job.agent_dispatch_uncertain = true;
+                Ok(())
+            },
+            "agentDispatching",
+        )
+    }
+
+    pub(super) fn mark_agent_dispatched(&self, handoff: Option<&str>) -> Result<()> {
+        self.update_agent_job(
+            |job| {
+                if let Some(text) = handoff {
+                    job.handoff_submitted = Some(text.to_owned());
+                }
+                job.agent_started_at.get_or_insert_with(now);
+                Ok(())
+            },
+            "agentDispatched",
+        )
+    }
+
+    pub(super) fn mark_agent_settled(&self) -> Result<()> {
+        self.update_agent_job(
+            |job| {
+                job.agent_dispatch_uncertain = false;
+                Ok(())
+            },
+            "agentSettled",
+        )
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn begin_grok_cleanup_guard(&self, scope: &str) -> Result<()> {
+        let boot_session = process::host_boot_session().ok_or_else(|| {
+            YssError::new(
+                ErrorCode::NotReady,
+                "无法核验本机启动标识，无法启动 Grok Build",
+            )
+        })?;
+        let mut store = lock_store(&self.store)?;
+        self.cancel.check()?;
+        let job = store
+            .record::<JobRecord>("job", &self.id)?
+            .filter(|job| job.agent_host == Some(AgentHost::Grok) && !job.terminal())
+            .filter(|job| !job.roots.is_empty())
+            .ok_or_else(|| YssError::new(ErrorCode::Conflict, "Grok 轮次还未占用原工程"))?;
+        if store.has_record(GROK_CLEANUP_LEASE, &self.id)? {
+            return Err(grok_cleanup_error());
+        }
+        store.put_record(
+            GROK_CLEANUP_LEASE,
+            &self.id,
+            &GrokCleanupLease {
+                roots: job.roots,
+                scope: scope.to_owned(),
+                child: None,
+                boot_session: Some(boot_session),
+            },
+        )
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn record_grok_child(
+        &self,
+        identity: Option<process::ProcessIdentity>,
+    ) -> Result<()> {
+        let identity = identity.ok_or_else(grok_cleanup_error)?;
+        let mut store = lock_store(&self.store)?;
+        let mut lease = store
+            .record::<GrokCleanupLease>(GROK_CLEANUP_LEASE, &self.id)?
+            .filter(|lease| lease.child.is_none())
+            .ok_or_else(grok_cleanup_error)?;
+        lease.child = Some(identity);
+        store.put_record(GROK_CLEANUP_LEASE, &self.id, &lease)
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn clear_grok_cleanup_guard(&self) -> Result<()> {
+        self.remove_grok_cleanup_guard(GrokCleanupLease::cleanup_confirmed)
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn clear_unregistered_grok_child(
+        &self,
+        child: &process::ProcessIdentity,
+    ) -> Result<()> {
+        self.remove_grok_cleanup_guard(|lease| {
+            // The caller obtained this identity from its own child and reaped it.
+            lease
+                .child
+                .as_ref()
+                .is_none_or(|recorded| recorded == child)
+                && process::group_gone(child, &lease.scope)
+        })
+    }
+
+    // Only the launcher can prove that an attempted spawn did not create a child.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(super) fn abandon_grok_cleanup_guard(&self) -> Result<()> {
+        self.remove_grok_cleanup_guard(|lease| lease.child.is_none())
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn remove_grok_cleanup_guard(
+        &self,
+        can_remove: impl FnOnce(&GrokCleanupLease) -> bool,
+    ) -> Result<()> {
+        let mut store = lock_store(&self.store)?;
+        let lease = store
+            .record::<GrokCleanupLease>(GROK_CLEANUP_LEASE, &self.id)?
+            .ok_or_else(grok_cleanup_error)?;
+        if !can_remove(&lease) {
+            return Err(grok_cleanup_error());
+        }
+        store.delete_record(GROK_CLEANUP_LEASE, &self.id)
+    }
+
     pub(super) fn set_pi_phase(&self, phase: PiPhase) -> Result<()> {
         let mut store = lock_store(&self.store)?;
         let mut job: JobRecord = store
             .record("job", &self.id)?
             .ok_or_else(|| YssError::new(ErrorCode::InvalidInput, "执行记录不存在"))?;
-        if job.terminal() || job.kind != "agent" || job.pi_phase >= Some(phase) {
+        if job.terminal()
+            || job.kind != "agent"
+            || job.agent_host == Some(AgentHost::Grok)
+            || job.pi_phase >= Some(phase)
+        {
             return Ok(());
         }
         let at = now();
@@ -406,11 +665,14 @@ impl JobContext {
     }
 
     pub(super) fn mark_running(&self) -> Result<()> {
-        let is_preparing = lock_store(&self.store)?
+        let mut store = lock_store(&self.store)?;
+        if let Some(mut job) = store
             .record::<JobRecord>("job", &self.id)?
-            .is_some_and(|job| job.status == "preparing");
-        if is_preparing {
-            self.set_status("running")?;
+            .filter(|job| job.status == "preparing")
+        {
+            job.status = "running".into();
+            job.updated_at = now();
+            job.persist_event(&mut store, "status", &json!({"status":"running"}))?;
         }
         Ok(())
     }
@@ -564,11 +826,25 @@ impl JobManager {
                     continue;
                 }
                 if !job.terminal() {
-                    job.status = "interrupted".into();
-                    job.updated_at = now();
-                    job.error = Some(
-                        json!({"code":"INTERRUPTED","message":"工作台服务已重启，请核对工作区后续接"}),
-                    );
+                    let lease = if job.agent_host == Some(AgentHost::Grok) {
+                        state.record::<GrokCleanupLease>(GROK_CLEANUP_LEASE, &job.id)?
+                    } else {
+                        None
+                    };
+                    let cleanup_error = match lease {
+                        Some(lease) if lease.cleanup_confirmed() => {
+                            state.delete_record(GROK_CLEANUP_LEASE, &job.id)?;
+                            None
+                        }
+                        Some(_) => Some(grok_cleanup_error()),
+                        None => None,
+                    };
+                    job.interrupt(cleanup_error);
+                    if job.status == "interrupted" {
+                        job.error = Some(
+                            json!({"code":"INTERRUPTED","message":"工作台服务已重启，请核对工作区后续接"}),
+                        );
+                    }
                     job.persist_event(&mut state, "finished", &json!(job))?;
                 }
             }
@@ -776,9 +1052,14 @@ impl JobManager {
                 .as_ref()
                 .map(|value| value.run_id.clone().unwrap_or_else(|| id.clone())),
             agent_spec_id: agent.as_ref().map(|value| value.spec_id.clone()),
+            agent_host: agent.as_ref().map(|value| value.host),
+            agent_selection: agent.as_ref().and_then(|value| value.selection.clone()),
+            agent_dispatch_uncertain: false,
+            agent_handoff_source: None,
+            handoff_submitted: None,
             agent_started_at: None,
-            pi_phase: agent.as_ref().map(|_| PiPhase::VerifyScope),
-            pi_phase_at: agent.as_ref().map(|_| at.clone()),
+            pi_phase: None,
+            pi_phase_at: None,
             local_project_task,
             request_id,
             roots,
@@ -840,6 +1121,25 @@ impl JobManager {
             check_roots(&jobs, &job.roots, None)?;
             super::agent::ensure_roots_available(&mut store, &job.roots)?;
             let admission = check(&mut store, &mut job)?;
+            if let Some(run_id) = job.session_run_id()
+                && let Some(handoff) = jobs.iter().find(|handoff| {
+                    !handoff.terminal()
+                        && handoff
+                            .agent_handoff_source
+                            .as_ref()
+                            .is_some_and(|source| source.run_id == run_id)
+                        && handoff.handoff_submitted.is_none()
+                })
+            {
+                return Err(
+                    YssError::new(ErrorCode::Locked, "来源会话仍有待提交的跨 CLI 交接")
+                        .context("jobId", &handoff.id),
+                );
+            }
+            if agent.is_some() && job.agent_host == Some(AgentHost::Pi) && job.pi_phase.is_none() {
+                job.pi_phase = Some(PiPhase::VerifyScope);
+                job.pi_phase_at = Some(job.updated_at.clone());
+            }
             let phase = job.pi_phase_payload();
             let fingerprint = if let Some(agent) = &agent {
                 Some(agent.fingerprint.clone())
@@ -972,6 +1272,21 @@ impl JobManager {
                         json!({"code":"RECOVERY_REQUIRED", "message":"命令暂存待恢复，请保留现场并核对", "previousError":prior_error}),
                     );
                 }
+                let cleanup_pending = job.agent_host == Some(AgentHost::Grok)
+                    && store.has_record(GROK_CLEANUP_LEASE, &id).unwrap_or(true);
+                if !pending_recovery
+                    && let Some(error) = if cleanup_pending {
+                        Some(grok_cleanup_error())
+                    } else if job.agent_dispatch_uncertain {
+                        Some(agent_dispatch_error())
+                    } else {
+                        None
+                    }
+                {
+                    // Protocol settlement and process cleanup can fail independently.
+                    job.status = "recoveryRequired".into();
+                    job.error = serde_json::to_value(error).ok();
+                }
                 job.updated_at = now();
                 if job
                     .persist_event(&mut store, "finished", &json!(job))
@@ -1008,6 +1323,17 @@ impl JobManager {
         {
             control.cancel.cancel();
             control.changed.notify_all();
+            let mut store = lock_store(&self.store)?;
+            if let Some(mut job) = store.record::<JobRecord>("job", id)?
+                && job.agent_host == Some(AgentHost::Grok)
+                && !job.terminal()
+                && job.status != "stopping"
+            {
+                job.status = "stopping".into();
+                job.updated_at = now();
+                job.persist_event(&mut store, "status", &json!({"status":"stopping"}))?;
+                return Ok(job);
+            }
         }
         self.get(id)
     }

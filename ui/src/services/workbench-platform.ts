@@ -11,7 +11,21 @@ import {
   type QueryResult,
   type WorkQuery
 } from './workbench'
-import type { AgentProjectAccess, ReviewExcerpt } from './workbench-agent'
+import type { AgentContinuationSource, AgentProjectAccess, ReviewExcerpt } from './workbench-agent'
+
+export type AgentHost = 'pi' | 'grok'
+export const agentHostLabels: Record<AgentHost | 'codex', string> = {
+  pi: 'Pi', grok: 'Grok Build', codex: 'Codex'
+}
+export const isWorkspaceAgent = (host: unknown): host is AgentHost => host === 'pi' || host === 'grok'
+export function agentPhaseLabel(phase: PiPhase, host: AgentHost) {
+  if (phase === 'checkRuntime') return '正在检查 ' + agentHostLabels[host] + ' 和模型'
+  if (phase === 'promptAccepted') return agentHostLabels[host] + ' 已接收请求'
+  return piPhaseLabels[phase]
+}
+export function agentRoundHost(job: JobRecord, fallback: AgentHost | 'codex' = 'pi') {
+  return job.agentHost ?? fallback
+}
 
 export type JsonObject = Record<string, unknown>
 export type PiCommandExecution = 'host' | 'sandbox'
@@ -48,6 +62,11 @@ export interface JobRecord {
   agentRunId?: string
   agentSpecId?: string
   agentStartedAt?: string
+  agentHost?: AgentHost | 'codex' | null
+  agentSelection?: { provider?: string; model?: string; thinkingLevel?: PiThinkingLevel } | null
+  agentDispatchUncertain?: boolean | null
+  agentHandoffSource?: AgentContinuationSource | null
+  handoffSubmitted?: string | null
   piPhase?: PiPhase
   piPhaseAt?: string
   commandExecution?: PiCommandExecution
@@ -114,6 +133,7 @@ export interface RuntimeCapability {
   isolation: 'piTools' | 'offline' | 'none'
 }
 export interface PiRuntimeStatus {
+  identity?: string | null
   available: boolean
   capabilities?: {
     pi: RuntimeCapability
@@ -136,6 +156,61 @@ export interface PiRuntimeStatus {
   credentialsReady: boolean | null
   issue: string | null
   message: string | null
+}
+
+export interface GrokRuntimeStatus {
+  host: 'grok'
+  available: boolean
+  identity?: string | null
+  model?: PiModel | null
+  thinkingLevel?: PiThinkingLevel | null
+  thinkingLevels?: PiThinkingLevel[] | null
+  issue?: string | null
+  message?: string | null
+  executable?: string | null
+  version?: string | null
+  loginCommand?: string | null
+}
+
+export function runtimeIdentityLabel(identity?: string | null) {
+  return identity && /^[0-9a-f]{64}$/iu.test(identity) ? '配置标识 ' + identity.slice(0, 8) : ''
+}
+
+export function grokRuntimeLabel(state?: GrokRuntimeStatus) {
+  if (state?.available && state.identity) return '可发送'
+  switch (state?.issue) {
+    case 'missing':
+      return 'CLI 未安装'
+    case 'platform':
+      return '平台不支持'
+    case 'protocol':
+    case 'version':
+      return '协议不可用'
+    case 'credentials':
+      return '需要登录'
+    case 'catalog':
+    case 'modelAccess':
+      return '模型目录读取失败'
+    case 'modelUnavailable':
+    case 'modelChanged':
+      return '模型已失效'
+    case 'thinkingUnavailable':
+    case 'effortUnavailable':
+      return '推理档位已失效'
+    case 'configuration':
+    case 'executable':
+    case 'runtimeChanged':
+      return '安装或配置待核对'
+    case 'resumeUnavailable':
+      return '无法继续原会话'
+    case 'resumeIdentityChanged':
+      return '原会话账号或配置已变化'
+    case 'sandbox':
+    case 'scope':
+      return '隔离范围待核对'
+    default:
+      return '暂不可用'
+  }
 }
 
 export const piCapabilityLabels: Record<RuntimeCapability['state'], string> = {
@@ -357,14 +432,24 @@ export interface PiRoundSummary {
   }[]
   finishedAt?: string
 }
+export interface GrokConfiguration {
+  host: 'grok'
+  provider: string
+  model: string
+  version: string
+  thinkingLevel: PiThinkingLevel | null
+  readOnly: true
+}
+
 export interface ActivityPage {
+  grokConfiguration?: GrokConfiguration | null
   items: JobActivity[]
   total: number
   hasOlder: boolean
   cursor: number
   terminal: boolean
   runId: string | null
-  host: 'pi' | 'codex' | null
+  host: AgentHost | 'codex' | null
   latestMessage: string | null
   pendingInputs: JobEvent[]
   piSettings?: PiRoundSettings | null
@@ -378,6 +463,7 @@ export interface ActivityPage {
   commandExecution?: PiCommandExecution | null
 }
 export interface ConversationPage {
+  grokConfiguration?: GrokConfiguration | null
   items: JobActivity[]
   hasOlder: boolean
   cursor: number

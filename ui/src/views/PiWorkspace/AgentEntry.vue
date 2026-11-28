@@ -38,7 +38,7 @@ watch(preferredSpecId, (specId) => {
         <Empty v-else>
           <EmptyHeader>
             <EmptyTitle><h2>暂无可用规格</h2></EmptyTitle>
-            <EmptyDescription>Pi 会话需要关联一份已启用的规格。</EmptyDescription>
+            <EmptyDescription>Agent 会话需要关联一份已启用的规格。</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button as-child variant="outline"><RouterLink to="/specs">打开规格管理</RouterLink></Button>

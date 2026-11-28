@@ -8,7 +8,7 @@ defineProps<{ specId: string; lifecycleStage?: Stage }>()
   <section class="platform-section">
     <Button variant="outline" as-child>
       <RouterLink :to="{ name: 'pi-workspace', params: { specId }, query: { stage: lifecycleStage } }">
-        打开 Pi 会话工作区
+        打开 Agent 会话工作区
       </RouterLink>
     </Button>
   </section>

@@ -2,15 +2,21 @@
 import { computed, shallowRef, useId } from 'vue'
 import { Button } from '@/components/ui/button'
 import PiReadiness from '@/components/PiReadiness.vue'
+import GrokReadiness from '@/components/GrokReadiness.vue'
 import { stages, type Stage } from '@/services/workbench'
 import type { AgentProject, AgentProjects, ProjectAccessMode } from '@/services/workbench-agent'
 import type { PiCiAttachment, PiCiRecovery } from '../usePiDrafts'
 import PiProjectScope from './PiProjectScope.vue'
 import PiCiJobSettings from './PiCiJobSettings.vue'
 import { piCapabilityLabels, piCommandCapability, piCommandExecutionLabels,
-  type PiCommandExecution, type PiModel, type PiRuntimeStatus } from '@/services/workbench-platform'
+  type AgentHost, type GrokRuntimeStatus, type PiCommandExecution, type PiModel, type PiRuntimeStatus } from '@/services/workbench-platform'
 
 const props = defineProps<{
+  host: AgentHost
+  grokRuntime?: GrokRuntimeStatus
+  grokChecking?: boolean
+  runtimeReview?: string
+  crossHandoff?: boolean
   specId: string
   mainId: string
   projectScope?: AgentProjects
@@ -30,7 +36,7 @@ const props = defineProps<{
   automaticStage?: Stage
   stageNeedsReview: boolean
 }>()
-const emit = defineEmits<{ refreshProjects: []; clearStaleProjectGrants: [] }>()
+const emit = defineEmits<{ refreshProjects: []; clearStaleProjectGrants: []; recheckRuntime: [] }>()
 const readyModel = defineModel<PiModel>('readyModel')
 const runtimeStatus = defineModel<PiRuntimeStatus>('runtimeStatus')
 const selectedModel = defineModel<PiModel>('selectedModel')
@@ -44,9 +50,10 @@ const ciId = useId()
 const commandExecution = defineModel<PiCommandExecution>('commandExecution', { required: true })
 const commandId = useId()
 const commandModes = ['sandbox', 'host'] as const
+const grok = computed(() => props.host === 'grok')
 const commandCapabilities = computed(() => {
   const runtime = runtimeStatus.value
-  return runtime ? commandModes.map((mode) => ({ mode, ...piCommandCapability(runtime, mode) })) : []
+  return runtime && !grok.value ? commandModes.map((mode) => ({ mode, ...piCommandCapability(runtime, mode) })) : []
 })
 const hostSupported = computed(() => commandCapabilities.value.some(({ mode, state }) => mode === 'host' && state !== 'unsupported'))
 const stage = defineModel<Stage | ''>('stage', { required: true })
@@ -57,19 +64,25 @@ const stageValue = computed({
     if (value === '' || props.availableStages.includes(value as Stage)) stage.value = value as Stage | ''
   }
 })
-const participatingIds = computed(() => props.reviewResumeId || props.nativeFork ? props.participatingIds ?? [] : selected.value)
+const participatingIds = computed(() => grok.value ? [] : props.reviewResumeId || props.nativeFork ? props.participatingIds ?? [] : selected.value)
 const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((project) =>
   project.status === 'ready' && project.head && (project.id === props.mainId || participatingIds.value.includes(project.id))))
 </script>
 
 <template>
   <div class="pi-settings">
-    <PiReadiness v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
+    <section v-if="grok" class="pi-settings-fieldset" aria-label="Grok Build 运行状态">
+      <h3 class="font-semibold">Grok Build</h3>
+      <GrokReadiness :runtime="grokRuntime" :checking="grokChecking" :error="blockedReason" :review="runtimeReview" />
+      <Button type="button" size="sm" variant="outline" class="justify-self-start"
+        :disabled="busy || grokChecking" @click="emit('recheckRuntime')">重新检查连接</Button>
+    </section>
+    <PiReadiness v-else v-model:ready-model="readyModel" v-model:selected-model="selectedModel"
       v-model:runtime-status="runtimeStatus"
       v-model:blocked-reason="blockedReason" v-model:model-restrictions="modelRestrictions"
-      :resume-run-id="reviewResumeId" :busy="busy" :allow-model-switch="!nativeFork" />
+      :resume-run-id="reviewResumeId" :busy="busy" :allow-model-switch="!nativeFork" @recheck="emit('recheckRuntime')" />
     <p v-if="nativeFork" class="muted">分叉首轮使用原工程范围和模型，只读当前工程。</p>
-    <fieldset v-else-if="availableStages.length || stageNeedsReview" :disabled="busy" class="pi-settings-fieldset">
+    <fieldset v-else-if="!grok && (availableStages.length || stageNeedsReview)" :disabled="busy" class="pi-settings-fieldset">
       <legend>本轮进度</legend>
       <label :for="stageId">跟进阶段</label>
       <select :id="stageId" v-model="stageValue" name="lifecycleStage" class="pi-settings-stage"
@@ -80,8 +93,8 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
       </select>
       <p v-if="stageNeedsReview" :id="stageId + '-review'" role="status">目标版本或适用阶段已变化，请重新选择。</p>
     </fieldset>
-    <p v-else class="muted">本轮暂无可跟进的生命周期阶段。</p>
-    <div v-if="runtimeStatus && !nativeFork" class="pi-settings-fieldset">
+    <p v-else-if="!grok" class="muted">本轮暂无可跟进的生命周期阶段。</p>
+    <div v-if="runtimeStatus && !nativeFork && !grok" class="pi-settings-fieldset">
       <label :for="commandId" class="font-semibold">命令运行方式</label>
       <select :id="commandId" v-model="commandExecution" name="commandExecution" class="pi-settings-stage" :disabled="busy"
         :aria-describedby="commandId + '-help ' + commandId + '-status'">
@@ -103,11 +116,11 @@ const ciProjects = computed(() => (props.projectScope?.projects ?? []).filter((p
     </dl>
     <PiProjectScope v-model:selected="selected" v-model:modes="projectModes"
       :main-id="mainId" :projects="projects" :scope="projectScope" :loading="projectBusy" :error="projectError"
-      :locked="!!reviewResumeId || nativeFork" :participating-ids="participatingIds"
+      :locked="!!reviewResumeId || nativeFork || grok" :participating-ids="participatingIds"
       :command-execution="commandExecution" :commands-unavailable="commandUnavailable"
-      :busy="busy" :read-only="nativeFork" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
+      :busy="busy" :read-only="nativeFork || grok" :grok="grok" :grant-issue="projectGrantIssue" @refresh="emit('refreshProjects')"
       @clear-stale-project-grants="emit('clearStaleProjectGrants')" />
-    <div v-if="!reviewResumeId && !nativeFork && projectScope" class="pi-ci-settings">
+    <div v-if="!reviewResumeId && !nativeFork && !grok && !crossHandoff && projectScope" class="pi-ci-settings">
       <Button type="button" variant="outline" size="sm" :aria-expanded="ciOpen" :aria-controls="ciId" @click="ciOpen = !ciOpen">
         {{ ciOpen ? '收起 GitLab CI 作业' : ciAttachment ? '查看已附加的 CI 作业' : '选择 GitLab CI 作业' }}
       </Button>

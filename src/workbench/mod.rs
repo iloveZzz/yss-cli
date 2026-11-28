@@ -37,6 +37,7 @@ mod ci_job;
 #[allow(dead_code)]
 mod command_recovery;
 pub mod engineering;
+mod grok;
 pub mod integrations;
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),

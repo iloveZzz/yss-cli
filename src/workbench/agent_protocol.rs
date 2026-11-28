@@ -197,7 +197,43 @@ pub(crate) struct PiRuntime {
     pub host_commands_message: Option<String>,
 }
 
+fn pi_launch_identity(
+    executable: &Path,
+    node: Option<&Path>,
+    directory: &Path,
+    version: &semver::Version,
+) -> Option<String> {
+    fn stamp(path: &Path) -> Option<Value> {
+        let canonical = path.canonicalize().ok()?;
+        let metadata = canonical.metadata().ok()?;
+        let changed = metadata.modified().ok()?;
+        Some(serde_json::json!([canonical, metadata.len(), changed]))
+    }
+    let directory = Root::open(directory).ok()?;
+    let encoded = serde_json::to_vec(&serde_json::json!([
+        stamp(executable)?,
+        node.and_then(stamp),
+        directory.path,
+        directory.identity,
+        version,
+        stamp(&directory.path.join("settings.json")),
+        stamp(&directory.path.join("models.json")),
+        stamp(&directory.path.join("auth.json")),
+    ]))
+    .ok()?;
+    Some(Sha256::of(&encoded).as_str().to_owned())
+}
+
 impl PiRuntime {
+    pub(crate) fn identity(&self) -> Option<String> {
+        pi_launch_identity(
+            self.entry.as_deref().unwrap_or(&self.executable),
+            self.entry.as_ref().map(|_| self.executable.as_path()),
+            &self.config_dir,
+            &self.version,
+        )
+    }
+
     pub fn verify_native_fork(&self, anchor: &NativeForkAnchor) -> Result<()> {
         if !native_fork_version_supported(&self.version)
             || !Path::new(NATIVE_FORK_SANDBOX).is_file()
@@ -311,6 +347,8 @@ pub(crate) struct RuntimeStatusView {
     #[serde(flatten)]
     status: RuntimeStatus,
     capabilities: RuntimeCapabilities,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -423,9 +461,21 @@ impl RuntimeStatus {
                 }),
             ),
         };
+        let identity = self
+            .available
+            .then(|| {
+                pi_launch_identity(
+                    Path::new(self.executable.as_deref()?),
+                    self.node_executable.as_deref().map(Path::new),
+                    Path::new(self.config_dir.as_deref()?),
+                    self.version.as_ref()?,
+                )
+            })
+            .flatten();
         RuntimeStatusView {
             status: self,
             capabilities,
+            identity,
         }
     }
 }
@@ -713,20 +763,22 @@ pub(crate) fn run(
     context: &JobContext,
     save_session: impl FnMut(Option<PiSession>, Value) -> Result<()>,
     ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
+    before_prompt: impl FnOnce(&PiRuntime) -> Result<()>,
+    handoff: Option<&str>,
 ) -> Result<()> {
     #[cfg(any(
         all(target_os = "macos", target_arch = "aarch64"),
         all(target_os = "windows", target_arch = "x86_64")
     ))]
     {
-        pi::run(request, context, save_session, ask)
+        pi::run(request, context, save_session, ask, before_prompt, handoff)
     }
     #[cfg(not(any(
         all(target_os = "macos", target_arch = "aarch64"),
         all(target_os = "windows", target_arch = "x86_64")
     )))]
     {
-        let _ = (request, context, save_session, ask);
+        let _ = (request, context, save_session, ask, before_prompt, handoff);
         Err(unsupported())
     }
 }

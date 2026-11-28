@@ -15,6 +15,9 @@ import AgentRunPermissions from '@/components/AgentRunPermissions.vue'
 import PiReadiness from '@/components/PiReadiness.vue'
 import { errorMessage, dateLabel, ApiError } from '@/services/workbench'
 import {
+  agentHostLabels,
+  agentPhaseLabel,
+  isWorkspaceAgent,
   getJobs,
   getJob,
   cancelJob,
@@ -23,7 +26,7 @@ import {
   objectValue,
   piCommandCapability,
   piCommandExecutionLabels,
-  piPhaseLabels,
+  piThinkingLabels,
   readableValue,
   type JobRecord,
   type PiModel,
@@ -61,7 +64,7 @@ const readAt = shallowRef<string>()
 const jobsLoaded = shallowRef(false)
 const selectedTab = shallowRef<string>()
 const tab = computed({
-  get: () => selectedTab.value ?? (isPi.value ? 'conversation' : 'log'),
+  get: () => selectedTab.value ?? (workspaceAgent.value ? 'conversation' : 'log'),
   set: (value: string | number) => { selectedTab.value = String(value) }
 })
 const filesVisited = shallowRef(false)
@@ -111,10 +114,11 @@ const hasPiBinding = computed(() => job.value?.kind === 'agent' && !!job.value.a
 const eventStream = useJobEvents(jobId, scheduleRefresh, { knownPiJob: hasPiBinding })
 const conversation = eventStream.conversation
 const conversationPanel = useTemplateRef<InstanceType<typeof JobConversation>>('conversationPanel')
-const isPi = computed(() => {
-  const host = eventStream.latest.value?.host ?? run.value?.host
-  return host ? host === 'pi' : hasPiBinding.value
-})
+const jobHost = computed(() => job.value?.agentHost ?? eventStream.latest.value?.host ?? run.value?.host ??
+  (hasPiBinding.value ? 'pi' : undefined))
+const workspaceAgent = computed(() => isWorkspaceAgent(jobHost.value))
+const isPi = computed(() => jobHost.value === 'pi')
+const hostLabel = computed(() => jobHost.value ? agentHostLabels[jobHost.value] : 'Agent')
 watch(tab, (value) => {
   if (value === 'files') filesVisited.value = true
 })
@@ -129,15 +133,31 @@ const piRoute = computed(() => {
   const item = job.value
   const specId = item?.agentSpecId ?? run.value?.specId
   const session = item?.agentRunId ?? run.value?.id
-  if (!isPi.value || item?.id !== jobId.value || !specId || !session) return
+  if (!workspaceAgent.value || item?.id !== jobId.value || !specId || !session) return
   return { name: 'pi-workspace', params: { specId }, query: { session, round: item.id } }
 })
 watch(piRoute, (target) => {
   if (target && !showExecutionDetail.value) void router.replace(target)
 })
 const currentRun = computed(() => (run.value?.jobId === jobId.value ? run.value : undefined))
+const grokConfiguration = computed(() => eventStream.latest.value?.grokConfiguration ?? conversation.page.value?.grokConfiguration)
+const grokRoundTitle = computed(() => {
+  const selection = grokConfiguration.value ?? job.value?.agentSelection
+  if (!selection?.model) return ''
+  const { provider, model, thinkingLevel } = selection
+  return [[provider, model].filter(Boolean).join(' / '),
+    thinkingLevel ? piThinkingLabels[thinkingLevel] ?? thinkingLevel : '',
+    grokConfiguration.value ? '' : '模型待核对'].filter(Boolean).join(' · ')
+})
+const handoffSourceLink = computed(() => {
+  const reference = job.value?.agentHandoffSource ?? currentRun.value?.handoff?.source
+  const specId = job.value?.agentSpecId ?? currentRun.value?.specId
+  if (!reference || !specId) return
+  return { name: 'pi-workspace', params: { specId }, query: { session: reference.runId, round: reference.jobId } }
+})
 const nativeResume = computed(() => {
   const current = currentRun.value
+  if (job.value?.agentDispatchUncertain) return { available: false, reason: '此轮结果待核实，原会话暂无法续接。' }
   return current?.actions?.resumeNative ?? (current && { available: current.canResume, reason: current.resumeIssue })
 })
 const commandExecution = computed(() => eventStream.latest.value?.piSettings?.commandExecution ??
@@ -152,7 +172,7 @@ const phaseLabel = computed(() => {
   const phase = piPhase.value
   if (phase === 'promptAccepted' && eventStream.latest.value?.items.some((item) => item.kind === 'command' && item.status === 'inProgress'))
     return '正在执行命令'
-  return phase && (phase !== 'promptAccepted' || !eventStream.latest.value?.latestMessage) ? piPhaseLabels[phase] : ''
+  return phase && (phase !== 'promptAccepted' || !eventStream.latest.value?.latestMessage) ? agentPhaseLabel(phase, jobHost.value === 'grok' ? 'grok' : 'pi') : ''
 })
 const artifactRun = computed(() => currentRun.value ?? (run.value?.workspaceMode === 'direct' ? run.value : undefined))
 const latestRunActive = computed(() => !!run.value && !terminalJob(run.value.status))
@@ -384,7 +404,7 @@ async function resume() {
         :title="jobId ? (job ? jobTitle(job) : '执行详情') : '执行记录'"
         :ancestors="jobId ? [{ label: '执行记录', to: '/jobs' }] : []"
       />
-      <RouterLink v-if="piRoute && showExecutionDetail" :to="piRoute" class="text-link mt-1 inline-block">打开 Pi 会话</RouterLink>
+      <RouterLink v-if="piRoute && showExecutionDetail" :to="piRoute" class="text-link mt-1 inline-block">打开 {{ hostLabel }} 会话</RouterLink>
     </div>
     <Button type="button" variant="outline" :aria-disabled="loading" @click="!loading && refresh()">
       <LoadingIndicator v-if="job" :active="loading" />
@@ -421,12 +441,12 @@ async function resume() {
           <LoadingIndicator :active="operation?.kind === 'stop' || stopping" />
           {{ operation?.kind === 'stop' || stopping ? '正在停止…' : '停止运行' }}
         </Button>
-        <Button v-else-if="nativeResume?.available && currentRun?.projectAccess?.length && !latestRunActive && piRoute"
+        <Button v-else-if="nativeResume?.available && (jobHost === 'grok' || currentRun?.projectAccess?.length) && !latestRunActive && piRoute"
           variant="outline" as-child>
-          <RouterLink :to="piRoute">在 Pi 工作区继续处理</RouterLink>
+          <RouterLink :to="piRoute">在 Agent 工作区继续处理</RouterLink>
         </Button>
         <Button
-          v-else-if="nativeResume?.available && !currentRun?.projectAccess?.length && !latestRunActive"
+          v-else-if="isPi && nativeResume?.available && !currentRun?.projectAccess?.length && !latestRunActive"
           type="button"
           variant="outline"
           :aria-expanded="continuationOpen"
@@ -461,7 +481,7 @@ async function resume() {
       <p v-if="latestMessage && terminalJob(job.status) && tab === 'log'" class="job-final-message">
         {{ latestMessage }}
       </p>
-      <p v-else-if="!isPi && terminalJob(job.status) && job.kind === 'agent' && !job.error" class="muted">
+      <p v-else-if="!workspaceAgent && terminalJob(job.status) && job.kind === 'agent' && !job.error" class="muted">
         本轮执行已结束。
       </p>
       <dl v-if="outcome.length" class="outcome-facts">
@@ -471,7 +491,7 @@ async function resume() {
         </div>
       </dl>
       <form
-        v-if="continuationOpen && currentRun && nativeResume?.available && terminalJob(job.status) && !latestRunActive"
+        v-if="isPi && continuationOpen && currentRun && nativeResume?.available && terminalJob(job.status) && !latestRunActive"
         id="continuation-form"
         class="form-stack continuation-form"
         aria-label="续接 Pi"
@@ -501,7 +521,7 @@ async function resume() {
       </form>
       <p v-if="currentRun && terminalJob(job.status) && !nativeResume?.available" class="muted">
         {{ nativeResume?.reason || (currentRun.workspaceMode !== 'direct' ? '这是历史隔离运行。' : '当前会话不可续接。') }}
-        <RouterLink v-if="piRoute" :to="piRoute" class="underline">在 Pi 工作区查看交接入口</RouterLink>
+        <RouterLink v-if="piRoute" :to="piRoute" class="underline">在 Agent 工作区查看交接入口</RouterLink>
         <RouterLink v-else :to="'/specs/' + encodeURIComponent(currentRun.specId)" class="underline">
           返回 Spec 发起新运行
         </RouterLink>
@@ -516,8 +536,14 @@ async function resume() {
           </p>
           <p class="path-text">执行编号 {{ job.id }}</p>
         </div>
-        <JobDisclosure v-if="currentRun?.hostSettings">
-          <template #label>本次 {{ currentRun.host === 'pi' ? 'Pi' : 'Codex' }} 模型与权限</template>
+        <p v-if="jobHost === 'grok' && grokRoundTitle">Grok Build · {{ grokRoundTitle }}</p>
+        <JobDisclosure v-if="job.handoffSubmitted || handoffSourceLink">
+          <template #label>{{ job.handoffSubmitted ? '本轮已提交的交接正文' : '本轮交接来源' }}</template>
+          <RouterLink v-if="handoffSourceLink" :to="handoffSourceLink" class="underline underline-offset-4">查看来源轮次</RouterLink>
+          <pre v-if="job.handoffSubmitted" class="whitespace-pre-wrap break-words">{{ job.handoffSubmitted }}</pre>
+        </JobDisclosure>
+        <JobDisclosure v-if="currentRun?.hostSettings && jobHost !== 'grok'">
+          <template #label>本次 {{ agentHostLabels[currentRun.host] }} 模型与权限</template>
           <pre>{{ readableValue(currentRun.hostSettings) }}</pre>
         </JobDisclosure>
         <JobDisclosure v-if="job.result || job.error">
@@ -527,7 +553,7 @@ async function resume() {
       </JobDisclosure>
     </section>
     <nav v-if="piRoute || conversation.page.value?.previousJobId || (run && run.jobId !== job.id)" class="job-related" aria-label="相关执行">
-      <RouterLink v-if="piRoute" :to="piRoute">在 Pi 工作区查看轮次</RouterLink>
+      <RouterLink v-if="piRoute" :to="piRoute">在 Agent 工作区查看轮次</RouterLink>
       <RouterLink
         v-if="conversation.page.value?.previousJobId"
         :to="{ path: `/jobs/${conversation.page.value.previousJobId}`, query: { run: runId } }"
@@ -538,7 +564,7 @@ async function resume() {
       >查看最新执行与成果</RouterLink>
     </nav>
     <Button
-      v-if="isPi && tab !== 'conversation' && !finished && conversation.pending.value"
+      v-if="workspaceAgent && tab !== 'conversation' && !finished && conversation.pending.value"
       type="button"
       variant="outline"
       class="job-pending"
@@ -555,14 +581,14 @@ async function resume() {
     <Tabs v-model="tab" activation-mode="manual" class="job-tabs min-w-0 gap-0">
       <TabsList class="tabs job-tablist w-full justify-start rounded-none bg-transparent p-0"
         aria-label="执行详情内容" moving-indicator>
-        <TabsTrigger v-if="isPi" value="conversation">会话</TabsTrigger>
+        <TabsTrigger v-if="workspaceAgent" value="conversation">会话</TabsTrigger>
         <TabsTrigger value="log">执行日志</TabsTrigger>
         <template v-if="artifactRun">
           <TabsTrigger value="artifacts">本次产物</TabsTrigger>
           <TabsTrigger value="files">文件变更</TabsTrigger>
         </template>
       </TabsList>
-      <TabsContent v-if="isPi" value="conversation" force-mount v-show="tab === 'conversation'">
+      <TabsContent v-if="workspaceAgent" value="conversation" force-mount v-show="tab === 'conversation'">
         <JobConversation
           ref="conversationPanel"
           :key="jobId"

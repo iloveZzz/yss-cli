@@ -1,5 +1,5 @@
 use super::{
-    agent, agent_protocol, agent_scope, artifacts, backup, ci_job, drafts, engineering,
+    agent, agent_protocol, agent_scope, artifacts, backup, ci_job, drafts, engineering, grok,
     integrations,
     jobs::{self, JobManager},
     merge_requests,
@@ -302,17 +302,21 @@ impl PlatformApi {
         request_cancel: Option<&Cancellation>,
     ) -> Result<Option<Value>> {
         let query = query_values(query);
-        if method == "POST"
-            && path == "/api/agent/start"
-            && query.get("admission").is_some_and(|mode| mode == "async")
-        {
+        if method == "POST" && path == "/api/agent/start" {
             let value: Value = decode(bytes)?;
-            let fingerprint = job_fingerprint(path, &value)?;
-            return Ok(Some(encode(agent::start_async(
-                self.jobs.clone(),
-                decode(bytes)?,
-                fingerprint,
-            )?)?));
+            if query.get("admission").is_some_and(|mode| mode == "async")
+                || value.get("host").and_then(Value::as_str) == Some("grok")
+                || value
+                    .get("handoff")
+                    .is_some_and(|handoff| !handoff.is_null())
+            {
+                let fingerprint = job_fingerprint(path, &value)?;
+                return Ok(Some(encode(agent::start_async(
+                    self.jobs.clone(),
+                    decode(bytes)?,
+                    fingerprint,
+                )?)?));
+            }
         }
         if method == "POST"
             && [
@@ -908,6 +912,32 @@ impl PlatformApi {
             ("GET", ["api", "specs", id, "agent-projects"]) => {
                 integrations::agent_projects(&self.jobs.store, id, &self.cancel)?
             }
+            ("GET", ["api", "specs", id, "agent-handoff"]) => {
+                let source = agent_scope::ContinuationSource {
+                    run_id: query
+                        .get("runId")
+                        .cloned()
+                        .ok_or_else(|| sources::invalid("缺少来源会话"))?,
+                    job_id: query
+                        .get("jobId")
+                        .cloned()
+                        .ok_or_else(|| sources::invalid("缺少来源轮次"))?,
+                };
+                let host = query
+                    .get("host")
+                    .ok_or_else(|| sources::invalid("请选择交接目标 CLI"))?;
+                agent_scope::handoff_preview(
+                    &mut *jobs::lock_store(&self.jobs.store)?,
+                    id,
+                    &source,
+                    agent::AgentHost::parse(Some(host))?,
+                )?
+            }
+            ("POST", ["api", "specs", id, "agent-handoff"]) => agent_scope::confirm_handoff(
+                &mut *jobs::lock_store(&self.jobs.store)?,
+                id,
+                decode(bytes)?,
+            )?,
             ("GET", ["api", "specs", id, "agent-continuation"]) => {
                 let source = agent_scope::ContinuationSource {
                     run_id: query
@@ -959,28 +989,57 @@ impl PlatformApi {
             }
             ("GET", ["api", "agent", "models"]) => {
                 let protected = agent::pi_protected_paths(&*jobs::lock_store(&self.jobs.store)?);
-                shared_pi_probe("models", &protected, None, || {
-                    let models = agent_protocol::available_models(&self.cancel, &protected)?;
-                    Ok(json!({"models": models}))
-                })?
+                if agent::AgentHost::parse(query.get("host").map(String::as_str))?
+                    == agent::AgentHost::Grok
+                {
+                    let models = grok::models(request_cancel.unwrap_or(&self.cancel), &protected)?;
+                    json!({"models": models})
+                } else {
+                    shared_pi_probe("models", &protected, None, || {
+                        let models = agent_protocol::available_models(&self.cancel, &protected)?;
+                        Ok(json!({"models": models}))
+                    })?
+                }
             }
             ("GET", ["api", "agent", "runtime"]) => {
+                let host = agent::AgentHost::parse(query.get("host").map(String::as_str))?;
                 let selected = match (query.get("selectedProvider"), query.get("selectedModel")) {
                     (None, None) => None,
                     (Some(provider), Some(id)) => Some(
                         agent_protocol::PiModel::new(provider, id)
-                            .ok_or_else(|| sources::invalid("Pi 供应商或模型 ID 无效"))?,
+                            .ok_or_else(|| sources::invalid("Agent 供应商或模型 ID 无效"))?,
                     ),
-                    _ => return Err(sources::invalid("请选择完整的 Pi 供应商和模型")),
+                    _ => return Err(sources::invalid("请选择完整的 Agent 供应商和模型")),
                 };
-                let (protected, model) = agent::runtime_target(
+                let (protected, model, resume_identity) = agent::runtime_target_for(
                     &mut *jobs::lock_store(&self.jobs.store)?,
                     query.get("resumeRunId").map(String::as_str),
                     selected,
+                    host,
                 )?;
-                shared_pi_probe("runtime", &protected, model.as_ref(), || {
-                    encode(self.pi_runtime_status(&protected, model.as_ref())?)
-                })?
+                if host == agent::AgentHost::Grok {
+                    let mut status = grok::probe(
+                        request_cancel.unwrap_or(&self.cancel),
+                        &protected,
+                        model.as_ref(),
+                    );
+                    status["host"] = json!(host);
+                    if let Some(expected) = resume_identity
+                        && status["available"] == true
+                        && status["identity"].as_str() != Some(&expected)
+                    {
+                        status["available"] = json!(false);
+                        status["issue"] = json!("resumeIdentityChanged");
+                        status["message"] = json!(
+                            "Grok Build 的登录或安装已变化。切回原配置后重新检测，或从 Spec 新建会话。"
+                        );
+                    }
+                    status
+                } else {
+                    shared_pi_probe("runtime", &protected, model.as_ref(), || {
+                        encode(self.pi_runtime_status(&protected, model.as_ref())?)
+                    })?
+                }
             }
             ("POST", ["api", "agent", "test-model"]) => {
                 #[derive(Deserialize)]
