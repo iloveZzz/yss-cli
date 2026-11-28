@@ -1,6 +1,6 @@
 use super::{
     agent, agent_protocol, agent_scope, artifacts, backup, ci_job, drafts, engineering, grok,
-    integrations,
+    integrations, issues,
     jobs::{self, JobManager},
     merge_requests,
     model::*,
@@ -39,6 +39,7 @@ pub struct PlatformApi {
     pub cancel: Cancellation,
     pub origin: String,
     pub(super) reads: Arc<read_model::ReadModel>,
+    pub(super) merge_request_sources: Arc<merge_requests::SourceCache>,
 }
 
 fn encode(value: impl serde::Serialize) -> Result<Value> {
@@ -868,20 +869,41 @@ impl PlatformApi {
             }
             ("GET", ["api", "merge-requests", "sources"]) => encode(merge_requests::discover(
                 &self.jobs.store,
+                &self.merge_request_sources,
                 request_cancel.unwrap_or(&self.cancel),
             )?)?,
             ("PUT", ["api", "merge-requests", "sources"]) => encode(merge_requests::save(
                 &self.jobs.store,
+                &self.merge_request_sources,
                 decode(bytes)?,
                 &self.cancel,
             )?)?,
             ("POST", ["api", "merge-requests", "page"]) => encode(merge_requests::page(
                 &self.jobs.store,
+                &self.merge_request_sources,
                 decode(bytes)?,
                 request_cancel.unwrap_or(&self.cancel),
             )?)?,
             ("POST", ["api", "merge-requests", "detail"]) => encode(merge_requests::detail(
                 &self.jobs.store,
+                &self.merge_request_sources,
+                decode(bytes)?,
+                request_cancel.unwrap_or(&self.cancel),
+            )?)?,
+            ("GET", ["api", "issues", "sources"]) => encode(issues::discover(
+                &self.jobs.store,
+                &self.merge_request_sources,
+                request_cancel.unwrap_or(&self.cancel),
+            )?)?,
+            ("POST", ["api", "issues", "page"]) => encode(issues::page(
+                &self.jobs.store,
+                &self.merge_request_sources,
+                decode(bytes)?,
+                request_cancel.unwrap_or(&self.cancel),
+            )?)?,
+            ("POST", ["api", "issues", "detail"]) => encode(issues::detail(
+                &self.jobs.store,
+                &self.merge_request_sources,
                 decode(bytes)?,
                 request_cancel.unwrap_or(&self.cancel),
             )?)?,

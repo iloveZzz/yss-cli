@@ -1,4 +1,4 @@
-use super::{Order, Platform, ReadIssue, Repository};
+use super::{DetailSection, ListStatus, Order, Platform, ReadIssue, Repository};
 use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
@@ -8,7 +8,13 @@ use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, env, path::Path, process::Command, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    path::Path,
+    process::Command,
+    time::Duration,
+};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const PAGE_SIZE: usize = 25;
@@ -41,6 +47,16 @@ pub struct Summary {
 #[serde(rename_all = "camelCase")]
 pub struct Detail {
     #[serde(flatten)]
+    fields: DetailFields,
+    pub review: Signal,
+    pub ci: Signal,
+    pub historical_ci: Vec<Signal>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DetailFields {
+    #[serde(flatten)]
     pub summary: Summary,
     pub description: Option<String>,
     pub description_available: bool,
@@ -50,9 +66,28 @@ pub struct Detail {
     pub target_repository: Option<String>,
     pub merged_at: Option<String>,
     pub closed_at: Option<String>,
-    pub review: Signal,
-    pub ci: Signal,
-    pub historical_ci: Vec<Signal>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub(super) enum DetailSectionData {
+    Base {
+        #[serde(flatten)]
+        fields: Box<DetailFields>,
+        version: String,
+        history_available: bool,
+    },
+    Summary {
+        number: u64,
+        version: String,
+        signal: Signal,
+    },
+    History {
+        number: u64,
+        version: String,
+        historical_ci: Vec<Signal>,
+        signal: Signal,
+    },
 }
 
 #[derive(Clone, Serialize)]
@@ -77,9 +112,18 @@ impl Signal {
     fn unavailable(error: YssError) -> Self {
         Self::new("unavailable", Some(classify(&error).message))
     }
+
+    fn read_failure(error: YssError) -> Self {
+        let issue = classify(&error);
+        let status = match issue.code {
+            "network" | "rateLimit" | "unavailable" => "readFailed",
+            _ => "unavailable",
+        };
+        Self::new(status, Some(issue.message))
+    }
 }
 
-fn read_error(kind: &'static str, message: &'static str) -> YssError {
+pub(in crate::workbench) fn read_error(kind: &'static str, message: &'static str) -> YssError {
     let code = match kind {
         "authentication" | "permission" | "missingTool" => ErrorCode::NotReady,
         _ => ErrorCode::Network,
@@ -87,11 +131,11 @@ fn read_error(kind: &'static str, message: &'static str) -> YssError {
     YssError::new(code, message).context("readIssue", kind)
 }
 
-fn malformed() -> YssError {
+pub(in crate::workbench) fn malformed() -> YssError {
     read_error("unavailable", "平台返回的读取结果无法识别，请在原站核对")
 }
 
-pub(super) fn classify(error: &YssError) -> ReadIssue {
+pub(in crate::workbench) fn classify(error: &YssError) -> ReadIssue {
     let code = match error.context.get("readIssue").map(String::as_str) {
         Some("authentication") => "authentication",
         Some("permission") => "permission",
@@ -114,9 +158,9 @@ pub(super) fn classify(error: &YssError) -> ReadIssue {
     }
 }
 
-struct Response {
-    headers: String,
-    body: Value,
+pub(in crate::workbench) struct Response {
+    pub(in crate::workbench) headers: String,
+    pub(in crate::workbench) body: Value,
 }
 
 fn response_parts(output: &str) -> (&str, &str) {
@@ -130,7 +174,10 @@ fn response_parts(output: &str) -> (&str, &str) {
     ("", output)
 }
 
-fn header_values<'a>(headers: &'a str, name: &'a str) -> impl Iterator<Item = &'a str> {
+pub(in crate::workbench) fn header_values<'a>(
+    headers: &'a str,
+    name: &'a str,
+) -> impl Iterator<Item = &'a str> {
     headers
         .lines()
         .filter_map(|line| line.split_once(':'))
@@ -154,9 +201,9 @@ fn request_failure(status: Option<u16>, headers: &str, diagnostics: &str) -> Yss
             read_error("rateLimit", "平台限制了读取频率，请稍后重试")
         }
         Some(403) => read_error("permission", "当前账号无权读取该仓库或接口"),
-        Some(404 | 410 | 451) => {
-            read_error("permission", "仓库或接口不可访问，请核对路径及当前账号权限")
-        }
+        Some(404) => read_error("permission", "仓库或接口不可访问，请核对路径及当前账号权限")
+            .context("httpStatus", "404"),
+        Some(410 | 451) => read_error("permission", "仓库或接口不可访问，请核对路径及当前账号权限"),
         Some(408 | 500..=599) => read_error("network", "暂时无法连接平台，请稍后重试"),
         Some(400 | 416 | 422) | None if pagination_limit => {
             read_error("limit", "平台限制了可读取的分页范围，请在原站继续查找")
@@ -275,7 +322,11 @@ fn cli_setting(tool: &Path, hostname: &str, name: &str, cancel: &Cancellation) -
     })
 }
 
-fn get(repo: &Repository, path: &str, cancel: &Cancellation) -> Result<Response> {
+pub(in crate::workbench) fn get(
+    repo: &Repository,
+    path: &str,
+    cancel: &Cancellation,
+) -> Result<Response> {
     let url = Url::parse(&repo.origin).map_err(|_| malformed())?;
     if configured_origin(&repo.origin, "https").as_deref() != Some(&repo.origin) {
         return Err(malformed());
@@ -390,7 +441,12 @@ fn get(repo: &Repository, path: &str, cancel: &Cancellation) -> Result<Response>
     })
 }
 
-fn next_page(headers: &str, page: u32, count: usize, size: usize) -> Result<Option<u32>> {
+pub(in crate::workbench) fn next_page(
+    headers: &str,
+    page: u32,
+    count: usize,
+    size: usize,
+) -> Result<Option<u32>> {
     let mut links = header_values(headers, "link").peekable();
     let has_links = links.peek().is_some();
     let linked_next = links.flat_map(|value| value.split(',')).any(|link| {
@@ -428,7 +484,7 @@ fn next_page(headers: &str, page: u32, count: usize, size: usize) -> Result<Opti
         .ok_or_else(|| read_error("limit", "平台分页超过可读取范围，请在原站继续查找"))
 }
 
-pub(super) fn identity(repo: &Repository, cancel: &Cancellation) -> Result<String> {
+pub(in crate::workbench) fn identity(repo: &Repository, cancel: &Cancellation) -> Result<String> {
     let user = get(repo, "user", cancel)?.body;
     let id = number(&user, "id")
         .ok_or_else(|| read_error("authentication", "无法核对本机平台连接的登录身份"))?;
@@ -442,7 +498,7 @@ pub(super) fn identity(repo: &Repository, cancel: &Cancellation) -> Result<Strin
     ))
 }
 
-fn valid_slug(value: &str) -> bool {
+pub(in crate::workbench) fn valid_slug(value: &str) -> bool {
     value.len() <= 512
         && value.split('/').count() >= 2
         && value.split('/').all(|part| {
@@ -472,7 +528,7 @@ fn request_path(repo: &Repository) -> Result<(String, String)> {
     }
 }
 
-fn number(value: &Value, key: &str) -> Option<u64> {
+pub(in crate::workbench) fn number(value: &Value, key: &str) -> Option<u64> {
     value
         .get(key)
         .and_then(Value::as_u64)
@@ -490,7 +546,7 @@ fn text(value: &Value, key: &str) -> Option<String> {
     (!clean.trim().is_empty()).then_some(clean)
 }
 
-fn timestamp(value: &Value, key: &str) -> Option<String> {
+pub(in crate::workbench) fn timestamp(value: &Value, key: &str) -> Option<String> {
     let stamp = value.get(key)?.as_str()?;
     let date = OffsetDateTime::parse(stamp, &Rfc3339).ok()?;
     date.to_offset(time::UtcOffset::UTC).format(&Rfc3339).ok()
@@ -563,18 +619,31 @@ pub(super) fn page(
     repo: &Repository,
     page: u32,
     order: Order,
+    status: ListStatus,
+    number: Option<u64>,
     cancel: &Cancellation,
 ) -> Result<Page> {
     let (path, _) = request_path(repo)?;
+    if let Some(number) = number {
+        return numbered_page(repo, &path, number, cancel);
+    }
     let query = match (repo.platform, order) {
-        (Platform::Github, Order::Updated) => "state=all&sort=updated&direction=desc",
-        (Platform::Github, Order::Created) => "state=all&sort=created&direction=desc",
+        (Platform::Github, Order::Updated) => "sort=updated&direction=desc",
+        (Platform::Github, Order::Created) => "sort=created&direction=desc",
         (Platform::Gitlab, Order::Updated) => "scope=all&order_by=updated_at&sort=desc",
         (Platform::Gitlab, Order::Created) => "scope=all&order_by=created_at&sort=desc",
     };
+    let state = match (repo.platform, status) {
+        (_, ListStatus::All) => "all",
+        (Platform::Github, ListStatus::Open) => "open",
+        (Platform::Github, ListStatus::Merged | ListStatus::Closed) => "closed",
+        (Platform::Gitlab, ListStatus::Open) => "opened",
+        (Platform::Gitlab, ListStatus::Merged) => "merged",
+        (Platform::Gitlab, ListStatus::Closed) => "closed",
+    };
     let response = get(
         repo,
-        &format!("{path}?{query}&per_page={PAGE_SIZE}&page={page}"),
+        &format!("{path}?state={state}&{query}&per_page={PAGE_SIZE}&page={page}"),
         cancel,
     )?;
     let items = response.body.as_array().ok_or_else(malformed)?;
@@ -590,6 +659,44 @@ pub(super) fn page(
             .collect::<Result<_>>()?,
         next_page,
         continuation_issue,
+        read_at: sources::now(),
+    })
+}
+
+fn numbered_page(
+    repo: &Repository,
+    path: &str,
+    number: u64,
+    cancel: &Cancellation,
+) -> Result<Page> {
+    let item = match detail_base(repo, &format!("{path}/{number}"), number, cancel) {
+        Ok((_, summary)) => Some(summary),
+        Err(error)
+            if error
+                .context
+                .get("httpStatus")
+                .is_some_and(|status| status == "404") =>
+        {
+            // Both platforms can conceal an inaccessible repository as a 404.
+            let scope = match repo.platform {
+                Platform::Github => "",
+                Platform::Gitlab => "&scope=all",
+            };
+            let probe = get(repo, &format!("{path}?state=all&per_page=1{scope}"), cancel)?;
+            let items = probe.body.as_array().ok_or_else(malformed)?;
+            for item in items {
+                if summary(repo, item)?.number == number {
+                    return Err(error);
+                }
+            }
+            None
+        }
+        Err(error) => return Err(error),
+    };
+    Ok(Page {
+        items: item.into_iter().collect(),
+        next_page: None,
+        continuation_issue: None,
         read_at: sources::now(),
     })
 }
@@ -618,6 +725,147 @@ fn head_commit(platform: Platform, value: &Value) -> Option<&str> {
             commit(&value["sha"]).or_else(|| commit(&value["diff_refs"]["head_sha"]))
         }
     }
+}
+
+fn request_version(platform: Platform, value: &Value, summary: &Summary) -> String {
+    let pipeline = &value["head_pipeline"];
+    let platform_fields = match platform {
+        Platform::Github => serde_json::json!({
+            "description": value.get("body"),
+            "descriptionAvailable": value.get("body").is_some(),
+            "headRef": value["head"]["ref"],
+            "headRepo": value["head"]["repo"]["full_name"],
+            "baseRef": value["base"]["ref"],
+            "baseRepo": value["base"]["repo"]["full_name"],
+            "reviewers": reviewer_ids(&value["requested_reviewers"]),
+            "teams": reviewer_ids(&value["requested_teams"]),
+            "commits": value["commits"],
+        }),
+        Platform::Gitlab => serde_json::json!({
+            "description": value.get("description"),
+            "descriptionAvailable": value.get("description").is_some(),
+            "sourceBranch": value["source_branch"],
+            "sourceProject": value["source_project_id"],
+            "targetBranch": value["target_branch"],
+            "targetProject": value["target_project_id"],
+            "reviewers": reviewer_ids(&value["reviewers"]),
+            "reviewStatus": value["detailed_merge_status"].as_str().filter(|status|
+                matches!(*status, "requested_changes" | "not_approved")),
+            "pipelineField": value.get("head_pipeline").is_some(),
+            "pipelineId": pipeline["id"],
+            "pipelineSha": pipeline["sha"],
+            "pipelineRef": pipeline["ref"],
+            "pipelineProject": pipeline["project_id"],
+            "pipelineStatus": pipeline["status"],
+            "pipelineAt": timestamp(pipeline, "finished_at")
+                .or_else(|| timestamp(pipeline, "updated_at"))
+                .or_else(|| timestamp(pipeline, "created_at")),
+        }),
+    };
+    let relevant = serde_json::json!({
+        "summary": summary,
+        "id": value["id"],
+        "head": head_commit(platform, value),
+        "mergedAt": timestamp(value, "merged_at"),
+        "closedAt": timestamp(value, "closed_at"),
+        "platformFields": platform_fields,
+    });
+    format!("{:x}", Sha256::digest(relevant.to_string().as_bytes()))
+}
+
+fn reviewer_ids(value: &Value) -> Option<Vec<u64>> {
+    let mut ids: Vec<_> = value
+        .as_array()?
+        .iter()
+        .filter_map(|reviewer| number(reviewer, "id"))
+        .collect();
+    ids.sort_unstable();
+    Some(ids)
+}
+
+pub(super) fn detail_section(
+    repo: &Repository,
+    number: u64,
+    section: DetailSection,
+    cancel: &Cancellation,
+) -> Result<DetailSectionData> {
+    let (collection, base) = request_path(repo)?;
+    let path = format!("{collection}/{number}");
+    let (initial, summary) = detail_base(repo, &path, number, cancel)?;
+    if matches!(section, DetailSection::Base) {
+        let source_id = initial["source_project_id"].as_u64();
+        let (value, summary, source_project) =
+            if repo.platform == Platform::Gitlab && source_id.is_some_and(|id| id != 0) {
+                let source_project = gitlab_source(repo, &initial, cancel);
+                if initial["target_project_id"].as_u64() == source_id {
+                    (initial, summary, source_project)
+                } else {
+                    let (value, summary) = detail_base(repo, &path, number, cancel)?;
+                    let source_project = unchanged_gitlab_source(&initial, &value, source_project);
+                    (value, summary, source_project)
+                }
+            } else {
+                (initial, summary, None)
+            };
+        let history_available = head_commit(repo.platform, &value).is_some()
+            && (repo.platform == Platform::Gitlab || value["commits"].as_u64() != Some(1));
+        cancel.check()?;
+        let version = request_version(repo.platform, &value, &summary);
+        return Ok(DetailSectionData::Base {
+            fields: Box::new(detail_fields(repo, &value, summary, source_project)),
+            version,
+            history_available,
+        });
+    }
+
+    let version = request_version(repo.platform, &initial, &summary);
+    let (mut signal, mut historical_ci) = match (section, repo.platform) {
+        (DetailSection::Review, Platform::Github) => (
+            github_review(repo, &path, &initial, cancel).unwrap_or_else(Signal::read_failure),
+            Vec::new(),
+        ),
+        (DetailSection::Review, Platform::Gitlab) => (
+            gitlab_review(repo, &path, &initial, cancel).unwrap_or_else(Signal::read_failure),
+            Vec::new(),
+        ),
+        (DetailSection::Ci, Platform::Github) => {
+            (github_current_ci(repo, &base, &initial, cancel), Vec::new())
+        }
+        (DetailSection::Ci, Platform::Gitlab) => (
+            gitlab_current_ci(repo, &base, &initial, number, cancel),
+            Vec::new(),
+        ),
+        (DetailSection::History, Platform::Github) => {
+            github_history(repo, &base, &path, &initial, cancel)
+        }
+        (DetailSection::History, Platform::Gitlab) => {
+            gitlab_history(repo, &base, &path, &initial, number, cancel)
+        }
+        (DetailSection::Base, _) => unreachable!(),
+    };
+
+    // Recheck access and version before releasing an optional result, even when its read failed.
+    let (value, summary) = detail_base(repo, &path, number, cancel)?;
+    let current_version = request_version(repo.platform, &value, &summary);
+    cancel.check()?;
+    if version != current_version {
+        historical_ci.clear();
+        signal = Signal::new("unavailable", Some("请求在读取期间更新，请重新读取".into()));
+    }
+    Ok(if matches!(section, DetailSection::History) {
+        DetailSectionData::History {
+            number,
+            version: current_version,
+            historical_ci,
+            signal,
+        }
+    } else {
+        DetailSectionData::Summary {
+            number,
+            version: current_version,
+            signal,
+        }
+    })
 }
 
 pub(super) fn detail(repo: &Repository, number: u64, cancel: &Cancellation) -> Result<Detail> {
@@ -667,6 +915,26 @@ pub(super) fn detail(repo: &Repository, number: u64, cancel: &Cancellation) -> R
         historical_ci.clear();
     }
 
+    cancel.check()?;
+    Ok(Detail {
+        fields: detail_fields(
+            repo,
+            &value,
+            summary,
+            unchanged_gitlab_source(&initial, &value, source_project),
+        ),
+        review,
+        ci,
+        historical_ci,
+    })
+}
+
+fn detail_fields(
+    repo: &Repository,
+    value: &Value,
+    summary: Summary,
+    source_project: Option<String>,
+) -> DetailFields {
     let description = value.get(match repo.platform {
         Platform::Github => "body",
         Platform::Gitlab => "description",
@@ -693,18 +961,13 @@ pub(super) fn detail(repo: &Repository, number: u64, cancel: &Cancellation) -> R
             )
         }
         Platform::Gitlab => (
-            text(&value, "source_branch"),
-            text(&value, "target_branch"),
-            source_project.filter(|_| {
-                ["source_project_id", "target_project_id"]
-                    .iter()
-                    .all(|field| initial[*field] == value[*field])
-            }),
+            text(value, "source_branch"),
+            text(value, "target_branch"),
+            source_project,
             Some(repo.slug.clone()),
         ),
     };
-    cancel.check()?;
-    Ok(Detail {
+    DetailFields {
         summary,
         description,
         description_available,
@@ -712,11 +975,20 @@ pub(super) fn detail(repo: &Repository, number: u64, cancel: &Cancellation) -> R
         target_branch,
         source_repository,
         target_repository,
-        merged_at: timestamp(&value, "merged_at"),
-        closed_at: timestamp(&value, "closed_at"),
-        review,
-        ci,
-        historical_ci,
+        merged_at: timestamp(value, "merged_at"),
+        closed_at: timestamp(value, "closed_at"),
+    }
+}
+
+fn unchanged_gitlab_source(
+    initial: &Value,
+    latest: &Value,
+    source: Option<String>,
+) -> Option<String> {
+    source.filter(|_| {
+        ["source_project_id", "target_project_id"]
+            .iter()
+            .all(|field| initial[*field] == latest[*field])
     })
 }
 
@@ -927,7 +1199,8 @@ fn ci_status(value: &str) -> &'static str {
 
 fn rank_ci(status: &str) -> u8 {
     match status {
-        "failing" => 8,
+        "failing" => 9,
+        "readFailed" => 8,
         "unavailable" => 7,
         "pending" => 6,
         "cancelled" => 5,
@@ -1011,6 +1284,11 @@ fn github_commit_status(
         cancel,
     )?;
     let body = response.body;
+    if body.get("sha").is_some()
+        && !commit(&body["sha"]).is_some_and(|reported| reported.eq_ignore_ascii_case(sha))
+    {
+        return Err(malformed());
+    }
     let statuses = body["statuses"].as_array().ok_or_else(malformed)?;
     let status = match (body["total_count"].as_u64(), statuses.is_empty()) {
         (Some(0), true) => "noRecords",
@@ -1030,11 +1308,13 @@ fn github_commit_status(
 }
 
 fn github_commit_ci(repo: &Repository, base: &str, sha: &str, cancel: &Cancellation) -> Signal {
-    let checks = github_checks(repo, base, sha, cancel).unwrap_or_else(Signal::unavailable);
-    let status = github_commit_status(repo, base, sha, cancel).unwrap_or_else(Signal::unavailable);
+    let checks = github_checks(repo, base, sha, cancel).unwrap_or_else(Signal::read_failure);
+    let status = github_commit_status(repo, base, sha, cancel).unwrap_or_else(Signal::read_failure);
     let checks_rank = rank_ci(checks.status);
     let status_rank = rank_ci(status.status);
-    let partly_unavailable = [checks.status, status.status].contains(&"unavailable");
+    let partly_unavailable = [checks.status, status.status]
+        .iter()
+        .any(|status| matches!(*status, "unavailable" | "readFailed"));
     let mut signal = if checks_rank >= status_rank {
         checks
     } else {
@@ -1047,7 +1327,43 @@ fn github_commit_ci(repo: &Repository, base: &str, sha: &str, cancel: &Cancellat
     signal
 }
 
+fn github_current_ci(
+    repo: &Repository,
+    base: &str,
+    value: &Value,
+    cancel: &Cancellation,
+) -> Signal {
+    match head_commit(Platform::Github, value) {
+        Some(head) => github_commit_ci(repo, base, head, cancel),
+        None => Signal::new("unavailable", Some("GitHub 未提供当前提交".into())),
+    }
+}
+
 fn github_ci(
+    repo: &Repository,
+    base: &str,
+    path: &str,
+    value: &Value,
+    cancel: &Cancellation,
+) -> (Signal, Vec<Signal>) {
+    let mut current = github_current_ci(repo, base, value, cancel);
+    if current.status == "readFailed" {
+        current.status = "unavailable";
+    }
+    if !matches!(current.status, "noRecords" | "unavailable") {
+        return (current, Vec::new());
+    }
+    if current.commit.is_none() {
+        return (current, Vec::new());
+    }
+    let (progress, history) = github_history(repo, base, path, value, cancel);
+    if matches!(progress.status, "unavailable" | "readFailed") {
+        append_history_notice(&mut current, "GitHub 历史 CI 未读完，请在原站核对");
+    }
+    (current, history)
+}
+
+fn github_history(
     repo: &Repository,
     base: &str,
     path: &str,
@@ -1060,10 +1376,6 @@ fn github_ci(
             Vec::new(),
         );
     };
-    let mut current = github_commit_ci(repo, base, head, cancel);
-    if !matches!(current.status, "noRecords" | "unavailable") {
-        return (current, Vec::new());
-    }
 
     const COMMIT_LIMIT: u64 = 250;
     const COMMITS_PER_PAGE: u64 = 50;
@@ -1074,30 +1386,39 @@ fn github_ci(
         .unwrap_or(COMMITS_PER_PAGE)
         .min(COMMIT_LIMIT)
         .div_ceil(COMMITS_PER_PAGE);
-    let mut visited = std::collections::HashSet::new();
-    let mut history = Vec::new();
+    let mut visited = HashSet::new();
+    let mut issue = None;
+    let mut history = Vec::with_capacity(1);
     'pages: for page in (1..=last_page).rev() {
         if total == Some(1) {
             break;
         }
-        let Ok(response) = get(
+        let response = match get(
             repo,
             &format!("{path}/commits?per_page={COMMITS_PER_PAGE}&page={page}"),
             cancel,
-        ) else {
-            incomplete = true;
-            break;
+        ) {
+            Ok(response) => response,
+            Err(error) => {
+                issue = Some(history_issue(Signal::read_failure(error)));
+                break;
+            }
         };
         let Some(commits) = response.body.as_array() else {
-            incomplete = true;
+            issue = Some(history_issue(Signal::read_failure(malformed())));
             break;
         };
+        if page == last_page && total.is_some_and(|total| total <= COMMIT_LIMIT) {
+            incomplete |= !commits
+                .iter()
+                .any(|item| commit(&item["sha"]).is_some_and(|sha| sha.eq_ignore_ascii_case(head)));
+        }
         for item in commits.iter().rev() {
             let Some(sha) = commit(&item["sha"]) else {
                 incomplete = true;
                 continue;
             };
-            if sha == head || visited.contains(sha) {
+            if sha.eq_ignore_ascii_case(head) || visited.contains(sha) {
                 continue;
             }
             if visited.len() >= HISTORICAL_LOOKUPS {
@@ -1107,6 +1428,7 @@ fn github_ci(
             visited.insert(sha.to_owned());
             let signal = github_commit_ci(repo, base, sha, cancel);
             match signal.status {
+                "readFailed" => issue = Some(history_issue(signal)),
                 "unavailable" => incomplete = true,
                 "noRecords" => {}
                 _ => {
@@ -1116,10 +1438,38 @@ fn github_ci(
             }
         }
     }
-    if incomplete {
-        append_history_notice(&mut current, "GitHub 历史 CI 读取范围受限，请在原站核对");
-    }
-    (current, history)
+    let signal = history_signal(
+        issue,
+        incomplete,
+        &history,
+        "GitHub 历史 CI 读取范围受限，请在原站核对",
+        "已显示最近一条可核实的旧提交 CI",
+    );
+    (signal, history)
+}
+
+fn history_issue(mut signal: Signal) -> Signal {
+    signal.commit = None;
+    append_history_notice(&mut signal, "历史 CI 未读完，请在原站核对");
+    signal
+}
+
+fn history_signal(
+    issue: Option<Signal>,
+    incomplete: bool,
+    history: &[Signal],
+    incomplete_message: &str,
+    success_message: &str,
+) -> Signal {
+    issue.unwrap_or_else(|| {
+        if incomplete {
+            Signal::new("unavailable", Some(incomplete_message.into()))
+        } else if history.is_empty() {
+            Signal::new("noRecords", None)
+        } else {
+            Signal::new("neutral", Some(success_message.into()))
+        }
+    })
 }
 
 fn pipeline(value: &Value) -> Signal {
@@ -1132,6 +1482,215 @@ fn pipeline(value: &Value) -> Signal {
         .or_else(|| timestamp(value, "updated_at"))
         .or_else(|| timestamp(value, "created_at"));
     signal
+}
+
+fn gitlab_merged_result(item: &Value, iid: u64) -> bool {
+    let ref_prefix = format!("refs/merge-requests/{iid}/");
+    matches!(
+        item["ref"]
+            .as_str()
+            .and_then(|reference| reference.strip_prefix(&ref_prefix)),
+        Some("merge" | "train")
+    )
+}
+
+fn gitlab_pipeline_matches(
+    repo: &Repository,
+    base: &str,
+    item: &Value,
+    head: &str,
+    iid: u64,
+    cancel: &Cancellation,
+) -> Result<bool> {
+    let sha = commit(&item["sha"]).ok_or_else(malformed)?;
+    if sha.eq_ignore_ascii_case(head) {
+        return Ok(true);
+    }
+    if !gitlab_merged_result(item, iid) {
+        return Ok(false);
+    }
+    // Successive merged results can share a ref. Inspect the immutable commit's source parent.
+    let commit_project = number(item, "project_id");
+    let commit_base = commit_project.map_or_else(|| base.to_owned(), |id| format!("projects/{id}"));
+    let merged = get(
+        repo,
+        &format!("{commit_base}/repository/commits/{sha}"),
+        cancel,
+    )?
+    .body;
+    let parents = merged["parent_ids"].as_array().ok_or_else(malformed)?;
+    if commit(&merged["id"]) != Some(sha) || parents.len() != 2 || commit(&parents[0]).is_none() {
+        return Err(malformed());
+    }
+    Ok(commit(&parents[1])
+        .ok_or_else(malformed)?
+        .eq_ignore_ascii_case(head))
+}
+
+fn gitlab_current_ci(
+    repo: &Repository,
+    base: &str,
+    value: &Value,
+    iid: u64,
+    cancel: &Cancellation,
+) -> Signal {
+    let Some(head) = head_commit(Platform::Gitlab, value) else {
+        return Signal::new("unavailable", Some("GitLab 未提供当前提交".into()));
+    };
+    let mut signal = match value.get("head_pipeline") {
+        Some(Value::Null) => Signal::new("noRecords", None),
+        Some(item) => match gitlab_pipeline_matches(repo, base, item, head, iid, cancel) {
+            Ok(true) => pipeline(item),
+            Ok(false) => Signal::new(
+                "unavailable",
+                Some("GitLab 提供的流水线属于旧提交，无法核实当前提交的流水线".into()),
+            ),
+            Err(error) => Signal::read_failure(error),
+        },
+        None => Signal::new(
+            "unavailable",
+            Some("当前流水线不可读取，请在原站核对".into()),
+        ),
+    };
+    if signal.commit.is_none() {
+        signal.commit = Some(head.into());
+    }
+    signal
+}
+
+fn gitlab_history(
+    repo: &Repository,
+    base: &str,
+    path: &str,
+    value: &Value,
+    iid: u64,
+    cancel: &Cancellation,
+) -> (Signal, Vec<Signal>) {
+    let Some(head) = head_commit(Platform::Gitlab, value) else {
+        return (
+            Signal::new("unavailable", Some("GitLab 未提供当前提交".into())),
+            Vec::new(),
+        );
+    };
+    let (_, signal, history) = gitlab_pipeline_scan(repo, base, path, head, iid, false, cancel);
+    (signal, history)
+}
+
+fn gitlab_pipeline_scan(
+    repo: &Repository,
+    base: &str,
+    path: &str,
+    head: &str,
+    iid: u64,
+    find_current: bool,
+    cancel: &Cancellation,
+) -> (Option<Signal>, Signal, Vec<Signal>) {
+    const PER_PAGE: usize = 50;
+    const PAGE_LIMIT: u32 = 5;
+    const MERGE_COMMIT_LIMIT: usize = 5;
+    const HISTORY_LIMIT: usize = 3;
+    let mut history = Vec::with_capacity(HISTORY_LIMIT);
+    let mut checked_merges = HashMap::new();
+    let mut incomplete = false;
+    let mut issue = None;
+    'pages: for page in 1..=PAGE_LIMIT {
+        let response = match get(
+            repo,
+            &format!("{path}/pipelines?per_page={PER_PAGE}&page={page}"),
+            cancel,
+        ) {
+            Ok(response) => response,
+            Err(error) => {
+                issue = Some(history_issue(Signal::read_failure(error)));
+                break;
+            }
+        };
+        let Some(pipelines) = response.body.as_array() else {
+            issue = Some(history_issue(Signal::read_failure(malformed())));
+            break;
+        };
+        if find_current
+            && let Some(current) = pipelines
+                .iter()
+                .filter(|item| commit(&item["sha"]) == Some(head))
+                .max_by_key(|item| number(item, "id"))
+        {
+            return (
+                Some(pipeline(current)),
+                Signal::new("noRecords", None),
+                Vec::new(),
+            );
+        }
+        // Recent GitLab can group MR pipelines before branch pipelines. Sort each returned page
+        // for presentation and advertise the verified range when bounded by the platform.
+        let mut ordered: Vec<_> = pipelines.iter().collect();
+        ordered.sort_by_key(|item| std::cmp::Reverse(number(item, "id")));
+        for item in ordered {
+            let Some(sha) = commit(&item["sha"]) else {
+                incomplete = true;
+                continue;
+            };
+            if sha.eq_ignore_ascii_case(head)
+                || history
+                    .iter()
+                    .any(|signal: &Signal| signal.commit.as_deref() == Some(sha))
+            {
+                continue;
+            }
+            if gitlab_merged_result(item, iid) {
+                let key = (number(item, "project_id"), sha.to_owned());
+                if !checked_merges.contains_key(&key) && checked_merges.len() == MERGE_COMMIT_LIMIT
+                {
+                    incomplete = true;
+                    continue;
+                }
+                let older = checked_merges.entry(key).or_insert_with(|| {
+                    match gitlab_pipeline_matches(repo, base, item, head, iid, cancel) {
+                        Ok(current) => !current,
+                        Err(error) => {
+                            incomplete = true;
+                            let signal = history_issue(Signal::read_failure(error));
+                            if issue.is_none() || signal.status == "readFailed" {
+                                issue = Some(signal);
+                            }
+                            false
+                        }
+                    }
+                });
+                if !*older {
+                    continue;
+                }
+            }
+            let signal = pipeline(item);
+            if signal.status == "unavailable" {
+                incomplete = true;
+                continue;
+            }
+            if history.len() < HISTORY_LIMIT {
+                history.push(signal);
+                if history.len() == HISTORY_LIMIT && !find_current {
+                    break 'pages;
+                }
+            }
+        }
+        match next_page(&response.headers, page, pipelines.len(), PER_PAGE) {
+            Ok(None) => break,
+            Ok(Some(_)) if page == PAGE_LIMIT => incomplete = true,
+            Ok(Some(_)) => {}
+            Err(error) => {
+                issue = Some(history_issue(Signal::read_failure(error)));
+                break;
+            }
+        }
+    }
+    let signal = history_signal(
+        issue,
+        incomplete,
+        &history,
+        "GitLab 历史 CI 读取范围受限，请在原站核对",
+        "已显示可核实的旧提交流水线",
+    );
+    (None, signal, history)
 }
 
 fn gitlab_ci(
@@ -1148,111 +1707,35 @@ fn gitlab_ci(
             Vec::new(),
         );
     };
-    let ref_prefix = format!("refs/merge-requests/{iid}/");
-    let merged_result = |item: &Value| {
-        matches!(
-            item["ref"]
-                .as_str()
-                .and_then(|reference| reference.strip_prefix(&ref_prefix)),
-            Some("merge" | "train")
-        )
-    };
     let platform_head = &value["head_pipeline"];
-    let pipeline_head = commit(&platform_head["sha"]);
-    let head_matches = pipeline_head.and_then(|sha| {
-        if sha == head || !merged_result(platform_head) {
-            return Some(sha == head);
-        }
-        // GitLab uses a shared ref for successive transient merge commits.
-        // Verify the immutable merge commit's source parent before using its CI.
-        let commit_base = number(platform_head, "project_id")
-            .map_or_else(|| base.to_owned(), |id| format!("projects/{id}"));
-        let merged = get(
-            repo,
-            &format!("{commit_base}/repository/commits/{sha}"),
-            cancel,
-        )
-        .ok()?
-        .body;
-        let parents = merged["parent_ids"].as_array()?;
-        if commit(&merged["id"]) != Some(sha) || parents.len() != 2 || commit(&parents[0]).is_none()
-        {
-            return None;
-        }
-        commit(&parents[1]).map(|source| source == head)
-    });
+    let head_matches = gitlab_pipeline_matches(repo, base, platform_head, head, iid, cancel).ok();
     if head_matches == Some(true) {
         return (pipeline(platform_head), Vec::new());
     }
-    const PIPELINES_PER_PAGE: usize = 50;
-    const HISTORICAL_PAGES: u32 = 5;
-    let mut history = Vec::new();
+    let (current, progress, mut history) =
+        gitlab_pipeline_scan(repo, base, path, head, iid, true, cancel);
+    if let Some(current) = current {
+        return (current, Vec::new());
+    }
     if head_matches == Some(false) {
         let previous = pipeline(platform_head);
         if previous.status != "unavailable" {
-            history.push(previous);
+            history.retain(|item| item.commit != previous.commit);
+            history.insert(0, previous);
+            history.truncate(3);
         }
     }
-    let mut unknown_sha = !platform_head.is_null() && head_matches.is_none();
-    let mut page = 1;
-    let mut current = loop {
-        let response = match get(
-            repo,
-            &format!("{path}/pipelines?per_page={PIPELINES_PER_PAGE}&page={page}"),
-            cancel,
-        ) {
-            Ok(response) => response,
-            Err(error) => {
-                let mut signal = Signal::unavailable(error);
-                append_history_notice(&mut signal, "GitLab 历史 CI 未读完，请在原站核对");
-                break signal;
-            }
-        };
-        let Some(pipelines) = response.body.as_array() else {
-            break Signal::unavailable(malformed());
-        };
-        if let Some(current) = pipelines
-            .iter()
-            .filter(|item| commit(&item["sha"]) == Some(head))
-            .max_by_key(|item| item["id"].as_u64())
+    let mut current = match progress.status {
+        "readFailed" | "unavailable" => Signal::new("unavailable", progress.message),
+        _ if value.get("head_pipeline").is_some()
+            && (platform_head.is_null() || head_matches.is_some()) =>
         {
-            return (pipeline(current), Vec::new());
+            Signal::new("noRecords", None)
         }
-        let mut ordered: Vec<_> = pipelines.iter().collect();
-        ordered.sort_by_key(|entry| std::cmp::Reverse(entry["id"].as_u64()));
-        for previous in ordered {
-            let signal = pipeline(previous);
-            let verified_previous = !merged_result(previous)
-                || (signal.commit.as_deref() == pipeline_head && head_matches == Some(false));
-            unknown_sha |= signal.commit.is_none() || !verified_previous;
-            if signal.commit.is_some()
-                && verified_previous
-                && signal.status != "unavailable"
-                && history.len() < 3
-                && !history.iter().any(|item| item.commit == signal.commit)
-            {
-                history.push(signal);
-            }
-        }
-        match next_page(&response.headers, page, pipelines.len(), PIPELINES_PER_PAGE) {
-            Ok(None) if !unknown_sha && value.get("head_pipeline").is_some() => {
-                break Signal::new("noRecords", None);
-            }
-            Ok(None) => {
-                break Signal::new(
-                    "unavailable",
-                    Some("无法核实 GitLab 当前提交的流水线，请在原站核对".into()),
-                );
-            }
-            Ok(Some(next)) if next <= HISTORICAL_PAGES => page = next,
-            Ok(Some(_)) => {
-                break Signal::new(
-                    "unavailable",
-                    Some("GitLab 流水线读取范围受限，请在原站核对".into()),
-                );
-            }
-            Err(error) => break Signal::unavailable(error),
-        }
+        _ => Signal::new(
+            "unavailable",
+            Some("无法核实 GitLab 当前提交的流水线，请在原站核对".into()),
+        ),
     };
     current.commit = Some(head.into());
     (current, history)

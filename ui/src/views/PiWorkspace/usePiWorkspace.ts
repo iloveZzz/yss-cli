@@ -38,7 +38,8 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
   const roundActions = shallowRef<Record<string, AgentRoundActions>>({})
   const runError = shallowRef('')
   const launchError = shallowRef('')
-  const accepted = shallowRef<{ spec: string; session: string; job: JobRecord }>()
+  const accepted = new Map<string, JobRecord>()
+  const acceptanceKey = (spec: string, session: string) => JSON.stringify([spec, session])
   const summary = computed(() => {
     const page = context.value
     const id = sessionId.value
@@ -125,10 +126,9 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     roundRequest?.abort()
     const request = new AbortController()
     roundRequest = request
-    const tracked = accepted.value
-    const pending = tracked?.session === id && tracked.spec === spec ? tracked.job : undefined
-    const knownSummary = summary.value
-    const jobId = pending?.id ?? knownSummary?.jobId
+    const key = acceptanceKey(spec, id)
+    const pending = accepted.get(key)
+    const summaryJobId = summary.value?.jobId
     const selected = linkedRound.value
     const stillCurrent = () => !request.signal.aborted && id === sessionId.value && spec === specId.value && selected === linkedRound.value
     reading.value = true
@@ -140,44 +140,71 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
       if (!stillCurrent()) return
       const nextRun = runRead.status === 'fulfilled' ? runRead.value : undefined
       const mismatchedRun = nextRun && (nextRun.id !== id || !isWorkspaceAgent(nextRun.host) || nextRun.specId !== spec)
+      const denied = [runRead, roundsRead].find((result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && accessDenied(result.reason))
+      if (mismatchedRun || denied) {
+        accepted.delete(key)
+        run.value = undefined
+        rounds.value = []
+        snapshotJobs.value = new Set()
+        roundCiJobs.value = {}
+        roundActions.value = {}
+        launchError.value = ''
+        runError.value = mismatchedRun ? '此会话不属于当前 Spec' : errorMessage(denied?.reason)
+        return
+      }
       const previousRun = run.value
-      const verifiedRun = mismatchedRun ? undefined : nextRun ??
+      const verifiedRun = nextRun ??
         (runRead.status === 'rejected' && previousRun?.id === id && previousRun.specId === spec ? previousRun : undefined)
-      run.value = verifiedRun
-      const detailError = mismatchedRun ? '此会话不属于当前 Spec' :
-        runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
+      const detailError = runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
       const roundsError = roundsRead.status === 'rejected' ? errorMessage(roundsRead.reason) : ''
-      runError.value = detailError || roundsError
       const list = roundsRead.status === 'fulfilled' ? roundsRead.value : undefined
+      const jobId = pending?.id ?? verifiedRun?.jobId ?? summaryJobId
       const belongs = (item: JobRecord, allowLegacy: boolean) => item.kind === 'agent'
         && (item.agentRunId === id || (allowLegacy && item.agentRunId === undefined))
         && (item.agentSpecId === spec || (allowLegacy && item.agentSpecId === undefined))
       const visible = (list?.rounds ?? (roundsError ? rounds.value : []))
         .filter((item) => belongs(item, !!verifiedRun || item.id === jobId))
-      rounds.value = visible
       const visibleIds = new Set(visible.map((item) => item.id))
-      snapshotJobs.value = new Set((list?.snapshotJobIds ?? (roundsError ? [...snapshotJobs.value] : [])).filter((id) => visibleIds.has(id)))
-      roundCiJobs.value = list?.roundCiJobs
-        ? Object.fromEntries(Object.entries(list.roundCiJobs).filter(([id]) => visibleIds.has(id)))
-        : verifiedRun?.ciJob ? { [verifiedRun.jobId]: verifiedRun.ciJob } : {}
-      roundActions.value = Object.fromEntries(Object.entries(list?.roundActions ?? {}).filter(([id]) => visibleIds.has(id)))
       // A job with a persisted Spec and session binding is readable even without optional session projections.
       const linkedJob = selected || (!verifiedRun && !jobId ? id : undefined)
-      const missing = [...new Set([!list ? linkedJob : undefined, !list ? verifiedRun?.jobId : undefined, jobId])]
+      const missing = [...new Set([!list ? linkedJob : undefined, verifiedRun?.jobId, jobId])]
         .filter((target): target is string => !!target && !visibleIds.has(target))
       const restored = await Promise.allSettled(missing.map(async (target) => {
         const item = await getJob(target, request.signal)
         if (item.id !== target || !belongs(item, target === jobId || target === verifiedRun?.jobId))
-          throw new Error('此执行记录不属于当前 Spec 会话')
+          throw new ApiError('此执行记录不属于当前 Spec 会话', 403)
         return item
       }))
       if (!stillCurrent()) return
-      const supplemental = restored.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
-      const combined = [...visible, ...supplemental]
-      rounds.value = !list && supplemental.length ? combined.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)) : combined
-      if (verifiedRun?.jobId === jobId && accepted.value === tracked) {
-        accepted.value = undefined
+      const pendingRead = restored[missing.indexOf(pending?.id ?? '')]
+      const admissionDenied = pendingRead?.status === 'rejected' && accessDenied(pendingRead.reason)
+      const combined = [...visible]
+      for (const result of restored) {
+        if (result.status === 'fulfilled') insertRound(combined, result.value)
       }
+      if (pending && accepted.get(key) === pending) {
+        if (admissionDenied || !belongs(pending, true)) accepted.delete(key)
+        else {
+          const index = combined.findIndex(item => item.id === pending.id)
+          const observed = combined[index]
+          const retained = !observed || Date.parse(pending.updatedAt) > Date.parse(observed.updatedAt) ? pending : observed
+          if (index === -1) insertRound(combined, retained)
+          else combined[index] = retained
+          // Keep the most recent observed version until the round projection catches up.
+          if (list && visibleIds.has(pending.id) && retained === observed) accepted.delete(key)
+          else accepted.set(key, retained)
+        }
+      }
+      const combinedIds = new Set(combined.map((item) => item.id))
+      run.value = verifiedRun
+      runError.value = detailError || roundsError
+      snapshotJobs.value = new Set((list?.snapshotJobIds ?? (roundsError ? [...snapshotJobs.value] : [])).filter((id) => combinedIds.has(id)))
+      roundCiJobs.value = list?.roundCiJobs
+        ? Object.fromEntries(Object.entries(list.roundCiJobs).filter(([id]) => combinedIds.has(id)))
+        : verifiedRun?.ciJob ? { [verifiedRun.jobId]: verifiedRun.ciJob } : {}
+      roundActions.value = Object.fromEntries(Object.entries(list?.roundActions ?? {}).filter(([id]) => combinedIds.has(id)))
+      rounds.value = combined
       const latestJob = rounds.value.at(-1)
       if (!detailError && !roundsError && !verifiedRun && !latestJob && (list || context.value || contextError.value)) {
         const failed = restored.find((result) => result.status === 'rejected')
@@ -207,9 +234,9 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
 
   function recordAccepted(spec: string, session: string, job: JobRecord) {
     if (spec !== specId.value) return
-    accepted.value = { spec, session, job }
-    launchError.value = ''
+    accepted.set(acceptanceKey(spec, session), job)
     if (session === sessionId.value) {
+      launchError.value = ''
       roundRequest?.abort()
       rounds.value = [...rounds.value.filter((round) => round.id !== job.id), job]
     }
@@ -217,7 +244,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
   }
 
   function forgetSession(spec: string, id: string) {
-    if (accepted.value?.spec === spec && accepted.value.session === id) accepted.value = undefined
+    accepted.delete(acceptanceKey(spec, id))
     if (context.value?.spec.id !== spec) return
     contextRequest?.abort()
     contextFlight = undefined
@@ -254,7 +281,8 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     snapshotJobs.value = new Set()
     roundCiJobs.value = {}
     roundActions.value = {}
-    rounds.value = id && accepted.value?.session === id && accepted.value.spec === spec ? [accepted.value.job] : []
+    const pending = id ? accepted.get(acceptanceKey(spec, id)) : undefined
+    rounds.value = pending ? [pending] : []
     void refreshRounds()
   }, { immediate: true })
   watch([() => summary.value?.jobId, () => summary.value?.status, () => !!context.value], () => {
@@ -275,6 +303,18 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
     run, rounds, latest, summary, snapshotJobs, roundCiJobs, roundActions, runError, launchError, reading,
     refresh, scheduleRefresh, recordAccepted, forgetSession, loadMore: () => refreshContext(true)
   }
+}
+
+// The server orders bound rounds by lineage. Insert the missing attempt without sorting that history again.
+function insertRound(rounds: JobRecord[], job: JobRecord) {
+  const admitted = Date.parse(job.createdAt)
+  const index = rounds.findIndex(item => Date.parse(item.createdAt) > admitted)
+  if (index === -1) rounds.push(job)
+  else rounds.splice(index, 0, job)
+}
+
+function accessDenied(cause: unknown) {
+  return cause instanceof ApiError && (cause.status === 401 || cause.status === 403)
 }
 
 function missingAgentRecord(cause: unknown): undefined {

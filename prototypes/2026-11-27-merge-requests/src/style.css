@@ -218,8 +218,17 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .empty-state h2 { font-size: 15px; }
 .empty-state p { color: var(--muted); font-size: 12px; }
 .empty-state [data-slot='button'] { margin-top: 7px; }
+.waiting-results { align-items: stretch; justify-content: flex-start; gap: 12px; text-align: start; padding: 18px var(--content-inset); }
+.waiting-results h2 { font-size: 13px; color: var(--muted); }
+.list-skeleton { display: grid; }
+.list-skeleton-row { display: grid; align-items: center; grid-template-columns: 2fr 1fr .5fr; gap: 12px; min-height: 55px; border-bottom: 1px solid var(--divider); }
+.list-skeleton-row span { width: 76%; height: 10px; border-radius: 4px; background: #e9edf4; }
+.list-skeleton-row:nth-child(2) span:first-child { width: 58%; }
+.list-skeleton-row:nth-child(3) span:first-child { width: 66%; }
 .list-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 50px; padding: 8px var(--content-inset); border-top: 1px solid var(--divider); color: #515d70; font-size: 12px; }
 .result-status { min-width: 0; }
+.pending-results { display: flex; align-items: center; gap: 7px; padding: 7px var(--content-inset) 10px; color: var(--muted); font-size: 12px; }
+.pending-results svg { flex: none; width: 14px; height: 14px; }
 .pagination { display: flex; align-items: center; flex: none; gap: 6px; }
 .pagination .page-range { min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pagination [data-slot='button'] { width: 32px; height: 32px; min-height: 32px; }
@@ -227,6 +236,7 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .prototype-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding: 7px 0; font-size: 11px; color: #5f6877; }
 .prototype-bar [data-slot='select-trigger'], .prototype-bar [data-slot='button'] { height: auto; min-height: 30px; font-size: 11px; }
 .prototype-bar .reset-scene { color: #525d71; padding-inline: 9px; }
+.prototype-hint { margin: 0; }
 .scene-select { min-width: 115px; }
 .spinning { animation: refresh-rotate 900ms linear infinite; }
 @keyframes refresh-rotate { to { rotate: 360deg; } }

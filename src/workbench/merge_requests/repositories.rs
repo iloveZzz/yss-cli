@@ -23,6 +23,11 @@ use std::{
     time::Duration,
 };
 
+mod cache;
+mod issue_sources;
+pub(in crate::workbench) use cache::SourceCache;
+pub(in crate::workbench) use issue_sources::discover_issues;
+
 const PREFERENCES: &str = "mergeRequestSources";
 const PREFERENCE_ID: &str = "selection";
 const RECORD_KINDS: &[&str] = &["homeImport", "homeBinding", "externalLink", PREFERENCES];
@@ -533,6 +538,7 @@ fn home_sources(
     Ok(sources)
 }
 
+#[derive(Clone)]
 struct Remote {
     name: String,
     locations: Vec<Option<Location>>,
@@ -554,7 +560,7 @@ fn git_remotes(
     project: &ProjectRecord,
     homes: &[HomeSource],
     cancel: &Cancellation,
-) -> Result<(Vec<Remote>, PathBuf)> {
+) -> Result<(Vec<Remote>, PathBuf, bool)> {
     let root = Root::open(Path::new(&project.root_path))?;
     let mut command = git::command(&root.path);
     command.args(["rev-parse", "--show-toplevel"]);
@@ -578,25 +584,29 @@ fn git_remotes(
     let mut command = git::command(&root.path);
     command.args([
         "config",
+        "--includes",
         "--null",
         "--get-regexp",
-        r"^remote\..*\.(url|fetch)$",
+        r"^(remote\..*\.(url|fetch)|include\..*|includeif\..*|core\.(splitindex|worktree))$",
     ]);
     let (status, output, _) = process::capture_command(command, cancel, LOCAL_TIMEOUT)?;
     if !status.success() && !(status.code() == Some(1) && output.is_empty()) {
         return Err(invalid_git());
     }
     let mut remotes = BTreeMap::<&str, usize>::new();
+    let mut cacheable = true;
     for record in output
         .split(|byte| *byte == 0)
         .filter(|record| !record.is_empty())
     {
-        let separator = record
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .ok_or_else(invalid_git)?;
-        let (key, value) = record.split_at(separator);
-        let key = std::str::from_utf8(key).map_err(|_| invalid_git())?;
+        let separator = record.iter().position(|byte| *byte == b'\n');
+        let key = std::str::from_utf8(&record[..separator.unwrap_or(record.len())])
+            .map_err(|_| invalid_git())?;
+        if !key.starts_with("remote.") {
+            cacheable = false;
+            continue;
+        }
+        let value = &record[separator.ok_or_else(invalid_git)? + 1..];
         let (name, property) = key
             .strip_prefix("remote.")
             .and_then(|key| key.rsplit_once('.'))
@@ -609,7 +619,7 @@ fn git_remotes(
         }
         let count = remotes.entry(name).or_default();
         if property == "url" {
-            if value[1..].contains(&b'\n') {
+            if value.contains(&b'\n') {
                 return Err(invalid_git());
             }
             *count += 1;
@@ -635,7 +645,11 @@ fn git_remotes(
                     .collect();
                 if resolved.len() == count {
                     locations = resolved;
+                } else {
+                    cacheable = false;
                 }
+            } else {
+                cacheable = false;
             }
         }
         result.push(Remote {
@@ -645,10 +659,17 @@ fn git_remotes(
     }
     cancel.check()?;
     root.revalidate()?;
-    Ok((result, subpath.to_owned()))
+    Ok((result, subpath.to_owned(), cacheable))
 }
 
 fn tracker_instance(project: &ProjectRecord, instances: &mut Instances) {
+    if std::fs::symlink_metadata(
+        Path::new(&project.root_path).join(crate::project::ISSUE_TRACKER_PATH),
+    )
+    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return;
+    }
     let Ok(tracker) = integrations::tracker(&project.root_path) else {
         return;
     };
@@ -855,6 +876,7 @@ fn inventory(
     snapshot: &Snapshot,
     preferences: &Preferences,
     data_dir: &Path,
+    cache: &SourceCache,
     cancel: &Cancellation,
 ) -> Result<SourceInventory> {
     let home_sources = home_sources(snapshot, cancel)?;
@@ -862,6 +884,7 @@ fn inventory(
     for (origin, platform) in snapshot.external_instances()? {
         instances.add(&origin, platform);
     }
+    let config = cache.config(data_dir, cancel);
     let mut projects = Vec::new();
     for project in &snapshot.projects {
         cancel.check()?;
@@ -869,18 +892,19 @@ fn inventory(
             .get(&project.id)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let (remotes, git_subpath, issue) = match git_remotes(project, home, cancel) {
-            Ok((remotes, git_subpath)) => {
-                tracker_instance(project, &mut instances);
-                (remotes, git_subpath, None)
-            }
-            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-            Err(_) => (
-                Vec::new(),
-                PathBuf::new(),
-                Some("无法核对已登记 Git 工作树，请检查工程目录和 Git 配置"),
-            ),
-        };
+        let (remotes, git_subpath, issue) =
+            match cache.remotes(config.as_ref(), project, home, cancel) {
+                Ok((remotes, git_subpath)) => {
+                    tracker_instance(project, &mut instances);
+                    (remotes, git_subpath, None)
+                }
+                Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                Err(_) => (
+                    Vec::new(),
+                    PathBuf::new(),
+                    Some("无法核对已登记 Git 工作树，请检查工程目录和 Git 配置"),
+                ),
+            };
         projects.push(LocalProject {
             project,
             home,
@@ -925,13 +949,21 @@ fn inventory(
 
 pub(in crate::workbench) fn discover(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     cancel: &Cancellation,
 ) -> Result<SourceInventory> {
     let (snapshot, data_dir) = {
         let mut store = lock(store)?;
         (Snapshot::capture(&mut store)?, store.data_dir().to_owned())
     };
-    inventory(&snapshot, &snapshot.preferences()?, &data_dir, cancel)
+    cache.retain(&snapshot.projects);
+    inventory(
+        &snapshot,
+        &snapshot.preferences()?,
+        &data_dir,
+        cache,
+        cancel,
+    )
 }
 
 fn changed() -> YssError {
@@ -943,6 +975,7 @@ fn changed() -> YssError {
 
 pub(in crate::workbench) fn save(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     request: SaveSources,
     cancel: &Cancellation,
 ) -> Result<SourceInventory> {
@@ -951,7 +984,7 @@ pub(in crate::workbench) fn save(
         (Snapshot::capture(&mut store)?, store.data_dir().to_owned())
     };
     let previous = snapshot.preferences()?;
-    let mut inventory = inventory(&snapshot, &previous, &data_dir, cancel)?;
+    let mut inventory = inventory(&snapshot, &previous, &data_dir, cache, cancel)?;
     if request.revision != inventory.revision {
         return Err(changed());
     }

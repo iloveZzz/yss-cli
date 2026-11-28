@@ -369,7 +369,7 @@ async fn dispatch(server: Server, request: Request) -> Response {
     let request_cancel = (draft
         || agent_probe
         || citation
-        || (path.starts_with("/api/merge-requests/")
+        || ((path.starts_with("/api/merge-requests/") || path.starts_with("/api/issues/"))
             && matches!(method, axum::http::Method::GET | axum::http::Method::POST)))
     .then(|| server.cancel.child());
     let _request_guard = request_cancel.as_ref().map(Cancellation::cancel_on_drop);
@@ -809,6 +809,7 @@ pub fn serve(
             cancel: cancel.clone(),
             origin: origin.clone(),
             reads,
+            merge_request_sources: Arc::default(),
         };
         let server = Server {
             store,

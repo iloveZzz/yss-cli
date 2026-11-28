@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import {
   ArrowLeft, ArrowUpDown, ChevronLeft, ChevronRight, CircleAlert, CircleUserRound,
-  FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, RefreshCw, Search,
+  FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, LoaderCircle, RefreshCw, Search,
   Settings, Sparkles, X,
 } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -15,17 +15,20 @@ import {
   defaultEnabled, issues, repositories, repoById, repositoryFor, requestNumber, requests,
   scenes, sourceUrl, tabs, type Issue, type MergeRequest, type Platform, type Repository, type Scene, type Tab,
 } from '@/demo'
+import { usePerformanceList, type Order } from '@/usePerformanceList'
 import PlatformMark from './components/PlatformMark.vue'
 import RepositorySources from './components/RepositorySources.vue'
 import RequestDetails from './components/RequestDetails.vue'
 import RequestState from './components/RequestState.vue'
 
-type Order = 'updated' | 'created'
 type SimulatedSource = { kind: 'request'; request: MergeRequest } | { kind: 'repository'; repo: Repository }
 type ReadState = { label: string; detail?: string; tone: 'neutral' | 'success' | 'warning' }
 const pageSize = 8
 const embedded = window.self !== window.top
 const scene = ref<Scene>('normal')
+const performance = computed(() => scene.value === 'performance')
+const performanceList = usePerformanceList()
+const sceneRevision = ref(0)
 const sceneError = ref(false)
 const simulatedSource = ref<SimulatedSource | null>(null)
 const enabled = ref<string[]>([...defaultEnabled])
@@ -53,6 +56,7 @@ let detailTrigger: HTMLElement | null = null
 let sourcesTrigger: HTMLElement | null = null
 let connectionTrigger: HTMLElement | null = null
 let repositorySimulatorTrigger: HTMLElement | null = null
+let performanceRetryTrigger: HTMLElement | null = null
 let authorizationConfirmed = false
 let loadTimer: number | undefined
 
@@ -91,6 +95,7 @@ const compactRepositoryName = computed(() => {
 })
 
 function issueFor(repo: string): Issue | undefined {
+  if (performance.value) return performanceList.failed.value.has(repo) ? 'unavailable' : undefined
   if (recoveredRepositories.value.has(repo)) return
   if (scene.value === 'partial' && repo === 'web') return 'unavailable'
   if (scene.value === 'auth' && repo === 'core') return 'unauthorized'
@@ -101,7 +106,9 @@ const scopeIssues = computed(() => scopeRepos.value.flatMap(repo => {
   const issue = issueFor(repo.id)
   return issue ? [{ repo, issue }] : []
 }))
-const loadedRepositories = computed(() => scopeRepos.value.filter(repo => !issueFor(repo.id)))
+const loadedRepositories = computed(() => scopeRepos.value.filter(repo =>
+  performance.value ? performanceList.loaded.value.has(repo.id) : !issueFor(repo.id),
+))
 const matchingRequests = computed(() => {
   const q = query.value.trim().toLowerCase()
   const exactNumber = /^[!#]?\d+$/.test(q) ? Number(q.replace(/^[!#]/, '')) : null
@@ -119,11 +126,16 @@ const countByTab = computed(() => ({
   closed: matchingRequests.value.filter(item => item.status === 'closed').length,
   all: matchingRequests.value.length,
 }))
-const countsKnown = computed(() => scopeRepos.value.length > 0 && scopeIssues.value.length === 0)
+const pendingPerformanceReads = computed(() => performance.value ? performanceList.pending.value.size : 0)
+const currentAction = computed(() => performance.value ? performanceList.action.value : busy.value)
+const countsKnown = computed(() => scopeRepos.value.length > 0 && !pendingPerformanceReads.value && scopeIssues.value.length === 0)
 const hasFilters = computed(() => Boolean(query.value) || platformFilter.value !== 'all' || repositoryFilter.value !== 'all')
-const filteredRequests = computed(() => matchingRequests.value
-  .filter(request => activeTab.value === 'all' || request.status === activeTab.value)
-  .sort((first, second) => second[sort.value].localeCompare(first[sort.value]) || first.id.localeCompare(second.id)))
+const filteredRequests = computed(() => {
+  const rows = matchingRequests.value
+    .filter(request => activeTab.value === 'all' || request.status === activeTab.value)
+    .sort((first, second) => second[sort.value].localeCompare(first[sort.value]) || first.id.localeCompare(second.id))
+  return performance.value ? performanceList.confirmedRows(rows, sort.value) : rows
+})
 const pages = computed(() => Math.max(1, Math.ceil(filteredRequests.value.length / pageSize)))
 const shownPage = computed(() => Math.min(page.value, pages.value))
 const firstRow = computed(() => (shownPage.value - 1) * pageSize)
@@ -133,17 +145,24 @@ const readStates = computed<Record<string, ReadState>>(() => Object.fromEntries(
   repositories.map(repo => [repo.id, repositoryReadState(repo)]),
 ))
 const resultStatus = computed(() => {
+  if (pendingPerformanceReads.value) {
+    const coverage = `已读取 ${loadedRepositories.value.length} / ${scopeRepos.value.length} 个仓库`
+    if (currentAction.value === 'retry') return `${coverage}，正在重试失败仓库，总数待核实`
+    if (currentAction.value === 'refresh') return `${coverage}，正在刷新，保留上次结果，总数待核实`
+    return `${coverage}，正在核实排序和总数`
+  }
   if (busy.value) return busy.value === 'retry' ? '正在重试失败仓库…' : '正在刷新当前范围…'
   if (!connected.value) return '尚无已登记工程'
   if (!eligibleRepositories.value.length) return '尚未纳入仓库'
   if (!scopeRepos.value.length) return '当前范围没有仓库'
-  if (scopeIssues.value.length) return `已读取 ${loadedRepositories.value.length} / ${scopeRepos.value.length} 个仓库，列表不完整`
+  if (scopeIssues.value.length) return `已读取 ${loadedRepositories.value.length} / ${scopeRepos.value.length} 个仓库，列表不完整${performance.value ? '，总数待核实' : ''}`
   return `已读取 ${loadedRepositories.value.length} 个仓库，当前条件共 ${filteredRequests.value.length} 条`
 })
 
 function repositoryReadState(repo: Repository): ReadState {
   if (!enabled.value.includes(repo.id)) return { label: '未纳入', tone: 'neutral' }
   if (!scopeRepos.value.includes(repo)) return { label: '当前范围未读取', tone: 'neutral' }
+  if (performance.value && performanceList.pending.value.has(repo.id)) return { label: '读取中', tone: 'neutral' }
   if (readingRepositories.value.includes(repo.id)) return { label: '读取中', tone: 'neutral' }
   const issue = issueFor(repo.id)
   if (issue === 'unauthorized') return { label: issues[issue].label, detail: '检查连接后可重新读取。', tone: 'warning' }
@@ -171,6 +190,19 @@ watch(platformFilter, () => {
   if (!filterRepos.value.some(repo => repo.id === repositoryFilter.value)) repositoryFilter.value = 'all'
 })
 watch(pages, () => { page.value = shownPage.value })
+const scopeKey = computed(() => scopeRepos.value.map(repo => repo.id).join(','))
+watch([performance, activeTab, platformFilter, repositoryFilter, query, sort, scopeKey, sceneRevision], () => {
+  if (performance.value) performanceList.read(scopeRepos.value, 'query')
+})
+watch(pendingPerformanceReads, async (remaining) => {
+  if (remaining || !performanceRetryTrigger) return
+  const trigger = performanceRetryTrigger
+  performanceRetryTrigger = null
+  if (!scopeIssues.value.length && (document.activeElement === trigger || (!trigger.isConnected && document.activeElement === document.body))) {
+    await nextTick()
+    if (document.activeElement === document.body || document.activeElement === trigger) focusReadResults()
+  }
+})
 
 function clearConditions() {
   platformFilter.value = 'all'
@@ -181,6 +213,9 @@ function clearConditions() {
 
 function reset(nextScene: Scene) {
   window.clearTimeout(loadTimer)
+  performanceList.reset()
+  performanceRetryTrigger = null
+  sceneRevision.value++
   scene.value = nextScene
   sceneError.value = false
   enabled.value = nextScene === 'empty' ? [] : [...defaultEnabled]
@@ -242,6 +277,7 @@ watch(simulatedSource, async (source, previous) => {
 onUnmounted(() => {
   window.removeEventListener('hashchange', syncHash)
   window.clearTimeout(loadTimer)
+  performanceList.stop()
 })
 
 function chooseScene(value: unknown) {
@@ -272,6 +308,13 @@ function focusReadResults() {
 }
 
 function refresh(kind: 'refresh' | 'retry', trigger?: EventTarget | null, authorizedRepo?: string) {
+  if (performance.value) {
+    if (pendingPerformanceReads.value) return
+    performanceRetryTrigger = kind === 'retry' && trigger instanceof HTMLElement ? trigger : null
+    performanceList.read(scopeRepos.value, kind)
+    if (kind === 'refresh') refreshed.value = true
+    return
+  }
   if (busy.value) return
   const recovering = kind === 'retry' ? scopeIssues.value.filter(({ repo, issue }) =>
     authorizedRepo ? repo.id === authorizedRepo && issue === 'unauthorized' : issue !== 'unauthorized',
@@ -331,12 +374,20 @@ function restoreFocus(event: Event, trigger: HTMLElement | null) {
   event.preventDefault()
   trigger.focus({ preventScroll: true })
 }
+function restoreDetailFocus(event: Event) {
+  if (simulatedSource.value) return
+  if (detailTrigger?.isConnected) restoreFocus(event, detailTrigger)
+  else {
+    event.preventDefault()
+    focusReadResults()
+  }
+}
 function saveSources(ids: string[]) {
   enabled.value = ids
   if (!ids.includes(repositoryFilter.value)) repositoryFilter.value = 'all'
   page.value = 1
   showSources.value = false
-  refresh('refresh')
+  if (!performance.value) refresh('refresh')
 }
 function focusSearch() {
   searchField.value?.querySelector('input')?.focus({ preventScroll: true })
@@ -408,7 +459,7 @@ function exitSimulator() {
         </div>
         <div class="heading-actions">
           <Button variant="outline" class="action-outline" @click="openSources"><FolderOpen aria-hidden="true" />仓库来源</Button>
-          <Button variant="outline" class="refresh-button" :disabled="!scopeRepos.length" :aria-disabled="busy ? true : undefined" @click="refresh('refresh')"><RefreshCw aria-hidden="true" :class="{ spinning: busy === 'refresh' }" />{{ busy === 'refresh' ? '刷新中' : '刷新' }}</Button>
+          <Button variant="outline" class="refresh-button" :disabled="!scopeRepos.length" :aria-disabled="currentAction ? true : undefined" @click="refresh('refresh')"><RefreshCw aria-hidden="true" :class="{ spinning: currentAction === 'refresh' }" />{{ currentAction === 'refresh' ? '刷新中' : '刷新' }}</Button>
         </div>
       </header>
 
@@ -495,8 +546,12 @@ function exitSimulator() {
                 </ul>
               </AlertDescription>
             </div>
-            <Button v-if="scopeIssues.some(({ issue }) => issue !== 'unauthorized')" variant="outline" class="retry-button" :aria-disabled="busy ? true : undefined" @click="refresh('retry', $event.currentTarget)"><RefreshCw aria-hidden="true" :class="{ spinning: busy === 'retry' }" />{{ busy === 'retry' ? '重试中' : '重试' }}</Button>
+            <Button v-if="scopeIssues.some(({ issue }) => issue !== 'unauthorized')" variant="outline" class="retry-button" :aria-disabled="currentAction ? true : undefined" @click="refresh('retry', $event.currentTarget)"><RefreshCw aria-hidden="true" :class="{ spinning: currentAction === 'retry' }" />{{ currentAction === 'retry' ? '重试中' : '重试' }}</Button>
           </Alert>
+          <div v-if="pendingPerformanceReads && visibleRequests.length" class="pending-results">
+            <LoaderCircle class="spinning" aria-hidden="true" />
+            <span>{{ currentAction === 'query' ? '正在读取其他仓库，已核实的请求可先查看。' : '正在读取，已显示的请求仍可查看。' }}</span>
+          </div>
           <div v-if="visibleRequests.length" ref="requestList" class="request-list" role="region" aria-label="合并请求列表" tabindex="-1">
             <div class="list-columns" aria-hidden="true">
               <span>标题</span><span>来源仓库</span><span>作者</span><span>更新时间</span><span>创建时间</span><span>状态</span>
@@ -530,11 +585,17 @@ function exitSimulator() {
               </li>
             </ul>
           </div>
-          <div v-else ref="emptyResult" class="empty-state" role="group" aria-labelledby="empty-result-heading" tabindex="-1">
-            <FolderOpen v-if="!eligibleRepositories.length" aria-hidden="true" />
+          <div v-else ref="emptyResult" class="empty-state" :class="{ 'waiting-results': pendingPerformanceReads }" role="group" aria-labelledby="empty-result-heading" tabindex="-1">
+            <FolderOpen v-if="!pendingPerformanceReads && !eligibleRepositories.length" aria-hidden="true" />
             <CircleAlert v-else-if="scopeIssues.length" aria-hidden="true" />
-            <Search v-else aria-hidden="true" />
-            <template v-if="!connected">
+            <Search v-else-if="!pendingPerformanceReads" aria-hidden="true" />
+            <template v-if="pendingPerformanceReads">
+              <h2 id="empty-result-heading">正在读取合并请求</h2>
+              <div class="list-skeleton" aria-hidden="true">
+                <div v-for="row in 3" :key="row" class="list-skeleton-row"><span></span><span></span><span></span></div>
+              </div>
+            </template>
+            <template v-else-if="!connected">
               <h2 id="empty-result-heading">尚未登记工程</h2>
               <p>在「产品与工程」登记并启用工程后，合并请求会显示在这里。</p>
               <Button variant="outline" @click="openSources">查看仓库来源</Button>
@@ -555,7 +616,7 @@ function exitSimulator() {
             </template>
           </div>
           <footer class="list-footer">
-            <div role="status" aria-live="polite" aria-atomic="true" class="result-status">{{ resultStatus }}<span v-if="!busy && visibleRequests.length" class="sr-only">，第 {{ shownPage }} 页</span></div>
+            <div role="status" aria-live="polite" aria-atomic="true" class="result-status">{{ resultStatus }}<span v-if="visibleRequests.length" class="sr-only">，第 {{ shownPage }} 页</span></div>
             <nav v-if="filteredRequests.length > pageSize || page > 1" class="pagination" aria-label="列表分页">
               <Button variant="outline" size="icon" :disabled="shownPage === 1" aria-label="上一页" @click="changePage(-1)"><ChevronLeft aria-hidden="true" /></Button>
               <span class="page-range" aria-hidden="true">{{ shownPage }}<template v-if="countsKnown"> / {{ pages }}</template> 页</span>
@@ -574,13 +635,15 @@ function exitSimulator() {
           </SelectContent>
         </Select>
         <Button variant="ghost" class="reset-scene" @click="chooseScene(scene)">重置场景</Button>
+        <p v-if="performance" class="prototype-hint">模拟读取与延迟。查看 GitLab !248 体验 Markdown 和按需读取。</p>
       </footer>
     </main>
   </div>
   <RequestDetails
     :open="showDetails && !simulatedSource" :request="selected" :embedded="embedded"
+    :progressive="performance"
     :show-repository-host="!!selected && repositoryNamesakes.has(repositoryFor(selected.repo).slug)"
-    @close="showDetails = false" @restore-focus="event => restoreFocus(event, detailTrigger)"
+    @close="showDetails = false" @restore-focus="restoreDetailFocus"
   />
   <RepositorySources
     :open="showSources" :enabled="enabled" :connected="connected" :read-states="readStates"

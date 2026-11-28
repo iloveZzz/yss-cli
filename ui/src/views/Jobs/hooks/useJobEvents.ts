@@ -90,6 +90,12 @@ export function useJobEvents(
           await flush()
           if (signal.aborted) return
           const after = conversation.getCursor() ?? latest.value?.cursor ?? 0
+          // The conversation snapshot can include a phase event newer than the parallel overview.
+          // That event will not arrive on the live stream again, so bring the overview up to its cursor.
+          if (after > (latest.value?.cursor ?? 0)) {
+            overviewObserved = Math.max(overviewObserved, after)
+            schedule(0)
+          }
           if (!latest.value?.terminal || after < latest.value.cursor) {
             // Any older events delivered after this handshake are a snapshot backfill.
             const snapshotCursor = Math.max(after, latest.value?.cursor ?? 0)
@@ -116,6 +122,9 @@ export function useJobEvents(
                   'status',
                   'stateChanged',
                   'finished',
+                  'agentDispatching',
+                  'agentDispatched',
+                  'agentSettled',
                   'inputRequested',
                   'inputResolved',
                   'piQuestionResult',

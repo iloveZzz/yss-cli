@@ -23,7 +23,7 @@ import { sorted } from '@/lib/collections'
 import { terminalPanelOpenUrl } from '@/services/terminal-panel'
 import { acknowledgeRequest, ApiError, contentEqual, errorMessage, resolvePendingRequest, type Stage } from '@/services/workbench'
 import {
-  admitAgent, confirmAgentHandoff, deleteAgentSession, getAgentContinuation, getGrokRuntime, getPiRuntime, piModelKey,
+  admitAgent, confirmAgentHandoff, deleteAgentSession, getAgentContinuation, getAgentRounds, getAgentRun, getGrokRuntime, getPiRuntime, piModelKey,
   type AgentAttention, type AgentContinuation, type AgentContinuationPreview, type AgentContinuationSource, type AgentHandoffPreview, type AgentProjectAccess, type AgentStart, type AgentSummary,
   type ProjectAccessMode, type ReviewExcerpt
 } from '@/services/workbench-agent'
@@ -33,6 +33,7 @@ import { agentHostLabels, agentPhaseLabel, agentRoundHost, cancelJob, getReceipt
 import PiSessionList from './components/PiSessionList.vue'
 import PiWorkspaceSettings from './components/PiWorkspaceSettings.vue'
 import PiRound from './components/PiRound.vue'
+import PiExecutionStatus from './components/PiExecutionStatus.vue'
 import PiReview from './components/PiReview.vue'
 import PiQueuePanel from './components/PiQueuePanel.vue'
 import PiLocalTasks from './components/PiLocalTasks.vue'
@@ -97,10 +98,17 @@ const status = computed(() => {
   return latest.value ? jobStatusLabels[latest.value.status] ?? latest.value.status : ''
 })
 const historyOpen = shallowRef(true)
+const historyDocked = shallowRef(true)
 const historyDrawer = shallowRef(false)
 const historyPaneId = useId()
+const summaryPaneId = useId()
+const historyPane = useTemplateRef<HTMLElement>('historyPane')
+const summaryPane = useTemplateRef<HTMLElement>('summaryPane')
+const historyToggle = useTemplateRef<InstanceType<typeof Button>>('historyToggle')
+const summaryToggle = useTemplateRef<InstanceType<typeof Button>>('summaryToggle')
 const settingsOpen = shallowRef(false)
 const summaryOpen = shallowRef(true)
+const summaryDocked = shallowRef(true)
 const summaryDrawer = shallowRef(false)
 const reviewOpen = shallowRef(false)
 const reviewState = shallowRef({ busy: false, pending: false })
@@ -114,11 +122,28 @@ const focusActivity = shallowRef<{ jobId: string; id: number }>()
 const compact = useMediaQuery('(width < 960px)')
 const inlineSummary = useMediaQuery('(width >= 1280px)')
 const conversation = useTemplateRef<HTMLElement>('conversation')
+const scrollViewport = useTemplateRef<InstanceType<typeof MessageScrollerViewport>>('scrollViewport')
 const draftKey = computed(() => spec.value + ':' + (session.value || (handoffJob.value
   ? handoffCli.value ? crossHandoffDraftKey(handoffJob.value, handoffCli.value) : 'handoff:' + handoffJob.value
   : 'new')))
 const { draft, getDraft, removeDraft, persistDraft, storageIssue, pending, setPending, rememberAdmitted, admittedDraft, forgetAdmitted } =
   usePiDrafts(draftKey)
+const currentExecution = shallowRef<{ jobId: string; label: string; terminal: boolean }>()
+const liveExecution = computed(() => currentExecution.value?.jobId === latest.value?.id ? currentExecution.value : undefined)
+function showExecutionStatus(jobId: string, label: string, terminal: boolean) {
+  if (latest.value?.id === jobId) currentExecution.value = { jobId, label, terminal }
+}
+const executionLabel = computed(() => {
+  if (pending.value) return sending.value ? '正在提交 ' + cliLabel.value + ' 任务…'
+    : receiptBusy.value ? '正在核对受理记录…' : '本次请求的受理结果待核实'
+  const job = latest.value
+  if (!job) return ''
+  if (terminalJob(job.status)) return status.value
+  if (stopState.value === 'requested') return '正在停止'
+  if (liveExecution.value) return liveExecution.value.label
+  if (job.piPhase) return agentPhaseLabel(job.piPhase, recordedHost.value)
+  return '已受理，正在准备运行'
+})
 const lockedCli = computed(() => session.value ? recordedHost.value : handoffJob.value ? handoffCli.value ?? 'pi' : undefined)
 const targetCli = computed<AgentHost>(() => lockedCli.value ?? pending.value?.input.host ?? draft.value.cli ?? 'pi')
 const cliLabel = computed(() => agentHostLabels[targetCli.value])
@@ -540,6 +565,9 @@ const canSend = computed(() => !active.value && !blocked.value && !contextError.
   (!nativeForkSelected.value || (nativeForkReady.value && !projectBusy.value && !nativeForkScopeIssue.value &&
     contentEqual(readyModel.value, forkOffer.value?.model))) &&
   !!readyModel.value && !!draft.value.prompt.trim())
+const canAppendAssistantUi = computed(() => !!session.value && run.value?.id === session.value
+  && run.value.jobId === latest.value?.id && !latest.value?.agentDispatchUncertain
+  && !blocked.value && !runError.value && !contextError.value && !pending.value && !sending.value)
 const roundEnd = computed(() => {
   const index = lastVisibleRound.value ? rounds.value.findIndex((job) => job.id === lastVisibleRound.value) : -1
   return index < 0 ? rounds.value.length : index + 1
@@ -581,6 +609,27 @@ let alive = true
 const restore = new Map<string, HTMLElement>()
 let moveToComposer = false
 let focusRoundSummaryOnClose = false
+let lastFocusedPanel: 'history' | 'summary' | undefined
+
+function rememberInlinePanelFocus(event: FocusEvent) {
+  const target = event.target
+  lastFocusedPanel = target instanceof Node && historyPane.value?.contains(target) ? 'history'
+    : target instanceof Node && summaryPane.value?.contains(target) ? 'summary' : undefined
+}
+
+function returnInlinePanelFocus(panel: 'history' | 'summary') {
+  const pane = panel === 'history' ? historyPane.value : summaryPane.value
+  const toggle = panel === 'history' ? historyToggle : summaryToggle
+  const tookFocus = (element: Element | null) => pane?.contains(element) ||
+    (element === document.body && lastFocusedPanel === panel)
+  // WebKit and Chromium may drop focus before the breakpoint observer runs.
+  if (!tookFocus(document.activeElement)) return
+  void nextTick(() => {
+    if (!document.hasFocus() || !tookFocus(document.activeElement)) return
+    const trigger = toggle.value?.$el
+    if (trigger instanceof HTMLElement) trigger.focus({ preventScroll: true })
+  })
+}
 
 function rememberFocus(key: string, target: EventTarget | null = document.activeElement) {
   if (target instanceof HTMLElement) restore.set(key, target)
@@ -601,14 +650,28 @@ function toggleHistory(event: MouseEvent) {
   if (compact.value) {
     rememberFocus('history', event.currentTarget)
     historyDrawer.value = true
-  } else historyOpen.value = !historyOpen.value
+  } else {
+    if (historyOpen.value) returnInlinePanelFocus('history')
+    historyOpen.value = !historyOpen.value
+  }
 }
 function toggleSummary() {
-  if (inlineSummary.value) summaryOpen.value = !summaryOpen.value
+  if (inlineSummary.value) {
+    if (summaryOpen.value) returnInlinePanelFocus('summary')
+    summaryOpen.value = !summaryOpen.value
+  }
   else {
     rememberFocus('summary')
     summaryDrawer.value = true
   }
+}
+function settlePanel(panel: 'history' | 'summary') {
+  const docked = panel === 'history' ? historyDocked : summaryDocked
+  const open = panel === 'history' ? historyOpen.value : summaryOpen.value
+  if (docked.value === open) return
+  const update = () => { docked.value = open }
+  if (scrollViewport.value) scrollViewport.value.preserveReadingPosition(update)
+  else update()
 }
 function summaryClosed() {
   if (focusRoundSummaryOnClose) {
@@ -627,6 +690,37 @@ function openReview(job = latest.value?.id, projectId?: string, path?: string) {
 }
 function focusDraft() {
   document.getElementById('pi-workspace-draft')?.focus({ preventScroll: true })
+}
+async function appendAssistantUi(jobId: string, text: string) {
+  const runId = session.value
+  const specId = spec.value
+  const key = draftKey.value
+  const current = () => canAppendAssistantUi.value && latest.value?.id === jobId && draftKey.value === key
+  const addition = text.trim()
+  if (!addition || !current()) return false
+  try {
+    const [verified, history] = await Promise.all([getAgentRun(runId), getAgentRounds(runId)])
+    if (!current()) return false
+    // An accepted request can appear in the rounds list before it is bound to the run.
+    const newest = history.rounds.at(-1)
+    if (verified.id !== runId || verified.specId !== specId || verified.jobId !== jobId
+      || verified.host !== recordedHost.value || verified.recoveryJobId || newest?.id !== jobId
+      || newest.agentDispatchUncertain
+      || (terminalJob(newest.status) && !(verified.actions?.resumeNative?.available ?? verified.canResume))) {
+      scheduleRefresh()
+      return false
+    }
+    const previous = draft.value.prompt
+    if (!previous.includes(addition)) {
+      draft.value.prompt = previous + (previous && !previous.endsWith('\n') ? '\n' : '') + addition
+      persistDraft(key)
+    }
+    focusDraft()
+    return true
+  } catch {
+    scheduleRefresh()
+    return false
+  }
 }
 function fillSuggestion() {
   const prompt = suggestion.value
@@ -1013,7 +1107,13 @@ async function backToLatest() {
   focusTranscript()
 }
 watch(compact, (isCompact) => {
-  if (!isCompact) historyDrawer.value = false
+  if (isCompact) returnInlinePanelFocus('history')
+  else historyDrawer.value = false
+  historyDocked.value = historyOpen.value
+})
+watch(inlineSummary, (isInline) => {
+  if (!isInline) returnInlinePanelFocus('summary')
+  summaryDocked.value = summaryOpen.value
 })
 watch([context, session], ([workspace, id]) => {
   if (!workspace || workspace.spec.id !== spec.value) return
@@ -1521,9 +1621,9 @@ function onEnter(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="pi-workspace" :data-history="historyOpen" :data-summary="summaryOpen && inlineSummary">
-    <Transition name="workbench-feedback">
-      <aside v-show="historyOpen" :id="historyPaneId" class="pi-history-pane" :inert="compact || !historyOpen">
+  <div class="pi-workspace" :data-history="historyDocked" :data-summary="summaryDocked && inlineSummary" @focusin="rememberInlinePanelFocus">
+    <Transition name="pi-panel" @after-enter="settlePanel('history')" @after-leave="settlePanel('history')">
+      <aside v-if="!compact" v-show="historyOpen" :id="historyPaneId" ref="historyPane" class="pi-history-pane" :inert="!historyOpen">
         <PiSessionList v-if="context" v-model:search="search" v-model:attention-only="attentionOnly"
           :context="context" :active-session="session" :error="contextError" :notice="pageNotice" :busy="listBusy" :current="listCurrent"
           :scope-options="fromAgentWorkbench ? scopeOptions : undefined"
@@ -1540,7 +1640,7 @@ function onEnter(event: KeyboardEvent) {
           </RouterLink>
         </Button>
         <ControlTooltip label="会话历史">
-          <Button type="button" variant="ghost" size="icon" aria-label="会话历史"
+          <Button ref="historyToggle" type="button" variant="ghost" size="icon" aria-label="会话历史"
             :aria-expanded="compact ? historyDrawer : historyOpen" :aria-controls="compact ? undefined : historyPaneId"
             :aria-haspopup="compact ? 'dialog' : undefined" @click="toggleHistory">
             <PanelLeft :size="18" aria-hidden="true" />
@@ -1557,12 +1657,14 @@ function onEnter(event: KeyboardEvent) {
           </Button>
         </ControlTooltip>
         <ControlTooltip label="会话摘要">
-          <Button type="button" variant="ghost" size="icon" aria-label="会话摘要" class="pi-summary-toggle"
-            :aria-expanded="inlineSummary ? summaryOpen : summaryDrawer" @click="toggleSummary">
+          <Button ref="summaryToggle" type="button" variant="ghost" size="icon" aria-label="会话摘要" class="pi-summary-toggle"
+            :aria-expanded="inlineSummary ? summaryOpen : summaryDrawer" :aria-controls="inlineSummary ? summaryPaneId : undefined"
+            :aria-haspopup="inlineSummary ? undefined : 'dialog'" @click="toggleSummary">
             <ListChecks :size="18" aria-hidden="true" />
           </Button>
         </ControlTooltip>
       </header>
+      <PiExecutionStatus :label="executionLabel" :started-at="active && !liveExecution?.terminal ? latest?.createdAt : undefined" />
       <div v-if="contextError || (context && blocked && !active)" class="pi-top-note" role="status">
         {{ contextError || blocked }}
         <RouterLink v-if="run?.recoveryJobId && run.recoveryRunId !== session" :to="'/jobs/' + run.recoveryJobId">
@@ -1583,11 +1685,6 @@ function onEnter(event: KeyboardEvent) {
         {{ verificationIssue }}
         <Button v-if="context?.verification === 'failed'" type="button" variant="ghost" size="sm" @click="refresh">重新读取</Button>
       </div>
-      <div v-if="preparing" class="pi-top-note" role="status">
-        <LoadingIndicator :active="true" />{{ stopState === 'requested' ? '正在停止' :
-          latest?.piPhase ? agentPhaseLabel(latest.piPhase, recordedHost) : '正在准备 ' + agentHostLabels[recordedHost] + ' 运行' }}
-        <Button type="button" variant="ghost" size="sm" :disabled="!!stopState" @click="stop">取消准备</Button>
-      </div>
       <div v-if="preparationFailure" class="pi-top-note" role="status">
         {{ preparationFailure }}
         <Button v-if="recoverableDraft" type="button" variant="ghost" size="sm" :disabled="projectBusy" @click="restoreSubmittedDraft">
@@ -1595,8 +1692,7 @@ function onEnter(event: KeyboardEvent) {
         </Button>
         <RouterLink v-if="latest" :to="{ path: '/jobs/' + latest.id, query: { detail: '1' } }">查看执行记录</RouterLink>
       </div>
-      <div v-if="pending" class="pi-top-note" role="status">
-        {{ sending ? '正在提交 ' + cliLabel + ' 任务…' : receiptBusy ? '正在核对受理记录…' : receiptError || '本次请求的受理结果待核对。' }}
+      <div v-if="pending && !sending && !receiptBusy" class="pi-top-note">
         <span v-if="pending.input.allowCommands || pending.input.projectAccess?.some((item) => item.mode === 'execute')">
           原请求允许编辑工程并{{ piCommandPermissionLabels[pending.input.commandExecution ?? 'sandbox'] }}。
         </span>
@@ -1624,7 +1720,7 @@ function onEnter(event: KeyboardEvent) {
       <div ref="conversation" class="pi-conversation">
         <MessageScrollerProvider :key="draftKey" auto-scroll default-scroll-position="end" :scroll-edge-threshold="24">
           <MessageScroller class="pi-scroller">
-            <MessageScrollerViewport aria-label="Agent 会话对话" class="pi-viewport" :preserve-scroll-on-prepend="true">
+            <MessageScrollerViewport ref="scrollViewport" aria-label="Agent 会话对话" class="pi-viewport" :preserve-scroll-on-prepend="true">
               <MessageScrollerContent class="pi-transcript">
                 <div v-if="reading && !visibleRounds.length"><LoadingSkeleton :rows="3" variant="text" label="正在读取会话轮次" /></div>
                 <div v-if="!session && sourceSpec" class="pi-new-session">
@@ -1651,8 +1747,9 @@ function onEnter(event: KeyboardEvent) {
                     :can-review="snapshotJobs.has(job.id)" :can-review-latest="!!latest && snapshotJobs.has(latest.id)"
                     :project-names="projectNames" :read-only="run?.jobId === job.id ? run?.readOnly : undefined"
                     :command-execution="run?.jobId === job.id ? run?.commandExecution : undefined"
+                    :append-assistant-ui="canAppendAssistantUi ? appendAssistantUi : undefined"
                     :review-targets="job.id === summary?.jobId ? summary.reviewTargets : undefined"
-                    @updated="scheduleRefresh" @focus="focusNode" @review="(project, path) => openReview(job.id, project, path)"
+                    @updated="scheduleRefresh" @execution-status="showExecutionStatus" @focus="focusNode" @review="(project, path) => openReview(job.id, project, path)"
                     @review-latest="openReview()" />
                   <aside v-if="roundCiJobs[job.id]" class="pi-ci-evidence" aria-label="本轮 GitLab CI 证据">
                     <p>GitLab CI #{{ roundCiJobs[job.id]?.jobId }} ·
@@ -1787,7 +1884,8 @@ function onEnter(event: KeyboardEvent) {
                 aria-label="加入续办队列" title="按本会话范围排队，默认只读" @click="enqueue()">
                 <ListPlus :size="15" />排队
               </Button>
-              <Button v-if="active" type="button" size="icon" class="pi-send" aria-label="停止运行" title="停止运行"
+              <Button v-if="active" type="button" size="icon" class="pi-send"
+                :aria-label="preparing ? '取消准备' : '停止运行'" :title="preparing ? '取消准备' : '停止运行'"
                 :disabled="!!stopState" @click="stop">
                 <LoadingIndicator v-if="stopState === 'submitting'" :active="true" /><Square v-else :size="14" fill="currentColor" />
               </Button>
@@ -1823,8 +1921,8 @@ function onEnter(event: KeyboardEvent) {
           <Button type="button" variant="ghost" size="sm" :disabled="queueBusy" @click="refreshQueue">重读队列</Button>
         </p>
       </div>
-      <Transition name="workbench-feedback">
-      <aside v-if="inlineSummary" v-show="summaryOpen" :inert="!summaryOpen" class="pi-summary" aria-label="会话摘要">
+      <Transition name="pi-panel" @after-enter="settlePanel('summary')" @after-leave="settlePanel('summary')">
+      <aside v-if="inlineSummary" v-show="summaryOpen" :id="summaryPaneId" ref="summaryPane" :inert="!summaryOpen" class="pi-summary" aria-label="会话摘要">
         <section>
           <h2>会话摘要</h2>
           <p v-if="status">{{ status }}</p>

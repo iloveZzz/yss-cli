@@ -20,8 +20,10 @@ import MergeRequestDetails from './components/MergeRequestDetails.vue'
 import MergeRequestTable from './components/MergeRequestTable.vue'
 import RepositorySources from './components/RepositorySources.vue'
 import { useMergeRequestBrowser } from './hooks/useMergeRequestBrowser'
+import { useMergeRequestDetail } from './hooks/useMergeRequestDetail'
 import {
-  dateLabel, isTemporary, issueLabel, needsConnection, repositoryLabel, repositoryRequestsUrl, tabs,
+  dateLabel, isTemporary, issueLabel, needsConnection, platformLabels, repositoryLabel, repositoryRequestsUrl,
+  requestKey, requestNumberQuery, tabs,
   type MergeRequestRow, type MergeRequestTab
 } from './schemas/requests'
 
@@ -44,16 +46,13 @@ const hasFilters = computed(() => !!(queryValue.value || platform.value || repos
 const included = computed(() => (sources.value?.repositories ?? []).filter((repository) => repository.included))
 const platformRepositories = computed(() => included.value.filter((repository) =>
   !platform.value || repository.platform === platform.value))
-const queryPlatform = computed(() => {
-  if (/^#\d+$/u.test(queryValue.value)) return 'github'
-  if (/^!\d+$/u.test(queryValue.value)) return 'gitlab'
-  return undefined
-})
+const selectedScope = computed(() => platformRepositories.value.filter((repository) =>
+  !repositoryId.value || repository.id === repositoryId.value))
+const exactQuery = computed(() => requestNumberQuery(queryValue.value))
+const queryPlatform = computed(() => exactQuery.value?.platform)
 const filterKey = computed(() => JSON.stringify([platform.value, repositoryId.value]))
-const scope = computed(() => !saving.value && !sourcesLoading.value && !expired.value
-  ? platformRepositories.value.filter((repository) =>
-      (!repositoryId.value || repository.id === repositoryId.value) &&
-      (!queryPlatform.value || repository.platform === queryPlatform.value))
+const scope = computed(() => !saving.value && !expired.value && (!exactQuery.value || exactQuery.value.number !== undefined)
+  ? selectedScope.value.filter((repository) => !queryPlatform.value || repository.platform === queryPlatform.value)
   : [])
 const repositoryOptions = computed(() => [
   { value: '', label: '全部仓库' },
@@ -79,31 +78,49 @@ function setPlatform(value: string) {
   if (!platformRepositories.value.some((repository) => repository.id === repositoryId.value)) repositoryId.value = ''
 }
 
-function applySources(next: MergeRequestSources) {
+function applySources(next: MergeRequestSources, refresh = false) {
   if (!next.repositories.some((repository) => repository.included && repository.id === repositoryId.value))
     repositoryId.value = ''
+  if (refresh) prepareRefresh()
   sources.value = next
+  clearPreparedRefresh()
 }
 
 const {
   busy, page, pages, rows, total, counts, complete, issues, readAt, repositoryReads, hasMore, hasKnownMatches,
-  loaded, prepareRefresh, clearPreparedRefresh, continueReading, changePage, retry, detail, openDetail, clearDetail
-} = useMergeRequestBrowser(scope, activeTab, queryValue, order, filterKey)
+  loaded, checkedSources, showingPrevious, unknownStatus, contextVersion, prepareRefresh, clearPreparedRefresh, continueReading,
+  changePage, retry, identityFor, invalidateRepository
+} = useMergeRequestBrowser(scope, activeTab, queryValue, order, filterKey, {
+  contextChanged: (): void => clearDetail(),
+  repositoryInvalidated: (id, issue): void => invalidateDetail(id, issue)
+})
+const { detail, openDetail, clearDetail, invalidateDetail, retryDetailSection } = useMergeRequestDetail({
+  identityFor, invalidateRepository
+})
+const canRetryDetail = computed(() => !!detail.value?.selected && !!identityFor(detail.value.repository.id))
 const pageBusy = computed(() => sourcesLoading.value || busy.value || saving.value)
 
 const heading = useTemplateRef<InstanceType<typeof WorkbenchBreadcrumb>>('heading')
 const searchField = useTemplateRef<InstanceType<typeof Input>>('search-field')
 const results = useTemplateRef<HTMLElement>('results')
-let detailTrigger: HTMLElement | undefined
+let detailTrigger: { element: HTMLElement; context: number } | undefined
 
 const footerText = computed(() => {
-  if (issues.value.length) return total.value ? `已取得 ${total.value} 条，部分仓库读取不完整` : '当前范围读取不完整'
   if (sourcesError.value) return '未能读取仓库来源'
-  if (pageBusy.value && !rows.value.length) return '正在读取合并请求'
+  const coverage = `已读取 ${checkedSources.value} / ${scope.value.length} 个仓库`
+  if (issues.value.length) {
+    const partial = total.value ? `已取得 ${total.value} 条，部分仓库读取不完整` : '当前范围读取不完整'
+    return `${partial} · ${coverage}`
+  }
+  if (sourcesLoading.value) return '正在核对仓库来源'
+  if (showingPrevious.value) return `显示上次读取的结果 · 本次${coverage}`
+  if (busy.value) return total.value
+    ? `已确认 ${total.value} 条 · ${coverage}`
+    : `正在读取合并请求 · ${coverage}`
   if (hasMore.value) {
     return queryValue.value
-      ? `已确认 ${total.value} 条，仍有历史分页待搜索`
-      : `已确认 ${total.value} 条，可继续读取后续页`
+      ? `已确认 ${total.value} 条，仍有历史分页待搜索 · ${coverage}`
+      : `已确认 ${total.value} 条，可继续读取后续页 · ${coverage}`
   }
   if (!scope.value.length) return ''
   return counts.value?.[activeTab.value] === undefined ? `已确认 ${total.value} 条` : `共 ${total.value} 条`
@@ -113,6 +130,7 @@ const emptyTitle = computed(() => {
   if (!included.value.length) return '暂无可浏览仓库'
   if (issues.value.length) return '目前没有可显示的结果'
   if (hasMore.value) return hasKnownMatches.value ? '待汇总列表顺序' : '已读范围暂无匹配'
+  if (unknownStatus.value && activeTab.value !== 'all') return '暂无状态已核实的匹配请求'
   if (!scope.value.length && !queryValue.value) return '当前范围没有仓库'
   return '没有匹配的请求'
 })
@@ -123,10 +141,14 @@ const emptyDescription = computed(() => {
       ? '查看仓库来源，核对已登记工程和远端配置。'
       : '在「产品与工程」登记并启用工程后，即可浏览合并请求。'
   }
+  if (exactQuery.value && exactQuery.value.number === undefined) return '请输入有效的正整数编号。'
+  if (queryPlatform.value && selectedScope.value.length && !scope.value.length)
+    return `已选范围内没有 ${platformLabels[queryPlatform.value]} 仓库。`
   if (issues.value.length) return '受影响的仓库恢复读取后，结果可能增加。'
   if (hasMore.value) {
     return hasKnownMatches.value ? '继续读取其余仓库后可查看已发现的结果。' : '继续读取可查找更早的合并请求。'
   }
+  if (unknownStatus.value && activeTab.value !== 'all') return '部分请求的状态暂不可用，可在「全部」中查看。'
   return hasFilters.value ? '可调整搜索词或筛选条件。' : '可切换状态查看其他合并请求。'
 })
 
@@ -134,12 +156,11 @@ async function refreshSources() {
   if (expired.value || saving.value || sourcesLoading.value) return
   const request = new AbortController()
   sourceRequest = request
-  prepareRefresh()
   sourcesLoading.value = true
   sourcesError.value = ''
   try {
     const next = await getMergeRequestSources(request.signal)
-    if (sourceRequest === request && !request.signal.aborted && !expired.value) applySources(next)
+    if (sourceRequest === request && !request.signal.aborted && !expired.value) applySources(next, true)
   } catch {
     if (sourceRequest === request && !request.signal.aborted && !expired.value) {
       sources.value = undefined
@@ -149,7 +170,6 @@ async function refreshSources() {
     if (sourceRequest === request) {
       sourceRequest = undefined
       sourcesLoading.value = false
-      clearPreparedRefresh()
     }
   }
 }
@@ -214,6 +234,7 @@ watch(expired, (value) => {
   if (value) {
     sourceRequest?.abort()
     clearPreparedRefresh()
+    clearDetail()
     sources.value = undefined
     sourcesOpen.value = false
   } else void refreshSources()
@@ -239,18 +260,11 @@ function clearFilters() {
 }
 
 function openRequest(row: MergeRequestRow, event: MouseEvent) {
-  detailTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
+  if (!identityFor(row.repository.id) || !rows.value.some((item) => requestKey(item) === requestKey(row))) return
+  detailTrigger = event.currentTarget instanceof HTMLElement
+    ? { element: event.currentTarget, context: contextVersion.value }
+    : undefined
   void openDetail(row)
-}
-
-const detailRow = computed(() => {
-  const target = detail.value
-  return target && rows.value.find((entry) =>
-    entry.repository.id === target.repository.id && entry.request.number === target.number)
-})
-
-function retryDetail() {
-  if (detailRow.value) void openDetail(detailRow.value)
 }
 
 async function restoreDetailFocus(event: Event) {
@@ -258,17 +272,19 @@ async function restoreDetailFocus(event: Event) {
   const trigger = detailTrigger
   detailTrigger = undefined
   await nextTick()
-  if (detail.value || expired.value) return
-  if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+  if (detail.value || expired.value || (trigger && trigger.context !== contextVersion.value)) return
+  if (trigger?.element.isConnected) trigger.element.focus({ preventScroll: true })
   else (results.value ?? heading.value)?.focus({ preventScroll: true })
 }
 
 async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
   const trigger = event.currentTarget
   const focused = trigger === document.activeElement
+  const context = contextVersion.value
   await read()
   await nextTick()
-  if (focused && trigger instanceof HTMLElement && !trigger.isConnected && document.activeElement === document.body)
+  if (context === contextVersion.value && focused && trigger instanceof HTMLElement &&
+    !trigger.isConnected && document.activeElement === document.body)
     results.value?.focus()
 }
 </script>
@@ -300,7 +316,7 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
       <div class="request-controls">
         <TabsList aria-label="合并请求状态" class="request-tabs">
           <TabsTrigger v-for="tab in tabs" :key="tab.value" :value="tab.value">
-            {{ tab.label }}<span v-if="counts?.[tab.value] !== undefined" class="tab-count">{{ counts[tab.value] }}<span class="sr-only"> 条</span></span>
+            {{ tab.label }}<span v-if="!sourcesLoading && counts?.[tab.value] !== undefined" class="tab-count">{{ counts[tab.value] }}<span class="sr-only"> 条</span></span>
           </TabsTrigger>
         </TabsList>
         <div class="request-filters" role="search" aria-label="筛选合并请求">
@@ -322,7 +338,7 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
       <TabsContent :value="activeTab" class="requests-content">
         <Alert v-if="issues.length" class="notice warning repository-issues" role="group" aria-labelledby="repository-issues-title">
           <CircleAlert aria-hidden="true" />
-          <AlertTitle id="repository-issues-title">{{ loaded ? '部分仓库读取不完整' : '当前范围读取失败' }}</AlertTitle>
+          <AlertTitle id="repository-issues-title">{{ loaded || pageBusy ? '部分仓库读取不完整' : '当前范围读取失败' }}</AlertTitle>
           <AlertDescription>
             <div v-for="{ repository, issue, readAt: lastSuccess } in issues" :key="repository.id" class="repository-issue">
               <div>
@@ -345,7 +361,7 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
           </AlertDescription>
         </Alert>
 
-        <div ref="results" class="requests-results" role="region" aria-label="合并请求结果" :aria-busy="pageBusy" tabindex="-1">
+        <div ref="results" class="requests-results" role="region" aria-label="合并请求结果" :aria-busy="pageBusy && !rows.length" tabindex="-1">
           <MergeRequestTable v-if="rows.length" :rows="rows" :namesakes="namesakes" @open="openRequest" />
           <LoadingSkeleton v-else-if="pageBusy" variant="table" :rows="5" />
           <Empty v-else class="requests-empty">
@@ -371,7 +387,10 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
         <footer class="request-footer">
           <div role="status" aria-live="polite" class="footer-status">
             {{ footerText }}<span v-if="rows.length" class="sr-only">，第 {{ page }} 页</span>
-            <p v-if="complete && counts && counts.open === undefined">部分请求的状态不可用，分类数量暂未显示。</p>
+            <p v-if="complete && unknownStatus && rows.length">部分请求的状态不可用，受影响的数量暂未显示。</p>
+            <p v-if="queryPlatform && scope.length && scope.length < selectedScope.length">
+              已选 {{ selectedScope.length }} 个仓库，本次按编号标记查询其中 {{ scope.length }} 个 {{ platformLabels[queryPlatform] }} 仓库。
+            </p>
           </div>
           <div class="footer-actions">
             <LoadingIndicator :active="pageBusy && rows.length > 0" label="正在读取" />
@@ -400,7 +419,7 @@ async function readWithFocus(event: MouseEvent, read: () => Promise<unknown>) {
       @retry="refreshSources"
       @dismiss-error="saveError = ''"
     />
-    <MergeRequestDetails :detail="detail" :can-retry="!!detailRow" @close="clearDetail" @restore-focus="restoreDetailFocus" @retry="retryDetail" />
+    <MergeRequestDetails :detail="detail" :can-retry="canRetryDetail" @close="clearDetail" @restore-focus="restoreDetailFocus" @retry="retryDetailSection" />
   </template>
 </template>
 

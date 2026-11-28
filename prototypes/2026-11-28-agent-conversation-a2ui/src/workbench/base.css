@@ -1,0 +1,55 @@
+@import 'tailwindcss' source('../');
+@import './tokens.css';
+@import './theme.css';
+@custom-variant dark (&:where(.dark, .dark *));
+/* Active conversation controls from ui/src/styles/main.css at b879e5e. */
+:root {
+  --yss-control-min-height: 34px;
+  font-family: var(--brand-font-family);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--brand-color-text);
+  background: var(--workbench-glass-canvas);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+* { box-sizing:border-box; } body { margin:0; } button,input,select,textarea { font:inherit; } button,a,input,select,textarea { -webkit-tap-highlight-color:transparent; }
+button { cursor:pointer; } button:disabled { cursor:default; opacity:.55; }
+h1,h2,h3,p { margin:0; } h1 { font-size:24px; line-height:1.4; font-weight:650; letter-spacing:-.4px; color:#171a20; } h2 { font-size:15px; font-weight:650; } h3 { font-size:13px; font-weight:600; }
+:focus-visible { outline:2px solid #3e6ae1; outline-offset:3px; } [data-slot='button'],[data-slot='input'],select { height:34px; min-height:34px; border-radius:8px; font-size:13px; line-height:1.4; vertical-align:middle; box-shadow:none; }
+[data-slot='button'] { padding:0 12px; font-weight:500; } [data-slot='input'] { padding:3px 9px; }
+select,textarea { border:1px solid var(--yss-colors-border-control); background:#fff; color:inherit; padding:3px 9px; border-radius:8px; } textarea { width:100%; resize:vertical; min-height:64px; }
+[data-slot='button']:is(:not([data-variant]), [data-variant='default']):not(:disabled):hover {
+  background-color: var(--yss-color-primary-control-hover);
+}
+[data-slot='button']:is(:not([data-variant]), [data-variant='default']):not(:disabled):active {
+  background-color: var(--yss-color-primary-control-active);
+}
+[data-slot='card'] { background-color: var(--workbench-glass-card); box-shadow: none; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; scroll-behavior:auto!important; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='skeleton'], [data-slot='spinner'] { animation: none; }
+}
+
+@media (width < 720px) {
+  :root { --yss-control-min-height: 44px; }
+  [data-slot='button'], [data-slot='input'], select { min-height: 44px; height: 44px; }
+  [data-slot='input'], textarea, select { font-size: 16px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is([data-slot='button'], [data-slot='toggle-group-item'], [data-slot='tabs-trigger'],
+      .pi-session-title, .pi-session-attention, .pi-review-file-toggle, .pi-file-tree-folder, .phase-node) {
+    transition: background-color var(--workbench-motion-fast), color var(--workbench-motion-fast),
+      border-color var(--workbench-motion-fast),
+      scale var(--workbench-motion-fast) var(--workbench-motion-ease);
+  }
+  :is([data-slot='button'], [data-slot='toggle-group-item']):not([aria-disabled='true'], :disabled):active {
+    scale: .98;
+  }
+  :is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger'], [data-slot='checkbox'], [data-slot='radio-group-item']) {
+    transition: border-color var(--workbench-motion-fast), background-color var(--workbench-motion-fast);
+  }
+  :is(.pi-tool-chevron, .pi-file-tree-chevron, .single-select-trigger > svg) {
+    transition: transform var(--workbench-motion-panel) var(--workbench-motion-ease);
+  }
+}

@@ -19,7 +19,7 @@ import { ChevronDown, CornerUpLeft } from '@lucide/vue'
 import { useEventListener } from '@vueuse/core'
 import EvidenceVersions from '@/components/EvidenceVersions.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
-import { computed, nextTick, shallowRef, useId, useTemplateRef, watch, watchPostEffect } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, shallowRef, useId, useTemplateRef, watch, watchPostEffect } from 'vue'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
 import { useOptionalMessageScrollerContext } from '@/components/ui/message-scroller/useMessageScroller'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import { dateLabel } from '@/services/workbench'
 import { getCitationCurrentVersion, type CitationCurrentVersion, type JobActivity } from '@/services/workbench-platform'
 import type { AssistantMarkdownResult } from '../schemas/assistant-markdown'
 import { renderAssistantMarkdownFallback } from '../schemas/assistant-markdown-fallback'
+import { assistantUiUnavailable, plainAssistantUiContent, wantsPlainAssistantReply, withoutAssistantUi } from '../schemas/assistant-ui-markdown'
 import { assistantCitations } from '../schemas/conversation'
 
 const props = defineProps<{
@@ -37,9 +38,20 @@ const props = defineProps<{
   jobId?: string
   projectNames?: Record<string, string>
   citationStreaming?: boolean
+  assistantLabel?: string
+  assistantUi?: boolean
+  roundPrompt?: string | null
+  appendAssistantUi?: (text: string) => Promise<boolean>
 }>()
 
 const text = computed(() => props.row?.text ?? props.text ?? '')
+const allowAssistantUi = computed(() => props.assistantUi === true && !wantsPlainAssistantReply(props.roundPrompt))
+const AssistantA2uiText = defineAsyncComponent({
+  loader: () => import('./AssistantA2ui.vue'),
+  errorComponent: { render: () => h('p', assistantUiUnavailable) },
+})
+const plainCard = computed(() => props.assistantUi && !allowAssistantUi.value && !props.streaming
+  ? plainAssistantUiContent(text.value) : undefined)
 const user = computed(() => props.row ? props.row.kind === 'user' : props.user)
 const rowId = computed(() => props.row?.id)
 const createdAt = computed(() => props.row?.createdAt)
@@ -90,9 +102,12 @@ const formatted = computed<AssistantMarkdownResult>(() => {
   if (user.value || !text.value) return { nodes: [], sources: [] }
   const pending = props.citationStreaming ?? props.streaming ?? false
   const candidates = pending ? [] : assistantCitations(props.row?.citations)
-  if (!markdown.value) return renderAssistantMarkdownFallback(markdownId, text.value, pending, candidates)
+  const streaming = props.streaming ?? false
+  const fallback = props.assistantUi && (!allowAssistantUi.value || !markdown.value)
+  const source = fallback ? withoutAssistantUi(text.value, streaming) : text.value
+  if (!markdown.value) return renderAssistantMarkdownFallback(markdownId, source, pending, candidates)
   formatAssistant ??= markdown.value.createAssistantMarkdown(markdownId)
-  return formatAssistant(text.value, props.streaming ?? false, pending, candidates)
+  return formatAssistant(source, streaming, pending, candidates, allowAssistantUi.value)
 })
 
 const completedEventId = computed(() => {
@@ -199,7 +214,7 @@ function onSourceEscape(event: KeyboardEvent) {
   <Message as="article" :align="user ? 'end' : 'start'" :aria-busy="streaming || undefined">
     <div class="conversation-message" :class="{ 'conversation-user': user }">
       <MessageHeader class="conversation-message-label">
-        <strong>{{ user ? '你' : 'Pi' }}</strong>
+        <strong>{{ user ? '你' : assistantLabel ?? 'Pi' }}</strong>
         <time v-if="createdAt" :datetime="createdAt" :title="dateLabel(createdAt)">
           {{ dateLabel(createdAt).split(' ').at(-1) }}
         </time>
@@ -208,8 +223,11 @@ function onSourceEscape(event: KeyboardEvent) {
         <p v-if="user" class="preserve-lines">{{ text }}</p>
         <div v-else ref="assistantContent" class="assistant-message-content" :data-assistant-row="rowId" @click="showCitation">
           <div class="source-markdown typeset" :class="{ 'assistant-markdown-fallback': formatted.html !== undefined }">
-            <div v-if="formatted.html !== undefined" ref="fallbackContent" v-html="formatted.html" />
-            <component v-else-if="markdown" :is="markdown.default" :nodes="formatted.nodes" :streaming="streaming" />
+            <AssistantA2uiText v-if="plainCard !== undefined" :content="plainCard" text-only />
+            <div v-else-if="formatted.html !== undefined" ref="fallbackContent" v-html="formatted.html" />
+            <component v-else-if="markdown" :is="markdown.default" :nodes="formatted.nodes" :streaming="streaming"
+              :assistant-ui="allowAssistantUi" :append-assistant-ui="appendAssistantUi"
+              :assistant-ui-owner="jobId && rowId !== undefined ? jobId + ':' + rowId : undefined" />
           </div>
         </div>
         <details v-if="formatted.sources.length" ref="sourcesPanel" class="conversation-sources"

@@ -1,5 +1,5 @@
 import type { ComputedRef, InjectionKey, Ref, ShallowRef } from "vue"
-import { computed, getCurrentScope, inject, onMounted, onScopeDispose, provide, shallowRef, watch } from "vue"
+import { computed, getCurrentScope, inject, nextTick, onMounted, onScopeDispose, provide, shallowRef, watch } from "vue"
 
 // -----------------------------------------------------------------------------
 // Public types
@@ -364,6 +364,7 @@ export interface MessageScrollerContext {
   releaseVisibility: () => void
   handleContentChange: () => void
   handleResize: () => void
+  preserveReadingPosition: (update: () => void) => void
   scrollToEnd: (options?: { behavior?: ScrollBehavior }) => boolean
   scrollToMessage: (messageId: string, options?: MessageScrollerScrollOptions) => boolean
   scrollToStart: (options?: { behavior?: ScrollBehavior }) => boolean
@@ -673,6 +674,30 @@ function createEngine(props: MessageScrollerProviderProps) {
       : null
   }
 
+  function preserveReadingPosition(update: () => void) {
+    const view = viewport
+    if (!view || !content || mode !== "free-scrolling") {
+      update()
+      return
+    }
+    const rect = view.getBoundingClientRect()
+    const blocks = "p, li, pre, tr, blockquote, h1, h2, h3, h4, h5, h6, [data-assistant-row], [data-message-id]"
+    const anchor = view.ownerDocument.elementsFromPoint(rect.left + rect.width / 2, rect.top + Math.min(24, rect.height / 2))
+      .map((element) => element.closest(blocks))
+      .find((element): element is HTMLElement => element instanceof HTMLElement && !!content?.contains(element))
+      ?? findFirstVisibleMessage({ content, spacer, viewport: view })
+    const before = anchor ? getRelativeTop(anchor, view) : 0
+    update()
+    void nextTick(() => {
+      if (viewport !== view || mode !== "free-scrolling" || !anchor?.isConnected) return
+      const delta = getRelativeTop(anchor, view) - before
+      if (Math.abs(delta) > SCROLL_EPSILON) view.scrollTop += delta
+      capturePrependAnchor()
+      scheduleStateCommit()
+      scheduleVisibilitySync()
+    })
+  }
+
   function schedulePrependFlush() {
     if (pendingScrollFrame === null) {
       pendingScrollFrame = window.requestAnimationFrame(() => {
@@ -964,6 +989,7 @@ function createEngine(props: MessageScrollerProviderProps) {
     releaseVisibility,
     handleContentChange,
     handleResize,
+    preserveReadingPosition,
     scrollToEnd,
     scrollToMessage,
     scrollToStart,

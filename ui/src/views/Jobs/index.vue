@@ -597,6 +597,7 @@ async function resume() {
           :items="conversation.items.value"
           :terminal="finished"
           :status="eventStream.statusLabel.value"
+          :assistant-label="hostLabel"
           :error="eventStream.error.value"
           :has-older="conversation.hasOlder.value"
           :loading-history="conversation.loadingHistory.value"

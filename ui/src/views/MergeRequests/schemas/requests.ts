@@ -1,14 +1,14 @@
 import { ApiError } from '@/services/workbench'
 import type {
   MergeRequestIssue,
+  MergeRequestListStatus,
   MergeRequestOrder,
   MergeRequestPlatform,
   MergeRequestRepository,
-  MergeRequestStatus,
   MergeRequestSummary
 } from '@/services/workbench-merge-requests'
 
-export type MergeRequestTab = Exclude<MergeRequestStatus, 'unknown'> | 'all'
+export type MergeRequestTab = MergeRequestListStatus
 
 export interface MergeRequestRow {
   repository: MergeRequestRepository
@@ -68,12 +68,17 @@ export function compareRows(left: MergeRequestRow, right: MergeRequestRow, order
   return right.request.number - left.request.number
 }
 
-export function matchesQuery(row: MergeRequestRow, query: string) {
-  const number = /^([#!]?)(\d+)$/u.exec(query)
-  if (!number) return !query || (row.request.title ?? '').toLocaleLowerCase().includes(query)
-  if (number[1] === '#' && row.repository.platform !== 'github') return false
-  if (number[1] === '!' && row.repository.platform !== 'gitlab') return false
-  return row.request.number === Number(number[2])
+export function requestNumberQuery(query: string) {
+  const match = /^([#!]?)(\d+)$/u.exec(query)
+  if (!match) return undefined
+  const platform: MergeRequestPlatform | undefined = match[1] === '#' ? 'github' : match[1] === '!' ? 'gitlab' : undefined
+  const number = Number(match[2])
+  return { platform, number: Number.isSafeInteger(number) && number > 0 ? number : undefined }
+}
+
+export function matchesQuery(row: MergeRequestRow, query: string, exact = requestNumberQuery(query)) {
+  if (!exact) return !query || (row.request.title ?? '').toLocaleLowerCase().includes(query)
+  return (!exact.platform || row.repository.platform === exact.platform) && row.request.number === exact.number
 }
 
 export function safeHttpUrl(value?: string | null, sameOriginAs?: string) {

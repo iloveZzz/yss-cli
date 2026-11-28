@@ -170,6 +170,42 @@ export const requests: MergeRequest[] = seeds.map((seed) => {
   }
 })
 
+export const performanceDetail = {
+  id: 'core-248',
+  description: [
+    '# 发布配置变更',
+    '',
+    '将预发和生产的发布参数拆分，读取时先校验目标环境。',
+    '',
+    '- 预发环境允许独立调整部署参数。',
+    '- 生产环境缺少配置时，显示明确的校验提示。',
+    '',
+    '> 验收时分别核对预发与生产配置。',
+    '',
+    '| 环境 | 配置文件 | 验证项 |',
+    '| --- | --- | --- |',
+    '| 预发 | `release.staging.yml` | 核对目标环境 |',
+    '| 生产 | `release.production.yml` | 核对必填参数 |',
+    '',
+    '```yaml',
+    'release:',
+    '  target: staging',
+    '  requireConfig: true',
+    '  environmentOverrides: config/releases/environments/staging/platform-core-overrides.yml',
+    '```',
+    '',
+    '验收参考：[发布检查清单（示例）](https://example.com/release-checklist)。',
+    '',
+    '原站引用：[仓库说明](docs/release.md) · [本地工作台](/workbench) · [本机 API](/api/merge-requests) · [回到列表](#performance) · [本机预览](http://127.0.0.1:5173/workbench)。',
+    '',
+    '![发布配置预览](https://example.com/config-preview.png)',
+    '',
+    '<div>发布平台的原始 HTML 标记</div>',
+  ].join('\n'),
+  history: { status: '未通过', commit: '23a1cb8', recordedAt: '2026-11-26 17:48' },
+  current: { commit: 'f7153bd', recordedAt: '2026-11-27 10:39' },
+}
+
 export const tabs = [
   { id: 'open', label: '开放中' },
   { id: 'merged', label: '已合并' },
@@ -184,6 +220,7 @@ export const scenes = [
   { id: 'empty', label: '未登记工程' },
   { id: 'auth', label: '授权失效' },
   { id: 'rate', label: '平台限流' },
+  { id: 'performance', label: '渐进读取与 Markdown 详情' },
 ] as const
 export type Scene = typeof scenes[number]['id']
 

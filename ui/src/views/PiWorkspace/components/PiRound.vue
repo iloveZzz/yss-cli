@@ -41,9 +41,11 @@ const props = defineProps<{
   reviewTargets?: [string, string][]
   projectNames: Record<string, string>
   trackFirstText?: boolean
+  appendAssistantUi?: (jobId: string, text: string) => Promise<boolean>
 }>()
 const emit = defineEmits<{
   updated: []
+  executionStatus: [jobId: string, label: string, terminal: boolean]
   focus: [node: HTMLElement]
   review: [projectId?: string, path?: string]
   reviewLatest: []
@@ -54,6 +56,11 @@ const events = useJobEvents(jobId, () => { if (props.latest) emit('updated') }, 
   piRound: true, trackFirstText: () => !!props.trackFirstText
 })
 const { items, page, hasOlder, loadingHistory, historyError, firstText, toolMotion } = events.conversation
+const appendFromRound = computed(() => {
+  const append = props.appendAssistantUi
+  const id = jobId.value
+  return append && props.latest ? (text: string) => append(id, text) : undefined
+})
 const firstTextRendered = computed(() => !!firstText.value && items.value.some((row) => row.id === firstText.value?.rowId))
 watch([firstText, firstTextRendered], ([text, rendered], _, onCleanup) => {
   const target = text && rendered ? round.value?.querySelector(`[data-assistant-row="${text.rowId}"]`) : undefined
@@ -114,16 +121,27 @@ const terminal = computed(() => terminalJob(props.job.status) || !!events.latest
 const phase = computed(() => events.piPhase.value?.phase ?? props.job.piPhase)
 const status = computed(() => {
   const label = jobStatusLabels[props.job.status] || props.job.status
-  if (terminal.value && props.job.agentDispatchUncertain) return '结果待核实'
-  if (terminal.value) return label
+  if (terminalJob(props.job.status)) return props.job.agentDispatchUncertain ? '结果待核实' : label
+  if (terminal.value) return '本轮已结束，正在核对结果'
   if (props.stopping) return '正在停止'
+  if (events.statusLabel.value === '读取失败') return '执行记录读取失败'
+  if (events.statusLabel.value === '正在重连' || events.error.value) return '正在重新连接执行记录'
   if (events.pendingInputs.value.length || props.job.status === 'waitingInput') return '等待答复'
-  if (phase.value === 'promptAccepted' && items.value.some((item) => item.kind === 'command' && item.status === 'inProgress'))
-    return '正在执行命令'
-  return phase.value && (phase.value !== 'promptAccepted' || !items.value.some((item) => item.kind === 'message'))
-    ? agentPhaseLabel(phase.value, props.host === 'grok' ? 'grok' : 'pi')
-    : label
+  if (phase.value === 'finalizeArtifacts') return agentPhaseLabel(phase.value, 'pi')
+  if (items.value.some((item) => ['command', 'tool', 'files'].includes(item.kind) && ['inProgress', 'running'].includes(item.status)))
+    return '正在执行工具'
+  if (items.value.some((item) => item.kind === 'message' && item.text.trim())) {
+    return items.value.some((item) => item.kind === 'message' && !item.status) ? '正在生成回复' : '等待后续执行结果'
+  }
+  if (phase.value === 'promptAccepted' || props.job.agentStartedAt ||
+      (props.host === 'grok' && props.job.agentDispatchUncertain))
+    return '等待 ' + hostLabel.value + ' 首段回复'
+  if (phase.value) return agentPhaseLabel(phase.value, props.host === 'grok' ? 'grok' : 'pi')
+  return props.job.status === 'queued' || props.job.status === 'preparing' ? '已受理，正在准备运行' : label
 })
+watch([() => props.latest, status, terminal], ([isLatest, label, isTerminal]) => {
+  if (isLatest) emit('executionStatus', jobId.value, label, isTerminal)
+}, { immediate: true })
 const ready = computed(() => !!page.value || !!events.error.value || terminal.value)
 const answering = shallowRef('')
 const inputSync = shallowRef('')
@@ -257,7 +275,7 @@ watch(events.statusLabel, (status) => {
   <article ref="round" class="pi-round" :aria-label="'执行轮次 ' + dateLabel(job.createdAt)" tabindex="-1">
     <header class="pi-round-meta">
       <time :datetime="job.createdAt">{{ dateLabel(job.createdAt) }}</time>
-      <span :role="latest ? 'status' : undefined">{{ status }}</span>
+      <span>{{ status }}</span>
       <span>{{ hostLabel }}</span>
       <span v-if="commandExecution">已授权{{ piCommandExecutionLabels[commandExecution] }}</span>
       <span v-if="onlyReads">{{ direct && host !== 'grok' ? '只读原工程' : '只读分析' }}</span>
@@ -325,7 +343,9 @@ watch(events.statusLabel, (status) => {
         <template v-for="row in entry.rows" :key="row.id">
           <ConversationMessage v-if="row.kind === 'message' || row.kind === 'user'" :row="row"
             :streaming="row.kind === 'message' && !row.status && !terminal" :job-id="jobId" :project-names="projectNames"
-            :citation-streaming="row.kind === 'message' && !row.status" />
+            :assistant-label="hostLabel"
+            :citation-streaming="row.kind === 'message' && !row.status" :assistant-ui="host === 'pi' || host === 'grok'"
+            :round-prompt="page?.prompt" :append-assistant-ui="appendFromRound" />
           <PiReasoning v-else-if="row.kind === 'reasoning'" :row="row" :terminal="terminal" />
           <ConversationQuestion v-else-if="row.question" :row="row" :question="row.question" :terminal="terminal"
             :busy="!!answering || !latest || stopping || !!inputSync" :submitting="row.question.requestId === answering" :submit="submit" />

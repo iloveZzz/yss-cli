@@ -3,27 +3,28 @@ use crate::{cancel::Cancellation, error::Result};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
-mod providers;
-mod repositories;
+pub(in crate::workbench) mod providers;
+pub(in crate::workbench) mod repositories;
 
+pub(super) use repositories::SourceCache;
 pub(super) use repositories::{discover, save};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Platform {
+pub(in crate::workbench) enum Platform {
     Github,
     Gitlab,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Repository {
-    id: String,
-    platform: Platform,
-    origin: String,
-    slug: String,
-    url: String,
-    included: bool,
+pub(in crate::workbench) struct Repository {
+    pub(in crate::workbench) id: String,
+    pub(in crate::workbench) platform: Platform,
+    pub(in crate::workbench) origin: String,
+    pub(in crate::workbench) slug: String,
+    pub(in crate::workbench) url: String,
+    pub(in crate::workbench) included: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -33,10 +34,29 @@ enum Order {
     Created,
 }
 
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ListStatus {
+    Open,
+    Merged,
+    Closed,
+    #[default]
+    All,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum DetailSection {
+    Base,
+    Review,
+    Ci,
+    History,
+}
+
 #[derive(Serialize)]
-struct ReadIssue {
-    code: &'static str,
-    message: String,
+pub(in crate::workbench) struct ReadIssue {
+    pub(in crate::workbench) code: &'static str,
+    pub(in crate::workbench) message: String,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +65,9 @@ pub(super) struct PageRequest {
     repository_id: String,
     page: u32,
     order: Order,
+    #[serde(default)]
+    status: ListStatus,
+    number: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +75,14 @@ pub(super) struct PageRequest {
 pub(super) struct DetailRequest {
     repository_id: String,
     number: u64,
+    section: Option<DetailSection>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum DetailData {
+    Complete(Box<providers::Detail>),
+    Section(providers::DetailSectionData),
 }
 
 #[derive(Serialize)]
@@ -82,11 +113,12 @@ fn lost_access(issue: &ReadIssue) -> bool {
 
 fn active_repository(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     id: &str,
     cancel: &Cancellation,
 ) -> Result<Option<Repository>> {
     cancel.check()?;
-    Ok(repositories::discover(store, cancel)?
+    Ok(repositories::discover(store, cache, cancel)?
         .repositories
         .into_iter()
         .find(|repo| repo.id == id && repo.included))
@@ -101,6 +133,7 @@ fn changed_scope<T>() -> ReadResponse<T> {
 
 fn read<T>(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     id: &str,
     cancel: &Cancellation,
     operation: impl FnOnce(&Repository) -> Result<T>,
@@ -108,7 +141,7 @@ fn read<T>(
     if id.is_empty() || id.len() > 128 {
         return Err(sources::invalid("仓库来源标识无效"));
     }
-    let Some(repo) = active_repository(store, id, cancel)? else {
+    let Some(repo) = active_repository(store, cache, id, cancel)? else {
         return Ok(changed_scope());
     };
     let identity_result = providers::identity(&repo, cancel);
@@ -143,12 +176,15 @@ fn read<T>(
         }
     };
     if identity != current_identity {
-        return Ok(failure(ReadIssue {
-            code: "authentication",
-            message: "平台连接身份已变化，请使用当前连接重新读取。".into(),
-        }));
+        return Ok(ReadResponse::Failure {
+            issue: ReadIssue {
+                code: "authentication",
+                message: "平台连接身份已变化，请使用当前连接重新读取。".into(),
+            },
+            identity: Some(current_identity),
+        });
     }
-    if active_repository(store, id, cancel)?.as_ref() != Some(&repo) {
+    if active_repository(store, cache, id, cancel)?.as_ref() != Some(&repo) {
         return Ok(changed_scope());
     }
     Ok(match data {
@@ -162,26 +198,51 @@ fn read<T>(
 
 pub(super) fn page(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     request: PageRequest,
     cancel: &Cancellation,
 ) -> Result<impl Serialize> {
     if request.page == 0 {
         return Err(sources::invalid("合并请求页码必须从 1 开始"));
     }
-    read(store, &request.repository_id, cancel, |repo| {
-        providers::page(repo, request.page, request.order, cancel)
+    if request
+        .number
+        .is_some_and(|number| number == 0 || request.page != 1)
+    {
+        return Err(sources::invalid("按编号查询须提供有效编号并从第一页读取"));
+    }
+    read(store, cache, &request.repository_id, cancel, |repo| {
+        providers::page(
+            repo,
+            request.page,
+            request.order,
+            request.status,
+            request.number,
+            cancel,
+        )
     })
 }
 
 pub(super) fn detail(
     store: &Arc<Mutex<Store>>,
+    cache: &SourceCache,
     request: DetailRequest,
     cancel: &Cancellation,
 ) -> Result<impl Serialize> {
     if request.number == 0 {
         return Err(sources::invalid("合并请求编号必须大于 0"));
     }
-    read(store, &request.repository_id, cancel, |repo| {
-        providers::detail(repo, request.number, cancel)
-    })
+    read(
+        store,
+        cache,
+        &request.repository_id,
+        cancel,
+        |repo| match request.section {
+            Some(section) => providers::detail_section(repo, request.number, section, cancel)
+                .map(DetailData::Section),
+            None => providers::detail(repo, request.number, cancel)
+                .map(Box::new)
+                .map(DetailData::Complete),
+        },
+    )
 }

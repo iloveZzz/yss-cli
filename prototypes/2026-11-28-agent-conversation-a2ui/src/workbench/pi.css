@@ -1,0 +1,125 @@
+/* Conversation styles from ui/src/views/PiWorkspace/workspace.css at b879e5e. */
+.pi-workspace, .pi-sheet, .pi-review-dialog {
+  --foreground: #202020;
+  --background: #fafafa;
+  --card: #fcfcfc;
+  --muted: #f0f0f0;
+  --muted-foreground: #646464;
+  --primary: #252525;
+  --primary-foreground: #fff;
+  --secondary: #eeeeef;
+  --secondary-foreground: #222;
+  --accent: #eaeaea;
+  --accent-foreground: #202020;
+  --border: #e2e2e3;
+  --input: #dcdcdc;
+  --ring: #555;
+  --quiet: #626262;
+  --brand-color-bg-layout: #f6f6f6;
+  --brand-color-bg-container: #fcfcfc;
+  --brand-color-text-secondary: #626262;
+  --brand-color-primary: #404040;
+  --yss-colors-border: #e3e3e4;
+  --yss-colors-border-control: #dcdcdc;
+  --yss-colors-primary-bg: #eeeeef;
+  color: var(--foreground);
+}
+.pi-main:focus { outline: none; }
+.pi-workspace {
+  --history-width: clamp(218px, 18.5vw, 296px);
+  --summary-width: clamp(214px, 15.55vw, 306px);
+  --summary-space: 0px;
+  --read-gutter: clamp(18px, 3vw, 36px);
+  --read-width: min(736px, calc(100% - 2 * var(--read-gutter) - var(--summary-space)));
+  --read-start: min(calc((100% - var(--read-width)) / 2), calc(100% - var(--read-width) - var(--read-gutter) - var(--summary-space)));
+  display: grid;
+  grid-template-columns: var(--visible-history-width, var(--history-width)) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.pi-workspace[data-history='false'] { --visible-history-width: 0px; }
+.pi-history-pane { grid-column: 1; grid-row: 1; }
+.pi-stage { grid-column: 2; grid-row: 1; }
+.pi-workspace[data-summary='true'] { --summary-space: calc(var(--summary-width) + 15px); }
+:is(.pi-workspace, .pi-sheet, .pi-review-dialog) :focus-visible { outline-color: #535353; }
+.pi-workspace, .pi-sheet, .pi-review-dialog {
+  --brand-color-primary-active: #1e1e1e;
+  --brand-color-primary-hover: #383838;
+  --yss-color-primary-control: #303030;
+}
+.pi-bar [data-slot='button'], .pi-history-heading button {
+  flex: none; width: 34px; min-height: 34px; height: 34px; padding: 0;
+}
+.pi-bar [aria-expanded='true'] { background: var(--accent); }
+.pi-bar, .pi-history-pane {
+  background: var(--workbench-glass-chrome);
+  -webkit-backdrop-filter: var(--workbench-glass-blur);
+  backdrop-filter: var(--workbench-glass-blur);
+}
+.pi-history-pane { min-height: 0; overflow: hidden; border-inline-end: 1px solid var(--border); }
+.pi-stage { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.pi-bar { display: flex; align-items: center; gap: 10px; flex: 0 0 52px; min-width: 0; padding: 0 13px; }
+.pi-bar h1 { min-width: 0; margin: 0; font-size: 14px; font-weight: 620; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; letter-spacing: 0; }
+.pi-heading-icon { flex: none; opacity: .8; }
+.pi-conversation { flex: 1; min-height: 0; min-width: 0; }
+.pi-scroller .pi-viewport { scroll-padding-block: 18px; scrollbar-width: thin; }
+.pi-transcript {
+  width: var(--read-width); min-height: 0; margin-inline-start: var(--read-start);
+  padding: clamp(16px, 4vh, 44px) 0 32px; gap: 26px;
+}
+.pi-turn + .pi-turn { border-top: 1px solid var(--border); padding-top: 19px; }
+.pi-transcript .conversation-message-label { display: none; }
+.pi-transcript .conversation-message-body {
+  padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 14px; line-height: 1.68;
+}
+.pi-transcript .conversation-user .conversation-message-body {
+  padding: 10px 15px; border-radius: 16px 16px 4px 16px; background: #ebebec;
+}
+:is(.pi-stage, .pi-sheet, .pi-review-dialog) .pi-issue { color: #8c3e29; font-size: 13px; overflow-wrap: anywhere; }
+.pi-composer-wrap { width: var(--read-width); margin-inline-start: var(--read-start); flex: none; padding: 0 0 max(12px, env(safe-area-inset-bottom)); }
+.pi-composer { padding: 10px 10px 7px; border: 1px solid var(--border); border-radius: 16px; background: var(--workbench-glass-card); box-shadow: 0 1px 4px #20202008; }
+.pi-composer:focus-within { border-color: #bdbdbe; }
+.pi-composer:has(> textarea:focus-visible) { outline: 2px solid #636363; outline-offset: 2px; }
+.pi-composer #pi-workspace-draft {
+  border: 0; outline: 0; box-shadow: none; min-height: 56px; max-height: min(24vh, 180px); color: var(--foreground);
+  background: transparent; border-radius: 7px; padding: 5px 6px; font-size: 14px; resize: vertical;
+}
+.pi-composer-tools { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0; }
+.pi-composer-tools button { white-space: nowrap; }
+.pi-composer-tools .pi-send { border-radius: 50%; flex: 0 0 34px; width: 34px; padding: 0; background: #252525; color: #fff; }
+.pi-composer-tools .pi-send:hover:not(:disabled) { background: #3b3b3b; }
+.pi-composer-error { margin: 5px 2px 0; font-size: 12px; color: #884029; min-width: 0; max-height: 52px; overflow: auto; overflow-wrap: anywhere; }
+@media (width < 960px) {
+  .pi-workspace { grid-template-columns: minmax(0, 1fr); }
+  .pi-stage { grid-column: 1; }
+  .pi-history-pane { display: none; }
+}
+@media (width >= 960px) and (prefers-reduced-motion: no-preference) {
+  .pi-workspace { transition: grid-template-columns var(--workbench-motion-panel) var(--workbench-motion-ease); }
+}
+@media (width >= 1280px) and (prefers-reduced-motion: no-preference) {
+  :is(.pi-transcript, .pi-composer-wrap) {
+    transition: margin-inline-start var(--workbench-motion-panel) var(--workbench-motion-ease),
+      width var(--workbench-motion-panel) var(--workbench-motion-ease);
+  }
+}
+@media (width < 600px) {
+  .pi-workspace { --read-gutter: 12px; }
+  .pi-bar { gap: 6px; padding-inline: 8px; }
+  .pi-heading-icon { display: none; }
+  .pi-bar [data-slot='button'] { width: 44px; min-height: 44px; height: 44px; }
+  .pi-transcript { gap: 20px; padding-block: 18px 24px; }
+  .pi-composer { padding: 6px 7px; }
+  .pi-composer-tools { gap: 3px; }
+  .pi-composer-tools [data-slot='button'] { padding-inline: 5px; }
+  .pi-composer #pi-workspace-draft { font-size: 16px; }
+  .pi-composer-tools .pi-send { flex-basis: 44px; width: 44px; }
+}
+
+/* Round status and feedback from PiWorkspace/components/PiRound.vue. */
+.pi-round { display: grid; gap: 14px; min-width: 0; overflow-wrap: anywhere; }
+.pi-round-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; color: var(--quiet); font-size: 11px; }
+.pi-round-note { color: var(--quiet); font-size: 12px; }
+.pi-inline-error { color: #9a432b; }
+.pi-round-problem { display: grid; gap: 6px; padding: 10px 12px; border-inline-start: 2px solid #cdbdb8; font-size: 13px; }

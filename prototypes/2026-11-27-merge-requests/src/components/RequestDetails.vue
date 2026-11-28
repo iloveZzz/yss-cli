@@ -1,27 +1,87 @@
 <script setup lang="ts">
-import { computed, useTemplateRef } from 'vue'
-import { ArrowRight, CalendarDays, ExternalLink, ListChecks, ShieldCheck, UserRound } from '@lucide/vue'
+import { computed, nextTick, onScopeDispose, reactive, useTemplateRef, watch } from 'vue'
+import { ArrowRight, CalendarDays, ExternalLink, ListChecks, LoaderCircle, ShieldCheck, UserRound } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { repositoryFor, requestNumber, type MergeRequest } from '@/demo'
+import { performanceDetail, repositoryFor, requestNumber, type MergeRequest } from '@/demo'
 import PlatformMark from './PlatformMark.vue'
+import RequestMarkdown from './RequestMarkdown.vue'
 import RequestState from './RequestState.vue'
 
 const props = defineProps<{
   open: boolean
   request: MergeRequest | null
   embedded: boolean
+  progressive?: boolean
   showRepositoryHost?: boolean
 }>()
 const emit = defineEmits<{ close: []; restoreFocus: [event: Event] }>()
 const repository = computed(() => props.request ? repositoryFor(props.request.repo) : null)
+const isMarkdownSample = computed(() => props.progressive && props.request?.id === performanceDetail.id)
+const historyEntry = computed(() => isMarkdownSample.value ? performanceDetail.history : props.request?.historicalCi)
+type DetailArea = 'base' | 'approval' | 'ci' | 'history'
+type ReadState = 'idle' | 'loading' | 'failed' | 'ready'
+const readings = reactive<Record<DetailArea, ReadState>>({ base: 'ready', approval: 'ready', ci: 'ready', history: 'idle' })
+const timers = new Map<DetailArea, number>()
+const retries = reactive(new Set<DetailArea>())
+
+function cancelReads() {
+  timers.forEach(timer => window.clearTimeout(timer))
+  timers.clear()
+  retries.clear()
+}
+
+function simulateRead(area: DetailArea, delay: number, state: ReadState = 'ready', trigger?: HTMLElement) {
+  readings[area] = 'loading'
+  const requestId = props.request?.id
+  const timer = window.setTimeout(async () => {
+    timers.delete(area)
+    if (!props.open || props.request?.id !== requestId) return
+    const restoreFocus = document.activeElement === trigger
+    readings[area] = state
+    retries.delete(area)
+    if (restoreFocus) {
+      await nextTick()
+      if (!trigger?.isConnected && document.activeElement === document.body) {
+        document.getElementById(`detail-${area}-state`)?.focus({ preventScroll: true })
+      }
+    }
+  }, delay)
+  timers.set(area, timer)
+}
+
+watch(() => [props.open, props.request?.id, props.progressive], () => {
+  cancelReads()
+  readings.base = 'ready'
+  readings.approval = 'ready'
+  readings.ci = 'ready'
+  readings.history = 'idle'
+  if (!props.open || !props.request || !props.progressive) return
+  simulateRead('base', 450)
+  simulateRead('approval', 1400, isMarkdownSample.value ? 'failed' : 'ready')
+  simulateRead('ci', 2000)
+}, { immediate: true })
+onScopeDispose(cancelReads)
+
+function retryCheck(area: 'approval' | 'ci', event: MouseEvent) {
+  if (readings[area] !== 'failed') return
+  retries.add(area)
+  simulateRead(area, 750, 'ready', event.currentTarget as HTMLElement)
+}
+
+function loadHistory(event: MouseEvent) {
+  if (readings.history !== 'idle') return
+  simulateRead('history', 850, 'ready', event.currentTarget as HTMLElement)
+}
+
 const checks = computed(() => {
   const request = props.request
   if (!request) return []
   return [
-    { label: '评审与审批', icon: ShieldCheck, summary: request.approval },
-    { label: 'CI', icon: ListChecks, summary: request.ci, history: request.historicalCi },
-  ]
+    { id: 'approval', label: '评审与审批', icon: ShieldCheck, summary: request.approval },
+    { id: 'ci', label: props.progressive ? '当前 CI' : 'CI', icon: ListChecks,
+      summary: isMarkdownSample.value ? { ...request.ci, evidence: performanceDetail.current } : request.ci },
+  ] as const
 })
 
 const heading = useTemplateRef<InstanceType<typeof SheetTitle>>('heading')
@@ -53,17 +113,22 @@ function focusHeading(event: Event) {
           </div>
           <SheetTitle ref="heading" tabindex="-1">{{ request.title }}</SheetTitle>
           <SheetDescription class="sr-only">合并请求详情</SheetDescription>
-          <RequestState :status="request.status" :draft="request.draft" />
+          <div class="drawer-summary">
+            <RequestState :status="request.status" :draft="request.draft" />
+            <span v-if="progressive" class="drawer-byline">{{ request.author }}<span aria-hidden="true">·</span>更新于 <time :datetime="request.updated.replace(' ', 'T')">{{ request.updated }}</time></span>
+          </div>
         </SheetHeader>
 
         <div class="drawer-body" role="region" aria-label="合并请求详情正文" tabindex="0">
           <section class="drawer-section" aria-labelledby="description-title">
             <h3 id="description-title">描述</h3>
-            <p v-if="request.descriptionUnavailable" class="muted">不可用。{{ request.descriptionUnavailable }}</p>
+            <p v-if="readings.base === 'loading'" class="detail-loading" role="status"><LoaderCircle class="spinning" aria-hidden="true" />正在读取描述与分支…</p>
+            <RequestMarkdown v-else-if="isMarkdownSample" :source="performanceDetail.description" />
+            <p v-else-if="request.descriptionUnavailable" class="muted">不可用。{{ request.descriptionUnavailable }}</p>
             <p v-else-if="request.description" class="request-description">{{ request.description }}</p>
             <p v-else class="muted">无描述</p>
           </section>
-          <section class="drawer-section" aria-labelledby="branches-title">
+          <section v-if="readings.base === 'ready'" class="drawer-section" aria-labelledby="branches-title">
             <h3 id="branches-title">分支</h3>
             <dl class="branch-route">
               <div class="branch-endpoint">
@@ -83,32 +148,59 @@ function focusHeading(event: Event) {
               </div>
             </dl>
           </section>
-          <section class="drawer-section" aria-labelledby="attributes-title">
+          <section v-if="readings.base === 'ready'" class="drawer-section" aria-labelledby="attributes-title">
             <h3 id="attributes-title">概要</h3>
             <dl class="request-attributes">
-              <div><dt><UserRound aria-hidden="true" />作者</dt><dd>{{ request.author }}</dd></div>
+              <div v-if="!progressive"><dt><UserRound aria-hidden="true" />作者</dt><dd>{{ request.author }}</dd></div>
               <div><dt><CalendarDays aria-hidden="true" />创建时间</dt><dd><time :datetime="request.created.replace(' ', 'T')">{{ request.created }}</time></dd></div>
-              <div><dt><CalendarDays aria-hidden="true" />更新时间</dt><dd><time :datetime="request.updated.replace(' ', 'T')">{{ request.updated }}</time></dd></div>
+              <div v-if="!progressive"><dt><CalendarDays aria-hidden="true" />更新时间</dt><dd><time :datetime="request.updated.replace(' ', 'T')">{{ request.updated }}</time></dd></div>
               <div v-if="request.ended"><dt><CalendarDays aria-hidden="true" />{{ request.status === 'merged' ? '合并时间' : '关闭时间' }}</dt><dd><time :datetime="request.ended.replace(' ', 'T')">{{ request.ended }}</time></dd></div>
             </dl>
           </section>
           <section class="drawer-section" aria-labelledby="check-title">
             <h3 id="check-title">审阅与检查</h3>
             <dl class="check-strip">
-              <div v-for="{ label, icon, summary, history } in checks" :key="label" class="check-reading">
+              <div v-for="{ id, label, icon, summary } in checks" :key="id" class="check-reading">
                 <dt><component :is="icon" aria-hidden="true" />{{ label }}</dt>
-                <dd class="check-status" :data-result="summary.status">{{ summary.status }}</dd>
-                <dd v-if="summary.evidence || summary.detail || history" class="check-context">
+                <dd
+                  :id="`detail-${id}-state`" class="check-status" :data-result="readings[id] === 'ready' ? summary.status : undefined"
+                  :aria-live="progressive ? 'polite' : undefined" :tabindex="progressive ? -1 : undefined"
+                >
+                  <span v-if="readings[id] === 'loading'" class="detail-loading"><LoaderCircle class="spinning" aria-hidden="true" />读取中</span>
+                  <span v-else-if="readings[id] === 'failed'" class="check-error">读取失败</span>
+                  <template v-else>{{ summary.status }}</template>
+                </dd>
+                <dd v-if="readings[id] === 'failed' || retries.has(id)" class="check-context">
+                  <p v-if="readings[id] === 'failed'">暂时无法读取{{ label }}。</p>
+                  <Button variant="outline" class="check-action" :aria-disabled="retries.has(id) || undefined" @click="retryCheck(id, $event)">
+                    {{ retries.has(id) ? '重试中' : `重试${label}` }}
+                  </Button>
+                </dd>
+                <dd v-if="readings[id] === 'ready' && (summary.evidence || summary.detail)" class="check-context">
                   <template v-if="summary.evidence">
                     <span>适用提交 <code>{{ summary.evidence.commit }}</code></span>
                     <time :datetime="summary.evidence.recordedAt.replace(' ', 'T')">{{ summary.evidence.recordedAt }}</time>
                   </template>
                   <p v-if="summary.detail">{{ summary.detail }}</p>
-                  <div v-if="history" class="check-history">
-                    <strong>历史 CI · {{ history.status }}</strong>
-                    <span>旧提交 <code>{{ history.commit }}</code></span>
-                    <time :datetime="history.recordedAt.replace(' ', 'T')">{{ history.recordedAt }}</time>
+                </dd>
+                <dd v-if="id === 'ci' && progressive" class="check-context check-history">
+                  <Button v-if="readings.history !== 'ready'" variant="outline" class="check-action" :aria-disabled="readings.history === 'loading' || undefined" @click="loadHistory">
+                    {{ readings.history === 'loading' ? '历史 CI 读取中' : '读取历史 CI' }}
+                  </Button>
+                  <div id="detail-history-state" class="history-summary" aria-live="polite" tabindex="-1">
+                    <template v-if="readings.history === 'ready'">
+                      <strong>历史 CI · {{ historyEntry?.status ?? '暂无记录' }}</strong>
+                      <template v-if="historyEntry">
+                        <span>旧提交 <code>{{ historyEntry.commit }}</code></span>
+                        <time :datetime="historyEntry.recordedAt.replace(' ', 'T')">{{ historyEntry.recordedAt }}</time>
+                      </template>
+                    </template>
                   </div>
+                </dd>
+                <dd v-else-if="id === 'ci' && historyEntry" class="check-context check-history">
+                  <strong>历史 CI · {{ historyEntry.status }}</strong>
+                  <span>旧提交 <code>{{ historyEntry.commit }}</code></span>
+                  <time :datetime="historyEntry.recordedAt.replace(' ', 'T')">{{ historyEntry.recordedAt }}</time>
                 </dd>
               </div>
             </dl>
@@ -134,6 +226,28 @@ function focusHeading(event: Event) {
 
 .drawer-body:focus-visible {
   outline-offset: -2px;
+}
+
+.drawer-summary,
+.drawer-byline,
+.detail-loading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.drawer-byline,
+.detail-loading {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.detail-loading svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .branch-route {
@@ -250,7 +364,7 @@ function focusHeading(event: Event) {
 }
 
 .check-context,
-.check-history {
+.history-summary {
   display: grid;
   gap: 3px;
   font-size: 12px;
@@ -266,11 +380,14 @@ function focusHeading(event: Event) {
   font-family: var(--mono);
 }
 
-.check-history {
+.check-reading .check-history {
   margin-top: 4px;
   padding-top: 7px;
   border-top: 1px solid var(--divider);
 }
+
+.check-error { color: #775117; }
+.check-action { justify-self: start; margin-block-start: 3px; font-size: 12px; min-height: 32px; }
 
 .check-history strong {
   color: var(--brand-color-text);
@@ -282,6 +399,7 @@ function focusHeading(event: Event) {
 }
 
 @container request-details (width < 400px) {
+  .check-action { min-height: 44px; }
   .branch-route {
     grid-template-columns: minmax(0, 1fr);
     gap: 7px;

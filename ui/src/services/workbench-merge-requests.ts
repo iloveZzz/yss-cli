@@ -3,6 +3,8 @@ import { apiRequest } from './workbench'
 export type MergeRequestPlatform = 'github' | 'gitlab'
 export type MergeRequestOrder = 'updated' | 'created'
 export type MergeRequestStatus = 'open' | 'merged' | 'closed' | 'unknown'
+export type MergeRequestListStatus = Exclude<MergeRequestStatus, 'unknown'> | 'all'
+export type MergeRequestDetailSection = 'base' | 'review' | 'ci' | 'history'
 
 export interface MergeRequestRepository {
   id: string
@@ -73,7 +75,7 @@ export interface MergeRequestSignal {
   at?: string | null
 }
 
-export interface MergeRequestDetail extends MergeRequestSummary {
+interface MergeRequestDetailFields extends MergeRequestSummary {
   identity: string
   description: string | null
   descriptionAvailable: boolean
@@ -83,9 +85,25 @@ export interface MergeRequestDetail extends MergeRequestSummary {
   targetRepository?: string | null
   mergedAt?: string | null
   closedAt?: string | null
+}
+
+export interface MergeRequestDetail extends MergeRequestDetailFields {
   review: MergeRequestSignal
   ci: MergeRequestSignal
   historicalCi: MergeRequestSignal[]
+}
+
+export interface MergeRequestBaseDetail extends MergeRequestDetailFields {
+  version: string
+  historyAvailable: boolean
+}
+
+export interface MergeRequestDetailUpdate {
+  number: number
+  identity: string
+  version: string
+  signal: MergeRequestSignal
+  historicalCi?: MergeRequestSignal[]
 }
 
 const sourcesPath = '/api/merge-requests/sources'
@@ -102,13 +120,31 @@ export function saveMergeRequestSources(
   return apiRequest<MergeRequestSources>(sourcesPath, { method: 'PUT', body: { revision, selected }, signal })
 }
 
-export function getMergeRequestPage(repositoryId: string, page: number, order: MergeRequestOrder, signal: AbortSignal) {
-  return apiRequest<MergeRequestPage | MergeRequestFailure>('/api/merge-requests/page', { body: { repositoryId, page, order }, signal })
+export function getMergeRequestPage(
+  repositoryId: string,
+  page: number,
+  order: MergeRequestOrder,
+  signal: AbortSignal,
+  filters?: { status: MergeRequestListStatus; number?: number }
+) {
+  return apiRequest<MergeRequestPage | MergeRequestFailure>('/api/merge-requests/page', {
+    body: { repositoryId, page, order, ...filters },
+    signal
+  })
 }
 
 export function getMergeRequestDetail(repositoryId: string, number: number, signal: AbortSignal) {
   return apiRequest<MergeRequestDetail | MergeRequestFailure>('/api/merge-requests/detail', {
     body: { repositoryId, number },
+    signal
+  })
+}
+
+export function getMergeRequestDetailSection(
+  repositoryId: string, number: number, section: MergeRequestDetailSection, signal: AbortSignal
+) {
+  return apiRequest<MergeRequestBaseDetail | MergeRequestDetailUpdate | MergeRequestFailure>('/api/merge-requests/detail', {
+    body: { repositoryId, number, section },
     signal
   })
 }

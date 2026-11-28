@@ -11,6 +11,7 @@ use crate::{
     model::Sha256,
     workbench::{
         agent_protocol::{PiModel, ThinkingLevel},
+        assistant_ui::REPLY_GUIDANCE,
         jobs::JobContext,
     },
 };
@@ -450,7 +451,10 @@ fn prompt(
 ) -> Result<()> {
     let request_id = acp.id();
     let prompt_id = format!("yss-{}", context.id);
-    let mut content = vec![json!({"type":"text","text":request})];
+    let mut content = vec![
+        json!({"type":"text","text":request}),
+        json!({"type":"text","text":REPLY_GUIDANCE}),
+    ];
     content.extend(source);
     let request = Acp::prepare_frame(&json!({
         "jsonrpc":"2.0","id":request_id,"method":"session/prompt",

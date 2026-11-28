@@ -1,8 +1,6 @@
 import { computed, onScopeDispose, shallowRef, watch, type Ref } from 'vue'
 import {
-  getMergeRequestDetail,
   getMergeRequestPage,
-  type MergeRequestDetail,
   type MergeRequestIssue,
   type MergeRequestOrder,
   type MergeRequestRepository,
@@ -13,7 +11,7 @@ import {
   isTemporary,
   losesAccess,
   matchesQuery,
-  requestKey,
+  requestNumberQuery,
   sortTimestamp,
   transportIssue,
   type MergeRequestRow,
@@ -23,21 +21,12 @@ import {
 const pageSize = 8
 const concurrentReads = 3
 const readsPerAction = 18
+const changedIdentity = { code: 'identityChanged', message: '平台连接身份已变化，正在重新核对该实例的仓库。' }
 
 interface VerifiedRead {
   identity: string
   items: Map<number, MergeRequestSummary>
   readAt: string
-}
-
-interface RefreshRead {
-  tab: MergeRequestTab
-  query: string
-  order: MergeRequestOrder
-  filterKey: string
-  page: number
-  scope: string
-  previousReads: Map<string, VerifiedRead>
 }
 
 interface RepositoryRead {
@@ -52,11 +41,29 @@ interface RepositoryRead {
   request?: AbortController
 }
 
-interface DetailRead {
-  repository: MergeRequestRepository
-  number: number
-  result?: MergeRequestDetail
-  issue?: MergeRequestIssue
+interface RetainedPage {
+  rows: MergeRequestRow[]
+  identities: Map<string, string>
+}
+
+function initialRead(repository: MergeRequestRepository, previous?: VerifiedRead): RepositoryRead {
+  return { repository, items: new Map(), nextPage: 1, frontier: Infinity, previous }
+}
+
+function instanceKey({ platform, origin }: MergeRequestRepository) {
+  return `${platform}\n${origin}`
+}
+
+function connectionUnavailable(issue: MergeRequestIssue) {
+  const code = issue.code.replace(/[-_]/g, '').toLowerCase()
+  return ['authentication', 'unauthorized', 'missingtool', 'toolmissing'].includes(code)
+}
+
+function verifiedRead(state: RepositoryRead): VerifiedRead | undefined {
+  const previous = state.previous
+  if (!state.identity || !state.readAt) return previous
+  if (previous?.identity === state.identity && previous.items.size > state.items.size) return previous
+  return { identity: state.identity, items: new Map(state.items), readAt: state.readAt }
 }
 
 export function useMergeRequestBrowser(
@@ -64,111 +71,188 @@ export function useMergeRequestBrowser(
   tab: Readonly<Ref<MergeRequestTab>>,
   query: Readonly<Ref<string>>,
   order: Readonly<Ref<MergeRequestOrder>>,
-  filterKey: Readonly<Ref<string>>
+  filterKey: Readonly<Ref<string>>,
+  callbacks: {
+    contextChanged: () => void
+    repositoryInvalidated: (repositoryId: string, issue: MergeRequestIssue) => void
+  }
 ) {
   const reads = shallowRef<RepositoryRead[]>([])
   const busy = shallowRef(false)
   const page = shallowRef(1)
-  const detail = shallowRef<DetailRead>()
-  let detailRequest: AbortController | undefined
+  const contextVersion = shallowRef(0)
+  const retained = shallowRef<RetainedPage>()
+  const instanceIdentities = new Map<string, string>()
   let revision = 0
   let startTimer: number | undefined
-  let refreshRead: RefreshRead | undefined
+  let contextKey: string | undefined
+  let refreshPrepared = false
+  let scopedReads: Set<string> | undefined
 
-  function publishReads() {
-    reads.value = [...reads.value]
-  }
-
-  function resetRead(state: RepositoryRead) {
-    state.request?.abort()
-    state.request = undefined
-    state.items = new Map()
-    state.nextPage = 1
-    state.frontier = Infinity
-    state.identity = undefined
-    state.issue = undefined
-    state.readAt = undefined
-    state.previous = undefined
-  }
-
-  function clearDetail() {
-    detailRequest?.abort()
-    detailRequest = undefined
-    detail.value = undefined
-  }
-
-  function invalidateDetail(repositoryId: string, issue: MergeRequestIssue) {
-    const target = detail.value
-    if (target?.repository.id !== repositoryId) return
-    detailRequest?.abort()
-    detailRequest = undefined
-    detail.value = { repository: target.repository, number: target.number, issue }
-  }
-
-  const numberQuery = computed(() => /^[#!]?\d+$/u.test(query.value))
-  const pending = computed(() => reads.value.filter((read) => !read.issue && read.nextPage !== null))
+  const exact = computed(() => requestNumberQuery(query.value))
+  const pending = computed(() => reads.value.filter((state) => !state.issue && state.nextPage !== null))
   const issues = computed(() => reads.value.flatMap(({ repository, issue, readAt }) => issue ? [{ repository, issue, readAt }] : []))
-  const readAt = computed(() => reads.value.reduce<string | undefined>((latest, state) =>
-    state.readAt && (!latest || state.readAt > latest) ? state.readAt : latest, undefined))
+  const readAt = computed(() => reads.value.reduce<string | undefined>((latest, state) => {
+    const stamp = state.readAt ?? state.previous?.readAt
+    return stamp && (!latest || stamp > latest) ? stamp : latest
+  }, undefined))
   const complete = computed(() => !busy.value && !pending.value.length && !issues.value.length)
   const matching = computed(() => reads.value.flatMap(({ repository, items }) =>
     [...items.values()].map((request) => ({ repository, request }))
-      .filter((row) => matchesQuery(row, query.value))))
-  const counts = computed(() => {
+      .filter((row) => matchesQuery(row, query.value, exact.value))))
+  const unknownStatus = computed(() => matching.value.some(({ request }) => request.status === 'unknown'))
+  const counts = computed<Partial<Record<MergeRequestTab, number>> | undefined>(() => {
     if (!reads.value.length || !complete.value) return undefined
-    const result = { all: 0, open: 0, merged: 0, closed: 0 }
-    let unknown = false
-    for (const { request } of matching.value) {
-      result.all++
-      if (request.status === 'unknown') unknown = true
-      else result[request.status]++
-    }
-    return unknown ? { all: result.all } : result as Partial<Record<MergeRequestTab, number>>
-  })
-  const tabMatches = computed(() => matching.value.filter(({ request }) =>
-    tab.value === 'all' || request.status === tab.value))
-  const stableRows = computed(() => {
-    // Time ties are held until all unfinished sources have advanced past that time.
-    // Otherwise a tied record on a remote page could shift an already shown local page.
-    const frontier = pending.value.reduce((max, state) => Math.max(max, state.frontier), -Infinity)
-    return tabMatches.value.filter(({ request }) =>
-      !pending.value.length || sortTimestamp(request, order.value) > frontier)
-      .sort((left, right) => compareRows(left, right, order.value))
-  })
-  const total = computed(() => stableRows.value.length)
-  const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
-  const rows = computed(() => stableRows.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+    if (tab.value !== 'all') return unknownStatus.value ? undefined : { [tab.value]: sortedMatches.value.length }
 
-  function verifiedRead(state: RepositoryRead): VerifiedRead | undefined {
-    if (state.identity && state.readAt) {
-      return { identity: state.identity, items: new Map(state.items), readAt: state.readAt }
+    if (unknownStatus.value) return { all: matching.value.length }
+    const result = { all: matching.value.length, open: 0, merged: 0, closed: 0 }
+    for (const { request } of matching.value) {
+      if (request.status !== 'unknown') result[request.status]++
     }
+    return result
+  })
+
+  const sortedMatches = computed(() => matching.value.filter(({ request }) =>
+    tab.value === 'all' || request.status === tab.value)
+    .sort((left, right) => compareRows(left, right, order.value)))
+  const stableRows = computed(() => {
+    if (!pending.value.length) return sortedMatches.value
+    // A pending source can still supply a record with the same timestamp as its last page.
+    const frontier = pending.value.reduce((max, state) => Math.max(max, state.frontier), -Infinity)
+    return sortedMatches.value.filter(({ request }) => sortTimestamp(request, order.value) > frontier)
+  })
+
+  const byRepository = computed(() => new Map(reads.value.map((state) => [state.repository.id, state])))
+  function identityFor(repositoryId: string) {
+    const state = byRepository.value.get(repositoryId)
+    return state?.identity ?? state?.previous?.identity
+  }
+  const displayed = computed(() => {
+    const snapshot = retained.value
+    if (!snapshot) return stableRows.value
+    return snapshot.rows.filter(({ repository, request }) => {
+      const state = byRepository.value.get(repository.id)
+      const current = state?.items.get(request.number)
+      const settled = state?.nextPage === null || state?.issue
+      return !!state && identityFor(repository.id) === snapshot.identities.get(repository.id) &&
+        (!settled || current !== undefined) &&
+        (!current || ((tab.value === 'all' || current.status === tab.value) &&
+          matchesQuery({ repository, request: current }, query.value, exact.value)))
+    })
+  })
+  const total = computed(() => displayed.value.length)
+  const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+  const rows = computed(() => displayed.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+
+  function retainDisplayed() {
+    const identities = new Map<string, string>()
+    for (const state of reads.value) {
+      const identity = identityFor(state.repository.id)
+      if (identity) identities.set(state.repository.id, identity)
+    }
+    retained.value = total.value ? { rows: displayed.value, identities } : undefined
+  }
+
+  function publishReads() {
+    reads.value = [...reads.value]
+    const snapshot = retained.value
+    const retainedTarget = snapshot && Math.min(snapshot.rows.length, page.value * pageSize)
+    if (retainedTarget && (stableRows.value.length >= retainedTarget || !pending.value.length)) retained.value = undefined
+    if (!busy.value || !pending.value.length) page.value = Math.min(page.value, pages.value)
+  }
+
+  function resetRepositoryRead(state: RepositoryRead, issue?: MergeRequestIssue, keepRequest = false) {
+    if (!keepRequest) state.request?.abort()
+    Object.assign(state, {
+      ...initialRead(state.repository),
+      nextPage: issue ? null : 1,
+      request: keepRequest ? state.request : undefined,
+      identity: undefined,
+      issue,
+      readAt: undefined
+    })
+  }
+
+  function dropRepositoryRead(state: RepositoryRead, issue: MergeRequestIssue) {
+    resetRepositoryRead(state, issue)
+    publishReads()
+    page.value = Math.min(page.value, pages.value)
+    callbacks.repositoryInvalidated(state.repository.id, issue)
+  }
+
+  function observeIdentity(state: RepositoryRead, identity: string) {
+    const key = instanceKey(state.repository)
+    const previous = instanceIdentities.get(key)
+    instanceIdentities.set(key, identity)
+    return previous !== undefined && previous !== identity
+  }
+
+  function resetInstanceReads(
+    repository: MergeRequestRepository,
+    issue: MergeRequestIssue,
+    restart: boolean,
+    current?: RepositoryRead
+  ) {
+    const key = instanceKey(repository)
+    const affected = reads.value.filter((state) => instanceKey(state.repository) === key)
+    // The positions of rows from other instances were already verified in the outgoing result.
+    if (restart && !retained.value) retainDisplayed()
+    for (const state of affected) resetRepositoryRead(state, restart ? undefined : issue, state === current)
+    const snapshot = retained.value
+    if (snapshot) {
+      const remaining = snapshot.rows.filter((row) => instanceKey(row.repository) !== key)
+      retained.value = remaining.length ? { ...snapshot, rows: remaining } : undefined
+    }
+    publishReads()
+    page.value = Math.min(page.value, pages.value)
+    for (const state of affected) callbacks.repositoryInvalidated(state.repository.id, issue)
+
+    if (!restart) return
+    const ids = affected.map(({ repository }) => repository.id)
+    if (busy.value) {
+      for (const id of ids) scopedReads?.add(id)
+    } else {
+      void readThrough(page.value * pageSize, new Set(ids))
+    }
+  }
+
+  function applyInstanceFailure(state: RepositoryRead, issue: MergeRequestIssue, identity?: string) {
+    if (identity) {
+      // An authentication failure with a verified identity reports a change during the server read.
+      const firstObservation = !instanceIdentities.has(instanceKey(state.repository))
+      if (observeIdentity(state, identity) || (firstObservation && issue.code === 'authentication')) {
+        resetInstanceReads(state.repository, changedIdentity, true)
+        return true
+      }
+    }
+    if (!identity && connectionUnavailable(issue)) {
+      resetInstanceReads(state.repository, issue, false)
+      return true
+    }
+    return false
+  }
+
+  function invalidateRepository(repositoryId: string, issue: MergeRequestIssue, identity?: string) {
+    const state = byRepository.value.get(repositoryId)
+    if (state && !applyInstanceFailure(state, issue, identity)) dropRepositoryRead(state, issue)
   }
 
   function applyIssue(state: RepositoryRead, issue: MergeRequestIssue, identity?: string) {
+    if (applyInstanceFailure(state, issue, identity)) return
+    const knownIdentity = identityFor(state.repository.id)
+    if (!identity || identity !== knownIdentity || losesAccess(issue)) {
+      dropRepositoryRead(state, issue)
+      return
+    }
     const previous = state.previous
-    const canKeepCurrent = Boolean(identity && identity === state.identity && !losesAccess(issue))
-    const canKeepPrevious = isTemporary(issue) && identity && identity === previous?.identity &&
-      (!state.identity || canKeepCurrent)
-    // Keep the broader verified snapshot intact when refresh fails partway through it.
-    if (canKeepPrevious && previous && (!canKeepCurrent || previous.items.size > state.items.size)) {
-      state.identity = previous.identity
+    state.identity = identity
+    if (isTemporary(issue) && previous?.identity === identity && previous.items.size >= state.items.size) {
       state.items = previous.items
       state.readAt = previous.readAt
-    } else if (!canKeepCurrent) {
-      if (state.identity || previous) page.value = 1
-      resetRead(state)
-      invalidateDetail(state.repository.id, issue)
     }
     state.previous = undefined
     state.issue = issue
-    publishReads()
-  }
-
-  function restartWithNewIdentity(state: RepositoryRead) {
-    resetRead(state)
-    page.value = 1
-    invalidateDetail(state.repository.id, { code: 'identityChanged', message: '已从第一页重新核对仓库。' })
     publishReads()
   }
 
@@ -177,10 +261,14 @@ export function useMergeRequestBrowser(
     if (pageNumber === null || state.request) return
     const request = new AbortController()
     const readOrder = order.value
+    const readNumber = exact.value?.number
     state.request = request
+    const current = () => browserRevision === revision && state.request === request && !request.signal.aborted
     try {
-      const result = await getMergeRequestPage(state.repository.id, pageNumber, readOrder, request.signal)
-      if (browserRevision !== revision || state.request !== request || request.signal.aborted) return
+      const result = await getMergeRequestPage(state.repository.id, pageNumber, readOrder, request.signal, {
+        status: tab.value, number: readNumber
+      })
+      if (!current()) return
       if ('issue' in result) {
         applyIssue(state, result.issue, result.identity)
         return
@@ -189,13 +277,9 @@ export function useMergeRequestBrowser(
         applyIssue(state, { code: 'unavailable', message: '无法核对仓库的连接身份，可以重试。' })
         return
       }
-      if (state.identity && state.identity !== result.identity) {
-        restartWithNewIdentity(state)
-        return
-      }
-      if (state.previous && state.previous.identity !== result.identity) {
-        state.previous = undefined
-        page.value = 1
+      if (observeIdentity(state, result.identity)) {
+        resetInstanceReads(state.repository, changedIdentity, true, pageNumber === 1 ? state : undefined)
+        if (pageNumber !== 1) return
       }
       state.identity = result.identity
       for (const item of result.items) {
@@ -204,8 +288,7 @@ export function useMergeRequestBrowser(
         if (Number.isFinite(stamp)) state.frontier = Math.min(state.frontier, stamp)
       }
       state.readAt = result.readAt ?? state.readAt
-      const exactMatch = numberQuery.value && result.items.some((item) =>
-        matchesQuery({ repository: state.repository, request: item }, query.value))
+      const exactMatch = readNumber !== undefined && state.items.has(readNumber)
       state.nextPage = exactMatch ? null : result.nextPage
       if (!exactMatch && result.continuationIssue) {
         applyIssue(state, result.continuationIssue, result.identity)
@@ -218,78 +301,89 @@ export function useMergeRequestBrowser(
       if (state.nextPage === null) state.previous = undefined
       publishReads()
     } catch (cause) {
-      if (browserRevision === revision && state.request === request && !request.signal.aborted)
-        applyIssue(state, transportIssue(cause))
+      if (current()) applyIssue(state, transportIssue(cause))
     } finally {
       if (state.request === request) state.request = undefined
     }
   }
 
-  async function readThrough(target: number) {
+  function nextRead(target: number, only?: ReadonlySet<string>) {
+    const cutoffRow = sortedMatches.value[target - 1]
+    const cutoff = cutoffRow ? sortTimestamp(cutoffRow.request, order.value) : -Infinity
+    let next: RepositoryRead | undefined
+    for (const state of pending.value) {
+      if (state.request || (only && !only.has(state.repository.id)) || state.frontier < cutoff) continue
+      if (!next || state.frontier > next.frontier ||
+        (state.frontier === next.frontier && (state.nextPage ?? 0) < (next.nextPage ?? 0))) next = state
+    }
+    return next
+  }
+
+  async function readThrough(target: number, only?: Set<string>) {
     const browserRevision = revision
+    const running = new Set<Promise<void>>()
     let remaining = readsPerAction
+    scopedReads = only
     busy.value = true
     try {
-      while (browserRevision === revision && remaining > 0) {
-        const available = pending.value.filter((state) => !state.request)
-        if (!available.length || total.value >= target) break
-        available.sort((left, right) => {
-          if (left.frontier === right.frontier) return (left.nextPage ?? 0) - (right.nextPage ?? 0)
-          return left.frontier > right.frontier ? -1 : 1
-        })
-        const batch = available.slice(0, Math.min(concurrentReads, remaining))
-        remaining -= batch.length
-        await Promise.all(batch.map((state) => readPage(state, browserRevision)))
+      while (browserRevision === revision) {
+        while (remaining > 0 && running.size < concurrentReads) {
+          const next = nextRead(target, only)
+          if (!next) break
+          remaining--
+          const request = readPage(next, browserRevision).finally(() => running.delete(request))
+          running.add(request)
+        }
+        if (!running.size) break
+        await Promise.race(running)
       }
     } finally {
       if (browserRevision === revision) {
-        page.value = Math.min(page.value, pages.value)
+        scopedReads = undefined
         busy.value = false
+        publishReads()
       }
     }
   }
 
   function cancelReads() {
     revision++
+    scopedReads = undefined
     window.clearTimeout(startTimer)
     startTimer = undefined
     for (const state of reads.value) state.request?.abort()
-    clearDetail()
-  }
-
-  function repositoryScopeKey(scope: MergeRequestRepository[]) {
-    return JSON.stringify(scope.map(({ id, url }) => [id, url]).sort())
   }
 
   function prepareRefresh() {
-    refreshRead = {
-      tab: tab.value,
-      query: query.value,
-      order: order.value,
-      filterKey: filterKey.value,
-      page: page.value,
-      scope: repositoryScopeKey(repositories.value),
-      previousReads: new Map(reads.value.flatMap((state) => {
-        const previous = verifiedRead(state)
-        return previous ? [[state.repository.id, previous] as const] : []
-      }))
-    }
+    refreshPrepared = true
   }
 
   function clearPreparedRefresh() {
-    refreshRead = undefined
+    refreshPrepared = false
   }
 
   watch([repositories, tab, query, order, filterKey], ([scope, nextTab, search, nextOrder, nextFilters], previous) => {
+    const sourceKeys = scope.map(({ id, url, platform, origin }) => [id, url, platform, origin]).sort()
+    const nextKey = JSON.stringify([nextTab, search, nextOrder, nextFilters, sourceKeys])
+    const changed = contextKey !== nextKey
+    if (!changed && !refreshPrepared) return
+    const keepSnapshot = !changed && refreshPrepared
+    clearPreparedRefresh()
     cancelReads()
-    if (refreshRead && (refreshRead.tab !== nextTab || refreshRead.query !== search ||
-      refreshRead.order !== nextOrder || refreshRead.filterKey !== nextFilters)) clearPreparedRefresh()
-    const verifiedScope = refreshRead?.scope === repositoryScopeKey(scope) ? refreshRead : undefined
-    page.value = verifiedScope?.page ?? 1
-    reads.value = scope.map((repository) => ({
-      repository, items: new Map(), nextPage: 1, frontier: Infinity,
-      previous: verifiedScope?.previousReads.get(repository.id)
-    }))
+
+    if (keepSnapshot) retainDisplayed()
+    else {
+      if (contextKey !== undefined) callbacks.contextChanged()
+      contextVersion.value++
+      retained.value = undefined
+      page.value = 1
+    }
+    contextKey = nextKey
+    const previousReads = byRepository.value
+    reads.value = scope.map((repository) => {
+      const oldRead = previousReads.get(repository.id)
+      return initialRead(repository, keepSnapshot && oldRead ? verifiedRead(oldRead) : undefined)
+    })
     busy.value = scope.length > 0
     if (scope.length) {
       const target = page.value * pageSize
@@ -304,20 +398,19 @@ export function useMergeRequestBrowser(
   onScopeDispose(cancelReads)
 
   async function continueReading() {
-    if (!busy.value && pending.value.length) {
-      // Even a partly filled page may be extended without moving its existing rows.
-      await readThrough(total.value + pageSize)
-    }
+    if (!busy.value && pending.value.length) await readThrough(Math.max(total.value, page.value * pageSize) + pageSize)
   }
 
   async function retry(repositoryId: string) {
-    const state = reads.value.find((item) => item.repository.id === repositoryId)
+    const state = byRepository.value.get(repositoryId)
     if (busy.value || !state?.issue) return
+    retainDisplayed()
     const previous = verifiedRead(state)
-    resetRead(state)
-    state.previous = previous
-    publishReads()
-    await readThrough(page.value * pageSize)
+    const target = page.value * pageSize
+    const next = initialRead(state.repository, previous)
+    next.identity = state.identity
+    reads.value = reads.value.map((item) => item === state ? next : item)
+    await readThrough(target, new Set([repositoryId]))
   }
 
   function changePage(offset: number) {
@@ -325,54 +418,17 @@ export function useMergeRequestBrowser(
     if (destination > 0 && destination <= pages.value) page.value = destination
   }
 
-  async function openDetail(row: MergeRequestRow) {
-    const state = reads.value.find((entry) => entry.repository.id === row.repository.id)
-    const { repository, request } = row
-    if (!state?.identity || !rows.value.some((item) => requestKey(item) === requestKey(row))) return
-    detailRequest?.abort()
-    const controller = new AbortController()
-    detailRequest = controller
-    const target = { repository, number: request.number }
-    const browserRevision = revision
-    const stillCurrent = () => !controller.signal.aborted &&
-      detailRequest === controller && browserRevision === revision
-    detail.value = target
-    try {
-      const result = await getMergeRequestDetail(repository.id, request.number, controller.signal)
-      if (!stillCurrent()) return
-      if ('issue' in result) {
-        detail.value = { ...target, issue: result.issue }
-        if (losesAccess(result.issue) || result.identity !== state.identity)
-          applyIssue(state, result.issue, result.identity)
-      } else if (!result.identity) {
-        applyIssue(state, { code: 'unavailable', message: '无法核对仓库的连接身份，可以重试。' })
-      } else if (result.identity !== state.identity) {
-        restartWithNewIdentity(state)
-        if (!busy.value) void readThrough(pageSize)
-      } else if (result.number === target.number) {
-        detail.value = { ...target, result }
-      } else {
-        detail.value = { ...target, issue: { code: 'unavailable', message: '平台返回的编号与所选请求不一致。' } }
-      }
-    } catch (cause) {
-      if (stillCurrent()) {
-        const issue = transportIssue(cause)
-        applyIssue(state, issue)
-      }
-    } finally {
-      if (detailRequest === controller) detailRequest = undefined
-    }
-  }
-
   const repositoryReads = computed(() => new Map(reads.value.map((state) => [state.repository.id, {
-    issue: state.issue, readAt: state.readAt, pending: state.nextPage !== null && !state.issue
+    issue: state.issue, readAt: state.readAt ?? state.previous?.readAt, pending: state.nextPage !== null && !state.issue
   }])))
 
   return {
-    busy, page, pages, rows, total, counts, complete, issues, readAt, repositoryReads,
+    busy, page, pages, rows, total, counts, complete, issues, readAt, repositoryReads, unknownStatus, contextVersion,
+    checkedSources: computed(() => reads.value.filter((state) => Boolean(state.readAt) && !state.issue).length),
+    showingPrevious: computed(() => !!retained.value),
     hasMore: computed(() => pending.value.length > 0),
-    hasKnownMatches: computed(() => tabMatches.value.length > 0),
-    loaded: computed(() => reads.value.some((state) => Boolean(state.readAt))),
-    prepareRefresh, clearPreparedRefresh, continueReading, changePage, retry, detail, openDetail, clearDetail
+    hasKnownMatches: computed(() => Boolean(sortedMatches.value.length)),
+    loaded: computed(() => Boolean(readAt.value)),
+    prepareRefresh, clearPreparedRefresh, continueReading, changePage, retry, identityFor, invalidateRepository
   }
 }

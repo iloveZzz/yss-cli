@@ -32,6 +32,11 @@ pub mod agent;
 pub mod agent_protocol;
 mod agent_scope;
 pub mod agent_workspace;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "windows", target_arch = "x86_64")
+))]
+mod assistant_ui;
 mod ci_job;
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 #[allow(dead_code)]
@@ -39,6 +44,7 @@ mod command_recovery;
 pub mod engineering;
 mod grok;
 pub mod integrations;
+mod issues;
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "windows", target_arch = "x86_64")

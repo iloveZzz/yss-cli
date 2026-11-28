@@ -14,12 +14,15 @@ const props = withDefaults(defineProps<{
 const {
   autoscrolling,
   handleResize,
+  preserveReadingPosition,
   scrollableAttr,
   setPreserveScrollOnPrepend,
   setViewportElement,
   syncAfterScroll,
   userScrollIntent,
 } = useMessageScrollerContext()
+
+defineExpose({ preserveReadingPosition })
 
 const viewportEl = useTemplateRef<HTMLElement>("viewport")
 

@@ -6,16 +6,18 @@ import {
 } from '../../SpecDetail/schemas/assistant-citation-markdown'
 import { isWebLink } from '../../SpecDetail/schemas/markdown'
 import { renderAssistantMarkdownFallback } from './assistant-markdown-fallback'
+import { withoutAssistantUi } from './assistant-ui-markdown'
 
 export const assistantMarkdownScope = 'yss-assistant-markdown'
-const richFenceOpening = /(?:^|[\r\n]) {0,3}(?:`{3,}|~{3,})[ \t]*(?:mermaid|chart)(?=$|[ \t\r\n])/i
+const richFenceOpening = /(?:^|[\r\n]) {0,3}(?:`{3,}|~{3,})[ \t]*(?:mermaid|chart|a2ui)(?=$|[ \t\r\n])/i
 
 export type AssistantMarkdownResult = { sources: AssistantCitation[] } & (
   { nodes: ParsedNode[]; html?: never } | { nodes?: never; html: string }
 )
 
 export interface AssistantFenceNode extends CodeBlockNode {
-  closedRichFence?: 'mermaid' | 'chart'
+  closedRichFence?: 'mermaid' | 'chart' | 'a2ui'
+  assistantUiClosesAtEof?: boolean
 }
 
 export function citationNumber(node: { type: string; meta?: unknown }): number | undefined {
@@ -73,7 +75,7 @@ export function createAssistantMarkdown(id: string) {
     return md
   }
 
-  return (text: string, streaming: boolean, pending: boolean, candidates: AssistantCitation[]): AssistantMarkdownResult => {
+  return (text: string, streaming: boolean, pending: boolean, candidates: AssistantCitation[], allowAssistantUi = false): AssistantMarkdownResult => {
     if (!text) return { nodes: [], sources: [] }
     const useCitationRules = candidates.length > 0 || needsAssistantCitationRules(text, pending)
     const includeSourceMap = richFenceOpening.test(text)
@@ -89,7 +91,7 @@ export function createAssistantMarkdown(id: string) {
       const visible = candidates.length ? shownCitations(parsed) : undefined
       if (visible) {
         const counts = new Map<number, number>()
-        const fallback = renderAssistantMarkdownFallback(id, text, pending, candidates, counts)
+        const fallback = renderAssistantMarkdownFallback(id, allowAssistantUi ? withoutAssistantUi(text, streaming) : text, pending, candidates, counts)
         if (visible.size !== counts.size || [...counts].some(([number, count]) => visible.get(number) !== count)) return fallback
       }
 
@@ -98,6 +100,15 @@ export function createAssistantMarkdown(id: string) {
         if (node.type !== 'code_block') return node
         const fence = node as CodeBlockNode
         const language = fence.language.trim().split(/\s+/, 1)[0]?.toLowerCase()
+        if (allowAssistantUi && fence.language.trim().toLowerCase() === 'a2ui') {
+          lines ??= text.split(/\r\n?|\n/)
+          const closesAtEof = hasClosedFence(fence, lines, false)
+          const closed = closesAtEof && (!streaming || (fence.sourceMap?.endLine ?? lines.length) < lines.length)
+          const assistantUiFence: AssistantFenceNode = closed
+            ? { ...fence, closedRichFence: 'a2ui' }
+            : { ...fence, loading: streaming, assistantUiClosesAtEof: closesAtEof }
+          return assistantUiFence
+        }
         if (language !== 'mermaid' && language !== 'chart') return node
         if (!hasClosedFence(fence, lines ??= text.split(/\r\n?|\n/), streaming)) return node
         let closed = closedFences.get(node)
@@ -109,7 +120,7 @@ export function createAssistantMarkdown(id: string) {
       }) : parsed
       return { nodes, sources: visible ? candidates.filter(source => visible.has(source.number)) : [] }
     } catch {
-      return renderAssistantMarkdownFallback(id, text, pending, candidates)
+      return renderAssistantMarkdownFallback(id, allowAssistantUi ? withoutAssistantUi(text, streaming) : text, pending, candidates)
     } finally {
       citationState = undefined
     }

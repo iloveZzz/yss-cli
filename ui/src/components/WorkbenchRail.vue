@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, useTemplateRef } from 'vue'
 import { useRoute, type RouteLocationRaw } from 'vue-router'
-import { Check, ChevronDown, CircleUserRound, FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, Monitor, MonitorCog, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Sparkles, Terminal } from '@lucide/vue'
+import { Check, ChevronDown, CircleDot, CircleUserRound, FileText, FolderClosed, FolderOpen, GitPullRequest, LayoutDashboard, Monitor, MonitorCog, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, Sparkles, Terminal } from '@lucide/vue'
 import ControlTooltip from '@/components/ControlTooltip.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { Button } from '@/components/ui/button'
@@ -38,6 +38,7 @@ const navigation = [
   { path: '/projects', label: '产品与工程', icon: FolderClosed },
   { path: '/specs', label: '规格管理', icon: FileText },
   { path: '/merge-requests', label: '合并请求', icon: GitPullRequest },
+  { path: '/issues', label: 'Issues', icon: CircleDot },
   { path: '/agent', label: 'AI Agent', icon: Sparkles },
 ] as const
 const projectScopeName = computed(() => props.currentProject?.name || '全部工程')

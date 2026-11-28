@@ -7,6 +7,7 @@ const ProjectDetail = () => import('@/views/ProjectDetail/index.vue')
 const Specs = () => import('@/views/Specs/index.vue')
 const SpecDetail = () => import('@/views/SpecDetail/index.vue')
 const MergeRequests = () => import('@/views/MergeRequests/index.vue')
+const Issues = () => import('@/views/Issues/index.vue')
 const PiWorkspace = () => import('@/views/PiWorkspace/index.vue')
 const AgentEntry = () => import('@/views/PiWorkspace/AgentEntry.vue')
 const Jobs = () => import('@/views/Jobs/index.vue')
@@ -34,6 +35,7 @@ export const router = createRouter({
     { path: '/projects/:projectId', component: ProjectDetail, meta: { lightweight: true, projectDetail: true } },
     { path: '/specs', component: Specs, meta: { lightweight: true } },
     { path: '/merge-requests', component: MergeRequests, meta: { lightweight: true } },
+    { path: '/issues', component: Issues, meta: { lightweight: true } },
     { path: '/specs/:specId', component: SpecDetail, meta: { lightweight: true, specDetail: true } },
     { path: '/specs/:specId/agent', name: 'pi-workspace', component: PiWorkspace, props: true, meta: { piWorkspace: true, lightweight: true } },
     { path: '/agent', component: AgentEntry, meta: { piWorkspace: true, lightweight: true } },

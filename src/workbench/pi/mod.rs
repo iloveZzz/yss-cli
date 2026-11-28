@@ -37,6 +37,7 @@ use crate::{
     workbench::{
         agent::{CommandExecution, ProjectMode},
         agent_workspace::Workspace,
+        assistant_ui::REPLY_GUIDANCE,
         jobs::JobContext,
     },
 };
@@ -726,6 +727,8 @@ pub(super) fn run(
     }
     prompt.push_str("\n在答复的普通正文中，可在有根据的结论后标注工作台签发的本轮来源。用户提交的选段和命令结果用 {{cite:ID}}。文件读取用 {{cite:ID:12-18}}，将 12-18 换为实际返回范围内的连续行，每段最多 20 行、4 KiB。用实际 sourceId 替换 ID。没有本轮编号的材料无需标注。\n");
     prompt.push_str("当已有真实数值且图表有助于理解时，可在答复的独立顶层代码围栏中输出图表。开头用三个反引号加 chart，结尾单独一行用三个反引号。围栏中只放一个 JSON 对象，字段为 type（bar 或 line）、title、可选 unit，以及 data（由含 label 和有限数值 value 的对象组成的数组）。title、unit 和 label 填写非空的单行纯文本。柱状图至少 1 项，折线图至少 2 项，最多 60 项，JSON 的 UTF-8 大小最多 16 KiB。缺失的数值请用文字说明。\n");
+    prompt.push('\n');
+    prompt.push_str(REPLY_GUIDANCE);
     #[cfg(target_os = "macos")]
     let native_capture = native_fork::before_prompt(
         &request,

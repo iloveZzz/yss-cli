@@ -8,6 +8,7 @@ type MarkdownOptions = {
   hideSpecMetadata?: boolean
   assistantCitations?: AssistantCitationRenderState
   scrollTables?: boolean
+  staticExternalLink?: (href: string) => string | undefined
 }
 type MarkdownEnvironment = MarkdownOptions & { headings: Map<string, number> }
 installAssistantCitationRules(markdown, env => (env as MarkdownEnvironment).assistantCitations)
@@ -43,13 +44,36 @@ export function resolveDocumentLink(sourcePath: string, href: string): { path: s
   return { path: parts.join('/'), fragment }
 }
 markdown.validateLink = url => isWebLink(url) || isRelativeLink(url)
-markdown.renderer.rules.image = (tokens, index) => `<span class="muted">[图片：${markdown.utils.escapeHtml(tokens[index]?.content ?? '')}，未加载]</span>`
+markdown.renderer.rules.image = (tokens, index, options, rawEnv, renderer) => {
+  const token = tokens[index]
+  if ((rawEnv as MarkdownEnvironment).staticExternalLink) {
+    const alt = renderer.renderInlineAsText(token?.children ?? [], options, rawEnv)
+    return `<span class="muted">[图片${alt ? `：${markdown.utils.escapeHtml(alt)}` : ''}，未加载]</span>`
+  }
+  return `<span class="muted">[图片：${markdown.utils.escapeHtml(token?.content ?? '')}，未加载]</span>`
+}
 markdown.renderer.rules.link_open = (tokens, index, options, rawEnv, renderer) => {
   const token = tokens[index]
   if (token) {
     const href = String(token.attrGet('href') ?? '')
-    if (isWebLink(href)) { token.attrSet('target', '_blank'); token.attrSet('rel', 'noopener noreferrer') }
-    else if ((rawEnv as MarkdownEnvironment).documentLinks === false) {
+    const env = rawEnv as MarkdownEnvironment
+    if (env.staticExternalLink) {
+      const externalHref = env.staticExternalLink(href)
+      const canOpen = externalHref && isWebLink(externalHref)
+      token.attrs = canOpen
+        ? [['href', externalHref], ['target', '_blank'], ['rel', 'noopener noreferrer']]
+        : null
+      if (!canOpen) {
+        token.tag = 'span'
+        for (let i = index + 1; i < tokens.length; i++) {
+          const end = tokens[i]
+          if (end?.type !== 'link_close' || end.level !== token.level) continue
+          end.tag = 'span'
+          break
+        }
+      }
+    } else if (isWebLink(href)) { token.attrSet('target', '_blank'); token.attrSet('rel', 'noopener noreferrer') }
+    else if (env.documentLinks === false) {
       token.attrs = token.attrs?.filter(([name]) => name !== 'href') ?? null
     } else { token.attrSet('data-document-link', href); token.attrSet('href', '#document') }
   }
@@ -57,6 +81,15 @@ markdown.renderer.rules.link_open = (tokens, index, options, rawEnv, renderer) =
 }
 markdown.renderer.rules.heading_open = (tokens, index, options, rawEnv, renderer) => {
   const env = rawEnv as MarkdownEnvironment
+  if (env.staticExternalLink) {
+    const heading = tokens[index]
+    if (heading) {
+      heading.tag = `h${Math.min(6, 3 + Number(heading.tag.slice(1)))}`
+      const end = tokens[index + 2]
+      if (end?.type === 'heading_close') end.tag = heading.tag
+    }
+    return renderer.renderToken(tokens, index, options)
+  }
   const title = tokens[index + 1]?.children?.map(t => t.content).join('') ?? ''
   const base = title.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').replace(/\s/g, '-')
   const count = env.headings.get(base) ?? 0
@@ -66,6 +99,9 @@ markdown.renderer.rules.heading_open = (tokens, index, options, rawEnv, renderer
 }
 markdown.renderer.rules.table_open = (tokens, index, options, env, renderer) => {
   const table = renderer.renderToken(tokens, index, options)
+  if ((env as MarkdownEnvironment).staticExternalLink) {
+    return `<div class="markdown-table-scroll" role="region" aria-label="描述表格，可横向滚动" tabindex="0">${table}`
+  }
   if (!(env as MarkdownEnvironment).scrollTables) return table
   let columns = 0
   for (let i = index + 1; i < tokens.length; i++) {
@@ -78,14 +114,29 @@ markdown.renderer.rules.table_open = (tokens, index, options, env, renderer) => 
 }
 markdown.renderer.rules.table_close = (tokens, index, options, env, renderer) => {
   const table = renderer.renderToken(tokens, index, options)
-  return (env as MarkdownEnvironment).scrollTables ? `${table}</div>` : table
+  const mode = env as MarkdownEnvironment
+  return mode.scrollTables || mode.staticExternalLink ? `${table}</div>` : table
+}
+
+const staticMarkdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
+// Static output always filters destinations at render time. Parsing every destination preserves its label.
+staticMarkdown.validateLink = () => true
+Object.assign(staticMarkdown.renderer.rules, markdown.renderer.rules)
+staticMarkdown.renderer.rules.th_open = (tokens, index, options, _env, renderer) => {
+  tokens[index]?.attrSet('scope', 'col')
+  return renderer.renderToken(tokens, index, options)
+}
+for (const type of ['code_block', 'fence']) {
+  const renderCode = staticMarkdown.renderer.rules[type]
+  if (renderCode) staticMarkdown.renderer.rules[type] = (tokens, index, options, env, renderer) =>
+    `<div class="markdown-code-scroll" role="region" aria-label="代码块，可横向滚动" tabindex="0">${renderCode(tokens, index, options, env, renderer)}</div>`
 }
 
 export function renderMarkdown(text: string, options?: MarkdownOptions): string {
   const source = options?.hideSpecMetadata === false
     ? text
     : text.replace(/<!--\s*yss-spec\b[\s\S]*?-->/g, '')
-  return markdown.render(source, {
+  return (options?.staticExternalLink ? staticMarkdown : markdown).render(source, {
     ...options,
     headings: new Map<string, number>()
   })

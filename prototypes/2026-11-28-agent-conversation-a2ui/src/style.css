@@ -1,0 +1,105 @@
+/* Keep workspace geometry, material, composer and button sizes in the workbench styles. */
+.pi-workspace {
+  --yss-color-primary-control-hover: var(--brand-color-primary-hover);
+  --yss-color-primary-control-active: var(--brand-color-primary-active);
+}
+.history.pi-history-pane {
+  display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain;
+  padding: 14px 9px 12px;
+}
+.brand { display: flex; align-items: center; gap: 8px; padding: 0 5px 9px 8px; }
+.brand h2 { font-size: 19px; font-weight: 650; margin-inline-end: auto; }
+.history-heading { display: flex; align-items: center; gap: 8px; padding: 17px 8px 7px; color: var(--brand-color-text-secondary); }
+.history-heading svg, .scenario-item svg, .history-foot svg { flex: none; }
+.scenario-list { display: grid; gap: 2px; }
+.scenario-list .scenario-item {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; height: auto;
+  min-height: 44px; text-align: start; white-space: normal; padding: 8px 5px 8px 12px;
+}
+.scenario-item > span { min-width: 0; display: grid; gap: 2px; }
+.scenario-item strong { font-weight: 500; }
+.scenario-item small { font-size: 11px; line-height: 1.4; color: var(--quiet); }
+.scenario-item:hover, .scenario-item[aria-current='true'] { background: var(--accent); }
+.scenario-item[aria-current='true'] strong { font-weight: 650; }
+.history-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 12px 8px 0; color: var(--quiet); font-size: 12px; }
+.bar-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.bar-title > svg { flex: none; }
+.host-switch { margin-inline-start: auto; display: flex; align-items: center; flex: none; gap: 2px; }
+.pi-bar .host-switch [data-slot='button'] { width: auto; padding-inline: 9px; }
+.host-switch [aria-pressed='true'] { background: var(--accent); font-weight: 600; }
+@media (forced-colors: active) {
+  .host-switch [aria-pressed='true'], .scenario-item[aria-current='true'] strong {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+}
+.history .menu-button, .mobile-scrim { display: none; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scroll-padding-block: 18px; }
+.transcript { display: grid; align-content: start; }
+.conversation-user { justify-self: end; width: fit-content; max-width: min(90%, 760px); }
+.user-message { white-space: pre-wrap; }
+.plain-reply { white-space: pre-wrap; }
+.notice { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; overflow-wrap: anywhere; }
+.notice > svg { flex: none; margin-top: 2px; }
+.composer-tools > span { display: inline-flex; align-items: center; gap: 6px; margin-inline-end: auto; color: var(--quiet); font-size: 12px; }
+.composer-note { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 5px 2px 0; font-size: 12px; color: var(--quiet); }
+
+/* Dynamic A2UI content uses the local Pi palette, Card and the workbench control variants. */
+[data-node='root'] {
+  min-width: 0; padding: 0; gap: 0; border: 1px solid var(--border);
+  background: var(--workbench-glass-card); color: var(--foreground);
+  border-radius: var(--brand-border-radius-lg); box-shadow: none;
+}
+[data-node='content'] { padding: 16px; }
+[data-node='eyebrow'] { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--quiet); }
+[data-node='eyebrow'] svg { width: 15px; height: 15px; }
+[data-node='title'] { margin-top: 4px; color: var(--foreground); font-size: 16px; line-height: 1.4; font-weight: 650; }
+.node-caption, [data-node^='option-note-'], [data-node='selection'] { font-size: 12px; color: var(--quiet); }
+[data-node='questions'] { margin-top: 12px; border-top: 1px solid var(--border); }
+[data-node^='question-'][role='group'] {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px;
+  padding-block: 8px; border-bottom: 1px solid var(--border);
+}
+[data-node^='question-']:has([data-node^='pick-']) { grid-template-columns: minmax(0, 1fr) auto auto; }
+[data-node^='question-title-'], [data-node^='option-title-'] { font-size: 13px; font-weight: 600; }
+[data-node^='reason-'] { grid-column: 1 / -1; padding: 8px 12px; margin-block: 4px; border-inline-start: 2px solid var(--input); color: var(--quiet); font-size: 13px; }
+[data-node^='evidence-'] { gap: 5px; color: var(--quiet); }
+[data-node^='evidence-'][aria-expanded='true'] > svg { transform: rotate(180deg); }
+[data-node='compare-grid'] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-block: 12px 6px; }
+[data-node^='option-static-'] {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--brand-border-radius);
+  background: var(--workbench-glass-pane);
+}
+[data-node^='option-static-'][data-picked='true'] { border-color: var(--ring); background: var(--accent); }
+[data-node^='option-static-'] [data-node^='pick-'] { margin-top: auto; }
+[data-node^='pick-'][aria-pressed='true'] { border-color: var(--ring); color: var(--foreground); background: var(--accent); }
+[data-node='footer'] { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 12px; }
+[data-node='selection'] { margin-inline-end: auto; }
+[data-node='root'] [data-slot='button'] { max-width: 100%; white-space: normal; }
+@media (width >= 960px) {
+  .workspace[data-history='false'] .history { visibility: hidden; }
+}
+@media (width < 960px) {
+  .workspace { position: relative; }
+  .pi-bar [data-slot='button'], .history .menu-button { min-width: 44px; min-height: 44px; }
+  .history.pi-history-pane { display: none; }
+  .history .menu-button { display: inline-flex; margin-inline-start: auto; }
+  .workspace[data-sidebar='open'] .history.pi-history-pane {
+    display: flex; position: absolute; inset: 0 auto 0 0; z-index: 2; width: min(88vw, 318px);
+    background: var(--workbench-glass-popup); backdrop-filter: var(--workbench-glass-blur);
+    -webkit-backdrop-filter: var(--workbench-glass-blur);
+  }
+  .workspace[data-sidebar='open'] .mobile-scrim { display: block; position: absolute; inset: 0; z-index: 1; background: var(--workbench-glass-overlay); }
+}
+/* Global controls are 44px before Pi's phone layout starts at 600px. */
+@media (600px <= width < 720px) {
+  .pi-composer-tools .pi-send { width: var(--yss-control-min-height); flex-basis: var(--yss-control-min-height); }
+}
+@media (width < 600px) {
+  .pi-bar .host-switch [data-slot='button'] { padding-inline: 7px; }
+  [data-node='compare-grid'] { grid-template-columns: 1fr; }
+  [data-node^='question-'][role='group'] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  [data-node^='question-title-'], [data-node^='reason-'] { flex-basis: 100%; }
+}

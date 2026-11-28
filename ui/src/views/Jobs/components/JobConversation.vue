@@ -26,6 +26,7 @@ const props = defineProps<{
   items: JobActivity[]
   terminal: boolean
   status: string
+  assistantLabel: string
   error: string
   hasOlder: boolean
   loadingHistory: boolean
@@ -103,6 +104,9 @@ defineExpose({ focusQuestion })
                   v-if="row.kind === 'message' || row.kind === 'user'"
                   :row="row"
                   :job-id="jobId"
+                  :assistant-label="assistantLabel"
+                  assistant-ui
+                  :round-prompt="page.prompt"
                   :citation-streaming="row.kind === 'message' && !row.status"
                   :streaming="row.kind === 'message' && !row.status && !terminal"
                 />
