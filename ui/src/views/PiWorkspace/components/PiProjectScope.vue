@@ -17,6 +17,7 @@ const props = defineProps<{
   grantIssue: string
   locked: boolean
   readOnly?: boolean
+  grok?: boolean
   participatingIds: string[]
   commandsUnavailable?: boolean
   commandExecution: PiCommandExecution
@@ -91,8 +92,9 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
   <fieldset :disabled="busy" class="pi-scope" :aria-describedby="id + '-help'">
     <legend>参与工程</legend>
     <p :id="id + '-help'">
-      {{ locked ? '沿用本会话的工程和本机路径。' : '主工程始终参与。可以按本机检出路径添加其他工程。' }}
-      权限按工程和轮次生效。
+      <template v-if="grok">仅主工程参与本轮只读分析。当前版本未开放工程编辑与命令。</template>
+      <template v-else>{{ locked ? '沿用本会话的工程和本机路径。' : '主工程始终参与。可以按本机检出路径添加其他工程。' }}
+        权限按工程和轮次生效。</template>
     </p>
     <div class="pi-scope-actions">
       <Button type="button" variant="outline" size="sm" :disabled="loading" @click="emit('refresh')">
@@ -121,7 +123,7 @@ function options(entry: AgentHomeEntry): AgentProjectCandidate[] {
         {{ labels[project.status] }}
         <RouterLink to="/projects">检查工程登记</RouterLink>
       </p>
-      <div v-if="project.status === 'ready' && project.head" class="pi-scope-access">
+      <div v-if="!grok && project.status === 'ready' && project.head" class="pi-scope-access">
         <label :for="id + '-mode-' + project.id">{{ project.name }}的权限</label>
         <select :id="id + '-mode-' + project.id" :name="'projectMode-' + project.id"
           :value="modes[project.id] ?? 'read'" :disabled="loading || readOnly"

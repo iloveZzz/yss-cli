@@ -2,6 +2,7 @@ use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
 };
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     ffi::OsStr,
@@ -26,6 +27,118 @@ mod windows_path;
 pub use windows_path::apply_windows_user_path;
 
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
+
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct ProcessIdentity {
+    pid: u32,
+    start: (u64, u64),
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct HostBootSession {
+    host: crate::model::Sha256,
+    uuid: String,
+}
+
+impl HostBootSession {
+    pub(crate) fn rebooted_since(&self, previous: &Self) -> Option<bool> {
+        if self.host != previous.host
+            || !valid_boot_uuid(&self.uuid)
+            || !valid_boot_uuid(&previous.uuid)
+        {
+            return None;
+        }
+        Some(!self.uuid.eq_ignore_ascii_case(&previous.uuid))
+    }
+}
+
+fn valid_boot_uuid(uuid: &str) -> bool {
+    uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+        && uuid.bytes().any(|byte| !matches!(byte, b'0' | b'-'))
+}
+
+pub(crate) fn host_boot_session() -> Option<HostBootSession> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut boot = [0u8; 37];
+        let mut length = boot.len();
+        let queried = unsafe {
+            libc::sysctlbyname(
+                c"kern.bootsessionuuid".as_ptr(),
+                boot.as_mut_ptr().cast(),
+                &mut length,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if queried != 0 {
+            return None;
+        }
+        let uuid = std::ffi::CStr::from_bytes_with_nul(boot.get(..length)?)
+            .ok()?
+            .to_str()
+            .ok()?;
+        if !valid_boot_uuid(uuid) {
+            return None;
+        }
+        // A different boot UUID could be another Mac reading the same store.
+        let mut host = [0u8; 16];
+        let timeout = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 100_000_000,
+        };
+        if unsafe { libc::gethostuuid(host.as_mut_ptr(), &timeout) } != 0 || host == [0; 16] {
+            return None;
+        }
+        Some(HostBootSession {
+            host: crate::model::Sha256::of(&host),
+            uuid: uuid.to_owned(),
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) fn process_group_identity(pid: u32) -> Option<ProcessIdentity> {
+    let group = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
+    if unsafe { libc::getpgid(group) } == group {
+        return unix_tree::identity(pid);
+    }
+    None
+}
+
+pub(crate) fn group_gone(child: &ProcessIdentity, scope: &str) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(group) = i32::try_from(child.pid) else {
+            return false;
+        };
+        if group <= 0 || unix_tree::identity(child.pid).as_ref() == Some(child) {
+            return false;
+        }
+        // Only an absent process group proves cleanup. A reused or inaccessible
+        // group is ambiguous and must retain the checkout reservation.
+        let result = unsafe { libc::kill(-group, 0) };
+        result < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            && unix_tree::scope_gone(scope)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (child, scope);
+        false
+    }
+}
 
 pub(crate) fn system_tool_path(program: &str, path: &OsStr) -> Option<PathBuf> {
     #[cfg(any(

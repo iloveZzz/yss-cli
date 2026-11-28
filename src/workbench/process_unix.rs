@@ -1,3 +1,4 @@
+use super::ProcessIdentity as Identity;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
@@ -8,16 +9,18 @@ use std::{
     time::Duration,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Identity {
-    pid: u32,
-    start: (u64, u64),
-}
 #[derive(Clone, Copy)]
 struct Tracked {
     identity: Identity,
     depth: usize,
 }
+
+#[derive(Default)]
+struct ScopeScan {
+    processes: Vec<Tracked>,
+    complete: bool,
+}
+
 #[cfg(target_os = "macos")]
 fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
@@ -34,7 +37,7 @@ fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     (read == size as i32).then_some(info)
 }
 #[cfg(target_os = "macos")]
-fn identity(pid: u32) -> Option<Identity> {
+pub(super) fn identity(pid: u32) -> Option<Identity> {
     let info = bsd_info(pid)?;
     Some(Identity {
         pid,
@@ -42,17 +45,35 @@ fn identity(pid: u32) -> Option<Identity> {
     })
 }
 #[cfg(target_os = "macos")]
-fn scoped(scope: &str) -> Vec<Tracked> {
+fn pid_absent(pid: i32) -> bool {
+    let result = unsafe { libc::kill(pid, 0) };
+    result < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+#[cfg(target_os = "macos")]
+fn scoped(scope: &str) -> ScopeScan {
+    // PROC_UID_ONLY from sys/proc_info.h filters on effective UID. Querying
+    // all PIDs would mix inaccessible system processes with this account's.
+    const PROC_UID_ONLY: u32 = 4;
+    let uid = unsafe { libc::geteuid() };
     let mut pids = vec![0i32; 65536];
-    let count = unsafe {
-        libc::proc_listallpids(
-            pids.as_mut_ptr() as *mut libc::c_void,
-            (pids.len() * std::mem::size_of::<i32>()) as i32,
+    let capacity = std::mem::size_of_val(pids.as_slice());
+    let written = unsafe {
+        libc::proc_listpids(
+            PROC_UID_ONLY,
+            uid,
+            pids.as_mut_ptr().cast(),
+            capacity as i32,
         )
     };
-    if count <= 0 {
-        return Vec::new();
+    let Ok(written) = usize::try_from(written) else {
+        return ScopeScan::default();
+    };
+    let pid_size = std::mem::size_of::<i32>();
+    if written == 0 || written >= capacity || !written.is_multiple_of(pid_size) {
+        return ScopeScan::default();
     }
+    pids.truncate(written / pid_size);
     let needle = format!("YSS_PROCESS_SCOPE={scope}");
     let mut argument_limit: libc::c_int = 0;
     let mut limit_size = std::mem::size_of_val(&argument_limit);
@@ -68,15 +89,19 @@ fn scoped(scope: &str) -> Vec<Tracked> {
         )
     };
     if queried != 0 || !(1..=8 * 1024 * 1024).contains(&argument_limit) {
-        return Vec::new();
+        return ScopeScan::default();
     }
     let mut environment = vec![0u8; argument_limit as usize];
-    let mut found = Vec::new();
+    let mut scan = ScopeScan {
+        processes: Vec::new(),
+        complete: true,
+    };
     for pid in pids.into_iter().filter(|pid| *pid > 0) {
         let Some(info) = bsd_info(pid as u32) else {
+            scan.complete &= pid_absent(pid);
             continue;
         };
-        if info.pbi_uid != unsafe { libc::geteuid() } {
+        if info.pbi_uid != uid || info.pbi_status == libc::SZOMB {
             continue;
         }
         let before = Identity {
@@ -95,28 +120,38 @@ fn scoped(scope: &str) -> Vec<Tracked> {
                 0,
             )
         };
-        if result == 0
-            && environment[..length]
-                .split(|byte| *byte == 0)
-                .any(|entry| entry == needle.as_bytes())
+        if result != 0 || length > environment.len() {
+            scan.complete &= match bsd_info(pid as u32) {
+                Some(current) => {
+                    current.pbi_status == libc::SZOMB
+                        || current.pbi_uid != uid
+                        || (current.pbi_start_tvsec, current.pbi_start_tvusec) != before.start
+                }
+                None => pid_absent(pid),
+            };
+            continue;
+        }
+        if environment[..length]
+            .split(|byte| *byte == 0)
+            .any(|entry| entry == needle.as_bytes())
             && identity(pid as u32) == Some(before)
         {
-            found.push(Tracked {
+            scan.processes.push(Tracked {
                 identity: before,
                 depth: 1,
             });
         }
     }
-    found
+    scan
 }
 #[cfg(not(target_os = "macos"))]
-fn scoped(scope: &str) -> Vec<Tracked> {
+fn scoped(scope: &str) -> ScopeScan {
     use std::{io::Read, os::unix::fs::MetadataExt};
     let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
+        return ScopeScan::default();
     };
     let needle = format!("YSS_PROCESS_SCOPE={scope}");
-    entries
+    let processes = entries
         .filter_map(|entry| {
             let pid = entry.ok()?.file_name().to_str()?.parse::<u32>().ok()?;
             let before = identity(pid)?;
@@ -136,7 +171,11 @@ fn scoped(scope: &str) -> Vec<Tracked> {
                 depth: 1,
             })
         })
-        .collect()
+        .collect();
+    ScopeScan {
+        processes,
+        complete: true,
+    }
 }
 #[cfg(not(target_os = "macos"))]
 fn linux_stat(pid: u32) -> Option<(Identity, u32)> {
@@ -151,8 +190,13 @@ fn linux_stat(pid: u32) -> Option<(Identity, u32)> {
     ))
 }
 #[cfg(not(target_os = "macos"))]
-fn identity(pid: u32) -> Option<Identity> {
+pub(super) fn identity(pid: u32) -> Option<Identity> {
     linux_stat(pid).map(|(identity, _)| identity)
+}
+
+pub(super) fn scope_gone(scope: &str) -> bool {
+    let scan = scoped(scope);
+    scan.complete && scan.processes.is_empty()
 }
 #[cfg(target_os = "macos")]
 fn children(pid: u32) -> Vec<u32> {
@@ -252,7 +296,7 @@ impl UnixTree {
         }
         observe(&self.known);
         if let Ok(mut known) = self.known.lock() {
-            for process in scoped(&self.scope) {
+            for process in scoped(&self.scope).processes {
                 known.entry(process.identity.pid).or_insert(process);
             }
         }

@@ -823,6 +823,7 @@ fn mutate_inner(
         }
         Action::AddProject { root_path, name } => {
             let root_path = project_root(&root_path, store.data_dir())?;
+            super::jobs::ensure_grok_roots_available(store, std::slice::from_ref(&root_path))?;
             check_project_unique(&state, &root_path, "")?;
             let name = nonempty(
                 name.unwrap_or_else(|| {
@@ -853,6 +854,12 @@ fn mutate_inner(
             active,
         } => {
             let before = sources::project(&state, &id)?.clone();
+            if active != before.active {
+                super::jobs::ensure_grok_roots_available(
+                    store,
+                    std::slice::from_ref(&before.root_path),
+                )?;
+            }
             let root_path = if root_path == before.root_path {
                 root_path
             } else {
@@ -860,7 +867,9 @@ fn mutate_inner(
                     store,
                     std::slice::from_ref(&before.root_path),
                 )?;
-                project_root(&root_path, store.data_dir())?
+                let target = project_root(&root_path, store.data_dir())?;
+                super::jobs::ensure_grok_roots_available(store, std::slice::from_ref(&target))?;
+                target
             };
             check_project_unique(&state, &root_path, &id)?;
             let mut record = ProjectRecord {
@@ -921,6 +930,12 @@ fn mutate_inner(
             sources::markdown_path(&source_path)?;
             check_source_unique(&state, &before.project_id, &source_path, &id)?;
             validate_resources(&resources)?;
+            if source_path != before.source_path || active != before.active {
+                super::jobs::ensure_grok_roots_available(
+                    store,
+                    std::slice::from_ref(&project.root_path),
+                )?;
+            }
             if source_path != before.source_path {
                 super::agent::ensure_source_path_available(store, &id)?;
                 let root = Root::open(Path::new(&project.root_path))?;

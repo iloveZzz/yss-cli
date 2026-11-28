@@ -174,6 +174,9 @@ fn save_enqueued(
 fn request_for(run: &AgentRun, entry: &Entry) -> Result<AgentStartRequest> {
     let access = run.queue_access();
     Ok(AgentStartRequest {
+        host: None,
+        expected_runtime_identity: None,
+        handoff: None,
         spec_id: run.spec_id.clone(),
         prompt: entry.prompt.clone(),
         project_ids: run.project_ids.clone(),

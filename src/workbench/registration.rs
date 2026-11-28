@@ -411,6 +411,7 @@ pub fn register(
     {
         p.id.clone()
     } else {
+        super::jobs::ensure_grok_roots_available(store, std::slice::from_ref(&path))?;
         let project = ProjectRecord {
             id: fs::unique_id()?,
             name: Path::new(&path)

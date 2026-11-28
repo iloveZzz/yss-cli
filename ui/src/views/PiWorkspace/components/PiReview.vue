@@ -65,7 +65,7 @@ const tab = shallowRef('files')
 const currentResult = computed(() => !props.running && props.jobId === props.latestId &&
   diff.value?.jobId === props.jobId && !diff.value.historical)
 const receive = computed(() => !props.direct && currentResult.value)
-const cite = computed(() => props.direct && currentResult.value && !!props.run?.canResume)
+const cite = computed(() => props.direct && currentResult.value && props.run?.host === 'pi' && props.run.canResume)
 const blocked = new Set<AcceptanceDisposition>(['recoveryRequired', 'committedPendingCleanup', 'unverified', 'writing'])
 const selectedFiles = computed(() => diff.value?.files.filter((file) => selected.value.includes(key(file))) ?? [])
 const labels: Record<AcceptanceDisposition, string> = {

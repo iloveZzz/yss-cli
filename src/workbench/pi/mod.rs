@@ -376,6 +376,8 @@ pub(super) fn run(
     context: &JobContext,
     mut save_session: impl FnMut(Option<PiSession>, Value) -> Result<()>,
     ask: impl Fn(&JobContext, &str) -> Result<String> + Send + 'static,
+    before_prompt: impl FnOnce(&super::PiRuntime) -> Result<()>,
+    handoff: Option<&str>,
 ) -> Result<()> {
     context.cancel.check()?;
     let native_first_round = request.native_fork.is_some();
@@ -679,7 +681,11 @@ pub(super) fn run(
     }
     let mut prompt_context = context.clone();
     prompt_context.cancel = bridge.prompt_cancellation();
-    let result = pi.prompt(&prompt, &prompt_context, &evidence);
+    before_prompt(&request.runtime)?;
+    if handoff.is_some() {
+        context.mark_agent_dispatching()?;
+    }
+    let result = pi.prompt(&prompt, &prompt_context, &evidence, handoff);
     #[cfg(unix)]
     bridge.verify_command_failure()?;
     if !context.cancel.is_cancelled()

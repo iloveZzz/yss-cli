@@ -523,6 +523,7 @@ struct Index {
     pi_phase: Option<String>,
     pi_phase_at: Option<String>,
     pi_settings: Option<Value>,
+    grok_configuration: Option<Value>,
     pi_context: Option<Value>,
     pi_usage: Option<Value>,
     pi_plan: Option<Value>,
@@ -559,6 +560,9 @@ impl Index {
                 self.pi_settings = Some(
                     json!({"model":p["model"],"thinkingLevel":p["thinkingLevel"],"contextWindow":p["contextWindow"],"readOnly":p["readOnly"]}),
                 );
+            }
+            "grokConfiguration" if p["model"].is_string() => {
+                self.grok_configuration = Some(p.clone());
             }
             "piContext" => self.pi_context = Some(p.clone()),
             "piUsage" => self.pi_usage = Some(p.clone()),
@@ -708,7 +712,7 @@ pub(crate) fn page(jobs: &JobManager, id: &str, before: Option<u64>) -> Result<V
             "cursor": index.cursor, "terminal": terminal, "runId": index.run_id, "host": index.host,
             "latestMessage": index.last_message.map(|pos| &index.rows[pos].text),
             "piSettings": index.pi_settings, "piContext": index.pi_context, "piUsage": index.pi_usage,
-            "piPlan": index.pi_plan,
+            "piPlan": index.pi_plan, "grokConfiguration": index.grok_configuration,
             "piPhase": index.pi_phase, "piPhaseAt": index.pi_phase_at,
             "projectAccess": index.project_access, "commandExecution": index.command_execution,
             "pendingInputs": if terminal { Vec::new() } else { index.pending.values().collect() }
@@ -761,6 +765,7 @@ pub(crate) fn conversation(jobs: &JobManager, id: &str, before: Option<u64>) -> 
         Ok(json!({
             "items": items, "hasOlder": has_older || matching.next().is_some(), "cursor": index.cursor,
             "terminal": terminal, "runId": index.run_id, "host": index.host,
+            "grokConfiguration": index.grok_configuration,
             "prompt": index.prompt, "previousJobId": index.previous_job_id,
             "citations": index.citations, "allowCommands": index.allow_commands,
             "commandExecution": index.command_execution

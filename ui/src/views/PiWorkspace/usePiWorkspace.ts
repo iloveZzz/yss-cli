@@ -6,7 +6,7 @@ import {
   getAgentRun, getAgentRounds, getAgentSessionPage,
   type AgentCiEvidence, type AgentRoundActions, type AgentRun, type AgentSessionPage
 } from '@/services/workbench-agent'
-import { getJob, terminalJob, type JobRecord } from '@/services/workbench-platform'
+import { getJob, isWorkspaceAgent, terminalJob, type JobRecord } from '@/services/workbench-platform'
 
 export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonly<Ref<string>>, linkedRound: Readonly<Ref<string>>) {
   const { sourceState } = useWorkbench()
@@ -139,12 +139,12 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
       ])
       if (!stillCurrent()) return
       const nextRun = runRead.status === 'fulfilled' ? runRead.value : undefined
-      const mismatchedRun = nextRun && (nextRun.id !== id || nextRun.host !== 'pi' || nextRun.specId !== spec)
+      const mismatchedRun = nextRun && (nextRun.id !== id || !isWorkspaceAgent(nextRun.host) || nextRun.specId !== spec)
       const previousRun = run.value
       const verifiedRun = mismatchedRun ? undefined : nextRun ??
         (runRead.status === 'rejected' && previousRun?.id === id && previousRun.specId === spec ? previousRun : undefined)
       run.value = verifiedRun
-      const detailError = mismatchedRun ? '此 Pi 会话不属于当前 Spec' :
+      const detailError = mismatchedRun ? '此会话不属于当前 Spec' :
         runRead.status === 'rejected' ? errorMessage(runRead.reason) : ''
       const roundsError = roundsRead.status === 'rejected' ? errorMessage(roundsRead.reason) : ''
       runError.value = detailError || roundsError
@@ -182,7 +182,7 @@ export function usePiWorkspace(specId: Readonly<Ref<string>>, sessionId: Readonl
       if (!detailError && !roundsError && !verifiedRun && !latestJob && (list || context.value || contextError.value)) {
         const failed = restored.find((result) => result.status === 'rejected')
         if (failed) throw failed.reason
-        throw new Error('当前 Spec 中找不到此 Pi 会话')
+        throw new Error('当前 Spec 中找不到此会话')
       }
       launchError.value = latestJob && latestJob.id !== verifiedRun?.jobId && !latestJob.agentStartedAt &&
         latestJob.status !== 'completed' && terminalJob(latestJob.status) ? launchFailure(latestJob) : ''

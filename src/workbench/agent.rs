@@ -1,9 +1,9 @@
 use super::{
     agent_protocol::{self, PiModel, PiRuntime, PiSession, RunRequest, ThinkingLevel},
-    agent_scope::{self, ContinuationSource},
+    agent_scope::{self, ContinuationSource, Handoff},
     agent_workspace::{self, GitBaseline, Workspace},
     ci_job::{CiJobMode, CiJobSelection},
-    content as spec_content,
+    content as spec_content, grok,
     jobs::{JobContext, JobManager, JobRecord, PiPhase, lock_store},
     model::{
         Action, MutationRequest, QuestionKind, QuestionResponse, QuestionState, QuestionStatus,
@@ -47,6 +47,12 @@ const DELETED_SESSION: &str = "deletedAgentSession";
 pub struct AgentStartRequest {
     pub spec_id: String,
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) host: Option<AgentHost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_runtime_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    handoff: Option<Handoff>,
     #[serde(default)]
     pub project_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,6 +96,51 @@ pub struct AgentStartRequest {
 }
 
 impl AgentStartRequest {
+    fn validate_handoff(&self, store: &mut Store, spec_id: &str, host: AgentHost) -> Result<()> {
+        let Some(handoff) = &self.handoff else {
+            return Ok(());
+        };
+        let missing = agent_scope::handoff_confirmation_required;
+        agent_scope::validate_handoff(
+            store,
+            spec_id,
+            handoff,
+            agent_scope::HandoffBinding {
+                host,
+                runtime_identity: self
+                    .expected_runtime_identity
+                    .as_deref()
+                    .ok_or_else(missing)?,
+                expected_model: self.expected_model.as_ref().ok_or_else(missing)?,
+                thinking_level: self.thinking_level,
+                project_access: self.project_access.as_deref().ok_or_else(missing)?,
+                expected_repository_keys: self.expected_repository_keys.as_ref(),
+                command_execution: self.command_execution,
+            },
+        )
+    }
+
+    fn selected_host(&self, prior: Option<&AgentRun>) -> AgentHost {
+        self.host
+            .or_else(|| prior.map(|run| run.host))
+            .unwrap_or(AgentHost::Pi)
+    }
+
+    fn verify_runtime_identity(&self, actual: Option<&str>, host: AgentHost) -> Result<()> {
+        let expected = self.expected_runtime_identity.as_deref();
+        if (host == AgentHost::Grok || self.handoff.is_some() || expected.is_some())
+            && (expected.is_none() || expected != actual)
+        {
+            return Err(YssError::new(
+                ErrorCode::Conflict,
+                "本轮 Agent CLI 的运行配置已变化，请重新核对后发送",
+            )
+            .context("agentIssue", "runtimeChanged")
+            .context("httpStatus", 409));
+        }
+        Ok(())
+    }
+
     fn command_execution(&self) -> CommandExecution {
         self.command_execution.unwrap_or_default()
     }
@@ -174,10 +225,25 @@ enum CitationSide {
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum AgentHost {
+pub(super) enum AgentHost {
     #[default]
     Codex,
     Pi,
+    Grok,
+}
+
+impl AgentHost {
+    pub(super) fn parse(value: Option<&str>) -> Result<Self> {
+        match value {
+            None | Some("pi") => Ok(Self::Pi),
+            Some("grok") => Ok(Self::Grok),
+            _ => Err(invalid("Agent CLI 无效")),
+        }
+    }
+
+    fn current(self) -> bool {
+        matches!(self, Self::Pi | Self::Grok)
+    }
 }
 fn default_read_only() -> bool {
     true
@@ -199,15 +265,19 @@ pub struct AgentRun {
     pub prompt: String,
     pub project_ids: Vec<String>,
     #[serde(default)]
-    session_title: String,
+    pub(super) session_title: String,
     pub status: String,
     pub job_id: String,
     #[serde(default)]
     pub binding_revision: u64,
     #[serde(default)]
-    host: AgentHost,
+    pub(super) host: AgentHost,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pi_session: Option<PiSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grok_session: Option<grok::Session>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    handoff: Option<Handoff>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub host_settings: Option<Value>,
@@ -398,14 +468,32 @@ fn resume_error(reason: &str, message: &str) -> YssError {
         .context("httpStatus", 409)
 }
 
-fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun) -> Result<()> {
-    if !agent_protocol::supported() {
-        return Err(resume_error(
-            "platformUnsupported",
-            "当前平台无法续接 Pi 会话",
-        ));
+fn grok_scope(
+    state: &WorkbenchState,
+    spec: &SpecRecord,
+    root: &str,
+) -> Result<(Vec<PathBuf>, Sha256)> {
+    let root_key = fs::alias_key(root.trim_end_matches('/'));
+    let prefix = format!("{root_key}/");
+    let mut excluded = BTreeMap::new();
+    for project in &state.projects {
+        let key = fs::alias_key(&project.root_path);
+        if project.id != spec.project_id && (key == root_key || key.starts_with(&prefix)) {
+            excluded.insert(key, PathBuf::from(&project.root_path));
+        }
     }
-    if run.host != AgentHost::Pi || run.workspace_mode != WorkspaceMode::Direct {
+    let digest = agent_scope::digest(&(
+        "grok-project-scope.v1",
+        &spec.project_id,
+        &spec.source_path,
+        &root_key,
+        excluded.keys().collect::<Vec<_>>(),
+    ))?;
+    Ok((excluded.into_values().collect(), digest))
+}
+
+fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun) -> Result<()> {
+    if !run.host.current() || run.workspace_mode != WorkspaceMode::Direct {
         return Err(resume_error(
             "legacySession",
             "该历史会话仅供审阅，可从原 Spec 新建会话",
@@ -413,6 +501,17 @@ fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun)
     }
     if !terminal(&run.status) {
         return Err(resume_error("roundActive", "当前轮次仍在执行"));
+    }
+    let supported = match run.host {
+        AgentHost::Pi => agent_protocol::supported(),
+        AgentHost::Grok => cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        AgentHost::Codex => false,
+    };
+    if !supported {
+        return Err(resume_error(
+            "platformUnsupported",
+            "当前平台无法续接此 Agent CLI 会话",
+        ));
     }
     let workspace_changed = || {
         resume_error(
@@ -436,6 +535,33 @@ fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun)
     }) {
         return Err(workspace_changed());
     }
+    if run.host == AgentHost::Grok {
+        let session = run
+            .grok_session
+            .as_ref()
+            .filter(|session| grok::session_available(data_dir, &run.id, session))
+            .ok_or_else(|| {
+                resume_error(
+                    "grokSessionUnavailable",
+                    "原 Grok 会话记录缺失，请从 Spec 新建会话",
+                )
+            })?;
+        if session.git_scope_identity.is_none() {
+            return Err(resume_error(
+                "grokScopeChanged",
+                "原 Grok 会话缺少可核对的 Git 边界记录，请从 Spec 新建会话",
+            ));
+        }
+        let project = sources::project(state, &spec.project_id).map_err(|_| workspace_changed())?;
+        let (_, scope) = grok_scope(state, spec, &project.root_path)?;
+        if session.scope_identity != scope.as_str() {
+            return Err(resume_error(
+                "grokScopeChanged",
+                "主工程授权范围已变化，请从 Spec 新建 Grok 会话",
+            ));
+        }
+        return Ok(());
+    }
     if !run
         .pi_session
         .as_ref()
@@ -449,16 +575,43 @@ fn check_resume_session(state: &WorkbenchState, data_dir: &Path, run: &AgentRun)
     Ok(())
 }
 
+fn ensure_handoff_source_idle(store: &mut Store, id: &str) -> Result<()> {
+    if store.records::<JobRecord>("job")?.iter().any(|job| {
+        !job.terminal()
+            && job
+                .agent_handoff_source
+                .as_ref()
+                .is_some_and(|source| source.run_id == id)
+            && job.handoff_submitted.is_none()
+    }) {
+        return Err(YssError::new(
+            ErrorCode::Locked,
+            "有待提交的跨 CLI 交接，请先处理该作业",
+        ));
+    }
+    Ok(())
+}
+
+fn check_dispatch_outcome(store: &mut Store, run: &AgentRun) -> Result<()> {
+    if store
+        .record::<JobRecord>("job", &run.job_id)?
+        .is_some_and(|job| job.terminal() && job.agent_dispatch_uncertain)
+    {
+        return Err(resume_error(
+            "dispatchUncertain",
+            "原轮次已尝试提交给 CLI，执行结果待核实，请从 Spec 新建独立任务",
+        ));
+    }
+    Ok(())
+}
+
 fn recorded_model(run: &AgentRun) -> Result<PiModel> {
     let settings = run.host_settings.as_ref();
     settings
         .and_then(|value| PiModel::new(value["provider"].as_str()?, value["model"].as_str()?))
         .ok_or_else(|| {
-            YssError::new(
-                ErrorCode::NotReady,
-                "原 Pi 会话缺少模型记录，请选择本轮模型",
-            )
-            .context("piIssue", "modelUnavailable")
+            YssError::new(ErrorCode::NotReady, "原会话缺少模型记录，请选择本轮模型")
+                .context("piIssue", "modelUnavailable")
         })
 }
 
@@ -479,18 +632,35 @@ pub(crate) fn runtime_target(
     resume_id: Option<&str>,
     selected_model: Option<PiModel>,
 ) -> Result<(Vec<PathBuf>, Option<PiModel>)> {
+    let (protected, model, _) =
+        runtime_target_for(store, resume_id, selected_model, AgentHost::Pi)?;
+    Ok((protected, model))
+}
+
+pub(super) fn runtime_target_for(
+    store: &mut Store,
+    resume_id: Option<&str>,
+    selected_model: Option<PiModel>,
+    host: AgentHost,
+) -> Result<(Vec<PathBuf>, Option<PiModel>, Option<String>)> {
     if let Some(selected) = &selected_model {
         selected.validate_selection()?;
     }
     let mut model = selected_model;
+    let mut resume_identity = None;
     if let Some(id) = resume_id {
         let run = load(store, id)?;
+        if run.host != host {
+            return Err(resume_error("hostChanged", "续接须使用原会话的 Agent CLI"));
+        }
+        check_dispatch_outcome(store, &run)?;
         check_resume_session(store.state(), store.data_dir(), &run)?;
         if model.is_none() {
             model = Some(recorded_model(&run)?);
         }
+        resume_identity = run.grok_session.map(|session| session.identity);
     }
-    Ok((pi_protected_paths(store), model))
+    Ok((pi_protected_paths(store), model, resume_identity))
 }
 
 pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> Result<Value> {
@@ -524,6 +694,9 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
         }
         Err(error) => return Err(error),
     };
+    if resume_issue.is_none() {
+        resume_issue = check_dispatch_outcome(&mut store, &run).err();
+    }
     let mut native_issue = None;
     if resume_issue.is_none() {
         let jobs = store.records::<JobRecord>("job")?;
@@ -540,6 +713,11 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
                 return Err(error);
             }
             native_issue = Some(error.context("resumeReason", "queuePending"));
+        }
+        if native_issue.is_none()
+            && let Err(error) = ensure_handoff_source_idle(&mut store, run_id)
+        {
+            native_issue = Some(error.context("resumeReason", "handoffPending"));
         }
         if native_issue.is_none() {
             let roots = acceptance::roots(&run);
@@ -573,6 +751,7 @@ pub fn view(shared: &Arc<Mutex<Store>>, run_id: &str, cancel: &Cancellation) -> 
     let mut value = serde_json::to_value(run).map_err(|_| invalid("执行详情编码失败"))?;
     let fields = value.as_object_mut().expect("AgentRun is an object");
     fields.remove("piSession");
+    fields.remove("grokSession");
     fields.remove("queueProjectAccess");
     fields.insert(
         "canEditQueuedProjects".into(),
@@ -635,7 +814,7 @@ pub fn sessions(jobs: &JobManager, spec_id: &str) -> Result<Value> {
         for mut run in store
             .records::<AgentRun>("agentRun")?
             .into_iter()
-            .filter(|run| run.host == AgentHost::Pi && run.spec_id == spec_id)
+            .filter(|run| run.host.current() && run.spec_id == spec_id)
         {
             let job: Option<JobRecord> = store.record("job", &run.job_id)?;
             if let Some(job) = &job {
@@ -701,7 +880,7 @@ pub fn sessions(jobs: &JobManager, spec_id: &str) -> Result<Value> {
         };
         let delete_issue = deletion_issue(&run.status, &reports);
         summaries.push((run.updated_at.clone(), run.id.clone(), json!({
-            "id":run.id,"title":title,"jobId":run.job_id,"status":run.status,"updatedAt":run.updated_at,
+            "id":run.id,"title":title,"jobId":run.job_id,"host":run.host,"status":run.status,"updatedAt":run.updated_at,
             "attention":attention, "pendingFiles":pending, "reviewError":review_error, "reviewTargets":targets,
             "hasSnapshot":reviewable(&run), "hasAcceptance":!reports.is_empty(), "deleteIssue":delete_issue,
             "workspaceMode":run.workspace_mode, "snapshotError":snapshot_issue(&run)
@@ -896,9 +1075,10 @@ pub(crate) fn delete_session(
         }
         return Err(invalid("Pi 会话不存在").context("httpStatus", 404));
     };
-    if run.id != id || run.host != AgentHost::Pi {
-        return Err(invalid("Pi 会话不存在").context("httpStatus", 404));
+    if run.id != id || !run.host.current() {
+        return Err(invalid("Agent 会话不存在").context("httpStatus", 404));
     }
+    ensure_handoff_source_idle(&mut store, id)?;
     if run.job_id != request.expected_job_id {
         return Err(YssError::new(
             ErrorCode::ConcurrentChange,
@@ -1048,6 +1228,41 @@ pub(super) fn review_path<'a>(
         .ok_or_else(|| invalid("成果文件无法映射到已选择工程"))
 }
 fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<()> {
+    if request.host == Some(AgentHost::Codex) {
+        return Err(invalid("历史 Codex 会话仅供审阅"));
+    }
+    if request.handoff.is_some()
+        && (queued
+            || request.host.is_none()
+            || request.native_fork_source.is_some()
+            || request.continuation_source.is_some()
+            || request.expected_continuation_digest.is_some()
+            || request.resume_run_id.is_some()
+            || request.prompt.len().saturating_add(
+                request
+                    .handoff
+                    .as_ref()
+                    .map_or(0, |handoff| handoff.context.len()),
+            ) > 128 * 1024)
+    {
+        return Err(invalid(
+            "交接须选择明确的目标 CLI 并新建会话，交接与任务合计最多 128 KiB",
+        ));
+    }
+    if request
+        .expected_runtime_identity
+        .as_ref()
+        .is_some_and(|identity| {
+            identity.len() != 64 || !identity.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+    {
+        return Err(invalid("Agent CLI 运行配置标识无效"));
+    }
+    if (request.host == Some(AgentHost::Grok) || request.handoff.is_some())
+        && request.expected_repository_keys.is_none()
+    {
+        return Err(invalid("请核对本轮各工程的仓库标识后发送"));
+    }
     if request.native_fork_source.is_some() {
         if queued
             || request.resume_run_id.is_some()
@@ -1159,8 +1374,48 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
     Ok(())
 }
 
+fn validate_host_scope(
+    request: &AgentStartRequest,
+    host: AgentHost,
+    spec: &SpecRecord,
+    queued: bool,
+) -> Result<()> {
+    if host != AgentHost::Grok {
+        return Ok(());
+    }
+    if queued
+        || !request.read_only
+        || request.allow_commands
+        || request.command_execution.is_some()
+        || request.host_execution_confirmed
+        || request.native_fork_source.is_some()
+        || request.continuation_source.is_some()
+        || request.lifecycle_stage.is_some()
+        || request.expected_goal_version.is_some()
+        || request.ci_job.is_some()
+        || !request.citations.is_empty()
+        || request.project_ids.as_slice() != [spec.project_id.as_str()]
+    {
+        return Err(invalid("Grok Build 当前仅支持主 Spec 工程的只读会话"));
+    }
+    if request
+        .project_access
+        .as_ref()
+        .is_none_or(|grants| grants.len() != 1 || grants[0].mode != ProjectMode::Read)
+        || request.expected_model.is_none()
+        || request.expected_runtime_identity.is_none()
+        || request.expected_repository_keys.is_none()
+    {
+        return Err(invalid(
+            "请核对 Grok Build 运行配置、模型和主工程只读授权后发送",
+        ));
+    }
+    Ok(())
+}
+
 fn verify_repository_keys(
     request: &AgentStartRequest,
+    host: AgentHost,
     workspaces: &[Workspace],
     cancel: &Cancellation,
 ) -> Result<()> {
@@ -1171,11 +1426,13 @@ fn verify_repository_keys(
     else {
         return Ok(());
     };
-    let host = request.command_execution() == CommandExecution::Host;
+    let verify_read_only = request.command_execution() == CommandExecution::Host
+        || host == AgentHost::Grok
+        || request.handoff.is_some();
     for workspace in workspaces {
         let mut checked = grants
             .iter()
-            .filter(|grant| host || grant.mode != ProjectMode::Read)
+            .filter(|grant| verify_read_only || grant.mode != ProjectMode::Read)
             .filter_map(|grant| {
                 workspace
                     .project_prefixes
@@ -1224,6 +1481,12 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
             prior,
             protected,
         } = admission::capture_target(&mut store, &mut request)?;
+        if request.selected_host(prior.as_ref()) != AgentHost::Pi || request.handoff.is_some() {
+            return Err(invalid("此轮请使用支持异步受理的 Agent 工作区"));
+        }
+        if let Some(prior) = &prior {
+            ensure_handoff_source_idle(&mut store, &prior.id)?;
+        }
         super::agent_scope::check_expected(
             &mut store,
             &spec.id,
@@ -1337,6 +1600,8 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                 if current.job_id != *job_id || current.binding_revision != *binding_revision {
                     return Err(stale_round(&current));
                 }
+                ensure_handoff_source_idle(store, id)?;
+                check_dispatch_outcome(store, &current)?;
                 acceptance::ensure_recovered(store, &acceptance::roots(&current))?;
                 check_resume_session(store.state(), store.data_dir(), &current)?;
                 for workspace in &current.workspaces {
@@ -1375,7 +1640,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                 request,
                 projects,
                 prior,
-                pi,
+                AgentRuntime::Pi(pi),
                 admission,
                 expected_spec,
             )
@@ -1733,6 +1998,27 @@ fn local_task_results(store: &mut Store, run_id: &str, source_job_id: &str) -> R
         .collect())
 }
 
+enum AgentRuntime {
+    Pi(PiRuntime),
+    Grok(grok::Runtime),
+}
+
+impl AgentRuntime {
+    fn host(&self) -> AgentHost {
+        match self {
+            Self::Pi(_) => AgentHost::Pi,
+            Self::Grok(_) => AgentHost::Grok,
+        }
+    }
+
+    fn verify_fork(&self, fork: &native_fork::Verified) -> Result<()> {
+        match self {
+            Self::Pi(pi) => native_fork::verify_runtime(pi, &fork.anchor),
+            Self::Grok(_) => Err(invalid("原生分叉只适用于 Pi")),
+        }
+    }
+}
+
 struct PreparedRun {
     citations: Vec<Value>,
     binding: Option<RoundBinding>,
@@ -1745,7 +2031,7 @@ fn execute(
     request: AgentStartRequest,
     projects: Vec<(String, String)>,
     prior: Option<AgentRun>,
-    pi: PiRuntime,
+    runtime: AgentRuntime,
     admission: PreparedRun,
     expected_spec: SpecRecord,
 ) -> Result<Value> {
@@ -1759,8 +2045,9 @@ fn execute(
     let at = sources::now();
     let resumed = prior.is_some();
     let previous_job_id = prior.as_ref().map(|run| run.job_id.clone());
+    let host = runtime.host();
     if let Some(fork) = &fork {
-        native_fork::verify_runtime(&pi, &fork.anchor)?;
+        runtime.verify_fork(fork)?;
     }
     let mut store = lock_store(&context.store)?;
     let spec = sources::spec(store.state(), &request.spec_id)?.clone();
@@ -1768,6 +2055,7 @@ fn execute(
     if let Some(fork) = &fork {
         fork.recheck_source(&mut store, &spec.id)?;
     }
+    request.validate_handoff(&mut store, &spec.id, host)?;
     let continuation = super::agent_scope::continuation(
         &mut store,
         &spec.id,
@@ -1825,8 +2113,10 @@ fn execute(
         status: "preparing".into(),
         job_id: context.id.clone(),
         binding_revision: 0,
-        host: AgentHost::Pi,
+        host,
         pi_session: None,
+        grok_session: None,
+        handoff: None,
         thread_id: None,
         turn_id: None,
         host_settings: None,
@@ -1853,6 +2143,7 @@ fn execute(
         ci_job: None,
     });
     run.job_id = context.id.clone();
+    run.handoff.clone_from(&request.handoff);
     run.prompt = request.prompt.clone();
     run.status = "preparing".into();
     run.updated_at = sources::now();
@@ -1878,6 +2169,14 @@ fn execute(
         .filter(|project| !request.project_ids.contains(&project.id))
         .map(|project| PathBuf::from(&project.root_path))
         .collect();
+    let grok_scope_at_launch = if host == AgentHost::Grok {
+        let project = sources::project(store.state(), &spec.project_id)?;
+        let (excluded, identity) = grok_scope(store.state(), &spec, &project.root_path)?;
+        excluded_projects = excluded;
+        Some(identity)
+    } else {
+        None
+    };
     if let Some(fork) = &fork {
         excluded_projects.extend(fork.excluded_paths()?);
     }
@@ -1889,7 +2188,7 @@ fn execute(
         "previousJobId": previous_job_id, "projectIds": run.project_ids,
         "goalVersion": run.goal_version, "specDigest": run.spec_digest, "lifecycleStage": run.lifecycle_stage,
         "citations": citations,
-        "projectAccess": run.project_access, "continuationSource": run.continuation_source
+        "projectAccess": run.project_access, "continuationSource": run.continuation_source, "handoff":run.handoff
     });
     if let Some(mode) = run.command_execution {
         run_event["commandExecution"] = json!(mode);
@@ -1909,7 +2208,10 @@ fn execute(
     )?;
     drop(store);
     let mut captured_initial = false;
-    let needs_session_check = pi.check_model_in_session || fork.is_some();
+    let needs_session_check = match &runtime {
+        AgentRuntime::Pi(pi) => pi.check_model_in_session || fork.is_some(),
+        AgentRuntime::Grok(_) => true,
+    };
     let mut session_checked = false;
     #[cfg(windows)]
     let mut boundary_pins = None;
@@ -1920,6 +2222,9 @@ fn execute(
         };
         #[cfg(windows)]
         {
+            let AgentRuntime::Pi(pi) = &runtime else {
+                return Err(invalid("当前平台不支持 Grok Build"));
+            };
             boundary_pins = Some(agent_workspace::pin_windows_project_boundaries(
                 &data_dir,
                 &projects,
@@ -2059,14 +2364,25 @@ fn execute(
         for workspace in &run.workspaces {
             agent_workspace::validate(workspace)?;
         }
-        let (state, records) = {
-            let mut store = lock_store(&context.store)?;
+        let (mut instructions, cwd, primary_project) = if host == AgentHost::Grok {
+            let store = lock_store(&context.store)?;
+            let project = sources::project(store.state(), &spec.project_id)?;
             (
-                store.state().clone(),
-                super::materials::Records::load(&mut store),
+                format!(
+                    "主 Spec 工程：{}\n主规格相对路径：{}\n",
+                    project.name, spec.source_path
+                ),
+                project.root_path.clone(),
+                spec.project_id.clone(),
             )
-        };
-        let (mut instructions, cwd, primary_project) = {
+        } else {
+            let (state, records) = {
+                let mut store = lock_store(&context.store)?;
+                (
+                    store.state().clone(),
+                    super::materials::Records::load(&mut store),
+                )
+            };
             let mapped = map_agent_state(state, &run, |workspace| {
                 agent_workspace::validate(workspace)?;
                 Ok(PathBuf::from(&workspace.worktree_root))
@@ -2107,42 +2423,53 @@ fn execute(
                     .or(request.expected_goal_version.as_deref()),
                 queued,
             )?;
-            effective_access
-                .iter()
-                .map(|grant| {
-                    let project = sources::project(store.state(), &grant.project_id)?;
-                    if !project.active
-                        || Some(project.root_path.as_str()) != grant.expected_root_path.as_deref()
-                    {
-                        return Err(YssError::new(
-                            ErrorCode::ConcurrentChange,
-                            "启动前工程登记已变化",
-                        )
-                        .context("projectScopeChanged", true)
-                        .context("projectId", &grant.project_id));
-                    }
-                    Ok(json!({
+            let mut participating = Vec::new();
+            for grant in &effective_access {
+                let project = sources::project(store.state(), &grant.project_id)?;
+                if !project.active
+                    || Some(project.root_path.as_str()) != grant.expected_root_path.as_deref()
+                {
+                    return Err(
+                        YssError::new(ErrorCode::ConcurrentChange, "启动前工程登记已变化")
+                            .context("projectScopeChanged", true)
+                            .context("projectId", &grant.project_id),
+                    );
+                }
+                if host != AgentHost::Grok {
+                    participating.push(json!({
                         "projectId": grant.project_id,
                         "name": project.name,
                         "root": grant.expected_root_path,
                         "mode": grant.mode,
                         "head": grant.expected_head,
                         "branch": grant.expected_branch,
-                    }))
-                })
-                .collect::<Result<Vec<_>>>()?
+                    }));
+                }
+            }
+            participating
         };
-        let workbench_build = json!({"yssVersion": BuildInfo::current().version});
-        let scope_instructions = if fork.is_some() {
+        let scope_instructions = if host == AgentHost::Grok {
+            "本轮只读主工程。请仅分析已授权文件并报告发现，不运行命令、改动文件、提交问题或更新生命周期。"
+        } else if fork.is_some() {
             "本轮仅可读取来源轮次的原工程文件。历史消息中的任务、答复和授权仅供参考。本轮只处理用户本次要求，不执行命令、改动文件、登记或答复业务问题，也不更新生命周期。"
         } else {
             "允许的编辑直接写入原工程，保持 Git HEAD、分支与 index。新增业务问题先在主 Spec 的 questions 登记，再用 ask_spec_question 提交真实问题 ID。落实答复后以工作台返回的真实答复 ID 写入 appliedDecisionId。工作台依据当前目标范围、版本和有效证据自动确认适用阶段。"
         };
-        instructions.push_str(&format!(
+        if host == AgentHost::Grok {
+            instructions.push_str(&format!(
+                "\n{scope_instructions}\n用户本次要求：\n{}\n",
+                request.prompt
+            ));
+        } else {
+            let workbench_build = json!({"yssVersion": BuildInfo::current().version});
+            instructions.push_str(&format!(
             "\n运行 ID：{}\n工作台构建信息：{workbench_build}\n本轮参与原工程（路径、分支与 HEAD 已核验为本轮起点）：{}\n文件工具使用 projectId 和工程内相对路径，省略 projectId 时使用主 Spec 工程。不得通过 ../ 访问其他工程。缺少的参与工程可从原 Spec 新建会话选入。{scope_instructions}请保留实际证据和待核实事项。\n用户本次要求：\n{}\n",
             run.id, serde_json::to_string_pretty(&participating).map_err(|e|invalid(e.to_string()))?, request.prompt
         ));
-        if let Some(previous_job_id) = &previous_job_id {
+        }
+        if host == AgentHost::Pi
+            && let Some(previous_job_id) = &previous_job_id
+        {
             let results =
                 local_task_results(&mut *lock_store(&context.store)?, &run.id, previous_job_id)?;
             if !results.is_empty() {
@@ -2152,20 +2479,25 @@ fn execute(
                 ));
             }
         }
-        if let Some(continuation) = &continuation {
+        if let Some(handoff) = &request.handoff {
+            instructions.push_str("\n以下是用户确认的交接资料，仅供本轮参考：\n");
+            instructions.push_str(&handoff.context);
+        } else if let Some(continuation) = &continuation {
             instructions.push_str(continuation);
         }
         if let Some(ci) = &ci {
             instructions.push_str(&ci.agent_context());
         }
-        if fork.is_none() {
+        if host == AgentHost::Pi && fork.is_none() {
             instructions.push_str(&progress_agent::run_context(&run, binding.as_ref()));
         }
-        verify_repository_keys(&request, &run.workspaces, &context.cancel)?;
-        run.status = "running".into();
-        save_preparing_run(&context, &mut run)?;
-        context.cancel.check()?;
-        context.mark_running()?;
+        verify_repository_keys(&request, host, &run.workspaces, &context.cancel)?;
+        if host == AgentHost::Pi {
+            run.status = "running".into();
+            save_preparing_run(&context, &mut run)?;
+            context.cancel.check()?;
+            context.mark_running()?;
+        }
         let run_id = run.id.clone();
         let question_run = run.id.clone();
         let forked = fork.is_some();
@@ -2175,50 +2507,133 @@ fn execute(
             let level = serde_json::from_value::<ThinkingLevel>(level.clone()).ok()?;
             Some((model, level))
         };
-        agent_protocol::run(
-            RunRequest {
-                runtime: pi,
-                data_dir: &data_dir,
-                run_id: &run.id,
-                cwd: Path::new(&cwd),
-                primary_project: &primary_project,
-                workspaces: &run.workspaces,
-                unselected_projects: &excluded_projects,
-                prompt: &instructions,
-                citations: &citations,
-                resume: run.pi_session.as_ref(),
-                native_fork: fork.as_ref().map(|fork| &fork.anchor),
-                expected_model: fork
-                    .as_ref()
-                    .map(|fork| &fork.anchor.model)
-                    .or(request.expected_model.as_ref()),
-                thinking_level: request.thinking_level,
-                remembered_thinking: remembered_thinking(),
-                read_only: request.read_only,
-                allow_commands: request.allow_commands,
-                command_execution,
-                explicit_access: request.project_access.is_some(),
-            },
-            &context,
-            |session, settings| {
+        let verify_prompt = || -> Result<()> {
+            context.cancel.check()?;
+            if host == AgentHost::Grok || request.handoff.is_some() {
+                verify_repository_keys(&request, host, &run.workspaces, &context.cancel)?;
+                for workspace in &run.workspaces {
+                    agent_workspace::validate(workspace)?;
+                }
                 let mut store = lock_store(&context.store)?;
-                let mut latest = load(&mut store, &run_id)?;
-                if let Some(session) = session {
-                    latest.pi_session = Some(session);
+                check_spec_binding(sources::spec(store.state(), &spec.id)?, &spec)?;
+                if let Some(expected) = &grok_scope_at_launch {
+                    let project = sources::project(store.state(), &spec.project_id)?;
+                    let (_, current) = grok_scope(store.state(), &spec, &project.root_path)?;
+                    if &current != expected {
+                        return Err(YssError::new(
+                            ErrorCode::ConcurrentChange,
+                            "Grok Build 主工程授权范围已变化，请重新核对",
+                        )
+                        .context("projectScopeChanged", true));
+                    }
                 }
-                latest.host_settings = Some(settings);
-                latest.updated_at = sources::now();
-                store.put_record("agentRun", &run_id, &latest)?;
-                session_checked = true;
-                Ok(())
-            },
-            move |context, question_id| {
-                if forked {
-                    return Err(invalid("原生分叉本轮不能提交业务问题"));
+                for (id, path) in &projects {
+                    let project = sources::project(store.state(), id)?;
+                    if !project.active || &project.root_path != path {
+                        return Err(YssError::new(ErrorCode::Conflict, "启动前的工程范围已变化")
+                            .context("projectScopeChanged", true));
+                    }
                 }
-                ask_question(context, &question_run, question_id)
-            },
-        )?;
+                request.validate_handoff(&mut store, &spec.id, host)?;
+            }
+            Ok(())
+        };
+        match runtime {
+            AgentRuntime::Pi(pi) => agent_protocol::run(
+                RunRequest {
+                    runtime: pi,
+                    data_dir: &data_dir,
+                    run_id: &run.id,
+                    cwd: Path::new(&cwd),
+                    primary_project: &primary_project,
+                    workspaces: &run.workspaces,
+                    unselected_projects: &excluded_projects,
+                    prompt: &instructions,
+                    citations: &citations,
+                    resume: run.pi_session.as_ref(),
+                    native_fork: fork.as_ref().map(|fork| &fork.anchor),
+                    expected_model: fork
+                        .as_ref()
+                        .map(|fork| &fork.anchor.model)
+                        .or(request.expected_model.as_ref()),
+                    thinking_level: request.thinking_level,
+                    remembered_thinking: remembered_thinking(),
+                    read_only: request.read_only,
+                    allow_commands: request.allow_commands,
+                    command_execution,
+                    explicit_access: request.project_access.is_some(),
+                },
+                &context,
+                |session, settings| {
+                    let mut store = lock_store(&context.store)?;
+                    let mut latest = load(&mut store, &run_id)?;
+                    if let Some(session) = session {
+                        latest.pi_session = Some(session);
+                    }
+                    latest.host_settings = Some(settings);
+                    latest.updated_at = sources::now();
+                    store.put_record("agentRun", &run_id, &latest)?;
+                    session_checked = true;
+                    Ok(())
+                },
+                move |context, question_id| {
+                    if forked {
+                        return Err(invalid("原生分叉本轮不能提交业务问题"));
+                    }
+                    ask_question(context, &question_run, question_id)
+                },
+                |runtime| {
+                    verify_prompt()?;
+                    if request.expected_runtime_identity.is_some() {
+                        request.verify_runtime_identity(runtime.identity().as_deref(), host)?;
+                    }
+                    Ok(())
+                },
+                request
+                    .handoff
+                    .as_ref()
+                    .map(|handoff| handoff.context.as_str()),
+            )?,
+            AgentRuntime::Grok(grok) => grok::run(
+                grok,
+                &data_dir,
+                &run.id,
+                Path::new(&cwd),
+                &excluded_projects,
+                grok_scope_at_launch
+                    .as_ref()
+                    .expect("Grok project scope captured")
+                    .as_str(),
+                &instructions,
+                &request.prompt,
+                &spec.source_path,
+                request
+                    .handoff
+                    .as_ref()
+                    .map(|handoff| handoff.context.as_str()),
+                run.grok_session.as_ref(),
+                request.thinking_level.or_else(|| {
+                    remembered_thinking().and_then(|(model, effort)| {
+                        (request.expected_model.as_ref() == Some(&model)).then_some(effort)
+                    })
+                }),
+                &context,
+                |session, settings| {
+                    let mut store = lock_store(&context.store)?;
+                    let mut latest = load(&mut store, &run_id)?;
+                    latest.grok_session = Some(session);
+                    latest.host_settings = Some(settings.clone());
+                    latest.status = "running".into();
+                    latest.updated_at = sources::now();
+                    store.put_record("agentRun", &run_id, &latest)?;
+                    drop(store);
+                    context.emit("grokConfiguration", settings)?;
+                    session_checked = true;
+                    Ok(())
+                },
+                verify_prompt,
+            )?,
+        }
         Ok(json!({"runId":run.id,"host":run.host,"status":"completed"}))
     })();
     let scope_changed = work
@@ -3290,6 +3705,7 @@ fn lease_owner() -> &'static str {
     })
 }
 pub fn ensure_roots_available(store: &mut Store, roots: &[String]) -> Result<()> {
+    super::jobs::ensure_grok_roots_available(store, roots)?;
     // Until per-root durable locks exist, conservatively protect registered
     // scratch from all absolute project writes. Synthetic external-read keys
     // do not address the filesystem and can continue to refresh.

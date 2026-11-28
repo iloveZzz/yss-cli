@@ -735,7 +735,10 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
         let installed = if matches!(id, ToolId::Pi) {
             executable.is_some()
                 && version.is_some_and(|version| {
-                    managed || matches!(version, "1.5.2" | "1.6.0" | "1.6.1")
+                    managed
+                        || semver::Version::parse(version).is_ok_and(|version| {
+                            yss::workbench::managed_pi::supports_external_version(&version)
+                        })
                 })
         } else {
             value

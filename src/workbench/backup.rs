@@ -12,7 +12,7 @@ use crate::{
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use rusqlite::{
-    Connection, OpenFlags,
+    Connection, OpenFlags, OptionalExtension,
     backup::{Backup, StepResult},
 };
 use serde::{Deserialize, Serialize};
@@ -161,6 +161,21 @@ fn database_backup(data: &Path, destination: &Root, cancel: &Cancellation) -> Re
             "存在尚未核对的命令暂存，备份不包含这些文件；请先处理恢复记录",
         ));
     }
+    let lease: Option<String> = target
+        .query_row(
+            "SELECT id FROM workbench_records WHERE kind = ?1 LIMIT 1",
+            [jobs::GROK_CLEANUP_LEASE],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| sources::invalid("无法核对备份中的 Grok Build 进程收尾记录"))?;
+    if let Some(job_id) = lease {
+        return Err(YssError::new(
+            ErrorCode::RecoveryRequired,
+            "Grok Build 进程收尾待核实，请查看原执行记录后重试备份",
+        )
+        .context("jobId", job_id));
+    }
     let revision = target
         .query_row(
             "SELECT revision FROM workbench_meta WHERE id=1",
@@ -212,21 +227,15 @@ pub fn create(
             context.emit("progress", json!({"message":"正在冻结未接收成果"}))?;
             super::agent::freeze_all_shared(&context.store, &context.cancel)?;
             context.emit("progress", json!({"message":"正在生成一致数据库备份"}))?;
-            // A future command registers its private scratch under this same
-            // store lock; hold it through the DB snapshot to avoid observing
-            // the directory-creation/registration interval.
-            #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+            // Keep workbench recovery records stable until the SQLite copy is complete.
             let mut recovery_lock = jobs::lock_store(&context.store)?;
             #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
             super::command_recovery::ensure_none(&mut recovery_lock)?;
             #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
-            {
-                let mut store = jobs::lock_store(&context.store)?;
-                reject_unbacked_recovery(&mut store)?;
-            }
+            reject_unbacked_recovery(&mut recovery_lock)?;
+            jobs::ensure_grok_backup_available(&mut recovery_lock)?;
             let (temp_name, temp) = private_temp(&parent, ".yss-backup")?;
             let revision = database_backup(&data, &temp, &context.cancel)?;
-            #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
             drop(recovery_lock);
             let source = Root::open(&data)?;
             let mut names = vec![DATABASE_NAME.to_owned(), "state.json".into()];
@@ -471,10 +480,20 @@ pub fn restore(
                         error
                     }
                 })?;
+                if let Some((job_id, _)) = restored
+                    .record_entries::<Value>(jobs::GROK_CLEANUP_LEASE)?
+                    .into_iter()
+                    .next()
+                {
+                    return Err(YssError::new(
+                        ErrorCode::RecoveryRequired,
+                        "备份含待核实的 Grok Build 进程收尾记录，请在来源工作台查看该轮",
+                    )
+                    .context("jobId", job_id));
+                }
                 for mut job in restored.records::<JobRecord>("job")? {
                     if !job.terminal() {
-                        job.status = "interrupted".into();
-                        job.updated_at = sources::now();
+                        job.interrupt(None);
                         restored.put_record("job", &job.id, &job)?;
                     }
                 }

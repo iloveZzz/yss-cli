@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { RouteLocationRaw } from 'vue-router'
+import type { AgentHandoff } from '@/services/workbench-agent'
 import { computed, nextTick, shallowRef, toRef, useTemplateRef, watch } from 'vue'
 import { ArrowUpRight, ChevronRight, Flag, Wrench } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -7,8 +9,8 @@ import { Separator } from '@/components/ui/separator'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { errorMessage, dateLabel } from '@/services/workbench'
-import { answerJob, jobStatusLabels, objectValue, piCommandExecutionLabels, piPhaseLabels, piThinkingLabels, terminalJob,
-  type JobActivity, type JobRecord, type PiCommandExecution } from '@/services/workbench-platform'
+import { agentHostLabels, agentPhaseLabel, answerJob, jobStatusLabels, objectValue, piCommandExecutionLabels, piThinkingLabels, terminalJob,
+  type AgentHost, type JobActivity, type JobRecord, type PiCommandExecution } from '@/services/workbench-platform'
 import { useJobEvents } from '@/views/Jobs/hooks/useJobEvents'
 import { activityFailed } from '@/views/Jobs/schemas/job'
 import ConversationMessage from '@/views/Jobs/components/ConversationMessage.vue'
@@ -24,6 +26,10 @@ import PiSubmittedCitations from './PiSubmittedCitations.vue'
 
 const props = defineProps<{
   job: JobRecord
+  host: AgentHost | 'codex'
+  handoff?: AgentHandoff | null
+  handoffSubmitted?: string | null
+  handoffSourceLink?: RouteLocationRaw
   latest: boolean
   direct: boolean
   readOnly?: boolean | null
@@ -93,19 +99,29 @@ const settings = computed(() => events.latest.value?.piSettings)
 const commandExecution = computed(() => page.value?.commandExecution ?? settings.value?.commandExecution ??
   events.latest.value?.commandExecution ?? props.job.commandExecution ?? props.commandExecution ??
   (page.value?.allowCommands ? 'sandbox' : undefined))
-const onlyReads = computed(() => settings.value?.readOnly ?? props.readOnly)
+const onlyReads = computed(() => props.host === 'grok' || (settings.value?.readOnly ?? props.readOnly))
+const hostLabel = computed(() => agentHostLabels[props.host])
+const roundModel = computed(() => {
+  const grok = events.latest.value?.grokConfiguration ?? page.value?.grokConfiguration
+  if (grok) return { name: grok.model, provider: grok.provider, level: grok.thinkingLevel, verified: true }
+  const model = settings.value?.model
+  if (model) return { name: model.id, provider: model.provider, level: settings.value?.thinkingLevel, verified: true }
+  const selection = props.job.agentSelection
+  return { name: selection?.model, provider: selection?.provider, level: selection?.thinkingLevel, verified: false }
+})
 const plan = computed(() => events.latest.value?.piPlan)
 const terminal = computed(() => terminalJob(props.job.status) || !!events.latest.value?.terminal)
 const phase = computed(() => events.piPhase.value?.phase ?? props.job.piPhase)
 const status = computed(() => {
   const label = jobStatusLabels[props.job.status] || props.job.status
+  if (terminal.value && props.job.agentDispatchUncertain) return '结果待核实'
   if (terminal.value) return label
   if (props.stopping) return '正在停止'
   if (events.pendingInputs.value.length || props.job.status === 'waitingInput') return '等待答复'
   if (phase.value === 'promptAccepted' && items.value.some((item) => item.kind === 'command' && item.status === 'inProgress'))
     return '正在执行命令'
   return phase.value && (phase.value !== 'promptAccepted' || !items.value.some((item) => item.kind === 'message'))
-    ? piPhaseLabels[phase.value]
+    ? agentPhaseLabel(phase.value, props.host === 'grok' ? 'grok' : 'pi')
     : label
 })
 const ready = computed(() => !!page.value || !!events.error.value || terminal.value)
@@ -242,11 +258,12 @@ watch(events.statusLabel, (status) => {
     <header class="pi-round-meta">
       <time :datetime="job.createdAt">{{ dateLabel(job.createdAt) }}</time>
       <span :role="latest ? 'status' : undefined">{{ status }}</span>
+      <span>{{ hostLabel }}</span>
       <span v-if="commandExecution">已授权{{ piCommandExecutionLabels[commandExecution] }}</span>
-      <span v-if="onlyReads">{{ direct ? '只读原工程' : '只读分析' }}</span>
+      <span v-if="onlyReads">{{ direct && host !== 'grok' ? '只读原工程' : '只读分析' }}</span>
       <span v-else-if="direct && onlyReads === false">编辑原工程</span>
-      <span v-if="settings" :title="settings.model.provider + ' / ' + settings.model.id">
-        {{ settings.model.id }}<template v-if="settings.thinkingLevel && settings.thinkingLevel !== 'off'"> · {{ piThinkingLabels[settings.thinkingLevel] }}推理</template>
+      <span v-if="roundModel.name" :title="[roundModel.provider, roundModel.name].filter(Boolean).join(' / ')">
+        {{ roundModel.name }}<template v-if="!roundModel.verified">（待核对）</template><template v-if="roundModel.level && roundModel.level !== 'off'"> · {{ piThinkingLabels[roundModel.level] ?? roundModel.level }}推理</template>
       </span>
       <PiContextUsage :usage="events.latest.value?.piContext" :limit="settings?.contextWindow" />
       <RouterLink :to="{ path: '/jobs/' + job.id, query: { detail: '1', tab: 'log' } }">本轮日志 <ArrowUpRight :size="12" /></RouterLink>
@@ -261,6 +278,16 @@ watch(events.statusLabel, (status) => {
     </p>
     <ConversationMessage v-if="page?.prompt" :text="page.prompt" user />
     <p v-else-if="page || terminal" class="pi-round-note">本轮未留存原始要求</p>
+    <div v-if="handoff || handoffSubmitted || handoffSourceLink" class="mb-2 grid gap-1 rounded-md border p-2.5 text-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <strong>{{ handoffSubmitted ? '交接已提交' : terminal && job.agentDispatchUncertain ? '交接提交待核实' : '交接正文尚未确认提交' }}</strong>
+        <RouterLink v-if="handoffSourceLink" :to="handoffSourceLink" class="underline underline-offset-4">查看来源轮次</RouterLink>
+      </div>
+      <details v-if="handoffSubmitted || handoff?.context">
+        <summary class="cursor-pointer">{{ handoffSubmitted ? '查看本轮交接内容' : '查看确认的交接草稿' }}</summary>
+        <pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words">{{ handoffSubmitted || handoff?.context }}</pre>
+      </details>
+    </div>
     <PiSubmittedCitations v-if="page?.citations?.length" :excerpts="page.citations" :project-names="projectNames" />
     <PiRoundSummary :job-id="jobId" :status="status" :started-at="job.agentStartedAt"
       :terminal="terminal" :summary="events.latest.value?.piRoundSummary" :plan="plan"
@@ -277,8 +304,8 @@ watch(events.statusLabel, (status) => {
         重试读取
       </Button>
     </div>
-    <LoadingSkeleton v-if="!page && !terminal && !events.error.value" :rows="2" variant="text" label="正在读取 Pi 对话" />
-    <p v-else-if="page && !items.length && !terminal && !phase" class="pi-round-note">等待 Pi 开始答复…</p>
+    <LoadingSkeleton v-if="!page && !terminal && !events.error.value" :rows="2" variant="text" :label="'正在读取 ' + hostLabel + ' 对话'" />
+    <p v-else-if="page && !items.length && !terminal && !phase" class="pi-round-note">等待 {{ hostLabel }} 开始答复…</p>
     <PiPlan v-if="plan?.length" :steps="plan" :terminal="terminal" />
     <template v-for="entry in entries" :key="entry.key">
       <Collapsible v-if="entry.group" :open="expanded(entry)" class="pi-tool-group" @update:open="toggle(entry, $event)">
@@ -325,7 +352,7 @@ watch(events.statusLabel, (status) => {
     <p v-if="latest && !terminal && page" class="pi-round-note" role="status">
       <template v-if="events.statusLabel.value === '实时连接'">
         <LoadingIndicator :active="true" />
-        <span class="sr-only">正在接收 Pi 更新</span>
+        <span class="sr-only">正在接收 {{ hostLabel }} 更新</span>
       </template>
       <template v-else>{{ events.statusLabel.value }}</template>
     </p>

@@ -305,6 +305,11 @@ impl Root {
         }
         self.boundary.revalidate()
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn git_boundary(&self) -> &git::Boundary {
+        &self.boundary
+    }
+
     fn parent(&self, path: &RelPath) -> Result<Option<Parent>> {
         self.parent_checked(path, PathLookup::Project)
     }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import GrokReadiness from '@/components/GrokReadiness.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import { Alert } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableCaption } from '@/components/ui/table'
-import { computed, shallowRef } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -19,7 +20,9 @@ import { registerWorkbenchRouteReads } from '@/hooks/useWorkbenchReads'
 import BackupForms from './components/BackupForms.vue'
 import { useSystemInfo } from './hooks/useSystemInfo'
 import { byteLabel } from './schemas/system'
-import { piCapabilityLabels, piCommandCapability, piRuntimeAvailable, restartWorkbench, readableValue } from '@/services/workbench-platform'
+import { getGrokRuntime } from '@/services/workbench-agent'
+import { errorMessage } from '@/services/workbench'
+import { piCapabilityLabels, piCommandCapability, piRuntimeAvailable, restartWorkbench, readableValue, type GrokRuntimeStatus } from '@/services/workbench-platform'
 const { info, readAt, loading, error, refresh } = useSystemInfo()
 registerWorkbenchRouteReads({ busy: loading, readAt, refresh })
 const route = useRoute()
@@ -37,6 +40,32 @@ const group = computed(() =>
       ? 'engineering'
       : 'general'
 )
+const grokRuntime = shallowRef<GrokRuntimeStatus>()
+const grokChecking = shallowRef(false)
+const grokError = shallowRef('')
+const grokRecheck = shallowRef(0)
+watch([group, grokRecheck], async ([current], _, onCleanup) => {
+  if (current !== 'general') return
+  const request = new AbortController()
+  onCleanup(() => request.abort())
+  grokChecking.value = true
+  grokError.value = ''
+  try {
+    const result = await getGrokRuntime({}, request.signal)
+    if (!request.signal.aborted) grokRuntime.value = result
+  } catch (cause) {
+    if (!request.signal.aborted) {
+      grokRuntime.value = undefined
+      grokError.value = errorMessage(cause)
+    }
+  } finally {
+    if (!request.signal.aborted) grokChecking.value = false
+  }
+}, { immediate: true })
+function refreshTools() {
+  grokRecheck.value++
+  void refresh()
+}
 function selectGroup(value: string | number) {
   if (typeof value === 'string' && value !== route.query.section)
     void router.push({ query: { ...route.query, section: value } })
@@ -88,7 +117,7 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
 <template>
   <div class="page-heading">
     <WorkbenchBreadcrumb title="本机设置" />
-    <Button variant="outline" :disabled="loading" @click="refresh">
+    <Button variant="outline" :disabled="loading" @click="refreshTools">
       <LoadingIndicator :active="loading && !!info" />
       {{ loading ? '诊断中…' : '重新诊断' }}
     </Button>
@@ -153,7 +182,7 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
         <div class="table-scroll" tabindex="0" role="region" aria-label="本机工具状态">
           <Table class="spec-table tools-table">
             <TableCaption class="sr-only">
-              Git、Pi Agent 与远端平台工具
+              Git、Pi、Grok Build 与远端平台工具
             </TableCaption>
             <TableHeader>
               <TableRow>
@@ -189,6 +218,14 @@ function installableTool(name: string): 'git' | 'gh' | 'glab' | undefined {
                   <Button v-if="!info.pi.executable" as-child variant="outline" size="sm">
                     <a :href="installUrl('pi')">安装</a>
                   </Button>
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableHead scope="row">Grok Build</TableHead>
+                <TableCell :colspan="desktopSettingsUrl ? 3 : 2">
+                  <GrokReadiness :runtime="grokRuntime" :checking="grokChecking" :error="grokError" />
+                  <Button type="button" variant="outline" size="sm" class="mt-1.5"
+                    :disabled="grokChecking" @click="grokRecheck++">重新检查 Grok Build</Button>
                 </TableCell>
               </TableRow>
               <TableRow v-for="tool in info.tools" :key="tool.name">

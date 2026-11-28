@@ -425,10 +425,12 @@ impl Session {
         prompt: &str,
         context: &JobContext,
         evidence: &Evidence,
+        handoff: Option<&str>,
     ) -> Result<()> {
         let mut output = Output {
             context,
             evidence,
+            handoff,
             flush_at: None,
             saw_text: false,
         };
@@ -511,7 +513,17 @@ impl Session {
             }
             match event["type"].as_str() {
                 Some("response") if event["id"] == "prompt" => {
-                    if event["command"] != "prompt" || event["success"] != true {
+                    if event["command"] != "prompt" || !event["success"].is_boolean() {
+                        return Err(protocol("Pi 提交回执格式无效"));
+                    }
+                    if event["success"] == false {
+                        if !accepted
+                            && let Some(output) = output.as_ref()
+                            && output.handoff.is_some()
+                        {
+                            output.context.mark_agent_settled()?;
+                            self.active = false;
+                        }
                         return Err(provider_error(event["error"].as_str()));
                     }
                     if event["data"]["disposition"] != "started" {
@@ -519,6 +531,9 @@ impl Session {
                     }
                     accepted = true;
                     if let Some(output) = output.as_ref() {
+                        if output.handoff.is_some() {
+                            output.context.mark_agent_dispatched(output.handoff)?;
+                        }
                         output.context.set_pi_phase(PiPhase::PromptAccepted)?;
                         output.context.trace("promptAccepted");
                     }
@@ -551,6 +566,11 @@ impl Session {
                 }
                 _ => {}
             }
+        }
+        if let Some(output) = output
+            && output.handoff.is_some()
+        {
+            output.context.mark_agent_settled()?;
         }
         if settled == Some(true) || messages.reason.as_deref() == Some("aborted") {
             return Err(YssError::new(ErrorCode::Cancelled, "Pi 本轮已停止"));
@@ -664,6 +684,7 @@ fn provider_error(raw: Option<&str>) -> YssError {
 struct Output<'a> {
     context: &'a JobContext,
     evidence: &'a Evidence,
+    handoff: Option<&'a str>,
     flush_at: Option<Instant>,
     saw_text: bool,
 }

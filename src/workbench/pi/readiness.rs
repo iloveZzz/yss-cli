@@ -33,11 +33,6 @@ use std::{
     ptr,
 };
 
-const SUPPORTED_VERSIONS: [Version; 3] = [
-    Version::new(1, 5, 2),
-    Version::new(1, 6, 0),
-    Version::new(1, 6, 1),
-];
 const SETTINGS_LIMIT: u64 = 1024 * 1024;
 static CONNECTION_TEST: Mutex<()> = Mutex::new(());
 static CONTINUATION_DRAFT: Mutex<()> = Mutex::new(());
@@ -118,7 +113,10 @@ fn locate_pi() -> Result<PathBuf> {
     pi.and_then(|path| fs::canonicalize(path).ok())
         .filter(|path| is_executable(path))
         .ok_or_else(|| {
-            not_ready("未找到本机 Pi，请安装 Pi 1.5.2、1.6.0 或 1.6.1，或设置 YSS_PI_EXECUTABLE")
+            not_ready(&format!(
+                "未找到本机 Pi，请安装受支持的 Pi（{}），或设置 YSS_PI_EXECUTABLE",
+                managed_pi::EXTERNAL_VERSION_LABEL
+            ))
         })
 }
 
@@ -208,7 +206,7 @@ fn windows_user_pi(
         if metadata["name"] != "@earendil-works/pi-coding-agent"
             || !version
                 .as_ref()
-                .is_some_and(|value| SUPPORTED_VERSIONS.contains(value))
+                .is_some_and(managed_pi::supports_external_version)
         {
             continue;
         }
@@ -879,10 +877,12 @@ impl PiProbe {
                 {
                     *current = Some(stamp);
                 }
-            } else if !SUPPORTED_VERSIONS.contains(&version) {
-                return Err(not_ready(
-                    "工作台当前支持 Pi 1.5.2、1.6.0 和 1.6.1，请核对本机 Pi 版本",
-                ));
+            } else if !managed_pi::supports_external_version(&version) {
+                return Err(not_ready(&format!(
+                    "当前检测到 Pi {version}，此平台支持 {}",
+                    managed_pi::EXTERNAL_VERSION_LABEL
+                ))
+                .context("piIssue", "versionUnsupported"));
             }
             version
         };

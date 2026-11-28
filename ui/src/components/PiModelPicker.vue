@@ -5,9 +5,10 @@ import { ListboxContent, ListboxFilter, ListboxItem, ListboxItemIndicator, Listb
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPiModels, piModelKey } from '@/services/workbench-agent'
-import { errorMessage } from '@/services/workbench'
-import { piThinkingLabels, type PiModel, type PiThinkingLevel } from '@/services/workbench-platform'
+import { ApiError, errorMessage } from '@/services/workbench'
+import { agentHostLabels, grokRuntimeLabel, isWorkspaceAgent, piThinkingLabels, type AgentHost, type GrokRuntimeStatus, type PiModel, type PiThinkingLevel } from '@/services/workbench-platform'
 
 const props = withDefaults(defineProps<{
   selectedModel?: PiModel
@@ -18,21 +19,40 @@ const props = withDefaults(defineProps<{
   thinkingLevels?: PiThinkingLevel[]
   thinkingLevel?: PiThinkingLevel
   checkingThinking?: boolean
+  cli?: AgentHost
+  lockedCli?: AgentHost
+  selectionLocked?: boolean
+  issue?: string
 }>(), { defaultLabel: '使用 Pi 默认模型' })
-const emit = defineEmits<{ select: [model?: PiModel]; thinking: [level: PiThinkingLevel] }>()
+const emit = defineEmits<{ select: [model?: PiModel]; thinking: [level: PiThinkingLevel]; target: [host: AgentHost, model?: PiModel]; newSession: [] }>()
 
 const open = shallowRef(false)
 const awaitingLevels = shallowRef(false)
 const loading = shallowRef(false)
 const query = shallowRef('')
 const provider = shallowRef('')
-const models = shallowRef<PiModel[]>([])
-const error = shallowRef('')
+const browsedCli = shallowRef<AgentHost>(props.cli ?? 'pi')
+const directories = shallowRef<Partial<Record<AgentHost, PiModel[]>>>({})
+const errors = shallowRef<Partial<Record<AgentHost, string>>>({})
+const grokStatus = shallowRef<GrokRuntimeStatus>()
+const feedback = computed(() => {
+  if (browsedCli.value !== 'grok' || !grokStatus.value) return error.value
+  return [grokRuntimeLabel(grokStatus.value), grokStatus.value.message].filter(Boolean).join(' · ')
+})
+const models = computed(() => directories.value[browsedCli.value] ?? [])
+const error = computed(() => errors.value[browsedCli.value] ?? '')
+const selectedCli = computed(() => props.cli ?? 'pi')
+const browsingSelection = computed(() => browsedCli.value === selectedCli.value)
+const selectionDisabled = computed(() => props.selectionLocked || (props.lockedCli != null && props.lockedCli !== browsedCli.value))
+const cliLabel = computed(() => agentHostLabels[browsedCli.value])
+const defaultTargetLabel = computed(() => props.cli
+  ? props.lockedCli && browsingSelection.value ? '沿用会话模型' : '使用 ' + cliLabel.value + ' 默认模型'
+  : props.defaultLabel)
 const listId = useId()
 const providers = computed(() => [...new Set(models.value.map((model) => model.provider))])
-const showLevels = computed(() => props.showThinking && (props.checkingThinking || !!props.thinkingLevels?.length))
+const showLevels = computed(() => props.showThinking && browsingSelection.value && (props.checkingThinking || !!props.thinkingLevels?.length))
 const selectedKey = computed(() => {
-  const model = props.selectedModel ?? props.currentModel
+  const model = browsingSelection.value ? props.selectedModel ?? props.currentModel : undefined
   return model ? piModelKey(model) : ''
 })
 const filteredModels = computed(() => {
@@ -44,18 +64,32 @@ const filteredModels = computed(() => {
 })
 let request: AbortController | undefined
 
-async function readModels() {
-  if (request) return
+function cancelRead() {
+  request?.abort()
+  request = undefined
+  loading.value = false
+}
+
+async function readModels(refresh = false) {
+  const host = browsedCli.value
+  if (request || (!refresh && directories.value[host])) return
   const current = new AbortController()
   request = current
   loading.value = true
-  error.value = ''
-  models.value = []
+  errors.value = { ...errors.value, [host]: '' }
   try {
-    const result = await getPiModels(current.signal)
-    if (!current.signal.aborted) models.value = result.models
+    const result = await getPiModels(current.signal, host)
+    if (current.signal.aborted) return
+    directories.value = { ...directories.value, [host]: result.models }
+    if (host === 'grok') grokStatus.value = undefined
   } catch (cause) {
-    if (!current.signal.aborted) error.value = errorMessage(cause)
+    if (current.signal.aborted) return
+    const message = errorMessage(cause)
+    errors.value = { ...errors.value, [host]: message }
+    if (host === 'grok') grokStatus.value = {
+      host, available: false, message,
+      issue: cause instanceof ApiError && typeof cause.context.grokIssue === 'string' ? cause.context.grokIssue : undefined
+    }
   } finally {
     if (request === current) {
       request = undefined
@@ -64,11 +98,28 @@ async function readModels() {
   }
 }
 
+function browse(host: unknown) {
+  if (!isWorkspaceAgent(host) || browsedCli.value === host) return
+  cancelRead()
+  awaitingLevels.value = false
+  browsedCli.value = host
+  query.value = ''
+  provider.value = ''
+  void readModels()
+}
+
 function choose(model?: PiModel) {
-  if (props.disabled) return
-  awaitingLevels.value = !!(props.showThinking && model && piModelKey(model) !== selectedKey.value)
+  if (props.disabled || selectionDisabled.value || (model && (error.value || loading.value))) return
+  const sameModel = browsingSelection.value && !!model && piModelKey(model) === selectedKey.value
+  awaitingLevels.value = !!(props.showThinking && model && !sameModel)
   if (!awaitingLevels.value) open.value = false
-  emit('select', model)
+  if (props.cli) emit('target', browsedCli.value, model)
+  else emit('select', model)
+}
+
+function openNewSession() {
+  open.value = false
+  emit('newSession')
 }
 
 function chooseThinking(level: PiThinkingLevel) {
@@ -78,20 +129,19 @@ function chooseThinking(level: PiThinkingLevel) {
 
 watch(open, (isOpen) => {
   if (isOpen) {
+    browsedCli.value = selectedCli.value
     query.value = ''
     provider.value = ''
     void readModels()
   } else {
     awaitingLevels.value = false
-    request?.abort()
-    request = undefined
-    loading.value = false
+    cancelRead()
   }
 }, { flush: 'sync' })
 watch([() => props.checkingThinking, () => props.thinkingLevels], ([checking, levels]) => {
-  if (!awaitingLevels.value || checking || !levels?.length) return
+  if (!awaitingLevels.value || checking) return
   awaitingLevels.value = false
-  if (levels.length === 1) open.value = false
+  if (!props.issue && (levels?.length ?? 0) < 2) open.value = false
 })
 watch(() => props.disabled, (disabled) => { if (disabled) open.value = false })
 onBeforeUnmount(() => request?.abort())
@@ -105,50 +155,68 @@ onBeforeUnmount(() => request?.abort())
       </slot>
     </PopoverTrigger>
     <PopoverContent side="top" align="end" :side-offset="8" :collision-padding="12" class="pi-model-picker"
-      :data-thinking="showThinking ? '' : undefined">
-      <div class="model-picker-body" :data-levels="showLevels ? '' : undefined">
-        <ListboxRoot :model-value="selectedKey" highlight-on-hover class="model-picker-content"
-          :data-providers="providers.length > 1 ? '' : undefined">
-          <div class="model-search">
-            <Search :size="16" aria-hidden="true" />
-            <ListboxFilter v-model="query" role="combobox" :aria-controls="listId" :aria-expanded="open"
-              aria-autocomplete="list" aria-label="搜索模型" placeholder="搜索模型或供应商…" autocomplete="off" />
+      :aria-label="cli ? '选择 CLI 和模型' : '选择本次模型'" :data-thinking="showThinking ? '' : undefined">
+      <h2 v-if="cli" class="px-3 pt-3 text-sm font-semibold">选择 CLI 和模型</h2>
+      <Tabs :model-value="browsedCli" activation-mode="manual" class="model-picker-tabs" @update:model-value="browse">
+        <TabsList v-if="cli" aria-label="浏览 Agent CLI" class="model-cli-tabs mx-3 mt-2 grid w-auto grid-cols-2">
+          <TabsTrigger value="pi">Pi</TabsTrigger>
+          <TabsTrigger value="grok">Grok Build</TabsTrigger>
+        </TabsList>
+        <TabsContent :value="browsedCli" class="model-picker-panel">
+          <div v-if="cli && selectionDisabled" class="mx-3 flex flex-wrap items-center justify-between gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+            <template v-if="lockedCli && lockedCli !== browsedCli">
+              <span>本会话使用 {{ agentHostLabels[lockedCli] }}。可通过新会话或交接使用其他 CLI。</span>
+              <Button type="button" variant="ghost" size="xs" @click="openNewSession">新会话</Button>
+            </template>
+            <span v-else>当前轮次或待核对请求已固定发送目标。</span>
           </div>
-          <div v-if="providers.length > 1" class="model-providers" role="group" aria-label="模型供应商">
-            <Button type="button" variant="ghost" size="xs" :aria-pressed="!provider" @click="provider = ''">全部</Button>
-            <Button v-for="name in providers" :key="name" type="button" variant="ghost" size="xs"
-              :aria-pressed="provider === name" @click="provider = name">{{ name }}</Button>
-          </div>
-          <div class="model-list">
-            <LoadingSkeleton v-if="loading" :rows="3" label="正在读取本机 Pi 模型" />
-            <div v-else-if="error" class="model-list-feedback">
-              <p role="alert">{{ error }}</p>
-              <Button type="button" variant="outline" size="sm" @click="readModels">重试</Button>
+          <p v-if="browsingSelection && issue" class="px-3 pt-2 text-xs text-destructive" role="status">{{ issue }}</p>
+          <div class="model-picker-body" :data-levels="showLevels ? '' : undefined">
+            <ListboxRoot :model-value="selectedKey" highlight-on-hover class="model-picker-content"
+              :data-providers="providers.length > 1 ? '' : undefined">
+              <div class="model-search">
+                <Search :size="16" aria-hidden="true" />
+                <ListboxFilter v-model="query" role="combobox" :aria-controls="listId" :aria-expanded="open"
+                  aria-autocomplete="list" aria-label="搜索模型" placeholder="搜索模型或供应商…" autocomplete="off" />
+              </div>
+              <div v-if="providers.length > 1" class="model-providers" role="group" aria-label="模型供应商">
+                <Button type="button" variant="ghost" size="xs" :aria-pressed="!provider" @click="provider = ''">全部</Button>
+                <Button v-for="name in providers" :key="name" type="button" variant="ghost" size="xs"
+                  :aria-pressed="provider === name" @click="provider = name">{{ name }}</Button>
+              </div>
+              <div class="model-list">
+                <LoadingSkeleton v-if="loading" :rows="3" :label="'正在读取本机 ' + cliLabel + ' 模型'" />
+                <div v-if="error" class="model-list-feedback">
+                  <p role="alert">{{ models.length ? '目录待核对，以下为上次成功列表。' : '' }} {{ feedback }}</p>
+                </div>
+                <p v-else-if="!loading && !filteredModels.length" role="status" class="model-list-feedback">
+                  {{ models.length ? '没有匹配的模型。' : `本机 ${cliLabel} 没有可选模型，请检查模型和凭据配置。` }}
+                </p>
+                <ListboxContent :id="listId" :aria-label="'本机 ' + cliLabel + ' 模型'">
+                  <ListboxItem v-for="model in filteredModels" :key="piModelKey(model)" :value="piModelKey(model)" :disabled="selectionDisabled || loading || !!error"
+                    :aria-disabled="selectionDisabled || loading || !!error ? true : undefined" class="model-option" @select="choose(model)">
+                    <span class="model-id">{{ model.id }} <small>{{ model.provider }}</small></span>
+                    <ListboxItemIndicator><Check :size="16" aria-hidden="true" /></ListboxItemIndicator>
+                  </ListboxItem>
+                </ListboxContent>
+              </div>
+            </ListboxRoot>
+            <div v-if="showLevels" class="model-thinking">
+              <div class="model-thinking-label">推理级别</div>
+              <LoadingSkeleton v-if="checkingThinking" :rows="1" label="正在读取模型推理级别" />
+              <p v-else-if="thinkingLevels?.length === 1 && thinkingLevels[0] === 'off'" class="model-thinking-note">此模型不提供可调推理级别</p>
+              <div v-else role="group" aria-label="推理级别" class="model-thinking-options">
+                <Button v-for="level in thinkingLevels" :key="level" type="button" variant="ghost" size="xs"
+                  :aria-pressed="level === thinkingLevel" :disabled="selectionDisabled" @click="chooseThinking(level)">{{ piThinkingLabels[level] ?? level }}</Button>
+              </div>
             </div>
-            <p v-else-if="!filteredModels.length" role="status" class="model-list-feedback">
-              {{ models.length ? '没有匹配的模型。' : '本机 Pi 没有可选模型，请检查模型和凭证配置。' }}
-            </p>
-            <ListboxContent :id="listId" aria-label="本机 Pi 模型">
-              <ListboxItem v-for="model in filteredModels" :key="piModelKey(model)" :value="piModelKey(model)" class="model-option" @select="choose(model)">
-                <span class="model-id">{{ model.id }} <small>{{ model.provider }}</small></span>
-                <ListboxItemIndicator><Check :size="16" aria-hidden="true" /></ListboxItemIndicator>
-              </ListboxItem>
-            </ListboxContent>
           </div>
-        </ListboxRoot>
-        <div v-if="showLevels" class="model-thinking">
-          <div class="model-thinking-label">推理级别</div>
-          <LoadingSkeleton v-if="checkingThinking" :rows="1" label="正在读取模型推理级别" />
-          <p v-else-if="thinkingLevels?.length === 1 && thinkingLevels[0] === 'off'" class="model-thinking-note">此模型不提供可调推理级别</p>
-          <div v-else role="group" aria-label="推理级别" class="model-thinking-options">
-            <Button v-for="level in thinkingLevels" :key="level" type="button" variant="ghost" size="xs"
-              :aria-pressed="level === thinkingLevel" @click="chooseThinking(level)">{{ piThinkingLabels[level] }}</Button>
+          <div class="model-picker-actions">
+            <Button type="button" variant="ghost" size="sm" :disabled="selectionDisabled || (browsingSelection && !selectedModel)" @click="choose()">{{ defaultTargetLabel }}</Button>
+            <Button type="button" variant="ghost" size="sm" :disabled="loading" @click="readModels(true)">刷新目录</Button>
           </div>
-        </div>
-      </div>
-      <div class="model-picker-actions">
-        <Button type="button" variant="ghost" size="sm" :disabled="!selectedModel" @click="choose()">{{ defaultLabel }}</Button>
-      </div>
+        </TabsContent>
+      </Tabs>
     </PopoverContent>
   </Popover>
 </template>
@@ -160,6 +228,8 @@ onBeforeUnmount(() => request?.abort())
   max-height: min(29rem, var(--reka-popover-content-available-height, calc(100dvh - 24px)));
   color: var(--brand-color-text-primary, #222);
 }
+.model-picker-tabs, .model-picker-panel { display: flex; flex-direction: column; min-height: 0; }
+.model-cli-tabs [role='tab'][data-state='active'] { border-color: var(--yss-colors-border); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); }
 .model-picker-content { display: flex; flex-direction: column; min-height: 0; }
 .model-picker-body { min-height: 0; display: flex; flex-direction: column; }
 .model-search {
