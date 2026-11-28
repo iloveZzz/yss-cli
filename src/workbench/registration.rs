@@ -473,6 +473,7 @@ pub fn register(
         expected_revision
     };
     Ok(MutationResult {
+        confirmation: None,
         response_id: None,
         goal_version: None,
         revision,

@@ -2,13 +2,16 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert } from '@/components/ui/alert'
 import { computed, shallowRef, useId, useTemplateRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import { Button } from '@/components/ui/button'
 import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
 import {
   dateLabel,
   errorMessage,
+  evidenceSyncKey,
   progressLabels,
+  roleLabels,
   sourceLabels,
   stageState,
   stages,
@@ -47,6 +50,7 @@ const emit = defineEmits<{
   confirmContent: []
 }>()
 const { submit, saving, expired } = useWorkbench()
+const route = useRoute()
 const change = useLifecycleGoalChange(props.specId)
 const id = useId()
 const chosenStage = shallowRef<Stage>()
@@ -59,7 +63,19 @@ const selectedStage = computed(() =>
 const selected = computed(
   () => props.progress?.stages.find((stage) => stage.stage === selectedStage.value)
 )
+const stageSyncEvidence = computed(() =>
+  props.progress?.syncEvidence?.filter((item) => item.stage === selectedStage.value) ?? []
+)
+const selectedSyncEvidence = computed(() =>
+  stageSyncEvidence.value.find((item) => evidenceSyncKey(item) === route.query.evidence)
+)
+const syncEvidence = computed(() => {
+  const selected = selectedSyncEvidence.value
+  const items = stageSyncEvidence.value
+  return selected ? [selected, ...items.filter((item) => item !== selected)] : items
+})
 const stageHeading = useTemplateRef<HTMLElement>('stage-heading')
+const syncHeading = useTemplateRef<HTMLElement>('sync-heading')
 const goalStatus = useTemplateRef<HTMLElement>('goal-status')
 const goalOpen = shallowRef(false)
 const cancelOpen = shallowRef(false)
@@ -98,8 +114,9 @@ watch(
   () => { chosenStage.value = undefined }
 )
 watch(
-  [() => props.stageFocus, () => props.active, selectedStage, stageHeading],
-  ([target, active, stage, heading], _previous, onCleanup) => {
+  [() => props.stageFocus, () => props.active, selectedStage, stageHeading, selectedSyncEvidence, syncHeading],
+  ([target, active, stage, stageTitle, evidence, evidenceTitle], _previous, onCleanup) => {
+    const heading = (evidence && evidenceTitle) || stageTitle
     if (!active || target?.stage !== stage || !heading) return
     // TabsContent updates its visibility after the current tick.
     const frame = requestAnimationFrame(() => {
@@ -327,6 +344,26 @@ async function reconcile() {
         {{ selected.blocker }}
       </p>
       <p v-if="selected.nextAction" class="stage-summary">下一步 · {{ selected.nextAction }}</p>
+      <section v-if="syncEvidence.length" class="notice warning sync-evidence" :aria-labelledby="id + '-sync-evidence'">
+        <h4 :id="id + '-sync-evidence'" ref="sync-heading" tabindex="-1">待更新的证据</h4>
+        <ul>
+          <li v-for="evidence in syncEvidence" :key="evidenceSyncKey(evidence)">
+            <p v-if="evidence.projectName || evidence.projectId || evidence.role">
+              <strong>{{ evidence.projectName || evidence.projectId || stages[evidence.stage] }}</strong>
+              <span v-if="evidence.role"> · {{ roleLabels[evidence.role] }}</span>
+            </p>
+            <p>{{ evidence.reason }}</p>
+            <p v-if="evidence.recordedAt">原报告 · {{ dateLabel(evidence.recordedAt) }}</p>
+            <details v-if="evidence.paths.length">
+              <summary>原凭证覆盖的路径（{{ evidence.paths.length }} 项）</summary>
+              <ul>
+                <li v-for="path in evidence.paths" :key="path"><code>{{ path }}</code></li>
+              </ul>
+            </details>
+            <p>下一步 · {{ evidence.nextAction }}</p>
+          </li>
+        </ul>
+      </section>
       <p v-if="selected.overrideRecord" class="override-reason">
         人工更正原因 · {{ selected.overrideRecord.reason }}
       </p>
@@ -433,6 +470,30 @@ async function reconcile() {
   </section>
 </template>
 <style scoped>
+.sync-evidence {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.sync-evidence h4 {
+  font-weight: 600;
+}
+.sync-evidence > ul {
+  display: grid;
+  gap: 12px;
+  margin-top: 6px;
+}
+.sync-evidence li > p + p {
+  margin-top: 3px;
+}
+.sync-evidence details {
+  margin-block: 4px;
+}
+.sync-evidence summary {
+  cursor: pointer;
+}
+.sync-evidence details ul {
+  padding-inline-start: 16px;
+}
 .lifecycle-overview {
   margin: 20px 0 28px;
   min-width: 0;

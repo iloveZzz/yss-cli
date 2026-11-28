@@ -7,7 +7,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::{
+    ops::RangeInclusive,
+    path::{Path, PathBuf},
+};
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
@@ -556,6 +559,45 @@ pub(crate) const fn supported() -> bool {
         all(target_os = "macos", target_arch = "aarch64"),
         all(target_os = "windows", target_arch = "x86_64")
     ))
+}
+
+pub(super) fn read_citation(
+    workspace: &Workspace,
+    project_id: &str,
+    path: &RelPath,
+    lines: RangeInclusive<usize>,
+    data_dir: &Path,
+    unselected_projects: &[PathBuf],
+) -> Result<(Sha256, Option<String>)> {
+    #[cfg(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
+    {
+        pi::read_citation(
+            workspace,
+            project_id,
+            path,
+            lines,
+            data_dir,
+            unselected_projects,
+        )
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    )))]
+    {
+        let _ = (
+            workspace,
+            project_id,
+            path,
+            lines,
+            data_dir,
+            unselected_projects,
+        );
+        Err(unsupported())
+    }
 }
 
 #[cfg(not(any(

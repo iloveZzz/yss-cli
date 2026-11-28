@@ -1148,6 +1148,7 @@ fn compact_progress(progress: &ProgressSummary) -> Value {
         "status": progress.status,
         "validity": progress.validity,
         "attention": progress.attention,
+        "syncEvidence": &progress.sync_evidence[..progress.sync_evidence.len().min(1)],
         "summary": progress.summary,
         "blocker": progress.blocker,
         "nextAction": progress.next_action,
@@ -1320,10 +1321,21 @@ fn overview(view: &Snapshot) -> Result<Overview> {
                     })
                 })
                 .collect();
+            let needs_reconfirmation = *kind == "ready" && item.needs_reconfirmation;
+            let material_change = needs_reconfirmation
+                .then(|| {
+                    content
+                        .material_changes
+                        .iter()
+                        .find(|change| change.kind == materials::MaterialChangeKind::Changed)
+                })
+                .flatten()
+                .map(|change| json!({"target":change.target, "reason":change.reason}));
             bucket.preview.items.push(json!({
                 "specId":item.spec_id, "title":item.title,
                 "sourcePath":item.source_path, "projectName":item.project_name, "count":count,
-                "questions":questions
+                "questions":questions, "needsReconfirmation":needs_reconfirmation,
+                "materialChange":material_change,
             }));
         }
         let in_attention = progress.is_some_and(|progress| !progress.attention.is_empty());

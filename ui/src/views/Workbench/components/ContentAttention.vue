@@ -8,8 +8,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { contentReminders } from '@/services/workbench-content'
-import type { WorkbenchOverview } from '@/services/workbench-read'
-const props = defineProps<{ reminders: WorkbenchOverview['reminders'] }>()
+import type { ReminderItem, WorkbenchOverview } from '@/services/workbench-read'
+const props = defineProps<{
+  reminders: WorkbenchOverview['reminders']
+  readyRefreshing?: boolean
+  readyRefreshFailed?: boolean
+}>()
 const route = useRoute()
 const router = useRouter()
 const id = useId()
@@ -28,11 +32,19 @@ function select(kind: string | number) {
 const counts = computed(() =>
   contentReminders(undefined).map((group) => ({
     ...group,
-    count: props.reminders[group.id]?.total ?? 0
+    count: props.reminders[group.id]?.total ?? 0,
+    refreshing: group.id === 'ready' && !!props.readyRefreshing
   }))
 )
 const selectedLabel = computed(() => counts.value.find((group) => group.id === selected.value)?.label ?? '内容待办')
-const hasReminders = computed(() => counts.value.some((group) => group.count > 0))
+const hasReminders = computed(() => counts.value.some((group) => group.count > 0 || group.refreshing))
+const defaultCategory = computed(() => counts.value.find((group) => group.count || group.refreshing)?.id ?? 'decision')
+const refreshing = computed(() => selected.value === 'ready' && !!props.readyRefreshing)
+const readyStatus = computed(() =>
+  refreshing.value ? (
+    props.readyRefreshFailed ? '确认已保存，列表核对失败' : '确认已保存，正在更新列表'
+  ) : ''
+)
 const preview = computed(() => props.reminders[selected.value])
 const items = computed(() => preview.value?.items ?? [])
 watch(
@@ -40,25 +52,32 @@ watch(
   (value) => {
     const next = category(value)
     touched.value = !!next
-    selected.value = next ?? counts.value.find((group) => group.count)?.id ?? 'decision'
+    selected.value = next ?? defaultCategory.value
   }
 )
 watch(
   counts,
   (value) => {
-    if (!touched.value && !value.some((group) => group.id === selected.value && group.count))
-      selected.value = value.find((group) => group.count)?.id ?? 'decision'
+    if (!touched.value && !value.some((group) => group.id === selected.value && (group.count || group.refreshing)))
+      selected.value = defaultCategory.value
   },
   { immediate: true }
 )
-function location(specId: string, questionId?: string) {
+function location(item: ReminderItem, questionId?: string) {
   return {
-    path: `/specs/${specId}`,
-    query: { return: route.fullPath, tab: 'content', category: selected.value, questionId }
+    path: `/specs/${item.specId}`,
+    query: {
+      return: route.fullPath,
+      tab: 'content',
+      category: selected.value,
+      questionId,
+      ...(item.needsReconfirmation ? { focus: 'materials' } : {})
+    }
   }
 }
 </script>
 <template>
+  <p class="sr-only" role="status">{{ readyStatus }}</p>
   <section v-if="!hasReminders" class="home-status" :aria-labelledby="id">
     <div class="home-status-row">
       <CircleCheck class="home-status-icon" aria-hidden="true" />
@@ -83,10 +102,11 @@ function location(specId: string, questionId?: string) {
       <TabsList class="attention-filters home-tabs" aria-label="内容提醒类别">
         <TabsTrigger v-for="group in counts" :key="group.id" :value="group.id">
           {{ group.label }}
-          <Badge variant="secondary" class="tab-count">{{ group.count }} 项</Badge>
+          <Badge v-if="!group.refreshing" variant="secondary" class="tab-count">{{ group.count }} 项</Badge>
         </TabsTrigger>
       </TabsList>
       <TabsContent v-for="group in counts" :key="group.id" :value="group.id" class="min-w-0">
+        <p v-if="refreshing" class="muted px-4 py-3" aria-hidden="true">{{ readyStatus }}</p>
         <div
           v-if="items.length"
           class="table-scroll attention-table"
@@ -106,7 +126,7 @@ function location(specId: string, questionId?: string) {
             <TableBody>
               <TableRow v-for="item in items" :key="item.specId">
                 <TableHead scope="row">
-                  <RouterLink :to="location(item.specId)" :title="item.sourcePath">
+                  <RouterLink :to="location(item)" :title="item.sourcePath">
                     {{ item.title }}
                   </RouterLink>
                   <span class="row-sub">{{ item.projectName }}</span>
@@ -114,41 +134,48 @@ function location(specId: string, questionId?: string) {
                 <TableCell>
                   <ul v-if="item.questions.length" class="attention-questions">
                     <li v-for="question in item.questions" :key="question.id">
-                      <RouterLink :to="location(item.specId, question.id)">
+                      <RouterLink :to="location(item, question.id)">
                         {{ question.title }}
                       </RouterLink>
                       <Badge v-if="question.blocking" variant="outline" class="blocking-label">阻塞</Badge>
                     </li>
                   </ul>
+                  <div v-else-if="item.needsReconfirmation">
+                    <strong>新版待确认</strong>
+                    <p class="muted">
+                      {{ item.materialChange?.reason || '确认范围或采用材料已变化' }}
+                    </p>
+                    <p v-if="item.materialChange" class="row-sub break-all">{{ item.materialChange.target }}</p>
+                  </div>
                   <p v-else class="muted">主规格已具备确认条件</p>
                   <RouterLink
                     v-if="item.count > item.questions.length && item.questions.length"
-                    :to="location(item.specId)"
+                    :to="location(item)"
                     class="more-questions"
                   >
                     查看其余 {{ item.count - item.questions.length }} 项
                   </RouterLink>
                 </TableCell>
                 <TableCell class="attention-action">
-                  <RouterLink :to="location(item.specId)">
+                  <RouterLink :to="location(item)">
                     {{
                       selected === 'ready'
-                        ? '检查并确认'
+                        ? (item.needsReconfirmation ? '核对新版' : '检查并确认')
                         : selected === 'writeback'
                           ? '核对回写'
                           : '处理事项'
                     }}
-                    <span>{{ item.count }} →</span>
+                    <span>{{ selected === 'ready' ? '→' : item.count + ' →' }}</span>
                   </RouterLink>
                 </TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
-        <p v-if="preview && items.length < preview.specTotal" class="muted px-4 py-2">
+        <p v-if="!refreshing && preview && items.length < preview.specTotal" class="muted px-4 py-2">
           已显示 {{ items.length }} / {{ preview.specTotal }} 个 Spec
         </p>
-        <Empty v-if="!items.length" class="attention-empty">
+        <Empty v-if="!refreshing && !items.length" class="attention-empty">
           <EmptyDescription>当前没有{{ selectedLabel }}事项</EmptyDescription>
         </Empty>
       </TabsContent>

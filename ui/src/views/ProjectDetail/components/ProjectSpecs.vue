@@ -48,7 +48,8 @@ const query = computed(() => ({
   includeClosed: showClosed.value
 }))
 const {
-  result, resultsCurrent, loading, loadingMore, verification, verificationError, writable, error, reload, loadMore
+  result, resultsCurrent, loading, loadingMore, verification, verificationError, confirmationUpdating,
+  writable, error, reload, loadMore
 } = useSpecWorkItems(query, toRef(() => props.active))
 
 // Pending responses have no verified rows or coverage, even when their counts are zero.
@@ -111,7 +112,10 @@ watch(() => props.project.record.rootPath, () => {
     {{ listError }}{{ page ? ' 保留上次读取的记录。' : '' }}
     <Button type="button" variant="outline" :disabled="loading || refreshing" @click="retry">重试</Button>
   </Alert>
-  <p v-if="refreshing" class="project-result-status muted" role="status">
+  <p v-if="confirmationUpdating" class="project-result-status muted" role="status">
+    {{ listError ? '确认已保存，列表核对失败。' : '确认已保存，正在更新列表。' }}
+  </p>
+  <p v-else-if="refreshing" class="project-result-status muted" role="status">
     正在核验工程 Spec。{{ page ? ' 保留上次核实结果。' : '' }}
   </p>
   <p v-else-if="page && !resultsCurrent && !listBusy" class="project-result-status muted">
@@ -127,7 +131,8 @@ watch(() => props.project.record.rootPath, () => {
   <div v-if="page" class="relative">
     <Card class="panel block gap-0 py-0 shadow-none" :aria-busy="loading || refreshing">
       <div :inert="!resultsCurrent">
-        <WorkItemRows :items="page.items" :refreshing="listBusy" :refresh-label="refreshLabel">
+        <WorkItemRows v-if="page.items.length || !confirmationUpdating"
+          :items="page.items" :refreshing="listBusy" :refresh-label="refreshLabel">
           <template #empty>
             <Empty>
               <EmptyDescription>
@@ -137,7 +142,7 @@ watch(() => props.project.record.rootPath, () => {
           </template>
         </WorkItemRows>
       </div>
-      <div v-if="page.total > page.items.length" class="load-more">
+      <div v-if="!confirmationUpdating && page.total > page.items.length" class="load-more">
         <Button type="button" variant="outline" :disabled="loading || refreshing || !writable" @click="loadMore()">
           <LoadingIndicator :active="loadingMore" />
           {{ loadingMore ? '正在加载更多…' : '加载更多' }}（已显示 {{ page.items.length }} / {{ page.total }}）

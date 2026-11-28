@@ -19,6 +19,7 @@ const props = defineProps<{
   compact?: boolean
   target?: DeliveryTarget | null
   reviewTo?: { path: string; query: Record<string, string> }
+  syncTo?: { path: string; query: Record<string, string> }
 }>()
 const completionTitle = '总体进度'
 const target = computed(() => props.target ?? props.progress?.target)
@@ -33,6 +34,12 @@ const title = computed(() => {
     : props.compact ? progress.summary : `${stages[progress.primaryStage]} · ${progress.summary || '进展待核实'}`
 })
 const attention = computed(() => props.progress?.attention.filter((item) => item !== 'goalMissing' && item !== 'manualOverride') ?? [])
+const syncEvidence = computed(() => props.progress?.syncEvidence?.[0])
+const syncContext = computed(() => {
+  const evidence = syncEvidence.value
+  if (!evidence) return ''
+  return [stages[evidence.stage], evidence.projectName ?? evidence.projectId].filter(Boolean).join(' · ')
+})
 const completion = computed(() => {
   const completion = props.progress?.completion
   return completion && completion.total > 0 ? completion : undefined
@@ -67,12 +74,21 @@ const completionLabel = computed(() => {
       <p v-if="hasGoal && progress && !compact" class="muted">证据 {{ validityLabels[progress.validity] }}</p>
       <div v-if="attention.length" class="summary-attention">
         <template v-for="item in attention" :key="item">
-          <RouterLink v-if="item === 'needsReview' && reviewTo" class="text-link summary-tag" :to="reviewTo">
+          <RouterLink v-if="item === 'needsSync' && syncTo" class="text-link summary-tag" :to="syncTo">
+            {{ attentionLabels[item] }}
+          </RouterLink>
+          <RouterLink v-else-if="item === 'needsReview' && reviewTo" class="text-link summary-tag" :to="reviewTo">
             {{ attentionLabels[item] }}
           </RouterLink>
           <Badge v-else variant="outline" class="summary-tag">{{ attentionLabels[item] ?? item }}</Badge>
         </template>
       </div>
+      <p v-if="syncEvidence" class="summary-target">
+        <strong>{{ syncContext }}</strong> · {{ syncEvidence.reason }}
+      </p>
+      <p v-if="syncEvidence?.nextAction && syncEvidence.nextAction !== progress?.nextAction && progress?.nextAction" class="summary-target">
+        {{ syncEvidence.nextAction }}
+      </p>
     </div>
     <div v-if="!compact && hasGoal && progress?.status !== 'canceled'" class="summary-progress">
       <div class="summary-progress-label">
@@ -91,9 +107,9 @@ const completionLabel = computed(() => {
         <dt>阻塞</dt>
         <dd>{{ progress?.blocker || '尚无已核实阻塞' }}</dd>
       </div>
-      <div v-if="progress?.nextAction">
+      <div v-if="syncEvidence?.nextAction || progress?.nextAction">
         <dt>下一步</dt>
-        <dd>{{ progress.nextAction }}</dd>
+        <dd>{{ progress?.nextAction || syncEvidence?.nextAction }}</dd>
       </div>
       <div v-if="!compact">
         <dt>最近核实</dt>

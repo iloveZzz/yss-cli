@@ -31,7 +31,7 @@ const { filters, viewId, update, toggle, apply, clear, detachView } =
 const id = useId()
 const {
   result, resultsCurrent, loading, loadingMore, error,
-  verification, verificationError, writable, refresh, loadMore
+  verification, verificationError, confirmationUpdating, writable, refresh, loadMore
 } = useSpecWorkItems(filters)
 registerWorkbenchRouteReads({ busy: loading, readAt: computed(() => result.value?.readAt), refresh })
 const showPlaceholder = computed(() =>
@@ -164,12 +164,15 @@ function all() {
   </Card>
   <div class="results-toolbar">
     <span class="result-count" role="status">
-      <template v-if="result?.projectionVersion">
+      <template v-if="confirmationUpdating">
+        {{ error || verification === 'failed' ? '确认已保存，列表核对失败。' : '确认已保存，正在更新列表。' }}
+      </template>
+      <template v-else-if="result?.projectionVersion">
         <strong>{{ result.total }}</strong>
         项结果
         <span v-if="result.items.length < result.total">· 已显示 {{ result.items.length }} 项</span>
       </template>
-      <span v-if="loading" class="muted">{{ loadingMore ? ' · 正在追加' : result ? ' · 刷新中' : '正在读取 Spec…' }}</span>
+      <span v-if="loading && !confirmationUpdating" class="muted">{{ loadingMore ? ' · 正在追加' : result ? ' · 刷新中' : '正在读取 Spec…' }}</span>
     </span>
     <Button type="button" variant="ghost" :disabled="loading" @click="refresh">
       {{ loading && !loadingMore && result ? '刷新中…' : '刷新结果' }}
@@ -195,7 +198,7 @@ function all() {
     <LoadingSkeleton variant="table" :rows="4" />
   </Card>
   <template v-else-if="result?.projectionVersion">
-    <Empty v-if="!result.items.length" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空" data-workbench-reveal>
+    <Empty v-if="!result.items.length && !confirmationUpdating" class="panel query-empty" :aria-busy="loading" aria-label="查询结果为空" data-workbench-reveal>
       <EmptyHeader>
         <EmptyTitle><h2>{{ resultsCurrent ? '没有匹配的 Spec' : '上次查询没有匹配的 Spec' }}</h2></EmptyTitle>
         <EmptyDescription>可清除筛选，或将已关闭与停用记录纳入当前查询。</EmptyDescription>
@@ -205,9 +208,9 @@ function all() {
         <Button type="button" variant="ghost" @click="all">显示已关闭与停用</Button>
       </EmptyContent>
     </Empty>
-    <Card v-else class="panel result-list gap-0 p-0 shadow-none" data-workbench-reveal>
+    <Card v-else-if="result.items.length" class="panel result-list gap-0 p-0 shadow-none" data-workbench-reveal>
       <WorkItemRows :items="result.items" :refreshing="loading && !loadingMore" />
-      <div v-if="result.total > result.items.length" class="load-more">
+      <div v-if="!confirmationUpdating && result.total > result.items.length" class="load-more">
         <Button type="button" variant="outline" :disabled="loading || !writable" @click="loadMore()">
           <LoadingIndicator :active="loadingMore" />
           {{ loadingMore ? '正在加载更多…' : '加载更多' }}（已显示 {{ result.items.length }} / {{ result.total }}）

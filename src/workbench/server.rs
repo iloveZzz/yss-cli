@@ -363,8 +363,12 @@ async fn dispatch(server: Server, request: Request) -> Response {
             .ends_with("/agent-continuation/draft");
     let agent_probe = method == axum::http::Method::GET
         && matches!(path.as_str(), "/api/agent/models" | "/api/agent/runtime");
+    let citation = method == axum::http::Method::GET
+        && path.starts_with("/api/jobs/")
+        && path.contains("/citations/");
     let request_cancel = (draft
         || agent_probe
+        || citation
         || (path.starts_with("/api/merge-requests/")
             && matches!(method, axum::http::Method::GET | axum::http::Method::POST)))
     .then(|| server.cancel.child());

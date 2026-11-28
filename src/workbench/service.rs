@@ -742,6 +742,7 @@ fn mutate_inner(
             request.expected_revision,
             state,
             MutationResult {
+                confirmation: None,
                 response_id: None,
                 goal_version,
                 revision: 0,
@@ -777,6 +778,7 @@ fn mutate_inner(
             request.expected_revision,
             state,
             MutationResult {
+                confirmation: None,
                 response_id: None,
                 goal_version: None,
                 revision: 0,
@@ -797,6 +799,7 @@ fn mutate_inner(
             request.expected_revision,
             state,
             MutationResult {
+                confirmation: None,
                 response_id: None,
                 goal_version: None,
                 revision: 0,
@@ -812,6 +815,7 @@ fn mutate_inner(
     }
     let project_id;
     let mut spec_id = None;
+    let mut confirmation = None;
     let mut response_id = None;
     let mut task_ids = vec![];
     let mut delta = BTreeMap::new();
@@ -864,13 +868,21 @@ fn mutate_inner(
             let records = super::materials::Records::load(store)?;
             let (view, captured) = super::content::inspect_record(&state, &id, &records, true)?;
             let count = state.confirmations.len();
+            confirmation = view
+                .confirmations
+                .iter()
+                .rev()
+                .find(|record| record.scope == scope && record.artifact_digest == artifact_digest)
+                .cloned();
             super::content::confirm(&mut state, &id, scope, artifact_digest, &at, &view)?;
             if state.confirmations.len() > count {
+                let record = &state.confirmations[count];
                 effects = super::artifacts::confirmation_effects(
                     store,
-                    &state.confirmations[count],
+                    record,
                     captured.ok_or_else(|| invalid("确认材料无法保存"))?,
                 )?;
+                confirmation = Some(record.clone());
             }
             spec_id = Some(id);
         }
@@ -1117,6 +1129,7 @@ fn mutate_inner(
         request.expected_revision,
         state,
         MutationResult {
+            confirmation,
             response_id,
             goal_version: None,
             revision: 0,

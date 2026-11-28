@@ -518,6 +518,13 @@ impl PlatformApi {
             }
             ("GET", ["api", "jobs"]) => encode(self.jobs.list()?)?,
             ("GET", ["api", "jobs", id]) => encode(self.jobs.get(id)?)?,
+            ("GET", ["api", "jobs", id, "citations", event, number]) => agent::citations::current(
+                &self.jobs.store,
+                id,
+                event_cursor(event)?,
+                event_cursor(number)?,
+                request_cancel.unwrap_or(&self.cancel),
+            )?,
             ("GET", ["api", "jobs", id, "activities"]) => {
                 let before = query
                     .get("before")

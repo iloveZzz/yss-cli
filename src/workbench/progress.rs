@@ -439,6 +439,8 @@ pub struct ProgressSummary {
     pub completion: Option<ProgressCompletion>,
     pub validity: Validity,
     pub attention: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sync_evidence: Vec<EvidenceSync>,
     pub summary: String,
     pub blocker: String,
     pub next_action: String,
@@ -455,6 +457,27 @@ pub struct ProgressSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub material_review: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceSync {
+    pub stage: Stage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<ParticipantRole>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    pub reason: String,
+    pub paths: Vec<String>,
+    pub next_action: String,
+}
+
+pub(super) const SYNC_EVIDENCE_NEXT_ACTION: &str = "在现用工程版本核实并补报本轮证据";
 
 const AUTOMATIC_DECISION_KIND: &str = "automaticProgressDecision";
 const CANCELLATION_KIND: &str = "lifecycleGoalCancellation";
@@ -2081,6 +2104,90 @@ fn scoped_validity(records: &ProgressRecords, record: &ReportRecord, project_id:
     }
 }
 
+fn sync_diagnostic(
+    snapshot: &Snapshot,
+    stage: Stage,
+    report: Option<&ReportRecord>,
+    project_id: Option<&str>,
+    scope_changed: bool,
+) -> EvidenceSync {
+    let project_name = project_id.and_then(|id| {
+        snapshot
+            .projects
+            .iter()
+            .find(|project| project.record.id == id)
+            .map(|project| project.record.name.clone())
+    });
+    let paths = report
+        .and_then(|record| {
+            record
+                .report
+                .input_paths
+                .iter()
+                .find(|input| Some(input.project_id.as_str()) == project_id)
+        })
+        .map_or_else(Vec::new, |input| input.paths.clone());
+    EvidenceSync {
+        stage,
+        project_id: project_id.map(str::to_owned),
+        project_name,
+        role: report.map(|record| record.report.role),
+        report_id: report.map(|record| record.report.id.clone()),
+        recorded_at: report.map(|record| record.recorded_at.clone()),
+        reason: if scope_changed {
+            "报告登记的输入范围摘要已变化"
+        } else {
+            "现有凭证需要按当前目标、工程版本和输入核对"
+        }
+        .into(),
+        paths,
+        next_action: SYNC_EVIDENCE_NEXT_ACTION.into(),
+    }
+}
+
+fn changed_report_inputs<'a>(
+    records: &'a ProgressRecords,
+    report: &'a ReportRecord,
+) -> impl Iterator<Item = &'a str> {
+    report
+        .checked_inputs
+        .iter()
+        .map(|inputs| inputs.project_id.as_str())
+        .filter(|id| scoped_validity(records, report, id) == Validity::NeedsSync)
+}
+
+fn append_report_sync_diagnostics(
+    diagnostics: &mut Vec<EvidenceSync>,
+    snapshot: &Snapshot,
+    records: &ProgressRecords,
+    report: &ReportRecord,
+) {
+    let stage = report.report.stage;
+    let count = diagnostics.len();
+    diagnostics.extend(
+        changed_report_inputs(records, report)
+            .map(|id| sync_diagnostic(snapshot, stage, Some(report), Some(id), true)),
+    );
+    if diagnostics.len() == count {
+        let project_id = report.report.project_id.as_deref().or({
+            match report.report.input_paths.as_slice() {
+                [inputs] => Some(inputs.project_id.as_str()),
+                _ => match report.report.versions.as_slice() {
+                    [version] => Some(version.project_id.as_str()),
+                    _ => None,
+                },
+            }
+        });
+        diagnostics.push(sync_diagnostic(
+            snapshot,
+            stage,
+            Some(report),
+            project_id,
+            false,
+        ));
+    }
+}
+
 fn engineering_validity(
     records: &ProgressRecords,
     record: &ReportRecord,
@@ -3435,10 +3542,32 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         });
     let validity = aggregate_validity(stages.iter().filter(in_scope).map(|s| s.validity));
     let mut attention = BTreeSet::new();
+    let mut sync_evidence = Vec::new();
     if goal.is_none() {
         attention.insert("goalMissing".into());
     }
     for stage in stages.iter().filter(in_scope) {
+        if stage.validity == Validity::NeedsSync
+            && let Some(report) =
+                main_stage_report(records, spec, goal, stage.stage).filter(|report| {
+                    report_validity(records, spec, goal, report) == Validity::NeedsSync
+                })
+        {
+            append_report_sync_diagnostics(&mut sync_evidence, snapshot, records, report);
+        }
+        for participant in stage
+            .participants
+            .iter()
+            .filter(|participant| participant.validity == Validity::NeedsSync)
+        {
+            if let Some(report) = records
+                .reports
+                .iter()
+                .find(|report| Some(report.report.id.as_str()) == participant.report_id.as_deref())
+            {
+                append_report_sync_diagnostics(&mut sync_evidence, snapshot, records, report);
+            }
+        }
         for validity in std::iter::once(stage.validity).chain(
             stage
                 .participants
@@ -3494,25 +3623,51 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
             r.report.spec_id == spec.record.id
                 && goal.is_some_and(|g| g.goal_version == r.report.goal_version)
         }) {
-            if report.checked_inputs.iter().any(|inputs| {
-                scoped_validity(records, report, &inputs.project_id) == Validity::NeedsSync
-            }) && latest_report(
-                records,
-                &spec.record.id,
-                goal,
-                report.report.stage,
-                report.report.project_id.as_deref(),
-                report.report.role,
-            )
-            .is_some_and(|latest| latest.report.id == report.report.id)
+            let mut changed = changed_report_inputs(records, report).peekable();
+            if changed.peek().is_some()
+                && latest_report(
+                    records,
+                    &spec.record.id,
+                    goal,
+                    report.report.stage,
+                    report.report.project_id.as_deref(),
+                    report.report.role,
+                )
+                .is_some_and(|latest| latest.report.id == report.report.id)
             {
                 attention.insert("needsSync".into());
+                sync_evidence.extend(changed.map(|id| {
+                    sync_diagnostic(snapshot, report.report.stage, Some(report), Some(id), true)
+                }));
                 if !active_stages.contains(&report.report.stage) {
                     active_stages.push(report.report.stage);
                 }
             }
         }
     }
+    if sync_evidence.is_empty()
+        && attention.contains("needsSync")
+        && let Some(stage) = stages.iter().filter(in_scope).find(|stage| {
+            stage.validity == Validity::NeedsSync
+                || stage
+                    .participants
+                    .iter()
+                    .any(|participant| participant.validity == Validity::NeedsSync)
+        })
+    {
+        sync_evidence.push(sync_diagnostic(snapshot, stage.stage, None, None, false));
+    }
+    sync_evidence.sort_by(|a, b| {
+        (a.paths.is_empty(), a.stage, &a.project_id, &a.report_id).cmp(&(
+            b.paths.is_empty(),
+            b.stage,
+            &b.project_id,
+            &b.report_id,
+        ))
+    });
+    sync_evidence.dedup_by(|b, a| {
+        a.stage == b.stage && a.project_id == b.project_id && a.report_id == b.report_id
+    });
     let ongoing = stages.iter().filter(in_scope).any(|s| {
         s.progress == Progress::Doing
             || s.participants.iter().any(|p| p.progress == Progress::Doing)
@@ -3527,6 +3682,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         active_stages.clear();
         primary = None;
         attention.clear();
+        sync_evidence.clear();
         Status::Canceled
     } else if retains_completion {
         Status::Done
@@ -3583,6 +3739,7 @@ fn project_one(snapshot: &Snapshot, records: &ProgressRecords, spec: &SpecView) 
         completion,
         validity,
         attention: attention.into_iter().collect(),
+        sync_evidence,
         summary: if goal.is_none() {
             "未设置本轮目标".into()
         } else if let Some(record) = cancellation {

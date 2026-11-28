@@ -5,7 +5,7 @@ import { ApiError, errorMessage, type Snapshot } from '@/services/workbench'
 import { loadSpecDetail, type SpecDetailRead } from '@/services/workbench-read'
 
 export function provideSpecDetailWorkbench(specId: () => string | undefined) {
-  const { expired, sourceState, submit: submitCommand } = useWorkbench()
+  const { expired, sourceState, pendingContentConfirmation, submit: submitCommand } = useWorkbench()
   const { catalog } = useWorkbenchCatalog()
   const detail = shallowRef<SpecDetailRead>()
   const loading = shallowRef(false)
@@ -19,6 +19,23 @@ export function provideSpecDetailWorkbench(specId: () => string | undefined) {
   const snapshot = computed<Snapshot | null>(() => {
     if (!detail.value) return null
     const { snapshot: value, specVersion } = detail.value
+    const specs = value.specs.map((spec) => {
+      const { content } = spec
+      const confirmed = pendingContentConfirmation(spec.record.id, value.revision)
+      if (!confirmed || !content.canConfirm || content.scope !== confirmed.scope ||
+        content.artifactDigest !== confirmed.artifactDigest || content.status === 'confirmed') return spec
+      return {
+        ...spec,
+        content: {
+          ...content,
+          status: 'confirmed' as const,
+          needsReconfirmation: false,
+          confirmedVersion: confirmed,
+          confirmations: [...content.confirmations, confirmed],
+          materialChanges: content.materialChanges?.filter((change) => change.kind !== 'changed')
+        }
+      }
+    })
     // The published revision belongs to this fingerprint even while a later revision is pending.
     const revision = version.value === specVersion
       ? Math.max(value.revision, sourceState.value?.projectionRevision ?? value.revision)
@@ -28,6 +45,7 @@ export function provideSpecDetailWorkbench(specId: () => string | undefined) {
       return {
         ...value,
         revision,
+        specs,
         projects: catalog.value.projects.map((record) => ({
           available: false,
           sourceDirectories: [],
@@ -37,7 +55,7 @@ export function provideSpecDetailWorkbench(specId: () => string | undefined) {
         }))
       }
     }
-    return revision === value.revision ? value : { ...value, revision }
+    return { ...value, revision, specs }
   })
   let pending: { controller: AbortController; fresh: boolean; result: Promise<boolean> } | undefined
   let disposed = false
@@ -124,11 +142,16 @@ export function provideSpecDetailWorkbench(specId: () => string | undefined) {
     submit(action, expectedRevision = snapshot.value?.revision, expectedTarget, refreshAfter) {
       if (expectedRevision === undefined) throw new Error('请先读取 Spec')
       const id = specId()
-      return submitCommand(action, expectedRevision, expectedTarget, (revision) =>
-        !disposed && specId() === id
-          ? (refreshAfter ? refreshAfter(revision) : refreshAfterCommand(id, revision))
-          : Promise.resolve(false)
-      )
+      return submitCommand(action, expectedRevision, expectedTarget, async (revision) => {
+        if (disposed || specId() !== id) return
+        const refreshed = refreshAfter ? refreshAfter(revision) : refreshAfterCommand(id, revision)
+        // A confirmation receipt is authoritative while the background detail read catches up.
+        if (action.kind === 'confirmContent' && revision !== undefined && !refreshAfter) {
+          void refreshed
+          return
+        }
+        await refreshed
+      })
     }
   })
 }

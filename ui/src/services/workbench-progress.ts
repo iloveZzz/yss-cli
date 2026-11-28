@@ -28,7 +28,7 @@ export const progressLabels: Record<Progress, string> = {
 export const validityLabels: Record<Validity, string> = {
   current: '有效',
   unverified: '待核实',
-  needsSync: '待同步',
+  needsSync: '待更新',
   needsReview: '需复核'
 }
 export const roleLabels: Record<ParticipantRole, string> = {
@@ -52,7 +52,7 @@ export const attentionLabels: Record<string, string> = {
   manualOverride: '人工更正',
   blocked: '受阻',
   unverified: '未核实',
-  needsSync: '待同步',
+  needsSync: '证据待更新',
   needsReview: '需复核',
   conflict: '有冲突'
 }
@@ -223,6 +223,22 @@ export interface StageSummary {
   versions: ProjectVersion[]
   overrideRecord: OverrideRecord | null
 }
+export interface EvidenceSync {
+  stage: Stage
+  projectId?: string
+  projectName?: string
+  role?: ParticipantRole
+  reportId?: string
+  recordedAt?: string
+  reason: string
+  paths: string[]
+  nextAction: string
+}
+
+export function evidenceSyncKey(evidence: EvidenceSync) {
+  return [evidence.stage, evidence.projectId, evidence.role, evidence.reportId].join(':')
+}
+
 export interface ProgressSummary {
   roundId?: string | null
   autoConfirmableStages?: Stage[]
@@ -230,6 +246,7 @@ export interface ProgressSummary {
   lastDelivery?: DecisionRecord
   materialReview?: boolean
   completion?: { completed: number; total: number }
+  syncEvidence?: EvidenceSync[]
   cancellation?: GoalCancellation
   goal: GoalRecord | null
   goalVersion: string | null

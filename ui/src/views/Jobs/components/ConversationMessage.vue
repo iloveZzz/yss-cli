@@ -17,12 +17,14 @@ function loadMarkdown() {
 <script setup lang="ts">
 import { ChevronDown, CornerUpLeft } from '@lucide/vue'
 import { useEventListener } from '@vueuse/core'
+import EvidenceVersions from '@/components/EvidenceVersions.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import { computed, nextTick, shallowRef, useId, useTemplateRef, watch, watchPostEffect } from 'vue'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
+import { useOptionalMessageScrollerContext } from '@/components/ui/message-scroller/useMessageScroller'
 import { Button } from '@/components/ui/button'
 import { dateLabel } from '@/services/workbench'
-import type { JobActivity } from '@/services/workbench-platform'
+import { getCitationCurrentVersion, type CitationCurrentVersion, type JobActivity } from '@/services/workbench-platform'
 import type { AssistantMarkdownResult } from '../schemas/assistant-markdown'
 import { renderAssistantMarkdownFallback } from '../schemas/assistant-markdown-fallback'
 import { assistantCitations } from '../schemas/conversation'
@@ -46,6 +48,8 @@ const fallbackContent = useTemplateRef<HTMLElement>('fallbackContent')
 const sourcesPanel = useTemplateRef<HTMLDetailsElement>('sourcesPanel')
 const sourceSummary = useTemplateRef<HTMLElement>('sourceSummary')
 const selectedSource = shallowRef<number>()
+const currentEvidence = shallowRef<CitationCurrentVersion | { status: 'loading' }>()
+const scroller = useOptionalMessageScrollerContext()
 let citationTrigger: HTMLButtonElement | null = null
 
 const markdownId = `pi-message-${useId()}`
@@ -91,6 +95,27 @@ const formatted = computed<AssistantMarkdownResult>(() => {
   return formatAssistant(text.value, props.streaming ?? false, pending, candidates)
 })
 
+const completedEventId = computed(() => {
+  const eventId = props.row?.updatedEventId
+  return typeof eventId === 'number' && Number.isSafeInteger(eventId) && eventId > 0 ? eventId : undefined
+})
+const selectedFileNumber = computed(() => formatted.value.sources.find(source =>
+  source.number === selectedSource.value && source.kind === 'file')?.number)
+
+watch([() => props.jobId, completedEventId, selectedFileNumber], async ([jobId, eventId, number], _, onCleanup) => {
+  currentEvidence.value = undefined
+  if (!jobId || !eventId || number === undefined) return
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  currentEvidence.value = { status: 'loading' }
+  try {
+    const current = await getCitationCurrentVersion(jobId, eventId, number, controller.signal)
+    if (!controller.signal.aborted) currentEvidence.value = current
+  } catch {
+    if (!controller.signal.aborted) currentEvidence.value = { status: 'unavailable' }
+  }
+}, { flush: 'sync' })
+
 watchPostEffect(onCleanup => {
   const content = fallbackContent.value
   if (!formatted.value.html || !content || typeof ResizeObserver === 'undefined') return
@@ -120,24 +145,30 @@ watchPostEffect(onCleanup => {
   onCleanup(() => observer.disconnect())
 })
 
-function focusAndReveal(element: HTMLElement) {
+function focusAndReveal(element: HTMLElement, block: ScrollLogicalPosition = 'nearest') {
   element.focus({ preventScroll: true })
-  element.scrollIntoView({ block: 'nearest' })
+  element.scrollIntoView({ block })
 }
 
-async function showCitation(event: MouseEvent) {
+function showCitation(event: MouseEvent) {
   if (!(event.target instanceof Element)) return
   const trigger = event.target.closest<HTMLButtonElement>('button[data-assistant-citation]')
-  const panel = sourcesPanel.value
   const number = Number(trigger?.dataset.assistantCitation)
-  if (!trigger || !panel || !formatted.value.sources.some(item => item.number === number)) return
+  if (!trigger || !formatted.value.sources.some(item => item.number === number)) return
+  void selectSource(number, trigger)
+}
+
+async function selectSource(number: number, trigger: HTMLButtonElement | null = null) {
+  const panel = sourcesPanel.value
+  if (!panel) return
+  scroller?.userScrollIntent()
   citationTrigger = trigger
   selectedSource.value = number
   panel.open = true
   await nextTick()
-  if (citationTrigger !== trigger || !panel.open) return
+  if (selectedSource.value !== number || citationTrigger !== trigger || !panel.open) return
   const entry = panel.querySelector<HTMLElement>(`[data-assistant-source="${number}"]`)
-  if (entry) focusAndReveal(entry)
+  if (entry) focusAndReveal(entry, 'start')
 }
 
 function backToCitation() {
@@ -184,7 +215,7 @@ function onSourceEscape(event: KeyboardEvent) {
         <details v-if="formatted.sources.length" ref="sourcesPanel" class="conversation-sources"
           @toggle="onSourceToggle" @keydown.esc="onSourceEscape"
         >
-          <summary ref="sourceSummary" class="conversation-source-summary">
+          <summary ref="sourceSummary" class="conversation-source-summary" @click="scroller?.userScrollIntent()">
             <span>来源</span>
             <span class="conversation-source-count">{{ formatted.sources.length }} 条</span>
             <ChevronDown class="conversation-source-chevron" :size="15" aria-hidden="true" />
@@ -199,18 +230,23 @@ function onSourceEscape(event: KeyboardEvent) {
                 退出码 {{ source.exitCode }}
               </p>
               <template v-if="source.kind !== 'command'">
-                <p class="conversation-source-meta">
-                  {{ projectNames?.[source.projectId] || source.projectId }} · 第 {{ source.startLine }}<template v-if="source.endLine !== source.startLine">–{{ source.endLine }}</template> 行 ·
-                  <span :title="source.digest">版本 {{ source.digest.slice(0, 10) }}</span>
-                </p>
-                <pre role="region" aria-label="已留存的来源片段" tabindex="0">{{ source.snippet }}</pre>
-                <p v-if="source.snippetTruncated" class="conversation-source-meta">仅显示已留存选段的开头</p>
+                <p class="conversation-source-meta">{{ projectNames?.[source.projectId] || source.projectId }}</p>
+                <EvidenceVersions
+                  :retained="source"
+                  :retained-version-label="source.kind === 'excerpt' ? '审阅版本' : undefined"
+                  :current="source.kind === 'file' && selectedSource === source.number ? currentEvidence : undefined"
+                />
               </template>
-              <div v-if="(source.kind === 'command' && jobId) || selectedSource === source.number" class="conversation-source-actions">
+              <div v-if="(source.kind === 'command' && jobId) || (source.kind === 'file' && jobId && completedEventId) || selectedSource === source.number"
+                class="conversation-source-actions">
                 <Button v-if="source.kind === 'command' && jobId" as-child variant="link" size="sm">
                   <RouterLink :to="{ path: '/jobs/' + jobId, query: { detail: '1', tab: 'log', activity: String(source.activityId) } }">
                     查看命令日志
                   </RouterLink>
+                </Button>
+                <Button v-if="source.kind === 'file' && jobId && completedEventId && selectedSource !== source.number"
+                  type="button" variant="link" size="sm" @click="selectSource(source.number)">
+                  查看当前版本
                 </Button>
                 <Button v-if="selectedSource === source.number" type="button" variant="ghost" size="sm" @click="backToCitation">
                   <CornerUpLeft :size="14" aria-hidden="true" />
@@ -343,18 +379,6 @@ function onSourceEscape(event: KeyboardEvent) {
 .conversation-source-summary:focus-visible {
   outline: 2px solid var(--yss-color-primary-control);
   outline-offset: -1px;
-}
-.conversation-source-list pre {
-  max-block-size: 14rem;
-  overflow: auto;
-  margin-block: 6px 0;
-  padding: 7px 9px;
-  border: 1px solid var(--yss-colors-border);
-  border-radius: var(--brand-border-radius-sm);
-  background: var(--brand-color-bg-container);
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .conversation-source-actions {
   display: flex;

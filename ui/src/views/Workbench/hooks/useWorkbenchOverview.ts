@@ -7,13 +7,16 @@ import { loadWorkbenchOverview, type WorkbenchOverview } from '@/services/workbe
 let cachedOverview: WorkbenchOverview | undefined
 
 export function useWorkbenchOverview() {
-  const { sourceState, expired } = useWorkbench()
+  const { sourceState, expired, contentConfirmationPending } = useWorkbench()
   const overview = shallowRef(cachedOverview)
   const reading = shallowRef(false)
   const readError = shallowRef('')
   const { refresh, refreshing, refreshError } = useVerifiedWorkbenchRefresh(() => read(true))
   const loading = computed(() => reading.value || refreshing.value)
   const error = computed(() => refreshError.value || readError.value)
+  const confirmationUpdating = computed(() =>
+    contentConfirmationPending(overview.value?.projectionVersion ? overview.value.revision : -1)
+  )
   const verification = computed(() => {
     const observed = sourceState.value
     const current = overview.value
@@ -55,6 +58,11 @@ export function useWorkbenchOverview() {
     pending = loadWorkbenchOverview(request.signal)
       .then((value) => {
         if (request.signal.aborted) return
+        const previous = cachedOverview
+        if (previous?.projectionVersion && (
+          !value.projectionVersion || value.revision < previous.revision ||
+          (value.revision === previous.revision && (value.changeSequence ?? 0) < (previous.changeSequence ?? 0))
+        )) return
         cachedOverview = value
         overview.value = value
         readError.value = ''
@@ -81,11 +89,12 @@ export function useWorkbenchOverview() {
     () => sourceState.value?.projectionObservationId,
     () => sourceState.value?.verification,
     () => sourceState.value?.verificationError,
+    confirmationUpdating,
     refreshing
   ], () => {
-    if (!refreshing.value && !matchesObservation()) void read()
+    if (!refreshing.value && (confirmationUpdating.value || !matchesObservation())) void read()
   }, { immediate: true })
   onScopeDispose(() => controller?.abort())
 
-  return { overview, loading, error, verification, refresh }
+  return { overview, loading, error, verification, refresh, confirmationUpdating }
 }

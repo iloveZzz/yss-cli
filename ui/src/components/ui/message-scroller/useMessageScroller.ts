@@ -1008,8 +1008,12 @@ export function provideMessageScroller(props: MessageScrollerProviderProps) {
   return engine
 }
 
+export function useOptionalMessageScrollerContext() {
+  return inject(CONTEXT_KEY, null)
+}
+
 export function useMessageScrollerContext(): MessageScrollerContext {
-  const context = inject(CONTEXT_KEY, null)
+  const context = useOptionalMessageScrollerContext()
   if (!context)
     throw new Error("useMessageScroller must be used within a MessageScroller.")
   return context

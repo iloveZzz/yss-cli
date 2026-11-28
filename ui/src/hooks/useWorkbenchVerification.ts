@@ -37,14 +37,14 @@ export function useWorkbenchVerification() {
     const statusController = new AbortController()
     try {
       if (!completion.value) {
-        // checkChanges only polls when the live stream is disconnected.
+        // A connected stream can still deliver late. The status response is sequence-checked.
         statusTimer = setInterval(async () => {
           if (checkingStatus || completion.value) return
           checkingStatus = true
           try {
             const statusDeadline = withTimeout(statusController.signal, 5_000)
             try {
-              await checkChanges(statusDeadline.signal)
+              await checkChanges(statusDeadline.signal, true)
             } finally {
               statusDeadline.dispose()
             }

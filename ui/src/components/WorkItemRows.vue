@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import ProgressSummary from './ProgressSummary.vue'
 import TableLoadingOverlay from './TableLoadingOverlay.vue'
-import { dateLabel, stages, contentStatuses, validityLabels } from '@/services/workbench'
+import { dateLabel, stages, contentStatuses, evidenceSyncKey, validityLabels } from '@/services/workbench'
 import type { CompactWorkItem } from '@/services/workbench-read'
 import { contentReminders } from '@/services/workbench-content'
 const props = withDefaults(defineProps<{
@@ -45,6 +45,17 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
 function review(item: CompactWorkItem) {
   const stage = item.progress?.diagnosisStage ?? item.progress?.primaryStage
   return detail(item, { tab: 'lifecycle', ...(stage ? { stage } : {}), focus: 'diagnostic' })
+}
+function sync(item: CompactWorkItem) {
+  if (!item.progress?.attention.includes('needsSync')) return
+  const evidence = item.progress.syncEvidence?.[0]
+  const stage = evidence?.stage ?? item.progress.activeStages?.[0] ?? item.progress.primaryStage
+  return detail(item, {
+    tab: 'lifecycle',
+    stage,
+    focus: 'diagnostic',
+    ...(evidence ? { evidence: evidenceSyncKey(evidence) } : {})
+  })
 }
 </script>
 <template>
@@ -103,7 +114,7 @@ function review(item: CompactWorkItem) {
             </div>
           </TableCell>
           <TableCell class="item-next">
-            <ProgressSummary :progress="item.progress" :review-to="review(item)" compact />
+            <ProgressSummary :progress="item.progress" :review-to="review(item)" :sync-to="sync(item)" compact />
           </TableCell>
           <TableCell class="item-updated">
             <time :datetime="item.updatedAt">{{ dateLabel(item.updatedAt) }}</time>

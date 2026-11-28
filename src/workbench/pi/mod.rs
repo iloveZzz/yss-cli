@@ -33,9 +33,10 @@ use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
     fs::{FileSnapshot, Root},
-    model::RelPath,
+    model::{RelPath, Sha256},
     workbench::{
         agent::{CommandExecution, ProjectMode},
+        agent_workspace::Workspace,
         jobs::JobContext,
     },
 };
@@ -369,6 +370,68 @@ fn project_context(
         return Err(not_ready("所选工程规则超过 256 KiB，请缩小工程范围"));
     }
     Ok((rules, skills))
+}
+
+pub(super) fn read_citation(
+    workspace: &Workspace,
+    project_id: &str,
+    path: &RelPath,
+    lines: std::ops::RangeInclusive<usize>,
+    data_dir: &Path,
+    unselected_projects: &[PathBuf],
+) -> Result<(Sha256, Option<String>)> {
+    let root = Root::open(Path::new(&workspace.original_root))?;
+    if workspace.original_root != workspace.worktree_root
+        || root.identity != workspace.original_identity
+        || root.identity != workspace.worktree_identity
+    {
+        return Err(not_ready("原工程绑定或目录身份已改变"));
+    }
+    let projects = workspace::Projects::new(
+        std::slice::from_ref(workspace),
+        project_id,
+        data_dir,
+        &readiness::config_directory(&[])?,
+        ProjectMode::Read,
+        unselected_projects,
+    )?;
+    let target = projects.locate(Some(project_id), path.as_str())?;
+    if !projects
+        .review_location(&target)
+        .is_some_and(|(id, relative)| id == project_id && relative == path.as_str())
+    {
+        return Err(not_ready("引用文件已离开原授权工程"));
+    }
+    #[cfg(unix)]
+    {
+        let target_path = target.display();
+        let target_key = crate::fs::alias_key(
+            target_path
+                .to_str()
+                .ok_or_else(|| not_ready("引用文件路径无效"))?,
+        );
+        let root_key = crate::fs::alias_key(
+            target
+                .root()
+                .to_str()
+                .ok_or_else(|| not_ready("引用工程路径无效"))?,
+        );
+        if unselected_projects.iter().any(|project| {
+            project.to_str().is_some_and(|path| {
+                let key = crate::fs::alias_key(path);
+                Path::new(&key).starts_with(&root_key) && Path::new(&target_key).starts_with(&key)
+            })
+        }) {
+            return Err(not_ready("引用文件已离开原授权工程"));
+        }
+    }
+    let count = lines.end() - lines.start() + 1;
+    let read = target.read(Some(*lines.start()), Some(count))?;
+    root.revalidate()?;
+    let digest = read.digest.ok_or_else(|| not_ready("引用文件无摘要"))?;
+    let snippet =
+        (read.complete_lines == count).then(|| read.text[..read.complete_bytes].to_owned());
+    Ok((digest, snippet))
 }
 
 pub(super) fn run(

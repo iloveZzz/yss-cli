@@ -6,6 +6,7 @@ import {
   expired,
   loadSnapshot,
   type Action,
+  type ConfirmationRecord,
   type Snapshot
 } from '@/services/workbench'
 import { getSourceState, readNdjson, type SourceState } from '@/services/workbench-platform'
@@ -14,6 +15,7 @@ const sourceState = shallowRef<SourceState>()
 const changesError = shallowRef('')
 const sourceVersions = computed(() => sourceState.value?.sourceVersions ?? {})
 const externalVersion = computed(() => sourceState.value?.externalVersion ?? '')
+const contentReceipts = shallowRef(new Map<string, { revision: number; confirmation: ConfirmationRecord }>())
 let changesController: AbortController | undefined
 let changesConnected = false
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -27,6 +29,15 @@ let pendingSnapshot: Promise<boolean> | undefined
 let snapshotRequired = false
 let observed = 0
 let loadedAt = -1
+
+function pendingContentConfirmation(specId: string, revision: number) {
+  const receipt = contentReceipts.value.get(specId)
+  return receipt && revision < receipt.revision ? receipt.confirmation : undefined
+}
+
+function contentConfirmationPending(revision: number, includes?: (specId: string) => boolean) {
+  return [...contentReceipts.value].some(([id, receipt]) => receipt.revision > revision && (!includes || includes(id)))
+}
 
 function refresh(): Promise<boolean> {
   if (expired.value) return Promise.resolve(false)
@@ -73,6 +84,12 @@ async function submit(
       expectedTarget,
       requestId: crypto.randomUUID()
     })
+    if (result.confirmation && result.revision >= (contentReceipts.value.get(result.confirmation.specId)?.revision ?? 0)) {
+      contentReceipts.value = new Map(contentReceipts.value).set(result.confirmation.specId, {
+        revision: result.revision,
+        confirmation: result.confirmation
+      })
+    }
     if (refreshAfter) await refreshAfter(result.revision)
     else if (await refresh() && (snapshot.value?.revision ?? 0) < result.revision) await refresh()
     return result
@@ -106,8 +123,8 @@ function applySourceState(value: SourceState) {
   }
 }
 
-async function checkChanges(signal?: AbortSignal) {
-  if (expired.value || changesConnected || signal?.aborted) return
+async function checkChanges(signal?: AbortSignal, allowConnected = false) {
+  if (expired.value || (changesConnected && !allowConnected) || signal?.aborted) return
   try {
     const state = await getSourceState(signal)
     if (signal?.aborted) return
@@ -170,6 +187,8 @@ const workbench = {
   changesError: shallowReadonly(changesError),
   sourceVersions,
   externalVersion,
+  pendingContentConfirmation,
+  contentConfirmationPending,
   startChanges,
   stopChanges,
   checkChanges,

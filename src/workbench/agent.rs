@@ -31,6 +31,7 @@ use std::{
 
 mod acceptance;
 mod admission;
+pub(super) mod citations;
 mod diff_hunks;
 pub(super) use admission::start_async;
 pub(super) mod activity;

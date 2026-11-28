@@ -2,7 +2,7 @@ use super::{
     model::{ResourceHealth, Snapshot, SourceHealth, SpecView, Stage, Status},
     progress::{
         ConfirmationDecision, DeliveryTargetKind, Evidence, EvidenceOutcome, ParticipantRole,
-        Progress, ProgressSummary, Validity,
+        Progress, ProgressSummary, SYNC_EVIDENCE_NEXT_ACTION, Validity,
     },
     service,
     sources::missing,
@@ -144,6 +144,7 @@ fn progress_overview(progress: &ProgressSummary) -> Value {
         "activeStages": progress.active_stages,
         "validity": progress.validity,
         "attention": progress.attention,
+        "syncEvidence": progress.sync_evidence,
         "autoConfirmableStages": progress.auto_confirmable_stages,
         "goalVersion": progress.goal_version,
         "roundId": progress.round_id,
@@ -270,6 +271,10 @@ pub(super) fn read_next_action(
             progress.map_or_else(String::new, |value| {
                 if value.status == Status::Canceled {
                     "查看历史。如需继续，核对范围后开启新一轮".into()
+                } else if value.next_action.is_empty()
+                    && let Some(sync) = value.sync_evidence.first()
+                {
+                    sync.next_action.clone()
                 } else {
                     value.next_action.clone()
                 }
@@ -343,7 +348,7 @@ fn evidence_action<'a>(
         Validity::NeedsSync => (
             "syncEvidence",
             "工程版本或输入已变化，现有证据需要同步",
-            "在现用工程版本核实并补报本轮证据",
+            SYNC_EVIDENCE_NEXT_ACTION,
         ),
         Validity::Unverified if include_unverified => (
             "collectEvidence",
@@ -515,6 +520,22 @@ pub(super) fn recommendations<'a>(
             ));
         }
     }
+    items.retain(|value| {
+        value.action != "syncEvidence"
+            || !progress.sync_evidence.iter().any(|sync| {
+                value.stage == Some(sync.stage)
+                    && value.project_id == sync.project_id.as_deref().unwrap_or(main_project)
+                    && value.role == sync.role.unwrap_or(ParticipantRole::Spec)
+            })
+    });
+    items.extend(progress.sync_evidence.iter().map(|sync| {
+        item(
+            sync.project_id.as_deref().unwrap_or(main_project),
+            sync.role.unwrap_or(ParticipantRole::Spec),
+            Some(sync.stage),
+            ("syncEvidence", sync.reason.clone(), &sync.next_action),
+        )
+    }));
     items.sort_by_key(|value| match value.action {
         "resolveBlocker" => 0,
         "reviewEvidence" => 1,

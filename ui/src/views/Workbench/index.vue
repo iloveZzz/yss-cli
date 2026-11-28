@@ -15,12 +15,14 @@ import WorkbenchBreadcrumb from '@/components/WorkbenchBreadcrumb.vue'
 import ContentAttention from './components/ContentAttention.vue'
 import ActiveJobs from './components/ActiveJobs.vue'
 import { registerWorkbenchRouteReads, useWorkbenchCatalog, useWorkbenchRefreshAction } from '@/hooks/useWorkbenchReads'
+import { useWorkbench } from '@/hooks/useWorkbench'
 import { dateLabel, stages, type ChangeEvent } from '@/services/workbench'
 import { eventDescription } from '@/services/workbench-history'
-import type { WorkbenchOverview } from '@/services/workbench-read'
+import { withSavedContentConfirmation, type WorkbenchOverview } from '@/services/workbench-read'
 import { useWorkbenchOverview } from './hooks/useWorkbenchOverview'
 
-const { overview, loading, error, verification, refresh } = useWorkbenchOverview()
+const { overview, loading, error, verification, refresh, confirmationUpdating } = useWorkbenchOverview()
+const { pendingContentConfirmation } = useWorkbench()
 const { busy: refreshBusy, disabled: refreshDisabled, refresh: refreshPage } = useWorkbenchRefreshAction()
 const { catalog, catalogError, refreshCatalog } = useWorkbenchCatalog()
 const route = useRoute()
@@ -36,16 +38,34 @@ const showPlaceholder = computed(() =>
 )
 registerWorkbenchRouteReads({ busy: loading, readAt: computed(() => overview.value?.readAt), refresh })
 const definitions: { id: keyof WorkbenchOverview['groups']; label: string; query: LocationQueryRaw }[] = [
-  { id: 'attention', label: '待确认与核实', query: { attention: 'any', progressBasis: 'effective', showClosed: 'true' } },
+  { id: 'attention', label: '进展提醒', query: { attention: 'any', progressBasis: 'effective', showClosed: 'true' } },
   { id: 'blocked', label: '需要解除阻塞', query: { status: 'blocked', progressBasis: 'effective' } },
   { id: 'doing', label: '进行中', query: { status: 'doing', progressBasis: 'effective' } },
   { id: 'source', label: '来源异常', query: { sourceProblems: 'true', progressBasis: 'effective', showClosed: 'true' } }
 ]
-const groups = computed(() => definitions.map(({ id, label, query }) => ({
-  id, label, query,
-  total: overview.value?.groups[id]?.total ?? 0,
-  items: overview.value?.groups[id]?.items ?? []
-})))
+const groups = computed(() => {
+  const current = overview.value
+  return definitions.map(({ id, label, query }) => ({
+    id, label, query,
+    total: current?.groups[id]?.total ?? 0,
+    items: current?.groups[id]?.items.map((item) =>
+      pendingContentConfirmation(item.specId, current.revision) ? withSavedContentConfirmation(item) : item
+    ) ?? []
+  }))
+})
+const reminders = computed(() => {
+  const current = overview.value
+  if (!current) return {}
+  const readyGroup = current.reminders.ready
+  if (!confirmationUpdating.value || !readyGroup) return current.reminders
+  return {
+    ...current.reminders,
+    ready: {
+      ...readyGroup,
+      items: readyGroup.items.filter((item) => !pendingContentConfirmation(item.specId, current.revision))
+    }
+  }
+})
 const focus = computed(() =>
   groups.value.find((group) => group.id === route.query.focus) ??
   groups.value.find((group) => group.total > 0) ??
@@ -117,7 +137,8 @@ function selectFocus(value: string | number) {
       </EmptyContent>
     </Empty>
     <div class="home-inbox">
-      <ContentAttention v-if="ready" :reminders="overview?.reminders ?? {}" />
+      <ContentAttention v-if="ready" :reminders="reminders" :ready-refreshing="confirmationUpdating"
+        :ready-refresh-failed="!!error || verification === 'failed'" />
       <ActiveJobs />
     </div>
     <div v-if="ready" class="home-layout">

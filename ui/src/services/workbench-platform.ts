@@ -361,6 +361,11 @@ export type AssistantCitation = {
   command: string
   exitCode?: number | null
 })
+export type CitationCurrentVersion =
+  | { status: 'unavailable' }
+  | { status: 'unlocated'; digest: string }
+  | { status: 'current'; digest: string; startLine: number; endLine: number; snippet: string }
+
 export interface JobActivity {
   id: number
   updatedEventId: number
@@ -485,6 +490,9 @@ export function getJobConversation(id: string, before?: number, signal?: AbortSi
 }
 export function getActivityDetail(id: string, activityId: number, signal: AbortSignal) {
   return apiRequest<JobActivity>(`/api/jobs/${encodeURIComponent(id)}/activities/${activityId}`, { signal })
+}
+export function getCitationCurrentVersion(id: string, completedEventId: number, number: number, signal: AbortSignal) {
+  return apiRequest<CitationCurrentVersion>(`/api/jobs/${encodeURIComponent(id)}/citations/${completedEventId}/${number}`, { signal })
 }
 
 export const getJobs = (signal?: AbortSignal) => apiRequest<JobRecord[]>('/api/jobs', { signal })

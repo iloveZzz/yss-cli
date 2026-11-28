@@ -1,6 +1,7 @@
 import { apiRequest } from './workbench'
 import type {
   ChangeEvent,
+  MaterialChange,
   ProjectRecord,
   ProjectView,
   SavedView,
@@ -55,7 +56,7 @@ export type CatalogSpec = Pick<
 export type CompactProgress = Pick<
   ProgressSummary,
   'goalVersion' | 'primaryStage' | 'status' | 'validity' | 'attention' | 'summary' | 'blocker' |
-  'nextAction' | 'lastVerifiedAt' | 'evidenceDigest' | 'hasOverride' | 'materialReview' | 'activeStages'
+  'nextAction' | 'lastVerifiedAt' | 'evidenceDigest' | 'hasOverride' | 'materialReview' | 'activeStages' | 'syncEvidence'
 > & {
   target?: DeliveryTarget | null
   diagnosisStage?: StageSummary['stage'] | null
@@ -65,6 +66,17 @@ export type CompactProgress = Pick<
 }
 
 export type CompactWorkItem = Omit<WorkItem, 'progress'> & { progress?: CompactProgress }
+
+export function withSavedContentConfirmation(item: CompactWorkItem): CompactWorkItem {
+  if (item.entity !== 'spec' || item.contentStatus === 'confirmed') return item
+  return {
+    ...item,
+    contentStatus: 'confirmed',
+    needsReconfirmation: false,
+    reminderCounts: { ...item.reminderCounts, ready: 0 }
+  }
+}
+
 export type WorkbenchJob = Pick<JobRecord, 'id' | 'title' | 'roots' | 'status' | 'updatedAt'>
 
 export interface ReminderItem {
@@ -73,6 +85,8 @@ export interface ReminderItem {
   sourcePath: string
   projectName: string
   count: number
+  needsReconfirmation?: boolean
+  materialChange?: Pick<MaterialChange, 'target' | 'reason'> | null
   questions: { id: string; title: string; blocking: boolean }[]
 }
 

@@ -510,7 +510,7 @@ fn host_home() -> Result<PathBuf> {
         })
 }
 
-fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
+pub(super) fn config_directory(protected: &[PathBuf]) -> Result<PathBuf> {
     let path = match env::var_os("PI_CODING_AGENT_DIR").filter(|value| !value.is_empty()) {
         Some(value) => {
             let path = PathBuf::from(value);

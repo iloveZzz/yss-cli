@@ -16,9 +16,11 @@ import { provideWorkbenchRefreshAction, provideWorkbenchRouteReads, useWorkbench
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
 import { failedRoute, pendingRoute, retryFailedRoute } from '@/router'
 import { dateLabel } from '@/services/workbench'
+import { requestWorkbenchReadRefresh } from '@/services/workbench-read'
 import { desktopDraftError, flushDesktopDrafts } from '@/services/desktop-storage'
 import { initialTerminalLayout, reportTerminalRailWidth, terminalPanelOpenUrl, workbenchTerminalLayout } from '@/services/terminal-panel'
 import { sorted } from '@/lib/collections'
+import { withTimeout } from '@/lib/abort'
 import { useAgentScope } from '@/views/PiWorkspace/useAgentScope'
 const { snapshot, loading, error, expired, refresh, startChanges, stopChanges, checkChanges, requireSnapshot, sourceState, changesError } =
   useWorkbench()
@@ -59,6 +61,8 @@ let pageMotion: Animation | undefined
 let railObserver: ResizeObserver | undefined
 let railReportFrame = 0
 let reportedRailWidth: number | undefined
+const resumeRefresh = new AbortController()
+let lastResumeRefresh = -Infinity
 const refreshAction = shallowRef<{ type: 'manual' | 'retry' }>()
 const projects = computed(() => {
   if (expired.value) return []
@@ -195,9 +199,22 @@ onBeforeUnmount(() => {
   pageMotion?.cancel()
   railObserver?.disconnect()
   if (railReportFrame) window.cancelAnimationFrame(railReportFrame)
+  resumeRefresh.abort()
   stopChanges()
 })
-useEventListener(window, 'focus', () => void checkChanges())
+function onWorkbenchResume() {
+  if (document.visibilityState !== 'visible' || expired.value) return
+  void checkChanges()
+  if (!routeReady.value || (!isHome.value && route.path !== '/specs' && !specDetail.value) ||
+    performance.now() - lastResumeRefresh < 5_000) return
+  lastResumeRefresh = performance.now()
+  const request = withTimeout(resumeRefresh.signal, 5_000)
+  void requestWorkbenchReadRefresh(request.signal)
+    .catch(() => { /* The regular background observation also checks external changes. */ })
+    .finally(request.dispose)
+}
+useEventListener(window, 'focus', onWorkbenchResume)
+useEventListener(document, 'visibilitychange', onWorkbenchResume)
 useEventListener(window, 'yss:terminal-layout', (event) => {
   if (!terminalOpen || !(event instanceof CustomEvent)) return
   acceptTerminalLayout(workbenchTerminalLayout(event.detail))

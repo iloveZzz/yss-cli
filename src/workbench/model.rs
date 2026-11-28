@@ -479,6 +479,8 @@ pub struct MutationRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MutationResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<ConfirmationRecord>,
     #[serde(default)]
     pub response_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

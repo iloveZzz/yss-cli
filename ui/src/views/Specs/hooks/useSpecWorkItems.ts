@@ -3,7 +3,7 @@ import { useWorkbench } from '@/hooks/useWorkbench'
 import { useWorkbenchCatalog } from '@/hooks/useWorkbenchReads'
 import { useVerifiedWorkbenchRefresh } from '@/hooks/useWorkbenchVerification'
 import { ApiError, errorMessage, type WorkQuery } from '@/services/workbench'
-import { loadCompactWorkPage, type CompactWorkPage } from '@/services/workbench-read'
+import { loadCompactWorkPage, withSavedContentConfirmation, type CompactWorkPage } from '@/services/workbench-read'
 
 const listPageSize = 50
 interface View {
@@ -22,14 +22,40 @@ export function useSpecWorkItems(
   query: Readonly<Ref<WorkQuery>>,
   enabled?: Readonly<Ref<boolean>>
 ) {
-  const { expired, sourceState } = useWorkbench()
+  const { expired, sourceState, pendingContentConfirmation, contentConfirmationPending } = useWorkbench()
   const { catalog } = useWorkbenchCatalog()
   const view = computed<View>(() => ({
     key: JSON.stringify(query.value),
     query: query.value
   }))
   const settled = shallowRef<Settled>()
-  const result = computed(() => settled.value?.page)
+  const confirmationUpdating = computed(() => {
+    const current = view.value.query
+    if (current.entity !== 'spec') return false
+    const page = settled.value?.page
+    return contentConfirmationPending(page?.projectionVersion ? page.revision : -1, (id) => {
+      if (current.specIds.length && !current.specIds.includes(id)) return false
+      const projectId = catalog.value?.specs.find((spec) => spec.id === id)?.projectId
+      return !current.projectIds.length || !projectId || current.projectIds.includes(projectId)
+    })
+  })
+  const result = computed(() => {
+    const current = settled.value
+    if (!current || !confirmationUpdating.value) return current?.page
+    const { page, key } = current
+    // The server will recompute membership, order and totals after publishing the new revision.
+    const filters = key === view.value.key ? view.value.query : undefined
+    const items = page.items.flatMap((item) => {
+      if (!pendingContentConfirmation(item.specId, page.revision) || item.entity !== 'spec') return [item]
+      const confirmed = withSavedContentConfirmation(item)
+      if (filters && (filters.needsReconfirmation ||
+        (filters.contentStatuses.length && !filters.contentStatuses.includes('confirmed')) ||
+        (filters.reminderKinds.length && !filters.reminderKinds.some((kind) => confirmed.reminderCounts[kind])) ||
+        (!filters.includeClosed && item.status === 'done' && !filters.attention.length))) return []
+      return [confirmed]
+    })
+    return { ...page, items }
+  })
   const resultsCurrent = computed(() => settled.value?.key === view.value.key)
   const scope = computed(() => {
     const versions = sourceState.value?.specVersions
@@ -68,7 +94,7 @@ export function useSpecWorkItems(
   const verificationError = computed(() => sourceState.value?.verificationError ?? result.value?.verificationError)
   const writable = computed(() =>
     resultsCurrent.value && !!result.value?.projectionVersion && verification.value === 'current' &&
-    !expired.value && !error.value && !refreshing.value && pending.value !== 'replace'
+    !expired.value && !error.value && !confirmationUpdating.value && !refreshing.value && pending.value !== 'replace'
   )
   let controller: AbortController | undefined
   let ownerKey: string | undefined
@@ -82,6 +108,11 @@ export function useSpecWorkItems(
   }
 
   function save(current: View, page: CompactWorkPage) {
+    const previous = settled.value?.key === current.key ? settled.value.page : undefined
+    if (previous?.projectionVersion && (
+      !page.projectionVersion || page.revision < previous.revision ||
+      (page.revision === previous.revision && (page.changeSequence ?? 0) < (previous.changeSequence ?? 0))
+    )) return
     const record = { key: current.key, page, scope: page.projectionVersion === observedProjection.value ? scope.value : undefined }
     settled.value = record
     if (!page.projectionVersion) return
@@ -221,7 +252,7 @@ export function useSpecWorkItems(
     controller?.abort()
   })
   return {
-    result, resultsCurrent, loading, loadingMore, error, verification, verificationError,
+    result, resultsCurrent, loading, loadingMore, error, verification, verificationError, confirmationUpdating,
     writable, refresh, reload, loadMore: () => read('append')
   }
 }

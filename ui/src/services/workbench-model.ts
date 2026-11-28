@@ -23,7 +23,7 @@ export interface MutationRequest {
   expectedTarget?: string
   requestId?: string
 }
-export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null; responseId?: string | null; goalVersion?: string | null }
+export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null; responseId?: string | null; goalVersion?: string | null; confirmation?: ConfirmationRecord }
 
 export type WorkEntity = 'spec' | 'task'
 export type Layout = 'list' | 'board'

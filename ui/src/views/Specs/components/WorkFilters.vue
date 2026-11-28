@@ -74,7 +74,7 @@ const groups = computed(() => [
       { value: 'any', label: '有进展提醒' },
       { value: 'awaitingConfirmation', label: attentionLabels.awaitingConfirmation },
       { value: 'unverified', label: '未核实' },
-      { value: 'needsSync', label: '待同步' },
+      { value: 'needsSync', label: attentionLabels.needsSync },
       { value: 'needsReview', label: '需复核' },
       { value: 'conflict', label: '有冲突' }
     ]
