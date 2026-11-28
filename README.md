@@ -2,7 +2,7 @@
 
 YSS 使用 Rust 安装项目模板、按需补装 Skills、生成 Java / Vue 空骨架和更新自身。CLI 命令与工作台界面由单个 `yss`（Windows 为 `yss.exe`）提供，无需 Go、Bun、Node 或 Python；当前源码的 Pi Agent 作业另需本机 Pi 及其运行环境，由工作台探测实际可用性。处理 Git 工作树时需要 Git；生成 Java 工程不执行 Maven，实际构建需要对应 JDK。
 
-当前源码版本为 Rust `3.20.0`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
+当前源码版本为 Rust `3.20.1`，发行目标为 macOS ARM64 与 Windows x86_64，实际内嵌模板和发行产物以 GitHub Release 为准。旧 Go 安装请使用新目录安装 Rust 版本。`spec`、`backend`、`frontend` 是三种 Profile，`project` 和 `skills` 是项目内的两种安装范围。
 
 独立桌面应用位于 `desktop/`，与 CLI 分别安装，并使用随包的 `yss` 提供工作台服务。当前桌面构建仅提供未签名候选；签名、公证及平台验证的范围以实际产物为准。构建方式见[桌面应用构建与发行](docs/desktop-build.md)。
 
@@ -64,6 +64,8 @@ Rust 工具链锁定在 `rust-toolchain.toml`。Bundle 来自实际模板内容�
 `3.13.0` 内嵌 Template `5.13.0`，macOS ARM64 的新 Agent 作业切换到本机 Pi 1.5.2，提供隔离工作区、按次命令授权、离线命令沙箱和可续接会话。执行详情按会话、工具步骤、问答和成果组织，保留 Codex 历史审阅与成果接收；Windows 的 Pi 运行入口受平台限制。模板新增中文技能导航，调整业务分析、规格、界面设计及研发写作入口，补充 Spec 归属提示和 PO/Mapper 生成工具。默认技能集合为 Spec 18、Backend 43、Frontend 16 项。
 
 `3.14.0` 内嵌 Template `5.14.0`。工作台启动和登记项目时自动发现主 Spec，识别同目录的交互说明和已构建原型。Pi 作业排队前核对所有参与工程的 Git HEAD，并要求显式带入尚未提交的主规格。模板细化 Spec 两项确认与研发写入前的 Git 核对。
+
+`3.20.1` 内嵌 Template `5.20.1`，完善 Pi 来源引用和 Spec 证据核验及确认反馈。
 
 `3.20.0` 内嵌 Template `5.20.0`。工作台统一 Spec 生命周期进度，支持取消并重开一轮。macOS ARM64 可用 Grok Build 进行只读分析。Pi 按实际运行能力探测可用性，发送前可调整本轮工程权限。
 
