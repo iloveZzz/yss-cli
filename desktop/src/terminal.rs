@@ -785,7 +785,7 @@ pub(super) async fn terminal_start(
         }
         root.revalidate()
             .map_err(|_| "工程目录已变化，请重新选择工程")?;
-        let pty = pty::spawn(&project.root_path, cols, rows)?;
+        let pty = pty::spawn(&root, cols, rows)?;
         let (tx, rx) = sync_channel(8);
         let session = Arc::new(TerminalSession {
             id: id.clone(),

@@ -70,16 +70,6 @@ fn number(query: &BTreeMap<String, String>, key: &str, default: usize) -> Result
         .unwrap_or(Ok(default))
 }
 
-// Resolve only the service's absolute PATH entries and execute that same path for
-// diagnostics. This makes the displayed path evidence of the probe, rather than
-// an independently guessed location.
-fn system_tool_path(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    super::process::system_tool_path(program, &path)?
-        .canonicalize()
-        .ok()
-}
-
 fn event_cursor(value: &str) -> Result<u64> {
     value
         .parse::<u64>()
@@ -732,18 +722,8 @@ impl PlatformApi {
                         protected,
                     )
                 };
-                let mut tools = Vec::new();
-                for program in ["git", "gh", "glab"] {
-                    let Some(path) = system_tool_path(program) else {
-                        tools.push(json!({"name":program,"available":false,"message":"工作台服务的 PATH 中未找到此工具"}));
-                        continue;
-                    };
-                    let mut command = std::process::Command::new(&path);
-                    command.arg("--version");
-                    let result =
-                        super::process::run_command(command, &self.cancel, Duration::from_secs(5));
-                    tools.push(match result {Ok(bytes)=>json!({"name":program,"available":true,"path":path.to_string_lossy(),"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),Err(error)=>json!({"name":program,"available":false,"path":path.to_string_lossy(),"message":error.message})});
-                }
+                let path = std::env::var_os("PATH").unwrap_or_default();
+                let tools = super::process::probe_system_tools(&path, &self.cancel, false);
                 let executable = std::env::current_exe()?;
                 let pi = self.pi_runtime_status(&protected, None)?;
                 json!({"version":BuildInfo::current(),"dataDir":data_dir,"executable":executable,"storage":usage,"databaseBytes":std::fs::metadata(data_dir.join(super::storage_migration::DATABASE_NAME)).map(|metadata|metadata.len()).unwrap_or(0),"tools":tools,"pi":pi})

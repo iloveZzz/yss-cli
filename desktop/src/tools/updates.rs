@@ -1,8 +1,8 @@
 use super::{
-    INSTALL, InstallResult, ToolId, ToolStatus, ToolsStatus, UPDATE_IN_PROGRESS, UpdateTarget,
-    begin_action, channel, compatible_node, connect, end_install, freeze_and_flush, get,
-    mark_completed, node_options, protected_path, protected_paths, retire_connection, settings,
-    status, versions,
+    INSTALL, InstallResult, ToolId, ToolScope, ToolStatus, ToolsStatus, UPDATE_IN_PROGRESS,
+    UpdateTarget, begin_action, channel, compatible_node, connect, connection, end_install,
+    freeze_and_flush, get, mark_completed, node_options, protected_path, protected_paths,
+    read_status, retire_connection, settings, status, versions,
 };
 use crate::{Session, State};
 use serde::{Deserialize, Serialize};
@@ -41,13 +41,6 @@ struct PiNode {
     installer: Option<PathBuf>,
     plan: String,
     prerequisites: Vec<String>,
-}
-
-fn connection(app: &tauri::AppHandle) -> Result<(Session, bool), String> {
-    let state = app.state::<Mutex<State>>();
-    let state = state.lock().map_err(|_| "桌面状态不可用")?;
-    let conn = state.connection.as_ref().ok_or("请先连接工作台")?;
-    Ok((conn.session.clone(), conn.child.is_some()))
 }
 
 fn node_ranges(requirement: &str) -> Option<Vec<semver::VersionReq>> {
@@ -407,7 +400,7 @@ fn checked_tool<'a>(
 }
 
 fn describe(
-    session: &Session,
+    session: Option<&Session>,
     system: &ToolsStatus,
     owned: bool,
     tool: &ToolStatus,
@@ -440,11 +433,13 @@ fn describe(
     let requirement = release.node_requirement.clone();
     result.official_available = official_eligible(tool, owned, &release);
     result.release = Some(release);
-    result.message = match newer {
-        Some(false) => "工作台检测到的版本已达到上游版本。".into(),
-        None if tool.detected => "无法比较当前版本，可以查看官方发行。".into(),
-        None => "本机尚未检测到该工具。".into(),
-        Some(true) => match eligible(tool, system, owned) {
+    result.message = match (newer, session) {
+        (Some(false), _) => "检测到的版本已达到上游版本。".into(),
+        (None, None) if tool.id == ToolId::Pi => "连接工作台后可核对本机 Pi 版本。".into(),
+        (None, _) if tool.detected => "无法比较当前版本，可以查看官方发行。".into(),
+        (None, _) => "本机尚未检测到该工具。".into(),
+        (Some(true), None) => "可查看官方发行。连接本机工作台后可核对更新条件。".into(),
+        (Some(true), Some(session)) => match eligible(tool, system, owned) {
             Err(message) => message.into(),
             Ok(_) if !supported => "此发行版需要新版工作台支持，可查看官方发行。".into(),
             Ok(installation) if tool.id == ToolId::Pi => {
@@ -506,8 +501,12 @@ pub async fn desktop_check_tool_updates(view: tauri::Webview) -> Result<Vec<Tool
     let app = view.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _operation = INSTALL.try_lock().map_err(|_| "已有工具操作正在进行")?;
-        let (session, owned) = connection(&app)?;
-        let system = status(&session)?;
+        let connection = connection(&app)?;
+        let session = connection.as_ref().map(|(session, _)| session);
+        let system = read_status(session)?;
+        let workbench_available = system.scope == ToolScope::Workbench;
+        let session = session.filter(|_| workbench_available);
+        let owned = workbench_available && connection.as_ref().is_some_and(|(_, owned)| *owned);
         std::thread::scope(|scope| {
             let requests: Vec<_> = system
                 .tools
@@ -520,7 +519,7 @@ pub async fn desktop_check_tool_updates(view: tauri::Webview) -> Result<Vec<Tool
                     let latest = request
                         .join()
                         .unwrap_or_else(|_| Err("版本检查失败，请按需重试".into()));
-                    describe(&session, &system, owned, tool, latest)
+                    describe(session, &system, owned, tool, latest)
                 })
                 .collect())
         })
@@ -887,7 +886,7 @@ pub async fn desktop_update_tool(
             if release.version != version {
                 return Err("上游版本已变化，请重新检查。".into());
             }
-            let (session, owned) = connection(&app)?;
+            let (session, owned) = connection(&app)?.ok_or("请先连接工作台")?;
             let system = status(&session)?;
             let tool = checked_tool(
                 &system,

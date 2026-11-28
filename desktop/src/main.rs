@@ -1229,25 +1229,27 @@ fn connect(
     } else {
         None
     };
-    if exists && requested.is_none() && remembered {
-        match (
-            config.data_roots.get(&canonical),
-            config.data_ids.get(&canonical),
-        ) {
-            (Some(expected), _) if initial_root.as_ref() != Some(expected) => {
-                return Err("工作台数据目录身份已变化；请核对后重新选择".into());
-            }
-            (None, None) => return Err("无法确认先前工作台目录身份；请选择已有目录以继续".into()),
-            _ => {}
+    if exists && requested.is_none() {
+        // Older first launches recorded the path before the directory existed.
+        // On Windows its canonical form has a different prefix.
+        let expected_root = config
+            .data_roots
+            .get(&canonical)
+            .or_else(|| config.data_roots.get(&dir));
+        let expected_data_id = config
+            .data_ids
+            .get(&canonical)
+            .or_else(|| config.data_ids.get(&dir));
+        if remembered && expected_root.is_none() && expected_data_id.is_none() {
+            return Err("无法确认先前工作台目录身份；请选择已有目录以继续".into());
         }
-    }
-    if exists
-        && requested.is_none()
-        && config.data_ids.get(&canonical).is_some_and(|expected| {
-            read_data_id(&canonical).map_or(true, |actual| &actual != expected)
-        })
-    {
-        return Err("工作台数据目录身份已变化；请核对后重新选择".into());
+        if expected_root.is_some_and(|expected| initial_root.as_ref() != Some(expected))
+            || expected_data_id.is_some_and(|expected| {
+                read_data_id(&canonical).map_or(true, |actual| &actual != expected)
+            })
+        {
+            return Err("工作台数据目录身份已变化；请核对后重新选择".into());
+        }
     }
     if let Some(current) = state
         .connection
@@ -1266,7 +1268,11 @@ fn connect(
         state.message = "工作台已连接".into();
         return Ok(());
     }
-    let editor_id = match config.editors.get(&canonical) {
+    let editor_id = match config
+        .editors
+        .get(&canonical)
+        .or_else(|| config.editors.get(&dir))
+    {
         Some(value)
             if value.len() == 32
                 && value
@@ -1415,8 +1421,16 @@ fn connect(
         child: owned,
         managed_owner,
     };
-    let connected_root = match yss::fs::Root::open(&canonical) {
-        Ok(root) => root.identity,
+    let connected_dir = if exists {
+        Ok(canonical)
+    } else {
+        fs::canonicalize(&canonical)
+    };
+    let connected_root = match connected_dir
+        .map_err(yss::error::YssError::from)
+        .and_then(|dir| yss::fs::Root::open(&dir))
+    {
+        Ok(root) => root,
         Err(_) => {
             let cleaned = cleanup_staged(&mut conn);
             return Err(if cleaned {
@@ -1426,9 +1440,10 @@ fn connect(
             });
         }
     };
-    if initial_root
-        .as_ref()
-        .is_some_and(|identity| identity != &connected_root)
+    if conn.session.root.as_ref() != Some(&connected_root.identity)
+        || initial_root
+            .as_ref()
+            .is_some_and(|identity| identity != &connected_root.identity)
     {
         let cleaned = cleanup_staged(&mut conn);
         return Err(if cleaned {
@@ -1461,10 +1476,14 @@ fn connect(
             format!("{error}；新工作台状态未知，已保留，请检查后重试")
         });
     }
-    config.last_data_dir = Some(canonical.clone());
-    config.editors.insert(canonical.clone(), editor_id);
-    config.data_ids.insert(canonical.clone(), data_id);
-    config.data_roots.insert(canonical, connected_root);
+    let connected_dir = connected_root.path;
+    conn.data_dir.clone_from(&connected_dir);
+    config.last_data_dir = Some(connected_dir.clone());
+    config.editors.insert(connected_dir.clone(), editor_id);
+    config.data_ids.insert(connected_dir.clone(), data_id);
+    config
+        .data_roots
+        .insert(connected_dir, connected_root.identity);
     if let Err(error) = save_config(&config) {
         let cleaned = cleanup_staged(&mut conn);
         state.connection = None;

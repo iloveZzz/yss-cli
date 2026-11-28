@@ -26,11 +26,11 @@ function updateFor(tool) {
 }
 function canUpdate(tool) {
   const update = updateFor(tool)
-  return (tool.installed || tool.detected) && latestState?.connectionKind === 'owned' &&
+  return (tool.installed || tool.detected) && toolsState?.scope === 'workbench' && latestState?.connectionKind === 'owned' &&
     !!update?.release && !!(update.updateable || update.officialAvailable) && !tool.pendingConfirmation
 }
 function canUseOfficial(tool, update = updateFor(tool)) {
-  return latestState?.connectionKind === 'owned' && !!update?.release &&
+  return toolsState?.scope === 'workbench' && latestState?.connectionKind === 'owned' && !!update?.release &&
     !!update.officialAvailable && !tool.pendingConfirmation
 }
 function canInstallFromChannel(tool) {
@@ -157,7 +157,10 @@ function renderTools() {
       typeof tool.sandboxReady === 'boolean' && (tool.sandboxReady ? '离线命令可用' : '离线命令不可用'),
       tool.sandboxReady === false && tool.sandboxMessage
     ] : []
-    description.textContent = [tool.pendingConfirmation ? `${tool.pendingUpdate ? '更新' : '安装'}结果待确认` : tool.installed ? '已安装' : tool.detected ? '已发现，检测失败' : '未安装', tool.version, tool.path, ...capabilities, tool.message,
+    const detection = toolsState.scope !== 'workbench' && tool.id === 'pi' ? '等待检测'
+      : tool.installed ? '已安装' : tool.detected ? '已发现，检测失败' : '未安装'
+    const status = tool.pendingConfirmation ? `${tool.pendingUpdate ? '更新' : '安装'}结果待确认` : detection
+    description.textContent = [status, tool.version, tool.path, ...capabilities, tool.message,
       tool.source && `来源：${tool.source}`, prerequisites && `前置项：${prerequisites}`].filter(Boolean).join(' · ')
     description.id = `${input.id}-detail`
     input.setAttribute('aria-describedby', description.id)
@@ -305,7 +308,7 @@ async function refreshTools() {
   try {
     let result = await invoke('desktop_tools_status')
     // A completed marker may outlive a view or desktop restart. Only clear it
-    // after this service has actually detected a working supported tool.
+    // after the tool has been detected and its version check has succeeded.
     const completed = result.tools.filter(tool => tool.pendingCompleted && tool.installed)
     for (const tool of completed) await invoke('desktop_acknowledge_tool', { toolId: tool.id })
     if (completed.length) result = await invoke('desktop_tools_status')
@@ -316,6 +319,9 @@ async function refreshTools() {
     return true
   } catch (error) {
     toolsState = null
+    toolUpdates.clear()
+    byId('tools-list').replaceChildren()
+    setText(byId('tools-channel'), '安装渠道状态不可用。')
     setText(byId('tools-status'), `无法检查工具：${String(error)}`)
     return false
   } finally {
@@ -369,10 +375,10 @@ async function acknowledgeTool(id) {
     const previous = toolResults.find(item => item.id === id)
     const operation = previous?.operation || (toolById(id)?.pendingUpdate ? 'update' : 'install')
     toolResults = [...toolResults.filter(item => item.id !== id), {
-      id, operation, source: previous?.source, success: false, acknowledged: true, message: '请核对工作台实际检测到的工具状态。'
+      id, operation, source: previous?.source, success: false, acknowledged: true, message: '请复检并核对工具状态。'
     }]
     renderToolResults()
-    if (await refreshTools()) setText(byId('tools-status'), '已确认程序结束。请核对工作台实际检测结果。')
+    if (await refreshTools()) setText(byId('tools-status'), '已确认程序结束。请核对工具检测结果。')
   } catch (error) {
     setText(byId('tools-status'), `无法确认工具操作结果：${String(error)}`)
   } finally {
@@ -440,7 +446,7 @@ byId('confirm-tools').addEventListener('click', async () => {
           remaining.push({ ...result, success: false, uncertain: true,
             message: usesUpdateCommand(result)
               ? '更新程序已结束，工作台尚未检测到目标版本。请核对渠道中的版本和工作台使用的执行路径。'
-              : '安装程序已结束，但工作台尚未发现该工具。请核对实际安装与服务环境，确认安装服务已结束后再处理。' })
+              : '安装程序已结束，复检暂未发现该工具。请核对实际安装和 PATH，确认安装服务已结束后再处理。' })
         }
       } else if (result.uncertain) remaining.push(result)
     }
@@ -475,6 +481,8 @@ async function refresh() {
   if (!editingAutostart) byId('autostart').checked = state.autostart
   if (!editingNotifications) byId('notifications').checked = state.notifications
   updateControls()
+  const toolsHadConnection = toolsState?.scope !== 'local'
+  if (toolsState && toolsHadConnection !== state.connected && !toolResults.length) void refreshTools()
 }
 async function run(action, successMessage = '') {
   if (busy) return
@@ -492,7 +500,10 @@ async function run(action, successMessage = '') {
   busy = false
   updateControls()
 }
-byId('retry').addEventListener('click', () => run(() => invoke('desktop_connect')))
+byId('retry').addEventListener('click', async () => {
+  await run(() => invoke('desktop_connect'))
+  if (settingsShown && !toolResults.length) void refreshTools()
+})
 function returnToWorkbench() {
   if (!latestState?.connected) return
   void run(() => invoke('desktop_open_workbench'))
@@ -529,7 +540,7 @@ function onSettingsShown() {
   const openedTools = selectToolSettings()
   if (!openedTools && !selectUpdateSettings()) byId('page-title').focus({ preventScroll: true })
   if (!busy) refresh().catch(error => { showMessage('error', String(error)) })
-  if (!openedTools && !busy && !toolsState && !toolResults.length) void refreshTools()
+  if (!openedTools && !busy && (!toolsState || toolsState.scope === 'unavailableWorkbench') && !toolResults.length) void refreshTools()
 }
 window.addEventListener('yss:settings-shown', onSettingsShown)
 window.addEventListener('yss:settings-hidden', () => { settingsShown = false })

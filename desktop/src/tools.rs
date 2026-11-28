@@ -99,11 +99,19 @@ pub struct ToolStatus {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolsStatus {
+    scope: ToolScope,
     channel: &'static str,
     channel_available: bool,
     channel_message: String,
     integration_message: String,
     tools: Vec<ToolStatus>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ToolScope {
+    Workbench,
+    Local,
+    UnavailableWorkbench,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,15 +129,13 @@ fn settings(view: &tauri::Webview) -> Result<(), String> {
     }
     Ok(())
 }
-fn session(app: &tauri::AppHandle) -> Result<super::Session, String> {
+fn connection(app: &tauri::AppHandle) -> Result<Option<(super::Session, bool)>, String> {
     let state = app.state::<Mutex<State>>();
     let state = state.lock().map_err(|_| "桌面状态不可用")?;
     Ok(state
         .connection
         .as_ref()
-        .ok_or("请先连接工作台，再检测本机工具")?
-        .session
-        .clone())
+        .map(|conn| (conn.session.clone(), conn.child.is_some())))
 }
 fn marker_name(id: ToolId) -> Result<yss::model::RelPath, String> {
     yss::model::RelPath::new(format!("tool-install-{}.pending", id.name()))
@@ -686,7 +692,53 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
     let external = get(session, "/api/external")?;
     let links = external.as_array().ok_or("无法读取工作台集成设置")?;
     let trackers = get(session, "/api/desktop/tool-integrations").ok();
-    let protected = protected_paths(trackers.as_ref());
+    build_status(&system, links, trackers.as_ref(), ToolScope::Workbench)
+}
+
+fn read_status(session: Option<&super::Session>) -> Result<ToolsStatus, String> {
+    match session.map(status) {
+        Some(Ok(system)) => Ok(system),
+        Some(Err(error)) => {
+            let mut system = local_status(ToolScope::UnavailableWorkbench)?;
+            system.integration_message = format!(
+                "无法读取工作台检测结果（{error}）。连接恢复前可检测本机工具和查看官方发行。"
+            );
+            Ok(system)
+        }
+        None => local_status(ToolScope::Local),
+    }
+}
+
+fn local_status(scope: ToolScope) -> Result<ToolsStatus, String> {
+    let environment = Command::new("yss");
+    #[cfg(any(windows, target_os = "macos"))]
+    let mut environment = environment;
+    #[cfg(windows)]
+    yss::workbench::process::apply_windows_user_path(&mut environment);
+    #[cfg(target_os = "macos")]
+    yss::workbench::process::host::apply_macos_login_environment(&mut environment);
+    let path = environment
+        .get_envs()
+        .find(|(key, _)| *key == "PATH")
+        .and_then(|(_, value)| value.map(ToOwned::to_owned))
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    let tools =
+        yss::workbench::process::probe_system_tools(&path, &yss::cancel::Cancellation::new(), true);
+    let system = serde_json::json!({
+        "tools": tools,
+        "pi": {"message": "连接工作台后可检测 Pi 并核验安装前置条件。"}
+    });
+    build_status(&system, &[], None, scope)
+}
+
+fn build_status(
+    system: &Value,
+    links: &[Value],
+    trackers: Option<&Value>,
+    scope: ToolScope,
+) -> Result<ToolsStatus, String> {
+    let protected = protected_paths(trackers);
     let node = protected
         .as_ref()
         .and_then(|paths| compatible_node(paths, None, |_| true));
@@ -698,7 +750,6 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
         explanation,
     );
     let complete = trackers
-        .as_ref()
         .and_then(|v| v.get("complete"))
         .and_then(Value::as_bool)
         == Some(true);
@@ -707,7 +758,6 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
             .iter()
             .any(|entry| entry.get("provider").and_then(Value::as_str) == Some(name))
             || trackers
-                .as_ref()
                 .and_then(|v| v.get("providers"))
                 .and_then(Value::as_array)
                 .is_some_and(|providers| providers.iter().any(|v| v.as_str() == Some(name)))
@@ -758,8 +808,8 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
         let state = pending_state(id)?;
         let pending_confirmation = state.is_some();
         let pending_completed = match &state {
-            Some(PendingState::Completed) => true,
-            Some(PendingState::Updated(target)) => {
+            Some(PendingState::Completed) => scope != ToolScope::UnavailableWorkbench,
+            Some(PendingState::Updated(target)) if scope == ToolScope::Workbench => {
                 installed && target.confirmed(id, version, executable, managed)
             }
             _ => false,
@@ -784,12 +834,13 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
             } else {
                 id.source()
             },
-            prerequisites: if matches!(id, ToolId::Pi) {
+            prerequisites: if matches!(id, ToolId::Pi) && scope == ToolScope::Workbench {
                 pi_prerequisites.clone()
             } else {
                 Vec::new()
             },
-            installable: !detected
+            installable: scope != ToolScope::UnavailableWorkbench
+                && !detected
                 && definite_missing
                 && !pending_confirmation
                 && if matches!(id, ToolId::Pi) {
@@ -820,10 +871,13 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
         });
     }
     Ok(ToolsStatus {
+        scope,
         channel: name,
         channel_available: path.is_some(),
         channel_message: explanation.into(),
-        integration_message: if complete {
+        integration_message: if scope != ToolScope::Workbench {
+            "目前显示本机检测结果。连接工作台后可核对服务实际使用的工具和工程集成。"
+        } else if complete {
             "默认选择依据已关联的研发记录和可读取的启用工程配置。"
         } else {
             "部分工程配置不可读取或服务版本不支持完整检测，请自行核对默认选择。"
@@ -836,9 +890,12 @@ fn status(session: &super::Session) -> Result<ToolsStatus, String> {
 pub async fn desktop_tools_status(view: tauri::Webview) -> Result<ToolsStatus, String> {
     settings(&view)?;
     let app = view.app_handle().clone();
-    tauri::async_runtime::spawn_blocking(move || status(&session(&app)?))
-        .await
-        .map_err(|_| "无法检测本机工具")?
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = connection(&app)?;
+        read_status(connection.as_ref().map(|(session, _)| session))
+    })
+    .await
+    .map_err(|_| "无法检测本机工具")?
 }
 #[tauri::command]
 pub async fn desktop_install_tool(
@@ -852,7 +909,11 @@ pub async fn desktop_install_tool(
         let _install = INSTALL
             .try_lock()
             .map_err(|_| "已有工具安装正在进行，请等待结束")?;
-        let current = status(&session(&app)?)?;
+        let active = connection(&app)?;
+        let current = match active {
+            Some((session, _)) => status(&session)?,
+            None => local_status(ToolScope::Local)?,
+        };
         let item = current
             .tools
             .iter()
@@ -863,7 +924,11 @@ pub async fn desktop_install_tool(
                 id: tool_id,
                 success: item.installed,
                 uncertain: false, requires_refresh: false,
-                message: if item.installed { "工作台已探测到该工具，已复用现有安装。" } else { "已发现现有工具但版本探测失败；请先检查现有安装，未执行安装。" }.into(),
+                message: if item.installed {
+                    "已检测到该工具，已复用现有安装。".into()
+                } else {
+                    "已发现现有工具但版本探测失败；请先检查现有安装，未执行安装。".into()
+                },
             });
         }
         if matches!(tool_id, ToolId::Pi)
@@ -874,7 +939,7 @@ pub async fn desktop_install_tool(
         if matches!(tool_id, ToolId::Pi) {
             #[cfg(any(all(target_os = "macos", target_arch = "aarch64"), all(target_os = "windows", target_arch = "x86_64")))]
             {
-                let session = session(&app)?;
+                let (session, _) = connection(&app)?.ok_or("请先连接工作台，再安装 Pi")?;
                 let trackers = get(&session, "/api/desktop/tool-integrations")?;
                 let paths = protected_paths(Some(&trackers)).ok_or("无法核验受保护路径")?;
                 let node = compatible_node(&paths, None, |_| true);
@@ -984,7 +1049,7 @@ pub async fn desktop_install_tool(
                 id: tool_id,
                 success: true,
                 uncertain: false, requires_refresh: false,
-                message: "安装程序已完成；请确认结果并重新检测，工作台实际探测结果为准。".into(),
+                message: "安装程序已完成；请确认结果并重新检测。".into(),
             },
             Ok((result, _, _)) => {
                 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]

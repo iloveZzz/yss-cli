@@ -74,10 +74,15 @@ impl Control for TerminalControl {
     }
 }
 
-pub(super) fn spawn(cwd: &Path, cols: u16, rows: u16) -> Result<Pty, String> {
+pub(super) fn spawn(root: &yss::fs::Root, cols: u16, rows: u16) -> Result<Pty, String> {
+    let cwd = root.path.as_path();
     if !cwd.is_absolute() || !cwd.is_dir() {
         return Err("终端启动目录不可用".into());
     }
+    #[cfg(windows)]
+    let windows_cwd = native::child_directory(root)?;
+    #[cfg(windows)]
+    let cwd = windows_cwd.as_path();
     let size = pty_size(cols, rows)?;
     let (mut command, launch) = native::prepare().map_err(|error| error.to_string())?;
     configure_shell(&mut command, cwd);

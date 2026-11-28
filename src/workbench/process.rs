@@ -183,6 +183,62 @@ pub(crate) fn system_tool_path(program: &str, path: &OsStr) -> Option<PathBuf> {
         })
 }
 
+/// Inspect the fixed Git and tracker CLI commands using absolute paths only.
+/// A detached desktop can inspect its own managed receipts without using service state.
+pub fn probe_system_tools(
+    path: &OsStr,
+    cancel: &Cancellation,
+    desktop: bool,
+) -> Vec<serde_json::Value> {
+    use serde_json::json;
+
+    ["git", "gh", "glab"]
+        .into_iter()
+        .map(|program| {
+            #[cfg(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "windows", target_arch = "x86_64")
+            ))]
+            let managed = desktop
+                .then(|| match program {
+                    "gh" => Some(super::managed_tools::Tool::Gh),
+                    "glab" => Some(super::managed_tools::Tool::Glab),
+                    _ => None,
+                })
+                .flatten()
+                .and_then(|tool| super::managed_tools::inspect(tool).ok().flatten())
+                .map(|install| install.path);
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "windows", target_arch = "x86_64")
+            )))]
+            let managed = {
+                let _ = desktop;
+                None
+            };
+            let Some(executable) = managed.or_else(|| system_tool_path(program, path)) else {
+                let scope = if desktop { "本机" } else { "工作台服务" };
+                return json!({"name":program,"available":false,"message":format!("{scope}的 PATH 中未找到此工具")});
+            };
+            let executable = match executable.canonicalize() {
+                Ok(canonical) => canonical,
+                Err(_) => return json!({"name":program,"available":false,"path":executable.to_string_lossy(),"message":"无法确认工具的实际路径"}),
+            };
+            let mut command = Command::new(&executable);
+            command.arg("--version").env("PATH", path);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x0800_0000);
+            }
+            match run_command(command, cancel, Duration::from_secs(5)) {
+                Ok(bytes) => json!({"name":program,"available":true,"path":executable.to_string_lossy(),"version":String::from_utf8_lossy(&bytes).lines().next().unwrap_or("")}),
+                Err(error) => json!({"name":program,"available":false,"path":executable.to_string_lossy(),"message":error.message}),
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn isolate(command: &mut Command) -> Result<String> {
     let scope = crate::fs::unique_id()?;
     command.env("YSS_PROCESS_SCOPE", &scope);

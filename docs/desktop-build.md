@@ -14,6 +14,8 @@
 
 macOS 随包服务会从当前账号的登录 shell 恢复查找工具所需的环境，用于发现本机 Pi、Git、`gh` 和 `glab`。登录配置不可用或超时时继续使用应用继承的环境。Windows x64 随包服务会读取当前用户和系统的工具路径，并分别探测 Pi 基础作业和离线命令。就绪状态和失败原因可在本机诊断中查看。
 
+工作台未连接时，桌面设置仍可检查本机 Git、`gh`、`glab` 和安装渠道，也可查看官方发行及可用的安装包链接。尚未建立工作台连接时，可通过可用的安装渠道安装缺失工具。连接工作台后可核对服务实际使用的工具，并检测 Pi 和核验其安装条件。
+
 ## 候选构建
 
 `.github/workflows/desktop-build.yml` 在 macOS ARM64 和 Windows x86_64 原生 runner 构建候选。工作流使用 `ui/pnpm-lock.yaml`、根目录和桌面目录的 Cargo 锁文件，从固定模板提交生成内嵌 Bundle，再为目标架构构建 `yss`，复制为 `desktop/binaries/yss-<target-triple>`（Windows 加 `.exe`）。Tauri CLI 将对应程序作为 sidecar 打包。

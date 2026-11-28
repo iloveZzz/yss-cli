@@ -4,10 +4,10 @@ use std::{
     io,
     mem::{self, MaybeUninit},
     os::windows::{
-        ffi::OsStringExt,
+        ffi::{OsStrExt, OsStringExt},
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
-    path::PathBuf,
+    path::{Component, PathBuf, Prefix},
     ptr,
     sync::{Arc, mpsc},
     thread,
@@ -15,7 +15,7 @@ use std::{
 };
 use windows_sys::{
     Wdk::System::SystemServices::RtlGetVersion,
-    Win32::Foundation::STATUS_SUCCESS,
+    Win32::Foundation::{MAX_PATH, STATUS_SUCCESS},
     Win32::System::{
         JobObjects::{
             CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -28,6 +28,39 @@ use windows_sys::{
 };
 
 type Master = Box<dyn MasterPty + Send>;
+
+pub(super) fn child_directory(root: &yss::fs::Root) -> Result<PathBuf, String> {
+    let Some(Component::Prefix(prefix)) = root.path.components().next() else {
+        return Err("终端启动目录无效".into());
+    };
+    // A verbatim cwd leaks into PowerShell's location and into child programs.
+    // Keep the verified project path and use ordinary syntax only for this process.
+    let separator = u16::from(b'\\');
+    let mut units: Vec<_> = root.path.as_os_str().encode_wide().collect();
+    match prefix.kind() {
+        Prefix::VerbatimDisk(_) => {
+            units.drain(..r"\\?\".len());
+        }
+        Prefix::VerbatimUNC(..) => {
+            units.splice(..r"\\?\UNC\".len(), [separator; 2]);
+        }
+        _ => return Ok(root.path.clone()),
+    }
+    let trailing_separator = usize::from(units.last() != Some(&separator));
+    if units.len() + trailing_separator >= MAX_PATH as usize {
+        return Ok(root.path.clone());
+    }
+    let cwd = PathBuf::from(OsString::from_wide(&units));
+    // DOS normalization can trim trailing dots/spaces or turn a name into a device.
+    if !std::path::absolute(&cwd).is_ok_and(|normalized| normalized == cwd) {
+        return Ok(root.path.clone());
+    }
+    let ordinary_root = yss::fs::Root::open(&cwd).map_err(|_| "无法核验终端启动目录")?;
+    if ordinary_root.identity != root.identity {
+        return Err("终端启动目录已变化，请重新选择工程".into());
+    }
+    Ok(cwd)
+}
 
 pub(super) fn build_number() -> Option<u32> {
     // xterm uses the running Windows build to distinguish old and new ConPTY behavior.
