@@ -37,7 +37,7 @@ jobs:
       TAURI_CLI_VERSION: 2.12.6
       YSS_TARGET: ${{ matrix.target }}
       YSS_SIDECAR_RUSTFLAGS: ${{ matrix.sidecar-rustflags }}
-      YSS_TEMPLATE_COMMIT: 59dc25d307929037e09566270158bf9221880899
+      YSS_TEMPLATE_COMMIT: beaafedb77e2dfdb8cfd6433ab4b59dddcefbb92
       YSS_DESKTOP_VERSION: ${{ inputs.version }}
     steps:
       - name: Preserve source line endings
