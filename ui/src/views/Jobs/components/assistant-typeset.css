@@ -1,0 +1,113 @@
+/* Typeset spacing flows forward so appended Markdown does not restyle earlier blocks. */
+.source-markdown.typeset {
+  --typeset-flow: 0.95em;
+  --typeset-leading: 1.75;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  line-height: var(--typeset-leading);
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.typeset :deep(:where(p, ul, ol, blockquote, pre, hr, table, h1, h2, h3, h4, h5, h6)) {
+  margin: 0;
+}
+
+.typeset :deep(:where(p, ul, ol, blockquote, hr, h1, h2, h3, h4, h5, h6, .node-slot, .assistant-table-scroll) + :where(p, ul, ol, blockquote, pre, hr, h1, h2, h3, h4, h5, h6, .node-slot, .assistant-table-scroll)) {
+  margin-block-start: var(--typeset-flow);
+}
+
+.typeset :deep(.node-slot + .node-slot:has(> :is(h1, h2, h3))),
+.assistant-markdown-fallback :deep(:where(p, ul, ol, blockquote, hr, pre, .assistant-table-scroll) + :is(h1, h2, h3)) {
+  margin-block-start: 1.35em;
+}
+
+.typeset :deep(:where(h1, h2, h3, h4, h5, h6)) {
+  color: var(--foreground);
+  line-height: 1.4;
+  font-weight: 650;
+  scroll-margin-block-start: 1em;
+}
+
+.typeset :deep(h1) { font-size: 1.45em; }
+.typeset :deep(h2) { font-size: 1.28em; }
+.typeset :deep(h3) { font-size: 1.14em; }
+.typeset :deep(:where(h4, h5, h6)) { font-size: 1.04em; }
+.typeset :deep(strong) { font-weight: 650; }
+.typeset :deep(ul) { list-style: disc; }
+.typeset :deep(ol) { list-style: decimal; }
+.typeset :deep(:where(ul, ol)) { padding-inline-start: 1.55em; }
+.typeset :deep(li + li) { margin-block-start: 0.28em; }
+
+.typeset :deep(blockquote) {
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 0.85em;
+  color: var(--muted-foreground);
+}
+
+.typeset :deep(hr) { border-color: var(--border); }
+.typeset :deep(:where(:not(pre) > code)) {
+  padding: 0.09em 0.32em;
+  border-radius: 0.3em;
+  background: var(--muted);
+  font-size: 0.92em;
+}
+
+.source-markdown.typeset :deep(a[href]) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.typeset :deep(.assistant-table-scroll) {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.typeset :deep(.assistant-table-scroll > table) {
+  inline-size: 100%;
+  min-inline-size: min-content;
+  border-collapse: collapse;
+  text-align: start;
+  font-size: 0.95em;
+  line-height: 1.55;
+}
+.typeset :deep(.assistant-table-scroll > table :is(th, td)) {
+  min-inline-size: 7.25em;
+  padding: 0.6em 0.8em;
+  vertical-align: top;
+  text-align: start;
+  white-space: normal;
+}
+.typeset :deep(.assistant-simple-table > table) { table-layout: fixed; }
+.typeset :deep(.assistant-simple-table > table :is(th, td)) {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.typeset :deep(.assistant-simple-table > table th:first-child) {
+  inline-size: 29%;
+}
+.typeset :deep(.assistant-table-scroll > table th) {
+  block-size: auto;
+  background: var(--muted);
+  color: var(--foreground);
+  font-weight: 650;
+}
+.typeset :deep(.assistant-table-scroll > table tbody tr) { border-block-start: 1px solid var(--border); }
+.typeset :deep(.assistant-table-scroll > table tbody tr:last-child) { border-block-end: 0; }
+.typeset :deep(.assistant-table-scroll > table tbody tr:nth-child(even)) { background: var(--brand-color-bg-layout); }
+.typeset :deep(.assistant-table-scroll:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.assistant-markdown-fallback :deep(pre) {
+  margin-block-start: var(--typeset-flow);
+  padding: 0.75em;
+  border-radius: 6px;
+  background: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

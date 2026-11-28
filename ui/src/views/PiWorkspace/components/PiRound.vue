@@ -335,6 +335,11 @@ watch(events.statusLabel, (status) => {
 <style scoped>
 .pi-round { display: grid; gap: 14px; min-width: 0; overflow-wrap: anywhere; }
 .pi-round-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; color: var(--quiet); font-size: 11px; }
+.pi-round:focus-visible { outline: none; }
+.pi-round:focus-visible > .pi-round-meta time {
+  text-decoration: underline 2px;
+  text-underline-offset: 4px;
+}
 .pi-round-meta a, .pi-round-meta button { display: inline-flex; align-items: center; gap: 4px; color: var(--quiet); }
 .pi-round-meta button { height: auto; min-height: 26px; padding-inline: 4px; }
 .pi-round-meta a:hover, .pi-round-problem a:hover { text-decoration: underline; }

@@ -1,72 +1,22 @@
 import MarkdownIt from 'markdown-it'
+import { citationToken, installAssistantCitationRules, type AssistantCitationRenderState } from './assistant-citation-markdown'
 
 const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
 type MarkdownOptions = {
   documentLinks?: boolean
   headingPrefix?: string
   hideSpecMetadata?: boolean
-  assistantCitations?: {
-    pending: boolean
-    verified: ReadonlyMap<string, number>
-    rendered: Set<number>
-  }
+  assistantCitations?: AssistantCitationRenderState
+  scrollTables?: boolean
 }
 type MarkdownEnvironment = MarkdownOptions & { headings: Map<string, number> }
-const citationToken = 'workbench_citation'
-const citationPrefix = '{{cite:'
-const rawCitation = /^\{\{cite:[a-zA-Z0-9_-]{1,64}(?::\d{1,18}-\d{1,18})?\}\}/
-const partialCitation = /^\{\{cite:[a-zA-Z0-9_-]{0,64}(?::\d{0,18}(?:-\d{0,18})?)?\}?$/
-const verifiedCitation = /^\{\{yss-citation:[0-9a-f]{32}:\d{1,2}\}\}/
+installAssistantCitationRules(markdown, env => (env as MarkdownEnvironment).assistantCitations)
 
-markdown.inline.ruler.before('text', citationToken, (state, silent) => {
-  const citations = (state.env as MarkdownEnvironment).assistantCitations
-  if (!citations || state.src[state.pos] !== '{') return false
-  const tail = state.src.slice(state.pos, Math.min(state.posMax, state.pos + 128))
-  const verified = verifiedCitation.exec(tail)?.[0]
-  const number = verified ? citations.verified.get(verified) : undefined
-  let marker = number ? verified : undefined
-  let partial = false
-  if (!marker && citations.pending) {
-    marker = rawCitation.exec(tail)?.[0]
-    if (!marker && state.pos + tail.length === state.posMax &&
-      (citationPrefix.startsWith(tail) || partialCitation.test(tail))) {
-      marker = tail
-      partial = true
-    }
-  }
-  if (!marker) return false
-  if (!silent) {
-    const token = state.push(citationToken, '', 0)
-    token.content = marker
-    token.meta = { number, partial }
-  }
-  state.pos += marker.length
-  return true
-})
-
-markdown.core.ruler.after('inline', citationToken, (state) => {
-  const citations = (state.env as MarkdownEnvironment).assistantCitations
-  if (!citations) return
-  const tail = citations.pending ? state.src.trimEnd() : ''
-  for (const block of state.tokens) {
-    let linkDepth = 0
-    for (const token of block.children ?? []) {
-      if (token.type === 'link_open') linkDepth++
-      if (token.type === 'link_close') linkDepth--
-      if (token.type !== citationToken) continue
-      const number = token.meta?.number
-      if (linkDepth || (token.meta?.partial && !tail.endsWith(token.content))) {
-        token.type = 'text'
-      } else if (typeof number === 'number') {
-        citations.rendered.add(number)
-      }
-    }
-  }
-})
-
-markdown.renderer.rules[citationToken] = (tokens, index) => {
+markdown.renderer.rules[citationToken] = (tokens, index, _options, rawEnv) => {
   const number = tokens[index]?.meta?.number
   if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 1 || number > 12) return ''
+  const rendered = (rawEnv as MarkdownEnvironment).assistantCitations?.rendered
+  rendered?.set(number, (rendered.get(number) ?? 0) + 1)
   return `<button type="button" class="pi-inline-citation" data-assistant-citation="${number}" aria-label="查看来源 ${number}">[${number}]</button>`
 }
 
@@ -114,6 +64,23 @@ markdown.renderer.rules.heading_open = (tokens, index, options, rawEnv, renderer
   tokens[index]?.attrSet('id', (env.headingPrefix ?? '') + (count ? `${base}-${count}` : base))
   return renderer.renderToken(tokens, index, options)
 }
+markdown.renderer.rules.table_open = (tokens, index, options, env, renderer) => {
+  const table = renderer.renderToken(tokens, index, options)
+  if (!(env as MarkdownEnvironment).scrollTables) return table
+  let columns = 0
+  for (let i = index + 1; i < tokens.length; i++) {
+    const type = tokens[i]?.type
+    if (type === 'thead_close' || type === 'table_close') break
+    if (type === 'th_open') columns++
+  }
+  const className = columns === 2 ? 'assistant-table-scroll assistant-simple-table' : 'assistant-table-scroll'
+  return `<div class="${className}" role="region" aria-label="可横向滚动的数据表格" tabindex="0">${table}`
+}
+markdown.renderer.rules.table_close = (tokens, index, options, env, renderer) => {
+  const table = renderer.renderToken(tokens, index, options)
+  return (env as MarkdownEnvironment).scrollTables ? `${table}</div>` : table
+}
+
 export function renderMarkdown(text: string, options?: MarkdownOptions): string {
   const source = options?.hideSpecMetadata === false
     ? text

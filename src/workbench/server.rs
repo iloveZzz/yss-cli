@@ -84,7 +84,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         ("referrer-policy", "no-referrer"),
         (
             "content-security-policy",
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src http://127.0.0.1:*",
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; frame-src http://127.0.0.1:*",
         ),
     ] {
         response.headers_mut().insert(
@@ -125,6 +125,12 @@ async fn dispatch(server: Server, request: Request) -> Response {
                     "text/javascript; charset=utf-8"
                 } else if asset.ends_with(".css") {
                     "text/css; charset=utf-8"
+                } else if asset.ends_with(".woff2") {
+                    "font/woff2"
+                } else if asset.ends_with(".woff") {
+                    "font/woff"
+                } else if asset.ends_with(".ttf") {
+                    "font/ttf"
                 } else {
                     "application/octet-stream"
                 };
