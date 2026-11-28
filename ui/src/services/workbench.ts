@@ -1,6 +1,7 @@
 import { shallowRef } from 'vue'
 import { desktopStorageEnabled, flushDesktopDrafts, writeDesktopStorage } from './desktop-storage'
 import { sorted } from '@/lib/collections'
+import type { LifecycleGoalChange } from './workbench-progress'
 export * from './workbench-model'
 export * from './workbench-progress'
 import type {
@@ -89,19 +90,25 @@ interface PendingIntent {
   createdAt: string
   status: 'sending' | 'uncertain'
   persistInBrowser?: boolean
+  conflict?: string
 }
 const intents = new Map<string, PendingIntent>()
 const desktopIntentsKey = 'yss:pi:pending-intents:1'
 const browserIntentsKey = 'yss:pi:browser-pending-intents:1'
 export const pendingRequests = shallowRef<Omit<PendingIntent, 'body'>[]>([])
+export const conflictedRequests = shallowRef<{ requestId: string; message: string }[]>([])
 function publishPending(persistInBrowser = false) {
-  pendingRequests.value = Array.from(intents.values()).map((intent) => ({
+  const all = Array.from(intents.values())
+  pendingRequests.value = all.filter((intent) => !intent.conflict).map((intent) => ({
     requestId: intent.requestId,
     path: intent.path,
     method: intent.method,
     createdAt: intent.createdAt,
     status: intent.status
   }))
+  conflictedRequests.value = all.flatMap(({ requestId, conflict }) =>
+    conflict ? [{ requestId, message: conflict }] : []
+  )
   if (desktopStorageEnabled) {
     try {
       writeDesktopStorage(desktopIntentsKey, intents.size ? JSON.stringify(Array.from(intents)) : undefined)
@@ -131,6 +138,7 @@ export function restorePendingRequests() {
       if (typeof intent.requestId !== 'string' || typeof intent.path !== 'string' ||
           !intent.path.startsWith('/api/') || typeof intent.method !== 'string' ||
           !intent.body || typeof intent.body !== 'object' || Array.isArray(intent.body) ||
+          (intent.conflict !== undefined && typeof intent.conflict !== 'string') ||
           (!desktopStorageEnabled && intent.persistInBrowser !== true))
         throw new Error('待核对请求格式无效')
       intents.set(entry[0], { ...intent, status: 'uncertain' })
@@ -176,6 +184,26 @@ export function pendingRequestBody(path: string, requestId: string): Readonly<Re
   return Array.from(intents.values()).find((intent) =>
     intent.requestId === requestId && intent.path === path && intent.method === 'POST')?.body
 }
+
+export type LifecycleGoalRequest = {
+  action: LifecycleGoalChange
+  requestId: string
+  expectedRevision: number
+}
+
+export function lifecycleGoalRequest(requestId: string): LifecycleGoalRequest | undefined {
+  const body = pendingRequestBody('/api/commands', requestId) as LifecycleGoalRequest | undefined
+  if ((body?.action?.kind === 'cancelLifecycleGoal' || body?.action?.kind === 'reopenLifecycleGoal') &&
+      typeof body.action.input?.specId === 'string') return body
+}
+
+export function retainRequestConflict(requestId: string, message: string) {
+  const intent = Array.from(intents.values()).find((item) => item.requestId === requestId)
+  if (!intent) return
+  intent.conflict = message
+  publishPending(intent.persistInBrowser)
+}
+
 export async function reconcilePendingMutation(requestId: string): Promise<unknown> {
   const intent = Array.from(intents.values()).find((pending) => pending.requestId === requestId)
   if (!intent || intent.path !== '/api/commands' || intent.method !== 'POST')
@@ -200,6 +228,8 @@ export async function apiRequest<T>(
     priority?: RequestPriority
     retryUncertain?: boolean
     persistInBrowser?: boolean
+    retainOnConflict?: boolean
+    trackIntent?: false
   } = {}
 ): Promise<T> {
   const authHeaders = sessionHeaders()
@@ -210,7 +240,7 @@ export async function apiRequest<T>(
       : undefined
   let intent: PendingIntent | undefined
   let intentKey = ''
-  if (typeof input?.requestId === 'string') {
+  if (options.trackIntent !== false && typeof input?.requestId === 'string') {
     const logical = Object.fromEntries(
       Object.entries(input).filter(
         ([key]) =>
@@ -276,13 +306,18 @@ export async function apiRequest<T>(
             .toLowerCase() === 'recoveryrequired'
         const definitive =
           response.status >= 400 && response.status < 500 && response.status !== 408 && !recovery
+        const message = value?.error?.message ?? `请求失败 (${response.status})`
         if (intent && definitive) {
-          intents.delete(intentKey)
-          publishPending(intent.persistInBrowser)
-          void acknowledgeRequest(intent.requestId)
+          if (response.status === 409 && options.retainOnConflict) {
+            retainRequestConflict(intent.requestId, message)
+          } else {
+            intents.delete(intentKey)
+            publishPending(intent.persistInBrowser)
+            void acknowledgeRequest(intent.requestId)
+          }
         }
         throw new ApiError(
-          value?.error?.message ?? `请求失败 (${response.status})`,
+          message,
           response.status,
           {
             ...(value?.error?.context ?? {}),

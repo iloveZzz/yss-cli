@@ -2,6 +2,7 @@
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import { computed, onMounted, shallowRef } from 'vue'
+import { useRouter } from 'vue-router'
 import { useWorkbench } from '@/hooks/useWorkbench'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ import JobDisclosure from './JobDisclosure.vue'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   dateLabel,
+  lifecycleGoalRequest,
   pendingRequests,
   reconcilePendingMutation,
   resolvePendingRequest,
@@ -29,6 +31,7 @@ import {
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ count: [total: number] }>()
 const { refresh: refreshSnapshot } = useWorkbench()
+const router = useRouter()
 const records = shallowRef<RequestRecord[]>([])
 const total = shallowRef(0)
 const dated = computed(() => records.value.some((record) => record.updatedAt || record.createdAt))
@@ -62,6 +65,11 @@ async function refresh() {
 }
 async function inspect(id: string) {
   if (loading.value) return
+  const destination = lifecycleLocation(id)
+  if (destination) {
+    await router.push(destination)
+    return
+  }
   phase.value = { kind: 'inspect', requestId: id }
   error.value = ''
   try {
@@ -93,6 +101,11 @@ async function inspect(id: string) {
     phase.value = undefined
   }
 }
+
+function lifecycleLocation(id: string) {
+  const request = lifecycleGoalRequest(id)
+  if (request) return { path: `/specs/${encodeURIComponent(request.action.input.specId)}`, query: { tab: 'lifecycle' } }
+}
 onMounted(refresh)
 </script>
 <template>
@@ -111,10 +124,19 @@ onMounted(refresh)
       <div>
         <Badge variant="outline">{{ intent.status === 'uncertain' ? '结果待核对' : '正在提交' }}</Badge>
         <p class="path-text">{{ intent.path }}</p>
-        <p v-if="desktopStorageEnabled">只查询保存回执，原请求不会重新发送。</p>
+        <p v-if="lifecycleLocation(intent.requestId)">从 Spec 生命周期核对原操作及当前轮次。</p>
+        <p v-else-if="desktopStorageEnabled">只查询保存回执，原请求不会重新发送。</p>
         <p v-else-if="intent.path === '/api/commands'">将使用原请求内容核实并完成此次保存。</p>
       </div>
       <Button
+        v-if="lifecycleLocation(intent.requestId)"
+        variant="outline"
+        as-child
+      >
+        <RouterLink :to="lifecycleLocation(intent.requestId)!">打开 Spec 生命周期</RouterLink>
+      </Button>
+      <Button
+        v-else
         type="button"
         variant="outline"
         :aria-disabled="loading"

@@ -474,6 +474,7 @@ pub fn register(
     };
     Ok(MutationResult {
         response_id: None,
+        goal_version: None,
         revision,
         project_id: Some(project_id),
         spec_id: Some(spec_id),

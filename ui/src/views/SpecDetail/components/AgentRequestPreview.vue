@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button'
 import ModalDialog from '@/components/ModalDialog.vue'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import ProgressSummary from '@/components/ProgressSummary.vue'
 import { useQuestionReviewDeadline } from '@/hooks/useQuestionReviewDeadline'
-import { errorMessage, type AgentQuestion, type AgentRequest } from '@/services/workbench'
+import { dateLabel, errorMessage, type AgentQuestion, type AgentRequest } from '@/services/workbench'
 import { questionState, responseText } from '@/services/workbench-content'
 import { getAgentRequest } from '@/services/workbench-platform'
 import QuestionHistory from './QuestionHistory.vue'
@@ -75,6 +76,7 @@ useQuestionReviewDeadline(() => {
 })
 async function copy() {
   if (!request.value || copying.value) return
+  const previous = request.value
   const own = generation
   copying.value = true
   notice.value = copyError.value = ''
@@ -82,9 +84,17 @@ async function copy() {
     const latest = await readLatest(props.specId)
     if (own !== generation) return
     request.value = latest
+    const changes = [
+      latest.progress?.goalVersion !== previous.progress?.goalVersion && '目标版本',
+      latest.sourceDigest !== previous.sourceDigest && '规格材料',
+      (latest.progress?.status !== previous.progress?.status ||
+        latest.progress?.validity !== previous.progress?.validity ||
+        latest.progress?.evidenceDigest !== previous.progress?.evidenceDigest) && '阶段与证据'
+    ].filter(Boolean)
+    const updateNotice = changes.length ? `预览已更新（${changes.join('、')}变化）。` : ''
     try {
       await navigator.clipboard.writeText(latest.text)
-      if (own === generation && request.value === latest) notice.value = '已复制最新的完整续办文本。'
+      if (own === generation && request.value === latest) notice.value = updateNotice + '已复制最新的完整续办文本。'
     } catch {
       if (own !== generation || request.value !== latest) return
       expanded.value = true
@@ -92,7 +102,7 @@ async function copy() {
       if (own !== generation || request.value !== latest) return
       rawText.value?.focus()
       rawText.value?.select()
-      notice.value = '已选中最新的完整原文，请手动复制。'
+      notice.value = updateNotice + '已选中最新的完整原文，请手动复制。'
     }
   } catch (cause) {
     if (own !== generation) return
@@ -114,8 +124,10 @@ async function copy() {
   <ModalDialog v-model="open" title="Agent 续办文本">
     <div class="form-stack handoff">
       <Alert v-if="error" role="alert" class="notice error">{{ error }}</Alert>
-      <LoadingSkeleton v-else-if="!request" variant="detail" :rows="3" label="正在读取当前问题与答复…" />
+      <LoadingSkeleton v-else-if="!request" variant="detail" :rows="3" label="正在读取当前进度与规格…" />
       <template v-else>
+        <ProgressSummary :progress="request.progress" :target="request.progress?.goal?.target" />
+        <p class="muted">查询时间 {{ dateLabel(request.readAt) }}</p>
         <template v-if="request.questions">
           <section v-for="section in sections" :key="section.title" :aria-label="section.title">
             <h3>{{ section.title }}</h3>
@@ -140,7 +152,7 @@ async function copy() {
         </template>
         <Textarea v-else ref="rawText" :model-value="request.text" readonly rows="15" aria-label="完整续办文本" />
       </template>
-      <p v-if="notice" role="status">{{ notice }}</p>
+      <p role="status" :class="{ 'sr-only': !notice }">{{ notice }}</p>
       <Alert v-if="copyError" role="alert" class="notice error">{{ copyError }}</Alert>
       <div class="form-actions">
         <Button v-if="error" type="button" variant="outline" @click="load()">重新读取</Button>

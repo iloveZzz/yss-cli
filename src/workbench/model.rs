@@ -305,6 +305,10 @@ pub struct WorkItem {
     pub material_review: bool,
     #[serde(default)]
     pub progress: Option<super::progress::ProgressSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -352,6 +356,8 @@ pub struct ProjectView {
 pub struct SpecView {
     #[serde(skip)]
     pub(super) source_version: String,
+    #[serde(skip)]
+    pub(super) source_digest: Option<String>,
     #[serde(default)]
     pub progress: Option<super::progress::ProgressSummary>,
     pub content: ContentView,
@@ -418,9 +424,17 @@ pub struct LifecycleView {
 #[serde(rename_all = "camelCase")]
 pub struct ProgressHistory {
     pub goals: Vec<super::progress::GoalRecord>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub round_ids: BTreeMap<String, String>,
     pub reports: Vec<super::progress::ReportRecord>,
     pub overrides: Vec<super::progress::OverrideRecord>,
     pub decisions: Vec<super::progress::DecisionRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancellations: Vec<super::progress::CancellationRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reopens: Vec<super::progress::ReopenRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub late_reports: Vec<super::progress::LateReportRecord>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -467,6 +481,8 @@ pub struct MutationRequest {
 pub struct MutationResult {
     #[serde(default)]
     pub response_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_version: Option<String>,
     pub revision: u64,
     pub project_id: Option<String>,
     pub spec_id: Option<String>,
@@ -483,6 +499,12 @@ pub struct MutationResult {
 pub enum Action {
     SetLifecycleGoal {
         input: super::progress::LifecycleGoalInput,
+    },
+    CancelLifecycleGoal {
+        input: super::progress::CancelGoalInput,
+    },
+    ReopenLifecycleGoal {
+        input: super::progress::ReopenGoalInput,
     },
     ReportProgress {
         input: super::progress::ProgressReportInput,
@@ -763,6 +785,12 @@ pub struct AgentRequest {
     pub source_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<super::progress::ProgressSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_state: Option<String>,
     pub text: String,
     pub read_at: String,
     #[serde(default)]

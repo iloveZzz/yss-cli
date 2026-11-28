@@ -1,5 +1,8 @@
 use super::*;
-use crate::workbench::{api::job_fingerprint, progress::load_goal_version};
+use crate::workbench::{
+    api::job_fingerprint,
+    progress::{load_goal_canceled, load_goal_version},
+};
 use std::{thread, time::Duration};
 
 pub(in crate::workbench) const KIND: &str = "agentQueue";
@@ -205,6 +208,7 @@ fn request_for(run: &AgentRun, entry: &Entry) -> Result<AgentStartRequest> {
         host_execution_confirmed: false,
         lifecycle_stage: None,
         expected_goal_version: entry.goal_version.clone(),
+        goal_expectation: None,
     })
 }
 
@@ -250,6 +254,11 @@ pub(in crate::workbench) fn put(
     let goal = load_goal_version(&mut store, &run.spec_id)?;
     if draft.expected_goal_version != goal {
         return Err(conflict("目标版本已变化，请核对草稿后重新加入队列"));
+    }
+    if let Some(version) = goal.as_deref()
+        && load_goal_canceled(&store, &run.spec_id, version)?
+    {
+        return Err(conflict("本轮目标已取消，请核对草稿后继续"));
     }
     let entry = Entry {
         id: match entry_id {
@@ -488,7 +497,12 @@ fn dispatch(manager: &Arc<JobManager>, id: &str, user: Option<Resume>) -> Result
             .unwrap_or(&run.status);
         let reason = if ensure_queueable(&run).is_err() {
             Some("sessionUnavailable")
-        } else if load_goal_version(&mut store, &run.spec_id)? != head.goal_version {
+        } else if load_goal_version(&mut store, &run.spec_id)? != head.goal_version
+            || match head.goal_version.as_deref() {
+                Some(version) => load_goal_canceled(&store, &run.spec_id, version)?,
+                None => false,
+            }
+        {
             Some("targetChanged")
         } else if prior_status == "recoveryRequired" || snapshot_issue(&run).is_some() {
             Some("verificationRequired")

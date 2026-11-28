@@ -8,6 +8,7 @@ export type Progress =
   | 'done'
   | 'skipped'
 export type Validity = 'current' | 'unverified' | 'needsSync' | 'needsReview'
+export type EffectiveGoalState = 'unverified' | 'missing' | 'active' | 'completed' | 'canceled'
 export type ParticipantRole = 'spec' | 'backend' | 'frontend' | 'integration'
 export type ProgressSource =
   | 'unmarked'
@@ -47,7 +48,7 @@ export const sourceLabels: Record<ProgressSource, string> = {
 export const attentionLabels: Record<string, string> = {
   awaitingConfirmation: '待自动核实',
   confirmationRequired: '待核实',
-  goalMissing: '目标待核实',
+  goalMissing: '未设置本轮目标',
   manualOverride: '人工更正',
   blocked: '受阻',
   unverified: '未核实',
@@ -59,6 +60,10 @@ export interface DeliveryTarget {
   kind: 'local' | 'merged' | 'environment'
   label: string
   reference?: string | null
+}
+export function targetLabel(target: DeliveryTarget) {
+  const kinds = { local: '本地产物', merged: '合并代码', environment: '指定环境' }
+  return [...new Set([kinds[target.kind], target.label, target.reference].filter(Boolean))].join(' · ')
 }
 export interface StageScope {
   stage: Stage
@@ -127,9 +132,20 @@ export interface ReportRecord extends ProgressReportInput {
 }
 export interface ProgressHistory {
   goals: GoalRecord[]
+  roundIds?: Record<string, string>
   reports: ReportRecord[]
   overrides: OverrideRecord[]
   decisions: DecisionRecord[]
+  cancellations?: GoalCancellation[]
+  reopens?: { specId: string; goalVersion: string; previousGoalVersion: string; recordedAt: string }[]
+  lateReports?: { specId: string; goalVersion: string; reportId: string; inputLimitations: string[] }[]
+}
+export interface GoalCancellation {
+  specId: string
+  goalVersion: string
+  reason: string
+  recordedAt: string
+  source?: string
 }
 export interface ConfirmationInput {
   specId: string
@@ -208,11 +224,13 @@ export interface StageSummary {
   overrideRecord: OverrideRecord | null
 }
 export interface ProgressSummary {
+  roundId?: string | null
   autoConfirmableStages?: Stage[]
   currentVersions?: ProjectVersion[]
   lastDelivery?: DecisionRecord
   materialReview?: boolean
   completion?: { completed: number; total: number }
+  cancellation?: GoalCancellation
   goal: GoalRecord | null
   goalVersion: string | null
   stages: StageSummary[]
@@ -230,7 +248,11 @@ export interface ProgressSummary {
   hasOverride: boolean
   conflicts: string[]
 }
-export type ProgressAction =
+export type LifecycleGoalChange =
+  | { kind: 'cancelLifecycleGoal'; input: { specId: string; goalVersion: string; reason: string } }
+  | { kind: 'reopenLifecycleGoal'; input: { specId: string; goalVersion: string; goal: LifecycleGoalInput } }
+
+export type ProgressAction = LifecycleGoalChange
   | { kind: 'setLifecycleGoal'; input: LifecycleGoalInput }
   | { kind: 'reportProgress'; input: ProgressReportInput }
   | { kind: 'confirmProgress'; input: ConfirmationInput }

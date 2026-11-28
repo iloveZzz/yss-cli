@@ -458,8 +458,9 @@ async fn dispatch(server: Server, request: Request) -> Response {
             .map_err(|_| YssError::new(ErrorCode::Io, "响应编码失败"));
         }
         if method == axum::http::Method::POST && path == "/api/commands" {
-            let request: MutationRequest =
+            let mut request: MutationRequest =
                 codec::decode_json(&bytes, limits).map_err(decode_error)?;
+            service::set_workbench_origin(&mut request.action);
             let mut store = server
                 .store
                 .lock()

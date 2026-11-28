@@ -2,6 +2,7 @@ use super::{
     model::*,
     progress::{ProgressBasis, ProgressSummary},
     sources::{invalid, missing},
+    status,
 };
 use crate::{error::Result, fs};
 use std::{cmp::Reverse, collections::BTreeMap};
@@ -120,10 +121,29 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
             continue;
         };
         if request.entity == WorkEntity::Spec {
-            let effective = snapshot
-                .progress
-                .get(&s.id)
-                .filter(|_| request.progress_basis == ProgressBasis::Effective);
+            let active = project.active && s.active;
+            let progress = snapshot.progress.get(&s.id);
+            let use_effective = request.progress_basis == ProgressBasis::Effective;
+            let (stage, status, next_action, blocker, updated_at) = if use_effective {
+                let current_goal = progress.filter(|value| value.goal.is_some());
+                (
+                    current_goal.map_or(Stage::Unmarked, |value| value.primary_stage),
+                    current_goal.map_or(Status::Unmarked, |value| value.status),
+                    status::read_next_action(spec, active, progress),
+                    current_goal.map_or_else(String::new, |value| value.blocker.clone()),
+                    current_goal
+                        .and_then(|value| value.last_verified_at.clone())
+                        .unwrap_or_else(|| s.updated_at.clone()),
+                )
+            } else {
+                (
+                    s.stage,
+                    s.status,
+                    s.next_action.clone(),
+                    s.blocker.clone(),
+                    s.updated_at.clone(),
+                )
+            };
             items.push(WorkItem {
                 entity: WorkEntity::Spec,
                 id: s.id.clone(),
@@ -133,22 +153,22 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
                 spec_title: s.title.clone(),
                 source_path: s.source_path.clone(),
                 title: s.title.clone(),
-                stage: effective.map_or(s.stage, |value| value.primary_stage),
-                status: effective.map_or(s.status, |value| value.status),
-                next_action: effective
-                    .map_or_else(|| s.next_action.clone(), |value| value.next_action.clone()),
-                blocker: effective.map_or_else(|| s.blocker.clone(), |value| value.blocker.clone()),
+                stage,
+                status,
+                next_action,
+                blocker,
                 notes: s.notes.clone(),
-                active: project.active && s.active,
-                updated_at: effective
-                    .and_then(|value| value.last_verified_at.clone())
-                    .unwrap_or_else(|| s.updated_at.clone()),
+                active,
+                updated_at,
                 progress: None,
+                goal_state: use_effective.then(|| status::goal_state(progress).into()),
+                project_root: use_effective.then(|| project.root_path.clone()),
                 content_status: Some(spec.content.status),
                 reminder_counts: reminder_counts(&spec.content),
                 needs_reconfirmation: spec.content.needs_reconfirmation,
                 material_review: spec.content.material_review(),
                 has_source_problem: spec.source_health != SourceHealth::Available
+                    || use_effective && spec.content.metadata_error.is_some()
                     || broken(&spec.resources),
             });
         }
@@ -179,6 +199,8 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
                 needs_reconfirmation: false,
                 material_review: false,
                 progress: None,
+                goal_state: None,
+                project_root: None,
                 next_action: String::new(),
                 blocker: t.blocker.clone(),
                 notes: t.notes.clone(),
@@ -195,7 +217,9 @@ pub(super) fn filter_items(snapshot: &Snapshot, request: &WorkQuery) -> Result<Q
         let progress = (item.entity == WorkEntity::Spec)
             .then(|| snapshot.progress.get(&item.spec_id))
             .flatten();
-        let effective = progress.filter(|_| request.progress_basis == ProgressBasis::Effective);
+        let effective = progress.filter(|value| {
+            request.progress_basis == ProgressBasis::Effective && value.goal.is_some()
+        });
         (match request.activity {
             ActivityScope::Active => item.active,
             ActivityScope::Inactive => !item.active,

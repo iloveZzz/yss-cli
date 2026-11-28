@@ -80,6 +80,7 @@ const direct = computed(() => !session.value || (run.value?.workspaceMode ?? sum
 const snapshotIssue = computed(() => run.value?.snapshotError ?? summary.value?.snapshotError)
 const title = computed(() => summary.value?.title || run.value?.prompt || (session.value ? agentHostLabels[recordedHost.value] + ' 会话' : '新会话'))
 const progression = computed(() => context.value?.verification === 'current' ? context.value.stageBinding : null)
+const goalExpectation = computed(() => context.value?.verification === 'current' ? context.value.goalExpectation : null)
 const availableStages = computed(() => progression.value?.stages ?? [])
 const automaticStage = computed(() => progression.value?.primaryStage ?? undefined)
 const active = computed(() => !!latest.value && !terminalJob(latest.value.status))
@@ -1407,6 +1408,7 @@ async function send() {
       prompt: current.prompt,
       lifecycleStage: native || grok.value ? undefined : current.stageSelection?.stage,
       expectedGoalVersion: native || grok.value ? undefined : current.stageSelection?.goalVersion,
+      goalExpectation: native || grok.value ? undefined : goalExpectation.value ?? undefined,
       citations: excerpts.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
         ({ reviewToken, projectId, path, side, startLine, endLine, note }))
     },
@@ -1431,7 +1433,8 @@ async function send() {
 
 function queueInput(current: typeof draft.value): PiEnqueueInput {
   return {
-    prompt: current.prompt, readOnly: current.readOnly, expectedGoalVersion: progression.value?.goalVersion,
+    prompt: current.prompt, readOnly: current.readOnly,
+    expectedGoalVersion: goalExpectation.value?.version ?? progression.value?.goalVersion,
     citations: current.citations.map(({ reviewToken, projectId, path, side, startLine, endLine, note }) =>
       ({ reviewToken, projectId, path, side, startLine, endLine, note }))
   }

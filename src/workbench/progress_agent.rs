@@ -2,7 +2,7 @@
 use super::{
     agent::AgentRun,
     model::{Snapshot, Stage, Status},
-    progress::GoalRecord,
+    progress::{GoalRecord, ProgressSummary},
     service,
     store::Store,
 };
@@ -10,6 +10,7 @@ use crate::{
     cancel::Cancellation,
     error::{ErrorCode, Result, YssError},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 pub use super::agent::activity::{RunActivity, read_activities};
@@ -17,6 +18,38 @@ pub use super::agent::activity::{RunActivity, read_activities};
 pub(super) struct RoundBinding {
     stage: Stage,
     goal: GoalRecord,
+}
+
+impl RoundBinding {
+    pub(super) fn goal_version(&self) -> &str {
+        &self.goal.goal_version
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct GoalExpectation {
+    pub(super) version: Option<String>,
+    pub(super) canceled: bool,
+}
+
+impl GoalExpectation {
+    pub(super) fn from_summary(summary: &ProgressSummary) -> Self {
+        Self {
+            version: summary.goal_version.clone(),
+            canceled: summary.status == Status::Canceled,
+        }
+    }
+
+    fn verify(&self, version: Option<&str>, canceled: bool) -> Result<()> {
+        if self.version.as_deref() != version {
+            return Err(stale_binding("本轮目标版本已变化，请核对后发送"));
+        }
+        if self.canceled != canceled {
+            return Err(stale_binding("本轮目标已取消，请核对后发送"));
+        }
+        Ok(())
+    }
 }
 
 fn stale_binding(message: &str) -> YssError {
@@ -30,10 +63,11 @@ pub(super) fn select_binding(
     spec_id: &str,
     requested: Option<Stage>,
     expected_version: Option<&str>,
+    expectation: Option<&GoalExpectation>,
     cancel: &Cancellation,
 ) -> Result<Option<RoundBinding>> {
     let snapshot = service::snapshot_for_spec(store, spec_id, cancel)?;
-    select_snapshot_binding(&snapshot, spec_id, requested, expected_version)
+    select_snapshot_binding(&snapshot, spec_id, requested, expected_version, expectation)
 }
 
 pub(super) fn select_snapshot_binding(
@@ -41,10 +75,17 @@ pub(super) fn select_snapshot_binding(
     spec_id: &str,
     requested: Option<Stage>,
     expected_version: Option<&str>,
+    expectation: Option<&GoalExpectation>,
 ) -> Result<Option<RoundBinding>> {
     let Some(summary) = snapshot.progress.get(spec_id) else {
         return Err(super::sources::missing("Spec 不存在"));
     };
+    if let Some(expectation) = expectation {
+        expectation.verify(
+            summary.goal_version.as_deref(),
+            summary.status == Status::Canceled,
+        )?;
+    }
     if let Some(expected) = expected_version
         && summary.goal_version.as_deref() != Some(expected)
     {
@@ -58,6 +99,12 @@ pub(super) fn select_snapshot_binding(
         }
         return Ok(None);
     };
+    if summary.status == Status::Canceled {
+        if requested.is_some() {
+            return Err(stale_binding("本轮目标已取消，请核对目标后继续"));
+        }
+        return Ok(None);
+    }
     let current_digest = snapshot
         .specs
         .iter()
@@ -111,11 +158,26 @@ pub(super) fn revalidate_goal(
     spec_id: &str,
     version: Option<&str>,
     require_exact: bool,
+    expectation: Option<&GoalExpectation>,
 ) -> Result<()> {
+    if let Some(expectation) = expectation {
+        let current_version = super::progress::load_goal_version(store, spec_id)?;
+        let canceled = if let Some(version) = current_version.as_deref() {
+            super::progress::load_goal_canceled(store, spec_id, version)?
+        } else {
+            false
+        };
+        return expectation.verify(current_version.as_deref(), canceled);
+    }
     if (version.is_some() || require_exact)
         && super::progress::load_goal_version(store, spec_id)?.as_deref() != version
     {
         return Err(stale_binding("准备期间的生命周期目标已变化，请重新核对"));
+    }
+    if let Some(version) = version
+        && super::progress::load_goal_canceled(store, spec_id, version)?
+    {
+        return Err(stale_binding("准备期间的生命周期目标已取消，请重新核对"));
     }
     Ok(())
 }

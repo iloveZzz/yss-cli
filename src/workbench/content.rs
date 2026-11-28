@@ -717,42 +717,83 @@ pub fn agent_request(
     spec_id: &str,
     registration_dir: Option<&Path>,
 ) -> Result<AgentRequest> {
-    agent_request_with_materials(state, spec_id, registration_dir, None)
-}
-
-pub(super) fn agent_request_with_materials(
-    state: &WorkbenchState,
-    spec_id: &str,
-    registration_dir: Option<&Path>,
-    records: Option<&super::materials::Records>,
-) -> Result<AgentRequest> {
     let spec = sources::spec(state, spec_id)?;
     let project = sources::project(state, &spec.project_id)?;
     let source = sources::read_source(state, spec_id)?;
     let meta = metadata(&source.text)?;
     let root = Root::open(Path::new(&project.root_path));
-    let shared = records
-        .and_then(|records| {
-            root.as_ref()
-                .ok()
-                .map(|root| super::materials::shared(state, records, &spec.project_id, root))
-        })
-        .unwrap_or_default();
-    let context = records.map(|records| super::materials::Context {
-        records,
-        shared: &shared,
-    });
-    let content = inspect(
-        state,
-        spec,
-        &root,
-        Some(&source.text),
-        context.as_ref(),
-        false,
-    )
-    .0;
+    let content = inspect(state, spec, &root, Some(&source.text), None, false).0;
     let root = root?;
     let resources = resolved_resources(spec, meta.as_ref(), Some(&root));
+    format_agent_request(
+        state,
+        spec,
+        source,
+        meta,
+        content,
+        resources,
+        registration_dir,
+    )
+}
+
+pub(super) fn agent_request_from_view(
+    state: &WorkbenchState,
+    spec: &SpecView,
+    data_dir: &Path,
+) -> Result<AgentRequest> {
+    let project = sources::project(state, &spec.record.project_id)?;
+    let path = Path::new(&project.root_path).join(&spec.record.source_path);
+    let restore_source = |mut error: YssError| {
+        let reason = error.context.get("detail").unwrap_or(&error.message);
+        error.message = format!(
+            "无法读取主 Spec {}：{reason}。请恢复来源后重新读取续办文本",
+            path.display()
+        );
+        error.at(path.display())
+    };
+    if spec.source_health != SourceHealth::Available {
+        return Err(restore_source(YssError::new(
+            ErrorCode::NotReady,
+            spec.source_message.as_deref().unwrap_or("来源不可用"),
+        )));
+    }
+    let source = sources::read_source(state, &spec.record.id).map_err(restore_source)?;
+    if spec.source_digest.as_deref() != Some(source.digest.as_str()) {
+        return Err(YssError::new(
+            ErrorCode::ConcurrentChange,
+            format!(
+                "主 Spec {} 在读取期间已变化，请重新读取续办文本",
+                path.display()
+            ),
+        )
+        .at(path.display()));
+    }
+    let meta = metadata(&source.text).map_err(restore_source)?;
+    format_agent_request(
+        state,
+        &spec.record,
+        source,
+        meta,
+        spec.content.clone(),
+        spec.resources
+            .iter()
+            .map(|resource| resource.record.clone())
+            .collect(),
+        Some(data_dir),
+    )
+}
+
+fn format_agent_request(
+    state: &WorkbenchState,
+    spec: &SpecRecord,
+    source: SourceDocument,
+    meta: Option<SpecMetadata>,
+    content: ContentView,
+    resources: Vec<ResourceRef>,
+    registration_dir: Option<&Path>,
+) -> Result<AgentRequest> {
+    let spec_id = spec.id.as_str();
+    let project = sources::project(state, &spec.project_id)?;
     let mut text = format!(
         concat!(
             "请按本次任务的授权继续处理此主 Spec 及相关产物。\n项目：{}\n主 Spec：{}\nSpec ID：{}\n范围：{}\n来源摘要：{}\n",
@@ -856,7 +897,10 @@ pub(super) fn agent_request_with_materials(
         source_path: source.source_path,
         data_dir: registration_dir.map(|dir| dir.to_string_lossy().into_owned()),
         text,
-        read_at: sources::now(),
+        read_at: source.read_at,
+        source_digest: Some(source.digest),
+        progress: None,
+        goal_state: None,
         questions: current,
         history,
     })

@@ -10,7 +10,7 @@ use super::{
         ResourceHealth, ResourceKind, ResponseKind, SpecMetadata, SpecRecord, Stage, TargetType,
         WorkbenchState,
     },
-    progress_agent::{self, RoundBinding},
+    progress_agent::{self, GoalExpectation, RoundBinding},
     sources,
     store::Store,
 };
@@ -93,9 +93,26 @@ pub struct AgentStartRequest {
     pub lifecycle_stage: Option<Stage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_goal_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    goal_expectation: Option<GoalExpectation>,
 }
 
 impl AgentStartRequest {
+    fn verify_goal(
+        &self,
+        store: &mut Store,
+        bound_version: Option<&str>,
+        queued: bool,
+    ) -> Result<()> {
+        progress_agent::revalidate_goal(
+            store,
+            &self.spec_id,
+            bound_version.or(self.expected_goal_version.as_deref()),
+            queued,
+            self.goal_expectation.as_ref(),
+        )
+    }
+
     fn validate_handoff(&self, store: &mut Store, spec_id: &str, host: AgentHost) -> Result<()> {
         let Some(handoff) = &self.handoff else {
             return Ok(());
@@ -1231,6 +1248,17 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
     if request.host == Some(AgentHost::Codex) {
         return Err(invalid("历史 Codex 会话仅供审阅"));
     }
+    if let Some(expectation) = &request.goal_expectation
+        && (expectation.version.as_deref().is_some_and(str::is_empty)
+            || (expectation.canceled || request.lifecycle_stage.is_some())
+                && expectation.version.is_none()
+            || request
+                .expected_goal_version
+                .as_ref()
+                .is_some_and(|version| Some(version) != expectation.version.as_ref()))
+    {
+        return Err(invalid("生命周期目标和所选阶段必须基于同一次核对"));
+    }
     if request.handoff.is_some()
         && (queued
             || request.host.is_none()
@@ -1287,6 +1315,7 @@ fn validate_start_request(request: &AgentStartRequest, queued: bool) -> Result<(
             || !request.citations.is_empty()
             || request.lifecycle_stage.is_some()
             || request.expected_goal_version.is_some()
+            || request.goal_expectation.is_some()
         {
             return Err(invalid("原生分叉只使用本轮任务、原工程和 Pi 历史上下文"));
         }
@@ -1392,6 +1421,7 @@ fn validate_host_scope(
         || request.continuation_source.is_some()
         || request.lifecycle_stage.is_some()
         || request.expected_goal_version.is_some()
+        || request.goal_expectation.is_some()
         || request.ci_job.is_some()
         || !request.citations.is_empty()
         || request.project_ids.as_slice() != [spec.project_id.as_str()]
@@ -1484,6 +1514,9 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
         if request.selected_host(prior.as_ref()) != AgentHost::Pi || request.handoff.is_some() {
             return Err(invalid("此轮请使用支持异步受理的 Agent 工作区"));
         }
+        if request.goal_expectation.is_some() {
+            request.verify_goal(&mut store, None, false)?;
+        }
         if let Some(prior) = &prior {
             ensure_handoff_source_idle(&mut store, &prior.id)?;
         }
@@ -1560,6 +1593,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
     let expected_spec = spec.clone();
     let lifecycle_stage = request.lifecycle_stage;
     let expected_goal_version = request.expected_goal_version.clone();
+    let goal_expectation = request.goal_expectation.clone();
     let continuation_source = request.continuation_source.clone();
     let expected_continuation_digest = request.expected_continuation_digest.clone();
     let queued_run = request.resume_run_id.clone();
@@ -1620,6 +1654,7 @@ pub fn start(manager: Arc<JobManager>, mut request: AgentStartRequest) -> Result
                     &spec.id,
                     lifecycle_stage,
                     expected_goal_version.as_deref(),
+                    goal_expectation.as_ref(),
                     &cancel,
                 )?
             };
@@ -2052,6 +2087,8 @@ fn execute(
     let mut store = lock_store(&context.store)?;
     let spec = sources::spec(store.state(), &request.spec_id)?.clone();
     check_spec_binding(&spec, &expected_spec)?;
+    let bound_version = binding.as_ref().map(RoundBinding::goal_version);
+    request.verify_goal(&mut store, bound_version, queued)?;
     if let Some(fork) = &fork {
         fork.recheck_source(&mut store, &spec.id)?;
     }
@@ -2415,14 +2452,7 @@ fn execute(
             if let Some(fork) = &fork {
                 fork.recheck_source(&mut store, &spec.id)?;
             }
-            progress_agent::revalidate_goal(
-                &mut store,
-                &spec.id,
-                run.goal_version
-                    .as_deref()
-                    .or(request.expected_goal_version.as_deref()),
-                queued,
-            )?;
+            request.verify_goal(&mut store, bound_version, queued)?;
             let mut participating = Vec::new();
             for grant in &effective_access {
                 let project = sources::project(store.state(), &grant.project_id)?;
@@ -2587,6 +2617,11 @@ fn execute(
                     if request.expected_runtime_identity.is_some() {
                         request.verify_runtime_identity(runtime.identity().as_deref(), host)?;
                     }
+                    request.verify_goal(
+                        &mut *lock_store(&context.store)?,
+                        bound_version,
+                        queued,
+                    )?;
                     Ok(())
                 },
                 request
@@ -2757,7 +2792,9 @@ fn reconcile_direct_progress(store: &mut Store, run: &AgentRun, spec: &SpecRecor
     let Some(goal_version) = run.goal_version.as_deref() else {
         return Ok(());
     };
-    if super::progress::load_goal_version(store, &spec.id)?.as_deref() != Some(goal_version) {
+    if super::progress::load_goal_version(store, &spec.id)?.as_deref() != Some(goal_version)
+        || super::progress::load_goal_canceled(store, &spec.id, goal_version)?
+    {
         return Ok(());
     }
     check_spec_binding(sources::spec(store.state(), &spec.id)?, spec)?;

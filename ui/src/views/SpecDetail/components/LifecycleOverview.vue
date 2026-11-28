@@ -8,9 +8,13 @@ import ProgressOverrideForm from '@/components/ProgressOverrideForm.vue'
 import {
   dateLabel,
   errorMessage,
+  progressLabels,
   sourceLabels,
   stageState,
   stages,
+  statuses,
+  targetLabel,
+  validityLabels,
   type Progress,
   type ProgressSummary,
   type Stage
@@ -21,11 +25,15 @@ import ParticipantProgressList from './ParticipantProgressList.vue'
 import ProgressConfirmation from './ProgressConfirmation.vue'
 import LifecycleProgressHistory from './LifecycleProgressHistory.vue'
 import LifecycleRunActivities from './LifecycleRunActivities.vue'
+import LifecycleGoalCancel from './LifecycleGoalCancel.vue'
+import { useLifecycleGoalChange } from '../hooks/useLifecycleGoalChange'
 const props = defineProps<{
   specId: string
   active: boolean
   projectId: string
   specDigest: string | null
+  registrationActive: boolean
+  sourceUsable: boolean
   progress?: ProgressSummary
   initialStage?: Stage
   stageFocus?: { stage: Stage }
@@ -38,7 +46,8 @@ const emit = defineEmits<{
   focused: []
   confirmContent: []
 }>()
-const { submit, saving } = useWorkbench()
+const { submit, saving, expired } = useWorkbench()
+const change = useLifecycleGoalChange(props.specId)
 const id = useId()
 const chosenStage = shallowRef<Stage>()
 const selectedStage = computed(() =>
@@ -51,12 +60,39 @@ const selected = computed(
   () => props.progress?.stages.find((stage) => stage.stage === selectedStage.value)
 )
 const stageHeading = useTemplateRef<HTMLElement>('stage-heading')
+const goalStatus = useTemplateRef<HTMLElement>('goal-status')
 const goalOpen = shallowRef(false)
+const cancelOpen = shallowRef(false)
+const reopen = shallowRef(false)
 const overrideOpen = shallowRef(false)
 const overrideProject = shallowRef<string>()
 const overrideValue = shallowRef<Progress>()
 const error = shallowRef('')
 const notice = shallowRef('')
+const busy = computed(() => saving.value || change.busy.value)
+const writable = computed(() => !expired.value && props.registrationActive)
+const ended = computed(() => props.progress?.status === 'done' || props.progress?.status === 'canceled')
+const canCancel = computed(() => writable.value && !!props.progress?.goalVersion && !ended.value)
+const canReopen = computed(() => writable.value && props.sourceUsable && !!props.progress?.goalVersion && ended.value)
+const pending = computed(() => change.pending.value[0])
+const recoverInput = shallowRef(false)
+function openGoal(isReopen: boolean) {
+  reopen.value = isReopen
+  goalOpen.value = true
+}
+function openPending() {
+  if (pending.value?.body.action.kind === 'cancelLifecycleGoal') cancelOpen.value = true
+  else openGoal(true)
+}
+function openRejected() {
+  recoverInput.value = true
+  if (change.rejected.value?.body.action.kind === 'cancelLifecycleGoal') cancelOpen.value = true
+  else openGoal(true)
+}
+watch([goalOpen, cancelOpen], ([goal, cancel]) => {
+  if (!goal && !cancel) recoverInput.value = false
+})
+const focusGoalStatus = () => props.active ? goalStatus.value : null
 watch(
   () => props.initialStage,
   () => { chosenStage.value = undefined }
@@ -105,6 +141,7 @@ async function clearOverride(projectId?: string) {
   }
 }
 async function reconcile() {
+  if (busy.value || !writable.value || !props.sourceUsable || props.progress?.status === 'canceled') return
   error.value = ''
   notice.value = ''
   try {
@@ -121,26 +158,52 @@ async function reconcile() {
     <div class="section-heading lifecycle-heading">
       <div>
         <h2>生命周期</h2>
-        <p class="muted">阶段可并行，点击查看依据。</p>
+        <p ref="goal-status" class="muted" tabindex="-1">
+          {{ !progress ? '目标待核实' : !progress.goalVersion ? '未设置本轮目标' : statuses[progress.status] }}
+          <template v-if="progress?.goalVersion"> · {{ validityLabels[progress.validity] }} · {{ progress.goalVersion }}</template>
+        </p>
       </div>
       <div class="inline-actions">
+        <Button v-if="pending" type="button" variant="outline" @click="openPending">核对待确认操作</Button>
         <Button
+          v-else-if="canReopen"
           type="button"
           variant="outline"
-          :disabled="saving"
-          @click="goalOpen = true"
+          :disabled="busy"
+          @click="openGoal(true)"
         >
-          {{ progress?.status === 'done' ? '登记新一轮目标' : progress?.goal ? '编辑交付目标' : '录入交付目标' }}
+          开启新一轮
         </Button>
+        <template v-else-if="writable && !ended">
+          <Button
+            v-if="sourceUsable && progress"
+            type="button" variant="outline" :disabled="busy" @click="openGoal(false)"
+          >
+            {{ progress.goal ? '编辑交付目标' : '录入交付目标' }}
+          </Button>
+          <Button v-if="canCancel" type="button" variant="outline" :disabled="busy" @click="cancelOpen = true">
+            取消本轮
+          </Button>
+        </template>
         <Button
+          v-if="writable && sourceUsable && progress?.goalVersion && progress.status !== 'canceled'"
           type="button"
           variant="ghost"
-          :disabled="saving"
+          :disabled="busy || !!pending"
           @click="reconcile"
         >
           重新核实
         </Button>
+        <Button v-if="!pending && change.rejected.value" type="button" variant="ghost" :disabled="busy" @click="openRejected">
+          查看未保存输入
+        </Button>
       </div>
+    </div>
+    <p role="status" :class="{ notice: change.notice.value }">{{ change.notice.value }}</p>
+    <div v-if="progress?.cancellation" class="notice warning">
+      <strong>已取消 · {{ dateLabel(progress.cancellation.recordedAt) }}</strong>
+      <p class="preserve-lines">{{ progress.cancellation.reason }}</p>
+      <p v-if="progress.cancellation.source" class="muted">记录来源 · {{ progress.cancellation.source }}</p>
     </div>
     <Collapsible v-if="progress?.lastDelivery" class="goal-strip">
       <CollapsibleTrigger>
@@ -155,15 +218,7 @@ async function reconcile() {
     </Collapsible>
     <div v-if="progress?.goal" class="goal-strip">
       <p>{{ progress.goal.scope }}</p>
-      <span>
-        {{
-          { local: '本地产物', merged: '合并代码', environment: '指定环境' }[
-            progress.goal.target.kind
-          ]
-        }}
-        · {{ progress.goal.target.label }}
-      </span>
-      <code>{{ progress.goal.target.reference }}</code>
+      <span>{{ targetLabel(progress.goal.target) }}</span>
       <Collapsible>
         <CollapsibleTrigger>目标版本与验收引用</CollapsibleTrigger>
         <CollapsibleContent>
@@ -180,9 +235,6 @@ async function reconcile() {
         </CollapsibleContent>
       </Collapsible>
     </div>
-    <p v-else class="notice warning">
-      本次交付目标待核实。录入范围、交付位置、适用阶段与验收引用后，可按同一目标跟进。
-    </p>
     <ul v-if="progress?.conflicts.length" class="notice warning">
       <li v-for="conflict in progress.conflicts" :key="conflict">
         {{ conflict }}
@@ -193,7 +245,7 @@ async function reconcile() {
       {{ error }}
     </Alert>
     <div
-      v-if="progress"
+      v-if="progress?.goal"
       class="stage-grid"
       role="group"
       aria-label="选择生命周期阶段"
@@ -242,19 +294,19 @@ async function reconcile() {
         </h3>
         <div class="inline-actions">
           <Button
-            v-if="selected.hasOverride"
+            v-if="selected.hasOverride && canCancel"
             type="button"
             variant="ghost"
-            :disabled="saving"
+            :disabled="busy || !!pending"
             @click="clearOverride()"
           >
             清除更正
           </Button>
           <Button
-            v-if="selected.applicable"
+            v-if="selected.applicable && canCancel"
             type="button"
             variant="outline"
-            :disabled="saving || !progress.goalVersion"
+            :disabled="busy || !!pending"
             @click="correct()"
           >
             人工更正
@@ -274,6 +326,7 @@ async function reconcile() {
       <p v-if="selected.blocker" class="warning-text preserve-lines">
         {{ selected.blocker }}
       </p>
+      <p v-if="selected.nextAction" class="stage-summary">下一步 · {{ selected.nextAction }}</p>
       <p v-if="selected.overrideRecord" class="override-reason">
         人工更正原因 · {{ selected.overrideRecord.reason }}
       </p>
@@ -283,7 +336,7 @@ async function reconcile() {
         </li>
       </ul>
       <LifecycleRunActivities
-        v-if="active && selected.applicable && progress.goalVersion && progress.goal && specDigest === progress.goal.specDigest"
+        v-if="active && selected.applicable && progress.goalVersion && progress.goal"
         :key="specId + ':' + progress.goalVersion + ':' + progress.goal.specDigest"
         :spec-id="specId" :stage="selected.stage" :goal-version="progress.goalVersion" :spec-digest="progress.goal.specDigest"
       />
@@ -294,6 +347,14 @@ async function reconcile() {
         :participants="progress.participants"
       />
       <dl class="stage-meta">
+        <div v-if="selected.applicable">
+          <dt>阶段进度</dt>
+          <dd>{{ progressLabels[selected.progress] }}</dd>
+        </div>
+        <div v-if="selected.applicable">
+          <dt>证据有效性</dt>
+          <dd>{{ validityLabels[selected.validity] }}</dd>
+        </div>
         <div>
           <dt>进展来源</dt>
           <dd>{{ sourceLabels[selected.source] }}</dd>
@@ -304,6 +365,7 @@ async function reconcile() {
         </div>
       </dl>
       <ProgressConfirmation
+        v-if="progress.status !== 'canceled'"
         :key="selected.stage"
         :spec-id="specId"
         :progress="progress"
@@ -313,14 +375,14 @@ async function reconcile() {
       />
       <ParticipantProgressList
         :participants="selected.participants"
-        :busy="saving"
-        :can-correct="!!progress.goalVersion"
+        :busy="busy || !!pending"
+        :can-correct="canCancel"
         @correct="correct"
         @clear="clearOverride"
       />
     </section>
     <section
-      v-else
+      v-else-if="stageFocus"
       :id="id + '-detail'"
       class="stage-detail"
       :aria-labelledby="id + '-selected'"
@@ -332,6 +394,7 @@ async function reconcile() {
       v-if="active"
       :spec-id="specId"
       :goal-version="progress?.goalVersion ?? null"
+      :round-id="progress?.roundId"
     />
     <LifecycleGoalForm
       v-model="goalOpen"
@@ -340,7 +403,20 @@ async function reconcile() {
       :spec-digest="specDigest"
       :progress="progress"
       :confirm-leave="confirmLeave"
+      :round="reopen ? { change, canReopen } : undefined"
+      :recover-input="recoverInput"
+      :focus-fallback="focusGoalStatus"
       @dirty="emit('dirty', $event)"
+      @saved="emit('saved')"
+    />
+    <LifecycleGoalCancel
+      v-model="cancelOpen"
+      :spec-id="specId"
+      :progress="progress"
+      :can-cancel="canCancel"
+      :change="change"
+      :recover-input="recoverInput"
+      :focus-fallback="focusGoalStatus"
       @saved="emit('saved')"
     />
     <ProgressOverrideForm

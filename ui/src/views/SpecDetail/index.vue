@@ -2,7 +2,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
-import { computed, shallowRef, watch } from 'vue'
+import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -43,7 +43,7 @@ const router = useRouter()
 const workbench = provideSpecDetailWorkbench(() =>
   typeof route.params.specId === 'string' ? route.params.specId : undefined
 )
-const { snapshot, submit, loading: snapshotLoading, error: snapshotError, refresh } = workbench
+const { snapshot, submit, sourceState, loading: snapshotLoading, error: snapshotError, refresh } = workbench
 const stageDirty = shallowRef(false)
 const questionDirty = shallowRef(false)
 const lifecycleDirty = shallowRef(false)
@@ -120,6 +120,25 @@ const sourceSection = computed(() =>
 const progress = computed(
   () => snapshot.value?.progress?.[spec.value?.record.id ?? ''] ?? spec.value?.progress
 )
+const launchStage = computed(() =>
+  progress.value?.goalVersion && progress.value.status !== 'canceled' && progress.value.status !== 'done'
+    ? selectedStage.value
+    : undefined
+)
+const sourceUsable = computed(() => spec.value?.sourceHealth === 'available' && !spec.value?.content.metadataError && !!spec.value?.content.artifactDigest)
+const sourceDiagnostic = useTemplateRef<HTMLElement>('source-diagnostic')
+watch(
+  [() => route.query.focus, tab, sourceDiagnostic],
+  ([focus, panel, heading], _previous, onCleanup) => {
+    if (focus !== 'source' || panel !== 'overview' || !heading) return
+    const frame = requestAnimationFrame(() => {
+      heading.focus({ preventScroll: true })
+      heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  },
+  { flush: 'post' }
+)
 const reminders = computed(() => contentReminders(spec.value?.content))
 const project = computed(() =>
   snapshot.value?.projects.find((item) => item.record.id === spec.value?.record.projectId)
@@ -161,11 +180,19 @@ watch(
     stageDirty.value = false
     lifecycleDirty.value = false
     questionDirty.value = false
-    stageFocus.value = tab.value === 'lifecycle' && selectedStage.value && selectedStage.value !== 'unmarked'
-      ? { stage: selectedStage.value }
-      : undefined
   },
   { flush: 'sync', immediate: true }
+)
+watch(
+  [() => route.params.specId, () => route.query.focus],
+  ([specId, focus], [previousSpecId, previousFocus]) => {
+    const stage = selectedStage.value
+    stageFocus.value = tab.value === 'lifecycle' && stage && stage !== 'unmarked' &&
+      (focus === 'diagnostic' || (!focus && !previousFocus && previousSpecId !== specId))
+      ? { stage }
+      : undefined
+  },
+  { immediate: true }
 )
 function openResource(path: string, fragment = '') {
   resourceTarget.value = { path, fragment }
@@ -232,7 +259,7 @@ async function copyPath(path: string) {
       </div>
       <div class="inline-actions">
         <Button variant="outline" as-child>
-          <RouterLink :to="{ name: 'pi-workspace', params: { specId: spec.record.id }, query: { stage: selectedStage } }">运行 Pi Agent</RouterLink>
+          <RouterLink :to="{ name: 'pi-workspace', params: { specId: spec.record.id }, query: { stage: launchStage } }">运行 Pi Agent</RouterLink>
         </Button>
         <Button
           v-if="
@@ -247,11 +274,15 @@ async function copyPath(path: string) {
         </Button>
       </div>
     </div>
-    <ProgressSummary :progress="progress" />
+    <ProgressSummary :progress="progress" :target="progress?.goal?.target" />
     <Alert v-if="snapshotError" role="alert" class="notice error">
       {{ snapshotError }}
+      <span v-if="progress?.lastVerifiedAt">上次核实 {{ dateLabel(progress.lastVerifiedAt) }}。</span>
       <Button variant="outline" :disabled="snapshotLoading" @click="refresh()">重试</Button>
     </Alert>
+    <p v-else-if="sourceState?.verification === 'pending' || sourceState?.verification === 'stale'" role="status" class="notice">
+      {{ progress?.lastVerifiedAt ? `正在核对，暂显示上次核实结果（${dateLabel(progress.lastVerifiedAt)}）。` : '进度待核实。' }}
+    </p>
     <Tabs :model-value="tab" :unmount-on-hide="false" @update:model-value="tab = String($event)">
       <TabsList class="tabs" aria-label="Spec 内容" moving-indicator>
         <TabsTrigger v-for="item in tabs" :key="item.id" :value="item.id">
@@ -297,6 +328,20 @@ async function copyPath(path: string) {
       </Alert>
       <p v-if="notice" role="status" class="notice">{{ notice }}</p>
       <TabsContent value="overview" as="section">
+        <Alert v-if="!spec.record.active || !sourceUsable" class="notice warning">
+          <h2 ref="source-diagnostic" tabindex="-1">{{ !spec.record.active ? '登记已停用' : '来源待处理' }}</h2>
+          <p v-if="!sourceUsable" class="break-all">
+            {{ spec.record.sourcePath }} · {{ spec.sourceMessage || spec.content.metadataError ||
+              (spec.sourceHealth === 'available' ? '规格内容待核实' : healthLabels[spec.sourceHealth]) }}
+          </p>
+          <p v-if="spec.content.metadataError" class="muted">修正规格元数据后重新读取。</p>
+          <div class="inline-actions">
+            <Button v-if="!spec.record.active || spec.sourceHealth !== 'available'" type="button" variant="outline" @click="tab = 'settings'">
+              {{ spec.record.active ? '核对登记路径' : '打开设置以恢复登记' }}
+            </Button>
+            <Button type="button" variant="ghost" :disabled="snapshotLoading" @click="refresh()">重新读取来源</Button>
+          </div>
+        </Alert>
         <div class="notice source-strip" :class="{ warning: spec.sourceHealth !== 'available' }">
           <span>{{ healthLabels[spec.sourceHealth] }}</span>
           <span>文件修改 {{ dateLabel(spec.sourceModifiedAt) }}</span>
@@ -334,6 +379,7 @@ async function copyPath(path: string) {
           :source-path="spec.record.sourcePath"
           :project-root="project?.record.rootPath"
           :content="spec.content"
+          :focus-materials="tab === 'content' && route.query.focus === 'materials'"
           :confirm-leave="allowLeave"
           @dirty="questionDirty = $event"
         />
@@ -346,11 +392,13 @@ async function copyPath(path: string) {
           :spec-id="spec.record.id"
           :project-id="spec.record.projectId"
           :spec-digest="spec.content.artifactDigest"
+          :registration-active="spec.record.active && project?.record.active !== false"
+          :source-usable="sourceUsable"
           :progress="progress"
           :initial-stage="selectedStage"
           :stage-focus="stageFocus"
           :confirm-leave="allowLeave"
-          @select="setQuery({ stage: $event })"
+          @select="setQuery({ stage: $event, focus: undefined })"
           @focused="stageFocus = undefined"
           @dirty="lifecycleDirty = $event"
           @confirm-content="tab = 'content'"
@@ -419,7 +467,7 @@ async function copyPath(path: string) {
       <TabsContent value="run" as="section">
         <AgentLauncher
           :spec-id="spec.record.id"
-          :lifecycle-stage="selectedStage"
+          :lifecycle-stage="launchStage"
         />
       </TabsContent>
       <TabsContent value="history" as="section">

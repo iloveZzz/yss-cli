@@ -107,15 +107,24 @@ pub fn build_lifecycle(snapshot: &Snapshot, spec_id: &str) -> Result<LifecycleVi
             }
         })
         .collect();
+    let records = &snapshot.progress_records;
+    let goals = records
+        .goals
+        .iter()
+        .filter(|record| record.goal.spec_id == spec_id);
+    let round_ids = goals
+        .clone()
+        .map(|goal| {
+            (
+                goal.goal_version.clone(),
+                super::progress::goal_round_id(records, goal),
+            )
+        })
+        .collect();
     Ok(LifecycleView {
         progress_history: ProgressHistory {
-            goals: snapshot
-                .progress_records
-                .goals
-                .iter()
-                .filter(|record| record.goal.spec_id == spec_id)
-                .cloned()
-                .collect(),
+            goals: goals.cloned().collect(),
+            round_ids,
             reports: snapshot
                 .progress_records
                 .reports
@@ -135,6 +144,27 @@ pub fn build_lifecycle(snapshot: &Snapshot, spec_id: &str) -> Result<LifecycleVi
                 .decisions
                 .iter()
                 .filter(|record| record.confirmation.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            cancellations: snapshot
+                .progress_records
+                .cancellations
+                .iter()
+                .filter(|record| record.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            reopens: snapshot
+                .progress_records
+                .reopens
+                .iter()
+                .filter(|record| record.spec_id == spec_id)
+                .cloned()
+                .collect(),
+            late_reports: snapshot
+                .progress_records
+                .late_reports
+                .iter()
+                .filter(|record| record.spec_id == spec_id)
                 .cloned()
                 .collect(),
         },

@@ -676,6 +676,8 @@ pub struct ExternalLink {
     pub last_success_at: Option<String>,
     pub last_error: Option<String>,
     pub data: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_version: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -746,6 +748,7 @@ pub fn external_add(store: &Arc<Mutex<Store>>, mut target: AddExternal) -> Resul
     {
         return Err(invalid("关联工程不存在"));
     }
+    let mut goal_version = None;
     if let Some(id) = &target.spec_id {
         let spec = store
             .state()
@@ -755,27 +758,27 @@ pub fn external_add(store: &Arc<Mutex<Store>>, mut target: AddExternal) -> Resul
             .ok_or_else(|| invalid("关联Spec不存在"))?;
         let spec_id = spec.id.clone();
         let source_project_id = spec.project_id.clone();
+        let records = super::progress::load(&mut store)?;
+        let goal = super::progress::goal(&records, &spec_id);
         if let Some(project_id) = &target.project_id
             && project_id != &source_project_id
         {
-            let records = super::progress::load(&mut store)?;
-            let linked = records
-                .goals
-                .iter()
-                .filter(|goal| goal.goal.spec_id == spec_id)
-                .max_by(|left, right| {
-                    (&left.created_at, &left.goal_version)
-                        .cmp(&(&right.created_at, &right.goal_version))
-                })
-                .is_some_and(|goal| {
-                    goal.goal
-                        .participants
-                        .iter()
-                        .any(|participant| &participant.project_id == project_id)
-                });
+            let linked = goal.is_some_and(|goal| {
+                goal.goal
+                    .participants
+                    .iter()
+                    .any(|participant| &participant.project_id == project_id)
+            });
             if !linked {
                 return Err(invalid("关联工程须属于此 Spec 的生命周期参与范围"));
             }
+        }
+        if target.kind != ExternalKind::Issue {
+            goal_version = goal
+                .filter(|goal| {
+                    !super::progress::is_goal_canceled(&records, &spec_id, &goal.goal_version)
+                })
+                .map(|goal| goal.goal_version.clone());
         }
     }
     if let Some(found) = store
@@ -801,6 +804,7 @@ pub fn external_add(store: &Arc<Mutex<Store>>, mut target: AddExternal) -> Resul
         last_success_at: None,
         last_error: None,
         data: None,
+        goal_version,
     };
     store.put_record("externalLink", &record.id, &record)?;
     Ok(record)
@@ -973,14 +977,12 @@ fn fetch(target: &AddExternal, cancel: &Cancellation) -> Result<Value> {
     }
     Ok(data)
 }
-fn update_external(store: &Arc<Mutex<Store>>, link: &ExternalLink) -> Result<()> {
+fn update_external(store: &Arc<Mutex<Store>>, link: &mut ExternalLink) -> Result<()> {
     let mut store = lock(store)?;
-    if store
-        .record::<ExternalLink>("externalLink", &link.id)?
-        .is_none()
-    {
+    let Some(current) = store.record::<ExternalLink>("externalLink", &link.id)? else {
         return Err(invalid("外部关联已被删除"));
-    }
+    };
+    link.goal_version = current.goal_version;
     store.put_record("externalLink", &link.id, link)
 }
 pub fn external_refresh(manager: Arc<JobManager>, request: RefreshExternal) -> Result<JobRecord> {
@@ -1007,7 +1009,7 @@ pub fn external_refresh(manager: Arc<JobManager>, request: RefreshExternal) -> R
             }
             link.last_attempt_at = Some(now);
             link.status = "refreshing".into();
-            update_external(&context.store, &link)?;
+            update_external(&context.store, &mut link)?;
             context.emit("query", json!({"id":link.id,"provider":link.target.provider,"host":link.target.host,"project":link.target.project}))?;
             match fetch(&link.target, &context.cancel) {
                 Ok(data) => {
@@ -1015,13 +1017,13 @@ pub fn external_refresh(manager: Arc<JobManager>, request: RefreshExternal) -> R
                     link.last_success_at = Some(sources::now());
                     link.last_error = None;
                     link.status = "current".into();
-                    update_external(&context.store, &link)?;
+                    update_external(&context.store, &mut link)?;
                     Ok(json!(link))
                 }
                 Err(error) => {
                     link.status = if error.code == ErrorCode::Cancelled { "canceled" } else { "stale" }.into();
                     link.last_error = Some(error.message.clone());
-                    update_external(&context.store, &link)?;
+                    update_external(&context.store, &mut link)?;
                     Err(error)
                 }
             }

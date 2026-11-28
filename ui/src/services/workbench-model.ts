@@ -1,4 +1,4 @@
-import type { ProgressAction, ProgressSummary, ProgressHistory } from './workbench-progress'
+import type { EffectiveGoalState, ProgressAction, ProgressSummary, ProgressHistory } from './workbench-progress'
 export const stages = { unmarked: '未标记', research: '调研', analysis: '分析', spec: '规格', prototype: '原型', handoff: '交接', implementation: '实施', verification: '验证', delivery: '交付' } as const
 export const statuses = { unmarked: '未标记', todo: '待处理', doing: '进行中', blocked: '阻塞', done: '已完成', canceled: '已取消' } as const
 export type Stage = keyof typeof stages
@@ -23,7 +23,7 @@ export interface MutationRequest {
   expectedTarget?: string
   requestId?: string
 }
-export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null; responseId?: string | null }
+export interface MutationResult { revision: number; projectId: string | null; specId: string | null; taskIds: string[]; viewId: string | null; responseId?: string | null; goalVersion?: string | null }
 
 export type WorkEntity = 'spec' | 'task'
 export type Layout = 'list' | 'board'
@@ -54,7 +54,7 @@ export interface WorkQuery {
   sort: 'updatedDesc' | 'titleAsc'
 }
 export interface SavedView {id:string;name:string;query:WorkQuery;layout:Layout;groupBy:GroupBy;createdAt:string;updatedAt:string}
-export interface WorkItem {progress?:ProgressSummary;entity:WorkEntity;id:string;projectId:string;projectName:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean;contentStatus:ContentStatus|null;reminderCounts:Record<string,number>;needsReconfirmation:boolean;materialReview?:boolean}
+export interface WorkItem {progress?:ProgressSummary;goalState?:EffectiveGoalState;entity:WorkEntity;id:string;projectId:string;projectName:string;projectRoot?:string;specId:string;specTitle:string;sourcePath:string;title:string;stage:Stage;status:Status;nextAction:string;blocker:string;notes:string;active:boolean;updatedAt:string;hasSourceProblem:boolean;contentStatus:ContentStatus|null;reminderCounts:Record<string,number>;needsReconfirmation:boolean;materialReview?:boolean}
 export interface QueryResult {revision:number;readAt:string;total:number;items:WorkItem[]}
 export type TaskCounts = Record<Status | 'total',number>
 export interface LifecycleView {progressHistory?:ProgressHistory;progress?:ProgressSummary;revision:number;spec:SpecView;stages:{stage:Stage;record:StageRecord|null;taskCounts:TaskCounts}[];tasks:TaskView[];events:ChangeEvent[]}
@@ -67,7 +67,7 @@ export interface QuestionResponse { id: string; specId: string; questionId: stri
 export interface QuestionHistoryEntry { response: QuestionResponse; reason: string; sourceResolution?: string }
 export interface QuestionView { question: ContentQuestion; digest: string; state: 'open' | 'pendingWriteback' | 'resolved' | 'deferred' | 'overdue' | 'needsReview'; response: QuestionResponse | null; history?: QuestionHistoryEntry[] }
 export interface AgentQuestion extends QuestionView { usage: string }
-export interface AgentRequest { specId: string; text: string; readAt: string; projectRoot?: string; sourcePath?: string; dataDir?: string; questions?: AgentQuestion[]; history?: QuestionHistoryEntry[] }
+export interface AgentRequest { specId: string; text: string; readAt: string; projectRoot?: string; sourcePath?: string; sourceDigest?: string; dataDir?: string; progress?: ProgressSummary; goalState?: EffectiveGoalState; questions?: AgentQuestion[]; history?: QuestionHistoryEntry[] }
 export interface ConfirmationRecord { id: string; specId: string; scope: string; artifactDigest: string; createdAt: string }
 export interface MaterialChange {
   target: string

@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription } from '@/components/ui/empty'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
-import { computed, nextTick, onBeforeUnmount, shallowRef, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import LoadingIndicator from '@/components/LoadingIndicator.vue'
@@ -38,11 +38,25 @@ const props = defineProps<{
   sourcePath: string
   projectRoot?: string
   content: ContentView
+  focusMaterials?: boolean
   confirmLeave: (required: boolean) => boolean | Promise<boolean>
 }>()
 const route = useRoute()
 const router = useRouter()
 const id = useId()
+const materialHeading = useTemplateRef<HTMLElement>('material-heading')
+watch(
+  [() => props.focusMaterials, materialHeading],
+  ([focus, heading], _previous, onCleanup) => {
+    if (!focus || !heading) return
+    const frame = requestAnimationFrame(() => {
+      heading.focus({ preventScroll: true })
+      heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  },
+  { flush: 'post' }
+)
 const categories = [
   { value: 'all', label: '全部事项' },
   { value: 'decision', label: '待你决定' },
@@ -297,12 +311,11 @@ async function confirmContent() {
       <Alert v-if="content.metadataError" role="alert" class="notice error">
         {{ content.metadataError }}
       </Alert>
-      <p v-if="content.needsReconfirmation" class="notice warning">
-        本 Spec 有新版材料或范围。核对本轮采用的内容后确认。
-      </p>
-      <p v-if="materialsNeedReview" class="notice warning">
-        由 Agent 核实关联材料及相关条款。已确认版本可在下方回看。
-      </p>
+      <div v-if="content.needsReconfirmation || materialsNeedReview" class="notice warning">
+        <h3 ref="material-heading" tabindex="-1">{{ content.needsReconfirmation ? '新版待确认' : '材料待核实' }}</h3>
+        <p v-if="content.needsReconfirmation">本 Spec 有新版材料或范围。核对本轮采用的内容后确认。</p>
+        <p v-if="materialsNeedReview">由 Agent 核实关联材料及相关条款。已确认版本可在下方回看。</p>
+      </div>
       <Collapsible v-if="confirmationMaterialChanges.length" class="confirmation-blockers" default-open>
         <CollapsibleTrigger>确认材料与来源变化</CollapsibleTrigger>
         <CollapsibleContent>

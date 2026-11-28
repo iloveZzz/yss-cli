@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 import StatusBadge from './StatusBadge.vue'
 import ProgressSummary from './ProgressSummary.vue'
 import TableLoadingOverlay from './TableLoadingOverlay.vue'
-import { dateLabel, stages, contentStatuses } from '@/services/workbench'
+import { dateLabel, stages, contentStatuses, validityLabels } from '@/services/workbench'
 import type { CompactWorkItem } from '@/services/workbench-read'
 import { contentReminders } from '@/services/workbench-content'
 const props = withDefaults(defineProps<{
@@ -21,17 +21,30 @@ const props = withDefaults(defineProps<{
 const route = useRoute()
 const id = useId()
 const reminders = contentReminders(undefined).filter((reminder) => reminder.id !== 'ready')
-const rows = computed(() =>
-  props.items.map((item) => ({
+const rows = computed(() => {
+  const projectNames = new Map<string, Set<string>>()
+  for (const { projectName, projectId } of props.items) {
+    const projects = projectNames.get(projectName) ?? new Set()
+    projects.add(projectId)
+    projectNames.set(projectName, projects)
+  }
+  return props.items.map((item) => ({
     item,
+    path: item.projectRoot && (projectNames.get(item.projectName)?.size ?? 0) > 1
+      ? `${item.projectRoot}/${item.sourcePath}`
+      : item.sourcePath,
     reminders: reminders.flatMap((reminder) => {
       const count = item.reminderCounts?.[reminder.id] ?? 0
       return count ? [{ ...reminder, count }] : []
     })
   }))
-)
+})
 function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
   return { path: `/specs/${item.specId}`, query: { return: route.fullPath, ...query } }
+}
+function review(item: CompactWorkItem) {
+  const stage = item.progress?.diagnosisStage ?? item.progress?.primaryStage
+  return detail(item, { tab: 'lifecycle', ...(stage ? { stage } : {}), focus: 'diagnostic' })
 }
 </script>
 <template>
@@ -48,25 +61,32 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        <TableRow v-for="{ item, reminders: pending } in rows" :key="item.id" :data-spec-id="item.specId">
+        <TableRow v-for="{ item, path, reminders: pending } in rows" :key="item.id" :data-spec-id="item.specId">
           <TableHead scope="row" class="item-title">
-            <RouterLink :to="detail(item)" :title="item.sourcePath">{{ item.title }}</RouterLink>
+            <RouterLink :to="detail(item)">{{ item.title }}</RouterLink>
             <span class="row-sub">{{ item.projectName }}{{ !item.active ? ' · 已停用' : '' }}</span>
+            <span class="row-sub break-all">{{ path }}</span>
             <RouterLink
               v-if="item.hasSourceProblem"
-              :to="detail(item, { tab: 'resources' })"
+              :to="detail(item, { focus: 'source' })"
               class="source-warning"
             >
               来源异常 · 查看
             </RouterLink>
           </TableHead>
           <TableCell class="item-progress">
-            <StatusBadge :status="item.status" />
-            <span class="row-sub">{{ stages[item.stage] }}</span>
+            <template v-if="item.progress?.goalVersion">
+              <StatusBadge :status="item.progress.status" />
+              <span v-if="item.progress.primaryStage !== 'unmarked'" class="row-sub">{{ stages[item.progress.primaryStage] }}</span>
+              <span class="row-sub">证据 {{ validityLabels[item.progress.validity] }}</span>
+            </template>
+            <span v-else class="row-sub">
+              {{ item.goalState === 'missing' || (!item.goalState && item.progress) ? '未设置本轮目标' : '待核实' }}
+            </span>
           </TableCell>
           <TableCell class="item-content">
             <RouterLink
-              :to="detail(item, { tab: 'content', category: 'ready' })"
+              :to="detail(item, { tab: 'content', category: 'ready', ...((item.needsReconfirmation || item.materialReview) ? { focus: 'materials' } : {}) })"
               :class="item.needsReconfirmation || item.materialReview ? 'reconfirm-link' : 'content-state'"
             >
               {{ item.needsReconfirmation ? '新版待确认' : item.materialReview
@@ -83,7 +103,7 @@ function detail(item: CompactWorkItem, query: Record<string, string> = {}) {
             </div>
           </TableCell>
           <TableCell class="item-next">
-            <ProgressSummary :progress="item.progress" compact />
+            <ProgressSummary :progress="item.progress" :review-to="review(item)" compact />
           </TableCell>
           <TableCell class="item-updated">
             <time :datetime="item.updatedAt">{{ dateLabel(item.updatedAt) }}</time>

@@ -3,7 +3,7 @@ use super::{
     materials,
     model::*,
     progress::{self, ProgressBasis, ProgressSummary, ProjectVersion},
-    progress_agent::RunActivity,
+    progress_agent::{GoalExpectation, RunActivity},
     query, service, sources,
     sqlite::ExtensionRecords,
     store::Store,
@@ -860,36 +860,42 @@ fn agent_context_value(
     verification: Verification,
     verification_error: Option<&str>,
 ) -> Value {
-    let stage_binding = spec
-        .filter(|_| verification == Verification::Current)
-        .and_then(|spec| {
-            let progress = spec.progress.as_ref()?;
-            let goal = progress.goal.as_ref()?;
-            let digest = spec.content.artifact_digest.as_deref()?;
-            if goal.goal.spec_digest != digest {
-                return None;
-            }
-            let stages: Vec<_> = goal
-                .goal
-                .stages
-                .iter()
-                .filter(|stage| stage.applicable)
-                .map(|stage| stage.stage)
-                .collect();
-            let primary_stage = (progress.status != Status::Done
-                && stages.contains(&progress.primary_stage))
-            .then_some(progress.primary_stage);
-            Some(json!({
-                "goalVersion": goal.goal_version,
-                "specDigest": digest,
-                "stages": stages,
-                "primaryStage": primary_stage,
-            }))
-        });
+    let verified = spec.filter(|_| verification == Verification::Current);
+    let goal_expectation = verified
+        .and_then(|spec| spec.progress.as_ref())
+        .map(GoalExpectation::from_summary);
+    let stage_binding = verified.and_then(|spec| {
+        let progress = spec.progress.as_ref()?;
+        if progress.status == Status::Canceled {
+            return None;
+        }
+        let goal = progress.goal.as_ref()?;
+        let digest = spec.content.artifact_digest.as_deref()?;
+        if goal.goal.spec_digest != digest {
+            return None;
+        }
+        let stages: Vec<_> = goal
+            .goal
+            .stages
+            .iter()
+            .filter(|stage| stage.applicable)
+            .map(|stage| stage.stage)
+            .collect();
+        let primary_stage = (progress.status != Status::Done
+            && stages.contains(&progress.primary_stage))
+        .then_some(progress.primary_stage);
+        Some(json!({
+            "goalVersion": goal.goal_version,
+            "specDigest": digest,
+            "stages": stages,
+            "primaryStage": primary_stage,
+        }))
+    });
     json!({
         "verification": verification,
         "verificationError": verification_error,
         "sourceError": spec.and_then(|spec| spec.source_message.as_deref()),
+        "goalExpectation": goal_expectation,
         "stageBinding": stage_binding,
     })
 }
@@ -1124,8 +1130,20 @@ impl<'a> QueryPage<'a> {
 }
 
 fn compact_progress(progress: &ProgressSummary) -> Value {
+    let needs_review = |validity| validity == super::progress::Validity::NeedsReview;
+    let diagnosis_stage = progress.stages.iter().find(|stage| {
+        needs_review(stage.validity)
+            || !stage.conflicts.is_empty()
+            || stage
+                .participants
+                .iter()
+                .any(|participant| needs_review(participant.validity))
+    });
     json!({
         "goalVersion": progress.goal_version,
+        "target": progress.goal.as_ref().map(|goal| &goal.goal.target),
+        "cancellation": progress.cancellation,
+        "diagnosisStage": diagnosis_stage.map(|stage| stage.stage),
         "primaryStage": progress.primary_stage,
         "status": progress.status,
         "validity": progress.validity,

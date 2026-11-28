@@ -214,12 +214,17 @@ export interface AgentRun {
   createdAt: string
   updatedAt: string
 }
+export interface AgentGoalExpectation {
+  version: string | null
+  canceled: boolean
+}
 export interface AgentStart {
   host?: AgentHost
   expectedRuntimeIdentity?: string
   handoff?: AgentHandoff & { confirmation?: string }
   lifecycleStage?: Stage
   expectedGoalVersion?: string
+  goalExpectation?: AgentGoalExpectation
   specId: string
   prompt: string
   projectIds?: string[]
@@ -370,6 +375,7 @@ export interface AgentWorkspace {
 export interface AgentSessionPage extends AgentWorkspace {
   verification: Verification
   verificationError: string | null
+  goalExpectation?: AgentGoalExpectation | null
   stageBinding: { goalVersion: string; specDigest: string; stages: Stage[]; primaryStage: Stage | null } | null
   total: number
   attentionTotal: number

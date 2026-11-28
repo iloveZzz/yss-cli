@@ -92,6 +92,7 @@ export interface ExternalLink {
   number: number
   projectId?: string
   specId?: string
+  goalVersion?: string
   status: string
   lastAttemptAt?: string | null
   lastSuccessAt?: string | null

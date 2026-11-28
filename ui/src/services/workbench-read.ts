@@ -9,7 +9,7 @@ import type {
   WorkItem,
   WorkQuery
 } from './workbench-model'
-import type { ProgressSummary, StageSummary } from './workbench-progress'
+import type { DeliveryTarget, ProgressSummary, StageSummary } from './workbench-progress'
 import type { JobRecord } from './workbench-platform'
 
 export type Verification = 'pending' | 'current' | 'stale' | 'failed'
@@ -57,6 +57,9 @@ export type CompactProgress = Pick<
   'goalVersion' | 'primaryStage' | 'status' | 'validity' | 'attention' | 'summary' | 'blocker' |
   'nextAction' | 'lastVerifiedAt' | 'evidenceDigest' | 'hasOverride' | 'materialReview' | 'activeStages'
 > & {
+  target?: DeliveryTarget | null
+  diagnosisStage?: StageSummary['stage'] | null
+  cancellation?: ProgressSummary['cancellation']
   lastDelivery?: Pick<NonNullable<ProgressSummary['lastDelivery']>, 'recordedAt'>
   stages: Pick<StageSummary, 'stage' | 'progress'>[]
 }

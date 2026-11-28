@@ -189,6 +189,7 @@ pub(super) fn spec_view_from_observation(
     .as_str()
     .to_owned();
     SpecView {
+        source_digest: raw_source_digest.cloned(),
         source_version,
         progress: None,
         content,

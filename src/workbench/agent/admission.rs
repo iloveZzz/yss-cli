@@ -33,7 +33,6 @@ fn start(
     let spec_id = request.spec_id.clone();
     let run_id = request.resume_run_id.clone();
     let dispatch_id = queued.then(|| request.request_id.clone());
-    let expected_goal_version = request.expected_goal_version.clone();
     let validation = request.clone();
     let worker = manager.clone();
     let host = request.selected_host(None);
@@ -82,19 +81,14 @@ fn start(
                 validation.continuation_source.as_ref(),
                 validation.expected_continuation_digest.as_ref(),
             )?;
-            if queued {
-                progress_agent::revalidate_goal(
-                    store,
-                    &spec_id,
-                    expected_goal_version.as_deref(),
-                    true,
-                )?;
-            }
             let spec = sources::spec(store.state(), &spec_id)?;
             if !spec.active {
                 return Err(invalid("主 Spec 已归档"));
             }
             job.title = format!("Spec 续办 · {}", spec.title);
+            if queued || validation.goal_expectation.is_some() {
+                validation.verify_goal(store, None, queued)?;
+            }
             Ok(())
         },
         move |context| prepare(&worker, context, request, queued),
@@ -248,6 +242,9 @@ fn prepare(
     let (mut target, state, data_dir, fork_target) = {
         let mut store = lock_store(&context.store)?;
         context.trace("firstLockAcquired");
+        if queued || request.goal_expectation.is_some() {
+            request.verify_goal(&mut store, None, queued)?;
+        }
         let target = capture_target(&mut store, &mut request)?;
         let fork = native_fork::capture_expected(&mut store, &request, &target.projects)?;
         (
@@ -376,6 +373,7 @@ fn prepare(
                 &target.spec.id,
                 request.lifecycle_stage,
                 request.expected_goal_version.as_deref(),
+                request.goal_expectation.as_ref(),
             )?
         };
         (stamp, binding)

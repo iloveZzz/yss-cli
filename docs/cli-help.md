@@ -215,9 +215,9 @@ CLI `3.3.0` 新增 `yss scaffold frontend --project-name my-frontend --output-di
 
 ```sh
 yss workbench snapshot --json
-yss workbench query --q "$YSS_SPEC_TITLE" --activity all --include-closed --json
+yss workbench query --entity spec --progress-basis effective --q "$YSS_SPEC_TITLE" --activity all --include-closed --json
 yss workbench query --entity task --stage verification --json
-yss workbench query --entity spec --activity all --include-closed --json
+yss workbench query --entity spec --progress-basis effective --activity all --include-closed --json
 yss workbench query --entity spec --content-status ready --reminder ready --json
 yss workbench query --entity spec --needs-reconfirmation --json
 yss workbench query --entity spec --progress-basis effective --attention needsReview --json
@@ -228,7 +228,7 @@ yss workbench lifecycle --spec <SpecID> --json
 
 `snapshot`、`query`、`lifecycle`、`spec-status`、`lifecycle-status`、`recommend-status` 和 `request` 以只读方式打开工作台数据目录，并可直接查询兼容的旧 JSON 数据。
 
-`YSS_SPEC_TITLE` 使用要定位的规格名称。`query` 从 `result.items[]` 读取匹配的 `specId`、`projectId`。`lifecycle` 的 `result.stages` 展示个人阶段与任务计数，`result.progress.stages` 展示基于证据和当前目标的有效阶段进度。单纯查看使用 `lifecycle`，`progress reconcile` 会重新核对已登记事实并保存自动确认和写入回执。
+`YSS_SPEC_TITLE` 使用要定位的规格名称。`query` 从 `result.items[]` 读取匹配的 `specId`、`projectId` 和 `sourcePath`，同名时核对实际工程根与路径。有效查询的 `goalState` 区分已核实未设目标与进度无法核实。`lifecycle` 的 `result.stages` 展示个人阶段与任务计数，`result.progress.stages` 展示基于证据和当前目标的有效阶段进度。只读刷新使用 `lifecycle`，`progress reconcile` 会重新核对已登记事实并保存自动确认和写入回执。
 
 首次登记时，`register --root` 指定工程根，`--source` 使用相对该根的主 Spec 路径。成功后从 `result.specId` 和 `result.projectId` 取得身份。接续时使用 `workbench request --spec-id "$YSS_PROGRESS_SPEC_ID" --json`。`result.text` 供 Agent 或人员直接阅读，`result.projectRoot`、`result.sourcePath` 和 `result.questions` 可供结构化处理。使用自定义工作台目录的所有命令沿用同一 `--data-dir`。
 
@@ -272,9 +272,9 @@ yss workbench recommend-status --help
 yss workbench recommend-status --spec-id "$YSS_SPEC_ID" --json
 ```
 
-`recommend-status` 适用于脚本中的只读、非交互核实，按当前主要阶段推荐下一步。JSON 信封的 `command` 为 `workbench.recommend-status`。`result.observedStatus` 为基于当前证据及适用决定得到的有效进度。建议状态和阶段见 `recommendedStatus`、`recommendedStage`，证据适用性及提醒见 `validity`、`attention`。可用 `goalVersion` 和 `evidenceDigest` 对照生命周期状态的同版本结果。当前产物和目标采用的摘要分别见 `artifactDigest`、`goalSpecDigest`。
+`recommend-status` 适用于脚本中的只读、非交互核实。JSON 信封的 `command` 为 `workbench.recommend-status`。`result.observedStatus` 为基于当前证据及适用决定得到的有效进度。建议状态和阶段见 `recommendedStatus`、`recommendedStage`，`recommendationItems` 提供动作、原因及可定位的阶段和工程，包含整体进行中时的局部阻塞。证据适用性及提醒见 `validity`、`attention`。可用 `goalVersion` 和 `evidenceDigest` 对照同版本结果。当前产物和目标采用的摘要分别见 `artifactDigest`、`goalSpecDigest`。
 
-记录停用、来源异常、内容无法核实或当前目标缺失时，`recommendedStatus` 和 `recommendedStage` 为 `null`，按 `recommendedAction` 处理对应条件。历史已验收但当前证据需复核时仍可看到 `observedStatus: done`，建议状态和阶段为 `null`。诊断见 `sourceHealth`、`sourceMessage`、`metadataError` 和 `blockers`。
+记录停用、来源异常、内容无法核实或当前目标缺失时，按 `recommendedAction` 和诊断字段处理。历史已验收但当前证据需复核时仍可看到 `observedStatus: done`，`recommendedStatus` 为 `null`。可定位的待复核阶段见 `recommendedStage` 和 `recommendationItems`。诊断见 `sourceHealth`、`sourceMessage`、`metadataError` 和 `blockers`。
 
 | `recommendedAction` | 处理事项 |
 | --- | --- |
@@ -282,6 +282,7 @@ yss workbench recommend-status --spec-id "$YSS_SPEC_ID" --json
 | `reviewEvidence` / `syncEvidence` / `collectEvidence` | 复核、同步或补采集证据。 |
 | `resolveBlocker` | 查看并处理阻塞。 |
 | `autoConfirm` | 运行 `workbench lifecycle-auto-confirm`，复核已保存的证据并写入适用的确认。 |
+| `reopenGoal` | 本轮已取消，用户明确要求续办时可开启新一轮。 |
 | `complete` / `continue` | 当前证据与适用决定支持完成或继续推进。 |
 
 ### 自动核实并确认生命周期
@@ -353,6 +354,22 @@ yss workbench --data-dir /absolute/personal-data progress reconcile --spec-id <S
 `progress confirm` 可用 JSON 记录明确的人工决定，示例见对应 `--help`。从同一状态响应取 `result.progress.goalVersion`、原样 `result.progress.goal.scope` 和 `result.progress.evidenceDigest`，`source` 填实际出处。阶段证据、目标或版本变化后重新核实适用性。人工更正在页面填写原因、绑定当前版本，可恢复自动判定。
 
 详细 JSON 约定随模板分发到 `.template-spec/agents/workbench-progress.md`。工作台生成的 Agent 请求也携带当前身份和实际上报程序路径。能力缺失或报告失败时继续原已授权工作，记录待同步材料后核实补报。
+
+### 取消目标和开启新一轮
+
+先用 `lifecycle-status` 核对当前 `result.progress.goalVersion`。取消适用于当前尚未结束的目标，记录原因及操作来源。运行中的 Agent、CI 和工单继续由各自入口管理。取消或重开均须提供稳定的请求 ID，以便核对原回执。
+
+```sh
+yss workbench progress cancel-goal --spec-id "$YSS_SPEC_ID" --goal-version "$YSS_GOAL_VERSION" \
+  --reason "$YSS_CANCEL_REASON" --request-id "$YSS_CANCEL_REQUEST_ID" --json
+yss workbench progress reopen-goal --input /absolute/reopen.json --request-id "$YSS_REOPEN_REQUEST_ID" --json
+```
+
+`reopen.json` 包含当前已完成或已取消轮次的 `specId`、`goalVersion` 和本轮采用的 `goal`。`goal` 与 `set-goal` 的 JSON 输入同结构，`specId` 与外层一致。即使目标范围与原轮完全相同，`reopen-goal` 也会生成独立目标版本。回执中的 `result.goalVersion` 对应原操作，读取当前轮次仍使用状态查询。沿用自定义数据目录。超时时使用原输入及原 `--request-id` 核对结果。
+
+已绑定作业和远端关联的迟到结果保留原轮归属。用 `lifecycle` 查看取消原因、轮次关系及迟到报告的核实限制。`progress.roundId` 表示本轮，普通目标编辑可以生成新的 `goalVersion`。写入仍使用实际采用的 `goalVersion`。
+
+在新轮引用旧证据时，先核对当前验收范围、采用版本、实际输入及环境，再在本轮报告的实际证据之外添加 `kind: other`、`reference: "report:<原报告 ID>"` 和说明核实依据的 `label`。覆盖不足或已过期的证据仍显示待核实。合并和环境交付使用实际候选的参与工程组合，目标环境在通过的 `environment` 凭证中引用。可另附实际运行日志。
 
 ### 核实一个 Spec 的关联材料
 

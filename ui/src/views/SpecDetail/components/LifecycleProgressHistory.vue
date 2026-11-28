@@ -16,6 +16,7 @@ import {
   validityLabels,
   roleLabels,
   type GoalRecord,
+  type GoalCancellation,
   type ReportRecord,
   type OverrideRecord,
   type DecisionRecord,
@@ -23,7 +24,7 @@ import {
 } from '@/services/workbench'
 import ProgressEvidence from './ProgressEvidence.vue'
 import { sorted } from '@/lib/collections'
-const props = defineProps<{ specId: string; goalVersion: string | null }>()
+const props = defineProps<{ specId: string; goalVersion: string | null; roundId?: string | null }>()
 const { snapshot } = useWorkbench()
 const expanded = shallowRef(false)
 const history = shallowRef<ProgressHistory>()
@@ -64,6 +65,7 @@ watch(
 onBeforeUnmount(() => controller?.abort())
 type HistoryEntry =
   | { kind: 'goal'; at: string; id: string; record: GoalRecord }
+  | { kind: 'cancellation'; at: string; id: string; record: GoalCancellation }
   | { kind: 'report'; at: string; id: string; record: ReportRecord }
   | { kind: 'override'; at: string; id: string; record: OverrideRecord }
   | { kind: 'decision'; at: string; id: string; record: DecisionRecord }
@@ -74,6 +76,12 @@ const entries = computed<HistoryEntry[]>(() => {
     ...value.goals.map((record) => ({
       kind: 'goal' as const,
       at: record.createdAt,
+      id: record.goalVersion,
+      record
+    })),
+    ...(value.cancellations ?? []).map((record) => ({
+      kind: 'cancellation' as const,
+      at: record.recordedAt,
       id: record.goalVersion,
       record
     })),
@@ -100,8 +108,21 @@ const entries = computed<HistoryEntry[]>(() => {
 })
 const labels = {
   goal: '交付目标',
+  cancellation: '已取消目标',
   report: '阶段上报',
   override: '人工更正'
+}
+function reopenedFrom(goalVersion: string) {
+  return history.value?.reopens?.find((item) => item.goalVersion === goalVersion)?.previousGoalVersion
+}
+function versionState(goalVersion: string) {
+  if (goalVersion === props.goalVersion) return '当前轮次'
+  const round = history.value?.roundIds?.[goalVersion]
+  const currentRound = props.roundId ?? (props.goalVersion ? history.value?.roundIds?.[props.goalVersion] : undefined)
+  return round && round === currentRound ? '本轮旧版' : '历史轮次'
+}
+function lateReport(record: ReportRecord) {
+  return history.value?.lateReports?.find((item) => item.goalVersion === record.goalVersion && item.reportId === record.id)
 }
 function projectName(id: string | null | undefined) {
   return (
@@ -144,15 +165,11 @@ function participantsFor(goalVersion: string) {
               <CollapsibleTrigger>
                 <span>
                   <strong>{{ entry.kind === 'decision' ? decisionLabel(entry.record) : labels[entry.kind] }}</strong>
-                  <span v-if="entry.kind !== 'goal'">
+                    <span v-if="'stage' in entry.record">
                     · {{ stages[entry.record.stage] }}
                   </span>
                   <span class="version-state">
-                    {{
-                      entry.record.goalVersion === goalVersion
-                        ? '当前目标版本'
-                        : '历史目标版本'
-                    }}
+                    {{ versionState(entry.record.goalVersion) }}
                   </span>
                 </span>
                 <time :datetime="entry.at">{{ dateLabel(entry.at) }}</time>
@@ -163,6 +180,9 @@ function participantsFor(goalVersion: string) {
                   目标 {{ entry.record.goalVersion }}
                 </code>
                 <template v-if="entry.kind === 'goal'">
+                  <p v-if="reopenedFrom(entry.record.goalVersion)">
+                    重开自 <code>{{ reopenedFrom(entry.record.goalVersion) }}</code>
+                  </p>
                   <p>{{ entry.record.scope }}</p>
                   <p>
                     交付位置 · {{ entry.record.target.label }}
@@ -198,7 +218,17 @@ function participantsFor(goalVersion: string) {
                     </li>
                   </ul>
                 </template>
+                <template v-else-if="entry.kind === 'cancellation'">
+                  <p class="preserve-lines">取消原因 · {{ entry.record.reason }}</p>
+                  <p v-if="entry.record.source">记录来源 · {{ entry.record.source }}</p>
+                </template>
                 <template v-else-if="entry.kind === 'report'">
+                  <div v-if="lateReport(entry.record)" class="notice warning">
+                    <p>原轮次的迟到上报</p>
+                    <ul>
+                      <li v-for="limitation in lateReport(entry.record)?.inputLimitations" :key="limitation">{{ limitation }}</li>
+                    </ul>
+                  </div>
                   <p>
                     {{ roleLabels[entry.record.role] }} ·
                     {{ projectName(entry.record.projectId) }} ·

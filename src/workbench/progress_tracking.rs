@@ -112,31 +112,25 @@ fn tick(manager: &Arc<JobManager>, states: &mut BTreeMap<String, PollState>) -> 
             .map(|s| s.id.clone())
             .collect();
         let records = progress::load(&mut store)?;
-        let mut latest: BTreeMap<String, &GoalRecord> = BTreeMap::new();
-        for goal in &records.goals {
-            if latest.get(&goal.goal.spec_id).is_none_or(|existing| {
-                (&existing.created_at, &existing.goal_version)
-                    < (&goal.created_at, &goal.goal_version)
-            }) {
-                latest.insert(goal.goal.spec_id.clone(), goal);
-            }
-        }
-        let versions = latest
-            .into_iter()
+        let versions = active_specs
+            .iter()
+            .filter_map(|spec_id| progress::goal(&records, spec_id).map(|goal| (spec_id, goal)))
             .map(|(spec_id, goal)| {
                 let mut semantic_ids: Vec<_> = records
                     .reports
                     .iter()
                     .filter(|r| {
-                        r.report.spec_id == spec_id
-                            && r.report.goal_version == goal.goal_version
+                        r.report.spec_id == *spec_id
                             && !r.report.id.starts_with("remote:")
                             && !progress::is_activity_report(&r.report.id)
                     })
-                    .map(|r| &r.report.id)
+                    .map(|r| (&r.report.goal_version, &r.report.id))
                     .collect();
                 semantic_ids.sort();
-                (spec_id, fingerprint(&(&goal.goal_version, semantic_ids)))
+                (
+                    spec_id.clone(),
+                    fingerprint(&(&goal.goal_version, semantic_ids)),
+                )
             })
             .collect::<BTreeMap<_, _>>();
         (active_specs, versions)
@@ -206,9 +200,11 @@ fn tick(manager: &Arc<JobManager>, states: &mut BTreeMap<String, PollState>) -> 
                 &link.status,
                 &link.last_error,
                 &link.data,
+                &link.goal_version,
                 goal_versions.get(spec_id),
             ));
-            if state.last_fact.as_ref() != Some(&fact) && submit_observation(manager, &link).is_ok()
+            if state.last_fact.as_ref() != Some(&fact)
+                && submit_observation(manager, &link.id).is_ok()
             {
                 state.last_fact = Some(fact);
             }
@@ -230,29 +226,40 @@ fn tick(manager: &Arc<JobManager>, states: &mut BTreeMap<String, PollState>) -> 
     Ok(())
 }
 
-fn submit_observation(manager: &JobManager, link: &ExternalLink) -> Result<()> {
-    let Some(spec_id) = &link.target.spec_id else {
+fn submit_observation(manager: &JobManager, link_id: &str) -> Result<()> {
+    let mut store = lock_store(&manager.store)?;
+    let Some(mut link) = store.record::<ExternalLink>("externalLink", link_id)? else {
         return Ok(());
     };
-    if link.target.kind == ExternalKind::Issue {
+    if link.target.kind == ExternalKind::Issue
+        || !matches!(link.status.as_str(), "current" | "stale" | "canceled")
+    {
         return Ok(());
     }
-    let mut store = lock_store(&manager.store)?;
-    let snapshot = service::snapshot_for_spec(&mut store, spec_id, &Cancellation::new())?;
-    let records = &snapshot.progress_records;
-    let Some(goal) = progress::goal(records, spec_id) else {
+    let Some(spec_id) = link.target.spec_id.as_deref() else {
         return Ok(());
     };
-    let Some(spec) = store.state().specs.iter().find(|s| &s.id == spec_id) else {
+    let Some(spec) = store.state().specs.iter().find(|s| s.id == spec_id) else {
         return Ok(());
     };
+    let main_project_id = spec.project_id.clone();
     let project_id = link
         .target
         .project_id
         .as_deref()
-        .unwrap_or(&spec.project_id)
+        .unwrap_or(&main_project_id)
         .to_owned();
-    let reports = observation_reports(&snapshot, records, goal, link, &project_id);
+    let snapshot = service::snapshot_for_spec(&mut store, spec_id, &Cancellation::new())?;
+    let records = &snapshot.progress_records;
+    let Some(goal) = observation_goal(records, spec_id, &link, &project_id, &main_project_id)
+    else {
+        return Ok(());
+    };
+    if link.goal_version.is_none() {
+        link.goal_version = Some(goal.goal_version.clone());
+        store.put_record("externalLink", link_id, &link)?;
+    }
+    let reports = observation_reports(&snapshot, records, goal, &link, &project_id);
     for input in reports {
         let expected_revision = store.state().revision;
         service::mutate(
@@ -266,6 +273,51 @@ fn submit_observation(manager: &JobManager, link: &ExternalLink) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn observation_goal<'a>(
+    records: &'a ProgressRecords,
+    spec_id: &str,
+    link: &ExternalLink,
+    project_id: &str,
+    main_project_id: &str,
+) -> Option<&'a GoalRecord> {
+    let mut goals = records
+        .goals
+        .iter()
+        .filter(|goal| goal.goal.spec_id == spec_id);
+    if let Some(version) = &link.goal_version {
+        return goals.find(|goal| goal.goal_version == *version);
+    }
+
+    // A report from the matching engineering scope can establish a legacy link's round.
+    let reference = value_str(link.data.as_ref()?, "url").filter(|value| !value.is_empty())?;
+    let matching_versions: BTreeSet<_> = records
+        .reports
+        .iter()
+        .filter_map(|record| {
+            let report = &record.report;
+            (report.spec_id == spec_id
+                && !report.id.starts_with("remote:")
+                && !progress::is_activity_report(&report.id)
+                && (report.project_id.as_deref() == Some(project_id)
+                    || report.project_id.is_none()
+                        && (project_id == main_project_id
+                            || report
+                                .versions
+                                .iter()
+                                .any(|version| version.project_id == project_id)))
+                && (report.scope_refs.iter().any(|value| value == reference)
+                    || report
+                        .evidence
+                        .iter()
+                        .any(|evidence| evidence.reference == reference)))
+            .then_some(report.goal_version.as_str())
+        })
+        .collect();
+    let mut matches = goals.filter(|goal| matching_versions.contains(goal.goal_version.as_str()));
+    let goal = matches.next()?;
+    matches.next().is_none().then_some(goal)
 }
 
 fn value_str<'a>(data: &'a Value, key: &str) -> Option<&'a str> {
@@ -357,6 +409,7 @@ fn observation_reports(
     if reference.is_empty() {
         return Vec::new();
     }
+    let canceled = progress::is_goal_canceled(records, &goal.goal.spec_id, &goal.goal_version);
     let mut result = Vec::new();
     for stage in stages.into_iter().filter(|stage| {
         *stage == Stage::Delivery
@@ -400,7 +453,7 @@ fn observation_reports(
                     r.report.scope_refs.contains(&reference)
                         || r.report.evidence.iter().any(|e| e.reference == reference)
                 });
-            if semantic.is_some() && !explicitly_referenced {
+            if !canceled && semantic.is_some() && !explicitly_referenced {
                 continue;
             }
             let semantic_validity =

@@ -437,6 +437,11 @@ impl PlatformApi {
                     json!({"found":false})
                 }
             }
+            ("POST", ["api", "receipts", id, "match"]) => {
+                let request = decode::<super::model::MutationRequest>(bytes)?;
+                let mut store = jobs::lock_store(&self.jobs.store)?;
+                super::service::match_receipt(&mut store, id, request)?
+            }
             ("POST", ["api", "receipts", id, "ack"]) => {
                 if id.len() > 128 {
                     return Err(sources::invalid("请求 ID 无效"));

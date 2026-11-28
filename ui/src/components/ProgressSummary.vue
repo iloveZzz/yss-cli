@@ -8,21 +8,31 @@ import {
   dateLabel,
   stages,
   attentionLabels,
+  targetLabel,
+  validityLabels,
+  type DeliveryTarget,
   type ProgressSummary
 } from '@/services/workbench'
 import type { CompactProgress } from '@/services/workbench-read'
 const props = defineProps<{
   progress?: CompactProgress & Pick<ProgressSummary, 'completion'>
   compact?: boolean
+  target?: DeliveryTarget | null
+  reviewTo?: { path: string; query: Record<string, string> }
 }>()
 const completionTitle = '总体进度'
+const target = computed(() => props.target ?? props.progress?.target)
+const hasGoal = computed(() => !!props.progress?.goalVersion)
 const title = computed(() => {
   const progress = props.progress
-  if (!progress) return '目标与进展待核实'
+  if (!progress) return props.compact ? '' : '目标与进展待核实'
+  if (!hasGoal.value) return props.compact ? '' : '未设置本轮目标'
+  if (progress.status === 'canceled') return props.compact ? '' : '本轮目标已取消'
   return progress.status === 'done'
-    ? progress.lastDelivery ? `目标已完成 · ${dateLabel(progress.lastDelivery.recordedAt)}` : '目标已完成'
-    : `${stages[progress.primaryStage]} · ${progress.summary || '进展待核实'}`
+    ? props.compact ? '' : progress.lastDelivery ? `目标已完成 · ${dateLabel(progress.lastDelivery.recordedAt)}` : '目标已完成'
+    : props.compact ? progress.summary : `${stages[progress.primaryStage]} · ${progress.summary || '进展待核实'}`
 })
+const attention = computed(() => props.progress?.attention.filter((item) => item !== 'goalMissing' && item !== 'manualOverride') ?? [])
 const completion = computed(() => {
   const completion = props.progress?.completion
   return completion && completion.total > 0 ? completion : undefined
@@ -34,32 +44,37 @@ const completionPercent = computed(() => {
 const completionLabel = computed(() => {
   const count = completion.value
   if (!count) return '待核实'
-  return props.progress?.status === 'done' ? '已验收 · 100%' : `已核实 ${count.completed} / ${count.total} 项`
+  return props.progress?.status === 'done' ? '已完成 · 100%' : `已核实 ${count.completed} / ${count.total} 项`
 })
 </script>
 <template>
   <Card
     class="progress-summary block gap-0 shadow-none"
     :class="{ compact }"
-    role="region"
-    aria-label="自动进展摘要"
+    :role="compact ? undefined : 'region'"
+    :aria-label="compact ? undefined : '自动进展摘要'"
   >
     <div class="summary-main">
       <div class="summary-heading">
-        <span v-if="progress" class="summary-status">
+        <span v-if="!compact && progress && hasGoal" class="summary-status">
           <span class="sr-only">有效进度</span>
           <StatusBadge :status="progress.status" />
         </span>
-        <strong>{{ title }}</strong>
+        <strong v-if="title">{{ title }}</strong>
         <Badge v-if="progress?.hasOverride" variant="outline" class="summary-tag">人工更正</Badge>
       </div>
-      <div v-if="progress?.attention.length" class="summary-attention">
-        <Badge v-for="item in progress.attention" :key="item" variant="outline" class="summary-tag">
-          {{ attentionLabels[item] ?? item }}
-        </Badge>
+      <p v-if="target" class="summary-target">{{ targetLabel(target) }}</p>
+      <p v-if="hasGoal && progress && !compact" class="muted">证据 {{ validityLabels[progress.validity] }}</p>
+      <div v-if="attention.length" class="summary-attention">
+        <template v-for="item in attention" :key="item">
+          <RouterLink v-if="item === 'needsReview' && reviewTo" class="text-link summary-tag" :to="reviewTo">
+            {{ attentionLabels[item] }}
+          </RouterLink>
+          <Badge v-else variant="outline" class="summary-tag">{{ attentionLabels[item] ?? item }}</Badge>
+        </template>
       </div>
     </div>
-    <div v-if="!compact" class="summary-progress">
+    <div v-if="!compact && hasGoal && progress?.status !== 'canceled'" class="summary-progress">
       <div class="summary-progress-label">
         <span>{{ completionTitle }}</span>
         <span>{{ completionLabel }}</span>
@@ -72,18 +87,13 @@ const completionLabel = computed(() => {
       />
     </div>
     <dl class="summary-facts">
-      <div v-if="!compact || progress?.blocker">
+      <div v-if="progress?.blocker || (!compact && hasGoal)">
         <dt>阻塞</dt>
         <dd>{{ progress?.blocker || '尚无已核实阻塞' }}</dd>
       </div>
-      <div>
+      <div v-if="progress?.nextAction">
         <dt>下一步</dt>
-        <dd>
-          {{
-            progress?.nextAction ||
-            (progress?.status === 'done' ? '—' : '补充本次目标与对应凭证')
-          }}
-        </dd>
+        <dd>{{ progress.nextAction }}</dd>
       </div>
       <div v-if="!compact">
         <dt>最近核实</dt>
@@ -126,6 +136,12 @@ const completionLabel = computed(() => {
 .summary-tag {
   font-size: 11px;
   color: #9b5a0e;
+}
+.summary-target {
+  margin-top: 5px;
+  color: var(--brand-color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .summary-attention {
   display: flex;

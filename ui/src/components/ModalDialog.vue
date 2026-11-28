@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps<{ title: string; busy?: boolean; beforeClose?: () => boolean | Promise<boolean> }>()
+const props = defineProps<{
+  title: string
+  busy?: boolean
+  beforeClose?: () => boolean | Promise<boolean>
+  focusFallback?: () => HTMLElement | null | undefined
+}>()
 const open = defineModel<boolean>({ required: true })
 const checking = ref(false)
 let invoker: HTMLElement | undefined
@@ -51,7 +56,11 @@ async function restoreFocus(event: Event) {
   const trigger = invoker
   const version = openVersion
   await nextTick()
-  if (!open.value && version === openVersion && trigger?.isConnected) trigger.focus({ preventScroll: true })
+  if (open.value || version !== openVersion) return
+  if (trigger?.isConnected && trigger.getClientRects().length && !trigger.matches(':disabled')) {
+    trigger.focus({ preventScroll: true })
+  }
+  if (document.activeElement !== trigger) props.focusFallback?.()?.focus()
 }
 </script>
 

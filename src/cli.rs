@@ -105,6 +105,8 @@ impl Command {
                 Some(WorkbenchCommand::ReviewMaterials(_)) => "workbench.review-materials",
                 Some(WorkbenchCommand::Progress(command)) => match command {
                     WorkbenchProgressCommand::SetGoal(_) => "workbench.progress.set-goal",
+                    WorkbenchProgressCommand::CancelGoal { .. } => "workbench.progress.cancel-goal",
+                    WorkbenchProgressCommand::ReopenGoal(_) => "workbench.progress.reopen-goal",
                     WorkbenchProgressCommand::Report(_) => "workbench.progress.report",
                     WorkbenchProgressCommand::Confirm(_) => "workbench.progress.confirm",
                     WorkbenchProgressCommand::Reconcile { .. } => "workbench.progress.reconcile",
@@ -262,6 +264,25 @@ pub enum WorkbenchProgressCommand {
     )]
     SetGoal(ProgressInputArgs),
     #[command(
+        about = "取消所选本轮目标，保留历史和实际成果",
+        after_help = "从 lifecycle-status 读取当前 goalVersion。取消目标与停止作业是独立动作。相同操作重试沿用原参数及 --request-id。"
+    )]
+    CancelGoal {
+        #[arg(long, help = "已登记的实际 Spec ID")]
+        spec_id: String,
+        #[arg(long, help = "提交前实际核对的目标版本")]
+        goal_version: String,
+        #[arg(long, help = "取消本轮的原因")]
+        reason: String,
+        #[arg(long, help = "稳定请求 ID，重试时沿用同一 ID")]
+        request_id: String,
+    },
+    #[command(
+        about = "从已完成或已取消的目标开启独立新轮次",
+        after_help = "输入 JSON 包含 specId、当前终态的 goalVersion 及本轮采用的 goal 对象（与 set-goal 同结构）。重新采用同一范围也会创建独立轮次。相同操作重试沿用原输入及 --request-id。"
+    )]
+    ReopenGoal(ProgressInputArgs),
+    #[command(
         about = "上报带版本与证据的阶段成果，重复上报使用原 ID",
         after_help = PROGRESS_REPORT_HELP
     )]
@@ -289,7 +310,7 @@ const WORKBENCH_HELP: &str = r#"启动本机浏览器工作台
 
 只读定位、查看或续办已登记的 Spec
   yss workbench snapshot --json
-  yss workbench query --entity spec --q "<标题或主文件路径关键词>" --json
+  yss workbench query --entity spec --progress-basis effective --q "<标题或主文件路径关键词>" --activity all --include-closed --json
   yss workbench spec-status --spec-id "<实际 Spec ID>" --json
   yss workbench lifecycle-status --spec-id "<实际 Spec ID>" --json
   yss workbench recommend-status --spec-id "<实际 Spec ID>" --json
@@ -314,7 +335,7 @@ const WORKBENCH_REQUEST_HELP: &str = r#"生成已登记 Spec 的续办要求
 
 --json 在 result 中返回续办对象，result.text 可复制给接手者，
 result.questions 和 result.history 可分别读取当前问题及历史答复。
-result.projectRoot 和 result.sourcePath 标明工程根及相对主文件路径。
+result.projectRoot 和 result.sourcePath 标明工程根及相对主文件路径，result.goalState 和 result.progress 显示同一次读取的目标及有效进度。
 省略 --json 时直接输出格式化的续办对象，续办文本在顶层 text。
 沿用原 --data-dir，并通过 lifecycle 查看当前目标版本和采用的 Spec 摘要。"#;
 
@@ -324,14 +345,14 @@ const WORKBENCH_SNAPSHOT_HELP: &str = r#"  yss workbench snapshot --json
 Spec 的 record.sourcePath 为工程相对主文件路径。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
 const WORKBENCH_QUERY_HELP: &str = r#"按标题或主文件路径定位现有 Spec，包含停用和已结束项
-  yss workbench query --entity spec --q "<标题或路径关键词>" --activity all --include-closed --json
+  yss workbench query --entity spec --progress-basis effective --q "<标题或路径关键词>" --activity all --include-closed --json
 
 查询有效进度待复核的 Spec
   yss workbench query --entity spec --progress-basis effective --attention needsReview --json
 
 默认查询启用的 Spec，隐藏已完成和已取消项，按最近更新排序。
-personal 使用个人标记。effective 用证据和当前版本的人工更正汇总 Spec 进度，
-缺少有效进度汇总时沿用个人标记。--attention 筛选进度汇总中的关注项。
+缺省 personal 使用个人标记。effective 使用证据和当前版本的人工更正汇总 Spec 进度。
+result.items 的 goalState 区分未设目标和待核实，--attention 筛选进度汇总中的关注项。
 在 result.items 查看命中条目，specId 为所属 Spec ID，projectId 为所属工程 ID，
 id 为当前 Spec 或任务 ID。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
@@ -380,22 +401,22 @@ const WORKBENCH_RECOMMEND_STATUS_HELP: &str = r#"自动推荐当前生命周期�
   yss workbench recommend-status --spec-id "<实际 Spec ID>" --json
 
 自动核对登记工程的当前来源、目标和已保存证据，无需交互输入，只读返回推荐。
-recommendedStatus、recommendedStage 和 validity 给出建议状态、阶段和证据有效性。
-停用、来源不可用、内容无法核实或缺少目标时，建议状态和阶段为 null，
-已有交付完成但当前证据需复核时，也保留历史 observedStatus，建议状态和阶段为 null。
-recommendedAction 给出下一步。autoConfirm 表示当前主要阶段可用 lifecycle-auto-confirm 写入。
+observedStatus 为当前观察结果，goalState 表示目标状态。recommendedStatus、recommendedStage 和 validity 分别给出建议状态、阶段和证据有效性。
+recommendationItems 说明原因及已知的受影响工程。未设目标、目标取消或无法核实时，按 recommendedAction 核对原因。
+旧交付已验收且新材料需复核时，仍可看到历史 observedStatus。autoConfirm 表示有适用阶段可按证据写入自动确认。
 使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
 const WORKBENCH_LIFECYCLE_HELP: &str = r#"  yss workbench lifecycle --spec "<实际 Spec ID>" --json
 
 result.spec.record 和 result.stages 各项的 record 保存个人标记，各阶段的 taskCounts 为任务计数。
-result.progress.stages 展示基于实际证据的有效阶段进度，result.progressHistory 保留目标、报告、更正和决定。
+result.progress.stages 展示有效阶段进度，result.progressHistory 保留目标、取消、重开、报告、更正和决定。
 result.spec.content.artifactDigest 为当前产物摘要。已登记目标的采用摘要在 result.progress.goal.specDigest，
 目标版本在 result.progress.goalVersion。使用自定义目录时，在 workbench 后加原 --data-dir。"#;
 
 const WORKBENCH_PROGRESS_HELP: &str = r#"先用 yss workbench lifecycle --spec "<实际 Spec ID>" --json 核对当前产物及已登记目标。
 用 set-goal 登记目标，再读 lifecycle 取得目标版本后上报实际进展。证据符合条件时自动记录生命周期确认。
 需要记录用户明确决定时可使用 confirm。
+用 cancel-goal 取消当前目标，用 reopen-goal 从已完成或已取消的目标开启独立轮次。
 参与工程或产物变化后使用 reconcile，再读 lifecycle 核对影响。
 使用自定义目录时，每条命令都在 workbench 后加原 --data-dir。
 写入时用稳定的 --request-id，同一写入重试沿用原 ID 和原输入。"#;
@@ -645,6 +666,32 @@ fn progress_action(
                     &args.input,
                     "yss workbench progress set-goal --help",
                     &["specId", "scope", "target", "specDigest"],
+                )?,
+            },
+            args.request_id.clone(),
+        ),
+        WorkbenchProgressCommand::CancelGoal {
+            spec_id,
+            goal_version,
+            reason,
+            request_id,
+        } => (
+            Action::CancelLifecycleGoal {
+                input: crate::workbench::progress::CancelGoalInput {
+                    spec_id: spec_id.clone(),
+                    goal_version: goal_version.clone(),
+                    reason: reason.clone(),
+                    source: Some("CLI".into()),
+                },
+            },
+            request_id.clone(),
+        ),
+        WorkbenchProgressCommand::ReopenGoal(args) => (
+            Action::ReopenLifecycleGoal {
+                input: progress_input(
+                    &args.input,
+                    "yss workbench progress reopen-goal --help",
+                    &["specId", "goalVersion", "goal"],
                 )?,
             },
             args.request_id.clone(),
@@ -934,7 +981,7 @@ pub struct UpgradeArgs {
 enum Report<'a> {
     Workbench(crate::workbench::model::Snapshot),
     WorkbenchMutation(crate::workbench::model::MutationResult),
-    WorkbenchRequest(crate::workbench::model::AgentRequest),
+    WorkbenchRequest(Box<crate::workbench::model::AgentRequest>),
     WorkbenchQuery(crate::workbench::model::QueryResult),
     WorkbenchStatus(serde_json::Value),
     WorkbenchLifecycle(Box<crate::workbench::model::LifecycleView>),
@@ -1038,9 +1085,9 @@ fn dispatch<'a>(
                     ));
                 }
                 Some(WorkbenchCommand::Request { spec_id }) => {
-                    return Ok(Report::WorkbenchRequest(
+                    return Ok(Report::WorkbenchRequest(Box::new(
                         crate::workbench::service::read_agent_request(&path, spec_id, cancel)?,
-                    ));
+                    )));
                 }
                 Some(WorkbenchCommand::SpecStatus { spec_id }) => {
                     return Ok(Report::WorkbenchStatus(crate::workbench::status::read(

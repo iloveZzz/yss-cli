@@ -102,6 +102,13 @@ pub(super) fn scope_progress(records: &mut super::progress::ProgressRecords, spe
     records
         .decisions
         .retain(|record| record.confirmation.spec_id == spec_id);
+    records
+        .cancellations
+        .retain(|record| record.spec_id == spec_id);
+    records.reopens.retain(|record| record.spec_id == spec_id);
+    records
+        .late_reports
+        .retain(|record| record.spec_id == spec_id);
 }
 
 pub(super) fn snapshot_for_spec(
@@ -121,6 +128,12 @@ pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> 
         .iter()
         .find(|spec| spec.record.id == spec_id)
         .ok_or_else(|| missing("Spec 不存在"))?;
+    let project = snapshot
+        .projects
+        .iter()
+        .find(|project| project.record.id == spec.record.project_id);
+    let active = spec.record.active && project.is_some_and(|project| project.record.active);
+    let progress = snapshot.progress.get(spec_id);
     let context = serde_json::json!({
         "specId": spec_id,
         "dataDir": data_dir,
@@ -129,16 +142,18 @@ pub fn progress_context(snapshot: &Snapshot, spec_id: &str, data_dir: &Path) -> 
         "observedArtifactDigest": spec.content.observed_artifact_digest,
         "materialReviewDigest": spec.content.material_review_digest,
         "materialChanges": spec.content.material_changes,
-        "progress": snapshot.progress.get(spec_id),
-        "project": snapshot.projects.iter().find(|project| project.record.id == spec.record.project_id)
-            .map(|project| &project.record),
+        "goalState": super::status::goal_state(progress),
+        "progress": progress,
+        "recommendationItems": super::status::recommendations(snapshot, spec, active, progress),
+        "project": project.map(|project| &project.record),
     });
     Ok(format!(
         "\n生命周期上报上下文（沿用此 Spec 身份与数据目录）\n{}\n\n\
         使用实际安装的 CLI（优先取 `cliExecutable`），通过 `yss workbench progress --help` 核对公开命令，并从项目根读取 `.template-spec/agents/workbench-progress.md`。\
         运行 `yss workbench lifecycle --spec <该 Spec ID> --json`，从 `result.progress.goalVersion` 和 `result.progress.goal.specDigest` 读取当前已登记目标的版本与采用摘要。自定义数据目录通过 `workbench --data-dir` 沿用同一 `dataDir`。\
         上下文顶层的 `specDigest` 表示当前产物摘要，对应 `result.spec.content.artifactDigest`。\n\
-        核实当前 Spec 或生命周期状态可用 `workbench spec-status` 或 `workbench lifecycle-status`，无人值守查询可用 `workbench recommend-status`，均传入同一 `--spec-id` 和原工作台数据目录。\n\
+        列表使用 `workbench query --entity spec --progress-basis effective`。核实当前 Spec 或生命周期状态可用 `workbench spec-status` 或 `workbench lifecycle-status`，无人值守查询可用 `workbench recommend-status`，均传入同一 `--spec-id` 和原工作台数据目录。\n\
+        `goalState` 为 `missing` 时表示未设置本轮目标，仍可续办已授权的规格内容工作。`canceled` 表示该轮只可回查；不得替换迟到结果的原 `goalVersion`，也不从只读查询自动建立新目标。\n\
         按本次授权的目标和原验收核对实际参与的仓库及其相关范围、采用版本、成果和检查结果。工作开始、产物与适用检查完成、遇到阻塞及核实版本影响后，按实际进展上报。\
         共享材料影响待核实时，核对原条款和验收，参考 `yss workbench review-materials --help`，使用 `result.spec.content.materialReviewDigest` 记录核实依据。\
         隔离工作区成果沿原工程身份记录，接收后的文件由工作台刷新原 Spec。上报和 `workbench progress reconcile` 会依据当前目标范围、版本和有效证据自动确认适用阶段。业务问题及手工确认沿用真实答复和出处。\n\n\
@@ -157,16 +172,7 @@ pub fn read_agent_request(
     let mut records = super::progress::ProgressRecords::from_raw(&raw)?;
     scope_progress(&mut records, spec_id);
     let view = build_snapshot(&state, records, &materials, Some(spec_id), cancel)?;
-    let mut request = super::content::agent_request_with_materials(
-        &state,
-        spec_id,
-        Some(data_dir),
-        Some(&materials),
-    )?;
-    request
-        .text
-        .push_str(&progress_context(&view, spec_id, data_dir)?);
-    Ok(request)
+    request_from_snapshot(&state, &view, spec_id, data_dir)
 }
 
 pub(super) fn agent_request_from_store(
@@ -178,15 +184,27 @@ pub(super) fn agent_request_from_store(
     let mut records = super::progress::load(store)?;
     scope_progress(&mut records, spec_id);
     let view = build_snapshot(store.state(), records, &materials, Some(spec_id), cancel)?;
-    let mut request = super::content::agent_request_with_materials(
-        store.state(),
-        spec_id,
-        Some(store.data_dir()),
-        Some(&materials),
-    )?;
+    request_from_snapshot(store.state(), &view, spec_id, store.data_dir())
+}
+
+fn request_from_snapshot(
+    state: &WorkbenchState,
+    view: &Snapshot,
+    spec_id: &str,
+    data_dir: &Path,
+) -> Result<AgentRequest> {
+    let spec = view
+        .specs
+        .iter()
+        .find(|spec| spec.record.id == spec_id)
+        .ok_or_else(|| missing("Spec 不存在"))?;
+    let mut request = super::content::agent_request_from_view(state, spec, data_dir)?;
+    request.read_at = view.read_at.clone();
+    request.progress = view.progress.get(spec_id).cloned();
+    request.goal_state = Some(super::status::goal_state(request.progress.as_ref()).into());
     request
         .text
-        .push_str(&progress_context(&view, spec_id, store.data_dir())?);
+        .push_str(&progress_context(view, spec_id, data_dir)?);
     Ok(request)
 }
 
@@ -199,9 +217,18 @@ fn snapshot(
     let mut projects = vec![];
     let mut specs = vec![];
     let mut tasks = vec![];
-    let project_id = spec_id
-        .map(|id| sources::spec(state, id).map(|spec| &spec.project_id))
-        .transpose()?;
+    let project_id = if let Some(id) = spec_id {
+        Some(
+            &state
+                .specs
+                .iter()
+                .find(|spec| spec.id == id)
+                .ok_or_else(|| missing("未找到 Spec 登记，请核对工作台数据目录、工程根和 Spec ID"))?
+                .project_id,
+        )
+    } else {
+        None
+    };
     for project in &state.projects {
         cancel.check()?;
         if project_id.is_some_and(|id| id != &project.id) {
@@ -395,6 +422,30 @@ struct MutationReceipt {
     result: MutationResult,
 }
 
+pub(super) fn set_workbench_origin(action: &mut Action) {
+    if let Action::CancelLifecycleGoal { input } = action {
+        input.source.get_or_insert_with(|| "工作台".into());
+    }
+}
+
+pub(super) fn match_receipt(
+    store: &mut Store,
+    id: &str,
+    mut request: MutationRequest,
+) -> Result<serde_json::Value> {
+    if id.is_empty() || id.len() > 128 || request.request_id.as_deref() != Some(id) {
+        return Err(invalid("请求 ID 与原操作不一致"));
+    }
+    let Some(receipt) = store.record::<MutationReceipt>("mutationReceipt", id)? else {
+        return Ok(serde_json::json!({"found": false}));
+    };
+    set_workbench_origin(&mut request.action);
+    if receipt.request_digest != mutation_digest(&request.action, &request.expected_target)? {
+        return Ok(serde_json::json!({"found": true, "matches": false}));
+    }
+    Ok(serde_json::json!({"found": true, "matches": true, "result": receipt.result}))
+}
+
 pub(crate) fn mutation_digest(action: &Action, expected_target: &Option<String>) -> Result<String> {
     Ok(crate::model::Sha256::of(
         &serde_json::to_vec(&(action, expected_target)).map_err(|_| invalid("请求编码失败"))?,
@@ -404,6 +455,14 @@ pub(crate) fn mutation_digest(action: &Action, expected_target: &Option<String>)
 }
 
 pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<MutationResult> {
+    if request.request_id.is_none()
+        && matches!(
+            request.action,
+            Action::CancelLifecycleGoal { .. } | Action::ReopenLifecycleGoal { .. }
+        )
+    {
+        return Err(invalid("取消或重开本轮目标需要请求 ID，以便核对操作回执"));
+    }
     let digest = mutation_digest(&request.action, &request.expected_target)?;
     if let Some(id) = &request.request_id {
         if id.is_empty() || id.len() > 128 {
@@ -448,6 +507,8 @@ pub fn mutate(store: &mut Store, mut request: MutationRequest) -> Result<Mutatio
             Action::ConfirmContent { .. }
                 | Action::ConfirmProgress { .. }
                 | Action::ReviewMaterials { .. }
+                | Action::CancelLifecycleGoal { .. }
+                | Action::ReopenLifecycleGoal { .. }
         )
     {
         // Each of these writes revalidates the exact displayed inputs under this store lock.
@@ -508,6 +569,8 @@ fn mutate_inner(
     let at = now();
     let progress_spec_id = match &request.action {
         Action::SetLifecycleGoal { input } => Some(input.spec_id.clone()),
+        Action::CancelLifecycleGoal { input } => Some(input.spec_id.clone()),
+        Action::ReopenLifecycleGoal { input } => Some(input.spec_id.clone()),
         Action::ReportProgress { input } => Some(input.spec_id.clone()),
         Action::ConfirmProgress { input } => Some(input.spec_id.clone()),
         Action::SetProgressOverride { input } => Some(input.spec_id.clone()),
@@ -518,6 +581,17 @@ fn mutate_inner(
     if let Some(spec_id) = progress_spec_id {
         let project_id = sources::spec(&state, &spec_id)?.project_id.clone();
         let mut records = super::progress::load(store)?;
+        if let Action::ReportProgress { input } = &request.action
+            && records
+                .reports
+                .iter()
+                .any(|record| record.report.id == input.id && record.report.spec_id != spec_id)
+        {
+            return Err(YssError::new(
+                ErrorCode::Conflict,
+                "该报告 ID 已用于其他 Spec",
+            ));
+        }
         scope_progress(&mut records, &spec_id);
         let mut project_ids: std::collections::BTreeSet<String> = records
             .goals
@@ -529,7 +603,10 @@ fn mutate_inner(
                     .map(|participant| participant.project_id.clone())
             })
             .chain(match &request.action {
-                Action::SetLifecycleGoal { input } => input
+                Action::SetLifecycleGoal { input }
+                | Action::ReopenLifecycleGoal {
+                    input: super::progress::ReopenGoalInput { goal: input, .. },
+                } => input
                     .participants
                     .iter()
                     .map(|participant| participant.project_id.clone())
@@ -541,14 +618,32 @@ fn mutate_inner(
         records.current_versions = super::progress::current_versions(&state, &project_ids);
         let cancel = Cancellation::new();
         let manual_confirmation = matches!(&request.action, Action::ConfirmProgress { .. });
-        if manual_confirmation {
+        let lifecycle_transition = matches!(
+            &request.action,
+            Action::CancelLifecycleGoal { .. } | Action::ReopenLifecycleGoal { .. }
+        );
+        if manual_confirmation || lifecycle_transition {
             super::progress::refresh_inputs(&mut records, &state, &cancel);
         }
+        let historical_report = match &request.action {
+            Action::ReportProgress { input } => {
+                super::progress::goal(&records, &spec_id)
+                    .is_none_or(|goal| goal.goal_version != input.goal_version)
+                    || super::progress::is_goal_canceled(&records, &spec_id, &input.goal_version)
+            }
+            _ => false,
+        };
         let materials = super::materials::Records::load(store)?;
         let view = snapshot(&state, &materials, Some(&spec_id), &cancel)?;
         let mut effects = match request.action.clone() {
             Action::SetLifecycleGoal { input } => {
                 super::progress::prepare_goal(&view, &records, input, &at)?
+            }
+            Action::CancelLifecycleGoal { input } => {
+                super::progress::prepare_cancel_goal(&view, &records, input, &at)?
+            }
+            Action::ReopenLifecycleGoal { input } => {
+                super::progress::prepare_reopen_goal(&view, &records, input, &at)?
             }
             Action::ReportProgress { input } => {
                 super::progress::prepare_report(&view, &records, input, &at)?
@@ -567,8 +662,15 @@ fn mutate_inner(
             }
             _ => unreachable!("progress action was selected above"),
         };
+        super::progress::include_pending(&mut records, &effects)?;
+        let goal_version = lifecycle_transition
+            .then(|| {
+                super::progress::goal(&records, &spec_id).map(|goal| goal.goal_version.clone())
+            })
+            .flatten();
         let automatic_confirmations = match &request.action {
             Action::SetLifecycleGoal { .. }
+            | Action::ReopenLifecycleGoal { .. }
             | Action::ReportProgress { .. }
             | Action::ReconcileProgress { .. }
             | Action::ClearProgressOverride { .. }
@@ -578,9 +680,8 @@ fn mutate_inner(
                         decision: ConfirmationDecision::Confirm,
                         ..
                     },
-            } => {
-                super::progress::include_pending(&mut records, &effects)?;
-                if !manual_confirmation {
+            } if !historical_report => {
+                if !manual_confirmation && !lifecycle_transition {
                     super::progress::refresh_inputs(&mut records, &state, &cancel);
                 }
                 let first_decision = records.decisions.len();
@@ -617,6 +718,9 @@ fn mutate_inner(
             if !automatic_confirmations.is_empty() {
                 details["automaticConfirmations"] = serde_json::json!(automatic_confirmations);
             }
+            if let Some(version) = &goal_version {
+                details["resultGoalVersion"] = serde_json::json!(version);
+            }
             super::history::record_change(
                 &mut state,
                 super::history::EventTarget {
@@ -629,7 +733,9 @@ fn mutate_inner(
                 &serde_json::json!({"progress":details}),
                 &at,
             )?;
-            super::tasks::touch_spec(&mut state, &spec_id, &at);
+            if !historical_report {
+                super::tasks::touch_spec(&mut state, &spec_id, &at);
+            }
         }
         return finish_mutation(
             store,
@@ -637,6 +743,7 @@ fn mutate_inner(
             state,
             MutationResult {
                 response_id: None,
+                goal_version,
                 revision: 0,
                 project_id: Some(project_id),
                 spec_id: Some(spec_id),
@@ -671,6 +778,7 @@ fn mutate_inner(
             state,
             MutationResult {
                 response_id: None,
+                goal_version: None,
                 revision: 0,
                 project_id: None,
                 spec_id: None,
@@ -690,6 +798,7 @@ fn mutate_inner(
             state,
             MutationResult {
                 response_id: None,
+                goal_version: None,
                 revision: 0,
                 project_id: None,
                 spec_id: None,
@@ -980,6 +1089,8 @@ fn mutate_inner(
             record.last_visited_at = Some(at.clone());
         }
         Action::SetLifecycleGoal { .. }
+        | Action::CancelLifecycleGoal { .. }
+        | Action::ReopenLifecycleGoal { .. }
         | Action::ReportProgress { .. }
         | Action::ConfirmProgress { .. }
         | Action::SetProgressOverride { .. }
@@ -1007,6 +1118,7 @@ fn mutate_inner(
         state,
         MutationResult {
             response_id,
+            goal_version: None,
             revision: 0,
             project_id: Some(project_id),
             spec_id,
