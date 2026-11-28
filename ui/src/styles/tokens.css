@@ -10,6 +10,11 @@
  --yss-colors-text-title: #171a20; --yss-colors-error-text: #bd3037;
  --workbench-rail-width: 168px;
  --workbench-nav-font-size: 12px;
+ --workbench-motion-fast: 110ms;
+ --workbench-motion-panel: 180ms;
+ --workbench-motion-drawer: 260ms;
+ --workbench-motion-ease: cubic-bezier(.2, .72, .24, 1);
+ --workbench-motion-drawer-ease: cubic-bezier(.22, 1, .36, 1);
 }
 
 :root {

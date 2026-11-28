@@ -201,17 +201,18 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="panel-button"
+              :data-maximized="panelLayout?.mode === 'maximized'"
               :aria-label="maximizeLabel"
               :aria-disabled="!panelLayout || panelActionPending || panelLayout.temporary"
               @click="changeLayout('toggle-maximize')"
             >
-              <Minimize2 v-if="panelLayout?.mode === 'maximized'" :size="16" aria-hidden="true" />
-              <Maximize2 v-else :size="16" aria-hidden="true" />
+              <Maximize2 class="panel-icon-expand" :size="16" aria-hidden="true" />
+              <Minimize2 class="panel-icon-restore" :size="16" aria-hidden="true" />
             </button>
           </span>
           <button
             type="button"
-            class="panel-button"
+            class="panel-button panel-button-hide"
             title="最小化终端面板"
             aria-label="最小化终端面板"
             :disabled="panelActionPending"
