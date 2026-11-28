@@ -36,7 +36,7 @@ jobs:
       TAURI_CLI_VERSION: 2.12.6
       YSS_TARGET: ${{ matrix.target }}
       YSS_SIDECAR_RUSTFLAGS: ${{ matrix.sidecar-rustflags }}
-      YSS_TEMPLATE_COMMIT: be27f81f6d4ddd82dd705585cd21b825f25502fc
+      YSS_TEMPLATE_COMMIT: 9f1454d2d9b405eecd531cc03690cc37452de51b
     steps:
       - name: Preserve source line endings
         run: git config --global core.autocrlf false
